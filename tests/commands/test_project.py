@@ -1,0 +1,241 @@
+"""Tests for project commands."""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import patch
+
+from typer.testing import CliRunner
+
+from dku_cli.main import app
+
+runner = CliRunner()
+
+
+def test_project_list_table(patch_client):
+    result = runner.invoke(app, ["project", "list"])
+    assert result.exit_code == 0
+    assert "PROJ1" in result.output or "Project One" in result.output
+
+
+def test_project_list_json(patch_client):
+    result = runner.invoke(app, ["project", "list", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    assert parsed[0]["key"] == "PROJ1"
+
+
+def test_project_get(patch_client):
+    result = runner.invoke(app, ["project", "get", "PROJ1"])
+    assert result.exit_code == 0
+
+
+def test_project_get_json(patch_client):
+    result = runner.invoke(app, ["project", "get", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert any(d["field"] == "Key" and d["value"] == "PROJ1" for d in parsed)
+
+
+def test_project_get_shows_counts(patch_client):
+    result = runner.invoke(app, ["project", "get", "PROJ1", "-o", "json"])
+    parsed = json.loads(result.output)
+    datasets_row = next(d for d in parsed if d["field"] == "Datasets")
+    assert datasets_row["value"] == "1"
+
+
+def test_project_list_uses_config_default_output(patch_client):
+    with patch("dku_cli.config.get_default_output", return_value="json"):
+        result = runner.invoke(app, ["project", "list"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["key"] == "PROJ1"
+
+
+def test_project_list_rejects_invalid_output(patch_client):
+    result = runner.invoke(app, ["project", "list", "-o", "yaml"])
+    assert result.exit_code != 0
+    assert "Output format must be one of" in result.output
+
+
+# --- project create ---
+
+
+def test_project_create_table(patch_client):
+    result = runner.invoke(app, ["project", "create", "NEW_PROJ", "--name", "New Project"])
+    assert result.exit_code == 0
+    assert "NEW_PROJ" in result.output
+    patch_client.create_project.assert_called_once_with(
+        "NEW_PROJ", "New Project", "testuser", description=""
+    )
+
+
+def test_project_create_json(patch_client):
+    result = runner.invoke(
+        app, ["--quiet", "project", "create", "NEW_PROJ", "--name", "New Project", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert any(d["field"] == "Key" and d["value"] == "NEW_PROJ" for d in parsed)
+    assert any(d["field"] == "Owner" and d["value"] == "testuser" for d in parsed)
+
+
+def test_project_create_with_description(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "create", "NEW_PROJ", "--name", "New", "--description", "A desc"],
+    )
+    assert result.exit_code == 0
+    patch_client.create_project.assert_called_once_with(
+        "NEW_PROJ", "New", "testuser", description="A desc"
+    )
+
+
+# --- project delete ---
+
+
+def test_project_delete_without_confirm(patch_client):
+    result = runner.invoke(app, ["project", "delete", "PROJ1"])
+    assert result.exit_code != 0
+    assert "--confirm" in result.output
+
+
+def test_project_delete_with_confirm(patch_client):
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "--confirm"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once()
+
+
+# --- project duplicate ---
+
+
+def test_project_duplicate(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "project", "duplicate", "PROJ1",
+            "--target-key", "PROJ_COPY",
+            "--target-name", "Project Copy",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.duplicate.assert_called_once_with(
+        target_project_key="PROJ_COPY", target_project_name="Project Copy"
+    )
+
+
+def test_project_duplicate_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "--quiet", "project", "duplicate", "PROJ1",
+            "--target-key", "PROJ_COPY",
+            "--target-name", "Project Copy",
+            "-o", "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert any(d["field"] == "Source" and d["value"] == "PROJ1" for d in parsed)
+    assert any(d["field"] == "Target Key" and d["value"] == "PROJ_COPY" for d in parsed)
+
+
+# --- project variables ---
+
+
+def test_project_variables(patch_client):
+    result = runner.invoke(app, ["project", "variables", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["standard"]["key1"] == "val1"
+    assert parsed["local"]["local1"] == "lval1"
+
+
+# --- project set-variables ---
+
+
+def test_project_set_variables_with_set(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "set-variables", "--project", "PROJ1", "--set", "new_key=new_val"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    # Should have called set_variables with the merged dict
+    call_args = proj.set_variables.call_args[0][0]
+    assert call_args["standard"]["new_key"] == "new_val"
+    assert call_args["standard"]["key1"] == "val1"  # existing preserved
+
+
+def test_project_set_variables_with_definition(patch_client):
+    new_vars = json.dumps({"standard": {"x": "1"}, "local": {}})
+    result = runner.invoke(
+        app,
+        ["project", "set-variables", "--project", "PROJ1", "--definition", new_vars],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.set_variables.call_args[0][0]
+    assert call_args == {"standard": {"x": "1"}, "local": {}}
+
+
+def test_project_set_variables_no_args(patch_client):
+    result = runner.invoke(
+        app, ["project", "set-variables", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+
+
+# --- project permissions ---
+
+
+def test_project_permissions(patch_client):
+    result = runner.invoke(app, ["project", "permissions", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["permissions"][0]["user"] == "admin"
+
+
+# --- project set-permissions ---
+
+
+def test_project_set_permissions(patch_client):
+    perms = json.dumps({"permissions": [{"user": "new_user", "admin": False}]})
+    result = runner.invoke(
+        app,
+        ["project", "set-permissions", "--project", "PROJ1", "--definition", perms],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.set_permissions.call_args[0][0]
+    assert call_args["permissions"][0]["user"] == "new_user"
+
+
+# --- project tags ---
+
+
+def test_project_tags(patch_client):
+    result = runner.invoke(app, ["project", "tags", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    # Default metadata mock doesn't have tags, so should return empty list
+    parsed = json.loads(result.output)
+    assert isinstance(parsed, list)
+
+
+def test_project_tags_with_tags(patch_client):
+    # Patch metadata to include tags
+    proj = patch_client.get_project("PROJ1")
+    proj.get_metadata.return_value = {
+        "label": "Project One",
+        "shortDesc": "First project",
+        "tags": ["production", "ml"],
+    }
+    result = runner.invoke(app, ["project", "tags", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "production" in parsed
+    assert "ml" in parsed
