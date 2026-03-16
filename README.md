@@ -483,9 +483,9 @@ url = "https://prod.dss.example.com"
 | `DKU_API_KEY` | API key |
 | `DKU_PROJECT` | Default project key |
 
-## Benchmark: dku CLI vs Python API
+## Benchmark: Agent Performance
 
-We benchmarked `dku-cli` against raw `dataikuapi` Python scripts to validate that a CLI wrapper actually improves agent performance — not just developer ergonomics.
+We benchmarked how AI agents (Claude Code) perform DSS tasks using `dku` CLI commands vs writing `dataikuapi` Python scripts directly. Both approaches use `dataikuapi` under the hood — the CLI just gives agents a higher-level interface with less boilerplate per operation.
 
 **Setup:** 12 runs — 2 tasks (simple, complex) × 2 approaches × 3 runs each. Model: Claude Opus, headless (`claude -p --dangerously-skip-permissions`). Validated against DSS state + ground truth data.
 
@@ -519,15 +519,15 @@ Three bugs were fixed prior to the final benchmark (upload format detection, age
 | Avg simple tool calls | 69 | 32 | **-54%** |
 | Worst run cost | $5.17 | $1.28 | **-75%** |
 
-### Why CLI Wins
+### Why CLI Helps Agents
 
-1. **Tool overhead is 72% lower** — CLI commands chain with `&&` so multiple operations happen in a single tool call. Python writes a fresh script (imports, client creation, error handling) for every operation.
+1. **Lower tool overhead** — CLI commands chain with `&&` so multiple operations happen in a single tool call, reducing agent round-trips.
 
-2. **No introspection tax** — Python approach spends 30-40% of turns discovering `dataikuapi` method signatures (`dir()`, `inspect.getdoc()`). The CLI skill documents exact commands and flags upfront.
+2. **Pre-documented interface** — The CLI skill documents exact commands and flags upfront, so agents don't need to discover API signatures at runtime.
 
-3. **`--wait` eliminates polling** — `dku dataset build X --wait` blocks until done. Python must implement `job.get_status()` in a loop with `time.sleep()`.
+3. **`--wait` eliminates polling** — `dku dataset build X --wait` blocks until done, replacing manual status-polling loops.
 
-4. **Auto-detect on upload** — `dku dataset upload` detects CSV format and schema in one command. Python requires separate `autodetect_settings()` + `save()` calls that the model must discover.
+4. **Composite operations** — `dku dataset upload` combines file upload + format detection + schema inference in one command.
 
 ### Per-Run Data
 
