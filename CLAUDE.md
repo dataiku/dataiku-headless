@@ -1,4 +1,4 @@
-# AGENTS.md — dku-cli
+# CLAUDE.md — dku-cli
 
 ## What This Is
 
@@ -39,7 +39,7 @@ Every command follows the same flow:
 | `config.py` | TOML config read/write via `platformdirs` |
 | `auth.py` | Keyring + file fallback credential storage |
 | `client.py` | Auth resolution → `DSSClient` factory |
-| `output.py` | All rendering: `render()` for table/json/csv, `success()`/`error()`/`warn()`/`info()` + quiet mode |
+| `output.py` | All rendering: `render()` for table/json/csv, `render_raw()` for single dict/list, `success()`/`error()`/`warn()`/`info()` + quiet mode |
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
@@ -220,6 +220,7 @@ my-plugin-id/
 | `list_plugins()` returns dicts, not objects | `plugin.py` — accesses `p["id"]` |
 | `update_from_zip()` returns None | `plugin.py` — no result check |
 | `install_plugin_from_archive()` returns None | `plugin.py` — no result check |
+| `uploaded_add_file()` returns None | `dataset.py` — no result check |
 | `list_code_envs()` returns dicts | `codeenv.py` — accesses via `.get()` |
 | `get_code_env()` requires `lang` + `name` | `codeenv.py` — defaults `--lang PYTHON` |
 | `list_connections()` is admin-only | `connection.py` — catch 403 |
@@ -228,7 +229,6 @@ my-plugin-id/
 | Project metadata requires separate `get_metadata()` call | `project.py` — fetches per project |
 | Auth info via `get_auth_info()` returns dict | `auth_cmd.py`, `main.py` (whoami) |
 | No public API for webapp creation | DSS UI only |
-| `uploaded_add_file()` returns None | `dataset.py` — no result check |
 | `project.list_webapps()` and `project.get_webapp()` exist, no create | `webapp.py` — list/start/stop only |
 | Knowledge Bank access needs `.as_core_knowledge_bank()` | See `docs/dataiku-plugins/recipes.md` |
 
@@ -366,7 +366,7 @@ my-plugin-id/
 ## Testing
 
 ```bash
-uv run pytest -v    # 247 tests
+uv run pytest -v    # 242 tests
 ```
 
 - Unit tests mock `DSSClient` via `conftest.py` fixtures (`mock_client`, `patch_client`)
