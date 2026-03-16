@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install dku-cli — Developer CLI for Dataiku DSS
-# Usage: curl -fsSL https://raw.githubusercontent.com/christiaanburrett/dku-cli/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
 set -euo pipefail
 
 PACKAGE="dku-cli"

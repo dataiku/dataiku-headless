@@ -14,9 +14,9 @@
 ..
 ```
 
-[![CI](https://github.com/christiaanburrett/dku-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/christiaanburrett/dku-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/dataiku/dataiku-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dataiku/dataiku-cli/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/dku-cli)](https://pypi.org/project/dku-cli/)
-[![License](https://img.shields.io/github/license/christiaanburrett/dku-cli)](LICENSE)
+[![License](https://img.shields.io/github/license/dataiku/dataiku-cli)](LICENSE)
 
 Developer CLI for Dataiku DSS — **130 commands** across 26 groups.
 
@@ -70,7 +70,7 @@ dku plugin list -o json | jq '.[].id'
 **One-liner** (auto-detects your package manager):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/christiaanburrett/dku-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
 ```
 
 **Or pick your preferred method:**
@@ -565,7 +565,7 @@ The top 5 runs by cost are all CLI. The bottom 3 are all Python complex. Note th
 ## Development
 
 ```bash
-git clone https://github.com/christiaanburrett/dku-cli
+git clone https://github.com/dataiku/dataiku-cli
 cd dku-cli
 uv sync
 uv run dku --help

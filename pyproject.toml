@@ -36,10 +36,10 @@ dependencies = [
 dku = "dku_cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/christiaanburrett/dku-cli"
-Repository = "https://github.com/christiaanburrett/dku-cli"
-Issues = "https://github.com/christiaanburrett/dku-cli/issues"
-Changelog = "https://github.com/christiaanburrett/dku-cli/releases"
+Homepage = "https://github.com/dataiku/dataiku-cli"
+Repository = "https://github.com/dataiku/dataiku-cli"
+Issues = "https://github.com/dataiku/dataiku-cli/issues"
+Changelog = "https://github.com/dataiku/dataiku-cli/releases"
 
 [dependency-groups]
 dev = [

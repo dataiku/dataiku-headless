@@ -5,7 +5,7 @@ Thanks for your interest in contributing!
 ## Quick Start
 
 ```bash
-git clone https://github.com/christiaanburrett/dku-cli
+git clone https://github.com/dataiku/dataiku-cli
 cd dku-cli
 uv sync
 uv run dku --help
