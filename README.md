@@ -97,16 +97,18 @@ pip install dku-cli
 
 ### Claude Code
 
-The skill is automatically available when Claude Code runs in this repo. For other projects:
+Install the skill into any project with one command:
 
 ```bash
-# Copy the skill to your project
-cp -r .claude/skills/dku-cli /path/to/your/project/.claude/skills/
+# From your project root
+curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-skill.sh | bash
 ```
+
+Or manually: copy `.claude/skills/dku-cli/` from this repo into your project's `.claude/skills/`.
 
 ### Other AI Agents (Codex, Cursor, etc.)
 
-Point your agent at `.claude/skills/dku-cli/SKILL.md` as context, or include it in your system prompt.
+Point your agent at [`.claude/skills/dku-cli/SKILL.md`](/.claude/skills/dku-cli/SKILL.md) as context, or include it in your system prompt.
 
 ## Authentication
 
