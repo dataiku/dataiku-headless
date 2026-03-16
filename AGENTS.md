@@ -396,13 +396,3 @@ uv run pytest -v           # Run tests
 | **Local dev** | `uv tool install --from . dku-cli` |
 
 Publishing: Create a GitHub Release → `.github/workflows/publish.yml` auto-publishes to PyPI via trusted publishing.
-
-### DSS Sandbox for Testing
-
-| | |
-|---|---|
-| **Host** | `chrispersonal.se-platform.dataiku-sandbox.io` |
-| **SSH** | `ssh ec2-user@chrispersonal.se-platform.dataiku-sandbox.io` |
-| **DSS URL** | `https://chrispersonal.se-platform.dataiku-sandbox.io` |
-| **API Key** | SSH → `sudo cat /data/dataiku/dss_data/config/personal-apikeys.json` |
-| **Plugin path** | `/data/dataiku/dss_data/plugins/installed/` |
