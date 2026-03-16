@@ -1,5 +1,19 @@
 # ◆ dku-cli
 
+```
+               ......       ...........                 ...               ...  ...
+              .......       ...    ......               ...               ...  ...
+            ........        ...       ....   ........ .......  ........   ...  ...   .... ..      ..
+           .........        ...        ...  ...   ....  ...   ....  ....  ...  ... .....  ...     ..
+         ...........        ...        ...  ..   .....  ...   ...   ....  ...  .......    ...     ..
+        ...........         ...        ...  ..........  ...    .........  ...  ......     ...     ..
+      ............          ...       ...  ....    ...  ...   ...    ...  ...  .......    ...    ...
+    ...... ..........       ............   ....  .....  ..... ...  .....  ...  ...  ....  ..........
+   ...     ..........       ..........      ....... ..   ....  ...... ..  ...  ...    ...  .........
+ ...
+..
+```
+
 [![CI](https://github.com/christiaanburrett/dku-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/christiaanburrett/dku-cli/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/dku-cli)](https://pypi.org/project/dku-cli/)
 [![License](https://img.shields.io/github/license/christiaanburrett/dku-cli)](LICENSE)
