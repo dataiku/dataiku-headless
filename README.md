@@ -1,5 +1,9 @@
 # ◆ dku-cli
 
+[![CI](https://github.com/christiaanburrett/dku-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/christiaanburrett/dku-cli/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/dku-cli)](https://pypi.org/project/dku-cli/)
+[![License](https://img.shields.io/github/license/christiaanburrett/dku-cli)](LICENSE)
+
 Developer CLI for Dataiku DSS — **130 commands** across 26 groups.
 
 `dku-cli` wraps `dataikuapi` in a predictable `dku <noun> <verb>` interface with profile-based auth, clean defaults, and output that works for both humans and agents.
