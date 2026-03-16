@@ -146,7 +146,177 @@ export DKU_API_KEY=$DSS_API_KEY
 dku project list -o json
 ```
 
-## Commands
+## AI Agent Integration
+
+`dku-cli` ships with a [Claude Code skill](/.claude/skills/dku-cli/SKILL.md) that teaches AI agents how to use the CLI efficiently — command chaining, critical workflows, and the full command reference. This is what produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below.
+
+### Claude Code
+
+The skill is automatically available when Claude Code runs in this repo. For other projects:
+
+```bash
+# Copy the skill to your project
+cp -r .claude/skills/dku-cli /path/to/your/project/.claude/skills/
+```
+
+### Other AI Agents (Codex, Cursor, etc.)
+
+Point your agent at `.claude/skills/dku-cli/SKILL.md` as context, or include it in your system prompt.
+
+### Agentic Workflow Example
+
+Build a complete DSS project from scratch — all composable shell commands:
+
+```bash
+dku project create AGENT_TEST --name "Agent Test"
+dku project set-variables -P AGENT_TEST --set env=dev
+dku dataset create raw_data --type UploadedFiles -P AGENT_TEST
+dku dataset upload raw_data data.csv -P AGENT_TEST
+dku dataset set-schema raw_data -P AGENT_TEST --definition @schema.json
+dku recipe create transform --type python --input raw_data --output clean_data -P AGENT_TEST
+dku recipe set-code transform -P AGENT_TEST --code @transform.py
+dku library write python/utils/helpers.py -P AGENT_TEST --content @helpers.py
+dku scenario create daily_build -P AGENT_TEST
+dku knowledge create my_kb -P AGENT_TEST
+dku bundle export v1 -P AGENT_TEST
+dku project delete AGENT_TEST --confirm
+```
+
+## Benchmark: Agent Performance
+
+We benchmarked how AI agents (Claude Code) perform DSS tasks using `dku` CLI commands vs writing `dataikuapi` Python scripts directly. Both approaches use `dataikuapi` under the hood — the CLI just gives agents a higher-level interface with less boilerplate per operation.
+
+**Setup:** 12 runs — 2 tasks (simple, complex) × 2 approaches × 3 runs each. Model: Claude Opus, headless (`claude -p --dangerously-skip-permissions`). Validated against DSS state + ground truth data.
+
+- **Simple task:** Create project, upload 2 CSVs, join, group by tier+region, compute revenue (8 validation checks)
+- **Complex task:** All of simple + ML model, agent, LLM completion (11 validation checks)
+
+### Results
+
+| | Python API | dku CLI | Delta |
+|---|---|---|---|
+| Success rate | 6/6 (100%) | 6/6 (100%) | Tie |
+| Simple cost | $1.49 avg | $1.04 avg | **-30%** |
+| Complex cost | $2.83 avg | $1.40 avg | **-50%** |
+| Simple wall time | 405s | 258s | **-36%** |
+| Complex wall time | 684s | 402s | **-41%** |
+| Simple tool calls | 39 avg | 32 avg | **-18%** |
+| Complex tool calls | 60 avg | 43 avg | **-27%** |
+| Tool overhead (simple) | 115s | 32s | **-72%** |
+| Best single run | $1.21 / 319s | $0.76 / 168s | CLI |
+| Worst single run | $1.94 / 526s | $1.28 / 325s | CLI |
+
+### Why CLI Helps Agents
+
+1. **Lower tool overhead** — CLI commands chain with `&&` so multiple operations happen in a single tool call, reducing agent round-trips.
+
+2. **Pre-documented interface** — The CLI skill documents exact commands and flags upfront, so agents don't need to discover API signatures at runtime.
+
+3. **`--wait` eliminates polling** — `dku dataset build X --wait` blocks until done, replacing manual status-polling loops.
+
+4. **Composite operations** — `dku dataset upload` combines file upload + format detection + schema inference in one command.
+
+Note: CLI runs still use Python for operations the CLI can't handle (recipe config, ML training) — the advantage is using CLI for the ~60% that's CRUD/inspection/builds.
+
+<details>
+<summary>Per-run data and before/after bug fixes</summary>
+
+#### Before/After Bug Fixes
+
+Three bugs were fixed prior to the final benchmark (upload format detection, agent settings path, agent create type param):
+
+| CLI Metric | Before fixes | After fixes | Change |
+|---|---|---|---|
+| Success rate | 4/6 (67%) | 6/6 (100%) | Fixed |
+| Avg simple cost | $2.95 | $1.04 | **-65%** |
+| Avg simple wall time | 692s | 258s | **-63%** |
+| Avg simple tool calls | 69 | 32 | **-54%** |
+| Worst run cost | $5.17 | $1.28 | **-75%** |
+
+#### Per-Run Data
+
+| Run | Pass | Cost | Wall | Calls | dku | python |
+|---|---|---|---|---|---|---|
+| CLI simple 002 | 8/8 | $0.76 | 168s | 23 | 12 | 10 |
+| CLI simple 003 | 8/8 | $1.08 | 281s | 35 | 23 | 13 |
+| PY simple 001 | 8/8 | $1.21 | 319s | 32 | 0 | 31 |
+| CLI simple 001 | 8/8 | $1.28 | 325s | 37 | 19 | 21 |
+| CLI complex 002 | 11/11 | $1.30 | 380s | 40 | 22 | 19 |
+| CLI complex 003 | 11/11 | $1.31 | 437s | 42 | 21 | 21 |
+| PY simple 003 | 8/8 | $1.31 | 369s | 35 | 0 | 33 |
+| CLI complex 001 | 11/11 | $1.60 | 388s | 48 | 30 | 17 |
+| PY simple 002 | 8/8 | $1.94 | 526s | 49 | 0 | 47 |
+| PY complex 002 | 11/11 | $2.69 | 633s | 60 | 0 | 58 |
+| PY complex 001 | 11/11 | $2.87 | 704s | 57 | 0 | 55 |
+| PY complex 003 | 11/11 | $2.93 | 714s | 62 | 0 | 60 |
+
+The top 5 runs by cost are all CLI. The bottom 3 are all Python complex.
+
+</details>
+
+## Output Formats
+
+All list/get commands support `-o` / `--output`:
+
+```bash
+dku project list                    # Table (default) — for humans
+dku project list -o json | jq '.[].key'  # JSON — for scripting
+dku project list -o csv > projects.csv   # CSV — for spreadsheets
+```
+
+Persist a default: `dku config set output json`. For agents, use JSON + quiet mode: `dku -q project list -o json`.
+
+## JSON Input
+
+Creation and mutation commands accept structured JSON:
+
+```bash
+dku dataset set-schema ds1 -P PROJ --definition '{"columns":[...]}'  # Literal
+dku recipe set-code my_recipe -P PROJ --code @transform.py           # From file
+cat schema.json | dku dataset set-schema ds1 -P PROJ --definition -  # From stdin
+```
+
+## Configuration
+
+```toml
+# ~/.config/dku/config.toml
+active_profile = "sandbox"
+output = "json"
+
+[sandbox]
+url = "https://sandbox.dss.example.com"
+default_project = "MYPROJECT"
+
+[production]
+url = "https://prod.dss.example.com"
+```
+
+| Variable | Description |
+|---|---|
+| `DKU_URL` | DSS instance URL |
+| `DKU_API_KEY` | API key |
+| `DKU_PROJECT` | Default project key |
+
+## Development
+
+```bash
+git clone https://github.com/dataiku/dataiku-cli
+cd dataiku-cli
+uv sync
+uv run dku --help
+uv run pytest -v    # 247 tests
+```
+
+## License
+
+Apache 2.0
+
+---
+
+## Command Reference
+
+<details>
+<summary>All 130 commands across 26 groups (click to expand)</summary>
 
 ### `dku project`
 
@@ -220,8 +390,6 @@ dku job wait JOB_ID -P MYPROJECT --timeout 300  # Wait with timeout
 
 ### `dku library`
 
-Manage shared Python code in the project library:
-
 ```bash
 dku library list -P MYPROJECT                 # List files
 dku library write python/utils/helpers.py --content @helpers.py -P MYPROJECT
@@ -234,7 +402,7 @@ dku library delete python/utils/old.py -P MYPROJECT
 
 ```bash
 dku agent list -P MYPROJECT                   # List agents
-dku agent create my_agent --type TOOLS_USING_AGENT -P MYPROJECT  # Create
+dku agent create my_agent --type TOOLS_USING_AGENT -P MYPROJECT
 dku agent get my_agent -P MYPROJECT           # Settings
 dku agent add-tool my_agent --tool tool1 -P MYPROJECT
 dku agent set-llm my_agent --llm-id llm1 -P MYPROJECT
@@ -406,172 +574,4 @@ dku config set-variables --set key=value      # Set instance variables
 dku whoami    # ◆ chris on https://dss.example.com (DSS 14.0.2) [admin]
 ```
 
-## Agentic Workflow
-
-Build a complete project from scratch:
-
-```bash
-dku project create AGENT_TEST --name "Agent Test"
-dku project set-variables -P AGENT_TEST --set env=dev
-dku dataset create raw_data --type UploadedFiles -P AGENT_TEST
-dku dataset set-schema raw_data -P AGENT_TEST --definition @schema.json
-dku recipe create transform --type python --input raw_data --output clean_data -P AGENT_TEST
-dku recipe set-code transform -P AGENT_TEST --code @transform.py
-dku library write python/utils/helpers.py -P AGENT_TEST --content @helpers.py
-dku scenario create daily_build -P AGENT_TEST
-dku knowledge create my_kb -P AGENT_TEST
-dku bundle export v1 -P AGENT_TEST
-dku project delete AGENT_TEST --confirm
-```
-
-## Output Formats
-
-All list/get commands support `-o` / `--output`, and you can persist a default with `dku config set output json`:
-
-```bash
-# Table (default) — for humans
-dku project list
-
-# JSON — for scripting and piping
-dku project list -o json | jq '.[].key'
-
-# CSV — for spreadsheets
-dku project list -o csv > projects.csv
-```
-
-For agents and scripts, the safest pattern is usually JSON plus quiet mode:
-
-```bash
-dku config set output json
-dku -q project list
-dku -q dataset head my_dataset -P MYPROJECT
-```
-
-## JSON Input
-
-Creation and mutation commands accept structured JSON input:
-
-```bash
-# Literal JSON
-dku dataset set-schema ds1 -P PROJ --definition '{"columns":[{"name":"id","type":"int"}]}'
-
-# From file
-dku recipe set-code my_recipe -P PROJ --code @transform.py
-
-# From stdin
-cat schema.json | dku dataset set-schema ds1 -P PROJ --definition -
-```
-
-## Global Options
-
-```bash
-dku --url https://dss.example.com --api-key KEY project list
-dku --profile production project list
-dku -q project list -o json    # Quiet mode (no stderr messages)
-dku --version                  # ◆ dku-cli 0.2.0
-```
-
-## Configuration
-
-### Config File
-
-`~/.config/dku/config.toml`:
-
-```toml
-active_profile = "sandbox"
-output = "json"
-
-[sandbox]
-url = "https://sandbox.dss.example.com"
-default_project = "MYPROJECT"
-
-[production]
-url = "https://prod.dss.example.com"
-```
-
-### Environment Variables
-
-| Variable | Description |
-|---|---|
-| `DKU_URL` | DSS instance URL |
-| `DKU_API_KEY` | API key |
-| `DKU_PROJECT` | Default project key |
-
-## Benchmark: Agent Performance
-
-We benchmarked how AI agents (Claude Code) perform DSS tasks using `dku` CLI commands vs writing `dataikuapi` Python scripts directly. Both approaches use `dataikuapi` under the hood — the CLI just gives agents a higher-level interface with less boilerplate per operation.
-
-**Setup:** 12 runs — 2 tasks (simple, complex) × 2 approaches × 3 runs each. Model: Claude Opus, headless (`claude -p --dangerously-skip-permissions`). Validated against DSS state + ground truth data.
-
-- **Simple task:** Create project, upload 2 CSVs, join, group by tier+region, compute revenue (8 validation checks)
-- **Complex task:** All of simple + ML model, agent, LLM completion (11 validation checks)
-
-### Results
-
-| | Python API | dku CLI | Delta |
-|---|---|---|---|
-| Success rate | 6/6 (100%) | 6/6 (100%) | Tie |
-| Simple cost | $1.49 avg | $1.04 avg | **-30%** |
-| Complex cost | $2.83 avg | $1.40 avg | **-50%** |
-| Simple wall time | 405s | 258s | **-36%** |
-| Complex wall time | 684s | 402s | **-41%** |
-| Simple tool calls | 39 avg | 32 avg | **-18%** |
-| Complex tool calls | 60 avg | 43 avg | **-27%** |
-| Tool overhead (simple) | 115s | 32s | **-72%** |
-| Best single run | $1.21 / 319s | $0.76 / 168s | CLI |
-| Worst single run | $1.94 / 526s | $1.28 / 325s | CLI |
-
-### Before/After Bug Fixes
-
-Three bugs were fixed prior to the final benchmark (upload format detection, agent settings path, agent create type param):
-
-| CLI Metric | Before fixes | After fixes | Change |
-|---|---|---|---|
-| Success rate | 4/6 (67%) | 6/6 (100%) | Fixed |
-| Avg simple cost | $2.95 | $1.04 | **-65%** |
-| Avg simple wall time | 692s | 258s | **-63%** |
-| Avg simple tool calls | 69 | 32 | **-54%** |
-| Worst run cost | $5.17 | $1.28 | **-75%** |
-
-### Why CLI Helps Agents
-
-1. **Lower tool overhead** — CLI commands chain with `&&` so multiple operations happen in a single tool call, reducing agent round-trips.
-
-2. **Pre-documented interface** — The CLI skill documents exact commands and flags upfront, so agents don't need to discover API signatures at runtime.
-
-3. **`--wait` eliminates polling** — `dku dataset build X --wait` blocks until done, replacing manual status-polling loops.
-
-4. **Composite operations** — `dku dataset upload` combines file upload + format detection + schema inference in one command.
-
-### Per-Run Data
-
-| Run | Pass | Cost | Wall | Calls | dku | python |
-|---|---|---|---|---|---|---|
-| CLI simple 002 | 8/8 | $0.76 | 168s | 23 | 12 | 10 |
-| CLI simple 003 | 8/8 | $1.08 | 281s | 35 | 23 | 13 |
-| PY simple 001 | 8/8 | $1.21 | 319s | 32 | 0 | 31 |
-| CLI simple 001 | 8/8 | $1.28 | 325s | 37 | 19 | 21 |
-| CLI complex 002 | 11/11 | $1.30 | 380s | 40 | 22 | 19 |
-| CLI complex 003 | 11/11 | $1.31 | 437s | 42 | 21 | 21 |
-| PY simple 003 | 8/8 | $1.31 | 369s | 35 | 0 | 33 |
-| CLI complex 001 | 11/11 | $1.60 | 388s | 48 | 30 | 17 |
-| PY simple 002 | 8/8 | $1.94 | 526s | 49 | 0 | 47 |
-| PY complex 002 | 11/11 | $2.69 | 633s | 60 | 0 | 58 |
-| PY complex 001 | 11/11 | $2.87 | 704s | 57 | 0 | 55 |
-| PY complex 003 | 11/11 | $2.93 | 714s | 62 | 0 | 60 |
-
-The top 5 runs by cost are all CLI. The bottom 3 are all Python complex. Note that even CLI runs use Python for operations the CLI can't handle (recipe config, ML training) — the advantage is using CLI for the ~60% that's CRUD/inspection/builds.
-
-## Development
-
-```bash
-git clone https://github.com/dataiku/dataiku-cli
-cd dku-cli
-uv sync
-uv run dku --help
-uv run pytest -v    # 247 tests
-```
-
-## License
-
-Apache 2.0
+</details>
