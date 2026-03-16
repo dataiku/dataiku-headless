@@ -173,6 +173,17 @@ def mock_client():
     dataset_mock.clear.return_value = None
     dataset_mock.set_definition.return_value = None
     dataset_mock.uploaded_add_file.return_value = None
+
+    # autodetect_settings returns a DSSDatasetSettings-like object
+    autodetect_result = MagicMock()
+    autodetect_result.get_raw.return_value = {
+        "formatType": "csv",
+        "formatParams": {"style": "excel", "separator": ","},
+        "schema": {"columns": [{"name": "col1", "type": "string"}, {"name": "col2", "type": "int"}]},
+    }
+    autodetect_result.save.return_value = None
+    dataset_mock.autodetect_settings.return_value = autodetect_result
+
     proj1.get_dataset.return_value = dataset_mock
 
     # create_dataset returns a dataset mock
@@ -328,19 +339,66 @@ def mock_client():
     }
     proj1.set_permissions.return_value = None
 
-    # Agents
+    # Agents — mimics real DSSAgentSettings structure
     proj1.list_agents.return_value = [{"id": "agent1", "name": "My Agent"}]
     agent_mock = MagicMock()
+
+    # Build version settings structure matching dataikuapi's DSSAgentVersionSettings
+    agent_version_data = {
+        "versionId": "v1",
+        "toolsUsingAgentSettings": {
+            "llmId": "llm1",
+            "tools": [{"toolRef": "existing_tool"}],
+        },
+    }
+    agent_raw = {
+        "projectKey": "PROJ1",
+        "id": "agent1",
+        "name": "My Agent",
+        "type": "TOOLS_USING_AGENT",
+        "activeVersion": "v1",
+        "versions": [agent_version_data],
+    }
+
     agent_settings = MagicMock()
-    agent_settings.get_raw.return_value = {"id": "agent1", "name": "My Agent", "llmId": "llm1"}
+    agent_settings.get_raw.return_value = agent_raw
+    agent_settings.active_version = "v1"
+    agent_settings.type = "TOOLS_USING_AGENT"
+    agent_settings.get_version_ids.return_value = ["v1"]
     agent_settings.save.return_value = None
+
+    # Build a version settings mock that behaves like DSSAgentVersionSettings
+    agent_ver_settings = MagicMock()
+    agent_ver_settings.get_raw.return_value = agent_version_data
+    agent_ver_settings.llm_id = agent_version_data["toolsUsingAgentSettings"]["llmId"]
+    agent_ver_settings.tools = agent_version_data["toolsUsingAgentSettings"]["tools"]
+
+    def _set_llm_id(value):
+        agent_version_data["toolsUsingAgentSettings"]["llmId"] = value
+    type(agent_ver_settings).llm_id = property(
+        lambda self: agent_version_data["toolsUsingAgentSettings"]["llmId"],
+        lambda self, v: _set_llm_id(v),
+    )
+
+    def _add_tool(tool):
+        tool_dict = {"toolRef": tool} if isinstance(tool, str) else tool
+        agent_version_data["toolsUsingAgentSettings"]["tools"].append(tool_dict)
+    agent_ver_settings.add_tool = _add_tool
+
+    agent_settings.get_version_settings.return_value = agent_ver_settings
+
     agent_mock.get_settings.return_value = agent_settings
     agent_mock.get_status.return_value = {"state": "RUNNING"}
     agent_mock.delete.return_value = None
     agent_mock.wake_up.return_value = None
     agent_mock.shutdown.return_value = None
+    agent_mock.id = "agent1"
     proj1.get_agent.return_value = agent_mock
-    proj1.create_agent.return_value = agent_mock
+
+    # create_agent returns agent with .id
+    new_agent_mock = MagicMock()
+    new_agent_mock.id = "new_agent_1"
+    proj1.create_agent.return_value = new_agent_mock
 
     # Agent tools
     proj1.list_agent_tools.return_value = [{"id": "tool1", "name": "My Tool", "type": "python"}]

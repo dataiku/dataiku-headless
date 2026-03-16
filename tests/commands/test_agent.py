@@ -28,7 +28,19 @@ def test_agent_list_json(patch_client):
 def test_agent_create(patch_client):
     result = runner.invoke(app, ["agent", "create", "My Agent", "--project", "PROJ1"])
     assert result.exit_code == 0
-    patch_client.get_project("PROJ1").create_agent.assert_called_once_with("My Agent")
+    patch_client.get_project("PROJ1").create_agent.assert_called_once_with(
+        "My Agent", type="TOOLS_USING_AGENT"
+    )
+
+
+def test_agent_create_custom_type(patch_client):
+    result = runner.invoke(
+        app, ["agent", "create", "My Agent", "--type", "PYTHON_AGENT", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    patch_client.get_project("PROJ1").create_agent.assert_called_once_with(
+        "My Agent", type="PYTHON_AGENT"
+    )
 
 
 def test_agent_get(patch_client):
@@ -76,12 +88,23 @@ def test_agent_status_json(patch_client):
 
 
 def test_agent_add_tool(patch_client):
-    result = runner.invoke(app, ["agent", "add-tool", "agent1", "--tool", "tool1", "--project", "PROJ1"])
+    result = runner.invoke(app, ["agent", "add-tool", "agent1", "--tool", "new_tool", "--project", "PROJ1"])
     assert result.exit_code == 0
-    patch_client.get_project("PROJ1").get_agent("agent1").get_settings().save.assert_called_once()
+    # Verify tool was added via version settings API (toolRef, not toolId)
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    settings.save.assert_called_once()
+    ver_settings = settings.get_version_settings("v1")
+    raw = ver_settings.get_raw()
+    tools = raw["toolsUsingAgentSettings"]["tools"]
+    assert any(t["toolRef"] == "new_tool" for t in tools)
 
 
 def test_agent_set_llm(patch_client):
     result = runner.invoke(app, ["agent", "set-llm", "agent1", "--llm-id", "gpt4", "--project", "PROJ1"])
     assert result.exit_code == 0
-    patch_client.get_project("PROJ1").get_agent("agent1").get_settings().save.assert_called()
+    # Verify LLM was set via version settings API (toolsUsingAgentSettings.llmId)
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    settings.save.assert_called()
+    ver_settings = settings.get_version_settings("v1")
+    raw = ver_settings.get_raw()
+    assert raw["toolsUsingAgentSettings"]["llmId"] == "gpt4"

@@ -165,6 +165,24 @@ def test_dataset_upload(patch_client, tmp_path):
     ds.uploaded_add_file.assert_called_once()
     call_args = ds.uploaded_add_file.call_args[0]
     assert call_args[1] == "data.csv"
+    # Verify autodetect was called and settings saved
+    ds.autodetect_settings.assert_called_once_with(infer_storage_types=True)
+    ds.autodetect_settings.return_value.save.assert_called_once()
+    assert "Format detected" in result.output
+
+
+def test_dataset_upload_no_autodetect(patch_client, tmp_path):
+    csv_file = tmp_path / "data.csv"
+    csv_file.write_text("col1,col2\na,1\nb,2")
+    result = runner.invoke(app, [
+        "dataset", "upload", "raw_data", str(csv_file),
+        "--project", "PROJ1", "--no-autodetect",
+    ])
+    assert result.exit_code == 0
+    assert "Uploaded" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("raw_data")
+    ds.uploaded_add_file.assert_called_once()
+    ds.autodetect_settings.assert_not_called()
 
 
 def test_dataset_upload_file_not_found(patch_client):

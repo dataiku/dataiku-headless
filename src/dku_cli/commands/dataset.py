@@ -190,8 +190,9 @@ def upload(
     dataset_name: str = typer.Argument(help="Dataset name (must be UploadedFiles type)"),
     local_path: Path = typer.Argument(help="Local file to upload"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    no_autodetect: bool = typer.Option(False, "--no-autodetect", help="Skip format/schema auto-detection after upload"),
 ) -> None:
-    """Upload a file to an UploadedFiles dataset."""
+    """Upload a file to an UploadedFiles dataset and auto-detect format/schema."""
     project_key = resolve_project(project)
 
     if not local_path.exists():
@@ -207,7 +208,16 @@ def upload(
         with local_path.open("rb") as f:
             ds.uploaded_add_file(f, local_path.name)
 
+        from dku_cli.output import info
+
         success(f"Uploaded {local_path.name} → {dataset_name}")
+
+        if not no_autodetect:
+            info("Auto-detecting format and schema...")
+            detected = ds.autodetect_settings(infer_storage_types=True)
+            detected.save()
+            schema_cols = detected.get_raw().get("schema", {}).get("columns", [])
+            success(f"Format detected: {detected.get_raw().get('formatType', 'unknown')} ({len(schema_cols)} columns)")
     except Exception as e:
         handle_api_error(e)
 

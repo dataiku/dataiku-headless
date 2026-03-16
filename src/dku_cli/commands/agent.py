@@ -46,6 +46,10 @@ def list_agents(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Agent name"),
+    agent_type: str = typer.Option(
+        "TOOLS_USING_AGENT", "--type", "-t",
+        help="Agent type: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a new agent."""
@@ -53,8 +57,8 @@ def create(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        proj.create_agent(name)
-        success(f"Created agent '{name}'")
+        agent = proj.create_agent(name, type=agent_type)
+        success(f"Created agent '{name}' (id={agent.id}, type={agent_type})")
     except Exception as e:
         handle_api_error(e)
 
@@ -168,15 +172,20 @@ def add_tool(
         proj = client.get_project(project_key)
         agent = proj.get_agent(agent_id)
         settings = agent.get_settings()
-        raw = settings.get_raw()
 
-        # Add tool to active version's tool list
-        active_version = raw.get("activeVersion", {})
-        tools = active_version.get("tools", [])
-        tools.append({"toolId": tool_id})
-        active_version["tools"] = tools
-        raw["activeVersion"] = active_version
+        # Resolve the active version ID
+        active_ver_id = settings.active_version
+        if active_ver_id is None:
+            version_ids = settings.get_version_ids()
+            if not version_ids:
+                from dku_cli.output import error
+                error("Agent has no versions.")
+                raise typer.Exit(1)
+            active_ver_id = version_ids[0]
 
+        # Use dataikuapi's version settings API (appends {"toolRef": tool_id})
+        ver_settings = settings.get_version_settings(active_ver_id)
+        ver_settings.add_tool(tool_id)
         settings.save()
         success(f"Added tool '{tool_id}' to agent '{agent_id}'")
     except Exception as e:
@@ -197,12 +206,20 @@ def set_llm(
         proj = client.get_project(project_key)
         agent = proj.get_agent(agent_id)
         settings = agent.get_settings()
-        raw = settings.get_raw()
 
-        active_version = raw.get("activeVersion", {})
-        active_version["llmId"] = llm_id
-        raw["activeVersion"] = active_version
+        # Resolve the active version ID
+        active_ver_id = settings.active_version
+        if active_ver_id is None:
+            version_ids = settings.get_version_ids()
+            if not version_ids:
+                from dku_cli.output import error
+                error("Agent has no versions.")
+                raise typer.Exit(1)
+            active_ver_id = version_ids[0]
 
+        # Use dataikuapi's version settings API (sets toolsUsingAgentSettings.llmId)
+        ver_settings = settings.get_version_settings(active_ver_id)
+        ver_settings.llm_id = llm_id
         settings.save()
         success(f"Set LLM '{llm_id}' on agent '{agent_id}'")
     except Exception as e:
