@@ -18,8 +18,7 @@ htmlcov/
 .coverage
 coverage.xml
 
-# Project-local AI/docs
-CLAUDE.md
-docs/
-.claude/
+# Project-local AI (transient/personal)
+.claude/memory/
+.claude/plans/
 .agents/
