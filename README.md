@@ -91,6 +91,23 @@ pip install dku-cli
 
 **Requirements:** Python 3.10+
 
+## AI Agent Integration
+
+`dku-cli` ships with a [Claude Code skill](/.claude/skills/dku-cli/SKILL.md) that teaches AI agents how to use the CLI efficiently — command chaining, critical workflows, and the full command reference. This is what produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below.
+
+### Claude Code
+
+The skill is automatically available when Claude Code runs in this repo. For other projects:
+
+```bash
+# Copy the skill to your project
+cp -r .claude/skills/dku-cli /path/to/your/project/.claude/skills/
+```
+
+### Other AI Agents (Codex, Cursor, etc.)
+
+Point your agent at `.claude/skills/dku-cli/SKILL.md` as context, or include it in your system prompt.
+
 ## Authentication
 
 ### Profiles
@@ -146,24 +163,7 @@ export DKU_API_KEY=$DSS_API_KEY
 dku project list -o json
 ```
 
-## AI Agent Integration
-
-`dku-cli` ships with a [Claude Code skill](/.claude/skills/dku-cli/SKILL.md) that teaches AI agents how to use the CLI efficiently — command chaining, critical workflows, and the full command reference. This is what produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below.
-
-### Claude Code
-
-The skill is automatically available when Claude Code runs in this repo. For other projects:
-
-```bash
-# Copy the skill to your project
-cp -r .claude/skills/dku-cli /path/to/your/project/.claude/skills/
-```
-
-### Other AI Agents (Codex, Cursor, etc.)
-
-Point your agent at `.claude/skills/dku-cli/SKILL.md` as context, or include it in your system prompt.
-
-### Agentic Workflow Example
+## Agentic Workflow
 
 Build a complete DSS project from scratch — all composable shell commands:
 
