@@ -22,8 +22,9 @@ Developer CLI for Dataiku DSS — **130 commands** across 26 groups.
 
 `dku-cli` wraps `dataikuapi` in a predictable `dku <noun> <verb>` interface with profile-based auth, clean defaults, and output that works for both humans and agents.
 
-```
-pip install dku-cli
+```bash
+uv tool install dku-cli          # from PyPI
+uv tool install .                # from source
 ```
 
 ## Why dku-cli?
@@ -67,26 +68,32 @@ dku plugin list -o json | jq '.[].id'
 
 ## Installation
 
+**From source** (recommended for now):
+
+```bash
+git clone https://github.com/dataiku/dataiku-cli && cd dataiku-cli
+uv tool install .                # installs `dku` globally
+```
+
+**From PyPI** (after first release):
+
+```bash
+uv tool install dku-cli          # uv (fastest)
+pipx install dku-cli             # pipx
+pip install dku-cli              # pip
+```
+
 **One-liner** (auto-detects your package manager):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
 ```
 
-**Or pick your preferred method:**
+**Run without installing:**
 
 ```bash
-# uv (recommended — fastest)
-uv tool install dku-cli
-
-# Run without installing
-uvx --from dku-cli dku --help
-
-# pipx (isolated install)
-pipx install dku-cli
-
-# pip
-pip install dku-cli
+uvx --from dku-cli dku --help    # from PyPI (after first release)
+uv run --directory /path/to/dataiku-cli dku --help  # from source
 ```
 
 **Requirements:** Python 3.10+
