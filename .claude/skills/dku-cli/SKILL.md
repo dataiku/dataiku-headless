@@ -5,7 +5,7 @@ description: Use the `dku` CLI to interact with Dataiku DSS from the terminal. U
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **130 commands** across 26 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **135 commands** across 26 groups.
 
 > **CRITICAL — Chaining Rule:** Always `&&`-chain related `dku` commands in a **single Bash tool call**. Each separate tool call costs a full agent turn (~$0.05 + 3s). A 10-command workflow should be 1 tool call, not 10. See [Chaining Patterns](#chaining-patterns) for templates.
 
@@ -95,7 +95,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `user` | list, create | No (admin) |
 | `sql` | query | No |
 | `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema | Yes |
-| `recipe` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output | Yes |
+| `recipe` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval | Yes |
 | `scenario` | list, run, abort, status, create, delete, get-definition, set-definition | Yes |
 | `job` | list, status, log, abort, wait | Yes |
 | `model` | list, get, versions | Yes |
@@ -147,7 +147,7 @@ dku scenario create daily_build -P PROJ
 dku scenario run my_scenario -P PROJ --wait
 dku job wait JOB_ID -P PROJ --timeout 300
 
-# GenAI
+# GenAI — Agents & Knowledge Banks
 dku agent create my_agent -P PROJ
 dku agent set-llm my_agent --llm-id openai:gpt-4o -P PROJ
 dku agent add-tool my_agent --tool tool1 -P PROJ
@@ -155,6 +155,13 @@ dku knowledge create my_kb -P PROJ
 dku knowledge build my_kb -P PROJ --wait
 dku knowledge search my_kb --query "revenue targets" -P PROJ
 dku llm completion llm1 "Summarize this" -P PROJ
+
+# GenAI — Recipes (Embed, Extract, Evaluate)
+dku recipe create-embed my_embed --input text_data --output-kb my_kb --embedding-llm "openai:text-embedding-3-small" -P PROJ
+dku recipe create-embed-docs doc_embed --input documents --output-kb doc_kb --embedding-llm "openai:text-embedding-3-small" --vlm "openai:gpt-4o" -P PROJ
+dku recipe create-extract my_extract --input documents --output extracted --vlm "openai:gpt-4o" -P PROJ
+dku recipe create-llm-eval rag_eval --input qa_data --eval-store eval_store_1 --output eval_scored --output-metrics eval_metrics --task-type QUESTION_ANSWERING --metrics "answerRelevancy,faithfulness" --completion-llm "openai:gpt-4o" --embedding-llm "openai:text-embedding-3-small" -P PROJ
+dku recipe create-agent-eval agent_eval --input agent_runs --eval-store agent_store_1 --metrics "toolCallExactMatch,agentGoalAccuracyWithoutReference" -P PROJ
 
 # Deploy & admin
 dku bundle export v1 -P PROJ
@@ -328,11 +335,75 @@ dku recipe create transform --type python --input input_ds --output output_ds -P
 
 DSS join recipes prefix column names with the dataset name. If you join `customers` and `orders`, the resulting columns are `customers_name`, `orders_amount`, etc. Plan downstream column references accordingly.
 
+## GenAI Recipe Types
+
+### API-Supported (full CLI creation)
+
+| Command | dataikuapi Type | Purpose |
+|---|---|---|
+| `create-embed` | `nlp_llm_rag_embedding` | Embed text columns → Knowledge Bank |
+| `create-embed-docs` | `embed_documents` | Extract + embed documents → Knowledge Bank |
+| `create-extract` | `extract_content` | Extract structured content from docs (VLM) |
+| `create-llm-eval` | `nlp_llm_evaluation` | Evaluate LLM outputs (RAG, QA, summarization) |
+| `create-agent-eval` | `nlp_agent_evaluation` | Evaluate agent tool-calling accuracy |
+
+### UI-Only (NOT available via API)
+
+These recipe types have **no dataikuapi builder classes** — create them in the DSS UI, then manage via `dku recipe get/set-definition/run`:
+
+- **Prompt Recipe** (Prompt, Classify, Summarize, Extract, Simplify, Translate)
+- **RAG Query Recipe**
+
+Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_def.json` to capture the definition, and `dku recipe set-definition RECIPE -P PROJ --definition @recipe_def.json` to modify.
+
+### RAG Evaluation Flow (1 tool call)
+
+```bash
+# End-to-end: embed data → create eval → configure → run
+dku recipe create-embed embed_step \
+  --input qa_documents \
+  --output-kb qa_kb \
+  --embedding-llm "openai:text-embedding-3-small" \
+  -P PROJ && \
+dku recipe run embed_step -P PROJ --wait && \
+dku recipe create-llm-eval rag_eval \
+  --input rag_responses \
+  --eval-store my_eval_store \
+  --output eval_scored \
+  --output-metrics eval_metrics \
+  --task-type QUESTION_ANSWERING \
+  --metrics "answerRelevancy,faithfulness,contextRelevancy" \
+  --input-col question \
+  --output-col answer \
+  --ground-truth-col expected \
+  --context-col context \
+  --completion-llm "openai:gpt-4o" \
+  --embedding-llm "openai:text-embedding-3-small" \
+  -P PROJ && \
+dku recipe run rag_eval -P PROJ --wait
+```
+
+### LLM Evaluation Metrics
+
+| Metric Name | Task Type | Description |
+|---|---|---|
+| `answerRelevancy` | QA | Answer relevance to the question |
+| `faithfulness` | QA | Answer grounded in provided context |
+| `contextRelevancy` | QA | Retrieved context relevant to question |
+| `toolCallExactMatch` | Agent | Exact match on tool calls |
+| `toolCallPartialMatch` | Agent | Partial match on tool calls |
+| `toolCallPrecisionRecallF1` | Agent | Precision/Recall/F1 for tool calls |
+| `agentGoalAccuracyWithoutReference` | Agent | Goal accuracy without ground truth |
+
+### LLM Evaluation Task Types
+
+`QUESTION_ANSWERING`, `SUMMARIZATION`, `CLASSIFICATION`, and others. Use `--task-type` to set.
+
 ## Running in This Repo
 
 ```bash
 uv sync              # Install deps
 uv run dku           # Run locally
 uv run dku --help    # Help
-uv run pytest -v     # Run tests (247 tests, all mocked)
+uv run pytest -v     # Run tests (256 tests, all mocked)
 ```

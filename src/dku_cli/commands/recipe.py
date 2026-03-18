@@ -1,4 +1,4 @@
-"""dku recipe — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output."""
+"""dku recipe — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, plus GenAI recipe creation."""
 
 from __future__ import annotations
 
@@ -261,5 +261,189 @@ def add_output(
         settings.add_output(role, ref)
         settings.save()
         success(f"Added output '{ref}' to recipe '{recipe_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# GenAI recipe creation commands
+# ---------------------------------------------------------------------------
+
+
+@app.command("create-embed")
+def create_embed(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset name"),
+    output_kb: str = typer.Option(..., "--output-kb", help="Output knowledge bank name"),
+    embedding_llm: str = typer.Option(..., "--embedding-llm", help="Embedding LLM ID (e.g. openai:text-embedding-3-small)"),
+    vector_store_type: str = typer.Option("CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create an Embed Dataset recipe (embeds text columns into a Knowledge Bank)."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        builder = proj.new_recipe("nlp_llm_rag_embedding", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
+        builder.build()
+        success(f"Created embed recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-embed-docs")
+def create_embed_docs(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with document columns"),
+    output_kb: str = typer.Option(..., "--output-kb", help="Output knowledge bank name"),
+    embedding_llm: str = typer.Option(..., "--embedding-llm", help="Embedding LLM ID"),
+    vlm: str = typer.Option(None, "--vlm", help="Vision LLM ID for document understanding"),
+    vector_store_type: str = typer.Option("CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create an Embed Documents recipe (extracts and embeds document content into a Knowledge Bank)."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        builder = proj.new_recipe("embed_documents", recipe_name)
+        builder.with_input(input_ds)
+        if vlm:
+            builder.with_vlm(vlm)
+        builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
+        builder.build()
+        success(f"Created embed-docs recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-extract")
+def create_extract(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with documents"),
+    output_ds: str = typer.Option(..., "--output", help="Output dataset name"),
+    vlm: str = typer.Option(..., "--vlm", help="Vision LLM ID for content extraction"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create an Extract Content recipe (extracts structured content from documents using a VLM)."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        builder = proj.new_recipe("extract_content", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_vlm(vlm)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        success(f"Created extract recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-llm-eval")
+def create_llm_eval(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with LLM outputs to evaluate"),
+    eval_store: str = typer.Option(..., "--eval-store", help="LLM evaluation store ID"),
+    output_ds: str = typer.Option(None, "--output", help="Output scored dataset name"),
+    output_metrics: str = typer.Option(None, "--output-metrics", help="Metrics dataset name"),
+    task_type: str = typer.Option(None, "--task-type", help="Task type (e.g. QUESTION_ANSWERING, SUMMARIZATION)"),
+    metrics: str = typer.Option(None, "--metrics", help="Comma-separated metrics (e.g. answerRelevancy,faithfulness)"),
+    input_col: str = typer.Option(None, "--input-col", help="Input/question column name"),
+    output_col: str = typer.Option(None, "--output-col", help="LLM output/answer column name"),
+    ground_truth_col: str = typer.Option(None, "--ground-truth-col", help="Ground truth column name"),
+    context_col: str = typer.Option(None, "--context-col", help="Context column name"),
+    completion_llm: str = typer.Option(None, "--completion-llm", help="Completion LLM ID for evaluation logic"),
+    embedding_llm: str = typer.Option(None, "--embedding-llm", help="Embedding LLM ID for similarity metrics"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create an LLM Evaluation recipe (evaluates LLM outputs with metrics like relevancy, faithfulness)."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        builder = proj.new_recipe("nlp_llm_evaluation", recipe_name)
+        builder.with_input(input_ds)
+        if output_ds:
+            builder.with_output(output_ds)
+        if output_metrics:
+            builder.with_output_metrics(output_metrics)
+        builder.with_output_evaluation_store(eval_store)
+        recipe = builder.build()
+
+        # Post-creation payload configuration
+        settings = recipe.get_settings()
+        payload = settings.obj_payload
+        if task_type:
+            payload["taskType"] = task_type
+        if metrics:
+            payload["metrics"] = [m.strip() for m in metrics.split(",")]
+        if input_col:
+            payload["inputColumnName"] = input_col
+        if output_col:
+            payload["outputColumnName"] = output_col
+        if ground_truth_col:
+            payload["groundTruthColumnName"] = ground_truth_col
+        if context_col:
+            payload["contextColumnName"] = context_col
+        if completion_llm:
+            payload["completionLLMId"] = completion_llm
+        if embedding_llm:
+            payload["embeddingLLMId"] = embedding_llm
+        if any([task_type, metrics, input_col, output_col, ground_truth_col, context_col, completion_llm, embedding_llm]):
+            settings.save()
+
+        success(f"Created LLM eval recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-agent-eval")
+def create_agent_eval(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with agent outputs"),
+    eval_store: str = typer.Option(..., "--eval-store", help="Agent evaluation store ID"),
+    output_ds: str = typer.Option(None, "--output", help="Output scored dataset name"),
+    output_metrics: str = typer.Option(None, "--output-metrics", help="Metrics dataset name"),
+    metrics: str = typer.Option(None, "--metrics", help="Comma-separated metrics (e.g. toolCallExactMatch,agentGoalAccuracyWithoutReference)"),
+    completion_llm: str = typer.Option(None, "--completion-llm", help="Completion LLM ID"),
+    embedding_llm: str = typer.Option(None, "--embedding-llm", help="Embedding LLM ID"),
+    input_format: str = typer.Option("AGENT_EXECUTION", "--input-format", help="Input format: AGENT_EXECUTION or PROMPT_RECIPE"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create an Agent Evaluation recipe (evaluates agent tool-calling accuracy)."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        builder = proj.new_recipe("nlp_agent_evaluation", recipe_name)
+        builder.with_input(input_ds)
+        if output_ds:
+            builder.with_output(output_ds)
+        if output_metrics:
+            builder.with_output_metrics(output_metrics)
+        builder.with_output_evaluation_store(eval_store)
+        recipe = builder.build()
+
+        # Post-creation payload configuration
+        settings = recipe.get_settings()
+        payload = settings.obj_payload
+        payload["inputFormat"] = input_format
+        if metrics:
+            payload["metrics"] = [m.strip() for m in metrics.split(",")]
+        if completion_llm:
+            payload["completionLLMId"] = completion_llm
+        if embedding_llm:
+            payload["embeddingLLMId"] = embedding_llm
+        settings.save()
+
+        success(f"Created agent eval recipe '{recipe_name}' in {project_key}")
     except Exception as e:
         handle_api_error(e)

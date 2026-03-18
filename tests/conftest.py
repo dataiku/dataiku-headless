@@ -153,8 +153,17 @@ def mock_client():
     recipe_builder = MagicMock()
     recipe_builder.with_input.return_value = recipe_builder
     recipe_builder.with_existing_output.return_value = recipe_builder
+    recipe_builder.with_output.return_value = recipe_builder
+    recipe_builder.with_output_knowledge_bank.return_value = recipe_builder
+    recipe_builder.with_output_metrics.return_value = recipe_builder
+    recipe_builder.with_output_evaluation_store.return_value = recipe_builder
+    recipe_builder.with_vlm.return_value = recipe_builder
     recipe_builder.build.return_value = recipe_mock
+    recipe_builder.create.return_value = recipe_mock
     proj1.new_recipe.return_value = recipe_builder
+
+    # obj_payload for GenAI recipe post-creation settings
+    recipe_settings.obj_payload = {}
 
     # Dataset mocks — iter_rows returns lists (not dicts)
     dataset_mock = MagicMock()
