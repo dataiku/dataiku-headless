@@ -9,12 +9,14 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_quiet():
-    """Reset quiet mode between tests so --quiet in one test doesn't leak."""
-    from dku_cli.output import set_quiet
+    """Reset output modes between tests so global CLI flags do not leak."""
+    from dku_cli.output import set_error_format, set_quiet
 
     set_quiet(False)
+    set_error_format("text")
     yield
     set_quiet(False)
+    set_error_format("text")
 
 
 @pytest.fixture
@@ -198,6 +200,11 @@ def mock_client():
     # create_dataset returns a dataset mock
     proj1.create_dataset.return_value = dataset_mock
 
+    managed_dataset_builder = MagicMock()
+    managed_dataset_builder.with_store_into.return_value = managed_dataset_builder
+    managed_dataset_builder.create.return_value = dataset_mock
+    proj1.new_managed_dataset.return_value = managed_dataset_builder
+
     # Scenario create mock
     new_scenario_mock = MagicMock()
     new_scenario_mock.id = "new_scen"
@@ -298,13 +305,43 @@ def mock_client():
 
     # LLM embeddings
     embeddings_mock = MagicMock()
-    embeddings_mock.with_text.return_value = embeddings_mock
+    embeddings_mock.add_text.return_value = embeddings_mock
     embeddings_response = MagicMock()
-    embeddings_response.vectors = [[0.1, 0.2, 0.3]]
+    embeddings_response.get_embeddings.return_value = [[0.1, 0.2, 0.3]]
     embeddings_mock.execute.return_value = embeddings_response
     llm_mock.new_embeddings.return_value = embeddings_mock
 
+    embedding_llm_mock = MagicMock()
+    embedding_embeddings_mock = MagicMock()
+    embedding_embeddings_mock.add_text.return_value = embedding_embeddings_mock
+    embedding_embeddings_response = MagicMock()
+    embedding_embeddings_response.get_embeddings.return_value = [[0.4, 0.5, 0.6]]
+    embedding_embeddings_mock.execute.return_value = embedding_embeddings_response
+    embedding_llm_mock.new_embeddings.return_value = embedding_embeddings_mock
+
+    def _list_llms(purpose="GENERIC_COMPLETION", as_type="listitems"):
+        by_purpose = {
+            "GENERIC_COMPLETION": [
+                {"id": "llm1", "type": "CHAT", "description": "Test LLM"},
+                {"id": "azureopenai:Azure_AI_Connection:4o", "type": "CHAT", "description": "Azure OpenAI 4o"},
+            ],
+            "TEXT_EMBEDDING_EXTRACTION": [
+                {"id": "embedding1", "type": "EMBEDDINGS", "description": "Embedding model"},
+            ],
+        }
+        return by_purpose.get(purpose, [])
+
+    def _get_llm(llm_id):
+        llms = {
+            "llm1": llm_mock,
+            "embedding1": embedding_llm_mock,
+            "azureopenai:Azure_AI_Connection:4o": llm_mock,
+        }
+        return llms[llm_id]
+
+    proj1.list_llms.side_effect = _list_llms
     proj1.get_llm.return_value = llm_mock
+    proj1.get_llm.side_effect = _get_llm
 
     # Macro mock
     macro_mock = MagicMock()
@@ -430,6 +467,8 @@ def mock_client():
     kb_mock.delete.return_value = None
     proj1.get_knowledge_bank.return_value = kb_mock
     proj1.create_knowledge_bank.return_value = kb_mock
+
+    # NOTE: Eval store + comparison fixtures removed — add back when those command groups land.
 
     # Wiki
     wiki_mock = MagicMock()

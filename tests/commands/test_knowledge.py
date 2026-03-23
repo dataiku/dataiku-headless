@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
@@ -32,16 +33,34 @@ def test_knowledge_create(patch_client):
 
 
 def test_knowledge_get(patch_client):
+    response = MagicMock()
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {"id": "kb1", "name": "My KB"}
+    patch_client._perform_http.return_value = response
     result = runner.invoke(app, ["knowledge", "get", "kb1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "kb1" in result.output
 
 
 def test_knowledge_get_json(patch_client):
+    response = MagicMock()
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {"id": "kb1", "name": "My KB"}
+    patch_client._perform_http.return_value = response
     result = runner.invoke(app, ["knowledge", "get", "kb1", "--project", "PROJ1", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "kb1"
+
+
+def test_knowledge_get_sleep_page_error(patch_client):
+    response = MagicMock()
+    response.headers = {"Content-Type": "text/html; charset=utf-8"}
+    response.text = "<html><body>Dataiku instance not found</body></html>"
+    patch_client._perform_http.return_value = response
+    result = runner.invoke(app, ["knowledge", "get", "kb1", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "sleep/wake page" in result.output
 
 
 def test_knowledge_build(patch_client):

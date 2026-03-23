@@ -49,6 +49,7 @@ Every command follows: `dku <noun> <verb> [ARGS] [OPTIONS]`
 | `--api-key KEY` | `DKU_API_KEY` | API key |
 | `--profile NAME` / `-p` | — | Auth profile name |
 | `--quiet` / `-q` | — | Suppress info/success messages (stderr) |
+| `--errors text|json` | — | Error output format on stderr |
 
 ### Project Resolution
 
@@ -68,6 +69,12 @@ All list/get commands support `-o FORMAT`:
 | CSV | `-o csv` | Spreadsheets, further processing |
 
 JSON goes to stdout (clean for piping). Status messages go to stderr.
+
+Use `--errors json` when the failure path also needs to be machine-readable. Do not merge stderr into stdout before `jq`; parse stdout on success, stderr on failure.
+
+```bash
+dku --errors json recipe get missing_recipe -P PROJ -o json
+```
 
 ### JSON Input
 
@@ -135,16 +142,19 @@ dku dataset schema ds1 -P PROJ
 dku dataset set-schema ds1 -P PROJ --definition '{"columns":[{"name":"id","type":"int"}]}'
 dku dataset head ds1 -P PROJ -n 5
 dku dataset build ds1 -P PROJ --wait
+dku dataset get-definition ds1 -P PROJ -o json
 
 # Recipes
 dku recipe create transform --type python --input raw_data --output clean_data -P PROJ
 dku recipe set-code transform -P PROJ --code @transform.py
 dku recipe get-code transform -P PROJ
+dku recipe get-code transform -P PROJ -o json
 dku recipe run transform -P PROJ --wait
 
 # Scenarios & jobs
 dku scenario create daily_build -P PROJ
 dku scenario run my_scenario -P PROJ --wait
+dku scenario get-definition my_scenario -P PROJ -o json
 dku job wait JOB_ID -P PROJ --timeout 300
 
 # GenAI — Agents & Knowledge Banks
@@ -152,9 +162,12 @@ dku agent create my_agent -P PROJ
 dku agent set-llm my_agent --llm-id openai:gpt-4o -P PROJ
 dku agent add-tool my_agent --tool tool1 -P PROJ
 dku knowledge create my_kb -P PROJ
+dku knowledge get my_kb -P PROJ
 dku knowledge build my_kb -P PROJ --wait
 dku knowledge search my_kb --query "revenue targets" -P PROJ
 dku llm completion llm1 "Summarize this" -P PROJ
+dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ
+dku llm embeddings embedding1 --text "sample text" -P PROJ
 
 # GenAI — Recipes (Embed, Extract, Evaluate)
 dku recipe create-embed my_embed --input text_data --output-kb my_kb --embedding-llm "openai:text-embedding-3-small" -P PROJ
@@ -170,6 +183,12 @@ dku plugin push my-plugin.zip
 dku sql query "SELECT * FROM users LIMIT 10" --connection my_pg
 dku library write python/utils/helpers.py -P PROJ --content @helpers.py
 ```
+
+Notes:
+- `dku llm list` defaults to `GENERIC_COMPLETION`. Pass `--purpose TEXT_EMBEDDING_EXTRACTION` when you need embedding-capable models.
+- `dku llm embeddings` rejects completion-only model IDs and tells you to list embedding models first.
+- `dku knowledge get` can fail on getitstarted instances if the sleep/wake page intercepts the API request. Wake the DSS instance in the browser, then retry.
+- Prefer `dku ... -o json | jq ...` on success paths. Avoid `2>&1 | jq` because stderr contains human or JSON error payloads, not the success object.
 
 ## Chaining Patterns
 
@@ -214,6 +233,18 @@ dku bundle download v1 -P MY_PROJ --dest ./bundles
 # When a downstream command needs output from an upstream one
 JOB_ID=$(dku dataset build output -P PROJ 2>/dev/null | grep -oP 'Job ID: \K.*') && \
 dku job wait "$JOB_ID" -P PROJ --timeout 300
+```
+
+### Safe JSON Piping
+
+```bash
+# Success path: parse stdout only
+dku recipe get my_recipe -P PROJ -o json | jq '.type'
+
+# Failure path: request machine-readable stderr
+if ! dku --errors json recipe get missing_recipe -P PROJ -o json >out.json 2>err.json; then
+  jq '.error.code, .error.message' err.json
+fi
 ```
 
 ### Anti-pattern
@@ -303,7 +334,7 @@ Valid types: `TOOLS_USING_AGENT`, `PYTHON_AGENT`, `PLUGIN_AGENT`, `STRUCTURED_AG
 
 ### LLM ID Format
 
-LLM IDs in DSS follow the pattern `provider:model`. Use `dku llm list` to discover available IDs. Common patterns:
+LLM IDs in DSS follow the pattern `provider:model`. Use `dku llm list` to discover available IDs. `dku llm list` defaults to `GENERIC_COMPLETION`. Use `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` when you need embedding-capable models. Common patterns:
 
 ```bash
 dku llm list -P PROJ -o json | jq -r '.[].id'
@@ -347,6 +378,8 @@ DSS join recipes prefix column names with the dataset name. If you join `custome
 | `create-llm-eval` | `nlp_llm_evaluation` | Evaluate LLM outputs (RAG, QA, summarization) |
 | `create-agent-eval` | `nlp_agent_evaluation` | Evaluate agent tool-calling accuracy |
 
+`create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output` or `--output-metrics`, those datasets must already exist in DSS.
+
 ### UI-Only (NOT available via API)
 
 These recipe types have **no dataikuapi builder classes** — create them in the DSS UI, then manage via `dku recipe get/set-definition/run`:
@@ -366,6 +399,8 @@ dku recipe create-embed embed_step \
   --embedding-llm "openai:text-embedding-3-small" \
   -P PROJ && \
 dku recipe run embed_step -P PROJ --wait && \
+dku dataset create eval_scored --type Filesystem -P PROJ && \
+dku dataset create eval_metrics --type Filesystem -P PROJ && \
 dku recipe create-llm-eval rag_eval \
   --input rag_responses \
   --eval-store my_eval_store \

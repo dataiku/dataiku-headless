@@ -114,6 +114,13 @@ def test_scenario_get_definition(patch_client):
     assert parsed["params"] == {}
 
 
+def test_scenario_get_definition_with_output_flag(patch_client):
+    result = runner.invoke(app, ["scenario", "get-definition", "scen1", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["name"] == "Build All"
+
+
 def test_scenario_set_definition(patch_client):
     new_def = json.dumps({"type": "step_based", "name": "Updated", "params": {"x": 1}})
     result = runner.invoke(

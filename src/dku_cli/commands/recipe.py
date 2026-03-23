@@ -8,11 +8,80 @@ from pathlib import Path
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS recipes.")
+
+
+def _require_existing_dataset(proj, dataset_name: str, project_key: str, role: str) -> None:
+    try:
+        proj.get_dataset(dataset_name).get_definition()
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"{role} dataset '{dataset_name}' does not exist in project '{project_key}'. "
+                "Create it first, then retry.",
+                code="missing_dataset",
+            )
+        handle_api_error(e)
+
+
+def _create_eval_recipe_raw(
+    client,
+    proj,
+    recipe_name: str,
+    recipe_type: str,
+    input_ds: str,
+    eval_store: str,
+    output_ds: str | None,
+    output_metrics: str | None,
+):
+    recipe_proto = {
+        "projectKey": proj.project_key,
+        "type": recipe_type,
+        "name": recipe_name,
+        "inputs": {
+            "main": {
+                "items": [{"ref": input_ds}],
+            }
+        },
+        "outputs": {
+            "evaluationStore": {
+                "items": [{"ref": eval_store, "appendMode": False}],
+            }
+        },
+    }
+
+    if output_ds:
+        recipe_proto["outputs"]["main"] = {
+            "items": [{"ref": output_ds, "appendMode": False}],
+        }
+    if output_metrics:
+        recipe_proto["outputs"]["metrics"] = {
+            "items": [{"ref": output_metrics, "appendMode": True}],
+        }
+
+    # PRIVATE API: dataikuapi builders don't support eval-store outputs or rawCreation.
+    # Switch to public builder when dataikuapi adds eval recipe support.
+    response = client._perform_json(
+        "POST",
+        f"/projects/{proj.project_key}/recipes/",
+        body={
+            "recipePrototype": recipe_proto,
+            "creationSettings": {"rawCreation": True},
+        },
+    )
+    return proj.get_recipe(response["name"])
+
+
+def _get_recipe_payload(settings) -> dict:
+    payload = settings.obj_payload
+    if payload is None:
+        payload = {}
+        settings.obj_payload = payload
+    return payload
 
 
 @app.command("list")
@@ -189,14 +258,20 @@ def get_code(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the code payload of a code recipe."""
     project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("text", "json"), default="text")
     try:
         client = get_client_from_ctx(ctx)
         recipe = client.get_project(project_key).get_recipe(recipe_name)
         settings = recipe.get_settings()
-        print(settings.get_payload())
+        payload = settings.get_payload()
+        if output == "json":
+            render_raw({"code": payload}, output_format="json")
+        else:
+            print(payload)
     except Exception as e:
         handle_api_error(e)
 
@@ -368,18 +443,24 @@ def create_llm_eval(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        builder = proj.new_recipe("nlp_llm_evaluation", recipe_name)
-        builder.with_input(input_ds)
         if output_ds:
-            builder.with_output(output_ds)
+            _require_existing_dataset(proj, output_ds, project_key, "Output")
         if output_metrics:
-            builder.with_output_metrics(output_metrics)
-        builder.with_output_evaluation_store(eval_store)
-        recipe = builder.build()
+            _require_existing_dataset(proj, output_metrics, project_key, "Metrics output")
+        recipe = _create_eval_recipe_raw(
+            client,
+            proj,
+            recipe_name,
+            "nlp_llm_evaluation",
+            input_ds,
+            eval_store,
+            output_ds,
+            output_metrics,
+        )
 
         # Post-creation payload configuration
         settings = recipe.get_settings()
-        payload = settings.obj_payload
+        payload = _get_recipe_payload(settings)
         if task_type:
             payload["taskType"] = task_type
         if metrics:
@@ -400,6 +481,8 @@ def create_llm_eval(
             settings.save()
 
         success(f"Created LLM eval recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -423,18 +506,24 @@ def create_agent_eval(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        builder = proj.new_recipe("nlp_agent_evaluation", recipe_name)
-        builder.with_input(input_ds)
         if output_ds:
-            builder.with_output(output_ds)
+            _require_existing_dataset(proj, output_ds, project_key, "Output")
         if output_metrics:
-            builder.with_output_metrics(output_metrics)
-        builder.with_output_evaluation_store(eval_store)
-        recipe = builder.build()
+            _require_existing_dataset(proj, output_metrics, project_key, "Metrics output")
+        recipe = _create_eval_recipe_raw(
+            client,
+            proj,
+            recipe_name,
+            "nlp_agent_evaluation",
+            input_ds,
+            eval_store,
+            output_ds,
+            output_metrics,
+        )
 
         # Post-creation payload configuration
         settings = recipe.get_settings()
-        payload = settings.obj_payload
+        payload = _get_recipe_payload(settings)
         payload["inputFormat"] = input_format
         if metrics:
             payload["metrics"] = [m.strip() for m in metrics.split(",")]
@@ -445,5 +534,7 @@ def create_agent_eval(
         settings.save()
 
         success(f"Created agent eval recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

@@ -10,7 +10,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import error, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS datasets.")
 
@@ -161,7 +161,12 @@ def create(
     type_name: str = typer.Option(..., "--type", "-t", help="Dataset type (e.g. Filesystem, SQL)"),
     connection: str | None = typer.Option(None, "--connection", "-c", help="Connection name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    definition: str | None = typer.Option(None, "--definition", "-d", help="Full definition JSON (string, @file.json, or '-' for stdin)"),
+    definition: str | None = typer.Option(
+        None,
+        "--definition",
+        "-d",
+        help="Dataset definition JSON. Supported create-time fields: type, params, formatType, formatParams",
+    ),
 ) -> None:
     """Create a new dataset."""
     project_key = resolve_project(project)
@@ -169,17 +174,46 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
 
-        params: dict = {}
+        dataset_definition: dict = {}
         if definition:
-            params = read_json_input(definition) or {}
+            dataset_definition = read_json_input(definition) or {}
 
-        if "type" not in params:
-            params["type"] = type_name
-        if connection and "params" not in params:
-            params["params"] = {"connection": connection}
+        definition_type = dataset_definition.get("type")
+        if definition_type is not None and definition_type != type_name:
+            raise typer.BadParameter(
+                f"--type {type_name!r} conflicts with definition type {definition_type!r}",
+                param_hint="--type",
+            )
 
-        proj.create_dataset(dataset_name, type_name, params=params)
+        params = dataset_definition.get("params") or {}
+        if connection and "connection" not in params:
+            params["connection"] = connection
+
+        dataset_type = definition_type or type_name
+        if dataset_type == "Filesystem":
+            if definition:
+                error(
+                    "Filesystem dataset creation via --definition is not supported yet. "
+                    "Create the dataset with --connection first, then use 'dku dataset set-definition' to configure it."
+                )
+                raise typer.Exit(1)
+            if not connection:
+                error("Filesystem dataset creation requires --connection.")
+                raise typer.Exit(1)
+            builder = proj.new_managed_dataset(dataset_name)
+            builder.with_store_into(connection)
+            builder.create()
+        else:
+            proj.create_dataset(
+                dataset_name,
+                dataset_type,
+                params=params,
+                formatType=dataset_definition.get("formatType"),
+                formatParams=dataset_definition.get("formatParams"),
+            )
         success(f"Created dataset '{dataset_name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -261,14 +295,16 @@ def get_definition(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full definition of a dataset as JSON."""
     project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         ds_def = ds.get_definition()
-        render_raw(ds_def, output_format="json")
+        render_raw(ds_def, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

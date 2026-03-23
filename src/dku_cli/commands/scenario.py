@@ -175,15 +175,17 @@ def get_definition(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the raw definition of a scenario as JSON."""
     project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         defn = scenario.get_definition().get_raw()
-        render_raw(defn)
+        render_raw(defn, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

@@ -6,7 +6,7 @@ import json
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
 from dku_cli.output import render, resolve_output_format
 
@@ -17,6 +17,11 @@ app = typer.Typer(help="Interact with DSS LLM endpoints.")
 def list_llms(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    purpose: str = typer.Option(
+        "GENERIC_COMPLETION",
+        "--purpose",
+        help="LLM purpose: GENERIC_COMPLETION, TEXT_EMBEDDING_EXTRACTION, IMAGE_EMBEDDING_EXTRACTION, RERANKING, IMAGE_GENERATION",
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List available LLMs."""
@@ -25,7 +30,7 @@ def list_llms(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        llms = proj.list_llms()
+        llms = proj.list_llms(purpose=purpose)
 
         data = []
         for llm in llms:
@@ -101,12 +106,20 @@ def embeddings(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        llm = proj.get_llm(llm_id)
+        embedding_llm_ids = {item.get("id", "") for item in proj.list_llms(purpose="TEXT_EMBEDDING_EXTRACTION")}
+        if llm_id not in embedding_llm_ids:
+            exit_with_error(
+                f"Selected LLM is not available for text embeddings in project '{project_key}'. "
+                "Use 'dku llm list --purpose TEXT_EMBEDDING_EXTRACTION' to find a compatible model.",
+                code="invalid_llm_purpose",
+                details=[f"Requested LLM ID: {llm_id}"],
+            )
 
+        llm = proj.get_llm(llm_id)
         emb = llm.new_embeddings()
-        emb.with_text(text)
+        emb.add_text(text)
         result = emb.execute()
 
-        print(json.dumps(result.vectors, indent=2))
+        print(json.dumps(result.get_embeddings(), indent=2))
     except Exception as e:
         handle_api_error(e)

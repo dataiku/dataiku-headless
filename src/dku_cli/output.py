@@ -17,6 +17,7 @@ console = Console()
 err_console = Console(stderr=True)
 
 _quiet = False
+_error_format = "text"
 
 
 def set_quiet(value: bool) -> None:
@@ -28,6 +29,19 @@ def set_quiet(value: bool) -> None:
 def is_quiet() -> bool:
     """Check if quiet mode is active."""
     return _quiet
+
+
+def set_error_format(value: str) -> None:
+    """Configure how errors are rendered ('text' or 'json')."""
+    if value not in ("text", "json"):
+        raise ValueError(f"Error format must be 'text' or 'json', got {value!r}")
+    global _error_format
+    _error_format = value
+
+
+def get_error_format() -> str:
+    """Return the active error rendering mode."""
+    return _error_format
 
 
 def resolve_output_format(

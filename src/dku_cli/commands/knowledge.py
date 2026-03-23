@@ -11,6 +11,43 @@ from dku_cli.output import info, render, render_raw, resolve_output_format, succ
 app = typer.Typer(help="Manage DSS knowledge banks.")
 
 
+def _is_sleep_page(body: str) -> bool:
+    """Check if the response body is a DSS instance sleep/wake page."""
+    return (
+        "Dataiku instance not found" in body
+        or "sleep" in body.lower()
+        or body.startswith("<!DOCTYPE html")
+        or body.startswith("<html")
+    )
+
+
+_SLEEP_PAGE_MSG = (
+    "Knowledge bank settings endpoint returned HTML from the instance sleep/wake page "
+    "instead of JSON. Wake the DSS instance in the browser, then retry."
+)
+
+
+def _get_knowledge_bank_raw_settings(client, project_key: str, kb_id: str) -> dict:
+    # PRIVATE API: public get_settings() doesn't expose raw JSON needed for display,
+    # and can't detect sleep-page HTML. Switch when dataikuapi adds raw settings access.
+    response = client._perform_http("GET", f"/projects/{project_key}/knowledge-banks/{kb_id}")
+    content_type = response.headers.get("Content-Type", "")
+
+    if "text/html" in content_type:
+        body = response.text.strip()
+        if _is_sleep_page(body):
+            raise RuntimeError(_SLEEP_PAGE_MSG)
+        raise RuntimeError("Knowledge bank settings endpoint returned HTML instead of JSON.")
+
+    try:
+        return response.json()
+    except ValueError as exc:
+        body = response.text.strip()
+        if _is_sleep_page(body):
+            raise RuntimeError(_SLEEP_PAGE_MSG) from exc
+        raise
+
+
 @app.command("list")
 def list_knowledge_banks(
     ctx: typer.Context,
@@ -71,10 +108,7 @@ def get(
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        kb = proj.get_knowledge_bank(kb_id)
-        settings = kb.get_settings()
-        raw = settings.get_raw()
+        raw = _get_knowledge_bank_raw_settings(client, project_key, kb_id)
         render_raw(raw, output_format=output)
     except Exception as e:
         handle_api_error(e)

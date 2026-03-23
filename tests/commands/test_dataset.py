@@ -64,14 +64,14 @@ def test_dataset_build_wait(patch_client):
 
 
 def test_dataset_create_basic(patch_client):
-    result = runner.invoke(app, ["dataset", "create", "new_ds", "--type", "Filesystem", "--project", "PROJ1"])
+    result = runner.invoke(app, ["dataset", "create", "new_ds", "--type", "SQL", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "Created dataset" in result.output
     proj = patch_client.get_project("PROJ1")
     proj.create_dataset.assert_called_once()
     call_args = proj.create_dataset.call_args
     assert call_args[0][0] == "new_ds"
-    assert call_args[0][1] == "Filesystem"
+    assert call_args[0][1] == "SQL"
 
 
 def test_dataset_create_with_connection(patch_client):
@@ -84,7 +84,7 @@ def test_dataset_create_with_connection(patch_client):
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     call_kwargs = proj.create_dataset.call_args[1]
-    assert call_kwargs["params"]["params"]["connection"] == "my_pg"
+    assert call_kwargs["params"]["connection"] == "my_pg"
 
 
 def test_dataset_create_with_definition(patch_client, tmp_path):
@@ -99,7 +99,44 @@ def test_dataset_create_with_definition(patch_client, tmp_path):
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     call_kwargs = proj.create_dataset.call_args[1]
-    assert call_kwargs["params"]["params"]["connection"] == "pg_conn"
+    assert call_kwargs["params"]["connection"] == "pg_conn"
+
+
+def test_dataset_create_with_definition_format_fields(patch_client, tmp_path):
+    def_file = tmp_path / "def.json"
+    def_file.write_text(json.dumps({
+        "type": "S3",
+        "params": {"connection": "s3_conn", "path": "/bucket/path"},
+        "formatType": "csv",
+        "formatParams": {"separator": ","},
+    }))
+    result = runner.invoke(app, [
+        "dataset", "create", "new_ds",
+        "--type", "S3",
+        "--definition", f"@{def_file}",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.create_dataset.call_args
+    call_kwargs = call_args[1]
+    assert call_args[0][1] == "S3"
+    assert call_kwargs["params"] == {"connection": "s3_conn", "path": "/bucket/path"}
+    assert call_kwargs["formatType"] == "csv"
+    assert call_kwargs["formatParams"] == {"separator": ","}
+
+
+def test_dataset_create_fails_on_conflicting_definition_type(patch_client, tmp_path):
+    def_file = tmp_path / "def.json"
+    def_file.write_text(json.dumps({"type": "S3", "params": {"connection": "s3_conn"}}))
+    result = runner.invoke(app, [
+        "dataset", "create", "new_ds",
+        "--type", "SQL",
+        "--definition", f"@{def_file}",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "conflicts with definition type" in result.output
 
 
 def test_dataset_delete(patch_client):
@@ -124,6 +161,13 @@ def test_dataset_get_definition(patch_client):
     parsed = json.loads(result.output)
     assert "schema" in parsed
     assert parsed["schema"]["columns"][0]["name"] == "col1"
+
+
+def test_dataset_get_definition_with_output_flag(patch_client):
+    result = runner.invoke(app, ["dataset", "get-definition", "ds1", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["schema"]["columns"][1]["name"] == "col2"
 
 
 def test_dataset_set_definition(patch_client):
@@ -169,6 +213,33 @@ def test_dataset_upload(patch_client, tmp_path):
     ds.autodetect_settings.assert_called_once_with(infer_storage_types=True)
     ds.autodetect_settings.return_value.save.assert_called_once()
     assert "Format detected" in result.output
+
+
+def test_dataset_create_filesystem_requires_connection(patch_client):
+    result = runner.invoke(app, [
+        "dataset", "create", "fs_ds",
+        "--type", "Filesystem",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "requires --connection" in result.output
+    patch_client.get_project("PROJ1").new_managed_dataset.assert_not_called()
+
+
+def test_dataset_create_filesystem_uses_managed_dataset_builder(patch_client):
+    result = runner.invoke(app, [
+        "dataset", "create", "fs_ds",
+        "--type", "Filesystem",
+        "--connection", "filesystem_folders",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.new_managed_dataset.assert_called_once_with("fs_ds")
+    builder = proj.new_managed_dataset.return_value
+    builder.with_store_into.assert_called_once_with("filesystem_folders")
+    builder.create.assert_called_once()
+    proj.create_dataset.assert_not_called()
 
 
 def test_dataset_upload_no_autodetect(patch_client, tmp_path):

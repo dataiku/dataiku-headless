@@ -87,6 +87,7 @@ def main(
     api_key: Optional[str] = typer.Option(None, "--api-key", envvar="DKU_API_KEY", help="API key"),
     profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Auth profile name"),
     quiet: Optional[bool] = typer.Option(None, "--quiet", "-q", help="Suppress info/success messages"),
+    errors: str = typer.Option("text", "--errors", help="Error output format (text or json)"),
     version: Optional[bool] = typer.Option(
         None, "--version", "-V", callback=_version_callback, is_eager=True, help="Show version"
     ),
@@ -103,6 +104,11 @@ def main(
         from dku_cli.output import set_quiet
 
         set_quiet(True)
+    if errors not in ("text", "json"):
+        raise typer.BadParameter("Error output format must be one of: text, json", param_hint="--errors")
+    from dku_cli.output import set_error_format
+
+    set_error_format(errors)
 
     if ctx.invoked_subcommand is None:
         from dku_cli.brand import print_logo

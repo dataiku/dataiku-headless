@@ -2,13 +2,19 @@
 
 Full reference for all `dku` commands. Read this when you need exact flags, argument names, or behavior details for a specific command group.
 
+Global options available on the root CLI:
+
+```bash
+dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] COMMAND ...
+```
+
 ## Table of Contents
 
 - [auth](#auth) — login, logout, status, list, switch
 - [config](#config) — set, get, list, path, variables, set-variables
 - [project](#project) — list, get, export, create, delete, duplicate, variables, set-variables, permissions, set-permissions, tags
 - [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
-- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output
+- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
 - [job](#job) — list, status, log, abort, wait
 - [plugin](#plugin) — list, push, settings
@@ -96,7 +102,7 @@ dku dataset create DATASET_NAME --type TYPE [-c CONNECTION] [-P PROJECT] [--defi
 dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect]
 dku dataset delete DATASET_NAME [-P PROJECT]
 dku dataset clear DATASET_NAME [-P PROJECT]
-dku dataset get-definition DATASET_NAME [-P PROJECT]
+dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
 dku dataset set-definition DATASET_NAME [-P PROJECT] --definition JSON
 dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 ```
@@ -106,6 +112,8 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 - `head` defaults to 10 rows, override with `-n`
 - `build --wait` blocks until job completes
 - `create --type UploadedFiles` for CSV upload targets
+- `create --type Filesystem` requires `--connection` and uses managed dataset creation semantics
+- `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
 
 ## recipe
 
@@ -116,15 +124,21 @@ dku recipe run RECIPE_NAME [-P PROJECT] [--wait]
 dku recipe create RECIPE_NAME --type TYPE --input DS --output DS [-P PROJECT]
 dku recipe delete RECIPE_NAME [-P PROJECT]
 dku recipe set-code RECIPE_NAME --code CODE [-P PROJECT]
-dku recipe get-code RECIPE_NAME [-P PROJECT]
+dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME --definition JSON [-P PROJECT]
 dku recipe add-input RECIPE_NAME --ref DS [--role main] [-P PROJECT]
 dku recipe add-output RECIPE_NAME --ref DS [--role main] [-P PROJECT]
+dku recipe create-embed RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [-P PROJECT]
+dku recipe create-embed-docs RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [--vlm LLM_ID] [-P PROJECT]
+dku recipe create-extract RECIPE_NAME --input DS --output DS --vlm LLM_ID [-P PROJECT]
+dku recipe create-llm-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output DS] [--output-metrics DS] [--task-type TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
+dku recipe create-agent-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output DS] [--output-metrics DS] [--input-format TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
 ```
 
 - `create` requires both `--input` and `--output` datasets to exist already
 - `set-code` accepts `--code @file.py` to read from file
-- `get-code` prints code to stdout (can redirect: `> recipe.py`)
+- `get-code` prints code to stdout by default; `-o json` wraps it as `{"code": "..."}`
+- `create-llm-eval` and `create-agent-eval` require any dataset passed via `--output` or `--output-metrics` to already exist
 
 ## scenario
 
@@ -135,7 +149,7 @@ dku scenario abort SCENARIO_ID [-P PROJECT]
 dku scenario status SCENARIO_ID [-P PROJECT] [-o FORMAT]
 dku scenario create NAME [--type step_based] [-P PROJECT] [--definition JSON]
 dku scenario delete SCENARIO_ID [-P PROJECT]
-dku scenario get-definition SCENARIO_ID [-P PROJECT]
+dku scenario get-definition SCENARIO_ID [-P PROJECT] [-o json]
 dku scenario set-definition SCENARIO_ID --definition JSON [-P PROJECT]
 ```
 
@@ -203,13 +217,16 @@ dku folder download FOLDER_ID REMOTE_PATH [-P PROJECT] [--dest DIR]
 ## llm
 
 ```bash
-dku llm list [-P PROJECT] [-o FORMAT]
+dku llm list [-P PROJECT] [--purpose PURPOSE] [-o FORMAT]
 dku llm completion LLM_ID MESSAGE [-P PROJECT] [--system MSG] [--json-output] [-o text|json]
 dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
 ```
 
 - LLM IDs follow `provider:model` pattern (e.g., `openai:gpt-4o-mini`)
 - `completion -o json` returns text + usage stats
+- `list` defaults to `--purpose GENERIC_COMPLETION`
+- Use `--purpose TEXT_EMBEDDING_EXTRACTION` to discover embedding-capable models
+- `embeddings` rejects LLM IDs that are not available for `TEXT_EMBEDDING_EXTRACTION` in the target project
 
 ## webapp
 
@@ -299,6 +316,8 @@ dku knowledge build KB_ID [-P PROJECT] [--wait]
 dku knowledge search KB_ID --query TEXT [--max-documents N] [-P PROJECT] [-o FORMAT]
 dku knowledge delete KB_ID [-P PROJECT]
 ```
+
+- `get` expects JSON from DSS; on getitstarted instances the sleep/wake page can intercept the request and return HTML instead
 
 ## bundle
 

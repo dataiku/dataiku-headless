@@ -111,6 +111,13 @@ def test_recipe_get_code(patch_client):
     result = runner.invoke(app, ["recipe", "get-code", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "# Python code" in result.output
+
+
+def test_recipe_get_code_json(patch_client):
+    result = runner.invoke(app, ["recipe", "get-code", "recipe1", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["code"].startswith("# Python code")
     assert "import dataiku" in result.output
 
 
@@ -262,6 +269,7 @@ def test_recipe_create_extract(patch_client):
 
 
 def test_recipe_create_llm_eval_minimal(patch_client):
+    patch_client._perform_json.return_value = {"name": "my_eval"}
     result = runner.invoke(app, [
         "recipe", "create-llm-eval", "my_eval",
         "--input", "responses",
@@ -271,16 +279,20 @@ def test_recipe_create_llm_eval_minimal(patch_client):
     assert result.exit_code == 0
     assert "Created LLM eval recipe" in result.output
     proj = patch_client.get_project("PROJ1")
-    proj.new_recipe.assert_called_once_with("nlp_llm_evaluation", "my_eval")
-    builder = proj.new_recipe.return_value
-    builder.with_input.assert_called_once_with("responses")
-    builder.with_output.assert_not_called()
-    builder.with_output_metrics.assert_not_called()
-    builder.with_output_evaluation_store.assert_called_once_with("eval_store_1")
-    builder.build.assert_called_once()
+    patch_client._perform_json.assert_called_once()
+    _, kwargs = patch_client._perform_json.call_args
+    body = kwargs["body"]
+    assert body["recipePrototype"]["type"] == "nlp_llm_evaluation"
+    assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "responses"
+    assert body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"] == "eval_store_1"
+    assert "main" not in body["recipePrototype"]["outputs"]
+    assert "metrics" not in body["recipePrototype"]["outputs"]
+    assert body["creationSettings"] == {"rawCreation": True}
+    proj.get_recipe.assert_called_once_with("my_eval")
 
 
 def test_recipe_create_llm_eval_full(patch_client):
+    patch_client._perform_json.return_value = {"name": "rag_eval"}
     result = runner.invoke(app, [
         "recipe", "create-llm-eval", "rag_eval",
         "--input", "qa_data",
@@ -298,13 +310,13 @@ def test_recipe_create_llm_eval_full(patch_client):
         "--project", "PROJ1",
     ])
     assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
-    builder = proj.new_recipe.return_value
-    builder.with_output.assert_called_once_with("eval_scored")
-    builder.with_output_metrics.assert_called_once_with("eval_metrics")
+    _, kwargs = patch_client._perform_json.call_args
+    body = kwargs["body"]
+    assert body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_scored"
+    assert body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"] == "eval_metrics"
 
     # Verify post-creation payload settings
-    recipe = builder.build.return_value
+    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["taskType"] == "QUESTION_ANSWERING"
@@ -318,7 +330,80 @@ def test_recipe_create_llm_eval_full(patch_client):
     settings.save.assert_called()
 
 
+def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
+    patch_client._perform_json.return_value = {"name": "rag_eval"}
+    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    settings = recipe.get_settings.return_value
+    settings.obj_payload = None
+
+    result = runner.invoke(app, [
+        "recipe", "create-llm-eval", "rag_eval",
+        "--input", "qa_data",
+        "--eval-store", "eval_store_1",
+        "--task-type", "QUESTION_ANSWERING",
+        "--project", "PROJ1",
+    ])
+
+    assert result.exit_code == 0
+    assert settings.obj_payload["taskType"] == "QUESTION_ANSWERING"
+    settings.save.assert_called()
+
+
+def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
+    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
+    dataset_mock.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
+    result = runner.invoke(app, [
+        "recipe", "create-llm-eval", "rag_eval",
+        "--input", "qa_data",
+        "--eval-store", "eval_store_1",
+        "--output", "eval_scored",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "Output dataset 'eval_scored'" in result.output
+    assert "then retry" in result.output
+    patch_client._perform_json.assert_not_called()
+
+
+def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
+    proj = patch_client.get_project("PROJ1")
+
+    def _get_dataset(name):
+        dataset = proj.get_dataset.return_value
+        if name == "eval_metrics":
+            dataset.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
+        return dataset
+
+    proj.get_dataset.side_effect = _get_dataset
+    result = runner.invoke(app, [
+        "recipe", "create-llm-eval", "rag_eval",
+        "--input", "qa_data",
+        "--eval-store", "eval_store_1",
+        "--output-metrics", "eval_metrics",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "Metrics output dataset 'eval_metrics'" in result.output
+    patch_client._perform_json.assert_not_called()
+
+
+def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_client):
+    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
+    dataset_mock.get_definition.side_effect = Exception("403 Forbidden")
+    result = runner.invoke(app, [
+        "recipe", "create-llm-eval", "rag_eval",
+        "--input", "qa_data",
+        "--eval-store", "eval_store_1",
+        "--output", "eval_scored",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 2
+    assert "Permission denied" in result.output
+    patch_client._perform_json.assert_not_called()
+
+
 def test_recipe_create_agent_eval_minimal(patch_client):
+    patch_client._perform_json.return_value = {"name": "agent_eval"}
     result = runner.invoke(app, [
         "recipe", "create-agent-eval", "agent_eval",
         "--input", "agent_runs",
@@ -327,20 +412,58 @@ def test_recipe_create_agent_eval_minimal(patch_client):
     ])
     assert result.exit_code == 0
     assert "Created agent eval recipe" in result.output
-    proj = patch_client.get_project("PROJ1")
-    proj.new_recipe.assert_called_once_with("nlp_agent_evaluation", "agent_eval")
-    builder = proj.new_recipe.return_value
-    builder.with_input.assert_called_once_with("agent_runs")
-    builder.with_output_evaluation_store.assert_called_once_with("agent_store_1")
+    _, kwargs = patch_client._perform_json.call_args
+    body = kwargs["body"]
+    assert body["recipePrototype"]["type"] == "nlp_agent_evaluation"
+    assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "agent_runs"
+    assert body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"] == "agent_store_1"
 
     # Default input format
-    recipe = builder.build.return_value
+    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
     settings = recipe.get_settings.return_value
     assert settings.obj_payload["inputFormat"] == "AGENT_EXECUTION"
     settings.save.assert_called()
 
 
+def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client):
+    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_out")
+    dataset_mock.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
+    result = runner.invoke(app, [
+        "recipe", "create-agent-eval", "agent_eval",
+        "--input", "agent_runs",
+        "--eval-store", "agent_store_1",
+        "--output", "eval_out",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "Output dataset 'eval_out'" in result.output
+    patch_client._perform_json.assert_not_called()
+
+
+def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client):
+    proj = patch_client.get_project("PROJ1")
+
+    def _get_dataset(name):
+        dataset = proj.get_dataset.return_value
+        if name == "eval_metrics":
+            dataset.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
+        return dataset
+
+    proj.get_dataset.side_effect = _get_dataset
+    result = runner.invoke(app, [
+        "recipe", "create-agent-eval", "agent_eval",
+        "--input", "agent_runs",
+        "--eval-store", "agent_store_1",
+        "--output-metrics", "eval_metrics",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "Metrics output dataset 'eval_metrics'" in result.output
+    patch_client._perform_json.assert_not_called()
+
+
 def test_recipe_create_agent_eval_full(patch_client):
+    patch_client._perform_json.return_value = {"name": "agent_eval"}
     result = runner.invoke(app, [
         "recipe", "create-agent-eval", "agent_eval",
         "--input", "agent_runs",
@@ -354,15 +477,26 @@ def test_recipe_create_agent_eval_full(patch_client):
         "--project", "PROJ1",
     ])
     assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
-    builder = proj.new_recipe.return_value
-    builder.with_output.assert_called_once_with("eval_out")
-    builder.with_output_metrics.assert_called_once_with("eval_metrics")
+    _, kwargs = patch_client._perform_json.call_args
+    body = kwargs["body"]
+    assert body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_out"
+    assert body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"] == "eval_metrics"
 
-    recipe = builder.build.return_value
+    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["inputFormat"] == "PROMPT_RECIPE"
     assert payload["metrics"] == ["toolCallExactMatch", "agentGoalAccuracyWithoutReference"]
     assert payload["completionLLMId"] == "openai:gpt-4o"
     assert payload["embeddingLLMId"] == "openai:text-embedding-3-small"
+
+
+def test_recipe_get_json_error_payload(patch_client):
+    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("NotFoundException: recipe does not exist")
+    result = runner.invoke(app, ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"])
+    assert result.exit_code == 3
+    assert result.stdout == ""
+    parsed = json.loads(result.stderr)
+    assert parsed["error"]["code"] == "not_found"
+    assert parsed["error"]["exit_code"] == 3
+    assert "recipe does not exist" in parsed["error"]["message"]

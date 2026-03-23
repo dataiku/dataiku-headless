@@ -18,7 +18,7 @@
 [![PyPI](https://img.shields.io/pypi/v/dku-cli)](https://pypi.org/project/dku-cli/)
 [![License](https://img.shields.io/github/license/dataiku/dataiku-cli)](LICENSE)
 
-Developer CLI for Dataiku DSS — **130 commands** across 26 groups.
+Developer CLI for Dataiku DSS — **135 commands** across 26 groups.
 
 `dku-cli` wraps `dataikuapi` in a predictable `dku <noun> <verb>` interface with profile-based auth, clean defaults, and output that works for both humans and agents.
 
@@ -275,6 +275,12 @@ dku project list -o csv > projects.csv   # CSV — for spreadsheets
 
 Persist a default: `dku config set output json`. For agents, use JSON + quiet mode: `dku -q project list -o json`.
 
+For machine-readable failures, add `--errors json`. Success payloads still go to stdout and error payloads go to stderr.
+
+```bash
+dku --errors json recipe get missing_recipe -P MYPROJECT -o json
+```
+
 ## JSON Input
 
 Creation and mutation commands accept structured JSON:
@@ -313,7 +319,7 @@ git clone https://github.com/dataiku/dataiku-cli
 cd dataiku-cli
 uv sync
 uv run dku --help
-uv run pytest -v    # 247 tests
+uv run pytest -v
 ```
 
 ## License
@@ -325,7 +331,7 @@ Apache 2.0
 ## Command Reference
 
 <details>
-<summary>All 130 commands across 26 groups (click to expand)</summary>
+<summary>All 135 commands across 26 groups (click to expand)</summary>
 
 ### `dku project`
 
@@ -354,6 +360,7 @@ dku dataset set-schema my_dataset -P MYPROJECT --definition '{"columns":[...]}'
 dku dataset head my_dataset -P MYPROJECT -n 5 # Preview rows
 dku dataset build my_dataset --wait           # Build and wait
 dku dataset get-definition my_dataset -P MYPROJECT  # Full JSON
+dku dataset get-definition my_dataset -P MYPROJECT -o json
 dku dataset set-definition my_dataset -P MYPROJECT --definition @def.json
 dku dataset clear my_dataset -P MYPROJECT     # Clear data
 dku dataset delete old_dataset -P MYPROJECT   # Delete
@@ -367,12 +374,17 @@ dku recipe create transform --type python --input raw_data --output clean_data -
 dku recipe get my_recipe -P MYPROJECT         # Recipe details
 dku recipe set-code transform --code @transform.py -P MYPROJECT
 dku recipe get-code transform -P MYPROJECT    # Print code to stdout
+dku recipe get-code transform -P MYPROJECT -o json
 dku recipe run my_recipe --wait               # Run and wait
 dku recipe add-input my_recipe --ref extra_ds -P MYPROJECT
 dku recipe add-output my_recipe --ref result_ds -P MYPROJECT
 dku recipe set-definition my_recipe --definition @def.json -P MYPROJECT
+dku recipe create-llm-eval rag_eval --input qa_data --eval-store eval_store_1 --output eval_scored --output-metrics eval_metrics -P MYPROJECT
+dku recipe create-agent-eval agent_eval --input agent_runs --eval-store agent_store_1 --output eval_out --output-metrics eval_metrics -P MYPROJECT
 dku recipe delete my_recipe -P MYPROJECT      # Delete
 ```
+
+For `dku recipe create-llm-eval` and `dku recipe create-agent-eval`, any dataset passed with `--output` or `--output-metrics` must already exist in DSS. The CLI now validates that upfront and fails directly if those datasets are missing.
 
 ### `dku scenario`
 
@@ -383,6 +395,7 @@ dku scenario run my_scenario --wait           # Run and wait
 dku scenario abort my_scenario -P MYPROJECT   # Abort running
 dku scenario status my_scenario -P MYPROJECT  # Recent runs
 dku scenario get-definition my_scenario -P MYPROJECT
+dku scenario get-definition my_scenario -P MYPROJECT -o json
 dku scenario set-definition my_scenario -P MYPROJECT --definition @def.json
 dku scenario delete my_scenario -P MYPROJECT  # Delete
 ```
@@ -441,14 +454,19 @@ dku knowledge search my_kb --query "revenue" -P MYPROJECT
 dku knowledge delete my_kb -P MYPROJECT       # Delete
 ```
 
+`dku knowledge get` expects JSON from the DSS API. On getitstarted instances, the sleep/wake page can intercept the request and return HTML instead. When that happens, the CLI fails explicitly and tells you to wake the instance in the browser before retrying.
+
 ### `dku llm`
 
 ```bash
-dku llm list -P MYPROJECT                     # List LLMs
+dku llm list -P MYPROJECT                     # List completion LLMs
+dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P MYPROJECT
 dku llm completion LLM_ID "Summarize this" -P MYPROJECT
 dku llm completion LLM_ID "Extract entities" --system "You are a NER model" --json-output
 dku llm embeddings LLM_ID --text "sample text" -P MYPROJECT
 ```
+
+`dku llm list` defaults to `GENERIC_COMPLETION`. `dku llm embeddings` only accepts LLM IDs available for `TEXT_EMBEDDING_EXTRACTION` in the target project. Use `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` to find a compatible model.
 
 ### `dku bundle`
 
