@@ -486,11 +486,14 @@ def mock_client():
 
     client.get_project.return_value = proj1
 
-    # SQL
-    client.sql_query.return_value = {
-        "columns": ["col1", "col2"],
-        "rows": [["val1", "val2"], ["val3", "val4"]],
-    }
+    # SQL — mock DSSSQLQuery object (has get_schema + iter_rows, not dict)
+    sql_result_mock = MagicMock()
+    sql_result_mock.get_schema.return_value = [
+        {"name": "col1", "type": "string"},
+        {"name": "col2", "type": "string"},
+    ]
+    sql_result_mock.iter_rows.return_value = iter([["val1", "val2"], ["val3", "val4"]])
+    client.sql_query.return_value = sql_result_mock
 
     # User create
     client.create_user.return_value = {"login": "newuser", "displayName": "New User"}

@@ -37,8 +37,9 @@ def query(
         client = get_client_from_ctx(ctx)
         result = client.sql_query(query_text, connection=connection)
 
-        columns = result.get("columns", [])
-        rows = result.get("rows", [])
+        schema = result.get_schema()
+        columns = [col["name"] for col in schema]
+        rows = list(result.iter_rows())
 
         data = []
         for row in rows:
