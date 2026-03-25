@@ -12,7 +12,7 @@
       "name": "dataiku-devkit",
       "source": {
         "source": "git-subdir",
-        "url": "github.com/dataiku/dataiku-cli",
+        "url": "dataiku/dataiku-cli",
         "path": "dataiku-devkit"
       },
       "description": "Platform knowledge, CLI skill, plugin scaffolding, and exploration agents"

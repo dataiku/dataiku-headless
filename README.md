@@ -114,7 +114,7 @@ The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](
 
 ```bash
 /plugin marketplace add git@github.com:dataiku/dataiku-cli.git
-/plugin install dataiku-devkit@dataiku-devkit
+/plugin install dataiku-devkit@dataiku-marketplace
 ```
 
 SSH is recommended over HTTPS — key-based auth means background updates work without a token. After installation, updates are one command:
@@ -127,10 +127,10 @@ SSH is recommended over HTTPS — key-based auth means background updates work w
 
 ```bash
 /plugin marketplace add ./
-/plugin install dataiku-marketplace@dataiku-devkit
+/plugin install dataiku-devkit@dataiku-marketplace
 ```
 
-#### Codex, Cursor, Copilot, and 40+ other agents — via npx skills
+#### Codex, Cursor, Copilot, and other agents — via npx skills
 
 ```bash
 npx skills add dataiku/dataiku-cli -g -a codex    # OpenAI Codex
