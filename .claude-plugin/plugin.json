@@ -1,0 +1,12 @@
+{
+  "name": "dataiku-devkit",
+  "description": "Dataiku DSS development toolkit — platform knowledge, CLI operations, plugin scaffolding, and project exploration.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Dataiku",
+    "url": "https://github.com/dataiku/dataiku-cli"
+  },
+  "repository": "https://github.com/dataiku/dataiku-cli",
+  "license": "Apache-2.0",
+  "keywords": ["dataiku", "dss", "plugins", "genai", "mlops", "cli"]
+}

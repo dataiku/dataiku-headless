@@ -15,16 +15,15 @@
 ```
 
 [![CI](https://github.com/dataiku/dataiku-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dataiku/dataiku-cli/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/dku-cli)](https://pypi.org/project/dku-cli/)
 [![License](https://img.shields.io/github/license/dataiku/dataiku-cli)](LICENSE)
 
-Developer CLI for Dataiku DSS — **135 commands** across 26 groups.
+**Dataiku DevKit** — enables any AI coding agent to do anything in Dataiku DSS.
 
-`dku-cli` wraps `dataikuapi` in a predictable `dku <noun> <verb>` interface with profile-based auth, clean defaults, and output that works for both humans and agents.
+Ships a **`dku` CLI** (139 commands, 25 groups) and **9 agent skills** with 26 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
 
 ```bash
-uv tool install dku-cli          # from PyPI
-uv tool install .                # from source
+curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash  # Install CLI
+npx skills add dataiku/dataiku-cli --all             # Install AI agent skills
 ```
 
 ## Why dku-cli?
@@ -68,54 +67,94 @@ dku plugin list -o json | jq '.[].id'
 
 ## Installation
 
-**From source** (recommended for now):
-
-```bash
-git clone https://github.com/dataiku/dataiku-cli && cd dataiku-cli
-uv tool install .                # installs `dku` globally
-```
-
-**From PyPI** (after first release):
-
-```bash
-uv tool install dku-cli          # uv (fastest)
-pipx install dku-cli             # pipx
-pip install dku-cli              # pip
-```
-
-**One-liner** (auto-detects your package manager):
+**One-liner** (auto-detects uv/pipx/pip, installs from GitHub):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
 ```
 
-**Run without installing:**
+**Direct:**
 
 ```bash
-uvx --from dku-cli dku --help    # from PyPI (after first release)
-uv run --directory /path/to/dataiku-cli dku --help  # from source
+uv tool install git+https://github.com/dataiku/dataiku-cli.git   # uv (fastest)
+pipx install git+https://github.com/dataiku/dataiku-cli.git      # pipx (isolated)
+```
+
+**From source:**
+
+```bash
+git clone https://github.com/dataiku/dataiku-cli && cd dataiku-cli
+uv tool install .
 ```
 
 **Requirements:** Python 3.10+
 
 ## AI Agent Integration
 
-`dku-cli` ships with a [Claude Code skill](/.claude/skills/dku-cli/SKILL.md) that teaches AI agents how to use the CLI efficiently — command chaining, critical workflows, and the full command reference. This is what produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below.
+`dku-cli` ships as the **Dataiku DevKit** — a collection of skills, agents, and reference docs that teach AI coding agents how to work with Dataiku DSS. This includes CLI operations, plugin development patterns, and scaffolding workflows.
 
-### Claude Code
+### What's Included
 
-Install the skill into any project with one command:
+| Component | Type | Description |
+|-----------|------|-------------|
+| `dataiku` | Skill (auto) | Platform knowledge — 26 reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps |
+| `dku-cli` | Skill (auto) | CLI operations — 139 commands, chaining patterns, composability |
+| `new-plugin` | Skill (manual) | Scaffold a new Dataiku plugin with all boilerplate |
+| `new-tool` | Skill (manual) | Add an agent tool to an existing plugin |
+| `new-recipe` | Skill (manual) | Add a custom recipe to an existing plugin |
+| `new-webapp` | Skill (manual) | Add a webapp component to a plugin |
+| `new-guardrail` | Skill (manual) | Add an LLM guardrail to a plugin |
+| `deploy-plugin` | Skill (manual) | Build and deploy a plugin to DSS |
+| `review-plugin` | Skill (manual) | Code review a plugin against best practices |
+| `plugin-reviewer` | Agent | Deep code review with checklist |
+| `dss-explorer` | Agent | Explore a DSS project via CLI commands |
+| `tool-designer` | Agent | Design agent tool schemas and descriptions |
+
+### Any AI Agent (Claude Code, Codex, Cursor, Copilot, and 40+ more)
 
 ```bash
-# From your project root
-curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-skill.sh | bash
+npx skills add dataiku/dataiku-cli --all
 ```
 
-Or manually: copy `.claude/skills/dku-cli/` from this repo into your project's `.claude/skills/`.
+### Claude Code Plugin
 
-### Other AI Agents (Codex, Cursor, etc.)
+```bash
+/plugin marketplace add dataiku/dataiku-cli
+/plugin install dataiku-devkit@dataiku-dataiku-cli
+```
 
-Point your agent at [`.claude/skills/dku-cli/SKILL.md`](/.claude/skills/dku-cli/SKILL.md) as context, or include it in your system prompt.
+### Manual Install (no Node.js required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-plugin.sh | bash
+```
+
+Or copy the `skills/` directory from this repo into your agent's skills directory (e.g., `~/.claude/skills/`).
+
+### Upgrading from the old single-skill install
+
+If you previously installed via `install-skill.sh` (the old single `dku-cli` skill), remove it first:
+
+```bash
+rm -rf ~/.claude/skills/dku-cli          # or .claude/skills/dku-cli in your project
+```
+
+Then install the full DevKit using any method above. The new installer will also auto-detect and replace the old skill if present.
+
+### Updating
+
+```bash
+# Update CLI (re-run the installer)
+curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
+
+# Update skills (if installed via npx)
+npx skills update
+
+# Update skills (if installed via curl — just re-run it)
+curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-plugin.sh | bash
+```
+
+The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below. The other skills add plugin development, scaffolding, and code review capabilities.
 
 ## Authentication
 
@@ -331,7 +370,7 @@ Apache 2.0
 ## Command Reference
 
 <details>
-<summary>All 135 commands across 26 groups (click to expand)</summary>
+<summary>All 139 commands across 25 groups (click to expand)</summary>
 
 ### `dku project`
 
@@ -379,6 +418,8 @@ dku recipe run my_recipe --wait               # Run and wait
 dku recipe add-input my_recipe --ref extra_ds -P MYPROJECT
 dku recipe add-output my_recipe --ref result_ds -P MYPROJECT
 dku recipe set-definition my_recipe --definition @def.json -P MYPROJECT
+dku recipe check-schema my_recipe -P MYPROJECT    # Preview schema updates
+dku recipe apply-schema my_recipe -P MYPROJECT    # Apply schema updates
 dku recipe create-llm-eval rag_eval --input qa_data --eval-store eval_store_1 --output eval_scored --output-metrics eval_metrics -P MYPROJECT
 dku recipe create-agent-eval agent_eval --input agent_runs --eval-store agent_store_1 --output eval_out --output-metrics eval_metrics -P MYPROJECT
 dku recipe delete my_recipe -P MYPROJECT      # Delete
@@ -404,6 +445,8 @@ dku scenario delete my_scenario -P MYPROJECT  # Delete
 
 ```bash
 dku job list -P MYPROJECT                     # List recent jobs
+dku job run --target my_dataset -P MYPROJECT  # Build target(s)
+dku job run --target ds1 --target ds2 --wait  # Build multiple + wait
 dku job status JOB_ID -P MYPROJECT            # Job details
 dku job log JOB_ID -P MYPROJECT               # View job log
 dku job abort JOB_ID -P MYPROJECT             # Abort job
@@ -510,7 +553,8 @@ dku flow graph -P MYPROJECT                   # Flow graph summary
 dku flow graph -P MYPROJECT -o json           # Full graph as JSON
 dku flow zones -P MYPROJECT                   # List zones
 dku flow create-zone "Staging" -P MYPROJECT   # Create zone
-dku flow propagate -P MYPROJECT               # Schema propagation
+dku flow propagate ds1 -P MYPROJECT           # Schema propagation from dataset
+dku flow check -P MYPROJECT                   # Consistency check
 dku flow sources -P MYPROJECT                 # Find root datasets
 dku flow successors ds1 -P MYPROJECT          # Downstream nodes
 ```

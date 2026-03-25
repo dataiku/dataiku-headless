@@ -18,10 +18,15 @@ htmlcov/
 .coverage
 coverage.xml
 
-# Project-local AI/docs (internal, not shipped with OSS)
-CLAUDE.md
-AGENTS.md
-docs/
+# Internal development files (not shipped)
 .claude/memory/
 .claude/plans/
+.claude/skills/
 .agents/
+
+# Brainstorm / design docs
+brainstorm/
+
+# Benchmark outputs
+benchmark/reports/
+benchmark/.env

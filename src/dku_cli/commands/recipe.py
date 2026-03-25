@@ -157,17 +157,45 @@ def run(
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     wait: bool = typer.Option(False, "--wait", "-w", help="Wait for completion"),
+    job_type: str = typer.Option(
+        None, "--type", "-t",
+        help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
+    ),
+    auto_update_schema: bool = typer.Option(False, "--auto-update-schema", help="Auto-update output schemas before each recipe run"),
 ) -> None:
-    """Run a recipe."""
+    """Run a recipe.
+
+    Use --type RECURSIVE_BUILD --auto-update-schema to build upstream
+    dependencies with automatic schema propagation.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         recipe = proj.get_recipe(recipe_name)
-        job = recipe.run()
+
+        if job_type or auto_update_schema:
+            # Get recipe outputs to build via job builder
+            settings = recipe.get_settings()
+            output_refs = settings.get_flat_output_refs()
+            if not output_refs:
+                from dku_cli.output import error
+                error(f"Recipe '{recipe_name}' has no outputs to build")
+                raise typer.Exit(1)
+
+            builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
+            for ref in output_refs:
+                builder.with_output(ref)
+            if auto_update_schema:
+                builder.with_auto_update_schema_before_each_recipe_run(True)
+            job = builder.start()
+        else:
+            job = recipe.run()
 
         success(f"Recipe '{recipe_name}' started")
         info(f"Job ID: {job.id}")
+        if auto_update_schema:
+            info("Auto-update schema: enabled")
 
         if wait:
             info("Waiting for completion...")
@@ -181,8 +209,9 @@ def run(
                 success("Recipe completed successfully")
             else:
                 from dku_cli.output import error
-
                 error(f"Recipe finished with state: {state}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -336,6 +365,90 @@ def add_output(
         settings.add_output(role, ref)
         settings.save()
         success(f"Added output '{ref}' to recipe '{recipe_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Schema inspection commands
+# ---------------------------------------------------------------------------
+
+
+@app.command("check-schema")
+def check_schema(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Check if recipe outputs need schema updates.
+
+    Exit code 0 = no changes needed, 1 = changes needed.
+    Note: does not work for code recipes (Python, R) — only visual recipes.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        updates = recipe.compute_schema_updates()
+
+        if output == "json":
+            render_raw(updates.data, output_format="json")
+        else:
+            data = []
+            for comp in updates.data.get("computables", []):
+                cols = comp.get("newSchema", {}).get("columns", [])
+                data.append({
+                    "output": comp.get("datasetName", comp.get("id", "")),
+                    "type": comp.get("type", ""),
+                    "columns": str(len(cols)),
+                    "changed": str(comp.get("schemaChanged", False)),
+                })
+            render(
+                data,
+                ["output", "type", "columns", "changed"],
+                output_format=output,
+                title=f"Schema Check: {recipe_name}",
+            )
+
+        if updates.any_action_required():
+            from dku_cli.output import warn
+            warn(f"Schema updates required ({updates.data.get('totalIncompatibilities', 0)} incompatibilities)")
+            raise SystemExit(1)
+        else:
+            success(f"No schema updates needed for '{recipe_name}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("apply-schema")
+def apply_schema(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Compute and apply required schema updates to recipe outputs.
+
+    Note: does not work for code recipes (Python, R) — only visual recipes.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("table", "json"), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        updates = recipe.compute_schema_updates()
+
+        if not updates.any_action_required():
+            success(f"No schema updates needed for '{recipe_name}'")
+            return
+
+        results = updates.apply()
+        render_raw(results, output_format=output)
+        success(f"Applied schema updates for '{recipe_name}'")
     except Exception as e:
         handle_api_error(e)
 

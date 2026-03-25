@@ -1,0 +1,56 @@
+tests:
+  - id: t3_create_then_verify
+    tier: 3
+    category: dataset
+    prompt: >
+      In project {project}, create a managed dataset called 'bench_test_data'
+      and then immediately verify it was created by listing the datasets.
+      Do this efficiently in a single operation.
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku dataset list"
+          required: true
+      chaining: true
+    rubric:
+      command_correct: 1.0
+      chaining: 1.0
+
+  - id: t3_multi_inspect
+    tier: 3
+    category: project
+    prompt: >
+      Give me a quick overview of project {project}: list the datasets,
+      list the recipes, and show the flow graph. Do this as efficiently
+      as possible — chain the commands together.
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku dataset list"
+          required: true
+        - pattern: "dku recipe list"
+          required: true
+        - pattern: "dku flow graph"
+          required: true
+      chaining: true
+    rubric:
+      command_correct: 1.0
+      chaining: 1.0
+
+  - id: t3_scenario_status_check
+    tier: 3
+    category: scenario
+    prompt: >
+      In project {project}, list all scenarios and show their recent run status.
+      Chain these together for efficiency.
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku scenario list"
+          required: true
+      chaining: true
+    rubric:
+      command_correct: 1.0
+      chaining: 1.0

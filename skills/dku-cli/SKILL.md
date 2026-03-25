@@ -1,11 +1,40 @@
 ---
 name: dku-cli
 description: Use the `dku` CLI to interact with Dataiku DSS from the terminal. Use when the user asks to list/inspect/manage/create/delete DSS projects, datasets, recipes, scenarios, jobs, plugins, code environments, connections, models, folders, LLMs, webapps, macros, users, flow, agents, knowledge banks, bundles, API services, wiki, SQL, or library files — via shell commands. Also use when automating DSS operations in CI/CD pipelines, composing DSS queries with shell pipes, or when `dku` commands are the most efficient way to get information. Prefer this over the Python API skill when the task is a quick query, pipeline script, or shell-composable operation.
+triggers:
+  - dku
+  - dku-cli
+  - dataiku cli
+  - dss command
+  - list projects
+  - list datasets
+  - dku recipe
+  - dku scenario
+  - dku agent
+metadata:
+  author: dataiku
+  version: "1.0.0"
+  tags: dataiku, dss, cli, kubectl, devops
 ---
 
 # dku-cli
 
 `dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **135 commands** across 26 groups.
+
+## Prerequisites
+
+The `dku` CLI must be installed. Check with:
+
+```bash
+dku --version
+```
+
+If not installed:
+
+```bash
+pip install dku-cli     # or: uv tool install dku-cli
+dku auth login          # authenticate to your DSS instance
+```
 
 > **CRITICAL — Chaining Rule:** Always `&&`-chain related `dku` commands in a **single Bash tool call**. Each separate tool call costs a full agent turn (~$0.05 + 3s). A 10-command workflow should be 1 tool call, not 10. See [Chaining Patterns](#chaining-patterns) for templates.
 
@@ -102,15 +131,15 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `user` | list, create | No (admin) |
 | `sql` | query | No |
 | `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema | Yes |
-| `recipe` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval | Yes |
+| `recipe` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval | Yes |
 | `scenario` | list, run, abort, status, create, delete, get-definition, set-definition | Yes |
-| `job` | list, status, log, abort, wait | Yes |
+| `job` | list, run, status, log, abort, wait | Yes |
 | `model` | list, get, versions | Yes |
 | `folder` | list, ls, upload, download | Yes |
 | `llm` | list, completion, embeddings | Yes |
 | `webapp` | list, start, stop, status | Yes |
 | `macro` | list, run | Yes |
-| `flow` | graph, zones, create-zone, propagate, sources, successors | Yes |
+| `flow` | graph, zones, create-zone, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir | Yes |
 | `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm | Yes |
 | `agent-tool` | list, get, run, delete | Yes |
@@ -120,75 +149,12 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `wiki` | list, create, get | Yes |
 | (root) | whoami | No |
 
-### Command Syntax Reference
+For full command syntax with examples, see `references/commands.md`. For flag details, run `dku <noun> <verb> --help`.
 
-Individual command syntax — for flag details run `dku <noun> <verb> --help`. **In practice, always chain related commands** (see [Chaining Patterns](#chaining-patterns)).
-
-```bash
-# Identity & projects
-dku whoami
-dku project list -o json | jq '.[].key'
-dku project create MY_PROJECT --name "My Project"
-dku project get MY_PROJECT
-dku project variables -P PROJ
-dku project set-variables -P PROJ --set env=production
-dku project delete PROJ --confirm
-
-# Datasets
-dku dataset list -P PROJ
-dku dataset create raw_data --type UploadedFiles -P PROJ
-dku dataset upload raw_data data.csv -P PROJ
-dku dataset schema ds1 -P PROJ
-dku dataset set-schema ds1 -P PROJ --definition '{"columns":[{"name":"id","type":"int"}]}'
-dku dataset head ds1 -P PROJ -n 5
-dku dataset build ds1 -P PROJ --wait
-dku dataset get-definition ds1 -P PROJ -o json
-
-# Recipes
-dku recipe create transform --type python --input raw_data --output clean_data -P PROJ
-dku recipe set-code transform -P PROJ --code @transform.py
-dku recipe get-code transform -P PROJ
-dku recipe get-code transform -P PROJ -o json
-dku recipe run transform -P PROJ --wait
-
-# Scenarios & jobs
-dku scenario create daily_build -P PROJ
-dku scenario run my_scenario -P PROJ --wait
-dku scenario get-definition my_scenario -P PROJ -o json
-dku job wait JOB_ID -P PROJ --timeout 300
-
-# GenAI — Agents & Knowledge Banks
-dku agent create my_agent -P PROJ
-dku agent set-llm my_agent --llm-id openai:gpt-4o -P PROJ
-dku agent add-tool my_agent --tool tool1 -P PROJ
-dku knowledge create my_kb -P PROJ
-dku knowledge get my_kb -P PROJ
-dku knowledge build my_kb -P PROJ --wait
-dku knowledge search my_kb --query "revenue targets" -P PROJ
-dku llm completion llm1 "Summarize this" -P PROJ
-dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ
-dku llm embeddings embedding1 --text "sample text" -P PROJ
-
-# GenAI — Recipes (Embed, Extract, Evaluate)
-dku recipe create-embed my_embed --input text_data --output-kb my_kb --embedding-llm "openai:text-embedding-3-small" -P PROJ
-dku recipe create-embed-docs doc_embed --input documents --output-kb doc_kb --embedding-llm "openai:text-embedding-3-small" --vlm "openai:gpt-4o" -P PROJ
-dku recipe create-extract my_extract --input documents --output extracted --vlm "openai:gpt-4o" -P PROJ
-dku recipe create-llm-eval rag_eval --input qa_data --eval-store eval_store_1 --output eval_scored --output-metrics eval_metrics --task-type QUESTION_ANSWERING --metrics "answerRelevancy,faithfulness" --completion-llm "openai:gpt-4o" --embedding-llm "openai:text-embedding-3-small" -P PROJ
-dku recipe create-agent-eval agent_eval --input agent_runs --eval-store agent_store_1 --metrics "toolCallExactMatch,agentGoalAccuracyWithoutReference" -P PROJ
-
-# Deploy & admin
-dku bundle export v1 -P PROJ
-dku bundle download v1 -P PROJ --dest ./bundles
-dku plugin push my-plugin.zip
-dku sql query "SELECT * FROM users LIMIT 10" --connection my_pg
-dku library write python/utils/helpers.py -P PROJ --content @helpers.py
-```
-
-Notes:
-- `dku llm list` defaults to `GENERIC_COMPLETION`. Pass `--purpose TEXT_EMBEDDING_EXTRACTION` when you need embedding-capable models.
-- `dku llm embeddings` rejects completion-only model IDs and tells you to list embedding models first.
-- `dku knowledge get` can fail on getitstarted instances if the sleep/wake page intercepts the API request. Wake the DSS instance in the browser, then retry.
-- Prefer `dku ... -o json | jq ...` on success paths. Avoid `2>&1 | jq` because stderr contains human or JSON error payloads, not the success object.
+Key notes:
+- `dku llm list` defaults to `GENERIC_COMPLETION`. Pass `--purpose TEXT_EMBEDDING_EXTRACTION` for embedding models.
+- `dku llm embeddings` rejects completion-only model IDs — list embedding models first.
+- Prefer `dku ... -o json | jq ...` on success paths. Avoid `2>&1 | jq` — stderr has error payloads, not success objects.
 
 ## Chaining Patterns
 
@@ -231,7 +197,7 @@ dku bundle download v1 -P MY_PROJ --dest ./bundles
 
 ```bash
 # When a downstream command needs output from an upstream one
-JOB_ID=$(dku dataset build output -P PROJ 2>/dev/null | grep -oP 'Job ID: \K.*') && \
+JOB_ID=$(dku dataset build output -P PROJ 2>/dev/null | sed -n 's/.*Job ID: //p') && \
 dku job wait "$JOB_ID" -P PROJ --timeout 300
 ```
 
@@ -366,14 +332,81 @@ dku recipe create transform --type python --input input_ds --output output_ds -P
 
 DSS join recipes prefix column names with the dataset name. If you join `customers` and `orders`, the resulting columns are `customers_name`, `orders_amount`, etc. Plan downstream column references accordingly.
 
+## Pipeline Building Best Practices
+
+### Anti-Pattern: Step-by-Step Builds (costs 50%+ extra tokens)
+
+```bash
+# BAD — each build is non-recursive, no schema updates.
+# If schemas don't match between steps, every downstream build fails.
+# Agent spends 10+ turns debugging schema mismatches.
+dku dataset build ds_a -P PROJ --wait && \
+dku dataset build ds_b -P PROJ --wait && \
+dku dataset build ds_c -P PROJ --wait
+```
+
+### Correct Pattern: Wire First, Build Once
+
+**Step 1:** Wire the entire pipeline (datasets + recipes + code) in one `&&` chain:
+
+```bash
+dku dataset create raw_data --type UploadedFiles -P PROJ && \
+dku dataset upload raw_data data.csv -P PROJ && \
+dku dataset create cleaned --type Filesystem --connection fs_managed -P PROJ && \
+dku recipe create clean_step --type python --input raw_data --output cleaned -P PROJ && \
+dku recipe set-code clean_step -P PROJ --code @clean.py && \
+dku dataset create final --type Filesystem --connection fs_managed -P PROJ && \
+dku recipe create agg_step --type python --input cleaned --output final -P PROJ && \
+dku recipe set-code agg_step -P PROJ --code @aggregate.py
+```
+
+**Step 2:** Build the final output with recursive + auto-schema (one command):
+
+```bash
+dku job run --target final -P PROJ \
+  --type RECURSIVE_BUILD \
+  --auto-update-schema \
+  --wait
+```
+
+This single command traces upstream from `final`, builds all dependencies in order, and auto-updates output schemas before each recipe run. No manual propagation needed.
+
+### When to Use What
+
+| Scenario | Command |
+|---|---|
+| Build one dataset (schema already correct) | `dku dataset build NAME --wait` |
+| Build entire pipeline from leaf dataset | `dku job run --target NAME --type RECURSIVE_BUILD --auto-update-schema --wait` |
+| Schema changed on source, propagate downstream | `dku flow propagate SOURCE_DS -P PROJ` |
+| Check if a recipe's output schema is stale | `dku recipe check-schema RECIPE -P PROJ` |
+| Apply pending schema updates for a recipe | `dku recipe apply-schema RECIPE -P PROJ` |
+| Run consistency check on entire flow | `dku flow check -P PROJ` |
+| Force rebuild everything | `dku job run --target NAME --type RECURSIVE_FORCED_BUILD --auto-update-schema --wait` |
+| Build only missing outputs | `dku job run --target NAME --type RECURSIVE_MISSING_ONLY_BUILD --wait` |
+
+### Build Types
+
+| Type | Behavior |
+|---|---|
+| `NON_RECURSIVE_FORCED_BUILD` | Build only specified outputs (default) |
+| `RECURSIVE_BUILD` | Build outputs + upstream dependencies that need building |
+| `RECURSIVE_FORCED_BUILD` | Force-rebuild outputs + ALL upstream dependencies |
+| `RECURSIVE_MISSING_ONLY_BUILD` | Build only outputs that have never been built |
+
+### Schema Propagation vs Auto-Update Schema
+
+- **`dku flow propagate SOURCE_DS`**: Propagates schema changes from a source dataset through downstream recipes. Use when you've changed a source schema and want to update downstream schemas WITHOUT building.
+- **`--auto-update-schema` on build/run**: Updates schemas during the build. Use when you want to build AND fix schemas in one shot.
+- **`dku recipe check-schema` + `apply-schema`**: Per-recipe schema inspection. Use when debugging a specific recipe's schema issues. Only works for visual recipes (not Python/R code recipes).
+
 ## GenAI Recipe Types
 
 ### API-Supported (full CLI creation)
 
 | Command | dataikuapi Type | Purpose |
 |---|---|---|
-| `create-embed` | `nlp_llm_rag_embedding` | Embed text columns → Knowledge Bank |
-| `create-embed-docs` | `embed_documents` | Extract + embed documents → Knowledge Bank |
+| `create-embed` | `nlp_llm_rag_embedding` | Embed text columns -> Knowledge Bank |
+| `create-embed-docs` | `embed_documents` | Extract + embed documents -> Knowledge Bank |
 | `create-extract` | `extract_content` | Extract structured content from docs (VLM) |
 | `create-llm-eval` | `nlp_llm_evaluation` | Evaluate LLM outputs (RAG, QA, summarization) |
 | `create-agent-eval` | `nlp_agent_evaluation` | Evaluate agent tool-calling accuracy |
@@ -392,7 +425,7 @@ Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_
 ### RAG Evaluation Flow (1 tool call)
 
 ```bash
-# End-to-end: embed data → create eval → configure → run
+# End-to-end: embed data -> create eval -> configure -> run
 dku recipe create-embed embed_step \
   --input qa_documents \
   --output-kb qa_kb \
@@ -433,12 +466,3 @@ dku recipe run rag_eval -P PROJ --wait
 ### LLM Evaluation Task Types
 
 `QUESTION_ANSWERING`, `SUMMARIZATION`, `CLASSIFICATION`, and others. Use `--task-type` to set.
-
-## Running in This Repo
-
-```bash
-uv sync              # Install deps
-uv run dku           # Run locally
-uv run dku --help    # Help
-uv run pytest -v     # Run tests (256 tests, all mocked)
-```

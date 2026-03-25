@@ -1,0 +1,53 @@
+tests:
+  - id: t7_nonexistent_project
+    tier: 7
+    category: error-handling
+    prompt: >
+      Show me all the datasets in project DOESNT_EXIST_BENCH_ZZZZ.
+    needs_project: false
+    expect:
+      commands:
+        - pattern: "dku dataset list"
+          required: true
+      text_contains:
+        - "not found"
+      text_excludes:
+        - "Traceback"
+        - "stacktrace"
+    rubric:
+      command_correct: 1.0
+      efficiency: 0.5
+
+  - id: t7_nonexistent_dataset
+    tier: 7
+    category: error-handling
+    prompt: >
+      Get the schema of a dataset called 'definitely_nonexistent_ds_bench'
+      in project {project}.
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku dataset schema"
+          required: true
+      text_excludes:
+        - "Traceback"
+    rubric:
+      command_correct: 1.0
+      efficiency: 0.5
+
+  - id: t7_graceful_error
+    tier: 7
+    category: error-handling
+    prompt: >
+      Run recipe 'completely_nonexistent_recipe_bench_zzz' in project {project}
+      and tell me what happens.
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku recipe run"
+          required: true
+      text_excludes:
+        - "Traceback"
+    rubric:
+      command_correct: 1.0
+      efficiency: 0.5

@@ -43,7 +43,9 @@ Changelog = "https://github.com/dataiku/dataiku-cli/releases"
 
 [dependency-groups]
 dev = [
+    "pydantic>=2.12.5",
     "pytest>=8",
+    "pyyaml>=6.0.3",
 ]
 
 [tool.pytest.ini_options]

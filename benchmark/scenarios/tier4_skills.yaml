@@ -1,0 +1,62 @@
+tests:
+  - id: t4_new_plugin
+    tier: 4
+    category: skill-routing
+    prompt: >
+      I want to create a new Dataiku plugin for data quality validation.
+      It should have one agent tool called 'check-nulls' that checks for
+      null values in a dataset, and one custom recipe called 'clean-nulls'
+      that removes rows with nulls. Help me scaffold this plugin.
+    needs_project: false
+    expect:
+      skill_invoked: "new-plugin"
+      no_commands:
+        - "pip install"
+    rubric:
+      skill_routing: 1.0
+      command_correct: 0.5
+
+  - id: t4_deploy_plugin
+    tier: 4
+    category: skill-routing
+    prompt: >
+      I have a Dataiku plugin in the ./my-plugin directory. Deploy it to
+      the DSS instance. Make sure the code environment gets created too.
+    needs_project: false
+    expect:
+      skill_invoked: "deploy-plugin"
+      commands:
+        - pattern: "dku plugin push"
+          required: false
+    rubric:
+      skill_routing: 1.0
+
+  - id: t4_formula_knowledge
+    tier: 4
+    category: skill-routing
+    prompt: >
+      I'm working in a Dataiku Prepare recipe and need to create a computed
+      column using formulas. How do I write an IF condition that checks if
+      a column is empty, and how do string functions like concat and trim work?
+    needs_project: false
+    expect:
+      skill_invoked: "dataiku"
+      text_contains:
+        - "if("
+    rubric:
+      skill_routing: 1.0
+
+  - id: t4_cli_usage
+    tier: 4
+    category: skill-routing
+    prompt: >
+      How do I use the dku CLI to manage datasets? I want to create a dataset,
+      upload data, check the schema, and preview the first few rows. Walk me
+      through the commands.
+    needs_project: false
+    expect:
+      skill_invoked: "dku-cli"
+      text_contains:
+        - "dku dataset"
+    rubric:
+      skill_routing: 1.0

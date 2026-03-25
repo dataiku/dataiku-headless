@@ -120,12 +120,24 @@ def mock_client():
     flow_mock.list_zones.return_value = [zone_mock]
     flow_mock.create_zone.return_value = zone_mock
 
-    # Flow schema propagation
-    propagation_mock = MagicMock()
-    propagation_mock.start.return_value = MagicMock(
+    # Flow schema propagation — uses new_schema_propagation(dataset_name) builder
+    propagation_builder = MagicMock()
+    propagation_builder.set_auto_rebuild.return_value = None
+    propagation_builder.stop_at.return_value = None
+    propagation_builder.mark_recipe_as_ok.return_value = None
+    propagation_builder.start.return_value = MagicMock(
         wait_for_result=MagicMock(return_value={"success": True})
     )
-    flow_mock.start_schema_propagation.return_value = propagation_mock
+    flow_mock.new_schema_propagation.return_value = propagation_builder
+
+    # Flow consistency check tool
+    flow_tool_mock = MagicMock()
+    flow_tool_mock.update.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"status": "OK"})
+    )
+    flow_tool_mock.get_state.return_value = {"status": "OK", "issues": []}
+    flow_tool_mock.stop.return_value = None
+    flow_mock.start_tool.return_value = flow_tool_mock
 
     proj1.get_flow.return_value = flow_mock
 
@@ -149,6 +161,23 @@ def mock_client():
     recipe_settings.save.return_value = None
     recipe_settings.add_input.return_value = None
     recipe_settings.add_output.return_value = None
+    # Recipe schema updates mock — compute_schema_updates() returns RequiredSchemaUpdates
+    schema_updates_mock = MagicMock()
+    schema_updates_mock.any_action_required.return_value = False
+    schema_updates_mock.data = {
+        "totalIncompatibilities": 0,
+        "computables": [
+            {
+                "datasetName": "output_ds",
+                "type": "DATASET",
+                "newSchema": {"columns": [{"name": "col1", "type": "string"}]},
+                "schemaChanged": False,
+            }
+        ],
+    }
+    schema_updates_mock.apply.return_value = [{"status": "ok"}]
+    recipe_mock.compute_schema_updates.return_value = schema_updates_mock
+
     proj1.get_recipe.return_value = recipe_mock
 
     # Recipe builder mock for new_recipe()
@@ -260,6 +289,18 @@ def mock_client():
     job_mock.get_log.return_value = "Log line 1\nLog line 2"
     job_mock.abort.return_value = None
     proj1.get_job.return_value = job_mock
+
+    # Job builder mock for new_job() — used by dku job run, dataset build --type, recipe run --type
+    job_builder_mock = MagicMock()
+    job_builder_mock.with_output.return_value = job_builder_mock
+    job_builder_mock.with_auto_update_schema_before_each_recipe_run.return_value = job_builder_mock
+    job_builder_mock.with_refresh_metastore.return_value = job_builder_mock
+    started_job = MagicMock()
+    started_job.id = "job_run_1"
+    started_job.get_status.return_value = {"baseStatus": {"state": "DONE"}}
+    job_builder_mock.start.return_value = started_job
+    job_builder_mock.start_and_wait.return_value = started_job
+    proj1.new_job.return_value = job_builder_mock
 
     # Webapp mock — get_state returns object with .running property
     webapp_mock = MagicMock()

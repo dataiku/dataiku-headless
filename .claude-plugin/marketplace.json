@@ -1,0 +1,17 @@
+{
+  "name": "dataiku-devkit",
+  "owner": {
+    "name": "Dataiku"
+  },
+  "metadata": {
+    "description": "Dataiku DSS development toolkit",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "dataiku-devkit",
+      "source": ".",
+      "description": "Platform knowledge, CLI skill, plugin scaffolding, and exploration agents"
+    }
+  ]
+}

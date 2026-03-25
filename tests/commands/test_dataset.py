@@ -60,6 +60,47 @@ def test_dataset_build_wait(patch_client):
     assert result.exit_code == 0
 
 
+def test_dataset_build_with_type(patch_client):
+    """Build with --type uses job builder."""
+    result = runner.invoke(app, [
+        "dataset", "build", "ds1",
+        "--type", "RECURSIVE_BUILD",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
+    builder = proj.new_job.return_value
+    builder.with_output.assert_called_once_with("ds1")
+
+
+def test_dataset_build_with_auto_update_schema(patch_client):
+    """Build with --auto-update-schema uses job builder."""
+    result = runner.invoke(app, [
+        "dataset", "build", "ds1",
+        "--auto-update-schema",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
+
+
+def test_dataset_build_recursive_auto_schema_wait(patch_client):
+    """Full pipeline build: recursive + auto schema + wait."""
+    result = runner.invoke(app, [
+        "dataset", "build", "ds1",
+        "--type", "RECURSIVE_BUILD",
+        "--auto-update-schema",
+        "--wait",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
+
+
 # --- New commands ---
 
 

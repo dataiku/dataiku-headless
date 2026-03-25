@@ -1,4 +1,4 @@
-"""dku flow — graph, zones, propagate, sources, successors."""
+"""dku flow — graph, zones, propagate, check, sources, successors."""
 
 from __future__ import annotations
 
@@ -103,10 +103,14 @@ def create_zone(
 @app.command()
 def propagate(
     ctx: typer.Context,
+    dataset: str = typer.Argument(help="Starting dataset name for schema propagation"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    stop_at: list[str] | None = typer.Option(None, "--stop-at", help="Recipe to stop propagation at (repeatable)"),
+    mark_ok: list[str] | None = typer.Option(None, "--mark-ok", help="Recipe to mark as OK during propagation (repeatable)"),
+    no_auto_rebuild: bool = typer.Option(False, "--no-auto-rebuild", help="Disable automatic rebuild during propagation"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Run schema propagation on the flow."""
+    """Run schema propagation from a dataset through downstream recipes."""
     project_key = resolve_project(project)
     output = resolve_output_format(output, allowed=("table", "json"), default="json")
     try:
@@ -114,11 +118,49 @@ def propagate(
         proj = client.get_project(project_key)
         flow = proj.get_flow()
 
-        sp = flow.start_schema_propagation()
-        result = sp.start().wait_for_result()
+        builder = flow.new_schema_propagation(dataset)
+        if no_auto_rebuild:
+            builder.set_auto_rebuild(False)
+        for recipe_name in stop_at or []:
+            builder.stop_at(recipe_name)
+        for recipe_name in mark_ok or []:
+            builder.mark_recipe_as_ok(recipe_name)
+
+        result = builder.start().wait_for_result()
 
         render_raw(result, output_format=output)
-        success("Schema propagation complete.")
+        success(f"Schema propagation from '{dataset}' complete.")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def check(
+    ctx: typer.Context,
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Run flow consistency check (schema + data consistency)."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("table", "json"), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        flow = proj.get_flow()
+
+        tool = flow.start_tool("CHECK_CONSISTENCY")
+        try:
+            future = tool.update({
+                "recheckAll": True,
+                "datasets": {"consistencyWithData": True},
+                "recipes": {"schemaConsistency": True, "otherExpensiveChecks": False},
+            })
+            future.wait_for_result()
+            state = tool.get_state()
+            render_raw(state, output_format=output)
+            success("Consistency check complete.")
+        finally:
+            tool.stop()
     except Exception as e:
         handle_api_error(e)
 

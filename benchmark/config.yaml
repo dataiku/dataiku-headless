@@ -1,0 +1,38 @@
+dss:
+  project_prefix: "BENCH"
+  folder: "Agent Benchmark"
+
+agents:
+  claude:
+    command: "claude"
+    model: "opus"
+    flags:
+      - "-p"
+      - "--output-format"
+      - "json"
+      - "--dangerously-skip-permissions"
+      - "--model"
+      - "opus"
+      - "--max-turns"
+      - "15"
+  codex:
+    command: "codex"
+    model: "gpt-5.4"
+    flags:
+      - "exec"
+      - "--json"
+      - "-m"
+      - "gpt-5.4"
+      - "-c"
+      - 'model_reasoning_effort="xhigh"'
+      - "--dangerously-bypass-approvals-and-sandbox"
+
+runner:
+  parallel: 4
+  timeout: 180
+  agents:
+    - claude
+    - codex
+
+scoring:
+  pass_threshold: 0.7

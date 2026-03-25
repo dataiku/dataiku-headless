@@ -51,9 +51,54 @@ def test_flow_create_zone(patch_client):
 
 
 def test_flow_propagate(patch_client):
-    result = runner.invoke(app, ["flow", "propagate", "--project", "PROJ1"])
+    result = runner.invoke(app, ["flow", "propagate", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "success" in result.output.lower() or "propagation" in result.output.lower()
+    assert "propagation" in result.output.lower()
+    proj = patch_client.get_project("PROJ1")
+    flow = proj.get_flow()
+    flow.new_schema_propagation.assert_called_once_with("ds1")
+
+
+def test_flow_propagate_with_options(patch_client):
+    result = runner.invoke(app, [
+        "flow", "propagate", "ds1",
+        "--stop-at", "recipe_a",
+        "--stop-at", "recipe_b",
+        "--mark-ok", "recipe_c",
+        "--no-auto-rebuild",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    flow = proj.get_flow()
+    builder = flow.new_schema_propagation.return_value
+    builder.stop_at.assert_any_call("recipe_a")
+    builder.stop_at.assert_any_call("recipe_b")
+    builder.mark_recipe_as_ok.assert_called_once_with("recipe_c")
+    builder.set_auto_rebuild.assert_called_once_with(False)
+
+
+def test_flow_propagate_missing_dataset(patch_client):
+    """Propagate without dataset argument should fail."""
+    result = runner.invoke(app, ["flow", "propagate", "--project", "PROJ1"])
+    assert result.exit_code != 0
+
+
+def test_flow_check(patch_client):
+    """Flow consistency check."""
+    result = runner.invoke(app, ["flow", "check", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "consistency check complete" in result.output.lower()
+    proj = patch_client.get_project("PROJ1")
+    flow = proj.get_flow()
+    flow.start_tool.assert_called_once_with("CHECK_CONSISTENCY")
+
+
+def test_flow_check_json(patch_client):
+    """Flow check with JSON output."""
+    result = runner.invoke(app, ["flow", "check", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    assert "status" in result.output
 
 
 def test_flow_sources(patch_client):

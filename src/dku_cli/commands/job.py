@@ -1,4 +1,4 @@
-"""dku job — list, status, log, abort, wait."""
+"""dku job — list, run, status, log, abort, wait."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import console, info, render, resolve_output_format, success, warn
+from dku_cli.output import console, error, info, render, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS jobs.")
 
@@ -115,6 +115,82 @@ def abort(
 
 
 _TERMINAL_STATES = {"DONE", "FAILED", "ABORTED"}
+_JOB_TYPES = [
+    "NON_RECURSIVE_FORCED_BUILD",
+    "RECURSIVE_BUILD",
+    "RECURSIVE_FORCED_BUILD",
+    "RECURSIVE_MISSING_ONLY_BUILD",
+]
+
+
+@app.command()
+def run(
+    ctx: typer.Context,
+    target: list[str] = typer.Option(..., "--target", help="Dataset/object to build (repeatable)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    job_type: str = typer.Option(
+        "NON_RECURSIVE_FORCED_BUILD",
+        "--type",
+        "-t",
+        help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
+    ),
+    auto_update_schema: bool = typer.Option(False, "--auto-update-schema", help="Auto-update output schemas before each recipe run"),
+    refresh_metastore: bool = typer.Option(False, "--refresh-metastore", help="Refresh Hive metastore after building HDFS datasets"),
+    wait_for_completion: bool = typer.Option(False, "--wait", "-w", help="Wait for job completion"),
+    timeout: int = typer.Option(0, "--timeout", help="Timeout in seconds when waiting (0 = no limit)"),
+) -> None:
+    """Run a build job with full control over build type and schema updates.
+
+    Use --type RECURSIVE_BUILD --auto-update-schema to build an entire pipeline
+    with automatic schema propagation — no manual schema fixing needed.
+    """
+    project_key = resolve_project(project)
+
+    if job_type not in _JOB_TYPES:
+        error(f"Invalid job type '{job_type}'. Must be one of: {', '.join(_JOB_TYPES)}")
+        raise typer.Exit(1)
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        builder = proj.new_job(job_type)
+
+        for name in target:
+            builder.with_output(name)
+        if auto_update_schema:
+            builder.with_auto_update_schema_before_each_recipe_run(True)
+        if refresh_metastore:
+            builder.with_refresh_metastore(True)
+
+        job = builder.start()
+        success(f"Job started: {job.id}")
+        info(f"Type: {job_type}, Targets: {', '.join(target)}")
+        if auto_update_schema:
+            info("Auto-update schema: enabled")
+
+        if wait_for_completion:
+            info("Waiting for completion...")
+            elapsed = 0.0
+            while True:
+                raw = job.get_status()
+                state = raw.get("baseStatus", {}).get("state", "")
+                if state in _TERMINAL_STATES:
+                    if state == "DONE":
+                        success(f"Job '{job.id}' completed successfully")
+                    else:
+                        warn(f"Job '{job.id}' finished with state: {state}")
+                    return
+                if timeout > 0 and elapsed >= timeout:
+                    warn(f"Timed out after {timeout}s — job '{job.id}' still in state: {state}")
+                    raise SystemExit(1)
+                time.sleep(2)
+                elapsed += 2
+    except SystemExit:
+        raise
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
 
 
 @app.command()

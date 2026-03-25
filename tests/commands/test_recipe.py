@@ -48,6 +48,34 @@ def test_recipe_run_wait(patch_client):
     assert result.exit_code == 0
 
 
+def test_recipe_run_with_type(patch_client):
+    """Run with --type uses job builder."""
+    result = runner.invoke(app, [
+        "recipe", "run", "recipe1",
+        "--type", "RECURSIVE_BUILD",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
+    builder = proj.new_job.return_value
+    # Should build recipe's output refs
+    builder.with_output.assert_called_once_with("output_ds")
+
+
+def test_recipe_run_auto_update_schema(patch_client):
+    """Run with --auto-update-schema uses job builder."""
+    result = runner.invoke(app, [
+        "recipe", "run", "recipe1",
+        "--auto-update-schema",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
+
+
 # --- New commands ---
 
 
@@ -500,3 +528,73 @@ def test_recipe_get_json_error_payload(patch_client):
     assert parsed["error"]["code"] == "not_found"
     assert parsed["error"]["exit_code"] == 3
     assert "recipe does not exist" in parsed["error"]["message"]
+
+
+# ── Schema inspection commands ───────────────────────────────────────
+
+
+def test_recipe_check_schema_no_changes(patch_client):
+    """check-schema exits 0 when no changes needed."""
+    result = runner.invoke(app, [
+        "recipe", "check-schema", "recipe1", "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "no schema updates" in result.output.lower()
+
+
+def test_recipe_check_schema_changes_needed(patch_client):
+    """check-schema exits 1 when changes are needed."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe("recipe1")
+    updates = recipe_mock.compute_schema_updates.return_value
+    updates.any_action_required.return_value = True
+    updates.data = {
+        "totalIncompatibilities": 2,
+        "computables": [
+            {
+                "datasetName": "output_ds",
+                "type": "DATASET",
+                "newSchema": {"columns": [{"name": "col1", "type": "string"}, {"name": "col2", "type": "int"}]},
+                "schemaChanged": True,
+            }
+        ],
+    }
+    result = runner.invoke(app, [
+        "recipe", "check-schema", "recipe1", "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "schema updates required" in result.output.lower()
+
+
+def test_recipe_check_schema_json(patch_client):
+    """check-schema JSON output."""
+    result = runner.invoke(app, [
+        "recipe", "check-schema", "recipe1", "--project", "PROJ1", "-o", "json",
+    ])
+    assert result.exit_code == 0
+    assert "totalIncompatibilities" in result.output
+
+
+def test_recipe_apply_schema_no_changes(patch_client):
+    """apply-schema does nothing when no changes needed."""
+    result = runner.invoke(app, [
+        "recipe", "apply-schema", "recipe1", "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "no schema updates" in result.output.lower()
+
+
+def test_recipe_apply_schema_with_changes(patch_client):
+    """apply-schema applies updates when changes exist."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe("recipe1")
+    updates = recipe_mock.compute_schema_updates.return_value
+    updates.any_action_required.return_value = True
+    updates.data = {"totalIncompatibilities": 1, "computables": []}
+    updates.apply.return_value = [{"status": "ok"}]
+    result = runner.invoke(app, [
+        "recipe", "apply-schema", "recipe1", "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "applied" in result.output.lower()
+    updates.apply.assert_called_once()

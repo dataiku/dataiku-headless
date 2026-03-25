@@ -14,9 +14,9 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [config](#config) — set, get, list, path, variables, set-variables
 - [project](#project) — list, get, export, create, delete, duplicate, variables, set-variables, permissions, set-permissions, tags
 - [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
-- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
+- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
-- [job](#job) — list, status, log, abort, wait
+- [job](#job) — list, run, status, log, abort, wait
 - [plugin](#plugin) — list, push, settings
 - [code-env](#code-env) — list, get, create, delete, update
 - [connection](#connection) — list, create, test
@@ -26,7 +26,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [webapp](#webapp) — list, start, stop, status
 - [macro](#macro) — list, run
 - [user](#user) — list, create
-- [flow](#flow) — graph, zones, create-zone, propagate, sources, successors
+- [flow](#flow) — graph, zones, create-zone, propagate, check, sources, successors
 - [library](#library) — list, read, write, delete, mkdir
 - [agent](#agent) — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm
 - [agent-tool](#agent-tool) — list, get, run, delete
@@ -97,7 +97,7 @@ All commands require project (`-P KEY` / `DKU_PROJECT` / config default).
 dku dataset list [-P PROJECT] [-o FORMAT]
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-o FORMAT]
-dku dataset build DATASET_NAME [-P PROJECT] [--wait]
+dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku dataset create DATASET_NAME --type TYPE [-c CONNECTION] [-P PROJECT] [--definition JSON]
 dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect]
 dku dataset delete DATASET_NAME [-P PROJECT]
@@ -111,6 +111,7 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 - `upload --no-autodetect` skips detection (if you'll set format manually)
 - `head` defaults to 10 rows, override with `-n`
 - `build --wait` blocks until job completes
+- `build --type RECURSIVE_BUILD --auto-update-schema` builds upstream deps with automatic schema propagation
 - `create --type UploadedFiles` for CSV upload targets
 - `create --type Filesystem` requires `--connection` and uses managed dataset creation semantics
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
@@ -120,7 +121,7 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 ```bash
 dku recipe list [-P PROJECT] [-o FORMAT]
 dku recipe get RECIPE_NAME [-P PROJECT] [-o FORMAT]
-dku recipe run RECIPE_NAME [-P PROJECT] [--wait]
+dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku recipe create RECIPE_NAME --type TYPE --input DS --output DS [-P PROJECT]
 dku recipe delete RECIPE_NAME [-P PROJECT]
 dku recipe set-code RECIPE_NAME --code CODE [-P PROJECT]
@@ -128,6 +129,8 @@ dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME --definition JSON [-P PROJECT]
 dku recipe add-input RECIPE_NAME --ref DS [--role main] [-P PROJECT]
 dku recipe add-output RECIPE_NAME --ref DS [--role main] [-P PROJECT]
+dku recipe check-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
+dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 dku recipe create-embed RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [-P PROJECT]
 dku recipe create-embed-docs RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [--vlm LLM_ID] [-P PROJECT]
 dku recipe create-extract RECIPE_NAME --input DS --output DS --vlm LLM_ID [-P PROJECT]
@@ -157,11 +160,17 @@ dku scenario set-definition SCENARIO_ID --definition JSON [-P PROJECT]
 
 ```bash
 dku job list [-P PROJECT] [-o FORMAT]
+dku job run --target NAME [--target NAME2] [-P PROJECT] [--type BUILD_TYPE] [--auto-update-schema] [--wait] [--timeout SECS] [--refresh-metastore]
 dku job status JOB_ID [-P PROJECT] [-o FORMAT]
 dku job log JOB_ID [-P PROJECT]
 dku job abort JOB_ID [-P PROJECT]
 dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 ```
+
+- `run --target` is repeatable for building multiple outputs in one job
+- `run --type` defaults to `NON_RECURSIVE_FORCED_BUILD`; use `RECURSIVE_BUILD` to build upstream deps
+- `run --auto-update-schema` auto-updates output schemas before each recipe run — eliminates manual schema propagation
+- `run --wait` blocks until completion; combine with `--timeout` for bounded waits
 
 ## plugin
 
@@ -259,10 +268,17 @@ dku user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--g
 dku flow graph [-P PROJECT] [-o FORMAT]
 dku flow zones [-P PROJECT] [-o FORMAT]
 dku flow create-zone NAME [-P PROJECT]
-dku flow propagate [-P PROJECT] [-o FORMAT]
+dku flow propagate DATASET [-P PROJECT] [--stop-at RECIPE ...] [--mark-ok RECIPE ...] [--no-auto-rebuild] [-o FORMAT]
+dku flow check [-P PROJECT] [-o FORMAT]
 dku flow sources [-P PROJECT] [-o FORMAT]
 dku flow successors NODE [-P PROJECT] [-o FORMAT]
 ```
+
+- `propagate` requires a dataset name as starting point for schema propagation
+- `propagate --stop-at` stops propagation at the given recipe (repeatable)
+- `propagate --mark-ok` marks a recipe as always OK during propagation (repeatable)
+- `propagate --no-auto-rebuild` disables automatic rebuilds during propagation
+- `check` runs schema + data consistency checks on the entire flow
 
 ## library
 

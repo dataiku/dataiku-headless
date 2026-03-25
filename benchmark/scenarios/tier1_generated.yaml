@@ -1,0 +1,1789 @@
+tests:
+- id: t1_gen_project_list_000
+  tier: 1
+  category: project
+  prompt: List all projects in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_get_001
+  tier: 1
+  category: project
+  prompt: Get the details of project 'MYPROJ' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_export_002
+  tier: 1
+  category: project
+  prompt: Export project 'MYPROJ' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project export
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_create_003
+  tier: 1
+  category: project
+  prompt: Create a new project called 'MYPROJ' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_delete_004
+  tier: 1
+  category: project
+  prompt: Delete project 'MYPROJ' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_duplicate_005
+  tier: 1
+  category: project
+  prompt: Use the dku CLI to duplicate project.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project duplicate
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_variables_006
+  tier: 1
+  category: project
+  prompt: Show the variables for project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project variables
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_set_variables_007
+  tier: 1
+  category: project
+  prompt: Use the dku CLI to set-variables project.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project set-variables
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_permissions_008
+  tier: 1
+  category: project
+  prompt: Show the permissions for project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project permissions
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_set_permissions_009
+  tier: 1
+  category: project
+  prompt: Use the dku CLI to set-permissions project.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project set-permissions
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_project_tags_010
+  tier: 1
+  category: project
+  prompt: Use the dku CLI to tags project.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku project tags
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_list_011
+  tier: 1
+  category: dataset
+  prompt: List all datasets in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_schema_012
+  tier: 1
+  category: dataset
+  prompt: Show the schema of dataset 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset schema
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_head_013
+  tier: 1
+  category: dataset
+  prompt: Show the first few rows of dataset 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset head
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_build_014
+  tier: 1
+  category: dataset
+  prompt: Build dataset 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset build
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_create_015
+  tier: 1
+  category: dataset
+  prompt: Create a new dataset called 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_upload_016
+  tier: 1
+  category: dataset
+  prompt: Use the dku CLI to upload dataset.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset upload
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_delete_017
+  tier: 1
+  category: dataset
+  prompt: Delete dataset 'my_item' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_clear_018
+  tier: 1
+  category: dataset
+  prompt: Use the dku CLI to clear dataset.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset clear
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_get_definition_019
+  tier: 1
+  category: dataset
+  prompt: Use the dku CLI to get-definition dataset.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset get-definition
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_set_definition_020
+  tier: 1
+  category: dataset
+  prompt: Use the dku CLI to set-definition dataset.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset set-definition
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_dataset_set_schema_021
+  tier: 1
+  category: dataset
+  prompt: Use the dku CLI to set-schema dataset.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku dataset set-schema
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_list_022
+  tier: 1
+  category: recipe
+  prompt: List all recipes in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_get_023
+  tier: 1
+  category: recipe
+  prompt: Get the details of recipe 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_run_024
+  tier: 1
+  category: recipe
+  prompt: Run recipe 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe run
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_create_025
+  tier: 1
+  category: recipe
+  prompt: Create a new recipe called 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_delete_026
+  tier: 1
+  category: recipe
+  prompt: Delete recipe 'my_item' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_set_code_027
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to set-code recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe set-code
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_get_code_028
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to get-code recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe get-code
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_set_definition_029
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to set-definition recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe set-definition
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_add_input_030
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to add-input recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe add-input
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_add_output_031
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to add-output recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe add-output
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_check_schema_032
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to check-schema recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe check-schema
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_apply_schema_033
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to apply-schema recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe apply-schema
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_create_embed_034
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to create-embed recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe create-embed
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_create_embed_docs_035
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to create-embed-docs recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe create-embed-docs
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_create_extract_036
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to create-extract recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe create-extract
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_create_llm_eval_037
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to create-llm-eval recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe create-llm-eval
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_recipe_create_agent_eval_038
+  tier: 1
+  category: recipe
+  prompt: Use the dku CLI to create-agent-eval recipe.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku recipe create-agent-eval
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_list_039
+  tier: 1
+  category: scenario
+  prompt: List all scenarios in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_run_040
+  tier: 1
+  category: scenario
+  prompt: Run scenario 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario run
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_abort_041
+  tier: 1
+  category: scenario
+  prompt: Abort scenario 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario abort
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_status_042
+  tier: 1
+  category: scenario
+  prompt: Show the status of scenario 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario status
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_create_043
+  tier: 1
+  category: scenario
+  prompt: Create a new scenario called 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_delete_044
+  tier: 1
+  category: scenario
+  prompt: Delete scenario 'item1' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_get_definition_045
+  tier: 1
+  category: scenario
+  prompt: Use the dku CLI to get-definition scenario.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario get-definition
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_scenario_set_definition_046
+  tier: 1
+  category: scenario
+  prompt: Use the dku CLI to set-definition scenario.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku scenario set-definition
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_job_list_047
+  tier: 1
+  category: job
+  prompt: List all jobs in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku job list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_job_run_048
+  tier: 1
+  category: job
+  prompt: Run job '--target my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku job run
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_job_status_049
+  tier: 1
+  category: job
+  prompt: Show the status of job 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku job status
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_job_log_050
+  tier: 1
+  category: job
+  prompt: Show the log for job 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku job log
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_job_abort_051
+  tier: 1
+  category: job
+  prompt: Abort job 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku job abort
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_job_wait_052
+  tier: 1
+  category: job
+  prompt: Use the dku CLI to wait job.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku job wait
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_plugin_list_053
+  tier: 1
+  category: plugin
+  prompt: List all plugins.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku plugin list
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_plugin_push_054
+  tier: 1
+  category: plugin
+  prompt: Use the dku CLI to push plugin.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku plugin push
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_plugin_settings_055
+  tier: 1
+  category: plugin
+  prompt: Use the dku CLI to settings plugin.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku plugin settings
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_code_env_list_056
+  tier: 1
+  category: code-env
+  prompt: List all code envs.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku code-env list
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_code_env_get_057
+  tier: 1
+  category: code-env
+  prompt: Get the details of code env 'my_item'.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku code-env get
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_code_env_create_058
+  tier: 1
+  category: code-env
+  prompt: Create a new code env called 'my_item'.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku code-env create
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_code_env_delete_059
+  tier: 1
+  category: code-env
+  prompt: Delete code env 'my_item'.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku code-env delete
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_code_env_update_060
+  tier: 1
+  category: code-env
+  prompt: Use the dku CLI to update code-env.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku code-env update
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_connection_list_061
+  tier: 1
+  category: connection
+  prompt: List all connections.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku connection list
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_connection_create_062
+  tier: 1
+  category: connection
+  prompt: Create a new connection called 'my_item'.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku connection create
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_connection_test_063
+  tier: 1
+  category: connection
+  prompt: Use the dku CLI to test connection.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku connection test
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_model_list_064
+  tier: 1
+  category: model
+  prompt: List all models in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku model list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_model_get_065
+  tier: 1
+  category: model
+  prompt: Get the details of model 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku model get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_model_versions_066
+  tier: 1
+  category: model
+  prompt: Use the dku CLI to versions model.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku model versions
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_folder_list_067
+  tier: 1
+  category: folder
+  prompt: List all folders in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku folder list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_folder_ls_068
+  tier: 1
+  category: folder
+  prompt: Use the dku CLI to ls folder.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku folder ls
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_folder_upload_069
+  tier: 1
+  category: folder
+  prompt: Use the dku CLI to upload folder.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku folder upload
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_folder_download_070
+  tier: 1
+  category: folder
+  prompt: Use the dku CLI to download folder.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku folder download
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_llm_list_071
+  tier: 1
+  category: llm
+  prompt: List all llms in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku llm list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_llm_completion_072
+  tier: 1
+  category: llm
+  prompt: Use the dku CLI to completion llm.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku llm completion
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_llm_embeddings_073
+  tier: 1
+  category: llm
+  prompt: Use the dku CLI to embeddings llm.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku llm embeddings
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_webapp_list_074
+  tier: 1
+  category: webapp
+  prompt: List all webapps in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku webapp list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_webapp_start_075
+  tier: 1
+  category: webapp
+  prompt: Use the dku CLI to start webapp.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku webapp start
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_webapp_stop_076
+  tier: 1
+  category: webapp
+  prompt: Use the dku CLI to stop webapp.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku webapp stop
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_webapp_status_077
+  tier: 1
+  category: webapp
+  prompt: Show the status of webapp 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku webapp status
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_macro_list_078
+  tier: 1
+  category: macro
+  prompt: List all macros in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku macro list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_macro_run_079
+  tier: 1
+  category: macro
+  prompt: Run macro 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku macro run
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_user_list_080
+  tier: 1
+  category: user
+  prompt: List all users.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku user list
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_user_create_081
+  tier: 1
+  category: user
+  prompt: Create a new user called 'LOGIN'.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku user create
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_graph_082
+  tier: 1
+  category: flow
+  prompt: Show the flow graph for project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow graph
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_zones_083
+  tier: 1
+  category: flow
+  prompt: List the flow zones in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow zones
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_create_zone_084
+  tier: 1
+  category: flow
+  prompt: Use the dku CLI to create-zone flow.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow create-zone
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_propagate_085
+  tier: 1
+  category: flow
+  prompt: Use the dku CLI to propagate flow.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow propagate
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_check_086
+  tier: 1
+  category: flow
+  prompt: Use the dku CLI to check flow.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow check
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_sources_087
+  tier: 1
+  category: flow
+  prompt: Use the dku CLI to sources flow.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow sources
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_flow_successors_088
+  tier: 1
+  category: flow
+  prompt: Use the dku CLI to successors flow.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku flow successors
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_library_list_089
+  tier: 1
+  category: library
+  prompt: List all librarys in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku library list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_library_read_090
+  tier: 1
+  category: library
+  prompt: Use the dku CLI to read library.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku library read
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_library_write_091
+  tier: 1
+  category: library
+  prompt: Use the dku CLI to write library.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku library write
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_library_delete_092
+  tier: 1
+  category: library
+  prompt: Delete library 'PATH' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku library delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_library_mkdir_093
+  tier: 1
+  category: library
+  prompt: Use the dku CLI to mkdir library.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku library mkdir
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_list_094
+  tier: 1
+  category: agent
+  prompt: List all agents in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_create_095
+  tier: 1
+  category: agent
+  prompt: Create a new agent called 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_get_096
+  tier: 1
+  category: agent
+  prompt: Get the details of agent 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_delete_097
+  tier: 1
+  category: agent
+  prompt: Delete agent 'item1' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_wake_up_098
+  tier: 1
+  category: agent
+  prompt: Use the dku CLI to wake-up agent.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent wake-up
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_shutdown_099
+  tier: 1
+  category: agent
+  prompt: Use the dku CLI to shutdown agent.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent shutdown
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_status_100
+  tier: 1
+  category: agent
+  prompt: Show the status of agent 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent status
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_add_tool_101
+  tier: 1
+  category: agent
+  prompt: Use the dku CLI to add-tool agent.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent add-tool
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_set_llm_102
+  tier: 1
+  category: agent
+  prompt: Use the dku CLI to set-llm agent.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent set-llm
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_tool_list_103
+  tier: 1
+  category: agent-tool
+  prompt: List all agent tools in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent-tool list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_tool_get_104
+  tier: 1
+  category: agent-tool
+  prompt: Get the details of agent tool 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent-tool get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_tool_run_105
+  tier: 1
+  category: agent-tool
+  prompt: Run agent tool 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent-tool run
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_agent_tool_delete_106
+  tier: 1
+  category: agent-tool
+  prompt: Delete agent tool 'item1' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku agent-tool delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_knowledge_list_107
+  tier: 1
+  category: knowledge
+  prompt: List all knowledges in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku knowledge list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_knowledge_create_108
+  tier: 1
+  category: knowledge
+  prompt: Create a new knowledge called 'my_item' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku knowledge create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_knowledge_get_109
+  tier: 1
+  category: knowledge
+  prompt: Get the details of knowledge 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku knowledge get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_knowledge_build_110
+  tier: 1
+  category: knowledge
+  prompt: Build knowledge 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku knowledge build
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_knowledge_search_111
+  tier: 1
+  category: knowledge
+  prompt: Search knowledge 'item1' for relevant content in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku knowledge search
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_knowledge_delete_112
+  tier: 1
+  category: knowledge
+  prompt: Delete knowledge 'item1' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku knowledge delete
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_bundle_list_113
+  tier: 1
+  category: bundle
+  prompt: List all bundles in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku bundle list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_bundle_export_114
+  tier: 1
+  category: bundle
+  prompt: Export bundle 'item1' from project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku bundle export
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_bundle_download_115
+  tier: 1
+  category: bundle
+  prompt: Use the dku CLI to download bundle.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku bundle download
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_bundle_import_116
+  tier: 1
+  category: bundle
+  prompt: Use the dku CLI to import bundle.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku bundle import
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_bundle_activate_117
+  tier: 1
+  category: bundle
+  prompt: Use the dku CLI to activate bundle.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku bundle activate
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_api_service_list_118
+  tier: 1
+  category: api-service
+  prompt: List all api services in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku api-service list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_api_service_create_119
+  tier: 1
+  category: api-service
+  prompt: Create a new api service called 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku api-service create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_api_service_get_120
+  tier: 1
+  category: api-service
+  prompt: Get the details of api service 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku api-service get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_api_service_create_package_121
+  tier: 1
+  category: api-service
+  prompt: Use the dku CLI to create-package api-service.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku api-service create-package
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_api_service_list_packages_122
+  tier: 1
+  category: api-service
+  prompt: Use the dku CLI to list-packages api-service.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku api-service list-packages
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_wiki_list_123
+  tier: 1
+  category: wiki
+  prompt: List all wikis in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku wiki list
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_wiki_create_124
+  tier: 1
+  category: wiki
+  prompt: Create a new wiki called 'TITLE' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku wiki create
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_wiki_get_125
+  tier: 1
+  category: wiki
+  prompt: Get the details of wiki 'item1' in project {project}.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku wiki get
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_sql_query_126
+  tier: 1
+  category: sql
+  prompt: Run a SQL query on the DSS instance.
+  needs_project: true
+  expect:
+    commands:
+    - pattern: dku sql query
+      required: true
+      flags:
+      - -P {project}
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_config_set/get_127
+  tier: 1
+  category: config
+  prompt: Use the dku CLI to set/get config.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku config set/get
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_config_variables_128
+  tier: 1
+  category: config
+  prompt: Show the variables for project {project}.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku config variables
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5
+- id: t1_gen_config_set_variables_129
+  tier: 1
+  category: config
+  prompt: Use the dku CLI to set-variables config.
+  needs_project: false
+  expect:
+    commands:
+    - pattern: dku config set-variables
+      required: true
+  rubric:
+    command_correct: 1.0
+    efficiency: 0.5

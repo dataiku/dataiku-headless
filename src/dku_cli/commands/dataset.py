@@ -124,19 +124,39 @@ def build(
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     wait: bool = typer.Option(False, "--wait", "-w", help="Wait for completion"),
+    job_type: str = typer.Option(
+        None, "--type", "-t",
+        help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
+    ),
+    auto_update_schema: bool = typer.Option(False, "--auto-update-schema", help="Auto-update output schemas before each recipe run"),
 ) -> None:
-    """Trigger dataset build."""
+    """Trigger dataset build.
+
+    Use --type RECURSIVE_BUILD --auto-update-schema to build the entire upstream
+    pipeline with automatic schema propagation.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        ds = proj.get_dataset(dataset_name)
-        job = ds.build()
 
         from dku_cli.output import error, info, success
 
+        # Use job builder when advanced options are specified
+        if job_type or auto_update_schema:
+            builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
+            builder.with_output(dataset_name)
+            if auto_update_schema:
+                builder.with_auto_update_schema_before_each_recipe_run(True)
+            job = builder.start()
+        else:
+            ds = proj.get_dataset(dataset_name)
+            job = ds.build()
+
         success(f"Build started for {dataset_name}")
         info(f"Job ID: {job.id}")
+        if auto_update_schema:
+            info("Auto-update schema: enabled")
 
         if wait:
             info("Waiting for completion...")

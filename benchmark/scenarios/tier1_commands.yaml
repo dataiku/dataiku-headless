@@ -1,0 +1,133 @@
+tests:
+  - id: t1_project_list
+    tier: 1
+    category: project
+    prompt: "List all projects on this Dataiku DSS instance. Show the output as a table."
+    needs_project: false
+    expect:
+      commands:
+        - pattern: "dku project list"
+          required: true
+    rubric:
+      command_correct: 1.0
+      efficiency: 0.5
+
+  - id: t1_dataset_list
+    tier: 1
+    category: dataset
+    prompt: "List all datasets in project {project}."
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku dataset list"
+          required: true
+          flags: ["-P {project}"]
+    rubric:
+      command_correct: 1.0
+      flags_correct: 1.0
+
+  - id: t1_llm_list
+    tier: 1
+    category: llm
+    prompt: "What LLMs are configured and available in project {project}? Show me the full list."
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku llm list"
+          required: true
+          flags: ["-P {project}"]
+    rubric:
+      command_correct: 1.0
+      flags_correct: 1.0
+
+  - id: t1_flow_graph
+    tier: 1
+    category: flow
+    prompt: "Show me the flow graph of project {project}. I want to understand the data pipeline structure."
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku flow graph"
+          required: true
+          flags: ["-P {project}"]
+    rubric:
+      command_correct: 1.0
+      flags_correct: 1.0
+
+  - id: t1_plugin_list
+    tier: 1
+    category: plugin
+    prompt: "List all plugins installed on this DSS instance."
+    needs_project: false
+    expect:
+      commands:
+        - pattern: "dku plugin list"
+          required: true
+    rubric:
+      command_correct: 1.0
+
+  - id: t1_scenario_list
+    tier: 1
+    category: scenario
+    prompt: "List all scenarios in project {project}."
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku scenario list"
+          required: true
+          flags: ["-P {project}"]
+    rubric:
+      command_correct: 1.0
+      flags_correct: 1.0
+
+  - id: t1_recipe_list
+    tier: 1
+    category: recipe
+    prompt: "Show me all the recipes in project {project}."
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku recipe list"
+          required: true
+          flags: ["-P {project}"]
+    rubric:
+      command_correct: 1.0
+      flags_correct: 1.0
+
+  - id: t1_whoami
+    tier: 1
+    category: auth
+    prompt: "Who am I logged in as on this DSS instance? Show my user info."
+    needs_project: false
+    expect:
+      commands:
+        - pattern: "dku whoami"
+          required: true
+    rubric:
+      command_correct: 1.0
+
+  - id: t1_project_variables
+    tier: 1
+    category: project
+    prompt: "Show me the variables of project {project}."
+    needs_project: true
+    expect:
+      commands:
+        - pattern: "dku project variables"
+          required: true
+          flags: ["-P {project}"]
+    rubric:
+      command_correct: 1.0
+      flags_correct: 1.0
+
+  - id: t1_code_env_list
+    tier: 1
+    category: code-env
+    prompt: "List all code environments on this DSS instance."
+    needs_project: false
+    expect:
+      commands:
+        - pattern: "dku code-env list"
+          required: true
+    rubric:
+      command_correct: 1.0
