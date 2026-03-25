@@ -99,7 +99,11 @@ dku knowledge list -P $PROJECT -o json
 dku flow graph -P $PROJECT -o json
 ```
 
-This returns the full flow graph with nodes and edges, showing how datasets, recipes, and other objects connect.
+This returns the full flow graph with nodes and edges, showing how datasets, recipes, and other objects connect. For a human-readable ASCII tree view:
+
+```bash
+dku flow visualize -P $PROJECT
+```
 
 For flow zones:
 ```bash

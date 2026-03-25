@@ -338,6 +338,7 @@ dku user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--g
 
 ```bash
 dku flow graph [-P PROJECT] [-o FORMAT]
+dku flow visualize [-P PROJECT]
 dku flow zones [-P PROJECT] [-o FORMAT]
 dku flow create-zone NAME [-P PROJECT]
 dku flow propagate DATASET [-P PROJECT] [--stop-at RECIPE ...] [--mark-ok RECIPE ...] [--no-auto-rebuild] [-o FORMAT]
