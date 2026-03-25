@@ -8,7 +8,13 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    render,
+    render_dag,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Inspect DSS project flow.")
 
@@ -48,6 +54,21 @@ def graph(
                 output_format=output,
                 title=f"Flow Graph ({project_key})",
             )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def visualize(
+    ctx: typer.Context,
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Render flow DAG as an ASCII tree."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        graph_obj = client.get_project(project_key).get_flow().get_graph()
+        render_dag(graph_obj.nodes, f"Flow DAG ({project_key})")
     except Exception as e:
         handle_api_error(e)
 
