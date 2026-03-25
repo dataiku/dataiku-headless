@@ -183,6 +183,7 @@ dku sql query @query.sql --connection my_pg   # From file
 ```bash
 dku flow graph -P MYPROJECT                   # Flow graph summary
 dku flow graph -P MYPROJECT -o json           # Full graph as JSON
+dku flow visualize -P MYPROJECT               # Render flow as ASCII DAG tree
 dku flow zones -P MYPROJECT                   # List zones
 dku flow create-zone "Staging" -P MYPROJECT   # Create zone
 dku flow propagate ds1 -P MYPROJECT           # Schema propagation from dataset

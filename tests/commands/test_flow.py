@@ -141,6 +141,16 @@ def test_flow_successors_empty(patch_client):
     # recipe1 has no successors, so output should be empty table or empty json
 
 
+def test_flow_visualize(patch_client):
+    result = runner.invoke(app, ["flow", "visualize", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    # ds1 is a source DATASET, recipe1 is its successor RECIPE
+    assert "ds1" in result.output
+    assert "recipe1" in result.output
+    assert "DATASET" in result.output
+    assert "RECIPE" in result.output
+
+
 # ---------------------------------------------------------------------------
 # Flow move command tests
 # ---------------------------------------------------------------------------

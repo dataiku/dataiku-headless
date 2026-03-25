@@ -101,6 +101,7 @@ Every `dku` CLI command maps to one or more `dataikuapi` calls. This table is th
 | `dku user list` | `client.list_users()` |
 | `dku user create LOGIN` | `client.create_user(login, password, display_name, email, groups)` |
 | `dku flow graph` | `get_flow().get_graph()` |
+| `dku flow visualize` | `get_flow().get_graph()` → render as Rich ASCII DAG tree |
 | `dku flow zones` | `get_flow().list_zones()` |
 | `dku flow create-zone NAME` | `get_flow().create_zone(name)` |
 | `dku flow propagate DATASET` | `get_flow().new_schema_propagation(dataset).start().wait_for_result()` |

@@ -10,6 +10,7 @@ from typing import Any, Sequence
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.tree import Tree
 
 from dku_cli.brand import ICON
 
@@ -149,6 +150,42 @@ def warn(msg: str) -> None:
 def info(msg: str) -> None:
     if not _quiet:
         err_console.print(f"[dim]{msg}[/dim]")
+
+
+def render_dag(nodes: dict[str, Any], title: str) -> None:
+    """Render a flow DAG as a Rich ASCII tree.
+
+    Traverses from source nodes (no predecessors), color-codes datasets (cyan)
+    vs recipes (yellow), and marks already-visited nodes with (↑) to handle
+    shared nodes in non-tree DAGs.
+    """
+    has_predecessor: set[str] = set()
+    for node in nodes.values():
+        for s in node.get("successors", []):
+            has_predecessor.add(s)
+    sources = [nid for nid in nodes if nid not in has_predecessor]
+
+    visited: set[str] = set()
+
+    def add_branch(parent: Tree, node_id: str) -> None:
+        node = nodes.get(node_id, {})
+        ntype = node.get("type", "?")
+        ref = node.get("ref", node_id)
+        color = "cyan" if ntype == "DATASET" else "yellow"
+        already = node_id in visited
+        label = f"[{color}][{ntype}][/{color}] {ref}" + (
+            " [dim](↑)[/dim]" if already else ""
+        )
+        branch = parent.add(label)
+        if not already:
+            visited.add(node_id)
+            for s in node.get("successors", []):
+                add_branch(branch, s)
+
+    root = Tree(f"[bold]{title}[/bold]")
+    for src in sources:
+        add_branch(root, src)
+    console.print(root)
 
 
 def render_raw(data: Any, output_format: str = "json") -> None:
