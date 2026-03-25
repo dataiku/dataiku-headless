@@ -31,6 +31,28 @@ npx skills add dataiku/dataiku-cli -g -a codex                          # DevKit
 
 ---
 
+## Table of Contents
+
+- [Why DevKit & CLI?](#why-devkit--cli)
+- [`dku` CLI](#dku-cli)
+  - [Quick Start](#quick-start)
+  - [Installation](#installation)
+  - [Authentication](#authentication)
+  - [Output Formats](#output-formats)
+  - [JSON Input](#json-input)
+  - [Configuration](#configuration)
+  - [Agentic Workflow](#agentic-workflow)
+  - [Command Reference](#command-reference)
+- [Dataiku DevKit](#dataiku-devkit)
+  - [Installation](#installation-1)
+  - [Components](#components)
+  - [Benchmark](#benchmark)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [License](#license)
+
+---
+
 ## Why DevKit & CLI?
 
 ### CLI vs alternatives
@@ -62,7 +84,9 @@ The `dku-cli` skill reduces cost 30–50% by documenting exact commands upfront,
 
 ---
 
-## Quick Start
+## `dku` CLI
+
+### Quick Start
 
 ```bash
 # Authenticate
@@ -87,10 +111,6 @@ dku dataset head my_dataset -P MYPROJECT
 # List plugins (JSON for scripting)
 dku plugin list -o json | jq '.[].id'
 ```
-
----
-
-## `dku` CLI
 
 ### Installation
 
@@ -378,32 +398,7 @@ dataiku-cli/
 │   ├── config.py                   # TOML config read/write via platformdirs
 │   ├── output.py                   # All rendering: table/json/csv, quiet mode
 │   ├── errors.py                   # dataikuapi exception → user-friendly message + exit code
-│   └── commands/                   # 25 command groups (one file per noun)
-│       ├── project.py
-│       ├── dataset.py
-│       ├── recipe.py
-│       ├── scenario.py
-│       ├── job.py
-│       ├── library.py
-│       ├── agent.py
-│       ├── agent_tool.py
-│       ├── knowledge.py
-│       ├── llm.py
-│       ├── flow.py
-│       ├── bundle.py
-│       ├── api_service.py
-│       ├── wiki.py
-│       ├── sql.py
-│       ├── plugin.py
-│       ├── codeenv.py
-│       ├── connection.py
-│       ├── model.py
-│       ├── folder.py
-│       ├── webapp.py
-│       ├── macro.py
-│       ├── user.py
-│       ├── auth_cmd.py
-│       └── config_cmd.py
+│   └── commands/                   # one file per noun (25 command groups)
 ├── dataiku-devkit/                 # AI agent DevKit
 │   ├── .claude-plugin/
 │   │   └── plugin.json             # Plugin manifest (Claude Code marketplace)
