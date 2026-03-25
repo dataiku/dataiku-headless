@@ -22,8 +22,8 @@
 Ships a **`dku` CLI** (139 commands, 25 groups) and **9 agent skills** with 26 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash  # Install CLI
-npx skills add dataiku/dataiku-cli --all             # Install AI agent skills
+bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)  # Install CLI
+bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)  # Install skills
 ```
 
 ## Why dku-cli?
@@ -67,10 +67,10 @@ dku plugin list -o json | jq '.[].id'
 
 ## Installation
 
-**One-liner** (auto-detects uv/pipx/pip, installs from GitHub):
+**One-liner** (requires [gh CLI](https://cli.github.com) for private repo access):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
+bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)
 ```
 
 **Direct:**
@@ -126,7 +126,7 @@ npx skills add dataiku/dataiku-cli --all
 ### Manual Install (no Node.js required)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-plugin.sh | bash
+bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)
 ```
 
 Or copy the `skills/` directory from this repo into your agent's skills directory (e.g., `~/.claude/skills/`).
@@ -145,13 +145,10 @@ Then install the full DevKit using any method above. The new installer will also
 
 ```bash
 # Update CLI (re-run the installer)
-curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install.sh | bash
+bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)
 
-# Update skills (if installed via npx)
-npx skills update
-
-# Update skills (if installed via curl — just re-run it)
-curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-plugin.sh | bash
+# Update skills (re-run the skill installer)
+bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)
 ```
 
 The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below. The other skills add plugin development, scaffolding, and code review capabilities.

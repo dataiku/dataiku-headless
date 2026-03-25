@@ -2,15 +2,20 @@
 # Install the Dataiku DevKit skills for AI coding agents.
 #
 # Usage:
+#   bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)
+#   ... --project       # Install to current project [default]
+#   ... --global        # Install to user-level (~/.claude/skills/)
+#   ... --agent claude  # Force agent type (claude/codex/cursor)
+#
+# For public repos:
 #   curl -fsSL https://raw.githubusercontent.com/dataiku/dataiku-cli/main/install-plugin.sh | bash
-#   curl -fsSL ... | bash -s -- --project       # Install to current project [default]
-#   curl -fsSL ... | bash -s -- --global        # Install to user-level (~/.claude/skills/)
-#   curl -fsSL ... | bash -s -- --agent claude  # Force agent type (claude/codex/cursor)
 #
 # Supports: Claude Code, OpenAI Codex, Cursor, and any agent that reads SKILL.md files.
 set -euo pipefail
 
-REPO="https://raw.githubusercontent.com/dataiku/dataiku-cli/main"
+REPO_OWNER="dataiku"
+REPO_NAME="dataiku-cli"
+REPO_RAW="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main"
 SCOPE="project"
 AGENT=""
 
@@ -22,6 +27,23 @@ while [ $# -gt 0 ]; do
         *)  echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+# Download helper: tries gh api (authenticated, works for private repos), falls back to curl
+download_file() {
+    local remote_path="$1"
+    local dest="$2"
+    # Try gh api first (handles private repos)
+    if command -v gh &>/dev/null; then
+        if gh api "repos/$REPO_OWNER/$REPO_NAME/contents/$remote_path" --jq '.content' 2>/dev/null | base64 -d > "$dest" 2>/dev/null; then
+            [ -s "$dest" ] && return 0
+        fi
+    fi
+    # Fall back to curl (public repos only)
+    if curl -fsSL "$REPO_RAW/$remote_path" -o "$dest" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
 
 # Determine skills directory based on agent and scope
 detect_base() {
@@ -61,7 +83,7 @@ SKILLS="dataiku dku-cli new-plugin new-tool new-recipe new-webapp new-guardrail 
 for skill in $SKILLS; do
     mkdir -p "$SKILLS_DIR/$skill"
     echo "  skills/$skill/SKILL.md"
-    if ! curl -fsSL "$REPO/skills/$skill/SKILL.md" -o "$SKILLS_DIR/$skill/SKILL.md"; then
+    if ! download_file "skills/$skill/SKILL.md" "$SKILLS_DIR/$skill/SKILL.md"; then
         echo "    WARNING: failed to download $skill/SKILL.md" >&2
         FAILED=$((FAILED + 1))
     fi
@@ -70,7 +92,7 @@ done
 # Download dku-cli command reference
 mkdir -p "$SKILLS_DIR/dku-cli/references"
 echo "  skills/dku-cli/references/commands.md"
-if ! curl -fsSL "$REPO/skills/dku-cli/references/commands.md" -o "$SKILLS_DIR/dku-cli/references/commands.md"; then
+if ! download_file "skills/dku-cli/references/commands.md" "$SKILLS_DIR/dku-cli/references/commands.md"; then
     FAILED=$((FAILED + 1))
 fi
 
@@ -80,7 +102,7 @@ REFS="plugin-structure recipes llm-tools webapps webapp-pitfalls parameters code
 
 for ref in $REFS; do
     echo "  skills/dataiku/references/$ref.md"
-    if ! curl -fsSL "$REPO/skills/dataiku/references/$ref.md" -o "$SKILLS_DIR/dataiku/references/$ref.md"; then
+    if ! download_file "skills/dataiku/references/$ref.md" "$SKILLS_DIR/dataiku/references/$ref.md"; then
         echo "    WARNING: failed to download $ref.md" >&2
         FAILED=$((FAILED + 1))
     fi
@@ -100,7 +122,7 @@ if [ "$RESOLVED_AGENT" = "claude" ]; then
     mkdir -p "$AGENTS_DIR"
     for agent in plugin-reviewer dss-explorer tool-designer; do
         echo "  agents/$agent.md"
-        if ! curl -fsSL "$REPO/agents/$agent.md" -o "$AGENTS_DIR/$agent.md"; then
+        if ! download_file "agents/$agent.md" "$AGENTS_DIR/$agent.md"; then
             echo "    WARNING: failed to download $agent.md" >&2
             FAILED=$((FAILED + 1))
         fi
@@ -109,8 +131,10 @@ fi
 
 echo ""
 if [ "$FAILED" -gt 0 ]; then
-    echo "Installed with $FAILED failed downloads. Re-run or use:"
-    echo "  npx skills add dataiku/dataiku-cli --all"
+    echo "Installed with $FAILED failed downloads."
+    if ! command -v gh &>/dev/null; then
+        echo "Tip: install gh CLI (https://cli.github.com) for private repo access."
+    fi
 else
     echo "Installed Dataiku DevKit (9 skills, 27 reference docs, 3 agents)."
 fi
