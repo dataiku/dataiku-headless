@@ -15,7 +15,9 @@ runner = CliRunner()
 
 def _write_plugin_zip(path, plugin_id: str) -> None:
     with ZipFile(path, "w") as archive:
-        archive.writestr("plugin.json", json.dumps({"id": plugin_id, "version": "1.0.0"}))
+        archive.writestr(
+            "plugin.json", json.dumps({"id": plugin_id, "version": "1.0.0"})
+        )
 
 
 def test_plugin_list_table(patch_client):
@@ -64,7 +66,9 @@ def test_plugin_settings_view(patch_client):
 def test_plugin_push_reads_plugin_id_from_archive(tmp_path, patch_client):
     plugin_obj = MagicMock()
     patch_client.get_plugin.return_value = plugin_obj
-    patch_client.list_plugins.return_value = [{"id": "real-plugin", "version": "1.0.0", "isDev": False}]
+    patch_client.list_plugins.return_value = [
+        {"id": "real-plugin", "version": "1.0.0", "isDev": False}
+    ]
 
     zip_path = tmp_path / "release-1.2.3.zip"
     _write_plugin_zip(zip_path, "real-plugin")

@@ -48,7 +48,11 @@ def mock_client():
         "shortDesc": "First project",
     }
     proj1.list_datasets.return_value = [
-        {"name": "ds1", "type": "UploadedFiles", "schema": {"columns": [{"name": "col1", "type": "string"}]}},
+        {
+            "name": "ds1",
+            "type": "UploadedFiles",
+            "schema": {"columns": [{"name": "col1", "type": "string"}]},
+        },
     ]
     proj1.list_recipes.return_value = [
         {"name": "recipe1", "type": "python", "tags": ["etl"]},
@@ -57,7 +61,10 @@ def mock_client():
     # Scenarios — list_scenarios returns dict-like items (DSSScenarioListItem)
     scen_item = MagicMock()
     scen_item.get.side_effect = lambda k, d="": {
-        "id": "scen1", "name": "Build All", "active": True, "type": "step_based",
+        "id": "scen1",
+        "name": "Build All",
+        "active": True,
+        "type": "step_based",
     }.get(k, d)
     proj1.list_scenarios.return_value = [scen_item]
 
@@ -125,8 +132,18 @@ def mock_client():
     flow_mock = MagicMock()
     graph_mock = MagicMock()
     graph_mock.nodes = {
-        "ds1": {"type": "COMPUTABLE_DATASET", "subType": "", "ref": "ds1", "successors": ["recipe1"]},
-        "recipe1": {"type": "RUNNABLE_RECIPE", "subType": "python", "ref": "recipe1", "successors": []},
+        "ds1": {
+            "type": "COMPUTABLE_DATASET",
+            "subType": "",
+            "ref": "ds1",
+            "successors": ["recipe1"],
+        },
+        "recipe1": {
+            "type": "RUNNABLE_RECIPE",
+            "subType": "python",
+            "ref": "recipe1",
+            "successors": [],
+        },
     }
     graph_mock.data = {"nodes": graph_mock.nodes}
     graph_mock.get_successors.side_effect = AttributeError("not implemented")
@@ -218,12 +235,19 @@ def mock_client():
     # Dataset mocks — iter_rows returns lists (not dicts)
     dataset_mock = MagicMock()
     dataset_mock.get_definition.return_value = {
-        "schema": {"columns": [{"name": "col1", "type": "string"}, {"name": "col2", "type": "int"}]},
+        "schema": {
+            "columns": [
+                {"name": "col1", "type": "string"},
+                {"name": "col2", "type": "int"},
+            ]
+        },
     }
-    dataset_mock.iter_rows.return_value = iter([
-        ["a", "1"],
-        ["b", "2"],
-    ])
+    dataset_mock.iter_rows.return_value = iter(
+        [
+            ["a", "1"],
+            ["b", "2"],
+        ]
+    )
     build_job = MagicMock()
     build_job.id = "job_build_1"
     build_job.get_status.return_value = {"baseStatus": {"state": "DONE"}}
@@ -238,7 +262,12 @@ def mock_client():
     autodetect_result.get_raw.return_value = {
         "formatType": "csv",
         "formatParams": {"style": "excel", "separator": ","},
-        "schema": {"columns": [{"name": "col1", "type": "string"}, {"name": "col2", "type": "int"}]},
+        "schema": {
+            "columns": [
+                {"name": "col1", "type": "string"},
+                {"name": "col2", "type": "int"},
+            ]
+        },
     }
     autodetect_result.save.return_value = None
     dataset_mock.autodetect_settings.return_value = autodetect_result
@@ -261,9 +290,9 @@ def mock_client():
     # Scenario run/abort/status/delete/definition mocks
     scenario_mock = MagicMock()
     scenario_mock.run.return_value = MagicMock(
-        wait_for_result=MagicMock(return_value={
-            "scenarioRun": {"result": {"outcome": "SUCCESS"}}
-        })
+        wait_for_result=MagicMock(
+            return_value={"scenarioRun": {"result": {"outcome": "SUCCESS"}}}
+        )
     )
     scenario_mock.abort.return_value = None
     scenario_mock.delete.return_value = None
@@ -293,7 +322,10 @@ def mock_client():
             "baseStatus": {
                 "def": {"id": "job1", "initiator": "testuser"},
                 "state": "DONE",
-                "timing": {"startTime": "2025-01-01T00:00:00", "endTime": "2025-01-01T00:01:00"},
+                "timing": {
+                    "startTime": "2025-01-01T00:00:00",
+                    "endTime": "2025-01-01T00:01:00",
+                },
             }
         },
     ]
@@ -302,7 +334,10 @@ def mock_client():
         "baseStatus": {
             "def": {"id": "job1", "initiator": "testuser"},
             "state": "DONE",
-            "timing": {"startTime": "2025-01-01T00:00:00", "endTime": "2025-01-01T00:01:00"},
+            "timing": {
+                "startTime": "2025-01-01T00:00:00",
+                "endTime": "2025-01-01T00:01:00",
+            },
         }
     }
     job_mock.get_log.return_value = "Log line 1\nLog line 2"
@@ -312,7 +347,9 @@ def mock_client():
     # Job builder mock for new_job() — used by dku job run, dataset build --type, recipe run --type
     job_builder_mock = MagicMock()
     job_builder_mock.with_output.return_value = job_builder_mock
-    job_builder_mock.with_auto_update_schema_before_each_recipe_run.return_value = job_builder_mock
+    job_builder_mock.with_auto_update_schema_before_each_recipe_run.return_value = (
+        job_builder_mock
+    )
     job_builder_mock.with_refresh_metastore.return_value = job_builder_mock
     started_job = MagicMock()
     started_job.id = "job_run_1"
@@ -437,10 +474,18 @@ def mock_client():
         by_purpose = {
             "GENERIC_COMPLETION": [
                 {"id": "llm1", "type": "CHAT", "description": "Test LLM"},
-                {"id": "azureopenai:Azure_AI_Connection:4o", "type": "CHAT", "description": "Azure OpenAI 4o"},
+                {
+                    "id": "azureopenai:Azure_AI_Connection:4o",
+                    "type": "CHAT",
+                    "description": "Azure OpenAI 4o",
+                },
             ],
             "TEXT_EMBEDDING_EXTRACTION": [
-                {"id": "embedding1", "type": "EMBEDDINGS", "description": "Embedding model"},
+                {
+                    "id": "embedding1",
+                    "type": "EMBEDDINGS",
+                    "description": "Embedding model",
+                },
             ],
         }
         return by_purpose.get(purpose, [])
@@ -477,7 +522,9 @@ def mock_client():
     api_service_settings.get_raw.return_value = {"id": "myservice", "endpoints": []}
     api_service_mock.get_settings.return_value = api_service_settings
     api_service_mock.create_package.return_value = None
-    api_service_mock.list_packages.return_value = [{"id": "pkg1", "createdOn": "2025-01-01"}]
+    api_service_mock.list_packages.return_value = [
+        {"id": "pkg1", "createdOn": "2025-01-01"}
+    ]
     proj1.get_api_service.return_value = api_service_mock
     proj1.create_api_service.return_value = api_service_mock
 
@@ -535,6 +582,7 @@ def mock_client():
 
     def _set_llm_id(value):
         agent_version_data["toolsUsingAgentSettings"]["llmId"] = value
+
     type(agent_ver_settings).llm_id = property(
         lambda self: agent_version_data["toolsUsingAgentSettings"]["llmId"],
         lambda self, v: _set_llm_id(v),
@@ -543,6 +591,7 @@ def mock_client():
     def _add_tool(tool):
         tool_dict = {"toolRef": tool} if isinstance(tool, str) else tool
         agent_version_data["toolsUsingAgentSettings"]["tools"].append(tool_dict)
+
     agent_ver_settings.add_tool = _add_tool
 
     agent_settings.get_version_settings.return_value = agent_ver_settings
@@ -615,7 +664,9 @@ def mock_client():
     proj1.create_agent.return_value = new_agent_mock
 
     # Agent tools
-    proj1.list_agent_tools.return_value = [{"id": "tool1", "name": "My Tool", "type": "python"}]
+    proj1.list_agent_tools.return_value = [
+        {"id": "tool1", "name": "My Tool", "type": "python"}
+    ]
     tool_mock = MagicMock()
     tool_settings = MagicMock()
     tool_settings.get_raw.return_value = {"id": "tool1", "name": "My Tool"}
@@ -630,7 +681,9 @@ def mock_client():
     kb_settings = MagicMock()
     kb_settings.get_raw.return_value = {"id": "kb1", "name": "My KB"}
     kb_mock.get_settings.return_value = kb_settings
-    kb_mock.build.return_value = MagicMock(wait_for_result=MagicMock(return_value={"success": True}))
+    kb_mock.build.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
     kb_mock.search.return_value = [{"content": "result1", "score": 0.95}]
     kb_mock.delete.return_value = None
     proj1.get_knowledge_bank.return_value = kb_mock
@@ -643,19 +696,26 @@ def mock_client():
 
     class MockArticleData:
         """Mimics DSSWikiArticleData: get_name/get_body/set_name/set_body/save."""
+
         def __init__(self, name="Home", body="# Welcome"):
             self._name = name
             self._body = body
+
         def get_name(self):
             return self._name
+
         def get_body(self):
             return self._body
+
         def get_metadata(self):
             return {}
+
         def set_name(self, name):
             self._name = name
+
         def set_body(self, body):
             self._body = body
+
         def save(self):
             pass
 
@@ -701,7 +761,12 @@ def mock_client():
 
     # Code environments — dataikuapi quirk: returns dicts
     client.list_code_envs.return_value = [
-        {"envName": "py39", "envLang": "PYTHON", "deploymentMode": "DESIGN_MANAGED", "owner": "admin"},
+        {
+            "envName": "py39",
+            "envLang": "PYTHON",
+            "deploymentMode": "DESIGN_MANAGED",
+            "owner": "admin",
+        },
     ]
 
     # Code env mock — real API uses pythonInterpreter not pythonVersion
@@ -732,8 +797,18 @@ def mock_client():
 
     # Users
     client.list_users.return_value = [
-        {"login": "admin", "displayName": "Admin User", "email": "admin@test.com", "groups": ["admin"]},
-        {"login": "testuser", "displayName": "Test User", "email": "test@test.com", "groups": ["data_team"]},
+        {
+            "login": "admin",
+            "displayName": "Admin User",
+            "email": "admin@test.com",
+            "groups": ["admin"],
+        },
+        {
+            "login": "testuser",
+            "displayName": "Test User",
+            "email": "test@test.com",
+            "groups": ["data_team"],
+        },
     ]
 
     return client
@@ -742,6 +817,8 @@ def mock_client():
 @pytest.fixture
 def patch_client(mock_client):
     """Patch get_client everywhere it's imported."""
-    with patch("dku_cli.client.get_client", return_value=mock_client), \
-         patch("dku_cli.helpers.get_client", return_value=mock_client):
+    with (
+        patch("dku_cli.client.get_client", return_value=mock_client),
+        patch("dku_cli.helpers.get_client", return_value=mock_client),
+    ):
         yield mock_client

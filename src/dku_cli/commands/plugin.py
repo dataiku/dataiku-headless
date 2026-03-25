@@ -50,11 +50,15 @@ def list_plugins(
 
         data = []
         for p in plugins:
-            data.append({
-                "id": p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", ""),
-                "version": p.get("version", "") if isinstance(p, dict) else "",
-                "dev": str(p.get("isDev", False)) if isinstance(p, dict) else "",
-            })
+            data.append(
+                {
+                    "id": p.get("id", "")
+                    if isinstance(p, dict)
+                    else getattr(p, "plugin_id", ""),
+                    "version": p.get("version", "") if isinstance(p, dict) else "",
+                    "dev": str(p.get("isDev", False)) if isinstance(p, dict) else "",
+                }
+            )
 
         render(
             data,
@@ -71,7 +75,9 @@ def list_plugins(
 def push(
     ctx: typer.Context,
     zip_path: Path = typer.Argument(help="Path to plugin ZIP file"),
-    update: bool = typer.Option(True, "--update/--install", help="Update existing or install new"),
+    update: bool = typer.Option(
+        True, "--update/--install", help="Update existing or install new"
+    ),
 ) -> None:
     """Push a plugin ZIP to DSS."""
     if not zip_path.exists():
@@ -108,9 +114,7 @@ def settings(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
-    set_param: list[str] = typer.Option(
-        None, "--set", help="Set parameter: key=value"
-    ),
+    set_param: list[str] = typer.Option(None, "--set", help="Set parameter: key=value"),
 ) -> None:
     """View or update plugin settings."""
     output = resolve_output_format(output)
@@ -138,7 +142,13 @@ def settings(
 
             data = [{"key": "Code Environment", "value": code_env or "(default)"}]
             for k, v in config.items():
-                display_v = "****" if "password" in k.lower() or "secret" in k.lower() or "key" in k.lower() else str(v)
+                display_v = (
+                    "****"
+                    if "password" in k.lower()
+                    or "secret" in k.lower()
+                    or "key" in k.lower()
+                    else str(v)
+                )
                 data.append({"key": k, "value": display_v})
 
             render(

@@ -21,15 +21,11 @@ def _make_sql_result(schema, rows):
 
 
 def test_sql_query_table(patch_client):
-    result = runner.invoke(
-        app, ["sql", "query", "SELECT 1", "--connection", "myconn"]
-    )
+    result = runner.invoke(app, ["sql", "query", "SELECT 1", "--connection", "myconn"])
     assert result.exit_code == 0
     assert "val1" in result.output
     assert "val2" in result.output
-    patch_client.sql_query.assert_called_once_with(
-        "SELECT 1", connection="myconn"
-    )
+    patch_client.sql_query.assert_called_once_with("SELECT 1", connection="myconn")
 
 
 def test_sql_query_json(patch_client):
@@ -148,7 +144,7 @@ def test_sql_query_special_characters(patch_client):
     """Values with special characters (quotes, newlines, unicode)."""
     patch_client.sql_query.return_value = _make_sql_result(
         [{"name": "text", "type": "string"}],
-        [["it's a \"test\""], ["line1\nline2"], ["emoji: \u2603"]],
+        [['it\'s a "test"'], ["line1\nline2"], ["emoji: \u2603"]],
     )
     result = runner.invoke(
         app, ["sql", "query", "SELECT text FROM t", "-c", "myconn", "-o", "json"]
@@ -188,7 +184,5 @@ def test_sql_query_missing_file(tmp_path):
 def test_sql_query_api_error(patch_client):
     """API errors should be handled gracefully."""
     patch_client.sql_query.side_effect = Exception("connection refused")
-    result = runner.invoke(
-        app, ["sql", "query", "SELECT 1", "-c", "badconn"]
-    )
+    result = runner.invoke(app, ["sql", "query", "SELECT 1", "-c", "badconn"])
     assert result.exit_code != 0

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -43,8 +42,10 @@ def test_get_client_from_ctx():
     ctx.obj = {"url": "https://dss.example.com", "api_key": "abc123"}
     with patch("dku_cli.helpers.get_client") as mock_get:
         mock_get.return_value = MagicMock()
-        client = get_client_from_ctx(ctx)
-        mock_get.assert_called_once_with(url="https://dss.example.com", api_key="abc123")
+        get_client_from_ctx(ctx)
+        mock_get.assert_called_once_with(
+            url="https://dss.example.com", api_key="abc123"
+        )
 
 
 def test_get_client_from_ctx_empty_obj():
@@ -52,5 +53,5 @@ def test_get_client_from_ctx_empty_obj():
     ctx.obj = None
     with patch("dku_cli.helpers.get_client") as mock_get:
         mock_get.return_value = MagicMock()
-        client = get_client_from_ctx(ctx)
+        get_client_from_ctx(ctx)
         mock_get.assert_called_once_with()

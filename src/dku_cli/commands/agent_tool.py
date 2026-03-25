@@ -27,11 +27,13 @@ def list_agent_tools(
 
         data = []
         for t in tools:
-            data.append({
-                "id": t.get("id", ""),
-                "name": t.get("name", ""),
-                "type": t.get("type", ""),
-            })
+            data.append(
+                {
+                    "id": t.get("id", ""),
+                    "name": t.get("name", ""),
+                    "type": t.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -69,7 +71,9 @@ def run(
     ctx: typer.Context,
     tool_id: str = typer.Argument(help="Agent tool ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    input_data: str | None = typer.Option(None, "--input", help="Input JSON (string, @file.json, or - for stdin)"),
+    input_data: str | None = typer.Option(
+        None, "--input", help="Input JSON (string, @file.json, or - for stdin)"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run an agent tool."""

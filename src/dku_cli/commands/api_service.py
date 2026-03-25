@@ -27,9 +27,11 @@ def list_api_services(
 
         data = []
         for s in services:
-            data.append({
-                "id": s.get("id", "") if isinstance(s, dict) else str(s),
-            })
+            data.append(
+                {
+                    "id": s.get("id", "") if isinstance(s, dict) else str(s),
+                }
+            )
 
         render(
             data,
@@ -115,10 +117,12 @@ def list_packages(
 
         data = []
         for p in packages:
-            data.append({
-                "id": p.get("id", "") if isinstance(p, dict) else str(p),
-                "created_on": p.get("createdOn", "") if isinstance(p, dict) else "",
-            })
+            data.append(
+                {
+                    "id": p.get("id", "") if isinstance(p, dict) else str(p),
+                    "created_on": p.get("createdOn", "") if isinstance(p, dict) else "",
+                }
+            )
 
         render(
             data,

@@ -36,11 +36,16 @@ def test_folder_upload(patch_client):
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
         f.write(b"col1,col2\na,b\n")
         f.flush()
-        result = runner.invoke(app, ["folder", "upload", "folder1", f.name, "--project", "PROJ1"])
+        result = runner.invoke(
+            app, ["folder", "upload", "folder1", f.name, "--project", "PROJ1"]
+        )
         assert result.exit_code == 0
         Path(f.name).unlink()
 
 
 def test_folder_upload_missing_file(patch_client):
-    result = runner.invoke(app, ["folder", "upload", "folder1", "/nonexistent/file.csv", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        ["folder", "upload", "folder1", "/nonexistent/file.csv", "--project", "PROJ1"],
+    )
     assert result.exit_code != 0

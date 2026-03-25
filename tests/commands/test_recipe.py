@@ -32,7 +32,9 @@ def test_recipe_get(patch_client):
 
 
 def test_recipe_get_json(patch_client):
-    result = runner.invoke(app, ["recipe", "get", "recipe1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["recipe", "get", "recipe1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert "type" in parsed
@@ -44,17 +46,26 @@ def test_recipe_run(patch_client):
 
 
 def test_recipe_run_wait(patch_client):
-    result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1", "--wait"])
+    result = runner.invoke(
+        app, ["recipe", "run", "recipe1", "--project", "PROJ1", "--wait"]
+    )
     assert result.exit_code == 0
 
 
 def test_recipe_run_with_type(patch_client):
     """Run with --type uses job builder."""
-    result = runner.invoke(app, [
-        "recipe", "run", "recipe1",
-        "--type", "RECURSIVE_BUILD",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "run",
+            "recipe1",
+            "--type",
+            "RECURSIVE_BUILD",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
@@ -65,11 +76,17 @@ def test_recipe_run_with_type(patch_client):
 
 def test_recipe_run_auto_update_schema(patch_client):
     """Run with --auto-update-schema uses job builder."""
-    result = runner.invoke(app, [
-        "recipe", "run", "recipe1",
-        "--auto-update-schema",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "run",
+            "recipe1",
+            "--auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_job.return_value
@@ -80,13 +97,22 @@ def test_recipe_run_auto_update_schema(patch_client):
 
 
 def test_recipe_create(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "create", "new_recipe",
-        "--type", "python",
-        "--input", "input_ds",
-        "--output-ds", "output_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "new_recipe",
+            "--type",
+            "python",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -104,13 +130,22 @@ def test_recipe_create_code_recipe_fallback(patch_client):
     builder = proj.new_recipe.return_value
     # Remove with_existing_output to simulate CodeRecipeCreator
     del builder.with_existing_output
-    result = runner.invoke(app, [
-        "recipe", "create", "code_recipe",
-        "--type", "python",
-        "--input", "input_ds",
-        "--output-ds", "output_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "code_recipe",
+            "--type",
+            "python",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created recipe" in result.output
     builder.with_output.assert_called_once_with("output_ds")
@@ -119,14 +154,24 @@ def test_recipe_create_code_recipe_fallback(patch_client):
 
 def test_recipe_create_output_confusion_detected(patch_client):
     """Using --output with a dataset name suggests --output-ds."""
-    result = runner.invoke(app, [
-        "recipe", "create", "my_recipe",
-        "--type", "python",
-        "--input", "input_ds",
-        "--output-ds", "output_ds",
-        "--output", "my_dataset",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_recipe",
+            "--type",
+            "python",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--output",
+            "my_dataset",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
     assert "--output-ds" in result.output
     assert "my_dataset" in result.output
@@ -134,13 +179,22 @@ def test_recipe_create_output_confusion_detected(patch_client):
 
 def test_recipe_create_output_dataset_alias(patch_client):
     """--output-dataset works as an alias for --output-ds."""
-    result = runner.invoke(app, [
-        "recipe", "create", "my_recipe",
-        "--type", "python",
-        "--input", "input_ds",
-        "--output-dataset", "output_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_recipe",
+            "--type",
+            "python",
+            "--input",
+            "input_ds",
+            "--output-dataset",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -153,13 +207,22 @@ def test_recipe_create_output_ds_already_exists(patch_client):
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
     builder.build.side_effect = Exception("already exists: dataset 'output_ds'")
-    result = runner.invoke(app, [
-        "recipe", "create", "new_recipe",
-        "--type", "python",
-        "--input", "input_ds",
-        "--output-ds", "output_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "new_recipe",
+            "--type",
+            "python",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
     assert "already exists" in result.output
 
@@ -173,11 +236,18 @@ def test_recipe_delete(patch_client):
 
 
 def test_recipe_set_code_inline(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "set-code", "recipe1",
-        "--code", "print('hello')",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-code",
+            "recipe1",
+            "--code",
+            "print('hello')",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Updated code" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
@@ -189,11 +259,18 @@ def test_recipe_set_code_inline(patch_client):
 def test_recipe_set_code_from_file(patch_client, tmp_path):
     code_file = tmp_path / "script.py"
     code_file.write_text("import dataiku\nds = dataiku.Dataset('test')")
-    result = runner.invoke(app, [
-        "recipe", "set-code", "recipe1",
-        "--code", f"@{code_file}",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-code",
+            "recipe1",
+            "--code",
+            f"@{code_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     settings = recipe.get_settings()
@@ -209,7 +286,9 @@ def test_recipe_get_code(patch_client):
 
 
 def test_recipe_get_code_json(patch_client):
-    result = runner.invoke(app, ["recipe", "get-code", "recipe1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["recipe", "get-code", "recipe1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["code"].startswith("# Python code")
@@ -218,11 +297,19 @@ def test_recipe_get_code_json(patch_client):
 
 def test_recipe_set_code_from_stdin(patch_client):
     stdin_code = "import dataiku\nprint('from stdin')"
-    result = runner.invoke(app, [
-        "recipe", "set-code", "recipe1",
-        "--code", "-",
-        "--project", "PROJ1",
-    ], input=stdin_code)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-code",
+            "recipe1",
+            "--code",
+            "-",
+            "--project",
+            "PROJ1",
+        ],
+        input=stdin_code,
+    )
     assert result.exit_code == 0
     assert "Updated code" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
@@ -234,13 +321,22 @@ def test_recipe_set_code_from_stdin(patch_client):
 
 def test_recipe_create_type_as_name_detected(patch_client):
     """Detect when recipe_name is actually a recipe type (e.g. 'python')."""
-    result = runner.invoke(app, [
-        "recipe", "create", "python",
-        "--type", "python",
-        "--input", "input_ds",
-        "--output-ds", "output_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "python",
+            "--type",
+            "python",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "looks like a recipe type" in result.output
     assert "dku recipe create <NAME> --type python" in result.output
@@ -248,11 +344,18 @@ def test_recipe_create_type_as_name_detected(patch_client):
 
 def test_recipe_set_definition(patch_client):
     new_def = json.dumps({"type": "sql", "customFields": {"key": "val"}})
-    result = runner.invoke(app, [
-        "recipe", "set-definition", "recipe1",
-        "--definition", new_def,
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            new_def,
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Updated definition" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
@@ -261,10 +364,17 @@ def test_recipe_set_definition(patch_client):
 
 
 def test_recipe_add_input(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "add-input", "recipe1", "extra_input",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "extra_input",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Added input" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
@@ -274,10 +384,17 @@ def test_recipe_add_input(patch_client):
 
 
 def test_recipe_add_output(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "add-output", "recipe1", "extra_output",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-output",
+            "recipe1",
+            "extra_output",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Added output" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
@@ -287,11 +404,19 @@ def test_recipe_add_output(patch_client):
 
 
 def test_recipe_add_input_custom_role(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "add-input", "recipe1", "lookup_ds",
-        "--role", "lookup",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "lookup_ds",
+            "--role",
+            "lookup",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     settings = recipe.get_settings()
@@ -302,13 +427,22 @@ def test_recipe_add_input_custom_role(patch_client):
 
 
 def test_recipe_create_embed(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "create-embed", "my_embed",
-        "--input", "text_data",
-        "--output-kb", "my_kb",
-        "--embedding-llm", "openai:text-embedding-3-small",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created embed recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -322,14 +456,24 @@ def test_recipe_create_embed(patch_client):
 
 
 def test_recipe_create_embed_custom_vector_store(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "create-embed", "my_embed",
-        "--input", "text_data",
-        "--output-kb", "my_kb",
-        "--embedding-llm", "openai:text-embedding-3-large",
-        "--vector-store-type", "FAISS",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-large",
+            "--vector-store-type",
+            "FAISS",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
@@ -339,13 +483,22 @@ def test_recipe_create_embed_custom_vector_store(patch_client):
 
 
 def test_recipe_create_embed_docs(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "create-embed-docs", "doc_embed",
-        "--input", "documents",
-        "--output-kb", "doc_kb",
-        "--embedding-llm", "openai:text-embedding-3-small",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--input",
+            "documents",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created embed-docs recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -357,14 +510,24 @@ def test_recipe_create_embed_docs(patch_client):
 
 
 def test_recipe_create_embed_docs_with_vlm(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "create-embed-docs", "doc_embed",
-        "--input", "documents",
-        "--output-kb", "doc_kb",
-        "--embedding-llm", "openai:text-embedding-3-small",
-        "--vlm", "openai:gpt-4o",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--input",
+            "documents",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--vlm",
+            "openai:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
@@ -372,13 +535,22 @@ def test_recipe_create_embed_docs_with_vlm(patch_client):
 
 
 def test_recipe_create_extract(patch_client):
-    result = runner.invoke(app, [
-        "recipe", "create-extract", "my_extract",
-        "--input", "documents",
-        "--output-ds", "extracted_text",
-        "--vlm", "openai:gpt-4o",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-extract",
+            "my_extract",
+            "--input",
+            "documents",
+            "--output-ds",
+            "extracted_text",
+            "--vlm",
+            "openai:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created extract recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -392,12 +564,20 @@ def test_recipe_create_extract(patch_client):
 
 def test_recipe_create_llm_eval_minimal(patch_client):
     patch_client._perform_json.return_value = {"name": "my_eval"}
-    result = runner.invoke(app, [
-        "recipe", "create-llm-eval", "my_eval",
-        "--input", "responses",
-        "--eval-store", "eval_store_1",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-eval",
+            "my_eval",
+            "--input",
+            "responses",
+            "--eval-store",
+            "eval_store_1",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created LLM eval recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -406,7 +586,10 @@ def test_recipe_create_llm_eval_minimal(patch_client):
     body = kwargs["body"]
     assert body["recipePrototype"]["type"] == "nlp_llm_evaluation"
     assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "responses"
-    assert body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"] == "eval_store_1"
+    assert (
+        body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"]
+        == "eval_store_1"
+    )
     assert "main" not in body["recipePrototype"]["outputs"]
     assert "metrics" not in body["recipePrototype"]["outputs"]
     assert body["creationSettings"] == {"rawCreation": True}
@@ -415,27 +598,50 @@ def test_recipe_create_llm_eval_minimal(patch_client):
 
 def test_recipe_create_llm_eval_full(patch_client):
     patch_client._perform_json.return_value = {"name": "rag_eval"}
-    result = runner.invoke(app, [
-        "recipe", "create-llm-eval", "rag_eval",
-        "--input", "qa_data",
-        "--eval-store", "eval_store_1",
-        "--output-ds", "eval_scored",
-        "--output-metrics", "eval_metrics",
-        "--task-type", "QUESTION_ANSWERING",
-        "--metrics", "answerRelevancy,faithfulness",
-        "--input-col", "question",
-        "--output-col", "answer",
-        "--ground-truth-col", "expected",
-        "--context-col", "context",
-        "--completion-llm", "openai:gpt-4o",
-        "--embedding-llm", "openai:text-embedding-3-small",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-eval",
+            "rag_eval",
+            "--input",
+            "qa_data",
+            "--eval-store",
+            "eval_store_1",
+            "--output-ds",
+            "eval_scored",
+            "--output-metrics",
+            "eval_metrics",
+            "--task-type",
+            "QUESTION_ANSWERING",
+            "--metrics",
+            "answerRelevancy,faithfulness",
+            "--input-col",
+            "question",
+            "--output-col",
+            "answer",
+            "--ground-truth-col",
+            "expected",
+            "--context-col",
+            "context",
+            "--completion-llm",
+            "openai:gpt-4o",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     _, kwargs = patch_client._perform_json.call_args
     body = kwargs["body"]
-    assert body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_scored"
-    assert body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"] == "eval_metrics"
+    assert (
+        body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_scored"
+    )
+    assert (
+        body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"]
+        == "eval_metrics"
+    )
 
     # Verify post-creation payload settings
     recipe = patch_client.get_project("PROJ1").get_recipe.return_value
@@ -458,13 +664,22 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
     settings = recipe.get_settings.return_value
     settings.obj_payload = None
 
-    result = runner.invoke(app, [
-        "recipe", "create-llm-eval", "rag_eval",
-        "--input", "qa_data",
-        "--eval-store", "eval_store_1",
-        "--task-type", "QUESTION_ANSWERING",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-eval",
+            "rag_eval",
+            "--input",
+            "qa_data",
+            "--eval-store",
+            "eval_store_1",
+            "--task-type",
+            "QUESTION_ANSWERING",
+            "--project",
+            "PROJ1",
+        ],
+    )
 
     assert result.exit_code == 0
     assert settings.obj_payload["taskType"] == "QUESTION_ANSWERING"
@@ -473,14 +688,25 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
 
 def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
     dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
-    dataset_mock.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
-    result = runner.invoke(app, [
-        "recipe", "create-llm-eval", "rag_eval",
-        "--input", "qa_data",
-        "--eval-store", "eval_store_1",
-        "--output-ds", "eval_scored",
-        "--project", "PROJ1",
-    ])
+    dataset_mock.get_definition.side_effect = Exception(
+        "NotFoundException: dataset does not exist"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-eval",
+            "rag_eval",
+            "--input",
+            "qa_data",
+            "--eval-store",
+            "eval_store_1",
+            "--output-ds",
+            "eval_scored",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "Output dataset 'eval_scored'" in result.output
     assert "then retry" in result.output
@@ -493,17 +719,28 @@ def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
     def _get_dataset(name):
         dataset = proj.get_dataset.return_value
         if name == "eval_metrics":
-            dataset.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
+            dataset.get_definition.side_effect = Exception(
+                "NotFoundException: dataset does not exist"
+            )
         return dataset
 
     proj.get_dataset.side_effect = _get_dataset
-    result = runner.invoke(app, [
-        "recipe", "create-llm-eval", "rag_eval",
-        "--input", "qa_data",
-        "--eval-store", "eval_store_1",
-        "--output-metrics", "eval_metrics",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-eval",
+            "rag_eval",
+            "--input",
+            "qa_data",
+            "--eval-store",
+            "eval_store_1",
+            "--output-metrics",
+            "eval_metrics",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "Metrics output dataset 'eval_metrics'" in result.output
     patch_client._perform_json.assert_not_called()
@@ -512,13 +749,22 @@ def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
 def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_client):
     dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
     dataset_mock.get_definition.side_effect = Exception("403 Forbidden")
-    result = runner.invoke(app, [
-        "recipe", "create-llm-eval", "rag_eval",
-        "--input", "qa_data",
-        "--eval-store", "eval_store_1",
-        "--output-ds", "eval_scored",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-eval",
+            "rag_eval",
+            "--input",
+            "qa_data",
+            "--eval-store",
+            "eval_store_1",
+            "--output-ds",
+            "eval_scored",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 2
     assert "Permission denied" in result.output
     patch_client._perform_json.assert_not_called()
@@ -526,19 +772,30 @@ def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_cli
 
 def test_recipe_create_agent_eval_minimal(patch_client):
     patch_client._perform_json.return_value = {"name": "agent_eval"}
-    result = runner.invoke(app, [
-        "recipe", "create-agent-eval", "agent_eval",
-        "--input", "agent_runs",
-        "--eval-store", "agent_store_1",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-agent-eval",
+            "agent_eval",
+            "--input",
+            "agent_runs",
+            "--eval-store",
+            "agent_store_1",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created agent eval recipe" in result.output
     _, kwargs = patch_client._perform_json.call_args
     body = kwargs["body"]
     assert body["recipePrototype"]["type"] == "nlp_agent_evaluation"
     assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "agent_runs"
-    assert body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"] == "agent_store_1"
+    assert (
+        body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"]
+        == "agent_store_1"
+    )
 
     # Default input format
     recipe = patch_client.get_project("PROJ1").get_recipe.return_value
@@ -549,14 +806,25 @@ def test_recipe_create_agent_eval_minimal(patch_client):
 
 def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client):
     dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_out")
-    dataset_mock.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
-    result = runner.invoke(app, [
-        "recipe", "create-agent-eval", "agent_eval",
-        "--input", "agent_runs",
-        "--eval-store", "agent_store_1",
-        "--output-ds", "eval_out",
-        "--project", "PROJ1",
-    ])
+    dataset_mock.get_definition.side_effect = Exception(
+        "NotFoundException: dataset does not exist"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-agent-eval",
+            "agent_eval",
+            "--input",
+            "agent_runs",
+            "--eval-store",
+            "agent_store_1",
+            "--output-ds",
+            "eval_out",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "Output dataset 'eval_out'" in result.output
     patch_client._perform_json.assert_not_called()
@@ -568,17 +836,28 @@ def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client
     def _get_dataset(name):
         dataset = proj.get_dataset.return_value
         if name == "eval_metrics":
-            dataset.get_definition.side_effect = Exception("NotFoundException: dataset does not exist")
+            dataset.get_definition.side_effect = Exception(
+                "NotFoundException: dataset does not exist"
+            )
         return dataset
 
     proj.get_dataset.side_effect = _get_dataset
-    result = runner.invoke(app, [
-        "recipe", "create-agent-eval", "agent_eval",
-        "--input", "agent_runs",
-        "--eval-store", "agent_store_1",
-        "--output-metrics", "eval_metrics",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-agent-eval",
+            "agent_eval",
+            "--input",
+            "agent_runs",
+            "--eval-store",
+            "agent_store_1",
+            "--output-metrics",
+            "eval_metrics",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "Metrics output dataset 'eval_metrics'" in result.output
     patch_client._perform_json.assert_not_called()
@@ -586,36 +865,61 @@ def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client
 
 def test_recipe_create_agent_eval_full(patch_client):
     patch_client._perform_json.return_value = {"name": "agent_eval"}
-    result = runner.invoke(app, [
-        "recipe", "create-agent-eval", "agent_eval",
-        "--input", "agent_runs",
-        "--eval-store", "agent_store_1",
-        "--output-ds", "eval_out",
-        "--output-metrics", "eval_metrics",
-        "--metrics", "toolCallExactMatch,agentGoalAccuracyWithoutReference",
-        "--completion-llm", "openai:gpt-4o",
-        "--embedding-llm", "openai:text-embedding-3-small",
-        "--input-format", "PROMPT_RECIPE",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-agent-eval",
+            "agent_eval",
+            "--input",
+            "agent_runs",
+            "--eval-store",
+            "agent_store_1",
+            "--output-ds",
+            "eval_out",
+            "--output-metrics",
+            "eval_metrics",
+            "--metrics",
+            "toolCallExactMatch,agentGoalAccuracyWithoutReference",
+            "--completion-llm",
+            "openai:gpt-4o",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--input-format",
+            "PROMPT_RECIPE",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     _, kwargs = patch_client._perform_json.call_args
     body = kwargs["body"]
     assert body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_out"
-    assert body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"] == "eval_metrics"
+    assert (
+        body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"]
+        == "eval_metrics"
+    )
 
     recipe = patch_client.get_project("PROJ1").get_recipe.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["inputFormat"] == "PROMPT_RECIPE"
-    assert payload["metrics"] == ["toolCallExactMatch", "agentGoalAccuracyWithoutReference"]
+    assert payload["metrics"] == [
+        "toolCallExactMatch",
+        "agentGoalAccuracyWithoutReference",
+    ]
     assert payload["completionLLMId"] == "openai:gpt-4o"
     assert payload["embeddingLLMId"] == "openai:text-embedding-3-small"
 
 
 def test_recipe_get_json_error_payload(patch_client):
-    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("NotFoundException: recipe does not exist")
-    result = runner.invoke(app, ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"])
+    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception(
+        "NotFoundException: recipe does not exist"
+    )
+    result = runner.invoke(
+        app,
+        ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
+    )
     assert result.exit_code == 3
     assert result.stdout == ""
     parsed = json.loads(result.stderr)
@@ -629,9 +933,16 @@ def test_recipe_get_json_error_payload(patch_client):
 
 def test_recipe_check_schema_no_changes(patch_client):
     """check-schema exits 0 when no changes needed."""
-    result = runner.invoke(app, [
-        "recipe", "check-schema", "recipe1", "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "check-schema",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "no schema updates" in result.output.lower()
 
@@ -648,32 +959,60 @@ def test_recipe_check_schema_changes_needed(patch_client):
             {
                 "datasetName": "output_ds",
                 "type": "DATASET",
-                "newSchema": {"columns": [{"name": "col1", "type": "string"}, {"name": "col2", "type": "int"}]},
+                "newSchema": {
+                    "columns": [
+                        {"name": "col1", "type": "string"},
+                        {"name": "col2", "type": "int"},
+                    ]
+                },
                 "schemaChanged": True,
             }
         ],
     }
-    result = runner.invoke(app, [
-        "recipe", "check-schema", "recipe1", "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "check-schema",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "schema updates required" in result.output.lower()
 
 
 def test_recipe_check_schema_json(patch_client):
     """check-schema JSON output."""
-    result = runner.invoke(app, [
-        "recipe", "check-schema", "recipe1", "--project", "PROJ1", "-o", "json",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "check-schema",
+            "recipe1",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
     assert result.exit_code == 0
     assert "totalIncompatibilities" in result.output
 
 
 def test_recipe_apply_schema_no_changes(patch_client):
     """apply-schema does nothing when no changes needed."""
-    result = runner.invoke(app, [
-        "recipe", "apply-schema", "recipe1", "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "apply-schema",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "no schema updates" in result.output.lower()
 
@@ -686,9 +1025,16 @@ def test_recipe_apply_schema_with_changes(patch_client):
     updates.any_action_required.return_value = True
     updates.data = {"totalIncompatibilities": 1, "computables": []}
     updates.apply.return_value = [{"status": "ok"}]
-    result = runner.invoke(app, [
-        "recipe", "apply-schema", "recipe1", "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "apply-schema",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "applied" in result.output.lower()
     updates.apply.assert_called_once()
@@ -699,12 +1045,22 @@ def test_recipe_apply_schema_with_changes(patch_client):
 
 def test_recipe_create_join(patch_client):
     """Basic join recipe creation with 2 inputs."""
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "orders", "-i", "customers",
-        "--output-ds", "joined_data",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined_data",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created join recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -717,12 +1073,20 @@ def test_recipe_create_join(patch_client):
 
 def test_recipe_create_join_requires_two_inputs(patch_client):
     """Join needs >= 2 inputs."""
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "only_one",
-        "--output-ds", "out",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "only_one",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "at least 2" in result.output
 
@@ -735,13 +1099,24 @@ def test_recipe_create_join_with_join_key(patch_client):
     join_dict = {"table1": 0, "table2": 1, "on": []}
     settings.raw_joins = [join_dict]
 
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "orders", "-i", "customers",
-        "--output-ds", "joined",
-        "--join-key", "customer_id",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "customer_id",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert len(join_dict["on"]) == 1
     assert join_dict["on"][0]["column1"]["name"] == "customer_id"
@@ -758,13 +1133,24 @@ def test_recipe_create_join_with_different_column_names(patch_client):
     join_dict = {"table1": 0, "table2": 1, "on": []}
     settings.raw_joins = [join_dict]
 
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "orders", "-i", "customers",
-        "--output-ds", "joined",
-        "--join-key", "order_cust_id=id",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "order_cust_id=id",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert join_dict["on"][0]["column1"]["name"] == "order_cust_id"
     assert join_dict["on"][0]["column2"]["name"] == "id"
@@ -778,14 +1164,26 @@ def test_recipe_create_join_multiple_keys(patch_client):
     join_dict = {"table1": 0, "table2": 1, "on": []}
     settings.raw_joins = [join_dict]
 
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "orders", "-i", "customers",
-        "--output-ds", "joined",
-        "--join-key", "customer_id",
-        "--join-key", "region=region_code",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "customer_id",
+            "--join-key",
+            "region=region_code",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert len(join_dict["on"]) == 2
     assert join_dict["on"][0]["column1"]["name"] == "customer_id"
@@ -795,12 +1193,22 @@ def test_recipe_create_join_multiple_keys(patch_client):
 
 def test_recipe_create_join_no_key_backward_compat(patch_client):
     """Without --join-key, join recipe is created with default behavior."""
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "orders", "-i", "customers",
-        "--output-ds", "joined",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created join recipe" in result.output
     # get_settings should NOT be called for join key configuration
@@ -814,13 +1222,22 @@ def test_recipe_create_join_no_key_backward_compat(patch_client):
 
 def test_recipe_create_group(patch_client):
     """Basic group recipe creation."""
-    result = runner.invoke(app, [
-        "recipe", "create-group", "my_group",
-        "-i", "sales",
-        "--output-ds", "sales_grouped",
-        "-k", "region",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created group recipe" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -835,19 +1252,35 @@ def test_recipe_create_group_with_agg(patch_client):
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
 
-    result = runner.invoke(app, [
-        "recipe", "create-group", "my_group",
-        "-i", "sales",
-        "--output-ds", "sales_grouped",
-        "-k", "region",
-        "--agg", "amount:sum,avg",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum,avg",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     settings.set_column_aggregations.assert_called_once_with(
         "amount",
-        sum=True, avg=True, min=False, max=False,
-        count=False, count_distinct=False, concat=False, stddev=False,
+        sum=True,
+        avg=True,
+        min=False,
+        max=False,
+        count=False,
+        count_distinct=False,
+        concat=False,
+        stddev=False,
     )
     settings.save.assert_called()
 
@@ -858,54 +1291,92 @@ def test_recipe_create_group_multiple_agg(patch_client):
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
 
-    result = runner.invoke(app, [
-        "recipe", "create-group", "my_group",
-        "-i", "sales",
-        "--output-ds", "sales_grouped",
-        "-k", "region",
-        "--agg", "amount:sum,avg",
-        "--agg", "order_id:count",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum,avg",
+            "--agg",
+            "order_id:count",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert settings.set_column_aggregations.call_count == 2
 
 
 def test_recipe_create_group_invalid_agg_format(patch_client):
     """--agg without colon gives clear error."""
-    result = runner.invoke(app, [
-        "recipe", "create-group", "my_group",
-        "-i", "sales",
-        "--output-ds", "sales_grouped",
-        "--agg", "amount_sum",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "--agg",
+            "amount_sum",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "Invalid --agg format" in result.output
 
 
 def test_recipe_create_group_invalid_agg_function(patch_client):
     """--agg with unknown function gives clear error."""
-    result = runner.invoke(app, [
-        "recipe", "create-group", "my_group",
-        "-i", "sales",
-        "--output-ds", "sales_grouped",
-        "--agg", "amount:median",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "--agg",
+            "amount:median",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1
     assert "Unknown aggregation" in result.output
 
 
 def test_recipe_create_group_no_agg_backward_compat(patch_client):
     """Without --agg, group recipe uses default COUNT behavior."""
-    result = runner.invoke(app, [
-        "recipe", "create-group", "my_group",
-        "-i", "sales",
-        "--output-ds", "sales_grouped",
-        "-k", "region",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created group recipe" in result.output
 
@@ -920,12 +1391,22 @@ def test_visual_recipe_auto_applies_schema(patch_client):
     updates = recipe_mock.compute_schema_updates.return_value
     updates.any_action_required.return_value = True
 
-    result = runner.invoke(app, [
-        "recipe", "create-join", "my_join",
-        "-i", "orders", "-i", "customers",
-        "--output-ds", "joined",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     updates.apply.assert_called_once()
 
@@ -936,12 +1417,20 @@ def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
     recipe_mock = proj.get_recipe.return_value
     recipe_mock.compute_schema_updates.side_effect = Exception("schema error")
 
-    result = runner.invoke(app, [
-        "recipe", "create-distinct", "my_distinct",
-        "-i", "data",
-        "--output-ds", "deduped",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "my_distinct",
+            "-i",
+            "data",
+            "--output-ds",
+            "deduped",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Created distinct recipe" in result.output
 
@@ -952,19 +1441,29 @@ def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
 def test_ensure_output_finds_managed_connection(patch_client):
     """Uses first connection with allowManagedDatasets=True."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_dataset.return_value.get_definition.side_effect = Exception("NotFoundException")
+    proj.get_dataset.return_value.get_definition.side_effect = Exception(
+        "NotFoundException"
+    )
 
     patch_client.list_connections.return_value = {
         "my_sql_conn": {"type": "PostgreSQL", "allowManagedDatasets": False},
         "s3_managed": {"type": "S3", "allowManagedDatasets": True},
     }
 
-    result = runner.invoke(app, [
-        "recipe", "create-distinct", "my_distinct",
-        "-i", "data",
-        "--output-ds", "new_output",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "my_distinct",
+            "-i",
+            "data",
+            "--output-ds",
+            "new_output",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     builder = proj.new_managed_dataset.return_value
     builder.with_store_into.assert_called_once_with("s3_managed")
@@ -973,15 +1472,25 @@ def test_ensure_output_finds_managed_connection(patch_client):
 def test_ensure_output_falls_back_on_permission_error(patch_client):
     """Falls back to filesystem_managed when list_connections fails (403)."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_dataset.return_value.get_definition.side_effect = Exception("NotFoundException")
+    proj.get_dataset.return_value.get_definition.side_effect = Exception(
+        "NotFoundException"
+    )
     patch_client.list_connections.side_effect = Exception("403 Forbidden")
 
-    result = runner.invoke(app, [
-        "recipe", "create-distinct", "my_distinct",
-        "-i", "data",
-        "--output-ds", "new_output",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "my_distinct",
+            "-i",
+            "data",
+            "--output-ds",
+            "new_output",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     builder = proj.new_managed_dataset.return_value
     builder.with_store_into.assert_called_once_with("filesystem_managed")

@@ -27,18 +27,33 @@ def test_library_list_json(patch_client):
 
 
 def test_library_list_with_path(patch_client):
-    result = runner.invoke(app, ["library", "list", "--path", "python", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["library", "list", "--path", "python", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
 
 
 def test_library_read(patch_client):
-    result = runner.invoke(app, ["library", "read", "python/mylib/utils.py", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["library", "read", "python/mylib/utils.py", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "def transform(df):" in result.output
 
 
 def test_library_write_inline(patch_client):
-    result = runner.invoke(app, ["library", "write", "python/mylib/new.py", "--content", "print('hello')", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "write",
+            "python/mylib/new.py",
+            "--content",
+            "print('hello')",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     lib = proj.get_library()
@@ -51,7 +66,18 @@ def test_library_write_creates_new_file(patch_client):
     proj = patch_client.get_project("PROJ1")
     lib = proj.get_library()
     lib.get_file.side_effect = Exception("not found")
-    result = runner.invoke(app, ["library", "write", "python/mylib/new.py", "--content", "print('hello')", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "write",
+            "python/mylib/new.py",
+            "--content",
+            "print('hello')",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     # Restores side_effect for other tests
     lib.get_file.side_effect = None
@@ -60,7 +86,18 @@ def test_library_write_creates_new_file(patch_client):
 def test_library_write_from_file(patch_client, tmp_path):
     local_file = tmp_path / "local_script.py"
     local_file.write_text("import pandas as pd\ndf = pd.DataFrame()")
-    result = runner.invoke(app, ["library", "write", "python/mylib/script.py", "--content", f"@{local_file}", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "write",
+            "python/mylib/script.py",
+            "--content",
+            f"@{local_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     lib = proj.get_library()
@@ -71,12 +108,25 @@ def test_library_write_from_file(patch_client, tmp_path):
 
 
 def test_library_write_missing_file(patch_client):
-    result = runner.invoke(app, ["library", "write", "python/mylib/script.py", "--content", "@/nonexistent/file.py", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "write",
+            "python/mylib/script.py",
+            "--content",
+            "@/nonexistent/file.py",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
 
 
 def test_library_delete(patch_client):
-    result = runner.invoke(app, ["library", "delete", "python/mylib/old.py", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["library", "delete", "python/mylib/old.py", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     lib = proj.get_library()
@@ -85,7 +135,9 @@ def test_library_delete(patch_client):
 
 
 def test_library_mkdir(patch_client):
-    result = runner.invoke(app, ["library", "mkdir", "python/mylib/subdir", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["library", "mkdir", "python/mylib/subdir", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
 
 

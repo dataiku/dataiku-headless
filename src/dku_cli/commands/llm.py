@@ -34,11 +34,13 @@ def list_llms(
 
         data = []
         for llm in llms:
-            data.append({
-                "id": llm.get("id", ""),
-                "type": llm.get("type", ""),
-                "description": llm.get("description", ""),
-            })
+            data.append(
+                {
+                    "id": llm.get("id", ""),
+                    "type": llm.get("type", ""),
+                    "description": llm.get("description", ""),
+                }
+            )
 
         render(
             data,
@@ -48,7 +50,9 @@ def list_llms(
         )
         # Hint about other purposes when using default
         if purpose == "GENERIC_COMPLETION" and output != "json":
-            info("Showing completion models. For embedding models: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION")
+            info(
+                "Showing completion models. For embedding models: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION"
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -59,9 +63,15 @@ def completion(
     llm_id: str = typer.Argument(help="LLM ID"),
     message: str = typer.Argument(help="Message to send"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    system: str | None = typer.Option(None, "--system", help="System message to prepend"),
-    json_output: bool = typer.Option(False, "--json-output", help="Instruct LLM to respond in JSON"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format (text or json)"),
+    system: str | None = typer.Option(
+        None, "--system", help="System message to prepend"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json-output", help="Instruct LLM to respond in JSON"
+    ),
+    output: str | None = typer.Option(
+        None, "-o", "--output", help="Output format (text or json)"
+    ),
 ) -> None:
     """Send a completion request to an LLM."""
     project_key = resolve_project(project)
@@ -109,7 +119,10 @@ def embeddings(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        embedding_llm_ids = {item.get("id", "") for item in proj.list_llms(purpose="TEXT_EMBEDDING_EXTRACTION")}
+        embedding_llm_ids = {
+            item.get("id", "")
+            for item in proj.list_llms(purpose="TEXT_EMBEDDING_EXTRACTION")
+        }
         if llm_id not in embedding_llm_ids:
             exit_with_error(
                 f"Selected LLM is not available for text embeddings in project '{project_key}'. "

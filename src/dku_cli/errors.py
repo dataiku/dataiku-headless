@@ -19,7 +19,13 @@ class AuthError(Exception):
     """Raised when DSS credentials cannot be resolved."""
 
 
-def exit_with_error(message: str, *, code: str = "cli_error", details: list[str] | None = None, status: int = 1) -> None:
+def exit_with_error(
+    message: str,
+    *,
+    code: str = "cli_error",
+    details: list[str] | None = None,
+    status: int = 1,
+) -> None:
     """Render a single error payload and exit."""
     details = details or []
 

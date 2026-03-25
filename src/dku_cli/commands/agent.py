@@ -27,10 +27,12 @@ def list_agents(
 
         data = []
         for a in agents:
-            data.append({
-                "id": a.get("id", ""),
-                "name": a.get("name", ""),
-            })
+            data.append(
+                {
+                    "id": a.get("id", ""),
+                    "name": a.get("name", ""),
+                }
+            )
 
         render(
             data,
@@ -47,7 +49,9 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Agent name"),
     agent_type: str = typer.Option(
-        "TOOLS_USING_AGENT", "--type", "-t",
+        "TOOLS_USING_AGENT",
+        "--type",
+        "-t",
         help="Agent type: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -179,6 +183,7 @@ def add_tool(
             version_ids = settings.get_version_ids()
             if not version_ids:
                 from dku_cli.output import error
+
                 error("Agent has no versions.")
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
@@ -213,6 +218,7 @@ def set_llm(
             version_ids = settings.get_version_ids()
             if not version_ids:
                 from dku_cli.output import error
+
                 error("Agent has no versions.")
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]

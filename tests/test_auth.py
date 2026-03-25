@@ -7,8 +7,6 @@ from unittest.mock import patch, MagicMock
 from dku_cli.auth import (
     _keyring_available,
     store_api_key,
-    get_api_key,
-    delete_api_key,
 )
 
 
@@ -41,7 +39,11 @@ def test_file_fallback_store_and_retrieve(tmp_path):
 def test_file_fallback_delete(tmp_path):
     cred_file = tmp_path / "credentials.toml"
     with patch("dku_cli.auth.CREDENTIALS_FILE", cred_file):
-        from dku_cli.auth import _store_file_fallback, _delete_file_fallback, _get_file_fallback
+        from dku_cli.auth import (
+            _store_file_fallback,
+            _delete_file_fallback,
+            _get_file_fallback,
+        )
 
         _store_file_fallback("del-test", "del-key")
         assert _get_file_fallback("del-test") == "del-key"

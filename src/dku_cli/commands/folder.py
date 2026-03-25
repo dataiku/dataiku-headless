@@ -31,11 +31,13 @@ def list_folders(
 
         data = []
         for f in folders:
-            data.append({
-                "id": f.get("id", ""),
-                "name": f.get("name", ""),
-                "type": f.get("type", ""),
-            })
+            data.append(
+                {
+                    "id": f.get("id", ""),
+                    "name": f.get("name", ""),
+                    "type": f.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -72,7 +74,9 @@ def ls(
                 continue
             ts = item.get("lastModified", 0)
             if ts:
-                modified = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+                modified = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M"
+                )
             else:
                 modified = ""
             size_bytes = item.get("size", 0)
@@ -82,11 +86,13 @@ def ls(
                 size_str = f"{size_bytes / 1024:.1f} KB"
             else:
                 size_str = f"{size_bytes} B"
-            data.append({
-                "path": path,
-                "size": size_str,
-                "last_modified": modified,
-            })
+            data.append(
+                {
+                    "path": path,
+                    "size": size_str,
+                    "last_modified": modified,
+                }
+            )
 
         render(
             data,
@@ -104,7 +110,9 @@ def upload(
     ctx: typer.Context,
     folder_id: str = typer.Argument(help="Managed folder ID"),
     local_path: Path = typer.Argument(help="Local file to upload"),
-    remote_path: str = typer.Option(None, "--path", help="Remote path (defaults to filename)"),
+    remote_path: str = typer.Option(
+        None, "--path", help="Remote path (defaults to filename)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Upload a file to a managed folder."""

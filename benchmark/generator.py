@@ -117,7 +117,7 @@ def parse_command_table(claude_md_path: Path) -> list[dict]:
     content = claude_md_path.read_text()
 
     # Find the mapping table section
-    pattern = r'\| `(dku [^`]+)` \|'
+    pattern = r"\| `(dku [^`]+)` \|"
     matches = re.findall(pattern, content)
 
     commands = []
@@ -131,12 +131,14 @@ def parse_command_table(claude_md_path: Path) -> list[dict]:
         verb = parts[2]
         args = " ".join(parts[3:]) if len(parts) > 3 else ""
 
-        commands.append({
-            "full_command": match.strip(),
-            "noun": noun,
-            "verb": verb,
-            "args": args,
-        })
+        commands.append(
+            {
+                "full_command": match.strip(),
+                "noun": noun,
+                "verb": verb,
+                "args": args,
+            }
+        )
 
     return commands
 
@@ -152,12 +154,16 @@ def generate_prompt(cmd: dict) -> str:
 
     prompt = template.format(
         noun=noun.replace("-", " "),
-        arg=arg.replace("NAME", "my_item").replace("ID", "item1").replace("KEY", "MYPROJ"),
+        arg=arg.replace("NAME", "my_item")
+        .replace("ID", "item1")
+        .replace("KEY", "MYPROJ"),
     )
 
     # Replace {project} placeholder for global commands
     if noun in GLOBAL_NOUNS:
-        prompt = prompt.replace(" in project {project}", "").replace(" from project {project}", "")
+        prompt = prompt.replace(" in project {project}", "").replace(
+            " from project {project}", ""
+        )
 
     return prompt
 

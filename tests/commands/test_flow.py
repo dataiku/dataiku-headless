@@ -60,14 +60,23 @@ def test_flow_propagate(patch_client):
 
 
 def test_flow_propagate_with_options(patch_client):
-    result = runner.invoke(app, [
-        "flow", "propagate", "ds1",
-        "--stop-at", "recipe_a",
-        "--stop-at", "recipe_b",
-        "--mark-ok", "recipe_c",
-        "--no-auto-rebuild",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "propagate",
+            "ds1",
+            "--stop-at",
+            "recipe_a",
+            "--stop-at",
+            "recipe_b",
+            "--mark-ok",
+            "recipe_c",
+            "--no-auto-rebuild",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     flow = proj.get_flow()

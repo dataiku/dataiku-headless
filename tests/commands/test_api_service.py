@@ -75,7 +75,15 @@ def test_api_service_list_packages(patch_client):
 def test_api_service_list_packages_json(patch_client):
     result = runner.invoke(
         app,
-        ["api-service", "list-packages", "myservice", "--project", "PROJ1", "-o", "json"],
+        [
+            "api-service",
+            "list-packages",
+            "myservice",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

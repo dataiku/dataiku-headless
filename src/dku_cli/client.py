@@ -41,9 +41,7 @@ def resolve_auth(
             resolved_key = get_api_key(active)
 
     if not resolved_url:
-        raise AuthError(
-            "No DSS URL configured. Run 'dku auth login' or set DKU_URL."
-        )
+        raise AuthError("No DSS URL configured. Run 'dku auth login' or set DKU_URL.")
     if not resolved_key:
         raise AuthError(
             "No API key configured. Run 'dku auth login' or set DKU_API_KEY."

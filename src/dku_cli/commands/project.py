@@ -9,7 +9,14 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import error, render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    error,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS projects.")
 
@@ -29,11 +36,13 @@ def list_projects(
             try:
                 proj = client.get_project(key)
                 meta = proj.get_metadata()
-                data.append({
-                    "key": key,
-                    "name": meta.get("label", key),
-                    "short_desc": meta.get("shortDesc", ""),
-                })
+                data.append(
+                    {
+                        "key": key,
+                        "name": meta.get("label", key),
+                        "short_desc": meta.get("shortDesc", ""),
+                    }
+                )
             except Exception:
                 data.append({"key": key, "name": key, "short_desc": ""})
 
@@ -106,8 +115,12 @@ def create(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
     name: str = typer.Option(..., "--name", "-n", help="Display name"),
-    description: str = typer.Option("", "--description", "-d", help="Short description"),
-    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if project already exists"),
+    description: str = typer.Option(
+        "", "--description", "-d", help="Short description"
+    ),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if project already exists"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new project."""
@@ -151,11 +164,15 @@ def create(
 def delete(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
-    confirm: bool = typer.Option(False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"),
+    confirm: bool = typer.Option(
+        False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
+    ),
 ) -> None:
     """Delete a project. Requires --confirm / --yes flag."""
     if not confirm:
-        error("Deletion requires --confirm (or --yes / -y) flag. This action is irreversible.")
+        error(
+            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
+        )
         raise typer.Exit(1)
     try:
         client = get_client_from_ctx(ctx)
@@ -179,7 +196,9 @@ def duplicate(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        result = proj.duplicate(target_project_key=target_key, target_project_name=target_name)
+        proj.duplicate(
+            target_project_key=target_key, target_project_name=target_name
+        )
 
         data = [
             {"field": "Source", "value": project_key},
@@ -203,7 +222,9 @@ def set_metadata(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="New display name"),
-    description: Optional[str] = typer.Option(None, "--description", "-d", help="New short description"),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d", help="New short description"
+    ),
 ) -> None:
     """Update project name and/or description."""
     if name is None and description is None:
@@ -247,8 +268,14 @@ def variables(
 def set_variables(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    set_var: Optional[List[str]] = typer.Option(None, "--set", help="Set standard variable (key=value)"),
-    definition: Optional[str] = typer.Option(None, "--definition", help="Full variables JSON (string, @file.json, or - for stdin)"),
+    set_var: Optional[List[str]] = typer.Option(
+        None, "--set", help="Set standard variable (key=value)"
+    ),
+    definition: Optional[str] = typer.Option(
+        None,
+        "--definition",
+        help="Full variables JSON (string, @file.json, or - for stdin)",
+    ),
 ) -> None:
     """Set project variables. Use --set for individual standard vars or --definition to replace all."""
     project_key = resolve_project(project)
@@ -303,7 +330,11 @@ def permissions(
 def set_permissions(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    definition: str = typer.Option(..., "--definition", help="Permissions JSON (string, @file.json, or - for stdin)"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="Permissions JSON (string, @file.json, or - for stdin)",
+    ),
 ) -> None:
     """Set project permissions from JSON definition."""
     project_key = resolve_project(project)

@@ -31,7 +31,15 @@ def test_user_list_json(patch_client):
 def test_user_create(patch_client):
     result = runner.invoke(
         app,
-        ["user", "create", "newuser", "--display-name", "New User", "--email", "new@test.com"],
+        [
+            "user",
+            "create",
+            "newuser",
+            "--display-name",
+            "New User",
+            "--email",
+            "new@test.com",
+        ],
     )
     assert result.exit_code == 0
     patch_client.create_user.assert_called_once_with(
@@ -43,14 +51,24 @@ def test_user_create_with_groups(patch_client):
     result = runner.invoke(
         app,
         [
-            "user", "create", "newuser",
-            "--display-name", "New User",
-            "--email", "new@test.com",
-            "--password", "secret123",
-            "--groups", "admin,data_team",
+            "user",
+            "create",
+            "newuser",
+            "--display-name",
+            "New User",
+            "--email",
+            "new@test.com",
+            "--password",
+            "secret123",
+            "--groups",
+            "admin,data_team",
         ],
     )
     assert result.exit_code == 0
     patch_client.create_user.assert_called_once_with(
-        "newuser", "secret123", "New User", "new@test.com", groups=["admin", "data_team"]
+        "newuser",
+        "secret123",
+        "New User",
+        "new@test.com",
+        groups=["admin", "data_team"],
     )

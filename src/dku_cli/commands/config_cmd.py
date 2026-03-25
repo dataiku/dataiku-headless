@@ -119,7 +119,9 @@ def variables(
 @app.command("set-variables")
 def set_variables(
     ctx: typer.Context,
-    set_var: Optional[List[str]] = typer.Option(None, "--set", help="Set standard variable (key=value)"),
+    set_var: Optional[List[str]] = typer.Option(
+        None, "--set", help="Set standard variable (key=value)"
+    ),
 ) -> None:
     """Set instance-level standard variables."""
     from dku_cli.errors import handle_api_error

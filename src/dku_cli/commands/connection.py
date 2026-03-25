@@ -26,12 +26,14 @@ def list_connections(
 
         data = []
         for name, conn in connections.items():
-            data.append({
-                "name": name,
-                "type": conn.get("type", ""),
-                "allow_write": str(conn.get("allowWrite", "")),
-                "allow_managed": str(conn.get("allowManagedDatasets", "")),
-            })
+            data.append(
+                {
+                    "name": name,
+                    "type": conn.get("type", ""),
+                    "allow_write": str(conn.get("allowWrite", "")),
+                    "allow_managed": str(conn.get("allowManagedDatasets", "")),
+                }
+            )
 
         render(
             data,
@@ -53,8 +55,15 @@ def list_connections(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Connection name"),
-    conn_type: str = typer.Option(..., "--type", "-t", help="Connection type (e.g. PostgreSQL, Snowflake)"),
-    definition: Optional[str] = typer.Option(None, "--definition", "-d", help="Connection params as JSON (literal, @file.json, or - for stdin)"),
+    conn_type: str = typer.Option(
+        ..., "--type", "-t", help="Connection type (e.g. PostgreSQL, Snowflake)"
+    ),
+    definition: Optional[str] = typer.Option(
+        None,
+        "--definition",
+        "-d",
+        help="Connection params as JSON (literal, @file.json, or - for stdin)",
+    ),
 ) -> None:
     """Create a new connection."""
     try:

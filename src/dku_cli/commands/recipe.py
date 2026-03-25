@@ -9,22 +9,62 @@ from pathlib import Path
 
 import typer
 
-from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error, is_not_found_error
+from dku_cli.errors import (
+    exit_with_error,
+    handle_api_error,
+    is_already_exists_error,
+    is_not_found_error,
+)
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS recipes.")
 
-_KNOWN_RECIPE_TYPES = frozenset({
-    "python", "sql", "sql_script", "sql_query", "sync", "join", "split",
-    "group", "distinct", "topn", "sort", "window", "pivot", "stack",
-    "prepare", "sample", "filter", "download", "upload", "impala",
-    "hive", "pig", "spark_sql", "pyspark", "sparkr", "r",
-    "shell", "cpython", "streaming",
-})
+_KNOWN_RECIPE_TYPES = frozenset(
+    {
+        "python",
+        "sql",
+        "sql_script",
+        "sql_query",
+        "sync",
+        "join",
+        "split",
+        "group",
+        "distinct",
+        "topn",
+        "sort",
+        "window",
+        "pivot",
+        "stack",
+        "prepare",
+        "sample",
+        "filter",
+        "download",
+        "upload",
+        "impala",
+        "hive",
+        "pig",
+        "spark_sql",
+        "pyspark",
+        "sparkr",
+        "r",
+        "shell",
+        "cpython",
+        "streaming",
+    }
+)
 
 
-def _require_existing_dataset(proj, dataset_name: str, project_key: str, role: str) -> None:
+def _require_existing_dataset(
+    proj, dataset_name: str, project_key: str, role: str
+) -> None:
     try:
         proj.get_dataset(dataset_name).get_definition()
     except Exception as e:
@@ -109,11 +149,15 @@ def list_recipes(
 
         data = []
         for r in recipes:
-            data.append({
-                "name": r.get("name", ""),
-                "type": r.get("type", ""),
-                "tags": ", ".join(r.get("tags", [])) if isinstance(r.get("tags"), list) else "",
-            })
+            data.append(
+                {
+                    "name": r.get("name", ""),
+                    "type": r.get("type", ""),
+                    "tags": ", ".join(r.get("tags", []))
+                    if isinstance(r.get("tags"), list)
+                    else "",
+                }
+            )
 
         render(
             data,
@@ -155,7 +199,12 @@ def get(
                 {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
             ]
 
-            render(data, ["field", "value"], output_format=output, title=f"Recipe: {recipe_name}")
+            render(
+                data,
+                ["field", "value"],
+                output_format=output,
+                title=f"Recipe: {recipe_name}",
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -167,10 +216,16 @@ def run(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     wait: bool = typer.Option(False, "--wait", "-w", help="Wait for completion"),
     job_type: str = typer.Option(
-        None, "--type", "-t",
+        None,
+        "--type",
+        "-t",
         help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
     ),
-    auto_update_schema: bool = typer.Option(False, "--auto-update-schema", help="Auto-update output schemas before each recipe run"),
+    auto_update_schema: bool = typer.Option(
+        False,
+        "--auto-update-schema",
+        help="Auto-update output schemas before each recipe run",
+    ),
 ) -> None:
     """Run a recipe.
 
@@ -189,6 +244,7 @@ def run(
             output_refs = settings.get_flat_output_refs()
             if not output_refs:
                 from dku_cli.output import error
+
                 error(f"Recipe '{recipe_name}' has no outputs to build")
                 raise typer.Exit(1)
 
@@ -218,6 +274,7 @@ def run(
                 success("Recipe completed successfully")
             else:
                 from dku_cli.output import error
+
                 error(f"Recipe finished with state: {state}")
     except typer.Exit:
         raise
@@ -229,11 +286,33 @@ def run(
 def create(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    type_name: str = typer.Option(..., "--type", "-t", help="Recipe type: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", "--input-dataset", help="Input dataset name (must exist)"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name (auto-created for code recipes)"),
+    type_name: str = typer.Option(
+        ...,
+        "--type",
+        "-t",
+        help="Recipe type: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync",
+    ),
+    input_ds: str = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        "--input-ds",
+        "--input-dataset",
+        help="Input dataset name (must exist)",
+    ),
+    output_ds: str = typer.Option(
+        ...,
+        "--output-ds",
+        "--output-dataset",
+        help="Output dataset name (auto-created for code recipes)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output FORMAT (table/json/csv). For output dataset, use --output-ds"),
+    output: str | None = typer.Option(
+        None,
+        "-o",
+        "--output",
+        help="Output FORMAT (table/json/csv). For output dataset, use --output-ds",
+    ),
 ) -> None:
     """Create a new recipe.
 
@@ -308,7 +387,9 @@ def delete(
 def set_code(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    code: str = typer.Option(..., "--code", "-c", help="Code: literal string, @file.py, or '-' for stdin"),
+    code: str = typer.Option(
+        ..., "--code", "-c", help="Code: literal string, @file.py, or '-' for stdin"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the code payload of a code recipe."""
@@ -359,7 +440,12 @@ def get_code(
 def set_definition(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    definition: str = typer.Option(..., "--definition", "-d", help="Definition JSON (string, @file.json, or '-' for stdin)"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Definition JSON (string, @file.json, or '-' for stdin)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the definition of a recipe from JSON."""
@@ -449,12 +535,14 @@ def check_schema(
             data = []
             for comp in updates.data.get("computables", []):
                 cols = comp.get("newSchema", {}).get("columns", [])
-                data.append({
-                    "output": comp.get("datasetName", comp.get("id", "")),
-                    "type": comp.get("type", ""),
-                    "columns": str(len(cols)),
-                    "changed": str(comp.get("schemaChanged", False)),
-                })
+                data.append(
+                    {
+                        "output": comp.get("datasetName", comp.get("id", "")),
+                        "type": comp.get("type", ""),
+                        "columns": str(len(cols)),
+                        "changed": str(comp.get("schemaChanged", False)),
+                    }
+                )
             render(
                 data,
                 ["output", "type", "columns", "changed"],
@@ -463,7 +551,9 @@ def check_schema(
             )
 
         if updates.any_action_required():
-            warn(f"Schema updates required ({updates.data.get('totalIncompatibilities', 0)} incompatibilities)")
+            warn(
+                f"Schema updates required ({updates.data.get('totalIncompatibilities', 0)} incompatibilities)"
+            )
             raise SystemExit(1)
         else:
             success(f"No schema updates needed for '{recipe_name}'")
@@ -529,7 +619,9 @@ def _ensure_output_dataset(client, proj, dataset_name: str, project_key: str) ->
             builder = proj.new_managed_dataset(dataset_name)
             builder.with_store_into(conn_name)
             builder.create()
-            info(f"Auto-created managed output dataset '{dataset_name}' on '{conn_name}' in {project_key}")
+            info(
+                f"Auto-created managed output dataset '{dataset_name}' on '{conn_name}' in {project_key}"
+            )
             return
         raise
 
@@ -550,9 +642,22 @@ def _auto_apply_schema(proj, recipe_name: str) -> None:
 def create_join(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    inputs: list[str] = typer.Option(..., "--input", "-i", "--input-ds", help="Input datasets (repeat for multiple: -i ds1 -i ds2)"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
-    join_key: list[str] = typer.Option(None, "--join-key", "-k", help="Join key: 'col' (same name both sides) or 'left=right'. Repeatable."),
+    inputs: list[str] = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        "--input-ds",
+        help="Input datasets (repeat for multiple: -i ds1 -i ds2)",
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
+    join_key: list[str] = typer.Option(
+        None,
+        "--join-key",
+        "-k",
+        help="Join key: 'col' (same name both sides) or 'left=right'. Repeatable.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Join recipe. NEVER use Python for joins — use this instead.
@@ -566,7 +671,9 @@ def create_join(
         exit_with_error(
             "Join recipes need at least 2 input datasets.",
             code="invalid_argument",
-            details=["Use: dku recipe create-join NAME -i ds1 -i ds2 --output-ds out -P PROJ"],
+            details=[
+                "Use: dku recipe create-join NAME -i ds1 -i ds2 --output-ds out -P PROJ"
+            ],
         )
     try:
         client = get_client_from_ctx(ctx)
@@ -581,6 +688,7 @@ def create_join(
         # Configure join keys if provided
         if join_key:
             from dataikuapi.dss.recipe import JoinRecipeSettings
+
             recipe_obj = proj.get_recipe(recipe_name)
             join_settings = recipe_obj.get_settings()
             joins = join_settings.raw_joins
@@ -592,8 +700,10 @@ def create_join(
                     else:
                         col1 = col2 = key_spec
                     JoinRecipeSettings.add_condition_to_join(
-                        target_join, type="EQ",
-                        column1=col1.strip(), column2=col2.strip(),
+                        target_join,
+                        type="EQ",
+                        column1=col1.strip(),
+                        column2=col2.strip(),
                     )
                 join_settings.save()
                 info(f"Join keys: {', '.join(join_key)}")
@@ -608,17 +718,32 @@ def create_join(
         handle_api_error(e)
 
 
-_VALID_AGGS = frozenset({"sum", "avg", "min", "max", "count", "count_distinct", "concat", "stddev"})
+_VALID_AGGS = frozenset(
+    {"sum", "avg", "min", "max", "count", "count_distinct", "concat", "stddev"}
+)
 
 
 @app.command("create-group")
 def create_group(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
-    group_key: str = typer.Option(None, "--group-key", "-k", help="Column to group by (add more via set-definition)"),
-    agg: list[str] = typer.Option(None, "--agg", help="Aggregation: 'col:func1,func2'. Functions: sum, avg, min, max, count, count_distinct, concat, stddev. Repeatable."),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
+    group_key: str = typer.Option(
+        None,
+        "--group-key",
+        "-k",
+        help="Column to group by (add more via set-definition)",
+    ),
+    agg: list[str] = typer.Option(
+        None,
+        "--agg",
+        help="Aggregation: 'col:func1,func2'. Functions: sum, avg, min, max, count, count_distinct, concat, stddev. Repeatable.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Group (aggregate) recipe. NEVER use Python for aggregations — use this instead.
@@ -634,7 +759,9 @@ def create_group(
                 exit_with_error(
                     f"Invalid --agg format: '{agg_spec}'.",
                     code="invalid_argument",
-                    details=["Expected: 'column:func1,func2'. Example: --agg 'amount:sum,avg'"],
+                    details=[
+                        "Expected: 'column:func1,func2'. Example: --agg 'amount:sum,avg'"
+                    ],
                 )
             _, funcs_str = agg_spec.split(":", 1)
             funcs = {f.strip().lower() for f in funcs_str.split(",")}
@@ -664,7 +791,8 @@ def create_group(
                 col, funcs_str = agg_spec.split(":", 1)
                 funcs = {f.strip().lower() for f in funcs_str.split(",")}
                 group_settings.set_column_aggregations(
-                    col.strip(), **{f: (f in funcs) for f in _VALID_AGGS},
+                    col.strip(),
+                    **{f: (f in funcs) for f in _VALID_AGGS},
                 )
             group_settings.save()
             info(f"Aggregations: {', '.join(agg)}")
@@ -683,8 +811,16 @@ def create_group(
 def create_stack(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    inputs: list[str] = typer.Option(..., "--input", "-i", "--input-ds", help="Input datasets to stack (repeat: -i ds1 -i ds2)"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    inputs: list[str] = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        "--input-ds",
+        help="Input datasets to stack (repeat: -i ds1 -i ds2)",
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Stack recipe. Vertically concatenates datasets (UNION).
@@ -696,7 +832,9 @@ def create_stack(
         exit_with_error(
             "Stack recipes need at least 2 input datasets.",
             code="invalid_argument",
-            details=["Use: dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out -P PROJ"],
+            details=[
+                "Use: dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out -P PROJ"
+            ],
         )
     try:
         client = get_client_from_ctx(ctx)
@@ -717,8 +855,12 @@ def create_stack(
 def create_distinct(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Distinct recipe. Deduplicates rows.
@@ -744,8 +886,12 @@ def create_distinct(
 def create_sort(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Sort recipe.
@@ -771,8 +917,12 @@ def create_sort(
 def create_filter(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Sample/Filter recipe. Filters rows by condition.
@@ -799,8 +949,12 @@ def create_filter(
 def create_window(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Window recipe. Computes window/analytic functions (rank, lag, cumsum).
@@ -826,8 +980,12 @@ def create_window(
 def create_split(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="First output dataset name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="First output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Split recipe. Splits data into multiple datasets by condition.
@@ -854,8 +1012,12 @@ def create_split(
 def create_topn(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Top N recipe. Returns the top/bottom N rows.
@@ -887,9 +1049,17 @@ def create_embed(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset name"),
-    output_kb: str = typer.Option(..., "--output-kb", help="Output knowledge bank name"),
-    embedding_llm: str = typer.Option(..., "--embedding-llm", help="Embedding LLM ID (e.g. openai:text-embedding-3-small)"),
-    vector_store_type: str = typer.Option("CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"),
+    output_kb: str = typer.Option(
+        ..., "--output-kb", help="Output knowledge bank name"
+    ),
+    embedding_llm: str = typer.Option(
+        ...,
+        "--embedding-llm",
+        help="Embedding LLM ID (e.g. openai:text-embedding-3-small)",
+    ),
+    vector_store_type: str = typer.Option(
+        "CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create an Embed Dataset recipe (embeds text columns into a Knowledge Bank)."""
@@ -910,11 +1080,19 @@ def create_embed(
 def create_embed_docs(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with document columns"),
-    output_kb: str = typer.Option(..., "--output-kb", help="Output knowledge bank name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", help="Input dataset with document columns"
+    ),
+    output_kb: str = typer.Option(
+        ..., "--output-kb", help="Output knowledge bank name"
+    ),
     embedding_llm: str = typer.Option(..., "--embedding-llm", help="Embedding LLM ID"),
-    vlm: str = typer.Option(None, "--vlm", help="Vision LLM ID for document understanding"),
-    vector_store_type: str = typer.Option("CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"),
+    vlm: str = typer.Option(
+        None, "--vlm", help="Vision LLM ID for document understanding"
+    ),
+    vector_store_type: str = typer.Option(
+        "CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create an Embed Documents recipe (extracts and embeds document content into a Knowledge Bank)."""
@@ -937,7 +1115,9 @@ def create_embed_docs(
 def create_extract(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with documents"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", help="Input dataset with documents"
+    ),
     output_ds: str = typer.Option(..., "--output-ds", help="Output dataset name"),
     vlm: str = typer.Option(..., "--vlm", help="Vision LLM ID for content extraction"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -961,18 +1141,40 @@ def create_extract(
 def create_llm_eval(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with LLM outputs to evaluate"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", help="Input dataset with LLM outputs to evaluate"
+    ),
     eval_store: str = typer.Option(..., "--eval-store", help="LLM evaluation store ID"),
-    output_ds: str = typer.Option(None, "--output-ds", help="Output scored dataset name"),
-    output_metrics: str = typer.Option(None, "--output-metrics", help="Metrics dataset name"),
-    task_type: str = typer.Option(None, "--task-type", help="Task type (e.g. QUESTION_ANSWERING, SUMMARIZATION)"),
-    metrics: str = typer.Option(None, "--metrics", help="Comma-separated metrics (e.g. answerRelevancy,faithfulness)"),
-    input_col: str = typer.Option(None, "--input-col", help="Input/question column name"),
-    output_col: str = typer.Option(None, "--output-col", help="LLM output/answer column name"),
-    ground_truth_col: str = typer.Option(None, "--ground-truth-col", help="Ground truth column name"),
+    output_ds: str = typer.Option(
+        None, "--output-ds", help="Output scored dataset name"
+    ),
+    output_metrics: str = typer.Option(
+        None, "--output-metrics", help="Metrics dataset name"
+    ),
+    task_type: str = typer.Option(
+        None, "--task-type", help="Task type (e.g. QUESTION_ANSWERING, SUMMARIZATION)"
+    ),
+    metrics: str = typer.Option(
+        None,
+        "--metrics",
+        help="Comma-separated metrics (e.g. answerRelevancy,faithfulness)",
+    ),
+    input_col: str = typer.Option(
+        None, "--input-col", help="Input/question column name"
+    ),
+    output_col: str = typer.Option(
+        None, "--output-col", help="LLM output/answer column name"
+    ),
+    ground_truth_col: str = typer.Option(
+        None, "--ground-truth-col", help="Ground truth column name"
+    ),
     context_col: str = typer.Option(None, "--context-col", help="Context column name"),
-    completion_llm: str = typer.Option(None, "--completion-llm", help="Completion LLM ID for evaluation logic"),
-    embedding_llm: str = typer.Option(None, "--embedding-llm", help="Embedding LLM ID for similarity metrics"),
+    completion_llm: str = typer.Option(
+        None, "--completion-llm", help="Completion LLM ID for evaluation logic"
+    ),
+    embedding_llm: str = typer.Option(
+        None, "--embedding-llm", help="Embedding LLM ID for similarity metrics"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create an LLM Evaluation recipe (evaluates LLM outputs with metrics like relevancy, faithfulness)."""
@@ -983,7 +1185,9 @@ def create_llm_eval(
         if output_ds:
             _require_existing_dataset(proj, output_ds, project_key, "Output")
         if output_metrics:
-            _require_existing_dataset(proj, output_metrics, project_key, "Metrics output")
+            _require_existing_dataset(
+                proj, output_metrics, project_key, "Metrics output"
+            )
         recipe = _create_eval_recipe_raw(
             client,
             proj,
@@ -1014,7 +1218,18 @@ def create_llm_eval(
             payload["completionLLMId"] = completion_llm
         if embedding_llm:
             payload["embeddingLLMId"] = embedding_llm
-        if any([task_type, metrics, input_col, output_col, ground_truth_col, context_col, completion_llm, embedding_llm]):
+        if any(
+            [
+                task_type,
+                metrics,
+                input_col,
+                output_col,
+                ground_truth_col,
+                context_col,
+                completion_llm,
+                embedding_llm,
+            ]
+        ):
             settings.save()
 
         success(f"Created LLM eval recipe '{recipe_name}' in {project_key}")
@@ -1028,14 +1243,32 @@ def create_llm_eval(
 def create_agent_eval(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with agent outputs"),
-    eval_store: str = typer.Option(..., "--eval-store", help="Agent evaluation store ID"),
-    output_ds: str = typer.Option(None, "--output-ds", help="Output scored dataset name"),
-    output_metrics: str = typer.Option(None, "--output-metrics", help="Metrics dataset name"),
-    metrics: str = typer.Option(None, "--metrics", help="Comma-separated metrics (e.g. toolCallExactMatch,agentGoalAccuracyWithoutReference)"),
-    completion_llm: str = typer.Option(None, "--completion-llm", help="Completion LLM ID"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", help="Input dataset with agent outputs"
+    ),
+    eval_store: str = typer.Option(
+        ..., "--eval-store", help="Agent evaluation store ID"
+    ),
+    output_ds: str = typer.Option(
+        None, "--output-ds", help="Output scored dataset name"
+    ),
+    output_metrics: str = typer.Option(
+        None, "--output-metrics", help="Metrics dataset name"
+    ),
+    metrics: str = typer.Option(
+        None,
+        "--metrics",
+        help="Comma-separated metrics (e.g. toolCallExactMatch,agentGoalAccuracyWithoutReference)",
+    ),
+    completion_llm: str = typer.Option(
+        None, "--completion-llm", help="Completion LLM ID"
+    ),
     embedding_llm: str = typer.Option(None, "--embedding-llm", help="Embedding LLM ID"),
-    input_format: str = typer.Option("AGENT_EXECUTION", "--input-format", help="Input format: AGENT_EXECUTION or PROMPT_RECIPE"),
+    input_format: str = typer.Option(
+        "AGENT_EXECUTION",
+        "--input-format",
+        help="Input format: AGENT_EXECUTION or PROMPT_RECIPE",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create an Agent Evaluation recipe (evaluates agent tool-calling accuracy)."""
@@ -1046,7 +1279,9 @@ def create_agent_eval(
         if output_ds:
             _require_existing_dataset(proj, output_ds, project_key, "Output")
         if output_metrics:
-            _require_existing_dataset(proj, output_metrics, project_key, "Metrics output")
+            _require_existing_dataset(
+                proj, output_metrics, project_key, "Metrics output"
+            )
         recipe = _create_eval_recipe_raw(
             client,
             proj,

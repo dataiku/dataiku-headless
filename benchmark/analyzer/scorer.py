@@ -6,7 +6,10 @@ import re
 from dataclasses import dataclass, field
 
 from benchmark.agents.base import AgentResult, VerificationResult
-from benchmark.analyzer.trace_parser import count_bash_calls_with_dku, extract_dku_commands
+from benchmark.analyzer.trace_parser import (
+    count_bash_calls_with_dku,
+    extract_dku_commands,
+)
 from benchmark.scenarios.schema import Scenario
 
 
@@ -30,7 +33,7 @@ class Scorer:
         self,
         test: Scenario,
         result: AgentResult,
-        verification: "Optional[VerificationResult]" = None,
+        verification: VerificationResult | None = None,
     ) -> Score:
         scores: dict[str, float] = {}
         details: dict[str, str] = {}
@@ -51,7 +54,9 @@ class Scorer:
                     if found:
                         matched += 1
                     else:
-                        details[f"missing_cmd_{exp.pattern}"] = f"Expected pattern '{exp.pattern}' not found"
+                        details[f"missing_cmd_{exp.pattern}"] = (
+                            f"Expected pattern '{exp.pattern}' not found"
+                        )
                 scores["command_correct"] = matched / len(required)
 
         # 2. No forbidden commands
@@ -118,8 +123,7 @@ class Scorer:
                 pass
             else:
                 spawned = any(
-                    test.expect.agent_spawned in str(a)
-                    for a in result.agent_spawns
+                    test.expect.agent_spawned in str(a) for a in result.agent_spawns
                 )
                 scores["agent_delegation"] = 1.0 if spawned else 0.0
 

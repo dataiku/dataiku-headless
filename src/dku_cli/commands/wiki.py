@@ -47,10 +47,12 @@ def list_articles(
         for a in articles:
             # DSSWikiArticle objects have .article_id; get_data() returns DSSWikiArticleData
             article_data = a.get_data()
-            data.append({
-                "id": a.article_id,
-                "title": article_data.get_name(),
-            })
+            data.append(
+                {
+                    "id": a.article_id,
+                    "title": article_data.get_name(),
+                }
+            )
 
         render(
             data,
@@ -67,9 +69,13 @@ def list_articles(
 def create(
     ctx: typer.Context,
     title: str = typer.Argument(help="Article title"),
-    body: str = typer.Option("", "--body", "-b", help="Article body (literal, @file.md, or - for stdin)"),
+    body: str = typer.Option(
+        "", "--body", "-b", help="Article body (literal, @file.md, or - for stdin)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if article already exists"),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if article already exists"
+    ),
 ) -> None:
     """Create a wiki article."""
     project_key = resolve_project(project)
@@ -78,11 +84,13 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         wiki = proj.get_wiki()
-        article = wiki.create_article(title, content=body_content)
+        wiki.create_article(title, content=body_content)
         success(f"Created wiki article '{title}' in {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
-            warn(f"Wiki article '{title}' already exists in {project_key}, skipping create")
+            warn(
+                f"Wiki article '{title}' already exists in {project_key}, skipping create"
+            )
             return
         handle_api_error(e)
 
@@ -106,11 +114,14 @@ def get(
 
         if output == "json":
             # DSSWikiArticleData isn't directly JSON-serializable
-            render_raw({
-                "id": article_id,
-                "name": data.get_name(),
-                "body": data.get_body(),
-            }, output_format="json")
+            render_raw(
+                {
+                    "id": article_id,
+                    "name": data.get_name(),
+                    "body": data.get_body(),
+                },
+                output_format="json",
+            )
         else:
             title = data.get_name() or article_id
             body = data.get_body() or ""
@@ -124,7 +135,9 @@ def get(
 def update(
     ctx: typer.Context,
     article_id: str = typer.Argument(help="Article ID"),
-    body: str = typer.Option(None, "--body", "-b", help="New body (literal, @file.md, or - for stdin)"),
+    body: str = typer.Option(
+        None, "--body", "-b", help="New body (literal, @file.md, or - for stdin)"
+    ),
     title: str = typer.Option(None, "--title", "-t", help="New title"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -156,7 +169,9 @@ def delete(
     ctx: typer.Context,
     article_id: str = typer.Argument(help="Article ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    confirm: bool = typer.Option(False, "--confirm", "--yes", "-y", help="Confirm deletion"),
+    confirm: bool = typer.Option(
+        False, "--confirm", "--yes", "-y", help="Confirm deletion"
+    ),
 ) -> None:
     """Delete a wiki article. Requires --confirm / --yes flag."""
     project_key = resolve_project(project)

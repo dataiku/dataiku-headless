@@ -29,9 +29,11 @@ def list_bundles(
 
         data = []
         for b in bundles:
-            data.append({
-                "id": b.get("id", "") if isinstance(b, dict) else str(b),
-            })
+            data.append(
+                {
+                    "id": b.get("id", "") if isinstance(b, dict) else str(b),
+                }
+            )
 
         render(
             data,

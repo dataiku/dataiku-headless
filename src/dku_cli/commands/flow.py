@@ -33,12 +33,14 @@ def graph(
         else:
             data = []
             for node_id, node in graph_obj.nodes.items():
-                data.append({
-                    "id": node_id,
-                    "type": node.get("type", ""),
-                    "subtype": node.get("subType", ""),
-                    "ref": node.get("ref", node_id),
-                })
+                data.append(
+                    {
+                        "id": node_id,
+                        "type": node.get("type", ""),
+                        "subtype": node.get("subType", ""),
+                        "ref": node.get("ref", node_id),
+                    }
+                )
 
             render(
                 data,
@@ -67,10 +69,12 @@ def zones(
 
         data = []
         for z in zone_list:
-            data.append({
-                "id": z.id,
-                "name": z.name,
-            })
+            data.append(
+                {
+                    "id": z.id,
+                    "name": z.name,
+                }
+            )
 
         render(
             data,
@@ -105,9 +109,15 @@ def propagate(
     ctx: typer.Context,
     dataset: str = typer.Argument(help="Starting dataset name for schema propagation"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    stop_at: list[str] | None = typer.Option(None, "--stop-at", help="Recipe to stop propagation at (repeatable)"),
-    mark_ok: list[str] | None = typer.Option(None, "--mark-ok", help="Recipe to mark as OK during propagation (repeatable)"),
-    no_auto_rebuild: bool = typer.Option(False, "--no-auto-rebuild", help="Disable automatic rebuild during propagation"),
+    stop_at: list[str] | None = typer.Option(
+        None, "--stop-at", help="Recipe to stop propagation at (repeatable)"
+    ),
+    mark_ok: list[str] | None = typer.Option(
+        None, "--mark-ok", help="Recipe to mark as OK during propagation (repeatable)"
+    ),
+    no_auto_rebuild: bool = typer.Option(
+        False, "--no-auto-rebuild", help="Disable automatic rebuild during propagation"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run schema propagation from a dataset through downstream recipes."""
@@ -150,11 +160,16 @@ def check(
 
         tool = flow.start_tool("CHECK_CONSISTENCY")
         try:
-            future = tool.update({
-                "recheckAll": True,
-                "datasets": {"consistencyWithData": True},
-                "recipes": {"schemaConsistency": True, "otherExpensiveChecks": False},
-            })
+            future = tool.update(
+                {
+                    "recheckAll": True,
+                    "datasets": {"consistencyWithData": True},
+                    "recipes": {
+                        "schemaConsistency": True,
+                        "otherExpensiveChecks": False,
+                    },
+                }
+            )
             future.wait_for_result()
             state = tool.get_state()
             render_raw(state, output_format=output)
@@ -190,11 +205,13 @@ def sources(
         data = []
         for node_id, node in graph_obj.nodes.items():
             if node_id not in downstream_nodes:
-                data.append({
-                    "id": node_id,
-                    "type": node.get("type", ""),
-                    "ref": node.get("ref", node_id),
-                })
+                data.append(
+                    {
+                        "id": node_id,
+                        "type": node.get("type", ""),
+                        "ref": node.get("ref", node_id),
+                    }
+                )
 
         render(
             data,
@@ -233,11 +250,13 @@ def successors(
         data = []
         for s_id in successor_ids:
             s_node = graph_obj.nodes.get(s_id, {})
-            data.append({
-                "id": s_id,
-                "type": s_node.get("type", ""),
-                "ref": s_node.get("ref", s_id),
-            })
+            data.append(
+                {
+                    "id": s_id,
+                    "type": s_node.get("type", ""),
+                    "ref": s_node.get("ref", s_id),
+                }
+            )
 
         render(
             data,

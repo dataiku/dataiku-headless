@@ -64,7 +64,9 @@ def test_project_list_rejects_invalid_output(patch_client):
 
 
 def test_project_create_table(patch_client):
-    result = runner.invoke(app, ["project", "create", "NEW_PROJ", "--name", "New Project"])
+    result = runner.invoke(
+        app, ["project", "create", "NEW_PROJ", "--name", "New Project"]
+    )
     assert result.exit_code == 0
     assert "NEW_PROJ" in result.output
     patch_client.create_project.assert_called_once_with(
@@ -74,7 +76,17 @@ def test_project_create_table(patch_client):
 
 def test_project_create_json(patch_client):
     result = runner.invoke(
-        app, ["--quiet", "project", "create", "NEW_PROJ", "--name", "New Project", "-o", "json"]
+        app,
+        [
+            "--quiet",
+            "project",
+            "create",
+            "NEW_PROJ",
+            "--name",
+            "New Project",
+            "-o",
+            "json",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -98,7 +110,9 @@ def test_project_create_with_description(patch_client):
 
 def test_project_create_if_not_exists_when_exists(patch_client):
     """--if-not-exists silently succeeds when project already exists."""
-    patch_client.create_project.side_effect = Exception("Project 'NEW_PROJ' already exists")
+    patch_client.create_project.side_effect = Exception(
+        "Project 'NEW_PROJ' already exists"
+    )
     result = runner.invoke(
         app,
         ["project", "create", "NEW_PROJ", "--name", "New", "--if-not-exists"],
@@ -119,7 +133,9 @@ def test_project_create_if_not_exists_when_new(patch_client):
 
 def test_project_create_without_if_not_exists_still_fails(patch_client):
     """Without --if-not-exists, already-exists error propagates normally."""
-    patch_client.create_project.side_effect = Exception("Project 'NEW_PROJ' already exists")
+    patch_client.create_project.side_effect = Exception(
+        "Project 'NEW_PROJ' already exists"
+    )
     result = runner.invoke(
         app,
         ["project", "create", "NEW_PROJ", "--name", "New"],
@@ -129,7 +145,9 @@ def test_project_create_without_if_not_exists_still_fails(patch_client):
 
 def test_project_create_already_exists_shows_hint(patch_client):
     """Already-exists error without --if-not-exists shows actionable hints."""
-    patch_client.create_project.side_effect = Exception("Project 'PROJ1' already exists")
+    patch_client.create_project.side_effect = Exception(
+        "Project 'PROJ1' already exists"
+    )
     result = runner.invoke(
         app,
         ["project", "create", "PROJ1", "--name", "Test"],
@@ -165,7 +183,15 @@ def test_project_set_metadata_description(patch_client):
 def test_project_set_metadata_both(patch_client):
     result = runner.invoke(
         app,
-        ["project", "set-metadata", "PROJ1", "--name", "Better Name", "--description", "Better desc"],
+        [
+            "project",
+            "set-metadata",
+            "PROJ1",
+            "--name",
+            "Better Name",
+            "--description",
+            "Better desc",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -175,9 +201,7 @@ def test_project_set_metadata_both(patch_client):
 
 
 def test_project_set_metadata_no_args(patch_client):
-    result = runner.invoke(
-        app, ["project", "set-metadata", "PROJ1"]
-    )
+    result = runner.invoke(app, ["project", "set-metadata", "PROJ1"])
     assert result.exit_code != 0
 
 
@@ -218,9 +242,13 @@ def test_project_duplicate(patch_client):
     result = runner.invoke(
         app,
         [
-            "project", "duplicate", "PROJ1",
-            "--target-key", "PROJ_COPY",
-            "--target-name", "Project Copy",
+            "project",
+            "duplicate",
+            "PROJ1",
+            "--target-key",
+            "PROJ_COPY",
+            "--target-name",
+            "Project Copy",
         ],
     )
     assert result.exit_code == 0
@@ -234,10 +262,16 @@ def test_project_duplicate_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "--quiet", "project", "duplicate", "PROJ1",
-            "--target-key", "PROJ_COPY",
-            "--target-name", "Project Copy",
-            "-o", "json",
+            "--quiet",
+            "project",
+            "duplicate",
+            "PROJ1",
+            "--target-key",
+            "PROJ_COPY",
+            "--target-name",
+            "Project Copy",
+            "-o",
+            "json",
         ],
     )
     assert result.exit_code == 0
@@ -250,7 +284,9 @@ def test_project_duplicate_json(patch_client):
 
 
 def test_project_variables(patch_client):
-    result = runner.invoke(app, ["project", "variables", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["project", "variables", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["standard"]["key1"] == "val1"
@@ -286,9 +322,7 @@ def test_project_set_variables_with_definition(patch_client):
 
 
 def test_project_set_variables_no_args(patch_client):
-    result = runner.invoke(
-        app, ["project", "set-variables", "--project", "PROJ1"]
-    )
+    result = runner.invoke(app, ["project", "set-variables", "--project", "PROJ1"])
     assert result.exit_code != 0
 
 
@@ -296,7 +330,9 @@ def test_project_set_variables_no_args(patch_client):
 
 
 def test_project_permissions(patch_client):
-    result = runner.invoke(app, ["project", "permissions", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["project", "permissions", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["permissions"][0]["user"] == "admin"

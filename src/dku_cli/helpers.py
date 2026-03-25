@@ -57,5 +57,11 @@ def read_json_input(value: str | None) -> dict | None:
             return json.loads(path.read_text())
         return json.loads(value)
     except json.JSONDecodeError as exc:
-        source = "stdin" if value == "-" else f"'{value[:80]}...'" if len(value) > 80 else f"'{value}'"
+        source = (
+            "stdin"
+            if value == "-"
+            else f"'{value[:80]}...'"
+            if len(value) > 80
+            else f"'{value}'"
+        )
         raise typer.BadParameter(f"Invalid JSON from {source}: {exc}") from exc

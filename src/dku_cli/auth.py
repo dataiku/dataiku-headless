@@ -20,6 +20,7 @@ CREDENTIALS_FILE = CONFIG_DIR / "credentials.toml"
 def _keyring_available() -> bool:
     try:
         import keyring
+
         # Test that a real backend is available (not the fail backend)
         backend = keyring.get_keyring()
         return "fail" not in type(backend).__module__.lower()
@@ -31,6 +32,7 @@ def store_api_key(profile: str, api_key: str) -> str:
     """Store API key, returns storage location description."""
     if _keyring_available():
         import keyring
+
         keyring.set_password(SERVICE_NAME, profile, api_key)
         backend = keyring.get_keyring()
         return type(backend).__name__
@@ -43,6 +45,7 @@ def get_api_key(profile: str) -> str | None:
     # Try keyring first
     if _keyring_available():
         import keyring
+
         key = keyring.get_password(SERVICE_NAME, profile)
         if key:
             return key
@@ -55,6 +58,7 @@ def delete_api_key(profile: str) -> bool:
     deleted = False
     if _keyring_available():
         import keyring
+
         try:
             keyring.delete_password(SERVICE_NAME, profile)
             deleted = True

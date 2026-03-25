@@ -13,9 +13,14 @@ runner = CliRunner()
 
 def test_auth_logout_all_clears_profile_config():
     with (
-        patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value={"default": {}, "prod": {}}),
+        patch(
+            "dku_cli.commands.auth_cmd.get_all_profiles",
+            return_value={"default": {}, "prod": {}},
+        ),
         patch("dku_cli.commands.auth_cmd.delete_api_key") as mock_delete,
-        patch("dku_cli.commands.auth_cmd.clear_profile_configs", return_value=2) as mock_clear,
+        patch(
+            "dku_cli.commands.auth_cmd.clear_profile_configs", return_value=2
+        ) as mock_clear,
     ):
         result = runner.invoke(app, ["auth", "logout", "--all"])
 
@@ -28,7 +33,9 @@ def test_auth_logout_removes_profile_from_config():
     with (
         patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
         patch("dku_cli.commands.auth_cmd.delete_api_key", return_value=False),
-        patch("dku_cli.commands.auth_cmd.delete_profile_config", return_value=True) as mock_delete_profile,
+        patch(
+            "dku_cli.commands.auth_cmd.delete_profile_config", return_value=True
+        ) as mock_delete_profile,
     ):
         result = runner.invoke(app, ["auth", "logout"])
 

@@ -42,7 +42,9 @@ def test_job_status(patch_client):
 
 
 def test_job_status_json(patch_client):
-    result = runner.invoke(app, ["job", "status", "job1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["job", "status", "job1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert any(d["field"] == "State" and d["value"] == "DONE" for d in parsed)
@@ -92,7 +94,9 @@ def test_job_wait_timeout(patch_client):
     job_mock = proj.get_job("job1")
     job_mock.get_status.return_value = {"baseStatus": {"state": "RUNNING"}}
     with patch("dku_cli.commands.job.time.sleep"):
-        result = runner.invoke(app, ["job", "wait", "job1", "--project", "PROJ1", "--timeout", "2"])
+        result = runner.invoke(
+            app, ["job", "wait", "job1", "--project", "PROJ1", "--timeout", "2"]
+        )
     assert result.exit_code == 1
     assert "Timed out" in result.output
 
@@ -113,9 +117,17 @@ def test_job_wait_failed(patch_client):
 
 def test_job_run_basic(patch_client):
     """Basic job run with single target."""
-    result = runner.invoke(app, [
-        "job", "run", "--target", "my_dataset", "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "my_dataset",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("NON_RECURSIVE_FORCED_BUILD")
@@ -126,13 +138,20 @@ def test_job_run_basic(patch_client):
 
 def test_job_run_recursive_with_auto_schema(patch_client):
     """Recursive build with auto schema update."""
-    result = runner.invoke(app, [
-        "job", "run",
-        "--target", "final_ds",
-        "--type", "RECURSIVE_BUILD",
-        "--auto-update-schema",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "final_ds",
+            "--type",
+            "RECURSIVE_BUILD",
+            "--auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
@@ -142,11 +161,19 @@ def test_job_run_recursive_with_auto_schema(patch_client):
 
 def test_job_run_multiple_targets(patch_client):
     """Multiple targets in a single job."""
-    result = runner.invoke(app, [
-        "job", "run",
-        "--target", "ds1", "--target", "ds2",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "ds1",
+            "--target",
+            "ds2",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_job.return_value
@@ -155,22 +182,35 @@ def test_job_run_multiple_targets(patch_client):
 
 def test_job_run_wait(patch_client):
     """Job run with --wait."""
-    result = runner.invoke(app, [
-        "job", "run",
-        "--target", "my_dataset",
-        "--wait",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "my_dataset",
+            "--wait",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "completed" in result.output.lower() or "DONE" in result.output
 
 
 def test_job_run_invalid_type(patch_client):
     """Invalid job type should fail."""
-    result = runner.invoke(app, [
-        "job", "run",
-        "--target", "my_dataset",
-        "--type", "INVALID_TYPE",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "my_dataset",
+            "--type",
+            "INVALID_TYPE",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 1

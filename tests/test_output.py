@@ -118,4 +118,7 @@ def test_resolve_output_format_rejects_invalid_explicit_value():
 
 def test_resolve_output_format_falls_back_when_config_is_incompatible():
     with patch("dku_cli.config.get_default_output", return_value="csv"):
-        assert resolve_output_format(None, allowed=("text", "json"), default="text") == "text"
+        assert (
+            resolve_output_format(None, allowed=("text", "json"), default="text")
+            == "text"
+        )

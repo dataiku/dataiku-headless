@@ -30,11 +30,13 @@ def list_macros(
         data = []
         for m in macros:
             meta = m.get("meta", {})
-            data.append({
-                "id": m.get("runnableType", ""),
-                "label": meta.get("label", ""),
-                "plugin": m.get("ownerPluginId", ""),
-            })
+            data.append(
+                {
+                    "id": m.get("runnableType", ""),
+                    "label": meta.get("label", ""),
+                    "plugin": m.get("ownerPluginId", ""),
+                }
+            )
 
         render(
             data,

@@ -6,7 +6,15 @@ import typer
 
 from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import error, info, render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    error,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS scenarios.")
 
@@ -27,12 +35,14 @@ def list_scenarios(
 
         data = []
         for s in scenarios:
-            data.append({
-                "id": s.get("id", ""),
-                "name": s.get("name", ""),
-                "active": str(s.get("active", False)),
-                "type": s.get("type", ""),
-            })
+            data.append(
+                {
+                    "id": s.get("id", ""),
+                    "name": s.get("name", ""),
+                    "active": str(s.get("active", False)),
+                    "type": s.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -64,7 +74,11 @@ def run(
         if wait:
             info("Waiting for completion...")
             result = trigger.wait_for_result()
-            outcome = result.get("scenarioRun", {}).get("result", {}).get("outcome", "unknown")
+            outcome = (
+                result.get("scenarioRun", {})
+                .get("result", {})
+                .get("outcome", "unknown")
+            )
             if outcome == "SUCCESS":
                 success(f"Scenario completed: {outcome}")
             else:
@@ -110,12 +124,14 @@ def status(
         data = []
         for r in runs:
             trigger = r.trigger or {}
-            data.append({
-                "run_id": r.id,
-                "start": str(r.start_time) if r.start_time else "",
-                "outcome": r.outcome or "",
-                "trigger": trigger.get("type", ""),
-            })
+            data.append(
+                {
+                    "run_id": r.id,
+                    "start": str(r.start_time) if r.start_time else "",
+                    "outcome": r.outcome or "",
+                    "trigger": trigger.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -134,9 +150,14 @@ def create(
     type: str = typer.Option("step_based", "--type", "-t", help="Scenario type"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str | None = typer.Option(
-        None, "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
+        None,
+        "--definition",
+        "-d",
+        help="JSON definition (string, @file.json, or - for stdin)",
     ),
-    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if scenario already exists"),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if scenario already exists"
+    ),
 ) -> None:
     """Create a new scenario."""
     project_key = resolve_project(project)
@@ -201,7 +222,10 @@ def set_definition(
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str = typer.Option(
-        ..., "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
+        ...,
+        "--definition",
+        "-d",
+        help="JSON definition (string, @file.json, or - for stdin)",
     ),
 ) -> None:
     """Update a scenario's definition from JSON."""

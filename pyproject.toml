@@ -30,6 +30,8 @@ dependencies = [
     "keyring>=25",
     "platformdirs>=4",
     "tomli>=2; python_version < '3.11'",
+    "pre-commit>=4.5.1",
+    "ruff>=0.15.7",
 ]
 
 [project.scripts]

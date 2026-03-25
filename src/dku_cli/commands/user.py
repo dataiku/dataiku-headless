@@ -26,19 +26,26 @@ def list_users(
 
         data = []
         for u in users:
-            data.append({
-                "login": u.get("login", ""),
-                "display_name": u.get("displayName", ""),
-                "email": u.get("email", ""),
-                "groups": ", ".join(u.get("groups", [])),
-            })
+            data.append(
+                {
+                    "login": u.get("login", ""),
+                    "display_name": u.get("displayName", ""),
+                    "email": u.get("email", ""),
+                    "groups": ", ".join(u.get("groups", [])),
+                }
+            )
 
         render(
             data,
             ["login", "display_name", "email", "groups"],
             output_format=output,
             title="Users",
-            headers={"login": "LOGIN", "display_name": "NAME", "email": "EMAIL", "groups": "GROUPS"},
+            headers={
+                "login": "LOGIN",
+                "display_name": "NAME",
+                "email": "EMAIL",
+                "groups": "GROUPS",
+            },
         )
     except Exception as e:
         handle_api_error(e)
@@ -51,13 +58,15 @@ def create(
     display_name: str = typer.Option(..., "--display-name", help="Display name"),
     email: str = typer.Option(..., "--email", help="Email address"),
     password: Optional[str] = typer.Option(None, "--password", help="User password"),
-    groups: Optional[str] = typer.Option(None, "--groups", help="Comma-separated group names"),
+    groups: Optional[str] = typer.Option(
+        None, "--groups", help="Comma-separated group names"
+    ),
 ) -> None:
     """Create a DSS user."""
     try:
         client = get_client_from_ctx(ctx)
         group_list = [g.strip() for g in groups.split(",")] if groups else []
-        result = client.create_user(
+        client.create_user(
             login, password, display_name, email, groups=group_list
         )
 

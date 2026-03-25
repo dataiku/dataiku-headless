@@ -28,7 +28,8 @@ def test_wiki_list_json(patch_client):
 
 def test_wiki_create(patch_client):
     result = runner.invoke(
-        app, ["wiki", "create", "My Article", "--body", "Hello world", "--project", "PROJ1"]
+        app,
+        ["wiki", "create", "My Article", "--body", "Hello world", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -42,12 +43,22 @@ def test_wiki_create_from_file(tmp_path, patch_client):
 
     result = runner.invoke(
         app,
-        ["wiki", "create", "File Article", "--body", f"@{md_file}", "--project", "PROJ1"],
+        [
+            "wiki",
+            "create",
+            "File Article",
+            "--body",
+            f"@{md_file}",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     wiki = proj.get_wiki()
-    wiki.create_article.assert_called_once_with("File Article", content="# From File\nBody text here.")
+    wiki.create_article.assert_called_once_with(
+        "File Article", content="# From File\nBody text here."
+    )
 
 
 def test_wiki_create_if_not_exists(patch_client):
@@ -57,7 +68,16 @@ def test_wiki_create_if_not_exists(patch_client):
     wiki.create_article.side_effect = Exception("409 Conflict: article already exists")
     result = runner.invoke(
         app,
-        ["wiki", "create", "Existing", "--body", "Content", "--project", "PROJ1", "--if-not-exists"],
+        [
+            "wiki",
+            "create",
+            "Existing",
+            "--body",
+            "Content",
+            "--project",
+            "PROJ1",
+            "--if-not-exists",
+        ],
     )
     assert result.exit_code == 0
     assert "already exists" in result.output
@@ -116,7 +136,17 @@ def test_wiki_update_title(patch_client):
 def test_wiki_update_both(patch_client):
     result = runner.invoke(
         app,
-        ["wiki", "update", "article1", "--title", "New", "--body", "Content", "--project", "PROJ1"],
+        [
+            "wiki",
+            "update",
+            "article1",
+            "--title",
+            "New",
+            "--body",
+            "Content",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
 
@@ -156,9 +186,7 @@ def test_wiki_delete_with_confirm(patch_client):
 
 
 def test_wiki_delete_without_confirm(patch_client):
-    result = runner.invoke(
-        app, ["wiki", "delete", "article1", "--project", "PROJ1"]
-    )
+    result = runner.invoke(app, ["wiki", "delete", "article1", "--project", "PROJ1"])
     assert result.exit_code != 0
 
 

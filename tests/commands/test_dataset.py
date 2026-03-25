@@ -38,7 +38,9 @@ def test_dataset_schema(patch_client):
 
 
 def test_dataset_schema_json(patch_client):
-    result = runner.invoke(app, ["dataset", "schema", "ds1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["dataset", "schema", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
@@ -56,17 +58,26 @@ def test_dataset_build(patch_client):
 
 
 def test_dataset_build_wait(patch_client):
-    result = runner.invoke(app, ["dataset", "build", "ds1", "--project", "PROJ1", "--wait"])
+    result = runner.invoke(
+        app, ["dataset", "build", "ds1", "--project", "PROJ1", "--wait"]
+    )
     assert result.exit_code == 0
 
 
 def test_dataset_build_with_type(patch_client):
     """Build with --type uses job builder."""
-    result = runner.invoke(app, [
-        "dataset", "build", "ds1",
-        "--type", "RECURSIVE_BUILD",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "build",
+            "ds1",
+            "--type",
+            "RECURSIVE_BUILD",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
@@ -76,11 +87,17 @@ def test_dataset_build_with_type(patch_client):
 
 def test_dataset_build_with_auto_update_schema(patch_client):
     """Build with --auto-update-schema uses job builder."""
-    result = runner.invoke(app, [
-        "dataset", "build", "ds1",
-        "--auto-update-schema",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "build",
+            "ds1",
+            "--auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_job.return_value
@@ -89,13 +106,20 @@ def test_dataset_build_with_auto_update_schema(patch_client):
 
 def test_dataset_build_recursive_auto_schema_wait(patch_client):
     """Full pipeline build: recursive + auto schema + wait."""
-    result = runner.invoke(app, [
-        "dataset", "build", "ds1",
-        "--type", "RECURSIVE_BUILD",
-        "--auto-update-schema",
-        "--wait",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "build",
+            "ds1",
+            "--type",
+            "RECURSIVE_BUILD",
+            "--auto-update-schema",
+            "--wait",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
@@ -105,7 +129,9 @@ def test_dataset_build_recursive_auto_schema_wait(patch_client):
 
 
 def test_dataset_create_basic(patch_client):
-    result = runner.invoke(app, ["dataset", "create", "new_ds", "--type", "SQL", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["dataset", "create", "new_ds", "--type", "SQL", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "Created dataset" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -116,12 +142,20 @@ def test_dataset_create_basic(patch_client):
 
 
 def test_dataset_create_with_connection(patch_client):
-    result = runner.invoke(app, [
-        "dataset", "create", "new_ds",
-        "--type", "SQL",
-        "--connection", "my_pg",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "new_ds",
+            "--type",
+            "SQL",
+            "--connection",
+            "my_pg",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     call_kwargs = proj.create_dataset.call_args[1]
@@ -130,13 +164,23 @@ def test_dataset_create_with_connection(patch_client):
 
 def test_dataset_create_with_definition(patch_client, tmp_path):
     def_file = tmp_path / "def.json"
-    def_file.write_text(json.dumps({"type": "SQL", "params": {"connection": "pg_conn"}}))
-    result = runner.invoke(app, [
-        "dataset", "create", "new_ds",
-        "--type", "SQL",
-        "--definition", f"@{def_file}",
-        "--project", "PROJ1",
-    ])
+    def_file.write_text(
+        json.dumps({"type": "SQL", "params": {"connection": "pg_conn"}})
+    )
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "new_ds",
+            "--type",
+            "SQL",
+            "--definition",
+            f"@{def_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     call_kwargs = proj.create_dataset.call_args[1]
@@ -145,18 +189,30 @@ def test_dataset_create_with_definition(patch_client, tmp_path):
 
 def test_dataset_create_with_definition_format_fields(patch_client, tmp_path):
     def_file = tmp_path / "def.json"
-    def_file.write_text(json.dumps({
-        "type": "S3",
-        "params": {"connection": "s3_conn", "path": "/bucket/path"},
-        "formatType": "csv",
-        "formatParams": {"separator": ","},
-    }))
-    result = runner.invoke(app, [
-        "dataset", "create", "new_ds",
-        "--type", "S3",
-        "--definition", f"@{def_file}",
-        "--project", "PROJ1",
-    ])
+    def_file.write_text(
+        json.dumps(
+            {
+                "type": "S3",
+                "params": {"connection": "s3_conn", "path": "/bucket/path"},
+                "formatType": "csv",
+                "formatParams": {"separator": ","},
+            }
+        )
+    )
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "new_ds",
+            "--type",
+            "S3",
+            "--definition",
+            f"@{def_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     call_args = proj.create_dataset.call_args
@@ -170,12 +226,20 @@ def test_dataset_create_with_definition_format_fields(patch_client, tmp_path):
 def test_dataset_create_fails_on_conflicting_definition_type(patch_client, tmp_path):
     def_file = tmp_path / "def.json"
     def_file.write_text(json.dumps({"type": "S3", "params": {"connection": "s3_conn"}}))
-    result = runner.invoke(app, [
-        "dataset", "create", "new_ds",
-        "--type", "SQL",
-        "--definition", f"@{def_file}",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "new_ds",
+            "--type",
+            "SQL",
+            "--definition",
+            f"@{def_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
     assert "conflicts with definition type" in result.output
 
@@ -187,30 +251,46 @@ def test_dataset_create_if_not_exists_when_exists(patch_client):
     """--if-not-exists silently succeeds when dataset already exists."""
     proj = patch_client.get_project("PROJ1")
     proj.create_dataset.side_effect = Exception("Dataset 'new_ds' already exists")
-    result = runner.invoke(app, [
-        "dataset", "create", "new_ds",
-        "--type", "SQL",
-        "--if-not-exists",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "new_ds",
+            "--type",
+            "SQL",
+            "--if-not-exists",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "already exists" in result.output.lower()
 
 
 def test_dataset_create_if_not_exists_when_new(patch_client):
     """--if-not-exists creates normally when dataset doesn't exist."""
-    result = runner.invoke(app, [
-        "dataset", "create", "new_ds",
-        "--type", "SQL",
-        "--if-not-exists",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "new_ds",
+            "--type",
+            "SQL",
+            "--if-not-exists",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").create_dataset.assert_called_once()
 
 
 def test_dataset_delete(patch_client):
-    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"])
+    result = runner.invoke(
+        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted dataset" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
@@ -219,7 +299,9 @@ def test_dataset_delete(patch_client):
 
 def test_dataset_delete_prompts_without_yes(patch_client):
     """Without --yes, delete prompts for confirmation."""
-    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"], input="y\n")
+    result = runner.invoke(
+        app, ["dataset", "delete", "ds1", "--project", "PROJ1"], input="y\n"
+    )
     assert result.exit_code == 0
     assert "Deleted dataset" in result.output
 
@@ -233,7 +315,9 @@ def test_dataset_clear(patch_client):
 
 
 def test_dataset_get_definition(patch_client):
-    result = runner.invoke(app, ["dataset", "get-definition", "ds1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["dataset", "get-definition", "ds1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert "schema" in parsed
@@ -241,7 +325,9 @@ def test_dataset_get_definition(patch_client):
 
 
 def test_dataset_get_definition_with_output_flag(patch_client):
-    result = runner.invoke(app, ["dataset", "get-definition", "ds1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["dataset", "get-definition", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["schema"]["columns"][1]["name"] == "col2"
@@ -249,11 +335,18 @@ def test_dataset_get_definition_with_output_flag(patch_client):
 
 def test_dataset_set_definition(patch_client):
     new_def = json.dumps({"schema": {"columns": [{"name": "x", "type": "string"}]}})
-    result = runner.invoke(app, [
-        "dataset", "set-definition", "ds1",
-        "--definition", new_def,
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-definition",
+            "ds1",
+            "--definition",
+            new_def,
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Updated definition" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
@@ -262,11 +355,18 @@ def test_dataset_set_definition(patch_client):
 
 def test_dataset_set_schema(patch_client):
     schema = json.dumps({"columns": [{"name": "new_col", "type": "float"}]})
-    result = runner.invoke(app, [
-        "dataset", "set-schema", "ds1",
-        "--definition", schema,
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            schema,
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "Updated schema" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
@@ -279,7 +379,9 @@ def test_dataset_set_schema(patch_client):
 def test_dataset_upload(patch_client, tmp_path):
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1,col2\na,1\nb,2")
-    result = runner.invoke(app, ["dataset", "upload", "raw_data", str(csv_file), "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["dataset", "upload", "raw_data", str(csv_file), "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "Uploaded" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("raw_data")
@@ -294,11 +396,18 @@ def test_dataset_upload(patch_client, tmp_path):
 
 def test_dataset_create_filesystem_defaults_to_filesystem_managed(patch_client):
     """Filesystem without -c defaults to filesystem_managed connection."""
-    result = runner.invoke(app, [
-        "dataset", "create", "fs_ds",
-        "--type", "Filesystem",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "fs_ds",
+            "--type",
+            "Filesystem",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_managed_dataset.assert_called_once_with("fs_ds")
@@ -309,10 +418,16 @@ def test_dataset_create_filesystem_defaults_to_filesystem_managed(patch_client):
 
 def test_dataset_create_default_type_is_filesystem(patch_client):
     """No --type flag defaults to Filesystem on filesystem_managed."""
-    result = runner.invoke(app, [
-        "dataset", "create", "fs_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "fs_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_managed_dataset.assert_called_once_with("fs_ds")
@@ -322,10 +437,16 @@ def test_dataset_create_default_type_is_filesystem(patch_client):
 
 def test_dataset_create_shows_recipe_tip(patch_client):
     """Filesystem create shows tip about --output-ds auto-creation."""
-    result = runner.invoke(app, [
-        "dataset", "create", "fs_ds",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "fs_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     assert "recipe create --output-ds" in result.output
 
@@ -333,23 +454,39 @@ def test_dataset_create_shows_recipe_tip(patch_client):
 def test_dataset_create_already_exists_shows_hint(patch_client):
     """Already-exists error without --if-not-exists shows actionable hint."""
     proj = patch_client.get_project("PROJ1")
-    proj.new_managed_dataset.return_value.create.side_effect = Exception("Dataset already exists")
-    result = runner.invoke(app, [
-        "dataset", "create", "fs_ds",
-        "--project", "PROJ1",
-    ])
+    proj.new_managed_dataset.return_value.create.side_effect = Exception(
+        "Dataset already exists"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "fs_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
     assert "--if-not-exists" in result.output
     assert "--yes" in result.output
 
 
 def test_dataset_create_filesystem_uses_managed_dataset_builder(patch_client):
-    result = runner.invoke(app, [
-        "dataset", "create", "fs_ds",
-        "--type", "Filesystem",
-        "--connection", "filesystem_folders",
-        "--project", "PROJ1",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "fs_ds",
+            "--type",
+            "Filesystem",
+            "--connection",
+            "filesystem_folders",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.new_managed_dataset.assert_called_once_with("fs_ds")
@@ -362,10 +499,18 @@ def test_dataset_create_filesystem_uses_managed_dataset_builder(patch_client):
 def test_dataset_upload_no_autodetect(patch_client, tmp_path):
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1,col2\na,1\nb,2")
-    result = runner.invoke(app, [
-        "dataset", "upload", "raw_data", str(csv_file),
-        "--project", "PROJ1", "--no-autodetect",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "upload",
+            "raw_data",
+            str(csv_file),
+            "--project",
+            "PROJ1",
+            "--no-autodetect",
+        ],
+    )
     assert result.exit_code == 0
     assert "Uploaded" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("raw_data")
@@ -374,7 +519,17 @@ def test_dataset_upload_no_autodetect(patch_client, tmp_path):
 
 
 def test_dataset_upload_file_not_found(patch_client):
-    result = runner.invoke(app, ["dataset", "upload", "raw_data", "/nonexistent/file.csv", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "upload",
+            "raw_data",
+            "/nonexistent/file.csv",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
 
 
@@ -389,12 +544,21 @@ def test_dataset_upload_env_project(patch_client, tmp_path, monkeypatch):
 
 def test_dataset_set_schema_from_file(patch_client, tmp_path):
     schema_file = tmp_path / "schema.json"
-    schema_file.write_text(json.dumps({"columns": [{"name": "file_col", "type": "bigint"}]}))
-    result = runner.invoke(app, [
-        "dataset", "set-schema", "ds1",
-        "--definition", f"@{schema_file}",
-        "--project", "PROJ1",
-    ])
+    schema_file.write_text(
+        json.dumps({"columns": [{"name": "file_col", "type": "bigint"}]})
+    )
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            f"@{schema_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code == 0
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     call_arg = ds.set_definition.call_args[0][0]

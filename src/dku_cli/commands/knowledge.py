@@ -6,7 +6,14 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS knowledge banks.")
 
@@ -30,14 +37,18 @@ _SLEEP_PAGE_MSG = (
 def _get_knowledge_bank_raw_settings(client, project_key: str, kb_id: str) -> dict:
     # PRIVATE API: public get_settings() doesn't expose raw JSON needed for display,
     # and can't detect sleep-page HTML. Switch when dataikuapi adds raw settings access.
-    response = client._perform_http("GET", f"/projects/{project_key}/knowledge-banks/{kb_id}")
+    response = client._perform_http(
+        "GET", f"/projects/{project_key}/knowledge-banks/{kb_id}"
+    )
     content_type = response.headers.get("Content-Type", "")
 
     if "text/html" in content_type:
         body = response.text.strip()
         if _is_sleep_page(body):
             raise RuntimeError(_SLEEP_PAGE_MSG)
-        raise RuntimeError("Knowledge bank settings endpoint returned HTML instead of JSON.")
+        raise RuntimeError(
+            "Knowledge bank settings endpoint returned HTML instead of JSON."
+        )
 
     try:
         return response.json()
@@ -64,10 +75,12 @@ def list_knowledge_banks(
 
         data = []
         for kb in banks:
-            data.append({
-                "id": kb.get("id", ""),
-                "name": kb.get("name", ""),
-            })
+            data.append(
+                {
+                    "id": kb.get("id", ""),
+                    "name": kb.get("name", ""),
+                }
+            )
 
         render(
             data,
@@ -87,12 +100,16 @@ def create(
         None,
         "--embedding-llm",
         help="Embedding LLM ID (e.g. openai:conn:text-embedding-3-small). "
-             "Find IDs: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION",
+        "Find IDs: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION",
     ),
     vector_store_type: str = typer.Option(
-        "FAISS", "--vector-store-type", help="Vector store type (FAISS, CHROMA, PINECONE)"
+        "FAISS",
+        "--vector-store-type",
+        help="Vector store type (FAISS, CHROMA, PINECONE)",
     ),
-    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if knowledge bank already exists"),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if knowledge bank already exists"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a new knowledge bank."""
@@ -113,7 +130,9 @@ def create(
         success(f"Created knowledge bank '{name}'")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
-            warn(f"Knowledge bank '{name}' already exists in {project_key}, skipping create")
+            warn(
+                f"Knowledge bank '{name}' already exists in {project_key}, skipping create"
+            )
             return
         handle_api_error(e)
 
@@ -141,7 +160,9 @@ def build(
     ctx: typer.Context,
     kb_id: str = typer.Argument(help="Knowledge bank ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    wait: bool = typer.Option(False, "--wait/--no-wait", help="Wait for build to complete"),
+    wait: bool = typer.Option(
+        False, "--wait/--no-wait", help="Wait for build to complete"
+    ),
 ) -> None:
     """Build a knowledge bank."""
     project_key = resolve_project(project)
@@ -166,7 +187,9 @@ def search(
     ctx: typer.Context,
     kb_id: str = typer.Argument(help="Knowledge bank ID"),
     query: str = typer.Option(..., "--query", "-q", help="Search query"),
-    max_results: int = typer.Option(10, "--max", "-n", help="Maximum number of results"),
+    max_results: int = typer.Option(
+        10, "--max", "-n", help="Maximum number of results"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:

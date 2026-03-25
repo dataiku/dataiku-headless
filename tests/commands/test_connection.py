@@ -45,7 +45,15 @@ def test_connection_create_with_definition(patch_client):
     definition = json.dumps({"host": "db.example.com", "port": 5432})
     result = runner.invoke(
         app,
-        ["connection", "create", "new_conn", "--type", "PostgreSQL", "--definition", definition],
+        [
+            "connection",
+            "create",
+            "new_conn",
+            "--type",
+            "PostgreSQL",
+            "--definition",
+            definition,
+        ],
     )
     assert result.exit_code == 0
     patch_client.create_connection.assert_called_once_with(

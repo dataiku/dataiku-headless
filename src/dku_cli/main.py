@@ -6,7 +6,6 @@ from typing import Optional
 
 import typer
 
-from dku_cli import __version__
 from dku_cli.brand import version_string
 from dku_cli.commands import (
     agent,
@@ -89,13 +88,28 @@ def _version_callback(value: bool) -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    url: Optional[str] = typer.Option(None, "--url", envvar="DKU_URL", help="DSS instance URL"),
-    api_key: Optional[str] = typer.Option(None, "--api-key", envvar="DKU_API_KEY", help="API key"),
-    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Auth profile name"),
-    quiet: Optional[bool] = typer.Option(None, "--quiet", "-q", help="Suppress info/success messages"),
-    errors: str = typer.Option("text", "--errors", help="Error output format (text or json)"),
+    url: Optional[str] = typer.Option(
+        None, "--url", envvar="DKU_URL", help="DSS instance URL"
+    ),
+    api_key: Optional[str] = typer.Option(
+        None, "--api-key", envvar="DKU_API_KEY", help="API key"
+    ),
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-p", help="Auth profile name"
+    ),
+    quiet: Optional[bool] = typer.Option(
+        None, "--quiet", "-q", help="Suppress info/success messages"
+    ),
+    errors: str = typer.Option(
+        "text", "--errors", help="Error output format (text or json)"
+    ),
     version: Optional[bool] = typer.Option(
-        None, "--version", "-V", callback=_version_callback, is_eager=True, help="Show version"
+        None,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version",
     ),
 ) -> None:
     """[blue bold]◆[/blue bold] Developer CLI for Dataiku DSS — like kubectl for your DSS instance."""
@@ -111,7 +125,9 @@ def main(
 
         set_quiet(True)
     if errors not in ("text", "json"):
-        raise typer.BadParameter("Error output format must be one of: text, json", param_hint="--errors")
+        raise typer.BadParameter(
+            "Error output format must be one of: text, json", param_hint="--errors"
+        )
     from dku_cli.output import set_error_format
 
     set_error_format(errors)

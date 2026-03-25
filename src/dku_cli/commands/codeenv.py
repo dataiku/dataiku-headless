@@ -27,12 +27,14 @@ def list_envs(
 
         data = []
         for env in envs:
-            data.append({
-                "name": env.get("envName", ""),
-                "lang": env.get("envLang", ""),
-                "type": env.get("deploymentMode", ""),
-                "owner": env.get("owner", ""),
-            })
+            data.append(
+                {
+                    "name": env.get("envName", ""),
+                    "lang": env.get("envLang", ""),
+                    "type": env.get("deploymentMode", ""),
+                    "owner": env.get("owner", ""),
+                }
+            )
 
         render(
             data,
@@ -69,12 +71,20 @@ def get(
                 {"field": "Language", "value": definition.get("envLang", lang)},
                 {"field": "Type", "value": definition.get("deploymentMode", "")},
                 {"field": "Interpreter", "value": desc.get("pythonInterpreter", "")},
-                {"field": "Core packages", "value": desc.get("corePackagesSet", "(none)")},
+                {
+                    "field": "Core packages",
+                    "value": desc.get("corePackagesSet", "(none)"),
+                },
                 {"field": "Spec packages", "value": str(len(packages))},
                 {"field": "Owner", "value": definition.get("owner", "")},
             ]
 
-            render(data, ["field", "value"], output_format=output, title=f"Code Env: {name}")
+            render(
+                data,
+                ["field", "value"],
+                output_format=output,
+                title=f"Code Env: {name}",
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -85,7 +95,9 @@ def create(
     name: str = typer.Argument(help="Code environment name"),
     lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
     deployment_mode: str = typer.Option(
-        "DESIGN_MANAGED", "--type", "-t",
+        "DESIGN_MANAGED",
+        "--type",
+        "-t",
         help="Deployment mode (DESIGN_MANAGED, PLUGIN_MANAGED, etc.)",
     ),
 ) -> None:
@@ -97,7 +109,7 @@ def create(
             "envName": name,
             "deploymentMode": deployment_mode,
         }
-        env = client.create_code_env(lang, name, deployment_mode, definition)
+        client.create_code_env(lang, name, deployment_mode, definition)
         success(f"Created code environment '{name}' ({lang})")
     except Exception as e:
         handle_api_error(e)

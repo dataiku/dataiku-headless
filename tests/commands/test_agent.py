@@ -35,7 +35,8 @@ def test_agent_create(patch_client):
 
 def test_agent_create_custom_type(patch_client):
     result = runner.invoke(
-        app, ["agent", "create", "My Agent", "--type", "PYTHON_AGENT", "--project", "PROJ1"]
+        app,
+        ["agent", "create", "My Agent", "--type", "PYTHON_AGENT", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").create_agent.assert_called_once_with(
@@ -50,7 +51,9 @@ def test_agent_get(patch_client):
 
 
 def test_agent_get_json(patch_client):
-    result = runner.invoke(app, ["agent", "get", "agent1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["agent", "get", "agent1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "agent1"
@@ -81,14 +84,18 @@ def test_agent_status(patch_client):
 
 
 def test_agent_status_json(patch_client):
-    result = runner.invoke(app, ["agent", "status", "agent1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["agent", "status", "agent1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["state"] == "RUNNING"
 
 
 def test_agent_add_tool(patch_client):
-    result = runner.invoke(app, ["agent", "add-tool", "agent1", "--tool", "new_tool", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["agent", "add-tool", "agent1", "--tool", "new_tool", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     # Verify tool was added via version settings API (toolRef, not toolId)
     settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
@@ -100,7 +107,9 @@ def test_agent_add_tool(patch_client):
 
 
 def test_agent_set_llm(patch_client):
-    result = runner.invoke(app, ["agent", "set-llm", "agent1", "--llm-id", "gpt4", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["agent", "set-llm", "agent1", "--llm-id", "gpt4", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     # Verify LLM was set via version settings API (toolsUsingAgentSettings.llmId)
     settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()

@@ -25,7 +25,9 @@ def test_config_set_default_project():
 
 
 def test_config_get_default_project():
-    with patch("dku_cli.commands.config_cmd.get_default_project", return_value="MYPROJ"):
+    with patch(
+        "dku_cli.commands.config_cmd.get_default_project", return_value="MYPROJ"
+    ):
         result = runner.invoke(app, ["config", "get", "default_project"])
         assert result.exit_code == 0
         assert "MYPROJ" in result.output
@@ -47,9 +49,12 @@ def test_config_set_output_invalid():
 
 
 def test_config_list():
-    with patch("dku_cli.commands.config_cmd.get_config", return_value={
-        "default": {"url": "https://dss.example.com", "default_project": "PROJ1"},
-        "active_profile": "default",
-    }):
+    with patch(
+        "dku_cli.commands.config_cmd.get_config",
+        return_value={
+            "default": {"url": "https://dss.example.com", "default_project": "PROJ1"},
+            "active_profile": "default",
+        },
+    ):
         result = runner.invoke(app, ["config", "list"])
         assert result.exit_code == 0

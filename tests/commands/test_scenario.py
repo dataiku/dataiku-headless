@@ -30,7 +30,9 @@ def test_scenario_list(patch_client):
 
 
 def test_scenario_list_json(patch_client):
-    result = runner.invoke(app, ["scenario", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["scenario", "list", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert isinstance(parsed, list)
@@ -52,7 +54,9 @@ def test_scenario_status(patch_client):
 
 
 def test_scenario_status_json(patch_client):
-    result = runner.invoke(app, ["scenario", "status", "scen1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["scenario", "status", "scen1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["run_id"] == "run1"
@@ -62,19 +66,31 @@ def test_scenario_status_json(patch_client):
 
 
 def test_scenario_create(patch_client):
-    result = runner.invoke(app, ["scenario", "create", "My New Scenario", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["scenario", "create", "My New Scenario", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "Created scenario" in result.output
     assert "new_scen" in result.output
     proj = patch_client.get_project("PROJ1")
-    proj.create_scenario.assert_called_once_with(scenario_name="My New Scenario", type="step_based")
+    proj.create_scenario.assert_called_once_with(
+        scenario_name="My New Scenario", type="step_based"
+    )
 
 
 def test_scenario_create_with_definition(patch_client):
     defn = json.dumps({"steps": [{"type": "build_flowitem"}]})
     result = runner.invoke(
         app,
-        ["scenario", "create", "Custom Scenario", "--project", "PROJ1", "--definition", defn],
+        [
+            "scenario",
+            "create",
+            "Custom Scenario",
+            "--project",
+            "PROJ1",
+            "--definition",
+            defn,
+        ],
     )
     assert result.exit_code == 0
     assert "Created scenario" in result.output
@@ -88,7 +104,15 @@ def test_scenario_create_with_definition(patch_client):
 def test_scenario_create_custom_type(patch_client):
     result = runner.invoke(
         app,
-        ["scenario", "create", "Custom Type", "--project", "PROJ1", "--type", "custom_python"],
+        [
+            "scenario",
+            "create",
+            "Custom Type",
+            "--project",
+            "PROJ1",
+            "--type",
+            "custom_python",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -99,7 +123,9 @@ def test_scenario_create_custom_type(patch_client):
 def test_scenario_create_if_not_exists(patch_client):
     """--if-not-exists suppresses already-exists errors."""
     proj = patch_client.get_project("PROJ1")
-    proj.create_scenario.side_effect = Exception("409 Conflict: scenario already exists")
+    proj.create_scenario.side_effect = Exception(
+        "409 Conflict: scenario already exists"
+    )
     result = runner.invoke(
         app,
         ["scenario", "create", "Existing", "--project", "PROJ1", "--if-not-exists"],
@@ -111,7 +137,9 @@ def test_scenario_create_if_not_exists(patch_client):
 def test_scenario_create_already_exists_fails(patch_client):
     """Without --if-not-exists, already-exists errors propagate."""
     proj = patch_client.get_project("PROJ1")
-    proj.create_scenario.side_effect = Exception("409 Conflict: scenario already exists")
+    proj.create_scenario.side_effect = Exception(
+        "409 Conflict: scenario already exists"
+    )
     result = runner.invoke(
         app,
         ["scenario", "create", "Existing", "--project", "PROJ1"],
@@ -129,7 +157,9 @@ def test_scenario_delete(patch_client):
 
 
 def test_scenario_get_definition(patch_client):
-    result = runner.invoke(app, ["scenario", "get-definition", "scen1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["scenario", "get-definition", "scen1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["type"] == "step_based"
@@ -138,7 +168,9 @@ def test_scenario_get_definition(patch_client):
 
 
 def test_scenario_get_definition_with_output_flag(patch_client):
-    result = runner.invoke(app, ["scenario", "get-definition", "scen1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["scenario", "get-definition", "scen1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["name"] == "Build All"
@@ -148,7 +180,15 @@ def test_scenario_set_definition(patch_client):
     new_def = json.dumps({"type": "step_based", "name": "Updated", "params": {"x": 1}})
     result = runner.invoke(
         app,
-        ["scenario", "set-definition", "scen1", "--project", "PROJ1", "--definition", new_def],
+        [
+            "scenario",
+            "set-definition",
+            "scen1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
     )
     assert result.exit_code == 0
     assert "Updated definition" in result.output
@@ -164,10 +204,20 @@ def test_scenario_set_definition_from_file(tmp_path, patch_client):
     defn_file.write_text(json.dumps({"type": "step_based", "name": "FromFile"}))
     result = runner.invoke(
         app,
-        ["scenario", "set-definition", "scen1", "--project", "PROJ1", "--definition", f"@{defn_file}"],
+        [
+            "scenario",
+            "set-definition",
+            "scen1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            f"@{defn_file}",
+        ],
     )
     assert result.exit_code == 0
     assert "Updated definition" in result.output
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    scenario.set_definition.assert_called_once_with({"type": "step_based", "name": "FromFile"})
+    scenario.set_definition.assert_called_once_with(
+        {"type": "step_based", "name": "FromFile"}
+    )

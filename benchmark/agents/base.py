@@ -7,7 +7,6 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 
@@ -67,7 +66,13 @@ class BaseAgent(ABC):
         """Parse agent output into structured result."""
         ...
 
-    def run(self, prompt: str, cwd: str, env: Optional[dict] = None, timeout: Optional[int] = None) -> AgentResult:
+    def run(
+        self,
+        prompt: str,
+        cwd: str,
+        env: Optional[dict] = None,
+        timeout: Optional[int] = None,
+    ) -> AgentResult:
         """Execute the agent with a prompt and return structured results."""
         run_env = os.environ.copy()
         if env:

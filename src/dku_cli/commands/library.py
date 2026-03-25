@@ -49,9 +49,11 @@ def list_files(
 
         data = []
         for item in contents:
-            data.append({
-                "path": item.path,
-            })
+            data.append(
+                {
+                    "path": item.path,
+                }
+            )
 
         render(
             data,
@@ -89,7 +91,12 @@ def read(
 def write(
     ctx: typer.Context,
     path: str = typer.Argument(help="File path in the library"),
-    content: str = typer.Option(..., "--content", "-c", help="Content: literal string, @file.py to read from file, or - for stdin"),
+    content: str = typer.Option(
+        ...,
+        "--content",
+        "-c",
+        help="Content: literal string, @file.py to read from file, or - for stdin",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Write a file to the project library."""

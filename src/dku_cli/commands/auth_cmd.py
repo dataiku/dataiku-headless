@@ -70,7 +70,9 @@ def login(
     # Prompt for default project in interactive mode
     if interactive:
         try:
-            project_key = Prompt.ask("Default project? (leave blank to skip)", default="")
+            project_key = Prompt.ask(
+                "Default project? (leave blank to skip)", default=""
+            )
             if project_key.strip():
                 set_default_project(project_key.strip())
                 info(f"Default project set to {project_key.strip()}")

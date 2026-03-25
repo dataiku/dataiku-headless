@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 from benchmark.analyzer.reporter import TestResultRecord
@@ -11,7 +11,7 @@ from benchmark.analyzer.reporter import TestResultRecord
 class Recommender:
     """Analyze failures and produce actionable improvement suggestions."""
 
-    def __init__(self, run_id: str, output_dir: "Optional[Path]" = None):
+    def __init__(self, run_id: str, output_dir: Path | None = None):
         self.run_id = run_id
         self.output_dir = output_dir or Path("benchmark/reports") / run_id
 
@@ -25,7 +25,9 @@ class Recommender:
 
         sections = []
         sections.append(f"# Recommendations from {self.run_id}\n")
-        sections.append(f"**{len(failures)} failures** across {len(set(f.test_id for f in failures))} tests.\n")
+        sections.append(
+            f"**{len(failures)} failures** across {len(set(f.test_id for f in failures))} tests.\n"
+        )
 
         # Cluster by failure pattern
         patterns = self._cluster_failures(failures)
@@ -35,7 +37,9 @@ class Recommender:
         for pattern, items in sorted(patterns.items(), key=lambda x: -len(x[1])):
             agents_affected = set(r.agent for r in items)
             test_ids = sorted(set(r.test_id for r in items))
-            severity = "High" if len(items) >= 3 else "Medium" if len(items) >= 2 else "Low"
+            severity = (
+                "High" if len(items) >= 3 else "Medium" if len(items) >= 2 else "Low"
+            )
 
             sections.append(f"## {priority}. {pattern} [{severity} Priority]\n")
             sections.append(f"**Affected tests:** {', '.join(test_ids)}")
@@ -67,13 +71,14 @@ class Recommender:
         self._write(content)
         return content
 
-    def _cluster_failures(self, failures: list[TestResultRecord]) -> dict[str, list[TestResultRecord]]:
+    def _cluster_failures(
+        self, failures: list[TestResultRecord]
+    ) -> dict[str, list[TestResultRecord]]:
         """Cluster failures by root cause pattern."""
         patterns: dict[str, list[TestResultRecord]] = defaultdict(list)
 
         for r in failures:
             scores = r.score.scores
-            details = r.score.details
 
             # Determine primary failure reason
             if scores.get("command_correct", 1.0) < 0.5:

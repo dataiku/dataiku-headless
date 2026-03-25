@@ -118,7 +118,7 @@ class CodexAgent(BaseAgent):
         # Pattern: /bin/zsh -lc 'command' or /bin/bash -lc 'command'
         for prefix in ("/bin/zsh -lc '", "/bin/bash -lc '", "/bin/sh -c '"):
             if cmd.startswith(prefix) and cmd.endswith("'"):
-                return cmd[len(prefix):-1]
+                return cmd[len(prefix) : -1]
         return cmd
 
     def _extract_dku_commands(self, text: str) -> list[str]:

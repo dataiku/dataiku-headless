@@ -29,11 +29,13 @@ def list_models(
 
         data = []
         for m in models:
-            data.append({
-                "id": m.get("id", ""),
-                "name": m.get("name", ""),
-                "type": m.get("type", ""),
-            })
+            data.append(
+                {
+                    "id": m.get("id", ""),
+                    "name": m.get("name", ""),
+                    "type": m.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -76,9 +78,17 @@ def get(
                 {"field": "ID", "value": model_id},
                 {"field": "Name", "value": raw.get("name", "")},
                 {"field": "Type", "value": raw.get("type", "")},
-                {"field": "Active version", "value": active.get("id", "") if active else "(none)"},
+                {
+                    "field": "Active version",
+                    "value": active.get("id", "") if active else "(none)",
+                },
             ]
-            render(data, ["field", "value"], output_format=output, title=f"Model: {model_id}")
+            render(
+                data,
+                ["field", "value"],
+                output_format=output,
+                title=f"Model: {model_id}",
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -101,11 +111,13 @@ def versions(
 
         data = []
         for v in vers:
-            data.append({
-                "id": v.get("id", ""),
-                "active": str(v.get("active", False)),
-                "algorithm": v.get("snippet", {}).get("algorithm", ""),
-            })
+            data.append(
+                {
+                    "id": v.get("id", ""),
+                    "active": str(v.get("active", False)),
+                    "algorithm": v.get("snippet", {}).get("algorithm", ""),
+                }
+            )
 
         render(
             data,

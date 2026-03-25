@@ -40,7 +40,9 @@ def test_webapp_status(patch_client):
 
 
 def test_webapp_status_json(patch_client):
-    result = runner.invoke(app, ["webapp", "status", "webapp1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["webapp", "status", "webapp1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert any(d["value"] == "True" for d in parsed)

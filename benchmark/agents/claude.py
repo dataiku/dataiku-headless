@@ -75,7 +75,9 @@ class ClaudeAgent(BaseAgent):
 
         # The single JSON format doesn't include tool call details,
         # but we can extract dku commands from the result text
-        result.bash_commands = self._extract_dku_commands_from_text(result.assistant_text)
+        result.bash_commands = self._extract_dku_commands_from_text(
+            result.assistant_text
+        )
 
         return result
 
@@ -124,11 +126,13 @@ class ClaudeAgent(BaseAgent):
             if skill:
                 result.skill_invocations.append(skill)
         elif name == "Agent":
-            result.agent_spawns.append({
-                "type": input_data.get("subagent_type", ""),
-                "prompt": input_data.get("prompt", "")[:200],
-                "description": input_data.get("description", ""),
-            })
+            result.agent_spawns.append(
+                {
+                    "type": input_data.get("subagent_type", ""),
+                    "prompt": input_data.get("prompt", "")[:200],
+                    "description": input_data.get("description", ""),
+                }
+            )
         elif name == "Read":
             path = input_data.get("file_path", "")
             if path:

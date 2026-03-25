@@ -8,7 +8,15 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import console, error, info, render, resolve_output_format, success, warn
+from dku_cli.output import (
+    console,
+    error,
+    info,
+    render,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS jobs.")
 
@@ -31,12 +39,14 @@ def list_jobs(
         data = []
         for j in jobs[:limit]:
             base = j.get("baseStatus", {})
-            data.append({
-                "id": base.get("def", {}).get("id", ""),
-                "state": base.get("state", ""),
-                "initiator": base.get("def", {}).get("initiator", ""),
-                "start": base.get("timing", {}).get("startTime", ""),
-            })
+            data.append(
+                {
+                    "id": base.get("def", {}).get("id", ""),
+                    "state": base.get("state", ""),
+                    "initiator": base.get("def", {}).get("initiator", ""),
+                    "start": base.get("timing", {}).get("startTime", ""),
+                }
+            )
 
         render(
             data,
@@ -126,7 +136,9 @@ _JOB_TYPES = [
 @app.command()
 def run(
     ctx: typer.Context,
-    target: list[str] = typer.Option(..., "--target", help="Dataset/object to build (repeatable)"),
+    target: list[str] = typer.Option(
+        ..., "--target", help="Dataset/object to build (repeatable)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     job_type: str = typer.Option(
         "NON_RECURSIVE_FORCED_BUILD",
@@ -134,10 +146,22 @@ def run(
         "-t",
         help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
     ),
-    auto_update_schema: bool = typer.Option(False, "--auto-update-schema", help="Auto-update output schemas before each recipe run"),
-    refresh_metastore: bool = typer.Option(False, "--refresh-metastore", help="Refresh Hive metastore after building HDFS datasets"),
-    wait_for_completion: bool = typer.Option(False, "--wait", "-w", help="Wait for job completion"),
-    timeout: int = typer.Option(0, "--timeout", help="Timeout in seconds when waiting (0 = no limit)"),
+    auto_update_schema: bool = typer.Option(
+        False,
+        "--auto-update-schema",
+        help="Auto-update output schemas before each recipe run",
+    ),
+    refresh_metastore: bool = typer.Option(
+        False,
+        "--refresh-metastore",
+        help="Refresh Hive metastore after building HDFS datasets",
+    ),
+    wait_for_completion: bool = typer.Option(
+        False, "--wait", "-w", help="Wait for job completion"
+    ),
+    timeout: int = typer.Option(
+        0, "--timeout", help="Timeout in seconds when waiting (0 = no limit)"
+    ),
 ) -> None:
     """Run a build job with full control over build type and schema updates.
 
@@ -181,7 +205,9 @@ def run(
                         warn(f"Job '{job.id}' finished with state: {state}")
                     return
                 if timeout > 0 and elapsed >= timeout:
-                    warn(f"Timed out after {timeout}s — job '{job.id}' still in state: {state}")
+                    warn(
+                        f"Timed out after {timeout}s — job '{job.id}' still in state: {state}"
+                    )
                     raise SystemExit(1)
                 time.sleep(2)
                 elapsed += 2
@@ -198,7 +224,9 @@ def wait(
     ctx: typer.Context,
     job_id: str = typer.Argument(help="Job ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    timeout: int = typer.Option(0, "--timeout", "-t", help="Timeout in seconds (0 = no limit)"),
+    timeout: int = typer.Option(
+        0, "--timeout", "-t", help="Timeout in seconds (0 = no limit)"
+    ),
 ) -> None:
     """Wait for a job to reach a terminal state."""
     project_key = resolve_project(project)
@@ -216,7 +244,9 @@ def wait(
                 success(f"Job '{job_id}' finished with state: {state}")
                 return
             if timeout > 0 and elapsed >= timeout:
-                warn(f"Timed out after {timeout}s — job '{job_id}' still in state: {state}")
+                warn(
+                    f"Timed out after {timeout}s — job '{job_id}' still in state: {state}"
+                )
                 raise SystemExit(1)
             time.sleep(2)
             elapsed += 2

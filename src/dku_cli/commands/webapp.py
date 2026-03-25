@@ -27,11 +27,13 @@ def list_webapps(
 
         data = []
         for w in webapps:
-            data.append({
-                "id": w.get("id", ""),
-                "name": w.get("name", ""),
-                "type": w.get("type", ""),
-            })
+            data.append(
+                {
+                    "id": w.get("id", ""),
+                    "name": w.get("name", ""),
+                    "type": w.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -100,7 +102,12 @@ def status(
             {"field": "Running", "value": str(backend_state.running)},
         ]
 
-        render(data, ["field", "value"], output_format=output, title=f"Web App: {webapp_id}")
+        render(
+            data,
+            ["field", "value"],
+            output_format=output,
+            title=f"Web App: {webapp_id}",
+        )
     except Exception as e:
         handle_api_error(e)
 
