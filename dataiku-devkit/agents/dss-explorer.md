@@ -129,7 +129,7 @@ Produce a markdown report with:
 
 ## Error Handling
 
-- If the `dku` CLI is not installed, tell the user to install it: `pip install dku-cli`
+- If the `dku` CLI is not installed, tell the user to install it: `uv tool install git+https://github.com/dataiku/dataiku-cli.git`
 - If authentication fails, tell the user to run `dku auth login` or check their API key
 - If the project key is invalid, list available projects with `dku project list` and ask again
 - If an API call fails, log the error and continue with the remaining steps

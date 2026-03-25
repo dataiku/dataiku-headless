@@ -327,11 +327,8 @@ uv run pytest -v           # Run tests
 
 | Channel | Command |
 |---------|---------|
-| **One-liner** | `curl -fsSL .../install.sh \| bash` |
 | **Direct** | `uv tool install git+https://github.com/dataiku/dataiku-cli.git` |
 | **Local dev** | `uv tool install --from . dku-cli` |
-
-> **Note:** `dku-cli` is not published to PyPI and won't be in the near term. The `install.sh` script and all references install directly from GitHub.
 
 ---
 
@@ -347,7 +344,6 @@ uv run pytest -v           # Run tests
 |---------|---------|
 | **Claude Code Plugin** | `/plugin marketplace add dataiku/dataiku-cli` |
 | **skills.sh (40+ agents)** | `npx skills add dataiku/dataiku-cli --all` |
-| **Curl installer** | `curl -fsSL .../install-plugin.sh \| bash` |
 
 ---
 

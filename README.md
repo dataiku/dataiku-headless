@@ -19,11 +19,14 @@
 
 **Dataiku DevKit** — enables any AI coding agent to do anything in Dataiku DSS.
 
-Ships a **`dku` CLI** (139 commands, 25 groups) and **2 skills** with 28 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
+Ships two components:
+- **`dku` CLI** — 139 commands across 25 groups. A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
+- **Dataiku DevKit** — 2 skills, 28 platform reference docs, and 3 subagents that teach AI coding agents how to build plugins, manage projects, and operate DSS.
 
 ```bash
-bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)  # Install CLI
-bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)  # Install skills
+uv tool install git+https://github.com/dataiku/dataiku-cli.git          # CLI
+/plugin marketplace add git@github.com:dataiku/dataiku-cli.git          # DevKit (skills+agents) — Claude Code
+npx skills add github:dataiku/dataiku-cli -g -a codex                   # DevKit (skills) — Codex
 ```
 
 ## Why dku-cli?
@@ -67,84 +70,100 @@ dku plugin list -o json | jq '.[].id'
 
 ## Installation
 
-**One-liner** (requires [gh CLI](https://cli.github.com) for private repo access):
+The DevKit ships two independent components. Install what you need — or both.
 
+---
+
+### `dku` CLI
+
+Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+
+**Remote:**
 ```bash
-bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)
+uv tool install git+https://github.com/dataiku/dataiku-cli.git
 ```
 
-**Direct:**
-
-```bash
-uv tool install git+https://github.com/dataiku/dataiku-cli.git   # uv (fastest)
-pipx install git+https://github.com/dataiku/dataiku-cli.git      # pipx (isolated)
-```
-
-**From source:**
-
+**Local (from cloned repo):**
 ```bash
 git clone https://github.com/dataiku/dataiku-cli && cd dataiku-cli
 uv tool install .
 ```
 
-**Requirements:** Python 3.10+
+**Update:**
+```bash
+uv tool install --reinstall git+https://github.com/dataiku/dataiku-cli.git
+```
 
-## AI Agent Integration
+---
 
-`dku-cli` ships as the **Dataiku DevKit** — a collection of skills, agents, and reference docs that teach AI coding agents how to work with Dataiku DSS. This includes CLI operations, plugin development patterns, and scaffolding workflows.
+### Dataiku DevKit (skills + agents)
 
-### What's Included
+The DevKit teaches AI coding agents how to use the CLI and build Dataiku plugins. Installing it gives your agent 2 skills (28 reference docs) and 3 subagents. The skills reference `dku` commands throughout — install the CLI too if you haven't already.
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| `dataiku` | Skill (auto) | Platform knowledge — 28 reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
-| `dku-cli` | Skill (auto) | CLI operations — 139 commands, chaining patterns, composability |
-| `plugin-reviewer` | Agent | Deep code review with checklist |
-| `dss-explorer` | Agent | Explore a DSS project via CLI commands |
-| `tool-designer` | Agent | Design agent tool schemas and descriptions |
+| `dataiku` | Skill | Platform knowledge — 28 reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
+| `dku-cli` | Skill | CLI operations — 139 commands, chaining patterns, composability |
+| `plugin-reviewer` | Agent | Deep code review against a structured checklist |
+| `dss-explorer` | Agent | Explore a DSS project via CLI and produce a structured report |
+| `tool-designer` | Agent | Design agent tool schemas and implementation plans |
 
-### Any AI Agent (Claude Code, Codex, Cursor, Copilot, and 40+ more)
+The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below. The `dataiku` skill adds plugin scaffolding, platform knowledge, and code review.
 
-```bash
-npx skills add dataiku/dataiku-cli --all
-```
-
-### Claude Code Plugin
+#### Claude Code — via marketplace (recommended)
 
 ```bash
-/plugin marketplace add dataiku/dataiku-cli
-/plugin install dataiku-devkit@dataiku-dataiku-cli
+/plugin marketplace add git@github.com:dataiku/dataiku-cli.git
+/plugin install dataiku-devkit@dataiku-devkit
 ```
 
-### Manual Install (no Node.js required)
+SSH is recommended over HTTPS — key-based auth means background updates work without a token. After installation, updates are one command:
 
 ```bash
-bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)
+/plugin marketplace update
 ```
 
-Or copy the `skills/` directory from this repo into your agent's skills directory (e.g., `~/.claude/skills/`).
-
-### Upgrading from the old single-skill install
-
-If you previously installed via `install-skill.sh` (the old single `dku-cli` skill), remove it first:
+#### Claude Code — local (from cloned repo)
 
 ```bash
-rm -rf ~/.claude/skills/dku-cli          # or .claude/skills/dku-cli in your project
+/plugin marketplace add ./
+/plugin install dataiku-marketplace@dataiku-devkit
 ```
 
-Then install the full DevKit using any method above. The new installer will also auto-detect and replace the old skill if present.
-
-### Updating
+#### Codex, Cursor, Copilot, and 40+ other agents — via npx skills
 
 ```bash
-# Update CLI (re-run the installer)
-bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)
-
-# Update skills (re-run the skill installer)
-bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)
+npx skills add dataiku/dataiku-cli -g -a codex    # OpenAI Codex
+npx skills add dataiku/dataiku-cli -g -a cursor   # Cursor
 ```
 
-The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below. The `dataiku` skill adds platform knowledge, plugin scaffolding, deployment, and code review capabilities.
+`-g` installs globally across all projects. Update later with:
+
+```bash
+npx skills update dataiku/dataiku-cli
+```
+
+#### Manual (no Node.js, no git required)
+
+Copy `dataiku-devkit/skills/` and `dataiku-devkit/agents/` into your agent's directories (e.g., `~/.claude/skills/`, `~/.claude/agents/`).
+
+---
+
+## Project Structure
+
+```
+dataiku-cli/
+├── src/dku_cli/           # CLI source (Python package, 139 commands)
+├── dataiku-devkit/        # AI agent DevKit
+│   ├── .claude-plugin/    # Plugin manifest (Claude Code marketplace)
+│   ├── skills/
+│   │   ├── dataiku/       # Platform knowledge (28 reference docs)
+│   │   └── dku-cli/       # CLI operations reference
+│   └── agents/            # 3 subagents (plugin-reviewer, dss-explorer, tool-designer)
+├── benchmark/             # 9-tier agent performance benchmark (192 scenarios)
+├── tests/                 # CLI unit tests (298 tests)
+└── docs/                  # Command → API mapping
+```
 
 ## Authentication
 

@@ -40,7 +40,7 @@ dku --version
 If not installed:
 
 ```bash
-pip install dku-cli     # or: uv tool install dku-cli
+uv tool install git+https://github.com/dataiku/dataiku-cli.git
 dku auth login          # authenticate to your DSS instance
 ```
 
@@ -62,7 +62,7 @@ dku auth login          # authenticate to your DSS instance
 
 ```bash
 # Install
-pip install dku-cli     # or: pipx install dku-cli / uv tool install dku-cli
+uv tool install git+https://github.com/dataiku/dataiku-cli.git
 
 # Authenticate (interactive)
 dku auth login

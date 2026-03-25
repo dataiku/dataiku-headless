@@ -1,5 +1,5 @@
 {
-  "name": "dataiku-devkit",
+  "name": "dataiku-marketplace",
   "owner": {
     "name": "Dataiku"
   },
@@ -10,7 +10,11 @@
   "plugins": [
     {
       "name": "dataiku-devkit",
-      "source": ".",
+      "source": {
+        "source": "git-subdir",
+        "url": "github.com/dataiku/dataiku-cli",
+        "path": "dataiku-devkit"
+      },
       "description": "Platform knowledge, CLI skill, plugin scaffolding, and exploration agents"
     }
   ]
