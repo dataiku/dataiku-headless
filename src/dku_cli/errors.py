@@ -64,6 +64,16 @@ def is_already_exists_error(e: Exception) -> bool:
     return "already exists" in msg or "409" in msg or "duplicate" in msg
 
 
+def is_connection_required_error(e: Exception) -> bool:
+    """Return whether an exception indicates a missing managed connection for output creation.
+
+    DSS throws this when a code recipe tries to auto-create an output dataset
+    but no default managed connection is configured at the project level.
+    """
+    msg = str(e)
+    return "creationInfo" in msg or "Need to create output dataset" in msg
+
+
 def handle_api_error(e: Exception) -> None:
     """Convert dataikuapi exceptions to friendly messages and exit."""
     msg = str(e)

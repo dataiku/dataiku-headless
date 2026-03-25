@@ -1,4 +1,4 @@
-"""dku flow — graph, zones, propagate, check, sources, successors."""
+"""dku flow — graph, zones, move, propagate, check, sources, successors."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import json
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Inspect DSS project flow.")
+app = typer.Typer(help="Inspect and manage DSS project flow.")
 
 
 @app.command()
@@ -100,6 +100,102 @@ def create_zone(
         flow = proj.get_flow()
         zone = flow.create_zone(name)
         success(f"Created zone '{name}' (id: {zone.id})")
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _resolve_zone(flow, zone_ref: str, project_key: str):
+    """Resolve a zone by name (case-insensitive) or ID. Returns the zone object."""
+    zones = flow.list_zones()
+    # Try exact ID match first
+    for z in zones:
+        if z.id == zone_ref:
+            return z
+    # Try case-insensitive name match
+    for z in zones:
+        if z.name.lower() == zone_ref.lower():
+            return z
+    # Not found — prescriptive error
+    zone_list = ", ".join(f"'{z.name}' (id: {z.id})" for z in zones)
+    exit_with_error(
+        f"Zone '{zone_ref}' not found in project '{project_key}'.",
+        code="not_found",
+        details=[
+            f"Available zones: {zone_list}",
+            f"List zones: dku flow zones -P {project_key}",
+            f"Create zone: dku flow create-zone \"<name>\" -P {project_key}",
+        ],
+    )
+
+
+_ITEM_RESOLVERS = {
+    "DATASET": "get_dataset",
+    "RECIPE": "get_recipe",
+    "MANAGED_FOLDER": "get_managed_folder",
+    "SAVED_MODEL": "get_saved_model",
+}
+
+
+@app.command()
+def move(
+    ctx: typer.Context,
+    items: list[str] = typer.Argument(help="Item names to move (datasets by default). Use --type for other item types."),
+    zone: str = typer.Option(..., "--zone", "-z", help="Target zone name or ID. Use 'dku flow zones' to list."),
+    item_type: str = typer.Option("DATASET", "--type", "-t", help="Item type: DATASET, RECIPE, MANAGED_FOLDER, SAVED_MODEL"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Move items to a flow zone. Use instead of manually organizing in the DSS UI.
+
+    Move datasets, recipes, folders, or models to a named zone.
+    Zones help organize complex flows into logical sections.
+
+    Examples:
+      dku flow move my_dataset --zone Processing -P PROJ
+      dku flow move ds1 ds2 ds3 --zone Analytics -P PROJ
+      dku flow move my_recipe --zone ETL --type RECIPE -P PROJ
+    """
+    project_key = resolve_project(project)
+    item_type_upper = item_type.upper()
+    if item_type_upper not in _ITEM_RESOLVERS:
+        exit_with_error(
+            f"Unknown item type '{item_type}'.",
+            code="invalid_argument",
+            details=[f"Valid types: {', '.join(sorted(_ITEM_RESOLVERS))}"],
+        )
+    resolver_method = _ITEM_RESOLVERS[item_type_upper]
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        flow = proj.get_flow()
+
+        target_zone = _resolve_zone(flow, zone, project_key)
+
+        # Resolve item objects
+        resolved = []
+        for name in items:
+            try:
+                obj = getattr(proj, resolver_method)(name)
+                resolved.append(obj)
+            except Exception as e:
+                if is_not_found_error(e):
+                    list_cmd = {"DATASET": "dataset list", "RECIPE": "recipe list", "MANAGED_FOLDER": "folder list", "SAVED_MODEL": "model list"}
+                    exit_with_error(
+                        f"{item_type_upper} '{name}' not found in project '{project_key}'.",
+                        code="not_found",
+                        details=[f"List available: dku {list_cmd.get(item_type_upper, 'dataset list')} -P {project_key}"],
+                    )
+                raise
+
+        # Move: batch for multiple, single for one
+        if len(resolved) == 1:
+            target_zone.add_item(resolved[0])
+        else:
+            target_zone.add_items(resolved)
+
+        names = ", ".join(f"'{n}'" for n in items)
+        success(f"Moved {names} to zone '{target_zone.name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

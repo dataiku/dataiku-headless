@@ -74,3 +74,54 @@ def test_agent_tool_delete(patch_client):
     patch_client.get_project("PROJ1").get_agent_tool(
         "tool1"
     ).delete.assert_called_once()
+
+
+def test_agent_tool_create(patch_client):
+    result = runner.invoke(
+        app, ["agent-tool", "create", "my_lookup", "--type", "DatasetRowLookup", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Created agent tool" in result.output
+    patch_client.get_project("PROJ1").new_agent_tool.assert_called_once_with(
+        "DatasetRowLookup", name="my_lookup"
+    )
+
+
+def test_agent_tool_create_vector_search(patch_client):
+    result = runner.invoke(
+        app, [
+            "agent-tool", "create", "my_search",
+            "--type", "VectorStoreSearch",
+            "--kb", "my_kb",
+            "--project", "PROJ1",
+        ]
+    )
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_agent_tool.return_value
+    builder.with_knowledge_bank.assert_called_once_with("my_kb")
+    builder.create.assert_called_once()
+
+
+def test_agent_tool_create_vector_search_no_kb(patch_client):
+    """VectorStoreSearch without --knowledge-bank should fail with prescriptive error."""
+    result = runner.invoke(
+        app, ["agent-tool", "create", "my_search", "--type", "VectorStoreSearch", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+
+
+def test_agent_tool_types(patch_client):
+    result = runner.invoke(app, ["agent-tool", "types"])
+    assert result.exit_code == 0
+    assert "DatasetRowLookup" in result.output
+    assert "VectorStoreSearch" in result.output
+    assert "LLMMeshLLMQuery" in result.output
+
+
+def test_agent_tool_types_json(patch_client):
+    result = runner.invoke(app, ["agent-tool", "types", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    type_names = [t["type"] for t in parsed]
+    assert "DatasetRowLookup" in type_names
+    assert "VectorStoreSearch" in type_names

@@ -117,3 +117,53 @@ def test_agent_set_llm(patch_client):
     ver_settings = settings.get_version_settings("v1")
     raw = ver_settings.get_raw()
     assert raw["toolsUsingAgentSettings"]["llmId"] == "gpt4"
+
+
+def test_agent_set_prompt(patch_client):
+    result = runner.invoke(
+        app, ["agent", "set-prompt", "agent1", "--prompt", "You are a helpful analyst.", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Set system prompt" in result.output
+    # Verify prompt was set on version settings
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    settings.save.assert_called()
+    ver_settings = settings.get_version_settings("v1")
+    raw = ver_settings.get_raw()
+    assert raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a helpful analyst."
+
+
+def test_agent_set_prompt_from_file(patch_client, tmp_path):
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("You are a financial analyst.")
+    result = runner.invoke(
+        app, ["agent", "set-prompt", "agent1", "--prompt", f"@{prompt_file}", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    ver_settings = settings.get_version_settings("v1")
+    raw = ver_settings.get_raw()
+    assert raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a financial analyst."
+
+
+def test_agent_resolve_by_name(patch_client):
+    """Agent commands accept name in addition to ID."""
+    result = runner.invoke(app, ["agent", "get", "My Agent", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "agent1" in result.output
+
+
+def test_agent_set_llm_by_name(patch_client):
+    """set-llm works with agent name, not just ID."""
+    result = runner.invoke(
+        app, ["agent", "set-llm", "My Agent", "--llm-id", "gpt4", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Set LLM" in result.output
+
+
+def test_agent_status_calls_status_not_get_status(patch_client):
+    """Verify we call agent.status() (correct API) not agent.get_status()."""
+    result = runner.invoke(app, ["agent", "status", "agent1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    patch_client.get_project("PROJ1").get_agent("agent1").status.assert_called_once()
