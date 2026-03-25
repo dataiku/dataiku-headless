@@ -39,9 +39,11 @@ def test_flow_zones_json(patch_client):
     result = runner.invoke(app, ["flow", "zones", "--project", "PROJ1", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert len(parsed) == 1
+    assert len(parsed) == 2
     assert parsed[0]["id"] == "zone1"
     assert parsed[0]["name"] == "Default"
+    assert parsed[1]["id"] == "XjxKvHzB"
+    assert parsed[1]["name"] == "Processing"
 
 
 def test_flow_create_zone(patch_client):
@@ -147,3 +149,49 @@ def test_flow_visualize(patch_client):
     assert "recipe1" in result.output
     assert "DATASET" in result.output
     assert "RECIPE" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Flow move command tests
+# ---------------------------------------------------------------------------
+
+
+def test_flow_move_single_dataset(patch_client):
+    """Move one dataset to a zone by name."""
+    result = runner.invoke(app, ["flow", "move", "ds1", "--zone", "Processing", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+    assert "Processing" in result.output
+    # Should resolve the dataset and call add_item
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.assert_called_with("ds1")
+
+
+def test_flow_move_multiple_items(patch_client):
+    """Move multiple items at once."""
+    result = runner.invoke(app, ["flow", "move", "ds1", "ds2", "--zone", "Processing", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+
+
+def test_flow_move_by_zone_id(patch_client):
+    """Resolve zone by ID string."""
+    result = runner.invoke(app, ["flow", "move", "ds1", "--zone", "XjxKvHzB", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+
+
+def test_flow_move_zone_not_found(patch_client):
+    """Prescriptive error when zone doesn't exist."""
+    result = runner.invoke(app, ["flow", "move", "ds1", "--zone", "NonExistent", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower() or "not found" in (result.stderr or "").lower()
+
+
+def test_flow_move_recipe_type(patch_client):
+    """Move a recipe with --type RECIPE."""
+    result = runner.invoke(app, ["flow", "move", "recipe1", "--zone", "Processing", "--type", "RECIPE", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.get_recipe.assert_called_with("recipe1")

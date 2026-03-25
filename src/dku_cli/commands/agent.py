@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import get_client_from_ctx, read_text_input, resolve_agent, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS agents.")
@@ -70,17 +70,17 @@ def create(
 @app.command()
 def get(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show agent settings."""
+    """Show agent settings. Accepts agent ID or name."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
         settings = agent.get_settings()
         raw = settings.get_raw()
         render_raw(raw, output_format=output)
@@ -91,15 +91,15 @@ def get(
 @app.command()
 def delete(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Delete an agent."""
+    """Delete an agent. Accepts agent ID or name."""
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
         agent.delete()
         success(f"Deleted agent '{agent_id}'")
     except Exception as e:
@@ -109,15 +109,15 @@ def delete(
 @app.command("wake-up")
 def wake_up(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Wake up an agent."""
+    """Wake up an agent. Accepts agent ID or name."""
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
         agent.wake_up()
         success(f"Agent '{agent_id}' woken up")
     except Exception as e:
@@ -127,15 +127,15 @@ def wake_up(
 @app.command()
 def shutdown(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Shutdown an agent."""
+    """Shutdown an agent. Accepts agent ID or name."""
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
         agent.shutdown()
         success(f"Agent '{agent_id}' shut down")
     except Exception as e:
@@ -145,18 +145,18 @@ def shutdown(
 @app.command()
 def status(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show agent status."""
+    """Show agent status. Accepts agent ID or name."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
-        status_data = agent.get_status()
+        agent = resolve_agent(proj, agent_id)
+        status_data = agent.status()
         render_raw(status_data, output_format=output)
     except Exception as e:
         handle_api_error(e)
@@ -165,16 +165,16 @@ def status(
 @app.command("add-tool")
 def add_tool(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
     tool_id: str = typer.Option(..., "--tool", help="Tool ID to add"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add a tool to an agent's active version."""
+    """Add a tool to an agent's active version. Accepts agent ID or name."""
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
         settings = agent.get_settings()
 
         # Resolve the active version ID
@@ -197,19 +197,66 @@ def add_tool(
         handle_api_error(e)
 
 
-@app.command("set-llm")
-def set_llm(
+@app.command("set-prompt")
+def set_prompt(
     ctx: typer.Context,
-    agent_id: str = typer.Argument(help="Agent ID"),
-    llm_id: str = typer.Option(..., "--llm-id", help="LLM ID to set"),
+    agent_id: str = typer.Argument(help="Agent ID or name"),
+    prompt: str = typer.Option(..., "--prompt", help="System prompt: literal string, @file.txt, or '-' for stdin"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Set the LLM for an agent's active version."""
+    """Set the system prompt for an agent's active version. Accepts agent ID or name.
+
+    Examples:
+      dku agent set-prompt my_agent --prompt "You are a helpful analyst." -P PROJ
+      dku agent set-prompt my_agent --prompt @system_prompt.txt -P PROJ
+      echo "You are an analyst." | dku agent set-prompt my_agent --prompt - -P PROJ
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
+        prompt_text = read_text_input(prompt)
+        settings = agent.get_settings()
+
+        # Resolve the active version ID
+        active_ver_id = settings.active_version
+        if active_ver_id is None:
+            version_ids = settings.get_version_ids()
+            if not version_ids:
+                from dku_cli.output import error
+                error("Agent has no versions.")
+                raise typer.Exit(1)
+            active_ver_id = version_ids[0]
+
+        # Set systemPrompt on the active version's toolsUsingAgentSettings
+        ver_settings = settings.get_version_settings(active_ver_id)
+        raw = ver_settings.get_raw()
+        if "toolsUsingAgentSettings" not in raw:
+            raw["toolsUsingAgentSettings"] = {}
+        raw["toolsUsingAgentSettings"]["systemPrompt"] = prompt_text
+        settings.save()
+        success(f"Set system prompt on agent '{agent_id}' ({len(prompt_text)} chars)")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-llm")
+def set_llm(
+    ctx: typer.Context,
+    agent_id: str = typer.Argument(help="Agent ID or name"),
+    llm_id: str = typer.Option(..., "--llm-id", help="LLM ID to set (e.g. 'openai:conn:gpt-4o')"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the LLM for an agent's active version. Accepts agent ID or name.
+
+    This performs a GET → modify llmId → PUT cycle, preserving existing tools and prompt.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        agent = resolve_agent(proj, agent_id)
         settings = agent.get_settings()
 
         # Resolve the active version ID

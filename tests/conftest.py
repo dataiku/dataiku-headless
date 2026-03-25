@@ -153,8 +153,19 @@ def mock_client():
     zone_mock = MagicMock()
     zone_mock.id = "zone1"
     zone_mock.name = "Default"
-    flow_mock.list_zones.return_value = [zone_mock]
+    zone2_mock = MagicMock()
+    zone2_mock.id = "XjxKvHzB"
+    zone2_mock.name = "Processing"
+    flow_mock.list_zones.return_value = [zone_mock, zone2_mock]
     flow_mock.create_zone.return_value = zone_mock
+
+    # get_zone() resolves by ID
+    def _get_zone(zone_id):
+        zones = {"zone1": zone_mock, "XjxKvHzB": zone2_mock}
+        if zone_id in zones:
+            return zones[zone_id]
+        raise Exception(f"NotFoundException: Zone {zone_id} does not exist")
+    flow_mock.get_zone.side_effect = _get_zone
 
     # Flow schema propagation — uses new_schema_propagation(dataset_name) builder
     propagation_builder = MagicMock()
@@ -597,7 +608,7 @@ def mock_client():
     agent_settings.get_version_settings.return_value = agent_ver_settings
 
     agent_mock.get_settings.return_value = agent_settings
-    agent_mock.get_status.return_value = {"state": "RUNNING"}
+    agent_mock.status.return_value = {"state": "RUNNING"}
     agent_mock.delete.return_value = None
     agent_mock.wake_up.return_value = None
     agent_mock.shutdown.return_value = None
@@ -645,7 +656,7 @@ def mock_client():
     agent_blocks_settings.get_version_ids.return_value = ["v1"]
     agent_blocks_settings.save.return_value = None
     agent_blocks_mock.get_settings.return_value = agent_blocks_settings
-    agent_blocks_mock.get_status.return_value = {"state": "RUNNING"}
+    agent_blocks_mock.status.return_value = {"state": "RUNNING"}
     agent_blocks_mock.delete.return_value = None
     agent_blocks_mock.id = "agent_blocks"
 
@@ -673,7 +684,16 @@ def mock_client():
     tool_mock.get_settings.return_value = tool_settings
     tool_mock.run.return_value = {"result": "success", "output": "done"}
     tool_mock.delete.return_value = None
+    tool_mock.id = "tool1"
     proj1.get_agent_tool.return_value = tool_mock
+
+    # Agent tool creation — new_agent_tool() returns a builder with .create()
+    new_tool_mock = MagicMock()
+    new_tool_mock.id = "new_tool_1"
+    tool_builder = MagicMock()
+    tool_builder.with_knowledge_bank.return_value = tool_builder
+    tool_builder.create.return_value = new_tool_mock
+    proj1.new_agent_tool.return_value = tool_builder
 
     # Knowledge banks
     proj1.list_knowledge_banks.return_value = [{"id": "kb1", "name": "My KB"}]

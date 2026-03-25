@@ -39,6 +39,59 @@ def get_client_from_ctx(ctx: typer.Context) -> dataikuapi.DSSClient:
     return get_client(**opts)
 
 
+def resolve_agent(project, agent_ref: str):
+    """Resolve an agent by ID or name.
+
+    Tries get_agent(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing agents and matching by name.
+    Returns a DSSAgent handle.
+    """
+    try:
+        agent = project.get_agent(agent_ref)
+        # Verify it exists by fetching settings (get_agent is lazy)
+        agent.get_settings()
+        return agent
+    except Exception as e:
+        if "not found" not in str(e).lower() and "NotFoundException" not in str(e) and "does not exist" not in str(e):
+            raise
+    # Fall back to name lookup
+    agents = project.list_agents()
+    for a in agents:
+        if a.get("name", "") == agent_ref:
+            return project.get_agent(a.get("id", a["id"]))
+    from dku_cli.errors import exit_with_error
+    agent_names = [f"  {a.get('id', '')} ({a.get('name', '')})" for a in agents]
+    exit_with_error(
+        f"Agent '{agent_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available agents:",
+            *agent_names,
+            "Use the agent ID (left column) or exact name.",
+        ] if agent_names else [
+            "No agents found in this project.",
+            "Create one with: dku agent create NAME -P PROJECT",
+        ],
+        status=3,
+    )
+
+
+def read_text_input(value: str) -> str:
+    """Read text from: raw string, @file.txt path, or stdin if value is '-'.
+
+    Same pattern as set-code but reusable for any text input (prompts, etc.).
+    Raises typer.BadParameter on file-not-found.
+    """
+    if value == "-":
+        return sys.stdin.read()
+    if value.startswith("@"):
+        path = Path(value[1:])
+        if not path.exists():
+            raise typer.BadParameter(f"File not found: {path}")
+        return path.read_text()
+    return value
+
+
 def read_json_input(value: str | None) -> dict | None:
     """Parse JSON from: raw string, @file.json path, or stdin if value is '-'.
 

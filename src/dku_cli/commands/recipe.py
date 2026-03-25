@@ -13,6 +13,7 @@ from dku_cli.errors import (
     exit_with_error,
     handle_api_error,
     is_already_exists_error,
+    is_connection_required_error,
     is_not_found_error,
 )
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
@@ -131,6 +132,53 @@ def _get_recipe_payload(settings) -> dict:
         payload = {}
         settings.obj_payload = payload
     return payload
+
+
+def _get_prepare_settings(proj, recipe_name: str, project_key: str):
+    """Get settings for a prepare recipe, validating type. Returns (recipe, settings)."""
+    recipe = proj.get_recipe(recipe_name)
+    settings = recipe.get_settings()
+    raw_def = settings.get_recipe_raw_definition()
+    rtype = raw_def.get("type", "")
+    if rtype not in ("prepare", "shaker"):
+        exit_with_error(
+            f"Recipe '{recipe_name}' is type '{rtype}', not 'prepare'. "
+            "Step commands only work on prepare recipes.",
+            code="wrong_recipe_type",
+            details=[
+                f"Create a prepare recipe first: dku recipe create <NAME> -t prepare -i <INPUT> --output-ds <OUTPUT> -P {project_key}",
+            ],
+        )
+    return recipe, settings
+
+
+def _ensure_steps_array(settings) -> list:
+    """Ensure obj_payload has a 'steps' list. Fresh recipes may not have it. Returns the steps list."""
+    payload = settings.obj_payload
+    if payload is None:
+        payload = {"steps": []}
+        settings._obj_payload = payload
+    elif "steps" not in payload:
+        payload["steps"] = []
+    return payload["steps"]
+
+
+def _validate_step_index(steps: list, index: int, recipe_name: str) -> None:
+    """Validate step index is in range."""
+    if index < 0 or index >= len(steps):
+        count = len(steps)
+        if count == 0:
+            exit_with_error(
+                f"Recipe '{recipe_name}' has no steps.",
+                code="invalid_index",
+                details=[f"Add steps first: dku recipe add-step {recipe_name} --type <TYPE> --params '<JSON>' -P <PROJ>"],
+            )
+        else:
+            exit_with_error(
+                f"Step index {index} out of range. Recipe '{recipe_name}' has {count} steps (0–{count - 1}).",
+                code="invalid_index",
+                details=[f"List steps: dku recipe list-steps {recipe_name} -P <PROJ>"],
+            )
 
 
 @app.command("list")
@@ -306,6 +354,12 @@ def create(
         "--output-dataset",
         help="Output dataset name (auto-created for code recipes)",
     ),
+    connection: str | None = typer.Option(
+        None,
+        "--connection",
+        "-c",
+        help="Connection for output dataset (code recipes). Use when project has no default managed connection. Run 'dku connection list' to see available connections.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(
         None,
@@ -318,6 +372,10 @@ def create(
 
     Prefer visual recipes over Python — use --type join, group, sort, distinct, etc.
     Python/SQL are for logic that visual recipes can't express.
+
+    For code recipes (python, sql), the output dataset is auto-created. If the DSS
+    project has no default managed connection, use --connection to specify one
+    (e.g. --connection filesystem_managed).
     """
     project_key = resolve_project(project)
     # Detect type passed as recipe name (e.g. `dku recipe create python ...`)
@@ -344,10 +402,16 @@ def create(
         proj = client.get_project(project_key)
         builder = proj.new_recipe(type_name, recipe_name)
         builder.with_input(input_ds)
-        # CodeRecipeCreator (python, sql_script, etc.) only has with_output(),
-        # while visual recipe creators have with_existing_output().
+        # Visual recipe creators have with_existing_output() — output must already exist.
+        # Code recipe creators (CodeRecipeCreator) use:
+        #   - with_new_output_dataset(name, connection) when --connection is provided
+        #   - with_output(name) when no connection (requires existing dataset or project default)
         if hasattr(builder, "with_existing_output"):
+            if connection:
+                warn("--connection is ignored for visual recipes (output must already exist).")
             builder.with_existing_output(output_ds)
+        elif connection:
+            builder.with_new_output_dataset(output_ds, connection)
         else:
             builder.with_output(output_ds)
         builder.build()
@@ -359,8 +423,19 @@ def create(
                 code="already_exists",
                 details=[
                     "Code recipes (python, sql) auto-create their output dataset.",
-                    f"Delete it first: dku dataset delete {output_ds} -P {project_key} --yes",
+                    f"Delete it first: dku dataset delete {output_ds} -P {project_key}",
                     "Or use a different --output-ds name.",
+                ],
+            )
+        if is_connection_required_error(e):
+            exit_with_error(
+                f"Cannot auto-create output dataset '{output_ds}' — no default managed connection configured.",
+                code="connection_required",
+                details=[
+                    "This DSS project has no default managed connection for auto-creating datasets.",
+                    "Fix: add --connection <NAME> to specify where the output should be stored.",
+                    "Find available connections: dku connection list",
+                    f"Example: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
                 ],
             )
         handle_api_error(e)
@@ -590,6 +665,417 @@ def apply_schema(
         success(f"Applied schema updates for '{recipe_name}'")
     except Exception as e:
         handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Prepare recipe step commands
+# ---------------------------------------------------------------------------
+
+
+def _step_target(step: dict) -> str:
+    """Extract a short 'target' summary from step params for table display."""
+    params = step.get("params", {})
+    # Try common param keys in priority order
+    for key in ("expression", "column", "columns", "renamings"):
+        val = params.get(key)
+        if val is not None:
+            s = str(val)
+            return s[:40] + ("…" if len(s) > 40 else "")
+    return ""
+
+
+@app.command("list-steps")
+def list_steps(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List steps in a prepare recipe.
+
+    Shows each step's index, processor type, name, disabled status, and target column/expression.
+    Use -o json for full step parameters.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+
+        if output == "json":
+            render_raw(steps, output_format="json")
+            return
+
+        if not steps:
+            info(f"No steps in recipe '{recipe_name}'. Add with: dku recipe add-step {recipe_name} --type <TYPE> --params '<JSON>' -P {project_key}")
+            return
+
+        rows = []
+        for i, step in enumerate(steps):
+            rows.append({
+                "index": str(i),
+                "type": step.get("type", ""),
+                "name": step.get("name", ""),
+                "disabled": str(step.get("disabled", False)),
+                "target": _step_target(step),
+            })
+        render(rows, ["index", "type", "name", "disabled", "target"], output_format=output, title=f"Steps: {recipe_name}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-step")
+def add_step(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    step_type: str = typer.Option(..., "--type", "-t", help="Processor type (e.g. CreateColumnWithGREL, ColumnRenamer, FillEmptyWithValue, ColumnsSelector, FindReplace, FilterOnValue, RemoveRowsOnEmpty, StringTransformer, ColumnCopier, PythonUDF). ~95 types available."),
+    params: str = typer.Option(..., "--params", help="Step params: JSON string, @file.json, or '-' for stdin"),
+    at: int | None = typer.Option(None, "--at", help="Insert at this index (0-based). Default: append to end."),
+    name: str | None = typer.Option(None, "--name", help="Optional step display name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a processor step to a prepare recipe (generic — any of ~95 processor types).
+
+    For common operations, prefer named shortcuts: add-formula, add-rename,
+    add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace.
+    Use add-step for advanced or unusual processors.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+
+        parsed_params = read_json_input(params)
+        step_dict: dict = {"metaType": "PROCESSOR", "type": step_type, "params": parsed_params}
+        if name:
+            step_dict["name"] = name
+
+        if at is not None:
+            if at < 0 or at > len(steps):
+                exit_with_error(
+                    f"--at {at} out of range. Valid: 0–{len(steps)}.",
+                    code="invalid_index",
+                )
+            steps.insert(at, step_dict)
+            idx = at
+        else:
+            steps.append(step_dict)
+            idx = len(steps) - 1
+
+        settings.save()
+        success(f"Added {step_type} step to '{recipe_name}' at index {idx}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("remove-step")
+def remove_step(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    index: list[int] = typer.Option(..., "--index", help="Step index to remove (0-based, repeatable). Use 'list-steps' to see indices."),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Remove one or more steps from a prepare recipe by index.
+
+    When removing multiple steps, they are removed in descending order
+    internally to avoid index shifting.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+
+        # Validate all indices before removing any
+        for idx in index:
+            _validate_step_index(steps, idx, recipe_name)
+
+        # Remove in descending order to avoid shifting
+        for idx in sorted(set(index), reverse=True):
+            steps.pop(idx)
+
+        settings.save()
+        removed = ", ".join(str(i) for i in sorted(index))
+        success(f"Removed step(s) [{removed}] from '{recipe_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-step")
+def get_step(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    index: int = typer.Option(..., "--index", help="Step index (0-based)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get full details of a single prepare recipe step.
+
+    Returns the complete step JSON including all parameters.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+        _validate_step_index(steps, index, recipe_name)
+        render_raw(steps[index], output_format=output)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("disable-step")
+def disable_step(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    index: list[int] = typer.Option(..., "--index", help="Step index to disable (0-based, repeatable)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Disable steps in a prepare recipe (skipped during execution).
+
+    Disabled steps remain in the recipe but are not executed when the recipe runs.
+    Use 'enable-step' to re-enable. Useful for debugging data pipelines step-by-step.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+        for idx in index:
+            _validate_step_index(steps, idx, recipe_name)
+            steps[idx]["disabled"] = True
+        settings.save()
+        indices = ", ".join(str(i) for i in index)
+        success(f"Disabled step(s) [{indices}] in '{recipe_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("enable-step")
+def enable_step(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    index: list[int] = typer.Option(..., "--index", help="Step index to enable (0-based, repeatable)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Enable previously disabled steps in a prepare recipe."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+        for idx in index:
+            _validate_step_index(steps, idx, recipe_name)
+            steps[idx]["disabled"] = False
+        settings.save()
+        indices = ", ".join(str(i) for i in index)
+        success(f"Enabled step(s) [{indices}] in '{recipe_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Prepare recipe step shortcuts (named wrappers for common processors)
+# ---------------------------------------------------------------------------
+
+
+def _add_prepare_step(ctx, recipe_name: str, project: str | None, step_type: str, params: dict) -> None:
+    """Shared logic for all named step shortcuts."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+        steps.append({"metaType": "PROCESSOR", "type": step_type, "params": params})
+        settings.save()
+        success(f"Added {step_type} step to '{recipe_name}' (index {len(steps) - 1})")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-formula")
+def add_formula(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    expr: str = typer.Option(..., "--expr", "-e", help="GREL expression (e.g. 'upper(city)', 'price * 1.1', 'if(age>=18,\"adult\",\"minor\")')"),
+    column: str = typer.Option(..., "--column", "-c", help="Output column name for the formula result"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a formula step (GREL expression) to create or transform a column.
+
+    Use instead of Python for computed columns, string transforms, and conditionals.
+    Formula reference: skills/dataiku/references/formulas.md
+    """
+    _add_prepare_step(ctx, recipe_name, project, "CreateColumnWithGREL", {
+        "expression": expr,
+        "column": column,
+    })
+
+
+@app.command("add-rename")
+def add_rename(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    rename_from: str = typer.Option(None, "--from", help="Column to rename (use with --to)"),
+    rename_to: str = typer.Option(None, "--to", help="New column name (use with --from)"),
+    mappings: str = typer.Option(None, "--mappings", help='Bulk renames as JSON: \'{"old1":"new1","old2":"new2"}\' or @file.json'),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a column rename step. Use --from/--to for single, --mappings for bulk.
+
+    Use instead of df.rename() in Python.
+    """
+    if mappings and (rename_from or rename_to):
+        exit_with_error(
+            "Use --from/--to OR --mappings, not both.",
+            code="invalid_argument",
+        )
+    if mappings:
+        parsed = read_json_input(mappings)
+        if not isinstance(parsed, dict):
+            exit_with_error("--mappings must be a JSON object: '{\"old\":\"new\"}'", code="invalid_argument")
+        renamings = [{"from": k, "to": v} for k, v in parsed.items()]
+    elif rename_from and rename_to:
+        renamings = [{"from": rename_from, "to": rename_to}]
+    else:
+        exit_with_error(
+            "Provide --from and --to for a single rename, or --mappings for bulk.",
+            code="invalid_argument",
+            details=[
+                "Single: dku recipe add-rename RECIPE --from old_name --to new_name -P PROJ",
+                'Bulk: dku recipe add-rename RECIPE --mappings \'{"old1":"new1","old2":"new2"}\' -P PROJ',
+            ],
+        )
+    _add_prepare_step(ctx, recipe_name, project, "ColumnRenamer", {"renamings": renamings})
+
+
+@app.command("add-filter-rows")
+def add_filter_rows(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    column: str = typer.Option(None, "--column", "-c", help="Column to filter on (value-based)"),
+    values: str = typer.Option(None, "--values", help="Comma-separated values to match"),
+    formula: str = typer.Option(None, "--formula", help="GREL formula for expression-based filtering (e.g. 'price > 100')"),
+    action: str = typer.Option("REMOVE_ROW", "--action", help="KEEP_ROW, REMOVE_ROW, CLEAR_CELL, or FLAG"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a filter/flag step to remove or keep rows matching conditions.
+
+    Use --column + --values for value-based, or --formula for expression-based.
+    Use instead of df[df.col > x] in Python.
+    """
+    if formula and (column or values):
+        exit_with_error("Use --column/--values OR --formula, not both.", code="invalid_argument")
+    if formula:
+        _add_prepare_step(ctx, recipe_name, project, "FilterOnFormula", {
+            "expression": formula,
+            "action": action.upper(),
+        })
+    elif column and values:
+        _add_prepare_step(ctx, recipe_name, project, "FlagOnValue", {
+            "appliesTo": "SINGLE_COLUMN",
+            "columns": [column],
+            "values": [v.strip() for v in values.split(",")],
+            "action": action.upper(),
+            "matchingMode": "FULL_STRING",
+            "normalizationMode": "EXACT",
+            "booleanMode": "AND",
+        })
+    else:
+        exit_with_error(
+            "Provide --column + --values, or --formula.",
+            code="invalid_argument",
+            details=[
+                "Value-based: dku recipe add-filter-rows RECIPE --column status --values 'active,pending' --action KEEP_ROW -P PROJ",
+                "Formula: dku recipe add-filter-rows RECIPE --formula 'price > 100' --action REMOVE_ROW -P PROJ",
+            ],
+        )
+
+
+@app.command("add-fill-empty")
+def add_fill_empty(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    column: str = typer.Option(..., "--column", "-c", help="Column to fill empty values in"),
+    value: str = typer.Option(..., "--value", help="Value to fill empty cells with"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a step that fills empty/null values in a column with a fixed value.
+
+    Use instead of df.fillna() in Python.
+    """
+    _add_prepare_step(ctx, recipe_name, project, "FillEmptyWithValue", {
+        "appliesTo": "SINGLE_COLUMN",
+        "columns": [column],
+        "value": value,
+    })
+
+
+@app.command("add-delete-columns")
+def add_delete_columns(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    columns: str = typer.Option(..., "--columns", help="Comma-separated column names to delete"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a step to delete (drop) columns from the dataset.
+
+    Use instead of df.drop(columns=[...]) in Python.
+    """
+    cols_list = [c.strip() for c in columns.split(",")]
+    _add_prepare_step(ctx, recipe_name, project, "ColumnsSelector", {
+        "appliesTo": "COLUMNS",
+        "columns": cols_list,
+        "keep": False,
+    })
+
+
+@app.command("add-find-replace")
+def add_find_replace(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    column: str = typer.Option(..., "--column", "-c", help="Column to search in"),
+    find: str = typer.Option(..., "--find", help="Value to find"),
+    replace: str = typer.Option(..., "--replace", help="Replacement value"),
+    matching: str = typer.Option("FULL_STRING", "--matching", help="FULL_STRING, SUBSTRING, or PATTERN (regex)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a find-and-replace step on a column.
+
+    Use instead of df[col].str.replace() in Python.
+    """
+    _add_prepare_step(ctx, recipe_name, project, "FindReplace", {
+        "appliesTo": "SINGLE_COLUMN",
+        "columns": [column],
+        "output": "",
+        "mapping": [{"from": find, "to": replace}],
+        "matching": matching.upper(),
+        "normalization": "EXACT",
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -955,11 +1441,19 @@ def create_window(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    partition_key: list[str] | None = typer.Option(
+        None, "--partition-key", "-k", help="PARTITION BY column (repeatable). Defines groups for window functions."
+    ),
+    order_key: list[str] | None = typer.Option(
+        None, "--order-key", help="ORDER BY column. Append ':desc' for descending (default: ascending). Repeatable."
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Window recipe. Computes window/analytic functions (rank, lag, cumsum).
 
     Use this instead of df.groupby().transform() in Python.
+    Use --partition-key for PARTITION BY and --order-key for ORDER BY.
+    Configure computations (lag, cumsum, rank) via set-definition or the DSS UI.
     """
     project_key = resolve_project(project)
     try:
@@ -970,8 +1464,32 @@ def create_window(
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
+
+        # Configure partition/order keys if provided (WindowRecipeSettings has no helpers)
+        if partition_key or order_key:
+            recipe_obj = proj.get_recipe(recipe_name)
+            win_settings = recipe_obj.get_settings()
+            payload = _get_recipe_payload(win_settings)
+            if partition_key:
+                payload["partitioningColumns"] = [{"column": col} for col in partition_key]
+                info(f"Partition by: {', '.join(partition_key)}")
+            if order_key:
+                orders = []
+                for spec in order_key:
+                    if spec.endswith(":desc"):
+                        orders.append({"column": spec[:-5], "desc": True})
+                    elif spec.endswith(":asc"):
+                        orders.append({"column": spec[:-4], "desc": False})
+                    else:
+                        orders.append({"column": spec, "desc": False})
+                payload["orders"] = orders
+                info(f"Order by: {', '.join(order_key)}")
+            win_settings.save()
+
         _auto_apply_schema(proj, recipe_name)
         success(f"Created window recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

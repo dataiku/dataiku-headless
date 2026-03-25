@@ -227,6 +227,65 @@ def test_recipe_create_output_ds_already_exists(patch_client):
     assert "already exists" in result.output
 
 
+def test_recipe_create_with_connection(patch_client):
+    """--connection uses with_new_output_dataset for code recipes."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Remove with_existing_output to simulate CodeRecipeCreator
+    del builder.with_existing_output
+    result = runner.invoke(app, [
+        "recipe", "create", "code_recipe",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--connection", "filesystem_managed",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    builder.with_new_output_dataset.assert_called_once_with("output_ds", "filesystem_managed")
+    builder.with_output.assert_not_called()
+    builder.build.assert_called_once()
+
+
+def test_recipe_create_connection_ignored_for_visual(patch_client):
+    """--connection is ignored (with warning) for visual recipes that use with_existing_output."""
+    result = runner.invoke(app, [
+        "recipe", "create", "visual_recipe",
+        "--type", "join",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--connection", "filesystem_managed",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    builder = patch_client.get_project("PROJ1").new_recipe.return_value
+    builder.with_existing_output.assert_called_once_with("output_ds")
+    builder.with_new_output_dataset.assert_not_called()
+
+
+def test_recipe_create_connection_required_error(patch_client):
+    """Missing managed connection gives actionable error suggesting --connection."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    del builder.with_existing_output
+    builder.build.side_effect = Exception(
+        "java.lang.IllegalArgumentException: Need to create output dataset or folder, "
+        "but creationInfo params are suppressing it"
+    )
+    result = runner.invoke(app, [
+        "recipe", "create", "code_recipe",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "--connection" in result.output
+    assert "filesystem_managed" in result.output
+
+
 def test_recipe_delete(patch_client):
     result = runner.invoke(app, ["recipe", "delete", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -1494,3 +1553,484 @@ def test_ensure_output_falls_back_on_permission_error(patch_client):
     assert result.exit_code == 0
     builder = proj.new_managed_dataset.return_value
     builder.with_store_into.assert_called_once_with("filesystem_managed")
+
+
+# ---------------------------------------------------------------------------
+# Prepare recipe step commands
+# ---------------------------------------------------------------------------
+
+
+def _setup_prepare_mock(patch_client, steps=None):
+    """Configure mock for prepare recipe tests. Returns (proj, recipe_mock, settings)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {"type": "shaker", "name": "prep1"}
+    payload = {"steps": list(steps) if steps else []}
+    settings.obj_payload = payload
+    settings.raw_steps = payload["steps"]
+    settings._obj_payload = payload
+    return proj, recipe_mock, settings
+
+
+# -- list-steps --
+
+
+def test_recipe_list_steps_empty(patch_client):
+    _setup_prepare_mock(patch_client, steps=[])
+    result = runner.invoke(app, ["recipe", "list-steps", "prep1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "No steps" in result.output
+
+
+def test_recipe_list_steps_table(patch_client):
+    _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": "ColumnRenamer", "name": "Rename cols", "params": {"renamings": [{"from": "a", "to": "b"}]}},
+        {"metaType": "PROCESSOR", "type": "CreateColumnWithGREL", "params": {"expression": "upper(city)", "column": "city_upper"}},
+    ])
+    result = runner.invoke(app, ["recipe", "list-steps", "prep1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "ColumnRenamer" in result.output
+    assert "CreateColumnWithGREL" in result.output
+
+
+def test_recipe_list_steps_json(patch_client):
+    steps = [
+        {"metaType": "PROCESSOR", "type": "ColumnRenamer", "params": {"renamings": []}},
+    ]
+    _setup_prepare_mock(patch_client, steps=steps)
+    result = runner.invoke(app, ["recipe", "list-steps", "prep1", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["type"] == "ColumnRenamer"
+
+
+def test_recipe_list_steps_wrong_type(patch_client):
+    """Non-prepare recipe gives prescriptive error."""
+    # Default mock returns type: "python"
+    result = runner.invoke(app, ["recipe", "list-steps", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "not 'prepare'" in result.output
+
+
+# -- add-step --
+
+
+def test_recipe_add_step_basic(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-step", "prep1",
+        "--type", "ColumnRenamer",
+        "--params", '{"renamings":[{"from":"a","to":"b"}]}',
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert len(settings.obj_payload["steps"]) == 1
+    assert settings.obj_payload["steps"][0]["type"] == "ColumnRenamer"
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_step_at_index(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": "Step0", "params": {}},
+        {"metaType": "PROCESSOR", "type": "Step1", "params": {}},
+    ])
+    result = runner.invoke(app, [
+        "recipe", "add-step", "prep1",
+        "--type", "Inserted",
+        "--params", "{}",
+        "--at", "1",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["steps"][1]["type"] == "Inserted"
+    assert len(settings.obj_payload["steps"]) == 3
+
+
+def test_recipe_add_step_with_name(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-step", "prep1",
+        "--type", "FillEmptyWithValue",
+        "--params", '{"column":"age","value":"0"}',
+        "--name", "Fill missing ages",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["name"] == "Fill missing ages"
+    assert step["type"] == "FillEmptyWithValue"
+
+
+def test_recipe_add_step_wrong_type(patch_client):
+    """Non-prepare recipe gives error."""
+    result = runner.invoke(app, [
+        "recipe", "add-step", "recipe1",
+        "--type", "ColumnRenamer",
+        "--params", "{}",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "not 'prepare'" in result.output
+
+
+# -- remove-step --
+
+
+def test_recipe_remove_step_single(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": "Step0", "params": {}},
+        {"metaType": "PROCESSOR", "type": "Step1", "params": {}},
+        {"metaType": "PROCESSOR", "type": "Step2", "params": {}},
+    ])
+    result = runner.invoke(app, [
+        "recipe", "remove-step", "prep1",
+        "--index", "1",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert len(settings.obj_payload["steps"]) == 2
+    assert settings.obj_payload["steps"][0]["type"] == "Step0"
+    assert settings.obj_payload["steps"][1]["type"] == "Step2"
+    settings.save.assert_called_once()
+
+
+def test_recipe_remove_step_multiple(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": f"Step{i}", "params": {}} for i in range(4)
+    ])
+    result = runner.invoke(app, [
+        "recipe", "remove-step", "prep1",
+        "--index", "0",
+        "--index", "3",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert len(settings.obj_payload["steps"]) == 2
+    assert settings.obj_payload["steps"][0]["type"] == "Step1"
+    assert settings.obj_payload["steps"][1]["type"] == "Step2"
+
+
+def test_recipe_remove_step_out_of_range(patch_client):
+    _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": "Step0", "params": {}},
+    ])
+    result = runner.invoke(app, [
+        "recipe", "remove-step", "prep1",
+        "--index", "5",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+
+
+# -- get-step --
+
+
+def test_recipe_get_step(patch_client):
+    step = {"metaType": "PROCESSOR", "type": "CreateColumnWithGREL", "params": {"expression": "upper(x)", "column": "y"}}
+    _setup_prepare_mock(patch_client, steps=[step])
+    result = runner.invoke(app, [
+        "recipe", "get-step", "prep1",
+        "--index", "0",
+        "-o", "json",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["type"] == "CreateColumnWithGREL"
+    assert parsed["params"]["expression"] == "upper(x)"
+
+
+def test_recipe_get_step_out_of_range(patch_client):
+    _setup_prepare_mock(patch_client, steps=[])
+    result = runner.invoke(app, [
+        "recipe", "get-step", "prep1",
+        "--index", "0",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "no steps" in result.output.lower()
+
+
+# -- disable-step / enable-step --
+
+
+def test_recipe_disable_step(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": "Step0", "params": {}},
+    ])
+    result = runner.invoke(app, [
+        "recipe", "disable-step", "prep1",
+        "--index", "0",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["steps"][0]["disabled"] is True
+    settings.save.assert_called_once()
+
+
+def test_recipe_enable_step(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": "Step0", "params": {}, "disabled": True},
+    ])
+    result = runner.invoke(app, [
+        "recipe", "enable-step", "prep1",
+        "--index", "0",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["steps"][0]["disabled"] is False
+    settings.save.assert_called_once()
+
+
+def test_recipe_disable_step_multiple(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client, steps=[
+        {"metaType": "PROCESSOR", "type": f"Step{i}", "params": {}} for i in range(3)
+    ])
+    result = runner.invoke(app, [
+        "recipe", "disable-step", "prep1",
+        "--index", "0",
+        "--index", "2",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["steps"][0]["disabled"] is True
+    assert settings.obj_payload["steps"][2]["disabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# Prepare recipe step shortcuts
+# ---------------------------------------------------------------------------
+
+
+def test_recipe_add_formula(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-formula", "prep1",
+        "--expr", "upper(city)",
+        "--column", "city_upper",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "CreateColumnWithGREL"
+    assert step["params"]["expression"] == "upper(city)"
+    assert step["params"]["column"] == "city_upper"
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_rename_single(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-rename", "prep1",
+        "--from", "old_name",
+        "--to", "new_name",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "ColumnRenamer"
+    assert step["params"]["renamings"] == [{"from": "old_name", "to": "new_name"}]
+
+
+def test_recipe_add_rename_bulk(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-rename", "prep1",
+        "--mappings", '{"col_a":"column_a","col_b":"column_b"}',
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    renamings = settings.obj_payload["steps"][0]["params"]["renamings"]
+    assert len(renamings) == 2
+    names = {r["from"] for r in renamings}
+    assert names == {"col_a", "col_b"}
+
+
+def test_recipe_add_rename_validation(patch_client):
+    """--from without --to gives error."""
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-rename", "prep1",
+        "--from", "old_name",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "--from" in result.output or "--to" in result.output
+
+
+def test_recipe_add_filter_rows_by_value(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-filter-rows", "prep1",
+        "--column", "status",
+        "--values", "active,pending",
+        "--action", "KEEP_ROW",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FlagOnValue"
+    assert step["params"]["columns"] == ["status"]
+    assert step["params"]["values"] == ["active", "pending"]
+    assert step["params"]["action"] == "KEEP_ROW"
+
+
+def test_recipe_add_filter_rows_by_formula(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-filter-rows", "prep1",
+        "--formula", "price > 100",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FilterOnFormula"
+    assert step["params"]["expression"] == "price > 100"
+    assert step["params"]["action"] == "REMOVE_ROW"
+
+
+def test_recipe_add_fill_empty(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-fill-empty", "prep1",
+        "--column", "age",
+        "--value", "0",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FillEmptyWithValue"
+    assert step["params"]["columns"] == ["age"]
+    assert step["params"]["value"] == "0"
+
+
+def test_recipe_add_delete_columns(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-delete-columns", "prep1",
+        "--columns", "tmp1,tmp2,debug_col",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "ColumnsSelector"
+    assert step["params"]["columns"] == ["tmp1", "tmp2", "debug_col"]
+    assert step["params"]["keep"] is False
+
+
+def test_recipe_add_find_replace(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(app, [
+        "recipe", "add-find-replace", "prep1",
+        "--column", "category",
+        "--find", "Electronics",
+        "--replace", "Tech",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FindReplace"
+    assert step["params"]["columns"] == ["category"]
+    assert step["params"]["mapping"] == [{"from": "Electronics", "to": "Tech"}]
+    assert step["params"]["matching"] == "FULL_STRING"
+
+
+# ── Visual recipe: create-window with --partition-key / --order-key ────
+
+
+def test_recipe_create_window_basic(patch_client):
+    """Basic window recipe creation without flags."""
+    result = runner.invoke(app, [
+        "recipe", "create-window", "my_window",
+        "-i", "transactions",
+        "--output-ds", "windowed",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created window recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_called_once_with("window", "my_window")
+
+
+def test_recipe_create_window_with_partition_key(patch_client):
+    """--partition-key sets partitioningColumns in payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(app, [
+        "recipe", "create-window", "my_window",
+        "-i", "transactions",
+        "--output-ds", "windowed",
+        "--partition-key", "customer_id",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["partitioningColumns"] == [{"column": "customer_id"}]
+    settings.save.assert_called()
+
+
+def test_recipe_create_window_with_order_key(patch_client):
+    """--order-key sets orders in payload (ascending by default)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(app, [
+        "recipe", "create-window", "my_window",
+        "-i", "transactions",
+        "--output-ds", "windowed",
+        "--order-key", "date",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["orders"] == [{"column": "date", "desc": False}]
+    settings.save.assert_called()
+
+
+def test_recipe_create_window_order_key_desc(patch_client):
+    """--order-key with :desc suffix sets descending order."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(app, [
+        "recipe", "create-window", "my_window",
+        "-i", "transactions",
+        "--output-ds", "windowed",
+        "--partition-key", "customer_id",
+        "--order-key", "amount:desc",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["partitioningColumns"] == [{"column": "customer_id"}]
+    assert settings.obj_payload["orders"] == [{"column": "amount", "desc": True}]
+    settings.save.assert_called()
+
+
+def test_recipe_create_window_multiple_keys(patch_client):
+    """Multiple --partition-key and --order-key flags."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(app, [
+        "recipe", "create-window", "my_window",
+        "-i", "transactions",
+        "--output-ds", "windowed",
+        "--partition-key", "customer_id",
+        "--partition-key", "region",
+        "--order-key", "date",
+        "--order-key", "amount:desc",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.obj_payload["partitioningColumns"] == [
+        {"column": "customer_id"}, {"column": "region"},
+    ]
+    assert settings.obj_payload["orders"] == [
+        {"column": "date", "desc": False}, {"column": "amount", "desc": True},
+    ]
