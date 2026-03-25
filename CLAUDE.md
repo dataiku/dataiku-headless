@@ -4,7 +4,7 @@
 
 The **Dataiku DevKit** enables any AI coding agent to do anything in Dataiku DSS. It ships two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (139 commands, 25 groups) wrapping `dataikuapi` with auth management, output formatting, and composability. Replaces throwaway Python scripts with shell commands that agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool (163 commands, 28 groups) wrapping `dataikuapi` with auth management, output formatting, and composability. Replaces throwaway Python scripts with shell commands that agents chain with `&&`.
 
 2. **Agent skills & knowledge** — 2 skills, 28 platform reference docs, and 3 subagents that teach agents how to build plugins, manage projects, and operate DSS. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
 
@@ -49,7 +49,7 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-### Command Groups (25 + whoami)
+### Command Groups (28 + whoami)
 
 | Group | File | Commands |
 |---|---|---|
@@ -66,12 +66,15 @@ Every command follows the same flow:
 | `model` | `model.py` | list, get, versions |
 | `folder` | `folder.py` | list, ls, upload, download |
 | `llm` | `llm.py` | list, completion, embeddings |
-| `webapp` | `webapp.py` | list, start, stop, status |
+| `webapp` | `webapp.py` | list, start, stop, status, get-definition, set-definition |
+| `dashboard` | `dashboard.py` | list, get, create, delete, get-definition, set-definition |
+| `insight` | `insight.py` | list, get, create, delete, get-definition, set-definition |
 | `macro` | `macro.py` | list, run |
 | `user` | `user.py` | list, create |
 | `flow` | `flow.py` | graph, zones, create-zone, propagate, check, sources, successors |
 | `library` | `library.py` | list, read, write, delete, mkdir |
 | `agent` | `agent.py` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm |
+| `agent-block` | `agent_block.py` | list, get, add, remove, connect, disconnect, set-start, set-mode, get-graph, set-graph |
 | `agent-tool` | `agent_tool.py` | list, get, run, delete |
 | `knowledge` | `knowledge.py` | list, create, get, build, search, delete |
 | `bundle` | `bundle.py` | list, export, download, import, activate |
@@ -129,7 +132,7 @@ Platform knowledge lives in `skills/dataiku/references/`. Read the relevant doc 
 | `skills/dataiku/references/plugin-workflow.md` | Git integration, versioning, CI/CD, distribution |
 | `skills/dataiku/references/formulas.md` | Formula language, Prepare recipe expressions |
 | `skills/dataiku/references/llm-mesh.md` | LLM connections, guardrails, RAG, knowledge banks |
-| `skills/dataiku/references/structured-agents.md` | Deterministic blocks, state management, HITL |
+| `skills/dataiku/references/structured-agents.md` | SVA design guide: all 13 block types (when/why), graph patterns, state, CLI workflow |
 | `skills/dataiku/references/python-api.md` | dataiku/dataikuapi packages, dataset I/O, SQL |
 | `skills/dataiku/references/scenarios.md` | Automation, triggers, steps, reporters |
 | `skills/dataiku/references/mlops.md` | Model lifecycle, drift detection, API Node |
@@ -280,8 +283,15 @@ my-plugin-id/
 | `"embed_dataset"` is alias for `"nlp_llm_rag_embedding"` | `recipe.py` — uses canonical name |
 | Eval recipe payload config is post-build | `recipe.py` — `build()` first, then `settings.obj_payload[key] = val` + `save()` |
 | `with_output_knowledge_bank()` accepts str/DSSLLM/DSSLLMListItem | `recipe.py` — passes LLM ID string directly |
-| No public API for webapp creation | DSS UI only |
-| `project.list_webapps()` and `project.get_webapp()` exist, no create | `webapp.py` — list/start/stop only |
+| Block graph is inside `toolsUsingAgentSettings`, not separate type | `mode: "BLOCKS_GRAPH"` + `blocks: [...]` + `startingBlockId` |
+| No public API for webapp creation or deletion | DSS UI only — but `get_settings()`/`save()` works for editing |
+| Webapp code lives in `get_settings().get_raw()["params"]` | `webapp.py` — keys: `html`, `css`, `js`, `python` |
+| `list_dashboards()` returns dicts | `dashboard.py` — accesses via `.get()` |
+| `create_dashboard()` returns object with `.dashboard_id` | `dashboard.py` — NOT `.id` |
+| `list_insights()` returns dicts | `insight.py` — accesses via `.get()` |
+| `create_insight()` takes `creation_info` dict, not name string | `insight.py` — builds `{"type": T, "name": N}` |
+| `DSSInsight` uses `.insight_id` not `.id` | `insight.py` — matches `DSSDashboard.dashboard_id` pattern |
+| Insight `settings.save()` uses POST not PUT | `dataikuapi` handles internally — wraps as `{"insight": settings}` |
 | Knowledge Bank access needs `.as_core_knowledge_bank()` | See `skills/dataiku/references/recipes.md` |
 | No public eval recipe builder with eval-store output | `recipe.py` — uses `client._perform_json()` |
 | `get_knowledge_bank().get_settings()` hides raw JSON | `knowledge.py` — uses `client._perform_http()` |
@@ -352,6 +362,7 @@ uv run pytest -v           # Run tests
 | Doc | Description |
 |-----|-------------|
 | `docs/command-api-mapping.md` | Full table mapping every CLI command to its `dataikuapi` call |
+| `docs/block-graph-api.md` | Undocumented block graph API — all 13 block types, connection model, state/scratchpad |
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
 | `skills/dataiku/references/*.md` | 26 platform reference docs — see [Dataiku Reference Docs](#dataiku-reference-docs) table above |

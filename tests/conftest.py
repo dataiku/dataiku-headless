@@ -328,7 +328,61 @@ def mock_client():
     webapp_mock.get_state.return_value = webapp_state
     webapp_mock.start_or_restart_backend.return_value = None
     webapp_mock.stop_backend.return_value = None
+    webapp_settings = MagicMock()
+    webapp_settings.get_raw.return_value = {
+        "id": "webapp1",
+        "name": "Dashboard",
+        "type": "STANDARD",
+        "params": {
+            "html": "<h1>Hello</h1>",
+            "css": "h1 { color: blue; }",
+            "js": "console.log('hello');",
+            "python": "# backend code",
+        },
+    }
+    webapp_settings.save.return_value = None
+    webapp_mock.get_settings.return_value = webapp_settings
     proj1.get_webapp.return_value = webapp_mock
+
+    # Dashboards
+    proj1.list_dashboards.return_value = [
+        {"id": "dashboard1", "name": "Sales Dashboard", "pages": [], "tags": []},
+    ]
+    dashboard_mock = MagicMock()
+    dashboard_settings = MagicMock()
+    dashboard_settings.get_raw.return_value = {
+        "id": "dashboard1",
+        "name": "Sales Dashboard",
+        "pages": [{"id": "page1", "title": "Overview", "tiles": []}],
+    }
+    dashboard_settings.save.return_value = None
+    dashboard_mock.get_settings.return_value = dashboard_settings
+    dashboard_mock.delete.return_value = None
+    dashboard_mock.dashboard_id = "dashboard1"
+    proj1.get_dashboard.return_value = dashboard_mock
+    new_dashboard_mock = MagicMock()
+    new_dashboard_mock.dashboard_id = "new_dashboard_1"
+    proj1.create_dashboard.return_value = new_dashboard_mock
+
+    # Insights
+    proj1.list_insights.return_value = [
+        {"id": "insight1", "name": "Sales Chart", "type": "chart"},
+    ]
+    insight_mock = MagicMock()
+    insight_settings = MagicMock()
+    insight_settings.get_raw.return_value = {
+        "id": "insight1",
+        "name": "Sales Chart",
+        "type": "chart",
+        "params": {},
+    }
+    insight_settings.save.return_value = None
+    insight_mock.get_settings.return_value = insight_settings
+    insight_mock.delete.return_value = None
+    proj1.get_insight.return_value = insight_mock
+    new_insight_mock = MagicMock()
+    new_insight_mock.insight_id = "new_insight_1"
+    proj1.create_insight.return_value = new_insight_mock
 
     # Managed folder mock
     folder_mock = MagicMock()
@@ -499,7 +553,61 @@ def mock_client():
     agent_mock.wake_up.return_value = None
     agent_mock.shutdown.return_value = None
     agent_mock.id = "agent1"
-    proj1.get_agent.return_value = agent_mock
+
+    # Agent with BLOCKS_GRAPH mode (for agent-block commands)
+    agent_blocks_mock = MagicMock()
+    agent_blocks_version_data = {
+        "versionId": "v1",
+        "toolsUsingAgentSettings": {
+            "mode": "BLOCKS_GRAPH",
+            "startingBlockId": "init_state",
+            "blocks": [
+                {
+                    "type": "SET_STATE_ENTRIES", "id": "init_state",
+                    "entriesToSet": [{"secret": False, "key": "status", "value": "started"}],
+                    "nextBlock": "classify",
+                },
+                {
+                    "type": "LLM_REQUEST", "id": "classify", "llmId": "llm1",
+                    "outputMode": "SAVE_TO_STATE", "outputStateKey": "intent",
+                    "nextBlock": "emit_result",
+                },
+                {
+                    "type": "EMIT_OUTPUT", "id": "emit_result",
+                    "templateType": "CEL_EXPANSION", "template": "Done",
+                    "addToMessages": True,
+                },
+            ],
+            "tools": [],
+        },
+    }
+    agent_blocks_raw = {
+        "projectKey": "PROJ1",
+        "id": "agent_blocks",
+        "name": "Block Agent",
+        "type": "TOOLS_USING_AGENT",
+        "activeVersion": "v1",
+        "versions": [agent_blocks_version_data],
+    }
+    agent_blocks_settings = MagicMock()
+    agent_blocks_settings.get_raw.return_value = agent_blocks_raw
+    agent_blocks_settings.active_version = "v1"
+    agent_blocks_settings.type = "TOOLS_USING_AGENT"
+    agent_blocks_settings.get_version_ids.return_value = ["v1"]
+    agent_blocks_settings.save.return_value = None
+    agent_blocks_mock.get_settings.return_value = agent_blocks_settings
+    agent_blocks_mock.get_status.return_value = {"state": "RUNNING"}
+    agent_blocks_mock.delete.return_value = None
+    agent_blocks_mock.id = "agent_blocks"
+
+    # Route get_agent by agent_id
+    def _get_agent(agent_id):
+        if agent_id == "agent1":
+            return agent_mock
+        if agent_id == "agent_blocks":
+            return agent_blocks_mock
+        raise Exception(f"NotFoundException: Agent {agent_id} does not exist")
+    proj1.get_agent.side_effect = _get_agent
 
     # create_agent returns agent with .id
     new_agent_mock = MagicMock()

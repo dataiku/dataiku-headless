@@ -23,7 +23,9 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [model](#model) — list, get, versions
 - [folder](#folder) — list, ls, upload, download
 - [llm](#llm) — list, completion, embeddings
-- [webapp](#webapp) — list, start, stop, status
+- [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
+- [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition
+- [insight](#insight) — list, get, create, delete, get-definition, set-definition
 - [macro](#macro) — list, run
 - [user](#user) — list, create
 - [flow](#flow) — graph, zones, create-zone, propagate, check, sources, successors
@@ -274,14 +276,49 @@ dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
 
 ## webapp
 
-No create via API (DSS UI only).
+No create via API (DSS UI only). But you can read/edit existing webapp code via get-definition/set-definition.
 
 ```bash
 dku webapp list [-P PROJECT] [-o FORMAT]
 dku webapp start WEBAPP_ID [-P PROJECT]
 dku webapp stop WEBAPP_ID [-P PROJECT]
 dku webapp status WEBAPP_ID [-P PROJECT]
+dku webapp get-definition WEBAPP_ID [-P PROJECT] [-o json]
+dku webapp set-definition WEBAPP_ID --definition JSON [-P PROJECT]
 ```
+
+- `get-definition` returns full webapp settings including source code in `params` (html, css, js, python)
+- `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
+- To edit webapp code: `get-definition` → modify `params` → `set-definition`
+
+## dashboard
+
+```bash
+dku dashboard list [-P PROJECT] [-o FORMAT]
+dku dashboard get DASHBOARD_ID [-P PROJECT] [-o FORMAT]
+dku dashboard create NAME [-P PROJECT] [--definition JSON] [--if-not-exists]
+dku dashboard delete DASHBOARD_ID [-P PROJECT]
+dku dashboard get-definition DASHBOARD_ID [-P PROJECT] [-o json]
+dku dashboard set-definition DASHBOARD_ID --definition JSON [-P PROJECT]
+```
+
+- No create via API for individual tiles/charts — manage via the raw JSON definition
+- `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
+- `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
+
+## insight
+
+```bash
+dku insight list [-P PROJECT] [-o FORMAT]
+dku insight get INSIGHT_ID [-P PROJECT] [-o FORMAT]
+dku insight create NAME [--type TYPE] [-P PROJECT] [--definition JSON] [--if-not-exists]
+dku insight delete INSIGHT_ID [-P PROJECT]
+dku insight get-definition INSIGHT_ID [-P PROJECT] [-o json]
+dku insight set-definition INSIGHT_ID --definition JSON [-P PROJECT]
+```
+
+- `create` defaults to `--type dataset_table`. Common types: `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`, `eda`, `jupyter`
+- `--definition` overrides/extends creation info (merged with `--type` and name)
 
 ## macro
 
@@ -345,6 +382,41 @@ dku agent set-llm AGENT_ID --llm-id LLM_ID [-P PROJECT]
 
 - `create --type` defaults to TOOLS_USING_AGENT. Options: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT
 - `set-llm` and `add-tool` operate on the active version
+
+## agent-block
+
+Manage visual agent block graphs (structured visual agents). Blocks live inside `TOOLS_USING_AGENT` with `mode: "BLOCKS_GRAPH"`.
+
+```bash
+dku agent-block list AGENT_ID [-P PROJECT] [--version VER] [-o FORMAT]
+dku agent-block get AGENT_ID BLOCK_ID [-P PROJECT] [--version VER] [-o FORMAT]
+dku agent-block add AGENT_ID --block/-b JSON [--set-start] [-P PROJECT] [--version VER]
+dku agent-block remove AGENT_ID BLOCK_ID [-P PROJECT] [--version VER]
+dku agent-block connect AGENT_ID --from BLOCK_A --to BLOCK_B [-P PROJECT] [--version VER]
+dku agent-block disconnect AGENT_ID BLOCK_ID [-P PROJECT] [--version VER]
+dku agent-block set-start AGENT_ID BLOCK_ID [-P PROJECT] [--version VER]
+dku agent-block set-mode AGENT_ID SIMPLE|BLOCKS_GRAPH [-P PROJECT] [--version VER]
+dku agent-block get-graph AGENT_ID [-P PROJECT] [--version VER] [-o json]
+dku agent-block set-graph AGENT_ID --definition/-d JSON [-P PROJECT] [--version VER]
+```
+
+- `--block` and `--definition` accept inline JSON, `@file.json`, or `-` for stdin
+- `add` auto-switches agent to `BLOCKS_GRAPH` mode if currently `SIMPLE`
+- `add --set-start` sets the new block as starting block (auto-set for first block)
+- `connect` sets `nextBlock` on the source block (for ROUTING clauses use `get-graph`/`set-graph`)
+- `remove` warns about dangling references from other blocks
+- `--version` defaults to active version
+- 13 block types: SET_STATE_ENTRIES, LLM_REQUEST, ROUTING, EMIT_OUTPUT, STANDARD_REACT, MANUAL_TOOL_CALL, MANDATORY_TOOL_CALL, PARALLEL, FOR_EACH, PYTHON_CODE, REFLECTION, DELEGATE_TO_OTHER_AGENT, GENERATE_ARTIFACT
+- See `docs/block-graph-api.md` for full schema of each block type
+
+**Example: Build an SVA from scratch:**
+```bash
+dku agent create "My SVA" -P PROJ
+dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
+dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
+dku agent-block add My_SVA -b '{"type":"EMIT_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
+dku agent-block list My_SVA -P PROJ
+```
 
 ## agent-tool
 

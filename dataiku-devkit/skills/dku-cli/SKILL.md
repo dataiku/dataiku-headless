@@ -1,6 +1,6 @@
 ---
 name: dku-cli
-description: Use the `dku` CLI to interact with Dataiku DSS from the terminal. Use when the user asks to list/inspect/manage/create/delete DSS projects, datasets, recipes, scenarios, jobs, plugins, code environments, connections, models, folders, LLMs, webapps, macros, users, flow, agents, knowledge banks, bundles, API services, wiki, SQL, or library files — via shell commands. Also use when automating DSS operations in CI/CD pipelines, composing DSS queries with shell pipes, or when `dku` commands are the most efficient way to get information. Prefer this over the Python API skill when the task is a quick query, pipeline script, or shell-composable operation.
+description: Use the `dku` CLI to interact with Dataiku DSS from the terminal. Use when the user asks to list/inspect/manage/create/delete DSS projects, datasets, recipes, scenarios, jobs, plugins, code environments, connections, models, folders, LLMs, webapps, dashboards, insights, macros, users, flow, agents, knowledge banks, bundles, API services, wiki, SQL, or library files — via shell commands. Also use when automating DSS operations in CI/CD pipelines, composing DSS queries with shell pipes, or when `dku` commands are the most efficient way to get information. Prefer this over the Python API skill when the task is a quick query, pipeline script, or shell-composable operation.
 triggers:
   - dku
   - dku-cli
@@ -27,7 +27,7 @@ metadata:
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **135 commands** across 26 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **149 commands** across 28 groups.
 
 ## Prerequisites
 
@@ -326,7 +326,9 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `model` | list, get, versions | Yes |
 | `folder` | list, ls, upload, download | Yes |
 | `llm` | list, completion, embeddings | Yes |
-| `webapp` | list, start, stop, status | Yes |
+| `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
+| `dashboard` | list, get, create, delete, get-definition, set-definition | Yes |
+| `insight` | list, get, create, delete, get-definition, set-definition | Yes |
 | `macro` | list, run | Yes |
 | `flow` | graph, zones, create-zone, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir | Yes |

@@ -82,6 +82,20 @@ Every `dku` CLI command maps to one or more `dataikuapi` calls. This table is th
 | `dku webapp start ID` | `get_webapp(ID).start_or_restart_backend()` |
 | `dku webapp stop ID` | `get_webapp(ID).stop_backend()` |
 | `dku webapp status ID` | `get_webapp(ID).get_state()` |
+| `dku webapp get-definition ID` | `get_webapp(ID).get_settings().get_raw()` |
+| `dku webapp set-definition ID` | `get_webapp(ID).get_settings()` → update raw → `.save()` |
+| `dku dashboard list` | `project.list_dashboards()` |
+| `dku dashboard get ID` | `get_dashboard(ID).get_settings().get_raw()` |
+| `dku dashboard create NAME` | `project.create_dashboard(name, settings)` |
+| `dku dashboard delete ID` | `get_dashboard(ID).delete()` |
+| `dku dashboard get-definition ID` | `get_dashboard(ID).get_settings().get_raw()` |
+| `dku dashboard set-definition ID` | `get_dashboard(ID).get_settings()` → update raw → `.save()` |
+| `dku insight list` | `project.list_insights()` |
+| `dku insight get ID` | `get_insight(ID).get_settings().get_raw()` |
+| `dku insight create NAME` | `project.create_insight(creation_info)` |
+| `dku insight delete ID` | `get_insight(ID).delete()` |
+| `dku insight get-definition ID` | `get_insight(ID).get_settings().get_raw()` |
+| `dku insight set-definition ID` | `get_insight(ID).get_settings()` → update raw → `.save()` |
 | `dku macro list` | `project.list_macros()` |
 | `dku macro run ID` | `get_macro(ID).run()` |
 | `dku user list` | `client.list_users()` |

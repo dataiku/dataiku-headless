@@ -1,106 +1,119 @@
-"""dku webapp — list, start, stop, status, get/set-definition."""
+"""dku insight — list, get, create, delete, get/set-definition."""
 
 from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success, warn
 
-app = typer.Typer(help="Manage DSS web applications (list, start/stop, read/edit code).")
+app = typer.Typer(help="Manage DSS insights (charts, reports, metrics views).")
 
 
 @app.command("list")
-def list_webapps(
+def list_insights(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List web applications in a project."""
+    """List insights in a project."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        webapps = proj.list_webapps()
+        insights = proj.list_insights()
 
         data = []
-        for w in webapps:
+        for i in insights:
             data.append({
-                "id": w.get("id", ""),
-                "name": w.get("name", ""),
-                "type": w.get("type", ""),
+                "id": i.get("id", ""),
+                "name": i.get("name", ""),
+                "type": i.get("type", ""),
             })
 
         render(
             data,
             ["id", "name", "type"],
             output_format=output,
-            title=f"Web Apps ({project_key})",
+            title=f"Insights ({project_key})",
         )
     except Exception as e:
         handle_api_error(e)
 
 
 @app.command()
-def start(
+def get(
     ctx: typer.Context,
-    webapp_id: str = typer.Argument(help="Web app ID"),
-    project: str = typer.Option(None, "--project", "-P", help="Project key"),
-) -> None:
-    """Start or restart a web app backend."""
-    project_key = resolve_project(project)
-    try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
-        webapp.start_or_restart_backend()
-        success(f"Started web app '{webapp_id}'")
-    except Exception as e:
-        handle_api_error(e)
-
-
-@app.command()
-def stop(
-    ctx: typer.Context,
-    webapp_id: str = typer.Argument(help="Web app ID"),
-    project: str = typer.Option(None, "--project", "-P", help="Project key"),
-) -> None:
-    """Stop a web app backend."""
-    project_key = resolve_project(project)
-    try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
-        webapp.stop_backend()
-        success(f"Stopped web app '{webapp_id}'")
-    except Exception as e:
-        handle_api_error(e)
-
-
-@app.command()
-def status(
-    ctx: typer.Context,
-    webapp_id: str = typer.Argument(help="Web app ID"),
+    insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show web app backend status."""
+    """Get insight details."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
-        backend_state = webapp.get_state()
+        insight = proj.get_insight(insight_id)
+        raw = insight.get_settings().get_raw()
 
-        data = [
-            {"field": "ID", "value": webapp_id},
-            {"field": "Running", "value": str(backend_state.running)},
-        ]
+        if output == "json":
+            render_raw(raw, output_format=output)
+        else:
+            data = [
+                {"field": "ID", "value": raw.get("id", insight_id)},
+                {"field": "Name", "value": raw.get("name", "")},
+                {"field": "Type", "value": raw.get("type", "")},
+            ]
+            render(data, ["field", "value"], output_format="table", title=f"Insight: {insight_id}")
+    except Exception as e:
+        handle_api_error(e)
 
-        render(data, ["field", "value"], output_format=output, title=f"Web App: {webapp_id}")
+
+@app.command()
+def create(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Insight name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    insight_type: str = typer.Option("dataset_table", "--type", "-t", help="Insight type (chart, dataset_table, report, etc.)"),
+    definition: str | None = typer.Option(
+        None, "--definition", "-d", help="JSON creation info (string, @file.json, or - for stdin)"
+    ),
+    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if insight already exists"),
+) -> None:
+    """Create a new insight."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        creation_info = read_json_input(definition) or {}
+        creation_info.setdefault("type", insight_type)
+        creation_info.setdefault("name", name)
+        insight = proj.create_insight(creation_info)
+        success(f"Created insight '{name}' (id={insight.insight_id})")
+    except Exception as e:
+        if if_not_exists and is_already_exists_error(e):
+            warn(f"Insight '{name}' already exists in {project_key}, skipping create")
+            return
+        handle_api_error(e)
+
+
+@app.command()
+def delete(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Delete an insight."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        insight.delete()
+        success(f"Deleted insight '{insight_id}'")
     except Exception as e:
         handle_api_error(e)
 
@@ -108,18 +121,18 @@ def status(
 @app.command("get-definition")
 def get_definition(
     ctx: typer.Context,
-    webapp_id: str = typer.Argument(help="Web app ID"),
+    insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get the raw definition of a web app as JSON (includes source code in params)."""
+    """Get the raw definition of an insight as JSON."""
     project_key = resolve_project(project)
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
-        defn = webapp.get_settings().get_raw()
+        insight = proj.get_insight(insight_id)
+        defn = insight.get_settings().get_raw()
         render_raw(defn, output_format=output)
     except Exception as e:
         handle_api_error(e)
@@ -128,24 +141,24 @@ def get_definition(
 @app.command("set-definition")
 def set_definition(
     ctx: typer.Context,
-    webapp_id: str = typer.Argument(help="Web app ID"),
+    insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str = typer.Option(
         ..., "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
     ),
 ) -> None:
-    """Update a web app's definition from JSON (use get-definition to read current state first)."""
+    """Update an insight's definition from JSON."""
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
+        insight = proj.get_insight(insight_id)
         new_def = read_json_input(definition)
-        settings = webapp.get_settings()
+        settings = insight.get_settings()
         raw = settings.get_raw()
         raw.clear()
         raw.update(new_def)
         settings.save()
-        success(f"Updated definition for web app '{webapp_id}'")
+        success(f"Updated definition for insight '{insight_id}'")
     except Exception as e:
         handle_api_error(e)

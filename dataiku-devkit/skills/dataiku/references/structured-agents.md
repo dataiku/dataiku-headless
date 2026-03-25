@@ -1,664 +1,562 @@
-# Dataiku Structured Agents (Deterministic Blocks)
+# Structured Visual Agents — Design Guide
 
-Build production-grade AI agents using Dataiku's deterministic blocks architecture. Unlike free-form agents that can loop indefinitely and produce variable results, structured agents guarantee consistent, auditable outputs through explicit control flow.
+Build production-grade AI agents using Dataiku's deterministic block graph. Unlike free-form agents that loop indefinitely with variable results, structured visual agents (SVAs) guarantee consistent, auditable outputs through explicit control flow.
 
-## When to Use
-
-- Designing multi-step AI workflows requiring consistency across runs
-- Building compliance, regulatory, or audit-sensitive automation
-- Creating human-in-the-loop validation workflows
-- Processing documents with structured extraction requirements
-- Implementing systematic data analysis with state accumulation
+> **API reference:** For the JSON schema of every block type, see `docs/block-graph-api.md`.
+> **CLI reference:** For `dku agent-block` commands, see `skills/dku-cli/references/commands.md`.
+> **Custom plugin blocks:** For building your own block types as plugins, see `references/visual-agent-blocks.md`.
 
 ---
 
-## Core Concepts
+## When to Use SVAs (vs Simple Agents)
 
-### Why Deterministic Blocks?
+| Use SVAs When | Use Simple Agents When |
+|---------------|----------------------|
+| Multi-step pipeline with defined stages | Single-turn Q&A or conversational |
+| Compliance, audit, or regulatory workflows | Exploratory research tasks |
+| Guaranteed processing of every item in a list | Ad-hoc tool usage at LLM's discretion |
+| Parallel data gathering from multiple sources | Simple tool-calling pattern |
+| Human-in-the-loop approval gates | No approval flow needed |
+| Report/document generation at the end | Response is just text |
+| Reproducible outputs across runs | Variability is acceptable |
 
-| Non-Deterministic Agents | Deterministic Blocks |
-|--------------------------|----------------------|
-| Free-form loops may miss items or duplicate work | For Each guarantees every item processed exactly once |
-| Variable outputs between runs | Structured outputs ensure consistent schema |
-| Difficult to audit reasoning | Full state lineage and traceability |
-| Ad-hoc variable handling | Explicit state management |
-| Unpredictable tool calls | Controlled tool invocation patterns |
+---
 
-### Block Types Reference
+## Architecture: How SVAs Work
 
-| Block Type | Purpose | Key Use Cases |
-|------------|---------|---------------|
-| **LLM with Structured Output** | Extract/generate data with guaranteed schema | Document parsing, gap analysis, classification |
-| **Expression Block** | Conditional routing based on state | Type checking, validation gates |
-| **For Each Loop** | Process arrays systematically | Per-item analysis, batch operations |
-| **Dataset Lookup** | Query datasets with filters | Finding existing records, retrieving context |
-| **set_state_entries** | Save/accumulate values in state | Loop accumulation, context passing |
-| **ReAct Loop** | Tool-using agent with iteration | Knowledge bank search, multi-tool workflows |
-| **Core ReAct Loop** | ReAct with HITL capabilities | Validation, database writes with approval |
-| **docxtpl** | Generate Word documents from templates | Reports, compliance documents |
-| **Emit Output** | Return final message to user | Summary, completion notification |
+SVAs are `TOOLS_USING_AGENT` agents with `mode: "BLOCKS_GRAPH"`. Blocks are a **flat list** with connections via `nextBlock` fields — no nested graph structure.
+
+```
+Agent Settings
+└─ versions[0].toolsUsingAgentSettings
+   ├─ mode: "BLOCKS_GRAPH"
+   ├─ startingBlockId: "first_block"
+   ├─ blocks: [ ...flat list of block definitions... ]
+   └─ nextTurnBehaviour: "STARTING_BLOCK" | "SMART" | "LAST_BLOCK"
+```
+
+**Two storage layers:**
+- **State** (`state["key"]`) — Persistent across the turn. Shared between all blocks. Use for accumulated results, final outputs.
+- **Scratchpad** (`scratchpad["key"]`) — Temporary. Scoped to current execution branch. Use for intermediate parsing, loop iteration items.
+
+---
+
+## The 13 Block Types — When and Why
+
+### Decision Framework
+
+```
+Need to call an LLM?
+├─ No tools needed → LLM_REQUEST
+├─ Tools, LLM decides when → STANDARD_REACT
+├─ Must call one specific tool → MANDATORY_TOOL_CALL
+└─ Multi-perspective analysis → REFLECTION
+
+Need to call a tool WITHOUT an LLM?
+└─ Preset arguments → MANUAL_TOOL_CALL
+
+Need control flow?
+├─ Conditional branch → ROUTING
+├─ Run blocks concurrently → PARALLEL
+├─ Iterate over a list → FOR_EACH
+└─ Custom logic / dynamic routing → PYTHON_CODE
+
+Need data management?
+└─ Initialize or update variables → SET_STATE_ENTRIES
+
+Need output?
+├─ Message to user → EMIT_OUTPUT
+├─ Document (DOCX/PDF) → GENERATE_ARTIFACT
+└─ Hand off to another agent → DELEGATE_TO_OTHER_AGENT
+```
+
+---
+
+### 1. LLM_REQUEST — Non-Agentic LLM Call
+
+**WHY:** Call an LLM for a single-shot task — classification, extraction, summarization, analysis. No tools, no loops. The LLM processes input and returns structured or free-text output.
+
+**WHEN TO USE:**
+- Document parsing / structured extraction (with `responseFormat: json`)
+- Intent classification for routing decisions
+- Summarizing accumulated results at the end
+- Gap analysis when all data is already in state/scratchpad
+
+**WHEN NOT TO USE:**
+- Need to search a knowledge bank → use STANDARD_REACT with KB tool
+- Need multiple tool calls → use STANDARD_REACT
+- Need guaranteed tool execution → use MANDATORY_TOOL_CALL
+
+**KEY FIELDS:**
+- `outputMode: "SAVE_TO_STATE"` or `"SAVE_TO_SCRATCHPAD"` — for downstream blocks
+- `outputMode: "ADD_TO_MESSAGES"` — for user-facing output
+- `responseFormat: {type: "json", strict: true}` — forces schema compliance
+- `passConversationHistory: false` — for stateless analysis blocks (faster, cheaper)
+- `streamOutput: true` — only when `outputMode: "ADD_TO_MESSAGES"` (streaming to state is wasted)
+
+**PATTERN — Parse then route:**
+```
+LLM_REQUEST (parse, save to scratchpad) → ROUTING (branch on parsed type)
+```
+
+---
+
+### 2. ROUTING — Conditional Branching
+
+**WHY:** Direct the workflow down different paths based on data. The deterministic alternative to letting an LLM decide what to do next.
+
+**WHEN TO USE:**
+- Branch on document type (amendment vs. new regulation)
+- Route based on classification results
+- Gate on validation status (approved vs. rejected)
+- Skip processing when data is missing
+
+**TWO CLAUSE TYPES:**
+
+| Type | Use When | Example |
+|------|----------|---------|
+| `EXPRESSION` (CEL) | Exact value checks, comparisons, boolean logic | `state["intent"] == "billing"` |
+| `LLM_BASED` | Fuzzy/semantic decisions that can't be expressed as rules | "Has the user provided enough information?" |
+
+**CEL EXPRESSION SYNTAX:**
+```
+state["classification"]["intent"] == "question"
+scratchpad["amendment"]["document_type"] == "AMENDMENT"
+state["risk_score"] > 0.7
+state["items"].size() > 0
+```
+
+**DESIGN RULE:** Prefer `EXPRESSION` over `LLM_BASED`. CEL expressions are deterministic, fast, and free. Only use LLM-based clauses for genuinely ambiguous decisions.
+
+---
+
+### 3. SET_STATE_ENTRIES — Initialize or Update Variables
+
+**WHY:** Explicitly set state/scratchpad values. The only way to initialize accumulators before loops or pass computed values between branches.
+
+**WHEN TO USE:**
+- Initialize empty arrays before FOR_EACH loops (`"grouped_results": "[]"`)
+- Set context variables from user input (`"customer_id": "${id}"`)
+- Clear ephemeral variables after processing
+- Transform data between blocks (limited — use PYTHON_CODE for complex transforms)
+
+**CRITICAL PATTERN — Loop accumulator init:**
+```json
+{"entriesToSet": [{"key": "all_results", "value": "[]"}], "nextBlock": "for_each_loop"}
+```
+Without this, the first iteration's spread operator (`...(state.all_results || [])`) works but is fragile.
+
+---
+
+### 4. EMIT_OUTPUT — Message to User
+
+**WHY:** Send a message to the user. Can be terminal (end the flow) or intermediate (then continue to next block).
+
+**WHEN TO USE:**
+- Rejection messages ("Please submit an amendment")
+- Progress indicators ("Analyzing 12 articles...")
+- Final results summary
+- Error messages from routing fallbacks
+
+**TEMPLATE SYNTAX:** Uses `{{state.key}}` and `{{scratchpad.key}}` for interpolation.
+
+**DESIGN RULE:** Make rejection messages informative — include what was detected, not just "invalid input":
+```
+"This document was classified as {{scratchpad.parsed.document_type}}, not an AMENDMENT."
+```
+
+---
+
+### 5. STANDARD_REACT — Agentic Loop with Tools
+
+**WHY:** The core agentic block. An LLM reasons about a task, decides which tools to call, processes results, and iterates until done. This is where intelligence lives.
+
+**WHEN TO USE:**
+- Knowledge bank / vector store search (LLM formulates queries)
+- Multi-tool orchestration (LLM decides tool order)
+- Tasks requiring iterative refinement
+- Any task where the LLM needs to "think" about which tools to use
+
+**WHEN NOT TO USE:**
+- You know exactly which tool to call with which arguments → MANUAL_TOOL_CALL
+- You need exactly one tool call guaranteed → MANDATORY_TOOL_CALL
+- No tools needed → LLM_REQUEST
+
+**KEY FIELDS:**
+- `tools[]` — Tools the LLM can use
+- `maxLoopIterations` — Safety limit (default 25)
+- `stateAware: true` — LLM can read/write agent state (powerful but expensive)
+- `exitConditions` — Break the loop when state has specific keys
+- `defaultNextBlock` — Where to go after the loop completes
+
+**PATTERN — KB search with structured output:**
+```json
+{
+  "type": "STANDARD_REACT",
+  "tools": [{"toolRef": "kb_search_tool", ...}],
+  "systemPromptAfterHistory": "Search the KB for original article text...",
+  "outputMode": "SAVE_TO_STATE",
+  "outputStateKey": "search_results",
+  "streamOutput": false
+}
+```
+
+**PROMPT GUIDELINES:**
+- Be specific about what to search for and what to return
+- Include context from state/scratchpad via `{{state.key}}`
+- Use `responseFormat: json` when saving to state
+- Set `passConversationHistory: false` for stateless analysis blocks
+- Set `streamOutput: false` when saving to state (streaming to state is wasted)
+
+---
+
+### 6. MANUAL_TOOL_CALL — Direct Tool Call (No LLM)
+
+**WHY:** Call a tool directly with predetermined arguments. No LLM involved — fastest and cheapest way to invoke a tool. Arguments can reference state/scratchpad values.
+
+**WHEN TO USE:**
+- Dataset lookups with known filter criteria
+- Fetching records by ID from state
+- Any tool call where arguments are fully determined by prior blocks
+
+**WHEN NOT TO USE:**
+- Arguments need to be generated by an LLM → MANDATORY_TOOL_CALL
+- Tool selection is uncertain → STANDARD_REACT
+
+**PATTERN — Dataset lookup with state-derived filter:**
+```json
+{
+  "type": "MANUAL_TOOL_CALL",
+  "tool": {
+    "toolRef": "dataset_lookup_tool",
+    "setArgs": [
+      {"key": "filter", "value": "{\"column\": \"regulation_id\", \"operator\": \"EQUALS\", \"value\": scratchpad[\"amendment\"][\"parent_id\"]}"}
+    ]
+  },
+  "outputMode": "SAVE_TO_SCRATCHPAD",
+  "outputScratchpadKey": "existing_records"
+}
+```
+
+---
+
+### 7. MANDATORY_TOOL_CALL — LLM-Generated Args, Guaranteed Execution
+
+**WHY:** When you need a specific tool called but the LLM must generate the arguments. The tool call is guaranteed (unlike STANDARD_REACT where the LLM might skip it).
+
+**WHEN TO USE:**
+- Creating tickets/records where content must be LLM-generated
+- Validation tools where the LLM must format the payload
+- Write operations that must always execute
+
+**PATTERN — Create support ticket:**
+```json
+{
+  "type": "MANDATORY_TOOL_CALL",
+  "tool": {"toolRef": "create_ticket"},
+  "llmId": "openai:conn:gpt-4.1",
+  "systemPrompt": "Create a ticket. Customer: {{state.customer_info}}. Issue: {{state.issue_summary}}"
+}
+```
+
+---
+
+### 8. PARALLEL — Concurrent Execution
+
+**WHY:** Run multiple independent blocks simultaneously. The key performance optimization — instead of sequential A→B→C, run A+B+C together and combine results.
+
+**WHEN TO USE:**
+- Fetching data from multiple sources (KB search + dataset lookup)
+- Independent analyses that don't depend on each other
+- Any two branches that read from the same input but write to different outputs
+
+**WHEN NOT TO USE:**
+- Branches depend on each other's output (must be sequential)
+- Only one thing to do (just use nextBlock)
+
+**CRITICAL DESIGN RULE:** Blocks inside PARALLEL branches must write to **different** state/scratchpad keys. If two branches write to the same key, last-write-wins (race condition).
+
+**PATTERN — Parallel data gathering:**
+```json
+{
+  "type": "PARALLEL",
+  "blockIds": ["kb_search_branch", "policy_analysis_branch"],
+  "nextBlock": "merge_and_analyze"
+}
+```
+
+The block after PARALLEL can read outputs from both branches since all state/scratchpad writes are visible.
+
+---
+
+### 9. FOR_EACH — Iterate Over a List
+
+**WHY:** Process every item in a list with guaranteed coverage. Unlike an LLM analyzing a list in one shot (which may skip items), FOR_EACH executes the target block once per item.
+
+**WHEN TO USE:**
+- Per-article analysis in a regulation
+- Per-customer processing in a batch
+- Any array where each item needs independent analysis
+
+**WHEN NOT TO USE:**
+- Holistic analysis that needs to see all items at once → LLM_REQUEST
+- Items depend on each other's results → STANDARD_REACT with stateAware
+
+**KEY FIELDS:**
+- `sourceExpression` — CEL expression returning a list: `scratchpad["amendment"]["article_changes"]`
+- `blockIdToRepeat` — Block to execute per item
+- `forEachInputKey` — Key in scratchpad for current item (default: `"forEachInput"`)
+
+Access current item in child blocks: `{{article.field}}` (if `forEachInputKey: "article"`) or `scratchpad["forEachInput"]`.
+
+**ACCUMULATION PATTERN (Critical):**
+
+For Each doesn't automatically collect results. You need a PYTHON_CODE or SET_STATE_ENTRIES block at the end of each iteration to accumulate:
+
+```python
+# PYTHON_CODE block at end of loop body
+def process(trace):
+    current = json.loads(scratchpad["current_result"])
+    state["all_results"].append(current)
+```
+
+Always initialize the accumulator BEFORE the FOR_EACH:
+```
+SET_STATE_ENTRIES (all_results: []) → FOR_EACH → [analysis block → accumulate block]
+```
+
+---
+
+### 10. PYTHON_CODE — Custom Logic
+
+**WHY:** Escape hatch for logic that can't be expressed with other block types. Parse JSON, transform data, accumulate loop results, make API calls, implement complex routing.
+
+**WHEN TO USE:**
+- Accumulating results in FOR_EACH loops (append to state array)
+- Data transformation between blocks
+- Custom validation logic
+- Dynamic routing via `NextBlock("target_id")`
+- External API calls
+
+**ENTRY POINT:**
+```python
+from dataiku.llm.python.blocks_graph import NextBlock
+import json
+
+def process(trace):
+    # Read from state/scratchpad (available as globals)
+    raw = scratchpad.get("current_article", "{}")
+    try:
+        article = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        article = {"status": "ERROR", "issue": "Parse failed"}
+
+    state["all_results"].append(article)
+
+    # Optional: yield text to stream to user
+    yield "Processed article"
+
+    # Optional: dynamic routing
+    yield NextBlock("next_block_id")
+```
+
+**DESIGN RULE:** Always wrap `json.loads()` in try/except — LLM outputs are not guaranteed valid JSON even with `strict: true`.
+
+---
+
+### 11. REFLECTION — Multi-Perspective Analysis
+
+**WHY:** Generate multiple independent analyses then synthesize them, or iteratively critique and refine output. Produces higher quality results than a single LLM pass.
+
+**WHEN TO USE:**
+- Complex analysis requiring multiple viewpoints
+- Self-critique loops for quality improvement
+- Consensus-building across perspectives
+
+**MODES:**
+- `SYNTHESIZE` — Run N parallel analyses, then synthesize into one result
+- `CRITIQUE` — Generate → critique → refine loop (up to N iterations)
+
+---
+
+### 12. DELEGATE_TO_OTHER_AGENT — Agent Handoff
+
+**WHY:** Route to a specialist agent for a sub-task. The delegated agent runs independently and returns its result.
+
+**WHEN TO USE:**
+- Different parts of the workflow need different tools/LLMs
+- Reusable sub-agents (e.g., a "summarizer" agent used by multiple SVAs)
+- Separating concerns across agent boundaries
+
+**KEY FIELD:** `agentRef` — the target agent's ID (must be in the same project).
+
+---
+
+### 13. GENERATE_ARTIFACT — Document Generation
+
+**WHY:** Create a downloadable DOCX or PDF from a Jinja template. The final deliverable in many compliance/audit workflows.
+
+**WHEN TO USE:**
+- Compliance reports, impact assessments
+- Generated documents from analyzed data
+- Any workflow that ends with a formatted deliverable
+
+**TEMPLATE SYNTAX (Jinja):**
+```
+# Report: {{ scratchpad.amendment.amendment_id }}
+
+{% for gap in state.all_results %}
+| {{ gap.article_ref }} | {{ gap.status }} | {{ gap.issue }} |
+{% endfor %}
+
+Remediation items: {{ state.all_results | selectattr('status', 'ne', 'ALIGNED') | list | length }}
+```
+
+**DESIGN RULE:** All data the template references must be in state/scratchpad BEFORE this block runs. Build the template last — design the data pipeline first.
+
+---
+
+## Common Graph Patterns
+
+### Pattern A: Parse → Route → Branch
+
+The most common SVA pattern. Extract structured data, route based on type.
+
+```
+LLM_REQUEST (parse) → ROUTING
+  ├─ Type A → [processing blocks] → EMIT_OUTPUT
+  ├─ Type B → [different blocks] → EMIT_OUTPUT
+  └─ Default → EMIT_OUTPUT (rejection)
+```
+
+### Pattern B: Parallel Data Gathering → Analysis
+
+Fetch data from multiple sources concurrently, then analyze the combined results.
+
+```
+MANUAL_TOOL_CALL (fetch context) → PARALLEL
+  ├─ STANDARD_REACT (KB search)
+  └─ SET_STATE_ENTRIES → FOR_EACH → [per-item analysis]
+→ LLM_REQUEST (cross-reference analysis) → EMIT_OUTPUT
+```
+
+### Pattern C: For Each with Accumulation
+
+Process each item and collect results into a single array.
+
+```
+SET_STATE_ENTRIES (init: all_results=[]) → FOR_EACH (items)
+  └─ STANDARD_REACT (analyze item) → PYTHON_CODE (accumulate)
+→ LLM_REQUEST (summarize all_results)
+```
+
+### Pattern D: Full Pipeline (Regulatory Impact Example)
+
+```
+LLM_REQUEST (parse regulation)
+  → ROUTING (AMENDMENT?)
+    ├─ No → EMIT_OUTPUT (reject)
+    └─ Yes → MANUAL_TOOL_CALL (fetch existing tests)
+      → PARALLEL
+        ├─ STANDARD_REACT (KB: find original articles)
+        └─ SET_STATE_ENTRIES → FOR_EACH (articles)
+            └─ STANDARD_REACT (policy KB search) → PYTHON_CODE (accumulate)
+      → LLM_REQUEST (test gap analysis)
+      → MANUAL_TOOL_CALL (validate findings)
+      → GENERATE_ARTIFACT (PDF report)
+      → LLM_REQUEST (summarize for user)
+```
 
 ---
 
 ## State Management
 
-### State Structure Principles
+### Storage Decision
 
-State is the central nervous system of structured agents. Design it deliberately.
+| Store in State | Store in Scratchpad |
+|----------------|-------------------|
+| Accumulated results (arrays built across iterations) | Parsed input from first LLM call |
+| Final analysis outputs | Loop iteration items |
+| Anything the report template reads | Intermediate per-item results |
+| Data that persists across conversation turns | Temporary data within a branch |
 
-```javascript
-state = {
-  // Input context (from initial parsing)
-  parsed_input: { /* structured extraction result */ },
-
-  // Loop variables (ephemeral - reset each iteration)
-  current_item: { /* For Each loop item */ },
-  current_item_context: { /* derived context */ },
-
-  // Accumulated results (persist across iterations)
-  all_results: [],  // grows with each loop iteration
-
-  // Final validated output
-  validated: {
-    results: [],
-    summary: { /* computed statistics */ }
-  }
-}
-```
-
-### Accumulation Pattern (Critical for For Each Loops)
-
-The most important pattern for loops—accumulate results without losing previous iterations:
-
-```javascript
-// In set_state_entries block at END of For Each loop
-{
-  "all_gaps": [
-    ...(state.all_gaps || []),      // Spread existing array (or empty if first iteration)
-    ...state.current_iteration_gaps  // Spread current iteration's results
-  ]
-}
-```
-
-**Why this pattern?**
-- `state.all_gaps || []` handles first iteration when array doesn't exist
-- Spread operators ensure flat array (no nested arrays)
-- Each iteration adds to the accumulated result
-
-### State Variable Naming Convention
+### Naming Convention
 
 | Prefix | Scope | Example |
 |--------|-------|---------|
-| `current_*` | Loop-scoped, reset each iteration | `current_article_ref`, `current_test_gaps` |
-| `all_*` | Accumulated across iterations | `all_test_gaps`, `all_findings` |
-| `validated_*` | Post-HITL approved data | `validated_results`, `validated_summary` |
+| `all_*` | Accumulated across iterations | `all_results`, `all_gaps` |
+| `current_*` | Current loop item (ephemeral) | `current_article`, `current_analysis` |
+| `validated_*` | Post-HITL approved data | `validated_findings` |
 
 ---
 
-## Block Configuration Patterns
+## Common Pitfalls
 
-### Pattern 1: Document Parsing (LLM + Structured Output)
+### 1. Streaming to State
+**Wrong:** `streamOutput: true` with `outputMode: "SAVE_TO_STATE"` — streaming is wasted since output goes to state, not the user.
+**Fix:** `streamOutput: false` when saving to state/scratchpad. Only stream when `outputMode: "ADD_TO_MESSAGES"`.
 
-**Use case:** Extract structured data from unstructured documents (PDFs, contracts, regulations)
+### 2. Lost State in Loop Accumulation
+**Wrong:** `state["all_results"] = state["current_results"]` — overwrites previous iterations.
+**Fix:** Use PYTHON_CODE with `.append()` or spread operators in SET_STATE_ENTRIES.
 
-**Schema Design Principles:**
-- Use `enum` for categorical fields (prevents hallucination)
-- Include `description` for each property (guides LLM)
-- Set `required` array to enforce critical fields
-- Keep string lengths reasonable (avoid unbounded fields)
+### 3. Duplicate Block IDs
+**Wrong:** Two blocks with the same `id` — DSS may pick the wrong one.
+**Fix:** Every block ID must be unique. Use descriptive snake_case names.
 
-**Example Schema:**
-```json
-{
-  "type": "object",
-  "properties": {
-    "document_type": {
-      "type": "string",
-      "enum": ["AMENDMENT", "NEW_REGULATION", "GUIDANCE"],
-      "description": "Classification of document type"
-    },
-    "document_id": {
-      "type": "string",
-      "description": "Unique identifier in format XX-NNN-YYYY"
-    },
-    "items": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "ref": {"type": "string"},
-          "type": {"type": "string", "enum": ["REPLACED", "INSERTED", "DELETED"]},
-          "summary": {"type": "string", "description": "One sentence summary"}
-        },
-        "required": ["ref", "type", "summary"]
-      }
-    }
-  },
-  "required": ["document_type", "document_id", "items"]
-}
-```
+### 4. PARALLEL Branches Writing Same Key
+**Wrong:** Two parallel branches both write to `state["result"]`.
+**Fix:** Each branch writes to a unique key. Merge after PARALLEL completes.
+
+### 5. Missing Error Handling in PYTHON_CODE
+**Wrong:** `json.loads(scratchpad["value"])` without try/except.
+**Fix:** Always handle parse errors with a fallback value.
+
+### 6. passConversationHistory on Analysis Blocks
+**Wrong:** `passConversationHistory: true` on blocks that only need state/scratchpad data.
+**Fix:** Set to `false` for pure analysis blocks — faster, cheaper, and avoids context pollution.
+
+### 7. No Fallback on Routing
+**Wrong:** ROUTING block with clauses but no `defaultNextBlockIfNoClauseMatch`.
+**Fix:** Always set a default — at minimum an EMIT_OUTPUT with a clear error message.
 
 ---
-
-### Pattern 2: Conditional Routing (Expression Block)
-
-**Use case:** Branch workflow based on document type, validation status, or threshold
-
-**Expression Syntax:**
-```javascript
-// Simple equality check
-state.parsed_document.document_type === "AMENDMENT"
-
-// Multiple conditions
-state.parsed_document.document_type === "AMENDMENT" && state.parsed_document.items.length > 0
-
-// Threshold check
-state.risk_score > 0.7
-
-// Array existence
-state.all_gaps && state.all_gaps.length > 0
-```
-
----
-
-### Pattern 3: Systematic Processing (For Each Loop)
-
-**Use case:** Process each item in an array with guaranteed coverage
-
-**Loop Structure (4 blocks minimum):**
-
-```
-┌─────────────────────────────────────────┐
-│ FOR EACH: state.parsed_document.items   │
-│                                         │
-│  ┌─────────────────────────────────┐    │
-│  │ 3.1 set_state_entries (Start)   │    │
-│  │     Save current item context   │    │
-│  └─────────────────┬───────────────┘    │
-│                    ↓                    │
-│  ┌─────────────────────────────────┐    │
-│  │ 3.2 Dataset Lookup              │    │
-│  │     Find related records        │    │
-│  └─────────────────┬───────────────┘    │
-│                    ↓                    │
-│  ┌─────────────────────────────────┐    │
-│  │ 3.3 LLM Analysis (Structured)   │    │
-│  │     Per-item processing         │    │
-│  └─────────────────┬───────────────┘    │
-│                    ↓                    │
-│  ┌─────────────────────────────────┐    │
-│  │ 3.4 set_state_entries (Loop End)│    │
-│  │     Accumulate results          │    │
-│  └─────────────────────────────────┘    │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
-**Block 3.1 - Save Context:**
-```json
-{
-  "current_item_ref": "{{state.item.ref}}",
-  "current_item_type": "{{state.item.type}}",
-  "current_item_summary": "{{state.item.summary}}"
-}
-```
-
-**Block 3.2 - Dataset Lookup:**
-```sql
--- Filter: Find related records for current item
-parent_id = '{{state.parsed_document.parent_id}}'
-AND item_ref LIKE '{{state.current_item_ref}}%'
-```
-
-**Block 3.4 - Accumulate (CRITICAL):**
-```javascript
-{
-  "all_results": [
-    ...(state.all_results || []),
-    ...state.current_iteration_results
-  ]
-}
-```
-
----
-
-### Pattern 4: Dataset Lookup with Filtering
-
-**Use case:** Retrieve contextual records for analysis
-
-**Filter Syntax:**
-```sql
--- Exact match
-column_name = '{{state.variable}}'
-
--- Pattern matching (LIKE)
-article_ref LIKE '{{state.current_article_ref}}%'
-
--- Multiple conditions
-regulation_id = '{{state.parent_reg}}' AND status != 'ARCHIVED'
-
--- Date filtering
-created_date >= '{{state.start_date}}'
-```
-
-**Output Handling:**
-- Returns array of matching rows
-- Empty array `[]` if no matches (handle in subsequent LLM prompt)
-- All columns selected by default; specify columns for efficiency
-
----
-
-### Pattern 5: Per-Item Analysis (LLM + Structured Output in Loop)
-
-**Use case:** Analyze each item against context, produce filtered results
-
-**System Prompt Guidelines:**
-- Reference loop context via `{{item.field}}` or `{{state.item.field}}`
-- Include existing records context (even if empty)
-- Define clear status enums to prevent hallucination
-- Enforce verbosity limits in prompt
-- Filter out "no action needed" items at source
-
-**Critical Output Rules:**
-1. **Only output items requiring action** (filtered status)
-   - Do NOT output items needing no action
-   - If all items are low-priority, return empty array []
-
-2. **Consolidation rules** - Avoid multiple items for the same concept
-3. **Verbosity constraints** - Maximum 1-2 sentences per field
-
----
-
-### Pattern 6: ReAct Loop with Knowledge Bank
-
-**Use case:** Semantic search over documents, multi-query analysis
-
-**Knowledge Bank Search Guidelines:**
-```
-1. Search ONCE per item using concise, targeted queries
-2. Use 2-4 word queries focused on core topic
-3. Good: "leverage ratio calculation"
-4. Bad: "how does the policy document describe the calculation"
-```
-
-**Structured Output for ReAct:**
-```json
-{
-  "type": "object",
-  "properties": {
-    "analysis_results": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "item_ref": {"type": "string"},
-          "status": {"type": "string", "enum": ["ALIGNED", "OUTDATED", "NOT_FOUND"]},
-          "evidence_text": {"type": "string", "description": "Excerpt (50-75 words max)"},
-          "recommendation": {"type": "string", "description": "Action (50-75 words max)"}
-        },
-        "required": ["item_ref", "status"]
-      }
-    }
-  }
-}
-```
-
----
-
-### Pattern 7: Human-in-the-Loop Validation (Core ReAct + HITL Tools)
-
-**Use case:** User review, approval, and database updates
-
-**Key Principle:** Tool response IS the validated data—no secondary confirmation needed.
-
-**Tool Call Management:**
-- Check message history before making tool calls
-- If ValidateFindings already called -> skip to next step
-- If UpdateDatabase already called -> skip to final step
-- Never call the same tool twice
-
-#### HITL via the LLM Streaming API (Webapp Integration)
-
-Structured agents expose HITL entirely through the LLM completion streaming API — there is **no separate run/interaction API**.
-
-**Phase 1 — initial run, capture pause state:**
-```python
-from dataikuapi.dss.llm import DSSLLMStreamedCompletionFooter
-
-llm = client.get_default_project().get_llm("agent:AGENT_ID")
-comp = llm.new_completion()
-comp.with_message(user_query, role="user")
-
-pending_hitl_requests = None
-pending_memory_fragment = None
-text_buf = []
-
-for chunk in comp.execute_streamed():
-    if isinstance(chunk, DSSLLMStreamedCompletionFooter):
-        break  # completed or paused — check pending_hitl_requests to know which
-    if getattr(chunk, "type", None) != "content":
-        continue
-    chunk_data = getattr(chunk, "data", {}) or {}
-    if "toolValidationRequests" in chunk_data:
-        pending_hitl_requests = chunk_data["toolValidationRequests"]
-    if "memoryFragment" in chunk_data:
-        pending_memory_fragment = chunk_data["memoryFragment"]
-    text = getattr(chunk, "text", None) or ""
-    if text:
-        text_buf.append(text)
-
-# If pending_hitl_requests is not None → agent is paused for HITL
-# If None → agent completed
-```
-
-**Phase 2 — resume after user decision:**
-```python
-comp2 = llm.new_completion()
-comp2.with_message(original_query, role="user")
-comp2.with_memory_fragment(pending_memory_fragment)
-comp2.with_tool_validation_requests(pending_hitl_requests)
-for req in pending_hitl_requests:
-    comp2.with_tool_validation_response(
-        validation_request_id=req["id"],  # field name: verify via payload inspection
-        validated=True,   # or False to reject
-        arguments=None,
-    )
-# Then iterate comp2.execute_streamed() same as Phase 1
-```
-
-**HITL payload parsing:** `toolValidationRequests[0].toolCall.arguments` is a JSON string. Parse it to extract structured fields (e.g. `policy_findings`, `all_test_gaps`, `regulation_metadata`). Field names depend on the agent's validate findings tool schema.
-
-**Verify the request ID field name** before use — it may be `"id"`, `"validationRequestId"`, `"request_id"`, or `"requestId"`:
-```python
-req = pending_hitl_requests[0]
-print(list(req.keys()))  # confirm the correct field name
-```
-
----
-
-### Pattern 8: Document Generation (docxtpl)
-
-**Use case:** Generate professional reports from validated data
-
-**Template Variable Mapping:**
-```
-State Path                              -> Template Variable
-state.validated.document_id             -> {{document_id}}
-state.validated.results                 -> {% for item in results %}
-state.validated.summary.count_a         -> {{summary.count_a}}
-```
-
-**Jinja2 Syntax in Templates:**
-```
-# Simple variable
-{{state.validated.document_id}}
-
-# Loop
-{% for item in state.validated.results %}
-- {{item.ref}}: {{item.status}}
-{% endfor %}
-
-# Conditional
-{% if item.evidence_text %}
-Evidence: "{{item.evidence_text}}"
-{% endif %}
-```
-
----
-
-## Common Pitfalls & Solutions
-
-### Pitfall 1: Cross-Item Dependencies in For Each Loops
-
-**Problem:** Loop processes items in isolation, missing dependencies between items.
-
-**Solution:** Use broader dataset lookup with pattern matching:
-```sql
--- Instead of exact match
-article_ref = '{{state.current_article_ref}}'
-
--- Use root-level pattern matching
-article_ref LIKE 'Art.429%'  -- Captures 429, 429a, 429b, 429(2), etc.
-```
-
-### Pitfall 2: Tool Response Misinterpretation
-
-**Problem:** LLM treats HITL tool response as "form opened" rather than "data returned."
-
-**Solution:** Explicit instruction in prompt:
-```
-CRITICAL: ValidateFindings tool does NOT open a form waiting for input.
-It directly RETURNS validated data with all user edits already applied.
-The tool response IS your data source—process it immediately.
-```
-
-### Pitfall 3: Unbounded LLM Verbosity
-
-**Problem:** LLM generates verbose explanations, breaking document formatting.
-
-**Solution:** Explicit verbosity constraints in prompt AND schema:
-```
-VERBOSITY CONSTRAINTS:
-- reason: Maximum 1-2 sentences (30-50 words)
-- action: Maximum 1 sentence (20-35 words)
-```
-
-### Pitfall 4: Lost State in Loop Accumulation
-
-**Wrong:**
-```javascript
-{
-  "all_results": state.current_results  // Overwrites!
-}
-```
-
-**Correct:**
-```javascript
-{
-  "all_results": [
-    ...(state.all_results || []),
-    ...state.current_results
-  ]
-}
-```
-
-### Pitfall 5: Empty Array Handling
-
-**Problem:** LLM confused when dataset lookup returns no records.
-
-**Solution:** Explicit handling in prompt:
-```
-If no existing records are found:
-- For INSERTED items: All requirements are NOT_COVERED
-- For REPLACED items: Cannot be UPDATE_NEEDED (nothing to update)
-```
-
-### Pitfall 6: Duplicate Tool Calls
-
-**Problem:** LLM calls same tool multiple times.
-
-**Solution:** History check instruction:
-```
-TOOL CALL MANAGEMENT:
-- Check message history before making tool calls
-- If ValidateFindings already called -> skip to Step 2
-- If UpdateDatabase already called -> skip to Step 3
-- Never call the same tool twice
-```
-
----
-
-## Architecture Decision Guide
-
-### When to Use For Each vs ReAct
-
-| Use For Each When | Use ReAct When |
-|-------------------|----------------|
-| Processing items requires dataset lookup | Need semantic search over documents |
-| Each item analysis is independent | Need to see all items for holistic analysis |
-| State accumulation pattern needed | Multi-tool orchestration required |
-| Guaranteed coverage critical | Search-iterate-decide pattern |
-
-### When to Use Structured Output vs Free Text
-
-| Use Structured Output | Use Free Text |
-|-----------------------|---------------|
-| Data feeds downstream blocks | Final user-facing explanation |
-| Schema validation critical | Creative/narrative content |
-| Parsing required | Conversational response |
-| Consistency across runs | One-time analysis |
-
----
-
-## Testing & Debugging
-
-### State Inspection Points
-
-Add diagnostic set_state_entries blocks to capture intermediate state:
-
-```javascript
-{
-  "debug_loop_iteration": state.item.ref,
-  "debug_existing_count": state.existing_records.length,
-  "debug_gaps_found": state.current_gaps.length
-}
-```
-
-### Common Debug Checks
-
-1. **After Parsing:** Verify `state.parsed_document.items.length` matches expected
-2. **After Dataset Lookup:** Check `state.existing_records` has expected filters applied
-3. **After Loop:** Verify `state.all_results.length` equals sum of iterations
-4. **After Validation:** Confirm `state.validated` structure matches template expectations
-
-### Test Scenarios
-
-| Scenario | What to Verify |
-|----------|----------------|
-| Empty input | Routing blocks to skip/error path |
-| Single item | Accumulation pattern works with one iteration |
-| All items filtered out | Empty array `[]` handled gracefully |
-| HITL rejection | Workflow handles user declining to approve |
-| Large input | Performance and state size manageable |
-
----
-
-## Key Principles Summary
-
-1. **State is king** - Design state structure deliberately; it's the data backbone
-2. **Accumulate, don't overwrite** - Use spread operators in loop accumulation
-3. **Filter at source** - Have LLMs return only actionable items
-4. **Constrain verbosity** - Explicit word limits prevent document overflow
-5. **Tools return data** - HITL tool responses are immediate data sources
-6. **Check history** - Prevent duplicate tool calls with explicit instructions
-7. **Test empty cases** - Handle zero-match scenarios gracefully
-8. **Audit everything** - Structured outputs enable full traceability
 
 ## Scaling Guidance
 
-### State Size Limits
-- Keep state objects **under 1MB** total — large states slow down block transitions
-- Avoid storing raw document text in state — extract only structured fields
-- For large arrays (>500 items), consider batching into multiple For Each loops
+| Items in Loop | Expected | Recommendation |
+|---------------|----------|----------------|
+| 1–50 | Fast | Standard pattern |
+| 50–200 | Noticeable latency | Monitor runtime |
+| 200–500 | Slow, possible timeouts | Batch into sub-arrays |
+| 500+ | Risk of failure | Split into multiple agents |
 
-### Large Loop Performance
-| Items in Loop | Expected Behavior | Recommendation |
-|---------------|-------------------|----------------|
-| 1-50 | Fast, no issues | Standard pattern |
-| 50-200 | Noticeable latency | Monitor total runtime |
-| 200-500 | Slow, possible timeouts | Batch into sub-arrays |
-| 500+ | Risk of failure | Split into multiple workflows |
+**State size:** Keep under 1MB total. Don't store raw document text — extract only structured fields.
 
-### State Cleanup
-```javascript
-// After a loop completes, clear ephemeral loop variables to reduce state size
-{
-  "current_item": null,
-  "current_item_context": null,
-  "current_iteration_results": null
-}
+---
+
+## CLI Workflow
+
+Build SVAs entirely from the command line:
+
+```bash
+# Create agent
+dku agent create "My SVA" -P PROJ
+
+# Add blocks (auto-switches to BLOCKS_GRAPH mode)
+dku agent-block add AGENT_ID --set-start -b @parse_block.json -P PROJ
+dku agent-block add AGENT_ID -b @routing_block.json -P PROJ
+dku agent-block add AGENT_ID -b @analysis_block.json -P PROJ
+
+# Wire connections
+dku agent-block connect AGENT_ID --from parse --to routing -P PROJ
+
+# List / verify
+dku agent-block list AGENT_ID -P PROJ
+
+# Export / import full graph
+dku agent-block get-graph AGENT_ID -P PROJ > graph.json
+dku agent-block set-graph AGENT_ID -d @graph.json -P PROJ
 ```
 
-## Error Recovery Patterns
-
-### Try-Catch in For Each Loops
-
-When one item in a For Each loop fails, the entire loop fails by default. To handle gracefully:
-
-```javascript
-// In the LLM analysis block prompt:
-"If you cannot analyze this item due to missing data or ambiguity:
-- Set status to 'SKIPPED'
-- Set reason to a brief explanation
-- Do NOT raise an error
-- Return the item with SKIPPED status so the loop continues"
-```
-
-### Accumulate Errors Separately
-
-```javascript
-// In set_state_entries at loop end:
-{
-  "all_results": [
-    ...(state.all_results || []),
-    ...state.current_iteration_results.filter(r => r.status !== "SKIPPED")
-  ],
-  "all_errors": [
-    ...(state.all_errors || []),
-    ...state.current_iteration_results.filter(r => r.status === "SKIPPED")
-  ]
-}
-```
-
-### Fallback on Empty Dataset Lookup
-
-```
-// In LLM prompt after dataset lookup:
-"If state.existing_records is empty ([]):
-- Do NOT hallucinate records
-- Mark all items as NEW (no existing coverage)
-- Proceed with analysis using only the input document"
-```
-
-## Multi-Workflow Orchestration
-
-### Chaining Agent Workflows
-
-Use scenarios to chain multiple structured agent workflows:
-
-```python
-from dataiku.scenario import Scenario
-
-s = Scenario()
-
-# Workflow 1: Parse and classify documents
-s.build_dataset("parsed_documents")
-
-# Workflow 2: Gap analysis (depends on workflow 1 output)
-s.build_dataset("gap_analysis_results")
-
-# Workflow 3: Generate reports (depends on workflow 2)
-s.build_dataset("final_reports")
-```
-
-### Passing State Between Workflows
-
-Since each workflow has independent state, pass data via datasets:
-
-```
-Workflow 1 (Parse) -> Emit Output -> Dataset A
-                                       |
-Workflow 2 (Analyze) <- Read Dataset A as input
-                     -> Emit Output -> Dataset B
-                                       |
-Workflow 3 (Report) <- Read Dataset B as input
-```
-
-### Orchestration Patterns
-
-| Pattern | Structure | Use When |
-|---------|-----------|----------|
-| **Sequential** | A -> B -> C | Each workflow depends on previous output |
-| **Fan-out** | A -> B, A -> C | Same input, independent analyses |
-| **Fan-in** | B -> D, C -> D | Merge multiple workflow outputs |
-| **Conditional** | A -> if(x) B else C | Route based on classification |
+See `docs/block-graph-api.md` for the complete JSON schema of each block type.

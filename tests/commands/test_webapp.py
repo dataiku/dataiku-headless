@@ -44,3 +44,48 @@ def test_webapp_status_json(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert any(d["value"] == "True" for d in parsed)
+
+
+# ── get-definition / set-definition ─────────────────────────────────────
+
+
+def test_webapp_get_definition(patch_client):
+    result = runner.invoke(app, ["webapp", "get-definition", "webapp1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["type"] == "STANDARD"
+    assert parsed["params"]["html"] == "<h1>Hello</h1>"
+
+
+def test_webapp_get_definition_json_flag(patch_client):
+    result = runner.invoke(app, ["webapp", "get-definition", "webapp1", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["name"] == "Dashboard"
+
+
+def test_webapp_set_definition(patch_client):
+    new_def = json.dumps({"type": "STANDARD", "name": "Updated", "params": {"html": "<h2>New</h2>"}})
+    result = runner.invoke(
+        app,
+        ["webapp", "set-definition", "webapp1", "--project", "PROJ1", "--definition", new_def],
+    )
+    assert result.exit_code == 0
+    assert "Updated definition" in result.output
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    webapp.get_settings().save.assert_called_once()
+
+
+def test_webapp_set_definition_from_file(tmp_path, patch_client):
+    defn_file = tmp_path / "webapp_def.json"
+    defn_file.write_text(json.dumps({"type": "STANDARD", "name": "FromFile", "params": {}}))
+    result = runner.invoke(
+        app,
+        ["webapp", "set-definition", "webapp1", "--project", "PROJ1", "--definition", f"@{defn_file}"],
+    )
+    assert result.exit_code == 0
+    assert "Updated definition" in result.output
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    webapp.get_settings().save.assert_called_once()
