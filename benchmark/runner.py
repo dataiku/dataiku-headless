@@ -55,9 +55,9 @@ Use -o json when you need structured output for further processing.
 Command groups and their verbs:
 - auth: login, logout, status, list, switch
 - config: set, get, list, path, variables, set-variables
-- project: list, get, export, create, delete, duplicate, variables, set-variables, permissions, set-permissions, tags
+- project: list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
 - dataset: list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
-- recipe: list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, create-embed, create-extract, create-llm-eval, create-agent-eval
+- recipe: list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - scenario: list, run, abort, status, create, delete, get-definition, set-definition
 - job: list, run, status, log, abort, wait
 - plugin: list, push, settings
@@ -76,11 +76,30 @@ Command groups and their verbs:
 - knowledge: list, create, get, build, search, delete
 - bundle: list, export, download, import, activate
 - api-service: list, create, get, create-package, list-packages
-- wiki: list, create, get
+- wiki: list, create, get, update, delete
 - sql: query
 - (root): whoami
 
+## Recipe Type Selection (IMPORTANT — prefer visual recipes over Python)
+
+ALWAYS use visual recipes when possible. Python/SQL are last resort.
+
+| Task | Recipe command | NOT Python |
+|------|--------------|------------|
+| Join datasets | `dku recipe create-join NAME -i ds1 -i ds2 --output-ds out` | NOT `pd.merge()` |
+| Aggregate/group by | `dku recipe create-group NAME -i ds --output-ds out -k col` | NOT `df.groupby()` |
+| Stack/union | `dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out` | NOT `pd.concat()` |
+| Deduplicate | `dku recipe create-distinct NAME -i ds --output-ds out` | NOT `df.drop_duplicates()` |
+| Sort | `dku recipe create-sort NAME -i ds --output-ds out` | NOT `df.sort_values()` |
+| Filter rows | `dku recipe create-filter NAME -i ds --output-ds out` | NOT `df[df.x > y]` |
+| Window functions | `dku recipe create-window NAME -i ds --output-ds out` | NOT `df.groupby().transform()` |
+| Top N rows | `dku recipe create-topn NAME -i ds --output-ds out` | NOT `df.nlargest()` |
+| Split by condition | `dku recipe create-split NAME -i ds --output-ds out` | NOT manual filtering |
+| Custom logic only | `dku recipe create NAME -t python -i ds --output-ds out` | Only when no visual recipe fits |
+
 Common flags: --project/-P PROJECT_KEY, --output/-o json|csv|table, --quiet, --yes
+Datasets: use --type UploadedFiles for datasets you'll upload to. Default Filesystem is for recipe outputs.
+Embedding models: `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` (default only shows completion models).
 """
 
 

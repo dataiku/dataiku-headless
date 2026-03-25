@@ -47,6 +47,10 @@ dataiku-internal-client>=12.0.0
 ### Common Plugin Dependencies
 
 ```txt
+# Dataiku API client (pip name differs from import name)
+# pip install: dataiku-api-client    →    import dataikuapi
+dataiku-api-client>=14.0.0
+
 # Data Processing
 pandas>=2.0.0
 numpy>=1.24.0
@@ -58,11 +62,17 @@ flask>=3.0.0
 flask-cors>=4.0.0
 flask-socketio>=5.3.0
 
-# LLM/AI
+# LLM/AI — standard
 langchain>=0.1.0
 openai>=1.0.0
 anthropic>=0.8.0
 tiktoken>=0.5.0
+
+# LLM/AI — agentic plugins (LangGraph orchestration)
+langgraph>=0.2.0
+langchain-core>=0.3.0
+chromadb>=0.4.0
+rapidfuzz>=3.0.0
 
 # Validation
 pydantic>=2.0.0
@@ -72,7 +82,10 @@ jsonschema>=4.20.0
 python-dateutil>=2.8.0
 tenacity>=8.2.0
 tqdm>=4.66.0
+python-dotenv>=1.0.0
 ```
+
+> **Package name vs import name:** The pip package is `dataiku-api-client` but you import it as `dataikuapi`. This catches people in requirements.txt — use the pip name there.
 
 ### Development Dependencies
 
@@ -151,10 +164,12 @@ Use `PYTHON312` or `PYTHON311` for new plugins.
 **Recommended pattern:**
 ```json
 {
-  "acceptedPythonInterpreters": ["PYTHON311", "PYTHON312", "PYTHON313"],
+  "acceptedPythonInterpreters": ["PYTHON310", "PYTHON311", "PYTHON312", "PYTHON313"],
   "installCorePackages": false
 }
 ```
+
+> **Note:** Python 3.10 is supported and used by production plugins (e.g., semantic-models-lab). Include it unless you need 3.11+ features.
 
 With explicit deps in `requirements.txt`:
 ```

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import error, info, render, render_raw, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS datasets.")
 
@@ -178,9 +178,10 @@ def build(
 def create(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
-    type_name: str = typer.Option(..., "--type", "-t", help="Dataset type (e.g. Filesystem, SQL)"),
+    type_name: str = typer.Option("Filesystem", "--type", "-t", help="Dataset type (Filesystem, UploadedFiles, SQL, S3). Default: Filesystem"),
     connection: str | None = typer.Option(None, "--connection", "-c", help="Connection name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if dataset already exists"),
     definition: str | None = typer.Option(
         None,
         "--definition",
@@ -218,8 +219,7 @@ def create(
                 )
                 raise typer.Exit(1)
             if not connection:
-                error("Filesystem dataset creation requires --connection.")
-                raise typer.Exit(1)
+                connection = "filesystem_managed"
             builder = proj.new_managed_dataset(dataset_name)
             builder.with_store_into(connection)
             builder.create()
@@ -231,10 +231,24 @@ def create(
                 formatType=dataset_definition.get("formatType"),
                 formatParams=dataset_definition.get("formatParams"),
             )
-        success(f"Created dataset '{dataset_name}' in {project_key}")
+        success(f"Created dataset '{dataset_name}' (type={dataset_type}) in {project_key}")
+        info("Tip: 'dku recipe create --output-ds NAME' auto-creates the output dataset. "
+             "You only need 'dku dataset create' for input/source datasets.")
     except typer.Exit:
         raise
     except Exception as e:
+        if if_not_exists and is_already_exists_error(e):
+            warn(f"Dataset '{dataset_name}' already exists in {project_key}, skipping create")
+            return
+        if is_already_exists_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' already exists in {project_key}.",
+                code="already_exists",
+                details=[
+                    "Use --if-not-exists to skip creation when the dataset exists.",
+                    f"Or delete first: dku dataset delete {dataset_name} -P {project_key} --yes",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -281,9 +295,14 @@ def delete(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete a dataset."""
     project_key = resolve_project(project)
+    if not yes:
+        confirm = typer.confirm(f"Delete dataset '{dataset_name}' from {project_key}?")
+        if not confirm:
+            raise typer.Abort()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)

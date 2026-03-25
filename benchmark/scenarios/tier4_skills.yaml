@@ -9,7 +9,7 @@ tests:
       that removes rows with nulls. Help me scaffold this plugin.
     needs_project: false
     expect:
-      skill_invoked: "new-plugin"
+      skill_invoked: "dataiku"
       no_commands:
         - "pip install"
     rubric:
@@ -24,7 +24,7 @@ tests:
       the DSS instance. Make sure the code environment gets created too.
     needs_project: false
     expect:
-      skill_invoked: "deploy-plugin"
+      skill_invoked: "dataiku"
       commands:
         - pattern: "dku plugin push"
           required: false

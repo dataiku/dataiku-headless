@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, resolve_output_format
+from dku_cli.output import info, render, resolve_output_format
 
 app = typer.Typer(help="Interact with DSS LLM endpoints.")
 
@@ -46,6 +46,9 @@ def list_llms(
             output_format=output,
             title=f"LLMs ({project_key})",
         )
+        # Hint about other purposes when using default
+        if purpose == "GENERIC_COMPLETION" and output != "json":
+            info("Showing completion models. For embedding models: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION")
     except Exception as e:
         handle_api_error(e)
 

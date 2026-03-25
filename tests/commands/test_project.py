@@ -93,6 +93,94 @@ def test_project_create_with_description(patch_client):
     )
 
 
+# --- project create --if-not-exists ---
+
+
+def test_project_create_if_not_exists_when_exists(patch_client):
+    """--if-not-exists silently succeeds when project already exists."""
+    patch_client.create_project.side_effect = Exception("Project 'NEW_PROJ' already exists")
+    result = runner.invoke(
+        app,
+        ["project", "create", "NEW_PROJ", "--name", "New", "--if-not-exists"],
+    )
+    assert result.exit_code == 0
+    assert "already exists" in result.output.lower()
+
+
+def test_project_create_if_not_exists_when_new(patch_client):
+    """--if-not-exists creates normally when project doesn't exist."""
+    result = runner.invoke(
+        app,
+        ["project", "create", "NEW_PROJ", "--name", "New", "--if-not-exists"],
+    )
+    assert result.exit_code == 0
+    patch_client.create_project.assert_called_once()
+
+
+def test_project_create_without_if_not_exists_still_fails(patch_client):
+    """Without --if-not-exists, already-exists error propagates normally."""
+    patch_client.create_project.side_effect = Exception("Project 'NEW_PROJ' already exists")
+    result = runner.invoke(
+        app,
+        ["project", "create", "NEW_PROJ", "--name", "New"],
+    )
+    assert result.exit_code != 0
+
+
+def test_project_create_already_exists_shows_hint(patch_client):
+    """Already-exists error without --if-not-exists shows actionable hints."""
+    patch_client.create_project.side_effect = Exception("Project 'PROJ1' already exists")
+    result = runner.invoke(
+        app,
+        ["project", "create", "PROJ1", "--name", "Test"],
+    )
+    assert result.exit_code != 0
+    assert "--if-not-exists" in result.output
+    assert "--yes" in result.output
+
+
+# --- project set-metadata ---
+
+
+def test_project_set_metadata_name(patch_client):
+    result = runner.invoke(
+        app, ["project", "set-metadata", "PROJ1", "--name", "New Name"]
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.set_metadata.call_args[0][0]
+    assert call_args["label"] == "New Name"
+
+
+def test_project_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app, ["project", "set-metadata", "PROJ1", "--description", "A new desc"]
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.set_metadata.call_args[0][0]
+    assert call_args["shortDesc"] == "A new desc"
+
+
+def test_project_set_metadata_both(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "set-metadata", "PROJ1", "--name", "Better Name", "--description", "Better desc"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.set_metadata.call_args[0][0]
+    assert call_args["label"] == "Better Name"
+    assert call_args["shortDesc"] == "Better desc"
+
+
+def test_project_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["project", "set-metadata", "PROJ1"]
+    )
+    assert result.exit_code != 0
+
+
 # --- project delete ---
 
 
@@ -104,6 +192,20 @@ def test_project_delete_without_confirm(patch_client):
 
 def test_project_delete_with_confirm(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "--confirm"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once()
+
+
+def test_project_delete_with_yes(patch_client):
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once()
+
+
+def test_project_delete_with_y(patch_client):
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "-y"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.delete.assert_called_once()

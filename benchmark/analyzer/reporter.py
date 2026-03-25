@@ -1,4 +1,4 @@
-"""Report generation — JSON summaries and terminal output."""
+"""Report generation — rich narratives, not just pass/fail."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
-from benchmark.analyzer.scorer import Score
-from benchmark.analyzer.trace_parser import summarize_trace
 from benchmark.agents.base import AgentResult
+from benchmark.analyzer.scorer import Score
 from benchmark.scenarios.schema import Scenario
 
 
@@ -28,9 +28,9 @@ class TestResultRecord:
 
 
 class Reporter:
-    """Generate benchmark reports."""
+    """Generate benchmark reports with rich narrative feedback."""
 
-    def __init__(self, run_id: str, output_dir: "Optional[Path]" = None):
+    def __init__(self, run_id: str, output_dir: Optional[Path] = None):
         self.run_id = run_id
         self.output_dir = output_dir or Path("benchmark/reports") / run_id
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -41,6 +41,7 @@ class Reporter:
         self._write_traces(records)
         summary = self._build_summary(records)
         self._write_summary(summary)
+        self._write_narrative(records)
         self._print_terminal(summary, records)
 
     def _write_traces(self, records: list[TestResultRecord]):
@@ -50,6 +51,7 @@ class Reporter:
             trace_file.write_text(json.dumps({
                 "test_id": rec.test_id,
                 "agent": rec.agent,
+                "prompt": rec.prompt,
                 "trace": rec.trace_summary,
                 "score": {
                     "overall": rec.score.overall,
@@ -57,149 +59,270 @@ class Reporter:
                     "scores": rec.score.scores,
                     "details": rec.score.details,
                 },
+                "assistant_text": rec.agent_result.assistant_text[:5000],
+                "bash_commands": rec.agent_result.bash_commands,
+                "errors": rec.agent_result.errors,
                 "raw_output_length": len(rec.agent_result.raw_output),
             }, indent=2))
 
+    def _write_narrative(self, records: list[TestResultRecord]):
+        """Write rich narrative report — the main output for skill/CLI improvement."""
+        sections = []
+        sections.append(f"# Benchmark Narrative Report: {self.run_id}\n")
+
+        # Sort by tier, then by pass/fail (failures first)
+        sorted_recs = sorted(records, key=lambda r: (r.tier, r.score.passed, r.test_id))
+
+        for rec in sorted_recs:
+            sections.append(self._narrate_test(rec))
+
+        # Overall findings
+        sections.append(self._narrate_findings(records))
+
+        path = self.output_dir / "narrative.md"
+        path.write_text("\n".join(sections))
+
+    def _narrate_test(self, rec: TestResultRecord) -> str:
+        """Generate a rich narrative for a single test result."""
+        status = "PASS" if rec.score.passed else "FAIL"
+        lines = []
+        lines.append(f"---\n## [{status}] {rec.test_id} (score: {rec.score.overall:.2f})\n")
+        lines.append(f"**Task:** {rec.prompt.strip()[:300]}\n")
+
+        # What the agent did
+        cmds = rec.agent_result.bash_commands
+        if cmds:
+            lines.append("**Commands executed:**")
+            for i, cmd in enumerate(cmds, 1):
+                # Truncate very long commands
+                display = cmd[:200] + "..." if len(cmd) > 200 else cmd
+                lines.append(f"{i}. `{display}`")
+            lines.append("")
+        else:
+            lines.append("**Commands executed:** None\n")
+
+        # Skills and agents
+        if rec.agent_result.skill_invocations:
+            lines.append(f"**Skills invoked:** {', '.join(rec.agent_result.skill_invocations)}")
+        if rec.agent_result.agent_spawns:
+            descs = [a.get("description", "unknown") for a in rec.agent_result.agent_spawns]
+            lines.append(f"**Agents spawned:** {', '.join(descs)}")
+
+        # Scoring breakdown
+        lines.append("\n**Score breakdown:**")
+        for key, val in rec.score.scores.items():
+            icon = "+" if val >= 0.7 else "-"
+            lines.append(f"  {icon} {key}: {val:.2f}")
+
+        # What went wrong (details)
+        if rec.score.details:
+            lines.append("\n**Issues found:**")
+            for key, detail in rec.score.details.items():
+                lines.append(f"  - {detail}")
+
+        # Agent's own output (what it told the user)
+        agent_text = rec.agent_result.assistant_text.strip()
+        if agent_text:
+            # Look for error messages, confusion, or interesting observations
+            truncated = agent_text[:1500]
+            if len(agent_text) > 1500:
+                truncated += "\n  ... (truncated)"
+            lines.append(f"\n**Agent output (excerpt):**\n```\n{truncated}\n```")
+
+        # Errors encountered
+        if rec.agent_result.errors:
+            lines.append("\n**Errors:**")
+            for err in rec.agent_result.errors:
+                lines.append(f"  - {err}")
+
+        # Timing and cost
+        duration_s = rec.agent_result.duration_ms / 1000
+        out_tok = rec.agent_result.output_tokens
+        lines.append(f"\n**Metrics:** {duration_s:.1f}s, {out_tok:,} output tokens, "
+                      f"{len(cmds)} commands")
+
+        # Analysis: what does this tell us about the skill/CLI?
+        analysis = self._analyze_for_improvements(rec)
+        if analysis:
+            lines.append(f"\n**Skill/CLI insight:** {analysis}")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def _analyze_for_improvements(self, rec: TestResultRecord) -> str:
+        """Infer what this result tells us about skill/CLI limitations."""
+        insights = []
+        cmds = rec.agent_result.bash_commands
+        text = rec.agent_result.assistant_text.lower()
+        errors = rec.agent_result.errors
+
+        # Check for common patterns
+        if rec.agent_result.timed_out:
+            insights.append("Agent timed out — task may be too complex for a single prompt, "
+                            "or the CLI output was too large to process.")
+
+        # Agent tried a command that doesn't exist
+        for cmd in cmds:
+            if "error" in cmd.lower() or "not found" in cmd.lower():
+                insights.append(f"Agent encountered an error running: {cmd[:100]}")
+
+        # Agent expressed confusion in its output
+        confusion_signals = ["i'm not sure", "doesn't seem to", "couldn't find",
+                             "not available", "no such command", "error:", "failed to"]
+        for signal in confusion_signals:
+            if signal in text:
+                # Extract the context around the confusion
+                idx = text.index(signal)
+                context = rec.agent_result.assistant_text[max(0, idx - 50):idx + 100]
+                insights.append(f"Agent expressed uncertainty: '...{context.strip()}...'")
+                break
+
+        # Agent used Python API instead of CLI
+        if any("dataikuapi" in cmd or "import dataiku" in cmd for cmd in cmds):
+            insights.append("Agent fell back to Python API instead of using dku CLI. "
+                            "The skill should provide clearer guidance for this task.")
+
+        # Agent didn't chain commands
+        dku_calls = [c for c in cmds if "dku " in c]
+        if len(dku_calls) > 5:
+            insights.append(f"Agent used {len(dku_calls)} separate dku calls. "
+                            "Consider adding chaining examples for this workflow to the skill.")
+
+        # Agent read skill docs
+        if rec.trace_summary.get("skill_docs_read"):
+            docs = rec.trace_summary["skill_docs_read"]
+            insights.append(f"Agent consulted skill docs: {', '.join(docs)}")
+
+        if not insights:
+            if rec.score.passed:
+                return "Clean pass — skill/CLI worked as expected for this task."
+            else:
+                return "Failed without clear signals — review the trace for details."
+
+        return " | ".join(insights)
+
+    def _narrate_findings(self, records: list[TestResultRecord]) -> str:
+        """Generate overall findings section."""
+        lines = []
+        lines.append("---\n# Overall Findings\n")
+
+        passed = [r for r in records if r.score.passed]
+        failed = [r for r in records if not r.score.passed]
+
+        lines.append(f"**Results:** {len(passed)}/{len(records)} passed "
+                      f"({len(passed)/len(records)*100:.0f}%)\n")
+
+        # Group failures by category
+        if failed:
+            lines.append("## Failures\n")
+            for rec in failed:
+                lines.append(f"- **{rec.test_id}** ({rec.score.overall:.2f}): "
+                              f"{', '.join(rec.score.details.values()) or 'See trace'}")
+
+        # Common patterns across all tests
+        all_cmds = []
+        for r in records:
+            all_cmds.extend(r.agent_result.bash_commands)
+
+        # Commands the agent struggled with
+        lines.append("\n## Skill/CLI Improvement Areas\n")
+
+        confusion_tests = [r for r in records
+                           if any(s in r.agent_result.assistant_text.lower()
+                                  for s in ["error", "couldn't", "not available", "failed"])]
+        if confusion_tests:
+            lines.append("### Agent encountered friction:")
+            for r in confusion_tests:
+                lines.append(f"- {r.test_id}: review agent output for CLI error messages or missing commands")
+
+        timeout_tests = [r for r in records if r.agent_result.timed_out]
+        if timeout_tests:
+            lines.append("\n### Timeouts (task too complex or output too large):")
+            for r in timeout_tests:
+                lines.append(f"- {r.test_id}")
+
+        lines.append("")
+        return "\n".join(lines)
+
     def _build_summary(self, records: list[TestResultRecord]) -> dict:
-        """Build aggregate summary."""
-        by_agent: dict[str, list[TestResultRecord]] = defaultdict(list)
-        by_tier: dict[int, dict[str, list[TestResultRecord]]] = defaultdict(lambda: defaultdict(list))
-        by_category: dict[str, dict[str, list[TestResultRecord]]] = defaultdict(lambda: defaultdict(list))
+        """Build aggregate summary JSON."""
+        by_tier: dict[int, list[TestResultRecord]] = defaultdict(list)
+        by_category: dict[str, list[TestResultRecord]] = defaultdict(list)
 
         for rec in records:
-            by_agent[rec.agent].append(rec)
-            by_tier[rec.tier][rec.agent].append(rec)
-            by_category[rec.category][rec.agent].append(rec)
+            by_tier[rec.tier].append(rec)
+            by_category[rec.category].append(rec)
+
+        passed = sum(1 for r in records if r.score.passed)
 
         summary = {
             "run_id": self.run_id,
-            "total_tests": len(set(r.test_id for r in records)),
-            "agents": {},
+            "agent": "claude",
+            "total_tests": len(records),
+            "passed": passed,
+            "failed": len(records) - passed,
+            "pass_rate": round(passed / len(records), 3) if records else 0,
+            "total_output_tokens": sum(r.agent_result.output_tokens for r in records),
+            "total_duration_ms": sum(r.agent_result.duration_ms for r in records),
             "by_tier": {},
             "by_category": {},
-            "failures": [],
-            "comparison": {},
+            "tests": [],
         }
 
-        # Per-agent aggregates
-        for agent, recs in by_agent.items():
-            passed = sum(1 for r in recs if r.score.passed)
-            total_tokens = sum(r.agent_result.input_tokens + r.agent_result.output_tokens for r in recs)
-            total_duration = sum(r.agent_result.duration_ms for r in recs)
-            summary["agents"][agent] = {
-                "total": len(recs),
-                "passed": passed,
-                "failed": len(recs) - passed,
-                "pass_rate": round(passed / len(recs), 3) if recs else 0,
-                "total_tokens": total_tokens,
-                "total_duration_ms": total_duration,
-                "avg_duration_ms": total_duration // len(recs) if recs else 0,
+        for tier, recs in sorted(by_tier.items()):
+            p = sum(1 for r in recs if r.score.passed)
+            summary["by_tier"][f"tier{tier}"] = {
+                "total": len(recs), "passed": p,
+                "pass_rate": round(p / len(recs), 3),
             }
 
-        # Per-tier per-agent
-        for tier, agent_recs in sorted(by_tier.items()):
-            tier_key = f"tier{tier}"
-            summary["by_tier"][tier_key] = {}
-            for agent, recs in agent_recs.items():
-                passed = sum(1 for r in recs if r.score.passed)
-                summary["by_tier"][tier_key][agent] = {
-                    "total": len(recs),
-                    "passed": passed,
-                    "pass_rate": round(passed / len(recs), 3) if recs else 0,
-                }
+        for cat, recs in sorted(by_category.items()):
+            p = sum(1 for r in recs if r.score.passed)
+            summary["by_category"][cat] = {
+                "total": len(recs), "passed": p,
+                "pass_rate": round(p / len(recs), 3),
+            }
 
-        # Failures
         for rec in records:
-            if not rec.score.passed:
-                summary["failures"].append({
-                    "test_id": rec.test_id,
-                    "tier": rec.tier,
-                    "agent": rec.agent,
-                    "overall_score": round(rec.score.overall, 3),
-                    "scores": {k: round(v, 3) for k, v in rec.score.scores.items()},
-                    "details": rec.score.details,
-                })
-
-        # Head-to-head comparison
-        test_ids = set(r.test_id for r in records)
-        claude_wins = []
-        codex_wins = []
-        both_pass = []
-        both_fail = []
-
-        for tid in test_ids:
-            agents_for_test = {r.agent: r for r in records if r.test_id == tid}
-            c = agents_for_test.get("claude")
-            x = agents_for_test.get("codex")
-            if c and x:
-                if c.score.passed and not x.score.passed:
-                    claude_wins.append(tid)
-                elif x.score.passed and not c.score.passed:
-                    codex_wins.append(tid)
-                elif c.score.passed and x.score.passed:
-                    both_pass.append(tid)
-                else:
-                    both_fail.append(tid)
-
-        summary["comparison"] = {
-            "claude_only_wins": claude_wins,
-            "codex_only_wins": codex_wins,
-            "both_pass": both_pass,
-            "both_fail": both_fail,
-        }
+            summary["tests"].append({
+                "test_id": rec.test_id,
+                "tier": rec.tier,
+                "category": rec.category,
+                "passed": rec.score.passed,
+                "overall_score": round(rec.score.overall, 3),
+                "scores": {k: round(v, 3) for k, v in rec.score.scores.items()},
+                "commands_executed": rec.agent_result.bash_commands[:10],
+                "duration_ms": rec.agent_result.duration_ms,
+                "output_tokens": rec.agent_result.output_tokens,
+                "issues": rec.score.details,
+            })
 
         return summary
 
     def _write_summary(self, summary: dict):
-        """Write summary JSON."""
         path = self.output_dir / "summary.json"
         path.write_text(json.dumps(summary, indent=2))
 
     def _print_terminal(self, summary: dict, records: list[TestResultRecord]):
         """Print results to terminal."""
         print(f"\n{'=' * 60}")
-        print(f"  Benchmark Run: {self.run_id}")
+        print(f"  Benchmark: {self.run_id}")
+        print(f"  {summary['passed']}/{summary['total_tests']} passed "
+              f"({summary['pass_rate']*100:.0f}%)")
         print(f"{'=' * 60}\n")
 
-        # Agent comparison
-        for agent, stats in summary["agents"].items():
-            emoji = "C" if agent == "claude" else "X"
-            rate = stats["pass_rate"] * 100
-            print(f"  [{emoji}] {agent:8s}  {stats['passed']}/{stats['total']} passed ({rate:.0f}%)  "
-                  f"avg {stats['avg_duration_ms']}ms  {stats['total_tokens']:,} tokens")
+        for rec in sorted(records, key=lambda r: (r.score.passed, r.test_id)):
+            status = "PASS" if rec.score.passed else "FAIL"
+            cmds = len(rec.agent_result.bash_commands)
+            dur = rec.agent_result.duration_ms / 1000
+            print(f"  {status} {rec.test_id:30s} score={rec.score.overall:.2f} "
+                  f"cmds={cmds} {dur:.0f}s")
+            if not rec.score.passed and rec.score.details:
+                for detail in list(rec.score.details.values())[:2]:
+                    print(f"       -> {detail[:80]}")
 
-        # Tier breakdown
-        print(f"\n  {'Tier':<8}", end="")
-        agents = list(summary["agents"].keys())
-        for a in agents:
-            print(f"  {a:>10}", end="")
-        print()
-        print(f"  {'-' * (8 + 12 * len(agents))}")
-
-        for tier_key, tier_data in sorted(summary["by_tier"].items()):
-            print(f"  {tier_key:<8}", end="")
-            for a in agents:
-                data = tier_data.get(a, {})
-                rate = data.get("pass_rate", 0) * 100
-                total = data.get("total", 0)
-                passed = data.get("passed", 0)
-                print(f"  {passed}/{total} ({rate:3.0f}%)", end="")
-            print()
-
-        # Head-to-head
-        comp = summary.get("comparison", {})
-        print(f"\n  Head-to-head:")
-        print(f"    Both pass:       {len(comp.get('both_pass', []))}")
-        print(f"    Claude only:     {len(comp.get('claude_only_wins', []))}")
-        print(f"    Codex only:      {len(comp.get('codex_only_wins', []))}")
-        print(f"    Both fail:       {len(comp.get('both_fail', []))}")
-
-        # Failures
-        failures = summary.get("failures", [])
-        if failures:
-            print(f"\n  Failures ({len(failures)}):")
-            for f in failures[:10]:
-                print(f"    {f['test_id']:20s} [{f['agent']:6s}] score={f['overall_score']:.2f}  {f.get('details', {})}")
-
-        print(f"\n  Report: {self.output_dir / 'summary.json'}")
+        print(f"\n  Reports:")
+        print(f"    {self.output_dir / 'summary.json'}")
+        print(f"    {self.output_dir / 'narrative.md'}")
+        print(f"    {self.output_dir / 'recommendations.md'}")
         print(f"{'=' * 60}\n")

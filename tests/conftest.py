@@ -90,16 +90,35 @@ def mock_client():
         },
     ]
 
-    # Library mock
+    # Library mock — mimics DSSLibrary/DSSLibraryFile/DSSLibraryFolder
     library_mock = MagicMock()
-    library_mock.list_contents.return_value = [
-        {"path": "python/mylib/__init__.py", "size": 0},
-        {"path": "python/mylib/utils.py", "size": 256},
-    ]
-    library_mock.get_file.return_value = b"# utils.py\ndef transform(df):\n    return df"
-    library_mock.put_file.return_value = None
-    library_mock.delete_file.return_value = None
-    library_mock.add_folder.return_value = None
+
+    # list() returns DSSLibraryItem-like objects with .path property
+    lib_item1 = MagicMock()
+    lib_item1.path = "python/mylib/__init__.py"
+    lib_item2 = MagicMock()
+    lib_item2.path = "python/mylib/utils.py"
+    library_mock.list.return_value = [lib_item1, lib_item2]
+
+    # get_file() returns DSSLibraryFile with .read()/.write()/.delete()
+    lib_file_mock = MagicMock()
+    lib_file_mock.read.return_value = b"# utils.py\ndef transform(df):\n    return df"
+    lib_file_mock.write.return_value = None
+    lib_file_mock.delete.return_value = None
+    library_mock.get_file.return_value = lib_file_mock
+
+    # add_file() returns DSSLibraryFile
+    library_mock.add_file.return_value = lib_file_mock
+
+    # get_folder()/add_folder() return DSSLibraryFolder
+    lib_folder_mock = MagicMock()
+    lib_folder_mock.list.return_value = [lib_item1, lib_item2]
+    lib_folder_mock.add_file.return_value = lib_file_mock
+    lib_folder_mock.add_folder.return_value = lib_folder_mock
+    lib_folder_mock.get_folder.return_value = lib_folder_mock
+    library_mock.get_folder.return_value = lib_folder_mock
+    library_mock.add_folder.return_value = lib_folder_mock
+
     proj1.get_library.return_value = library_mock
 
     # Flow — real API returns DSSProjectFlowGraph with .nodes and .data attrs
@@ -511,16 +530,33 @@ def mock_client():
 
     # NOTE: Eval store + comparison fixtures removed — add back when those command groups land.
 
-    # Wiki
+    # Wiki — DSSWikiArticle has .article_id + .get_data() → DSSWikiArticleData
     wiki_mock = MagicMock()
-    wiki_mock.list_articles.return_value = [
-        {"id": "article1", "article": {"name": "Home", "id": "article1"}},
-    ]
+
+    class MockArticleData:
+        """Mimics DSSWikiArticleData: get_name/get_body/set_name/set_body/save."""
+        def __init__(self, name="Home", body="# Welcome"):
+            self._name = name
+            self._body = body
+        def get_name(self):
+            return self._name
+        def get_body(self):
+            return self._body
+        def get_metadata(self):
+            return {}
+        def set_name(self, name):
+            self._name = name
+        def set_body(self, body):
+            self._body = body
+        def save(self):
+            pass
+
     article_mock = MagicMock()
-    article_mock.get_data.return_value = {
-        "article": {"name": "Home", "id": "article1"},
-        "body": "# Welcome",
-    }
+    article_mock.article_id = "article1"
+    article_mock.get_data.return_value = MockArticleData()
+    article_mock.delete.return_value = None
+
+    wiki_mock.list_articles.return_value = [article_mock]
     wiki_mock.get_article.return_value = article_mock
     wiki_mock.create_article.return_value = article_mock
     proj1.get_wiki.return_value = wiki_mock

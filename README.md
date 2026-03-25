@@ -19,7 +19,7 @@
 
 **Dataiku DevKit** — enables any AI coding agent to do anything in Dataiku DSS.
 
-Ships a **`dku` CLI** (139 commands, 25 groups) and **9 agent skills** with 26 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
+Ships a **`dku` CLI** (139 commands, 25 groups) and **2 skills** with 28 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
 
 ```bash
 bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | base64 -d)  # Install CLI
@@ -97,15 +97,8 @@ uv tool install .
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| `dataiku` | Skill (auto) | Platform knowledge — 26 reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps |
+| `dataiku` | Skill (auto) | Platform knowledge — 28 reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
 | `dku-cli` | Skill (auto) | CLI operations — 139 commands, chaining patterns, composability |
-| `new-plugin` | Skill (manual) | Scaffold a new Dataiku plugin with all boilerplate |
-| `new-tool` | Skill (manual) | Add an agent tool to an existing plugin |
-| `new-recipe` | Skill (manual) | Add a custom recipe to an existing plugin |
-| `new-webapp` | Skill (manual) | Add a webapp component to a plugin |
-| `new-guardrail` | Skill (manual) | Add an LLM guardrail to a plugin |
-| `deploy-plugin` | Skill (manual) | Build and deploy a plugin to DSS |
-| `review-plugin` | Skill (manual) | Code review a plugin against best practices |
 | `plugin-reviewer` | Agent | Deep code review with checklist |
 | `dss-explorer` | Agent | Explore a DSS project via CLI commands |
 | `tool-designer` | Agent | Design agent tool schemas and descriptions |
@@ -151,7 +144,7 @@ bash <(gh api repos/dataiku/dataiku-cli/contents/install.sh --jq '.content' | ba
 bash <(gh api repos/dataiku/dataiku-cli/contents/install-plugin.sh --jq '.content' | base64 -d)
 ```
 
-The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below. The other skills add plugin development, scaffolding, and code review capabilities.
+The `dku-cli` skill alone produces the 30-50% cost reduction in the [benchmark](#benchmark-agent-performance) below. The `dataiku` skill adds platform knowledge, plugin scaffolding, deployment, and code review capabilities.
 
 ## Authentication
 

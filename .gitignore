@@ -22,6 +22,7 @@ coverage.xml
 .claude/memory/
 .claude/plans/
 .claude/skills/
+.claude/scheduled_tasks.lock
 .agents/
 
 # Brainstorm / design docs

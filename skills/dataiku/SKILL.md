@@ -18,6 +18,16 @@ triggers:
   - dataset connector
   - dataiku styling
   - plugin review
+  - new plugin
+  - scaffold plugin
+  - create plugin
+  - add tool
+  - add recipe
+  - add webapp
+  - add guardrail
+  - deploy plugin
+  - push plugin
+  - review plugin
 globs:
   - "**/plugin.json"
   - "**/tool.json"
@@ -60,6 +70,7 @@ Comprehensive knowledge base for building Dataiku plugins, webapps, agents, and 
 | **Webapp Patterns** | Advanced: multi-tab dashboards, filter pipelines, caching, React+Vite SPA, Chart.js, SQLAlchemy | `references/webapp-patterns.md` |
 | **Agent Tool Patterns** | Advanced: subprocess tools, MCP gateway, multi-agent orchestration, OAuth, HITL | `references/agent-tool-patterns.md` |
 | **Plugin Review** | Reviewing plugins, code review criteria, scoring rubric | `references/plugin-review-checklist.md` |
+| **Scaffolding & Lifecycle** | Creating new plugins, adding components (tool/recipe/webapp/guardrail), deploying, reviewing | `references/scaffolding.md` |
 
 ### Platform Knowledge
 
@@ -78,17 +89,26 @@ Comprehensive knowledge base for building Dataiku plugins, webapps, agents, and 
 ## Instructions
 
 1. Identify which topic(s) the user's task involves
-2. For new plugins, read `references/plugin-architecture.md` first to pick the right tier
-3. Read the relevant reference file(s) — for cross-cutting tasks, read multiple
-4. Apply the patterns and examples from the references
-5. For webapps, always also check `references/webapp-pitfalls.md`
-6. For dependency or compatibility issues, check `references/code-environments.md`
-7. For visual agent blocks, also check `references/structured-agents.md` for graph patterns
+2. For scaffolding tasks (new plugin, add component, deploy, review), read `references/scaffolding.md`
+3. For new plugins, read `references/plugin-architecture.md` first to pick the right tier
+4. Read the relevant reference file(s) — for cross-cutting tasks, read multiple
+5. Apply the patterns and examples from the references
+6. For webapps, always also check `references/webapp-pitfalls.md`
+7. For dependency or compatibility issues, check `references/code-environments.md`
+8. For visual agent blocks, also check `references/structured-agents.md` for graph patterns
+9. **When unsure about a pattern**, check the "Official Plugin Repos" section in `references/plugin-architecture.md` — it lists 40+ public repos at `github.com/dataiku` organized by component type. Browse the closest match to see real production code.
 
 ## Cross-Cutting Patterns
 
 Common task combinations that span multiple references:
 
+- **"Scaffold a new plugin"** -> `scaffolding.md` (Section 1) + `plugin-structure.md` + `code-environments.md`
+- **"Add an agent tool to a plugin"** -> `scaffolding.md` (Section 2.1) + `llm-tools.md`
+- **"Add a recipe to a plugin"** -> `scaffolding.md` (Section 2.2) + `recipes.md`
+- **"Add a webapp to a plugin"** -> `scaffolding.md` (Section 2.3) + `webapps.md` + `webapp-pitfalls.md`
+- **"Add a guardrail to a plugin"** -> `scaffolding.md` (Section 2.4) + `llm-mesh.md`
+- **"Deploy a plugin to DSS"** -> `scaffolding.md` (Section 3)
+- **"Review a plugin"** -> `scaffolding.md` (Section 4) + `plugin-review-checklist.md`, or spawn `plugin-reviewer` agent
 - **"Build a Dataiku plugin"** -> `plugin-structure.md` + `code-environments.md` + `best-practices.md`
 - **"Build a plugin webapp"** -> `plugin-architecture.md` (pick tier) + `webapps.md` + `webapp-pitfalls.md` + `styling.md`
 - **"Build a production analytics dashboard"** -> `plugin-architecture.md` (Tier 3) + `webapp-patterns.md` + `webapp-pitfalls.md`
@@ -107,7 +127,6 @@ Common task combinations that span multiple references:
 - **"Test a plugin thoroughly"** -> `testing.md` + `best-practices.md`
 - **"Set up a RAG pipeline"** -> `llm-mesh.md` + `genai-features.md`
 - **"Build a scoring pipeline with checks"** -> `scenarios.md` + `python-api.md` + `mlops.md`
-- **"Review a plugin"** -> `plugin-review-checklist.md` + `best-practices.md`
 - **"Build a guardrail"** -> `llm-mesh.md` (guardrails section)
 - **"Build a dataset connector"** -> `datasets.md` + `plugin-structure.md`
 - **"Build a macro/runnable"** -> `macros.md` + `plugin-structure.md`

@@ -78,7 +78,7 @@ fi
 FAILED=0
 
 # All skills to install
-SKILLS="dataiku dku-cli new-plugin new-tool new-recipe new-webapp new-guardrail deploy-plugin review-plugin"
+SKILLS="dataiku dku-cli"
 
 for skill in $SKILLS; do
     mkdir -p "$SKILLS_DIR/$skill"
@@ -98,7 +98,7 @@ fi
 
 # Download dataiku reference docs
 mkdir -p "$SKILLS_DIR/dataiku/references"
-REFS="plugin-structure recipes llm-tools webapps webapp-pitfalls parameters code-environments datasets macros testing best-practices plugin-workflow formulas llm-mesh structured-agents python-api scenarios mlops genai-features dataiku-reference styling plugin-review-checklist agent-tool-patterns webapp-patterns plugin-architecture visual-agent-blocks"
+REFS="plugin-structure recipes llm-tools webapps webapp-pitfalls parameters code-environments datasets macros testing best-practices plugin-workflow formulas llm-mesh structured-agents python-api scenarios mlops genai-features dataiku-reference styling plugin-review-checklist agent-tool-patterns webapp-patterns plugin-architecture visual-agent-blocks scaffolding"
 
 for ref in $REFS; do
     echo "  skills/dataiku/references/$ref.md"
@@ -136,6 +136,6 @@ if [ "$FAILED" -gt 0 ]; then
         echo "Tip: install gh CLI (https://cli.github.com) for private repo access."
     fi
 else
-    echo "Installed Dataiku DevKit (9 skills, 27 reference docs, 3 agents)."
+    echo "Installed Dataiku DevKit (2 skills, 28 reference docs, 3 agents)."
 fi
 echo "Your AI agent will auto-discover them."

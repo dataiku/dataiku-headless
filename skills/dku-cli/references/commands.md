@@ -12,7 +12,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 
 - [auth](#auth) — login, logout, status, list, switch
 - [config](#config) — set, get, list, path, variables, set-variables
-- [project](#project) — list, get, export, create, delete, duplicate, variables, set-variables, permissions, set-permissions, tags
+- [project](#project) — list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
 - [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
 - [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
@@ -33,7 +33,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [knowledge](#knowledge) — list, create, get, build, search, delete
 - [bundle](#bundle) — list, export, download, import, activate
 - [api-service](#api-service) — list, create, get, create-package, list-packages
-- [wiki](#wiki) — list, create, get
+- [wiki](#wiki) — list, create, get, update, delete
 - [sql](#sql) — query
 - [whoami](#whoami)
 
@@ -75,9 +75,10 @@ dku config set-variables --set key=value  # Set instance-level variables
 dku project list [-o FORMAT]
 dku project get PROJECT_KEY [-o FORMAT]
 dku project export PROJECT_KEY [--dest DIR]
-dku project create PROJECT_KEY --name NAME [--description DESC] [-o FORMAT]
-dku project delete PROJECT_KEY --confirm
+dku project create PROJECT_KEY --name NAME [--description DESC] [--if-not-exists] [-o FORMAT]
+dku project delete PROJECT_KEY --yes
 dku project duplicate PROJECT_KEY --target-key KEY --target-name NAME [-o FORMAT]
+dku project set-metadata PROJECT_KEY [--name NAME] [--description DESC]
 dku project variables [-P PROJECT] [-o FORMAT]
 dku project set-variables [-P PROJECT] --set key=value [--set key2=value2]
 dku project set-variables [-P PROJECT] --definition JSON
@@ -86,7 +87,9 @@ dku project set-permissions [-P PROJECT] --definition JSON
 dku project tags [-P PROJECT] [-o FORMAT]
 ```
 
-- `delete` requires `--confirm` flag (safety guard)
+- `delete` requires `--confirm`, `--yes`, or `-y` flag (safety guard)
+- `create --if-not-exists` skips creation silently when the project already exists (idempotent)
+- `set-metadata` updates project display name and/or description after creation
 - `set-variables --set` modifies individual standard vars; `--definition` replaces all
 
 ## dataset
@@ -98,9 +101,9 @@ dku dataset list [-P PROJECT] [-o FORMAT]
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-o FORMAT]
 dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
-dku dataset create DATASET_NAME --type TYPE [-c CONNECTION] [-P PROJECT] [--definition JSON]
+dku dataset create DATASET_NAME [--type Filesystem] [-c CONNECTION] [-P PROJECT] [--if-not-exists] [--definition JSON]
 dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect]
-dku dataset delete DATASET_NAME [-P PROJECT]
+dku dataset delete DATASET_NAME [-P PROJECT] [--yes]
 dku dataset clear DATASET_NAME [-P PROJECT]
 dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
 dku dataset set-definition DATASET_NAME [-P PROJECT] --definition JSON
@@ -113,35 +116,64 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 - `build --wait` blocks until job completes
 - `build --type RECURSIVE_BUILD --auto-update-schema` builds upstream deps with automatic schema propagation
 - `create --type UploadedFiles` for CSV upload targets
-- `create --type Filesystem` requires `--connection` and uses managed dataset creation semantics
+- `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
+- `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
 
 ## recipe
+
+### Visual recipe commands (PREFER these over Python)
+
+```bash
+dku recipe create-join NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]     # Join (auto-detects keys)
+dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [-P PROJECT]  # Group/aggregate
+dku recipe create-stack NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]    # Stack/union
+dku recipe create-distinct NAME -i DS --output-ds OUT [-P PROJECT]         # Deduplicate
+dku recipe create-sort NAME -i DS --output-ds OUT [-P PROJECT]             # Sort
+dku recipe create-filter NAME -i DS --output-ds OUT [-P PROJECT]           # Filter/sample
+dku recipe create-window NAME -i DS --output-ds OUT [-P PROJECT]           # Window functions
+dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
+dku recipe create-topn NAME -i DS --output-ds OUT [-P PROJECT]             # Top/bottom N rows
+```
+
+- `create-join` requires 2+ inputs. Use `--join-key col` or `--join-key left=right` to set join conditions (repeatable for composite keys). Auto-detects from matching column names if `--join-key` omitted
+- `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group
+- Visual recipes auto-apply schema updates after creation. For manual control: `apply-schema RECIPE -P PROJ`
+- Configure additional visual recipe details (join type, sort order, filter conditions) in the DSS UI or via `set-definition`
+
+### Code and management commands
 
 ```bash
 dku recipe list [-P PROJECT] [-o FORMAT]
 dku recipe get RECIPE_NAME [-P PROJECT] [-o FORMAT]
 dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
-dku recipe create RECIPE_NAME --type TYPE --input DS --output DS [-P PROJECT]
+dku recipe create RECIPE_NAME --type TYPE --input DS --output-ds DS [-P PROJECT]
 dku recipe delete RECIPE_NAME [-P PROJECT]
-dku recipe set-code RECIPE_NAME --code CODE [-P PROJECT]
+dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
 dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME --definition JSON [-P PROJECT]
-dku recipe add-input RECIPE_NAME --ref DS [--role main] [-P PROJECT]
-dku recipe add-output RECIPE_NAME --ref DS [--role main] [-P PROJECT]
+dku recipe add-input RECIPE_NAME DS [--role main] [-P PROJECT]
+dku recipe add-output RECIPE_NAME DS [--role main] [-P PROJECT]
 dku recipe check-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
-dku recipe create-embed RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [-P PROJECT]
-dku recipe create-embed-docs RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [--vlm LLM_ID] [-P PROJECT]
-dku recipe create-extract RECIPE_NAME --input DS --output DS --vlm LLM_ID [-P PROJECT]
-dku recipe create-llm-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output DS] [--output-metrics DS] [--task-type TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
-dku recipe create-agent-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output DS] [--output-metrics DS] [--input-format TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
 ```
 
-- `create` requires both `--input` and `--output` datasets to exist already
-- `set-code` accepts `--code @file.py` to read from file
-- `get-code` prints code to stdout by default; `-o json` wraps it as `{"code": "..."}`
-- `create-llm-eval` and `create-agent-eval` require any dataset passed via `--output` or `--output-metrics` to already exist
+- `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
+- `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
+- `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
+- **Only use `create -t python` when no visual recipe fits the task**
+
+### GenAI recipe commands
+
+```bash
+dku recipe create-embed RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [-P PROJECT]
+dku recipe create-embed-docs RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [--vlm LLM_ID] [-P PROJECT]
+dku recipe create-extract RECIPE_NAME --input DS --output-ds DS --vlm LLM_ID [-P PROJECT]
+dku recipe create-llm-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output-ds DS] [--output-metrics DS] [--task-type TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
+dku recipe create-agent-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output-ds DS] [--output-metrics DS] [--input-format TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
+```
+
+- `create-llm-eval` and `create-agent-eval` require any dataset passed via `--output-ds` or `--output-metrics` to already exist
 
 ## scenario
 
@@ -150,7 +182,7 @@ dku scenario list [-P PROJECT] [-o FORMAT]
 dku scenario run SCENARIO_ID [-P PROJECT] [--wait]
 dku scenario abort SCENARIO_ID [-P PROJECT]
 dku scenario status SCENARIO_ID [-P PROJECT] [-o FORMAT]
-dku scenario create NAME [--type step_based] [-P PROJECT] [--definition JSON]
+dku scenario create NAME [--type step_based] [-P PROJECT] [--definition JSON] [--if-not-exists]
 dku scenario delete SCENARIO_ID [-P PROJECT]
 dku scenario get-definition SCENARIO_ID [-P PROJECT] [-o json]
 dku scenario set-definition SCENARIO_ID --definition JSON [-P PROJECT]
@@ -231,10 +263,13 @@ dku llm completion LLM_ID MESSAGE [-P PROJECT] [--system MSG] [--json-output] [-
 dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
 ```
 
-- LLM IDs follow `provider:model` pattern (e.g., `openai:gpt-4o-mini`)
+- LLM IDs follow `provider:connection:model` pattern (e.g., `openai:MyConnection:gpt-4o-mini`)
 - `completion -o json` returns text + usage stats
-- `list` defaults to `--purpose GENERIC_COMPLETION`
-- Use `--purpose TEXT_EMBEDDING_EXTRACTION` to discover embedding-capable models
+- **Finding embedding models:** `dku llm list` defaults to `--purpose GENERIC_COMPLETION` which only shows chat/completion models. To find embedding models, you MUST use:
+  ```bash
+  dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJECT
+  ```
+  Valid `--purpose` values: `GENERIC_COMPLETION`, `TEXT_EMBEDDING_EXTRACTION`, `IMAGE_EMBEDDING_EXTRACTION`, `RERANKING`, `IMAGE_GENERATION`
 - `embeddings` rejects LLM IDs that are not available for `TEXT_EMBEDDING_EXTRACTION` in the target project
 
 ## webapp
@@ -326,13 +361,15 @@ Knowledge banks.
 
 ```bash
 dku knowledge list [-P PROJECT] [-o FORMAT]
-dku knowledge create NAME [-P PROJECT]
+dku knowledge create NAME --embedding-llm LLM_ID [--vector-store-type FAISS|CHROMA|PINECONE|...] [--if-not-exists] [-P PROJECT]
 dku knowledge get KB_ID [-P PROJECT] [-o FORMAT]
 dku knowledge build KB_ID [-P PROJECT] [--wait]
-dku knowledge search KB_ID --query TEXT [--max-documents N] [-P PROJECT] [-o FORMAT]
+dku knowledge search KB_ID --query TEXT [--max N] [-P PROJECT] [-o FORMAT]
 dku knowledge delete KB_ID [-P PROJECT]
 ```
 
+- `create` requires `--embedding-llm` (use `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` to find one)
+- `create --vector-store-type` defaults to FAISS. Options: FAISS, CHROMA, PINECONE, ELASTICSEARCH, AZURE_AI_SEARCH, VERTEX_AI_GCS_BASED, QDRANT_LOCAL, MILVUS_LOCAL, MILVUS_REMOTE
 - `get` expects JSON from DSS; on getitstarted instances the sleep/wake page can intercept the request and return HTML instead
 
 ## bundle
@@ -361,9 +398,14 @@ dku api-service list-packages SERVICE_ID [-P PROJECT] [-o FORMAT]
 
 ```bash
 dku wiki list [-P PROJECT] [-o FORMAT]
-dku wiki create TITLE [--body TEXT] [-P PROJECT]
+dku wiki create TITLE [--body TEXT] [-P PROJECT] [--if-not-exists]
 dku wiki get ARTICLE_ID [-P PROJECT] [-o FORMAT]
+dku wiki update ARTICLE_ID [--body TEXT] [--title TEXT] [-P PROJECT]
+dku wiki delete ARTICLE_ID --confirm [-P PROJECT]
 ```
+
+- `update` changes body and/or title. Body accepts literal, `@file.md`, or `-` for stdin.
+- `delete` requires `--confirm` / `--yes` / `-y` flag.
 
 ## sql
 

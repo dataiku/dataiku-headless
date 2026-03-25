@@ -7,9 +7,9 @@ from typing import List, Optional
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import error, render, render_raw, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS projects.")
 
@@ -107,6 +107,7 @@ def create(
     project_key: str = typer.Argument(help="Project key"),
     name: str = typer.Option(..., "--name", "-n", help="Display name"),
     description: str = typer.Option("", "--description", "-d", help="Short description"),
+    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if project already exists"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new project."""
@@ -114,7 +115,7 @@ def create(
     try:
         client = get_client_from_ctx(ctx)
         owner = client.get_auth_info()["authIdentifier"]
-        project = client.create_project(project_key, name, owner, description=description)
+        client.create_project(project_key, name, owner, description=description)
 
         data = [
             {"field": "Key", "value": project_key},
@@ -131,6 +132,18 @@ def create(
         )
         success(f"Created project {project_key}")
     except Exception as e:
+        if if_not_exists and is_already_exists_error(e):
+            warn(f"Project '{project_key}' already exists, skipping create")
+            return
+        if is_already_exists_error(e):
+            exit_with_error(
+                f"Project '{project_key}' already exists.",
+                code="already_exists",
+                details=[
+                    "Use --if-not-exists to skip creation when the project exists.",
+                    f"Or delete first: dku project delete {project_key} --yes",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -138,11 +151,11 @@ def create(
 def delete(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
-    confirm: bool = typer.Option(False, "--confirm", help="Confirm deletion (required)"),
+    confirm: bool = typer.Option(False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"),
 ) -> None:
-    """Delete a project. Requires --confirm flag."""
+    """Delete a project. Requires --confirm / --yes flag."""
     if not confirm:
-        error("Deletion requires --confirm flag. This action is irreversible.")
+        error("Deletion requires --confirm (or --yes / -y) flag. This action is irreversible.")
         raise typer.Exit(1)
     try:
         client = get_client_from_ctx(ctx)
@@ -181,6 +194,33 @@ def duplicate(
             title="Project Duplicated",
         )
         success(f"Duplicated {project_key} → {target_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    project_key: str = typer.Argument(help="Project key"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="New display name"),
+    description: Optional[str] = typer.Option(None, "--description", "-d", help="New short description"),
+) -> None:
+    """Update project name and/or description."""
+    if name is None and description is None:
+        error("Provide --name and/or --description to update.")
+        raise typer.Exit(1)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        meta = proj.get_metadata()
+
+        if name is not None:
+            meta["label"] = name
+        if description is not None:
+            meta["shortDesc"] = description
+
+        proj.set_metadata(meta)
+        success(f"Updated metadata for {project_key}")
     except Exception as e:
         handle_api_error(e)
 

@@ -6,7 +6,7 @@ The **Dataiku DevKit** enables any AI coding agent to do anything in Dataiku DSS
 
 1. **`dku` CLI** — a `kubectl`-style tool (139 commands, 25 groups) wrapping `dataikuapi` with auth management, output formatting, and composability. Replaces throwaway Python scripts with shell commands that agents chain with `&&`.
 
-2. **Agent skills & knowledge** — 9 skills, 26 platform reference docs, and 3 subagents that teach agents how to build plugins, manage projects, and operate DSS. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
+2. **Agent skills & knowledge** — 2 skills, 28 platform reference docs, and 3 subagents that teach agents how to build plugins, manage projects, and operate DSS. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
 
 **Who it serves:** AI coding agents first, then developers, admins, field engineers, and CI/CD pipelines.
 
@@ -55,9 +55,9 @@ Every command follows the same flow:
 |---|---|---|
 | `auth` | `auth_cmd.py` | login, logout, status, list, switch |
 | `config` | `config_cmd.py` | set, get, list, path, variables, set-variables |
-| `project` | `project.py` | list, get, export, create, delete, duplicate, variables, set-variables, permissions, set-permissions, tags |
+| `project` | `project.py` | list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags |
 | `dataset` | `dataset.py` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema |
-| `recipe` | `recipe.py` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval |
+| `recipe` | `recipe.py` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval |
 | `scenario` | `scenario.py` | list, run, abort, status, create, delete, get-definition, set-definition |
 | `job` | `job.py` | list, run, status, log, abort, wait |
 | `plugin` | `plugin.py` | list, push, settings |
@@ -76,7 +76,7 @@ Every command follows the same flow:
 | `knowledge` | `knowledge.py` | list, create, get, build, search, delete |
 | `bundle` | `bundle.py` | list, export, download, import, activate |
 | `api-service` | `api_service.py` | list, create, get, create-package, list-packages |
-| `wiki` | `wiki.py` | list, create, get |
+| `wiki` | `wiki.py` | list, create, get, update, delete |
 | `sql` | `sql.py` | query |
 | (root) | `main.py` | whoami |
 
@@ -100,15 +100,8 @@ The DevKit layer lives alongside the CLI source — skills, agents, and referenc
 
 ```
 skills/                    # Skills (auto-discovered by Claude Code, Codex, Cursor, etc.)
-├── dataiku/               # Platform knowledge router (26 reference docs)
-├── dku-cli/               # CLI operations and composability patterns
-├── new-plugin/            # /new-plugin — scaffold a Dataiku plugin
-├── new-tool/              # /new-tool — add agent tool to plugin
-├── new-recipe/            # /new-recipe — add custom recipe
-├── new-webapp/            # /new-webapp — add webapp component
-├── new-guardrail/         # /new-guardrail — add LLM guardrail
-├── deploy-plugin/         # /deploy-plugin — build + push to DSS
-└── review-plugin/         # /review-plugin — code review checklist
+├── dataiku/               # Platform knowledge router (28 reference docs incl. scaffolding)
+└── dku-cli/               # CLI operations and composability patterns
 agents/                    # Subagents for complex tasks
 ├── plugin-reviewer.md     # Deep plugin code review
 ├── dss-explorer.md        # Explore DSS projects via CLI
@@ -148,12 +141,31 @@ Platform knowledge lives in `skills/dataiku/references/`. Read the relevant doc 
 | `skills/dataiku/references/webapp-patterns.md` | Advanced: multi-tab dashboards, filters, caching, React+Vite, Chart.js |
 | `skills/dataiku/references/agent-tool-patterns.md` | Advanced: subprocess tools, MCP gateway, OAuth, multi-agent, HITL |
 | `skills/dataiku/references/plugin-review-checklist.md` | Reviewing plugins, code review criteria, scoring rubric |
+| `skills/dataiku/references/scaffolding.md` | Plugin scaffolding, adding components, deploying, reviewing |
 
 ---
 
 ## Critical Gotchas
 
 These are real production bugs that have caused hours of debugging. They're here so they never happen again.
+
+### Dataset Create + Upload (CLI)
+
+**`dku dataset create` defaults to Filesystem type, which does NOT support `dku dataset upload`.** You MUST specify `--type UploadedFiles` for datasets that will receive file uploads:
+
+```bash
+# WRONG — creates Filesystem dataset, upload will fail
+dku dataset create my_data -P PROJ
+dku dataset upload my_data data.csv -P PROJ   # ERROR: upload not supported
+
+# RIGHT — UploadedFiles type supports upload
+dku dataset create my_data --type UploadedFiles -P PROJ
+dku dataset upload my_data data.csv -P PROJ   # Works
+```
+
+Use Filesystem (default) for recipe outputs that are built, not uploaded. Use UploadedFiles for anything you're uploading via CLI.
+
+`dku dataset delete` and `dku project delete` do not have `--yes` or `-y` flags. For non-interactive deletion, pipe: `echo y | dku dataset delete NAME -P PROJ`.
 
 ### Plugin Webapp Backend
 
@@ -325,7 +337,7 @@ uv run pytest -v           # Run tests
 
 ## Agent Benchmark
 
-7-tier testing framework (160 scenarios) that evaluates how well AI coding agents use the CLI and DevKit skills against a real DSS sandbox. Head-to-head: Claude Code (Opus) vs Codex (gpt-5.4 xhigh). See `benchmark/README.md` for architecture, test tiers, and how to run.
+9-tier benchmark (192 scenarios) that evaluates how well AI coding agents use the CLI and DevKit skills against a real DSS sandbox. Uses Claude Code (Opus) in headless mode. Scenarios range from single-command tests (tier 1) to open-ended real-world prompts like "build a financial services RAG demo" (tier 9). See `benchmark/README.md` for architecture, test tiers, and how to run.
 
 ---
 

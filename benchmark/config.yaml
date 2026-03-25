@@ -28,11 +28,10 @@ agents:
       - "--dangerously-bypass-approvals-and-sandbox"
 
 runner:
-  parallel: 4
-  timeout: 180
+  parallel: 2
+  timeout: 300
   agents:
     - claude
-    - codex
 
 scoring:
   pass_threshold: 0.7

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import info, render, render_raw, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS knowledge banks.")
 
@@ -83,16 +83,38 @@ def list_knowledge_banks(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Knowledge bank name"),
+    embedding_llm: str | None = typer.Option(
+        None,
+        "--embedding-llm",
+        help="Embedding LLM ID (e.g. openai:conn:text-embedding-3-small). "
+             "Find IDs: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION",
+    ),
+    vector_store_type: str = typer.Option(
+        "FAISS", "--vector-store-type", help="Vector store type (FAISS, CHROMA, PINECONE)"
+    ),
+    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if knowledge bank already exists"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a new knowledge bank."""
     project_key = resolve_project(project)
+    if not embedding_llm:
+        exit_with_error(
+            "Missing required option --embedding-llm.",
+            code="missing_argument",
+            details=[
+                "Find embedding model IDs: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJECT",
+                "Example: --embedding-llm openai:connection_name:text-embedding-3-small",
+            ],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        proj.create_knowledge_bank(name)
+        proj.create_knowledge_bank(name, vector_store_type, embedding_llm)
         success(f"Created knowledge bank '{name}'")
     except Exception as e:
+        if if_not_exists and is_already_exists_error(e):
+            warn(f"Knowledge bank '{name}' already exists in {project_key}, skipping create")
+            return
         handle_api_error(e)
 
 

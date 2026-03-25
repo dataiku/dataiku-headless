@@ -1,0 +1,983 @@
+tests:
+  # ══════════════════════════════════════════════════════════
+  #  ADVANCED SCENARIOS — push the CLI & skill harder
+  # ══════════════════════════════════════════════════════════
+
+  # ──────────────────────────────────────────────────────────
+  # A1: Multi-recipe pipeline with recursive build
+  # Tests: chaining, recipe create, set-code, recursive build
+  # ──────────────────────────────────────────────────────────
+  - id: a1_three_stage_pipeline
+    tier: 7
+    category: pipeline
+    prompt: |
+      Create a DSS project called BENCH_PIPELINE3 with name "Three-Stage Pipeline".
+
+      Build a 3-stage data pipeline:
+
+      1. Upload source dataset 'raw_logs' with 25 rows:
+         log_id, timestamp, user_id, action, duration_ms, status
+         Include mix of status: "ok", "error", "timeout". Some duration_ms should be null.
+
+      2. Stage 1 — Python recipe 'compute_clean_logs':
+         Input: raw_logs → Output: clean_logs
+         Code: drop nulls, filter out status="timeout", cast duration_ms to int
+
+      3. Stage 2 — Python recipe 'compute_log_stats':
+         Input: clean_logs → Output: log_stats
+         Code: group by user_id, count actions, avg duration_ms
+
+      4. Stage 3 — Python recipe 'compute_top_users':
+         Input: log_stats → Output: top_users
+         Code: sort by action count descending, keep top 5
+
+      5. Build the entire pipeline with a single recursive build from 'top_users'.
+
+      6. Verify: show the flow graph and the first 5 rows of top_users.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create.*compute_clean_logs"
+          required: true
+        - pattern: "dku recipe create.*compute_log_stats"
+          required: true
+        - pattern: "dku recipe create.*compute_top_users"
+          required: true
+        - pattern: "dku recipe set-code"
+          required: true
+        - pattern: "dku (job run|dataset build).*RECURSIVE"
+          required: false
+      verify:
+        - command: "dku recipe list -P BENCH_PIPELINE3 -o json"
+          expect_contains: "compute_top_users"
+        - command: "dku flow graph -P BENCH_PIPELINE3"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A2: Join workflow — multi-input recipe
+  # Tests: add-input, --ref flag, multi-dataset joins
+  # ──────────────────────────────────────────────────────────
+  - id: a2_join_workflow
+    tier: 7
+    category: pipeline
+    prompt: |
+      Create a DSS project called BENCH_JOIN with name "Join Workflow".
+
+      1. Upload 'employees' (10 rows): employee_id, name, department_id, salary
+      2. Upload 'departments' (4 rows): department_id, dept_name, budget
+      3. Upload 'projects' (8 rows): project_id, department_id, project_name, deadline
+
+      4. Create a Python recipe 'compute_dept_overview' that:
+         - Takes ALL THREE datasets as input
+         - Outputs to 'dept_overview'
+         - Code: join employees to departments on department_id,
+           count employees per dept, sum salaries, count projects per dept
+
+      5. Set working Python code and verify the flow graph shows 3 inputs → 1 output.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create.*compute_dept_overview"
+          required: true
+        - pattern: "dku recipe add-input"
+          required: true
+        - pattern: "dku recipe set-code"
+          required: true
+      verify:
+        - command: "dku flow graph -P BENCH_JOIN -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A3: Flow operations — zones, propagate, check
+  # Tests: flow zones, schema propagation, flow checks
+  # ──────────────────────────────────────────────────────────
+  - id: a3_flow_operations
+    tier: 7
+    category: flow
+    prompt: |
+      Create a DSS project called BENCH_FLOW with name "Flow Operations".
+
+      1. Upload dataset 'source_data' with 15 rows:
+         id, name, value, category
+
+      2. Create a Python recipe 'compute_processed' that takes source_data
+         and outputs to 'processed_data'. Set a simple passthrough script.
+
+      3. Now explore the flow:
+         - Show the full flow graph
+         - List flow zones
+         - Create a new zone called "Staging"
+         - Show the sources of 'processed_data' (upstream dependencies)
+         - Show the successors of 'source_data' (downstream dependencies)
+         - Run a flow consistency check
+
+      4. Report what you found about the flow structure.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku flow graph"
+          required: true
+        - pattern: "dku flow zones"
+          required: true
+        - pattern: "dku flow create-zone"
+          required: true
+        - pattern: "dku flow (sources|successors)"
+          required: true
+        - pattern: "dku flow check"
+          required: true
+      verify:
+        - command: "dku flow zones -P BENCH_FLOW -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A4: Agent creation workflow
+  # Tests: agent create, set-llm, add-tool, LLM discovery
+  # ──────────────────────────────────────────────────────────
+  - id: a4_agent_creation
+    tier: 7
+    category: agent
+    prompt: |
+      Create a DSS project called BENCH_AGENT with name "Agent Benchmark".
+
+      1. List available LLMs to find a completion model (e.g., GPT-4o or similar).
+
+      2. Create a visual agent called 'support_bot' of type TOOLS_USING_AGENT.
+
+      3. Set the agent's LLM to an available completion model.
+
+      4. List available agent tools in the project.
+
+      5. Show the agent's configuration and status.
+
+      6. Report what models are available and the agent's setup.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku llm list"
+          required: true
+        - pattern: "dku agent create.*support_bot"
+          required: true
+        - pattern: "dku agent set-llm"
+          required: true
+        - pattern: "dku agent (get|status)"
+          required: true
+      verify:
+        - command: "dku agent list -P BENCH_AGENT -o json"
+          expect_contains: "support_bot"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A5: Knowledge bank + embedding + search
+  # Tests: GenAI workflow, embedding model discovery, KB search
+  # ──────────────────────────────────────────────────────────
+  - id: a5_knowledge_search
+    tier: 7
+    category: genai
+    prompt: |
+      Create a DSS project called BENCH_KB with name "Knowledge Benchmark".
+
+      1. Create and upload a dataset 'support_articles' with 15 rows:
+         article_id, title, content, category
+         Content should be realistic IT support articles (password reset, VPN setup,
+         software install, network issues, etc.)
+
+      2. Find an available embedding model using the CLI.
+
+      3. Create a knowledge bank called 'support_kb' with the embedding model.
+
+      4. Create an embedding recipe that embeds 'support_articles' into 'support_kb'.
+
+      5. Try to build the knowledge bank (it's ok if this fails or times out —
+         just run the build command).
+
+      6. Try searching the knowledge bank for "how to reset password".
+
+      7. Report what worked and what didn't.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku llm list.*TEXT_EMBEDDING"
+          required: true
+        - pattern: "dku knowledge create"
+          required: true
+        - pattern: "dku recipe create-embed"
+          required: true
+        - pattern: "dku knowledge (build|search)"
+          required: false
+      verify:
+        - command: "dku knowledge list -P BENCH_KB -o json"
+          expect_contains: "support_kb"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.2
+
+  # ──────────────────────────────────────────────────────────
+  # A6: Library code + wiki + variables
+  # Tests: project metadata operations, library write
+  # ──────────────────────────────────────────────────────────
+  - id: a6_project_metadata
+    tier: 7
+    category: metadata
+    prompt: |
+      Create a DSS project called BENCH_META with name "Metadata Benchmark".
+
+      Perform ALL of the following in as few CLI calls as possible:
+
+      1. LIBRARY: Create a directory structure and write files:
+         - python/utils/__init__.py (empty)
+         - python/utils/helpers.py (a module with 2 helper functions:
+           clean_text(s) that strips whitespace and lowercases,
+           parse_date(s) that converts string to datetime)
+         - python/config.py (a CONFIG dict with keys: version, env, debug)
+
+      2. WIKI: Create 3 wiki articles:
+         - "Project Overview" with a description of the project
+         - "Data Dictionary" with a mock data dictionary
+         - "Runbook" with operational instructions
+
+      3. VARIABLES: Set project variables:
+         environment=benchmark, version=2.0, debug=false, owner=benchmark_agent
+
+      4. Verify: list library files, wiki articles, and project variables.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku library write"
+          required: true
+        - pattern: "dku library mkdir"
+          required: false
+        - pattern: "dku wiki create"
+          required: true
+        - pattern: "dku project set-variables"
+          required: true
+      verify:
+        - command: "dku library list -P BENCH_META -o json"
+          expect_status: 0
+        - command: "dku wiki list -P BENCH_META -o json"
+          expect_status: 0
+        - command: "dku project variables -P BENCH_META -o json"
+          expect_contains: "benchmark"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.4
+
+  # ──────────────────────────────────────────────────────────
+  # A7: Scenario lifecycle — create, configure, run, monitor
+  # Tests: scenario CRUD, definition manipulation, job monitoring
+  # ──────────────────────────────────────────────────────────
+  - id: a7_scenario_lifecycle
+    tier: 7
+    category: scenario
+    prompt: |
+      Create a DSS project called BENCH_SCENARIO with name "Scenario Benchmark".
+
+      1. Upload a dataset 'metrics' (10 rows): date, metric, value
+
+      2. Create a Python recipe 'compute_daily_report' that reads metrics
+         and outputs to 'daily_report'. Set simple aggregation code.
+
+      3. Create a scenario called 'daily_pipeline'.
+
+      4. Get the scenario definition to inspect its structure.
+
+      5. List all scenarios in the project.
+
+      6. Run the scenario and check its status.
+
+      7. List recent jobs in the project.
+
+      8. Report the scenario status and any job results.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku recipe create"
+          required: true
+        - pattern: "dku scenario create.*daily_pipeline"
+          required: true
+        - pattern: "dku scenario (run|status)"
+          required: true
+        - pattern: "dku job (list|status)"
+          required: false
+      verify:
+        - command: "dku scenario list -P BENCH_SCENARIO -o json"
+          expect_contains: "daily_pipeline"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A8: Bundle export workflow
+  # Tests: bundle export, download, listing
+  # ──────────────────────────────────────────────────────────
+  - id: a8_bundle_export
+    tier: 7
+    category: devops
+    prompt: |
+      Create a DSS project called BENCH_BUNDLE with name "Bundle Benchmark".
+
+      1. Upload a simple dataset 'config_data' (5 rows): key, value
+
+      2. Export a project bundle called 'v1' from the project.
+
+      3. List all bundles in the project.
+
+      4. Download the bundle to /tmp/bench_bundle/.
+
+      5. Report the bundle list and whether the download succeeded.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku bundle export"
+          required: true
+        - pattern: "dku bundle list"
+          required: true
+        - pattern: "dku bundle download"
+          required: true
+      verify:
+        - command: "dku bundle list -P BENCH_BUNDLE -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A9: Project investigation / diagnostic
+  # Tests: inspecting an existing project, reading definitions,
+  #        understanding flow state, checking permissions
+  # ──────────────────────────────────────────────────────────
+  - id: a9_project_investigation
+    tier: 7
+    category: diagnostic
+    prompt: |
+      Investigate the existing DSS project BENCH_PIPELINE3 (or if it doesn't exist,
+      BENCH_PIPELINE or BENCH_ECOMMERCE — use whichever exists).
+
+      Perform a thorough investigation:
+
+      1. Get project info and variables
+      2. List all datasets with their schemas
+      3. List all recipes and get the code of any Python recipes
+      4. Show the flow graph
+      5. List any scenarios and their status
+      6. Check if there are any wiki articles
+      7. List recent jobs and their status
+
+      Produce a structured summary of what you found: how many datasets,
+      recipes, their connections, any issues or interesting patterns.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project (get|variables)"
+          required: true
+        - pattern: "dku dataset (list|schema)"
+          required: true
+        - pattern: "dku recipe (list|get-code)"
+          required: true
+        - pattern: "dku flow graph"
+          required: true
+        - pattern: "dku (scenario list|wiki list|job list)"
+          required: false
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 0.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A10: Full GenAI pipeline — embed + agent + search
+  # Tests: end-to-end GenAI, hardest single scenario
+  # ──────────────────────────────────────────────────────────
+  - id: a10_full_genai_pipeline
+    tier: 8
+    category: genai
+    prompt: |
+      Create a DSS project called BENCH_GENAI_FULL with name "Full GenAI Pipeline".
+
+      Build an end-to-end GenAI project:
+
+      1. DATASET: Upload 'product_docs' (20 rows):
+         doc_id, title, content, product_line
+         Content should be realistic product documentation paragraphs
+         covering features, troubleshooting, pricing, and API usage.
+
+      2. EMBEDDING: Find an embedding model, create knowledge bank 'product_kb',
+         create embedding recipe to embed product_docs into product_kb.
+
+      3. AGENT: Find a completion model (e.g., GPT-4o or similar).
+         Create a visual agent called 'product_assistant' of type TOOLS_USING_AGENT.
+         Set its LLM to the completion model.
+
+      4. LLM COMPLETION: Use the CLI to send a test completion to one of
+         the available LLMs: "What is 2+2?" — just to verify LLM connectivity.
+
+      5. METADATA: Set project variables:
+         purpose=genai_benchmark, embedding_model=<the one you used>, version=1.0
+
+      6. WIKI: Create a wiki article "Architecture" describing the GenAI pipeline.
+
+      7. Verify: show flow graph, list knowledge banks, list agents,
+         show project variables.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku llm list"
+          required: true
+        - pattern: "dku knowledge create"
+          required: true
+        - pattern: "dku recipe create-embed"
+          required: true
+        - pattern: "dku agent create"
+          required: true
+        - pattern: "dku agent set-llm"
+          required: true
+        - pattern: "dku llm completion"
+          required: false
+        - pattern: "dku project set-variables"
+          required: false
+        - pattern: "dku wiki create"
+          required: false
+      verify:
+        - command: "dku knowledge list -P BENCH_GENAI_FULL -o json"
+          expect_contains: "product_kb"
+        - command: "dku agent list -P BENCH_GENAI_FULL -o json"
+          expect_contains: "product_assistant"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.2
+
+  # ──────────────────────────────────────────────────────────
+  # A11: SQL exploration
+  # Tests: dku sql query, data analysis via SQL
+  # ──────────────────────────────────────────────────────────
+  - id: a11_sql_exploration
+    tier: 7
+    category: sql
+    prompt: |
+      Use the `dku sql query` command to explore what's available.
+
+      1. First, list connections to find a SQL-capable connection.
+
+      2. Run a simple SQL query against any available SQL connection:
+         SELECT 1 as test_value
+
+      3. If there's a usable database, try to list tables or run a
+         COUNT query.
+
+      4. Report what SQL connections are available and whether queries work.
+         If no SQL connections exist, report that as a finding.
+    needs_project: false
+    timeout: 180
+    expect:
+      commands:
+        - pattern: "dku connection list"
+          required: true
+        - pattern: "dku sql query"
+          required: true
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 0.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A12: Code environment management
+  # Tests: code-env list, get, understanding env state
+  # ──────────────────────────────────────────────────────────
+  - id: a12_code_env_management
+    tier: 7
+    category: admin
+    prompt: |
+      Explore code environments on this DSS instance:
+
+      1. List all code environments.
+      2. For each Python code environment, get its details (packages, version).
+      3. Report: how many code envs exist, which Python versions,
+         what key packages are installed (pandas, numpy, etc.).
+      4. Are there any code envs with issues or missing packages?
+    needs_project: false
+    timeout: 180
+    expect:
+      commands:
+        - pattern: "dku code-env list"
+          required: true
+        - pattern: "dku code-env get"
+          required: true
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 0.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A13: Plugin operations
+  # Tests: plugin list, settings inspection
+  # ──────────────────────────────────────────────────────────
+  - id: a13_plugin_operations
+    tier: 7
+    category: admin
+    prompt: |
+      Explore plugins on this DSS instance:
+
+      1. List all installed plugins.
+      2. For any interesting plugins, check their settings.
+      3. Report: total plugin count, notable plugins (especially any
+         GenAI-related plugins), and their versions.
+    needs_project: false
+    timeout: 180
+    expect:
+      commands:
+        - pattern: "dku plugin list"
+          required: true
+        - pattern: "dku plugin settings"
+          required: false
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 0.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A14: Multi-project operations
+  # Tests: cross-project commands, project duplication, export
+  # ──────────────────────────────────────────────────────────
+  - id: a14_multi_project_ops
+    tier: 8
+    category: admin
+    prompt: |
+      Perform cross-project operations:
+
+      1. List ALL projects on this DSS instance.
+      2. Find all projects whose key starts with "BENCH_".
+      3. For each BENCH project, show its dataset count and recipe count.
+      4. Duplicate one of the BENCH projects to BENCH_CLONE.
+      5. Export the cloned project to /tmp/bench_clone_export.zip.
+
+      Report a summary table of all benchmark projects with their asset counts.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project list"
+          required: true
+        - pattern: "dku dataset list"
+          required: true
+        - pattern: "dku project duplicate"
+          required: true
+        - pattern: "dku project export"
+          required: true
+      verify:
+        - command: "dku project get BENCH_CLONE -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A15: LLM completion & embeddings
+  # Tests: direct LLM interaction via CLI
+  # ──────────────────────────────────────────────────────────
+  - id: a15_llm_interaction
+    tier: 7
+    category: genai
+    prompt: |
+      Use the dku CLI to interact with LLMs directly:
+
+      1. List all available completion models.
+      2. List all available embedding models (hint: use --purpose flag).
+      3. Send a completion request to an available model:
+         "Explain what Dataiku DSS is in one sentence."
+      4. Send an embeddings request to an available embedding model
+         with the text: "machine learning pipeline"
+      5. Report what models are available and the responses you got.
+    needs_project: true
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku llm list"
+          required: true
+        - pattern: "dku llm list.*TEXT_EMBEDDING"
+          required: true
+        - pattern: "dku llm completion"
+          required: true
+        - pattern: "dku llm embeddings"
+          required: false
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 0.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A16: Stress test — maximum complexity single prompt
+  # Tests: everything at once, the "can you do it all?" test
+  # ──────────────────────────────────────────────────────────
+  - id: a16_stress_test
+    tier: 8
+    category: stress
+    prompt: |
+      Create a complete analytics platform in DSS project BENCH_STRESS
+      with name "Stress Test".
+
+      You MUST complete ALL of these steps:
+
+      1. DATASETS (3): Upload synthetic data:
+         - 'transactions' (30 rows): tx_id, user_id, amount, category, timestamp
+         - 'users' (10 rows): user_id, name, segment, join_date
+         - 'categories' (5 rows): category, description, department
+
+      2. RECIPES (3): Build a pipeline:
+         - 'compute_enriched_tx': joins transactions+users on user_id → enriched_tx
+         - 'compute_category_stats': joins enriched_tx+categories → category_stats
+         - 'compute_executive_summary': aggregates category_stats → executive_summary
+
+      3. Set working Python code for all 3 recipes that actually does the
+         joins and aggregations correctly.
+
+      4. LIBRARY: Write python/analytics/metrics.py with helper functions.
+
+      5. SCENARIO: Create scenario 'nightly_build'.
+
+      6. VARIABLES: Set version=1.0, env=benchmark, pipeline_stages=3.
+
+      7. WIKI: Create "Data Dictionary" wiki article.
+
+      8. VERIFY: Show flow graph, dataset list, recipe list, scenario list.
+
+      Do this as efficiently as possible — minimize CLI calls.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create"
+          required: true
+        - pattern: "dku recipe set-code"
+          required: true
+        - pattern: "dku recipe add-input"
+          required: true
+        - pattern: "dku library write"
+          required: true
+        - pattern: "dku scenario create"
+          required: true
+        - pattern: "dku project set-variables"
+          required: true
+        - pattern: "dku wiki create"
+          required: true
+      verify:
+        - command: "dku recipe list -P BENCH_STRESS -o json"
+          expect_contains: "compute_executive_summary"
+        - command: "dku scenario list -P BENCH_STRESS -o json"
+          expect_contains: "nightly_build"
+        - command: "dku wiki list -P BENCH_STRESS -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.4
+
+  # ──────────────────────────────────────────────────────────
+  # A17: Wiki CRUD lifecycle — create, update, get, delete
+  # Tests: wiki create, update, get, delete (new commands)
+  # ──────────────────────────────────────────────────────────
+  - id: a17_wiki_lifecycle
+    tier: 7
+    category: metadata
+    prompt: |
+      Create a DSS project called BENCH_WIKI with name "Wiki Lifecycle Test".
+
+      Perform a full wiki article lifecycle:
+
+      1. Create a wiki article titled "Architecture" with body describing
+         a fictional data pipeline architecture (at least 3 paragraphs).
+
+      2. Create a second article titled "Runbook" with body describing
+         operational procedures.
+
+      3. List all wiki articles to verify both exist.
+
+      4. Get the "Architecture" article to read its content.
+
+      5. Update the "Architecture" article: change its body to include
+         a new section about "Performance Monitoring".
+
+      6. Update the "Runbook" article: rename it to "Operations Guide"
+         using the --title flag.
+
+      7. List articles again to verify the rename.
+
+      8. Delete the original "Architecture" article (use --confirm).
+
+      9. List articles one final time to confirm only one remains.
+
+      Report what you did at each step.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku wiki create"
+          required: true
+        - pattern: "dku wiki list"
+          required: true
+        - pattern: "dku wiki get"
+          required: true
+        - pattern: "dku wiki update"
+          required: true
+        - pattern: "dku wiki delete.*--(confirm|yes)"
+          required: true
+      verify:
+        - command: "dku wiki list -P BENCH_WIKI -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A18: Project metadata management — set-metadata, description
+  # Tests: project set-metadata, create with description, variables
+  # ──────────────────────────────────────────────────────────
+  - id: a18_project_metadata
+    tier: 7
+    category: metadata
+    prompt: |
+      Create a DSS project called BENCH_PROJMETA with name "Metadata Test".
+
+      1. Create the project with an initial description:
+         "Initial benchmark project for testing metadata operations."
+
+      2. Verify the project was created: get the project details.
+
+      3. Update the project description to:
+         "Production analytics pipeline — processes daily sales data,
+         generates reports, and feeds downstream ML models."
+
+      4. Update the project name to "Sales Analytics Platform".
+
+      5. Get the project details again to verify the changes took effect.
+
+      6. Set project variables: department=analytics, stage=production,
+         version=2.1, owner=data_team
+
+      7. Create a wiki article "Project Overview" that describes the
+         project's purpose and architecture.
+
+      8. Set project tags if the command supports it.
+
+      9. Report the final state of the project metadata.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create.*--description"
+          required: true
+        - pattern: "dku project set-metadata"
+          required: true
+        - pattern: "dku project get"
+          required: true
+        - pattern: "dku project set-variables"
+          required: true
+        - pattern: "dku wiki create"
+          required: true
+      verify:
+        - command: "dku project get BENCH_PROJMETA -o json"
+          expect_status: 0
+        - command: "dku project variables -P BENCH_PROJMETA -o json"
+          expect_contains: "analytics"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A19: Documentation-heavy project — wiki + library + variables
+  # Tests: comprehensive project documentation workflow
+  # ──────────────────────────────────────────────────────────
+  - id: a19_documented_project
+    tier: 7
+    category: metadata
+    prompt: |
+      Create a well-documented DSS project called BENCH_DOCS with name
+      "Well-Documented Project" and description "A showcase of DSS project
+      documentation best practices."
+
+      Build comprehensive documentation:
+
+      1. WIKI ARTICLES (create 4):
+         - "Project Overview": high-level description, objectives, stakeholders
+         - "Data Dictionary": describe 3 fictional datasets with column definitions
+         - "Pipeline Architecture": describe a 3-stage ETL pipeline
+         - "Runbook": operational procedures, troubleshooting, contacts
+
+      2. LIBRARY CODE: Write utility modules:
+         - python/utils/__init__.py (empty)
+         - python/utils/validators.py (3 validation functions: validate_email,
+           validate_date, validate_amount — simple implementations)
+         - python/config.py (CONFIG dict with project settings)
+
+      3. VARIABLES: Set project variables:
+         environment=production, data_owner=analytics_team,
+         refresh_schedule=daily, alert_email=team@example.com,
+         version=1.0, last_reviewed=2024-01-15
+
+      4. DATASETS: Upload a small 'sample_data' dataset (5 rows) to make
+         the project non-empty.
+
+      5. Verify everything: list wiki articles, library files, variables,
+         and datasets. Show the project details.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku project create.*--description"
+          required: true
+        - pattern: "dku wiki create"
+          required: true
+        - pattern: "dku library write"
+          required: true
+        - pattern: "dku library mkdir"
+          required: false
+        - pattern: "dku project set-variables"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+      verify:
+        - command: "dku wiki list -P BENCH_DOCS -o json"
+          expect_status: 0
+        - command: "dku library list -P BENCH_DOCS -o json"
+          expect_status: 0
+        - command: "dku project variables -P BENCH_DOCS -o json"
+          expect_contains: "analytics_team"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # A20: Full project with description + wiki updates (tier 8)
+  # Tests: end-to-end metadata-rich project, highest complexity
+  # ──────────────────────────────────────────────────────────
+  - id: a20_metadata_rich_project
+    tier: 8
+    category: metadata
+    prompt: |
+      Build a complete, polished DSS project BENCH_POLISHED with name
+      "Customer Churn Analytics" and a professional description.
+
+      This project should look like it was set up by an experienced
+      data engineer — not a benchmark. Make it look real.
+
+      1. PROJECT SETUP: Create with a meaningful description about
+         customer churn prediction for a SaaS company.
+
+      2. DATASETS (2): Upload realistic synthetic data:
+         - 'customers' (15 rows): customer_id, name, plan, monthly_spend,
+           tenure_months, support_tickets, last_login_days_ago
+         - 'churn_events' (8 rows): event_id, customer_id, churn_date, reason
+
+      3. RECIPES (2): Build a pipeline:
+         - 'compute_churn_features': join customers + churn_events, compute
+           churn_risk features → output 'churn_features'
+         - 'compute_churn_summary': aggregate by plan type → output 'churn_summary'
+
+      4. WIKI (3 articles):
+         - "Project Overview" — business context, objectives, key stakeholders
+         - "Data Sources" — where data comes from, refresh frequency, quality notes
+         - "Model Documentation" — feature engineering approach, next steps
+
+      5. LIBRARY: Write python/analytics/churn_utils.py with helper functions
+         for churn score computation.
+
+      6. VARIABLES: department=data_science, model_version=1.2,
+         training_date=2024-06-15, target_metric=f1_score
+
+      7. After building everything, update the project description to include
+         a summary of what was built (e.g., "2 datasets, 2 recipes, 3 wiki articles").
+
+      8. Show the complete project state: flow graph, datasets, recipes,
+         wiki articles, variables, and project details.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create"
+          required: true
+        - pattern: "dku recipe set-code"
+          required: true
+        - pattern: "dku wiki create"
+          required: true
+        - pattern: "dku library write"
+          required: true
+        - pattern: "dku project set-variables"
+          required: true
+        - pattern: "dku project set-metadata"
+          required: true
+      verify:
+        - command: "dku project get BENCH_POLISHED -o json"
+          expect_status: 0
+        - command: "dku wiki list -P BENCH_POLISHED -o json"
+          expect_status: 0
+        - command: "dku recipe list -P BENCH_POLISHED -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3

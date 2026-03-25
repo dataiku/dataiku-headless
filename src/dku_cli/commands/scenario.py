@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import error, info, render, render_raw, resolve_output_format, success
+from dku_cli.output import error, info, render, render_raw, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS scenarios.")
 
@@ -136,6 +136,7 @@ def create(
     definition: str | None = typer.Option(
         None, "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
     ),
+    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if scenario already exists"),
 ) -> None:
     """Create a new scenario."""
     project_key = resolve_project(project)
@@ -143,12 +144,16 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         defn = read_json_input(definition)
-        kwargs: dict = {"name": name, "type": type}
+        # dataikuapi signature: create_scenario(scenario_name, type, definition)
+        kwargs: dict = {"scenario_name": name, "type": type}
         if defn is not None:
             kwargs["definition"] = defn
         scenario = proj.create_scenario(**kwargs)
         success(f"Created scenario '{name}' (id={scenario.id})")
     except Exception as e:
+        if if_not_exists and is_already_exists_error(e):
+            warn(f"Scenario '{name}' already exists in {project_key}, skipping create")
+            return
         handle_api_error(e)
 
 

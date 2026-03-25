@@ -143,8 +143,12 @@ class Scorer:
             if violations:
                 scores["text_content"] = scores.get("text_content", 1.0) * 0.5
 
-        # 9. Efficiency (fewer tokens = better)
-        scores["efficiency"] = min(1.0, 10_000 / max(result.input_tokens, 1))
+        # 9. Efficiency — based on output tokens (reflects agent work, not context loading)
+        # and number of bash calls (fewer = more decisive)
+        bash_count = len(result.bash_commands)
+        output_efficiency = min(1.0, 2_000 / max(result.output_tokens, 1))
+        call_efficiency = 1.0 if bash_count <= 2 else 0.5 if bash_count <= 4 else 0.2
+        scores["efficiency"] = (output_efficiency + call_efficiency) / 2
 
         # Weighted aggregate
         rubric = test.rubric.model_dump()

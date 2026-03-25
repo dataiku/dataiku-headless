@@ -52,6 +52,12 @@ def is_not_found_error(e: Exception) -> bool:
     )
 
 
+def is_already_exists_error(e: Exception) -> bool:
+    """Return whether an exception represents a DSS already-exists condition."""
+    msg = str(e).lower()
+    return "already exists" in msg or "409" in msg or "duplicate" in msg
+
+
 def handle_api_error(e: Exception) -> None:
     """Convert dataikuapi exceptions to friendly messages and exit."""
     msg = str(e)
@@ -87,6 +93,14 @@ def handle_api_error(e: Exception) -> None:
         details = [
             f"Cannot connect to DSS: {msg}",
             "Check the URL and ensure DSS is running.",
+        ]
+    elif is_already_exists_error(e):
+        status = 1
+        code = "already_exists"
+        details = [
+            f"Resource already exists: {msg}",
+            "Use --if-not-exists to skip creation when the resource exists.",
+            "Or delete it first with --yes to skip confirmation.",
         ]
     else:
         details = [f"DSS API error: {msg}"]

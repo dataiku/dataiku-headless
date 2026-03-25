@@ -769,7 +769,49 @@ Understanding the execution order:
 The Dataiku Quick Test UI issues these calls:
 1. `set_config()` - One-time initialization
 2. `get_descriptor()` - Get tool schema
-3. `invoke()` - Execute with test input
+3. `load_sample_query()` - Pre-fill test input (optional)
+4. `invoke()` - Execute with test input
+
+### load_sample_query() — Pre-fill Quick Test Input
+
+Optional method that provides default input for the Quick Test UI. Without it, users see an empty input field:
+
+```python
+class MyTool(BaseAgentTool):
+    def load_sample_query(self, tool):
+        """Pre-fill Quick Test with a useful example."""
+        return {"input": {"question": "What are the top 10 customers by revenue?"}}
+```
+
+### inputSchema Best Practices
+
+Use `$id` for schema identification (follows JSON Schema spec):
+
+```python
+def get_descriptor(self, tool):
+    return {
+        "description": build_descriptor(self.model_name, self.model_desc),
+        "inputSchema": {
+            "$id": "https://dataiku.com/agents/tools/my-tool/input",
+            "title": "My Tool Input",
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "Natural language question"}
+            },
+            "required": ["question"],
+        },
+    }
+```
+
+Build descriptions dynamically from config for better LLM tool selection:
+
+```python
+def build_descriptor(model_name, model_desc):
+    desc = f"Query the '{model_name}' semantic model using natural language."
+    if model_desc:
+        desc += f" This model contains: {model_desc}"
+    return desc
+```
 
 ---
 

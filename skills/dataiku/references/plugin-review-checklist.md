@@ -1,6 +1,6 @@
 # Plugin Review Checklist
 
-Canonical checklist for reviewing Dataiku DSS plugins. Used by both the `review-plugin` skill and the `plugin-reviewer` agent.
+Canonical checklist for reviewing Dataiku DSS plugins. Used by the `plugin-reviewer` agent and the `dataiku` skill's scaffolding workflow.
 
 ## Structure
 - [ ] `plugin.json` is valid JSON with id, version, meta
@@ -23,8 +23,18 @@ Reference: `plugin-structure.md`
 - [ ] `tool.json` schema matches what `get_descriptor()` returns
 - [ ] Tool description is clear and helps the LLM use it correctly
 - [ ] Error handling returns user-friendly messages
+- [ ] `load_sample_query()` provides Quick Test defaults (if applicable)
+- [ ] If tool runs SQL: `enduser_sql_execution` param for security delegation
 
-Reference: `llm-tools.md`
+### Agentic Tools (Internal Agent Loop)
+- [ ] Internal tools use `@tool` decorator (NOT `BaseAgentTool`)
+- [ ] LangGraph `recursion_limit` is configurable
+- [ ] `RuntimeContext` dataclass carries state (not global variables)
+- [ ] Caches prevent redundant API calls during agent loop
+- [ ] `LangchainToDKUTracer` bridges callbacks → DSS trace
+- [ ] `langgraph` + `langchain-core` in `requirements.txt`
+
+Reference: `llm-tools.md`, `agent-tool-patterns.md`
 
 ## Recipes
 - [ ] Uses `get_recipe_config()`, `get_input_names_for_role()`, `get_output_names_for_role()`

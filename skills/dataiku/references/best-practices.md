@@ -118,6 +118,129 @@ class ProcessingConfig:
             raise ValueError("temperature must be between 0 and 2")
 ```
 
+### 4. Thread-Safe Config with ContextVar (Advanced)
+
+For plugins that serve both webapp and agent tool contexts, use `ContextVar` for thread-safe config overrides:
+
+```python
+# python-lib/my_plugin/config.py
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
+from typing import Any, Iterator, Optional
+
+@dataclass
+class AppConfig:
+    dss_project_key: str
+    llm_id: Optional[str] = None
+    max_rows_per_query: int = 1000
+    agent_recursion_limit: int = 100
+    sources_records_limit: int = 50
+
+# Global instance + thread-safe override
+_config: Optional[AppConfig] = None
+_config_override: ContextVar[Optional[AppConfig]] = ContextVar("app_config_override", default=None)
+
+def load_webapp_config() -> AppConfig:
+    """Load from DSS webapp context."""
+    global _config
+    from dataiku.customwebapp import get_webapp_config
+    cfg = get_webapp_config()
+    _config = AppConfig(
+        dss_project_key=dataiku.api_client().get_default_project().project_key,
+        llm_id=cfg.get("llm_id"),
+        max_rows_per_query=int(cfg.get("max_rows_per_query", 1000)),
+    )
+    return _config
+
+def load_tool_config(tool_config: dict) -> AppConfig:
+    """Load from agent tool set_config()."""
+    global _config
+    _config = AppConfig(
+        dss_project_key=tool_config.get("project_key") or _resolve_project_key(),
+        llm_id=tool_config.get("llm_id"),
+        max_rows_per_query=int(tool_config.get("max_rows_per_query", 1000)),
+    )
+    return _config
+
+def load_local_config() -> AppConfig:
+    """Load from .env for local development."""
+    global _config
+    from dotenv import load_dotenv
+    load_dotenv()
+    _config = AppConfig(
+        dss_project_key=os.getenv("DKU_CURRENT_PROJECT_KEY"),
+        llm_id=os.getenv("LLM_ID"),
+    )
+    return _config
+
+def get_app_config() -> AppConfig:
+    """Get config — checks ContextVar override first, then global."""
+    override = _config_override.get()
+    if override is not None:
+        return override
+    if _config is None:
+        raise RuntimeError("AppConfig not initialized. Call load_*_config() first.")
+    return _config
+
+@contextmanager
+def override_app_config(**overrides: Any) -> Iterator[AppConfig]:
+    """Temporarily override config for current context (thread-safe)."""
+    if _config is None:
+        raise RuntimeError("AppConfig not initialized.")
+    merged = replace(_config, **overrides)
+    token = _config_override.set(merged)
+    try:
+        yield merged
+    finally:
+        _config_override.reset(token)
+```
+
+**Why ContextVar?** Without it, a webapp request and an agent tool invocation could stomp on each other's config. `ContextVar` provides per-coroutine/per-thread isolation without explicit thread-local storage.
+
+### 5. Service Factory Pattern
+
+Wrap DSS API quirks behind a service layer. Inject the client for testability:
+
+```python
+# python-lib/my_plugin/services/factory.py
+from my_plugin.services.client import LocalClient
+from my_plugin.services.service import MyService
+
+def get_service(client: LocalClient = None) -> MyService:
+    if client is None:
+        client = LocalClient()
+    return MyService(client=client)
+
+# python-lib/my_plugin/services/client.py
+class LocalClient:
+    """Wraps dataikuapi, normalizes quirks."""
+    def __init__(self, project_key=None):
+        import dataiku
+        self._client = dataiku.api_client()
+        if project_key:
+            self._project = self._client.get_project(project_key)
+        else:
+            self._project = self._client.get_default_project()
+
+    def list_models(self):
+        # Normalize DSS camelCase → snake_case, handle API quirks
+        raw = self._project._perform_json("GET", "/semantic-models/")
+        return [Model.from_dict(m) for m in raw]
+
+# python-lib/my_plugin/services/service.py
+class MyService:
+    """Business logic — zero DSS imports."""
+    def __init__(self, client):
+        self.client = client
+
+    def get_active_version(self, model_id):
+        model = self.client.get_model(model_id)
+        return next(v for v in model.versions if v.id == model.active_version_id)
+```
+
+**Benefits:** Core service is testable without DSS. Client abstracts API changes. Factory makes DI explicit.
+
 ---
 
 ## Error Handling Patterns
@@ -378,6 +501,160 @@ lazy = LazyLoader()
 # Usage in backend code
 def get_llm(llm_id: str):
     return lazy.project.get_llm(llm_id)
+```
+
+---
+
+## Production Logging Patterns
+
+### Request Context Injection
+
+Inject request metadata (request_id, user, method, path) into every log record. Works for both Flask webapp requests and agent tool invocations:
+
+```python
+# python-lib/my_plugin/logging_utils.py
+import contextvars
+import logging
+import time
+import uuid
+from contextlib import contextmanager
+
+try:
+    from flask import g, has_request_context, request
+except Exception:
+    g = None
+    request = None
+    def has_request_context(): return False
+
+_LOG_CONTEXT: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "log_context", default=None
+)
+
+class RequestContextFilter(logging.Filter):
+    """Inject request context into every log record."""
+    def filter(self, record):
+        request_id = user = method = path = "-"
+
+        if has_request_context():
+            # Flask webapp context
+            request_id = getattr(g, "request_id", "-")
+            user = getattr(g, "authIdentifier", "-")
+            method = request.method if request else "-"
+            path = request.path if request else "-"
+        else:
+            # Agent tool / background context
+            ctx = _LOG_CONTEXT.get()
+            if ctx:
+                request_id = ctx.get("request_id", "-")
+                user = ctx.get("user", "-")
+
+        record.request_id = request_id
+        record.user = user
+        record.method = method
+        record.path = path
+        return True
+
+@contextmanager
+def log_context(*, request_id=None, user=None, method=None, path=None):
+    """Attach context to logs outside Flask scope (for agent tools)."""
+    current = _LOG_CONTEXT.get() or {}
+    merged = {**current}
+    if request_id: merged["request_id"] = request_id
+    if user: merged["user"] = user
+    if method: merged["method"] = method
+    if path: merged["path"] = path
+
+    token = _LOG_CONTEXT.set(merged)
+    try:
+        yield
+    finally:
+        _LOG_CONTEXT.reset(token)
+```
+
+Usage in agent tools:
+```python
+def invoke(self, input, trace):
+    with log_context(request_id=str(uuid.uuid4()), user=resolve_tool_user(),
+                     method="TOOL", path="/agent-tools/my-tool"):
+        logger.info("Tool invoked with question: %s", question[:100])
+        # All logs within this block include request_id, user, etc.
+```
+
+### Sensitive Data Redaction
+
+Prevent credentials from leaking into DSS logs:
+
+```python
+SENSITIVE_LOG_KEYS = {"authorization", "password", "token", "access_token", "api_key", "secret"}
+
+def summarize_for_logging(value, *, max_chars=1000, max_items=25, max_depth=4):
+    """Size-limited, redacted structure for safe logging."""
+    if max_depth <= 0: return "<max-depth>"
+    if value is None or isinstance(value, (bool, int, float)): return value
+    if isinstance(value, str):
+        return value[:max_chars] + f"... [{len(value)-max_chars} truncated]" if len(value) > max_chars else value
+    if isinstance(value, dict):
+        out = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= max_items:
+                out["__truncated__"] = len(value) - max_items
+                break
+            if k.lower() in SENSITIVE_LOG_KEYS:
+                out[k] = "[redacted]"
+            else:
+                out[k] = summarize_for_logging(v, max_chars=max_chars, max_depth=max_depth-1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [summarize_for_logging(v, max_depth=max_depth-1) for v in value[:max_items]]
+    return str(value)[:max_chars]
+```
+
+### Request Timing Hooks
+
+Add before/after request hooks for automatic timing and audit logging:
+
+```python
+def install_request_logging_hooks(app):
+    if getattr(app, "_request_logging_installed", False):
+        return
+
+    @app.before_request
+    def _before():
+        g.request_id = str(uuid.uuid4())
+        g.request_started_at = time.perf_counter()
+        g.authIdentifier = _resolve_request_user()
+
+    @app.after_request
+    def _after(response):
+        duration_ms = (time.perf_counter() - getattr(g, "request_started_at", 0)) * 1000
+        logger.info("Request completed: duration_ms=%.2f status=%s", duration_ms, response.status_code)
+        response.headers["X-Request-ID"] = getattr(g, "request_id", "-")
+        return response
+
+    app._request_logging_installed = True
+
+def _resolve_request_user():
+    """Resolve user from DSS browser headers."""
+    try:
+        headers = dict(request.headers)
+        auth = dataiku.api_client().get_auth_info_from_browser_headers(headers)
+        return auth["authIdentifier"]
+    except Exception:
+        return "-"
+```
+
+### Log Format
+
+```python
+fmt = (
+    "[%(asctime)s.%(msecs)03d] [%(threadName)s] [%(levelname)s] [%(name)s] "
+    "req_id=%(request_id)s user=%(user)s method=%(method)s path=%(path)s - %(message)s"
+)
+```
+
+This produces structured logs that are grep-friendly and correlatable by `req_id`:
+```
+[2026/03/25-14:30:01.234] [Thread-1] [INFO] [my_plugin.query] req_id=abc-123 user=admin method=POST path=/api/query - Executing query...
 ```
 
 ---

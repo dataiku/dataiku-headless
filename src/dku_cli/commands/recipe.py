@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
 import typer
 
-from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error, is_not_found_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import info, render, render_raw, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS recipes.")
+
+_KNOWN_RECIPE_TYPES = frozenset({
+    "python", "sql", "sql_script", "sql_query", "sync", "join", "split",
+    "group", "distinct", "topn", "sort", "window", "pivot", "stack",
+    "prepare", "sample", "filter", "download", "upload", "impala",
+    "hive", "pig", "spark_sql", "pyspark", "sparkr", "r",
+    "shell", "cpython", "streaming",
+})
 
 
 def _require_existing_dataset(proj, dataset_name: str, project_key: str, role: str) -> None:
@@ -220,22 +229,61 @@ def run(
 def create(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    type_name: str = typer.Option(..., "--type", "-t", help="Recipe type (e.g. python, sql)"),
-    input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset name"),
-    output_ds: str = typer.Option(..., "--output", "-o", help="Output dataset name"),
+    type_name: str = typer.Option(..., "--type", "-t", help="Recipe type: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", "--input-dataset", help="Input dataset name (must exist)"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name (auto-created for code recipes)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output FORMAT (table/json/csv). For output dataset, use --output-ds"),
 ) -> None:
-    """Create a new recipe."""
+    """Create a new recipe.
+
+    Prefer visual recipes over Python — use --type join, group, sort, distinct, etc.
+    Python/SQL are for logic that visual recipes can't express.
+    """
     project_key = resolve_project(project)
+    # Detect type passed as recipe name (e.g. `dku recipe create python ...`)
+    if recipe_name.lower() in _KNOWN_RECIPE_TYPES:
+        exit_with_error(
+            f"'{recipe_name}' looks like a recipe type, not a recipe name.",
+            code="invalid_argument",
+            details=[
+                f"Correct syntax: dku recipe create <NAME> --type {recipe_name} --input <DS> --output-ds <DS> -P <PROJ>",
+            ],
+        )
+    # Detect --output/--output-ds confusion
+    if output is not None and output.lower() not in ("table", "json", "csv"):
+        exit_with_error(
+            f"Invalid output format '{output}'.",
+            code="invalid_argument",
+            details=[
+                f"Did you mean --output-ds '{output}'?",
+                "Use --output-ds for the output dataset name, -o for output format (table/json/csv).",
+            ],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         builder = proj.new_recipe(type_name, recipe_name)
         builder.with_input(input_ds)
-        builder.with_existing_output(output_ds)
+        # CodeRecipeCreator (python, sql_script, etc.) only has with_output(),
+        # while visual recipe creators have with_existing_output().
+        if hasattr(builder, "with_existing_output"):
+            builder.with_existing_output(output_ds)
+        else:
+            builder.with_output(output_ds)
         builder.build()
         success(f"Created recipe '{recipe_name}' in {project_key}")
     except Exception as e:
+        if is_already_exists_error(e):
+            exit_with_error(
+                f"Output dataset '{output_ds}' already exists in {project_key}.",
+                code="already_exists",
+                details=[
+                    "Code recipes (python, sql) auto-create their output dataset.",
+                    f"Delete it first: dku dataset delete {output_ds} -P {project_key} --yes",
+                    "Or use a different --output-ds name.",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -260,7 +308,7 @@ def delete(
 def set_code(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    code: str = typer.Option(..., "--code", "-c", help="Code string or @file.py to read from file"),
+    code: str = typer.Option(..., "--code", "-c", help="Code: literal string, @file.py, or '-' for stdin"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the code payload of a code recipe."""
@@ -269,7 +317,9 @@ def set_code(
         client = get_client_from_ctx(ctx)
         recipe = client.get_project(project_key).get_recipe(recipe_name)
 
-        if code.startswith("@"):
+        if code == "-":
+            code_text = sys.stdin.read()
+        elif code.startswith("@"):
             code_text = Path(code[1:]).read_text()
         else:
             code_text = code
@@ -331,7 +381,7 @@ def set_definition(
 def add_input(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    ref: str = typer.Option(..., "--ref", "-r", help="Dataset reference to add as input"),
+    ref: str = typer.Argument(help="Dataset reference to add as input"),
     role: str = typer.Option("main", "--role", help="Input role"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -352,7 +402,7 @@ def add_input(
 def add_output(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    ref: str = typer.Option(..., "--ref", "-r", help="Dataset reference to add as output"),
+    ref: str = typer.Argument(help="Dataset reference to add as output"),
     role: str = typer.Option("main", "--role", help="Output role"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -413,7 +463,6 @@ def check_schema(
             )
 
         if updates.any_action_required():
-            from dku_cli.output import warn
             warn(f"Schema updates required ({updates.data.get('totalIncompatibilities', 0)} incompatibilities)")
             raise SystemExit(1)
         else:
@@ -449,6 +498,381 @@ def apply_schema(
         results = updates.apply()
         render_raw(results, output_format=output)
         success(f"Applied schema updates for '{recipe_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Visual recipe creation commands (prefer these over Python)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_output_dataset(client, proj, dataset_name: str, project_key: str) -> None:
+    """Create a managed output dataset if it doesn't exist (visual recipes need it).
+
+    Discovers the first connection with allowManagedDatasets=True.
+    Falls back to 'filesystem_managed' if discovery fails (admin-only API).
+    """
+    try:
+        proj.get_dataset(dataset_name).get_definition()
+    except Exception as e:
+        if is_not_found_error(e):
+            conn_name = "filesystem_managed"
+            try:
+                conns = client.list_connections()
+                for name, props in conns.items():
+                    if props.get("allowManagedDatasets"):
+                        conn_name = name
+                        break
+            except Exception:
+                pass  # list_connections is admin-only, fall back
+            builder = proj.new_managed_dataset(dataset_name)
+            builder.with_store_into(conn_name)
+            builder.create()
+            info(f"Auto-created managed output dataset '{dataset_name}' on '{conn_name}' in {project_key}")
+            return
+        raise
+
+
+def _auto_apply_schema(proj, recipe_name: str) -> None:
+    """Best-effort schema propagation after visual recipe creation."""
+    try:
+        recipe = proj.get_recipe(recipe_name)
+        updates = recipe.compute_schema_updates()
+        if updates.any_action_required():
+            updates.apply()
+            info(f"Auto-applied schema updates for '{recipe_name}'")
+    except Exception as exc:
+        warn(f"Could not auto-apply schema for '{recipe_name}': {exc}")
+
+
+@app.command("create-join")
+def create_join(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    inputs: list[str] = typer.Option(..., "--input", "-i", "--input-ds", help="Input datasets (repeat for multiple: -i ds1 -i ds2)"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    join_key: list[str] = typer.Option(None, "--join-key", "-k", help="Join key: 'col' (same name both sides) or 'left=right'. Repeatable."),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Join recipe. NEVER use Python for joins — use this instead.
+
+    Join keys: auto-detected from matching column names, or set explicitly
+    with --join-key. Use --join-key col (same name both sides) or
+    --join-key left_col=right_col (different names). Repeatable for composite keys.
+    """
+    project_key = resolve_project(project)
+    if len(inputs) < 2:
+        exit_with_error(
+            "Join recipes need at least 2 input datasets.",
+            code="invalid_argument",
+            details=["Use: dku recipe create-join NAME -i ds1 -i ds2 --output-ds out -P PROJ"],
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("join", recipe_name)
+        for ds in inputs:
+            builder.with_input(ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+
+        # Configure join keys if provided
+        if join_key:
+            from dataikuapi.dss.recipe import JoinRecipeSettings
+            recipe_obj = proj.get_recipe(recipe_name)
+            join_settings = recipe_obj.get_settings()
+            joins = join_settings.raw_joins
+            if joins:
+                target_join = joins[0]
+                for key_spec in join_key:
+                    if "=" in key_spec:
+                        col1, col2 = key_spec.split("=", 1)
+                    else:
+                        col1 = col2 = key_spec
+                    JoinRecipeSettings.add_condition_to_join(
+                        target_join, type="EQ",
+                        column1=col1.strip(), column2=col2.strip(),
+                    )
+                join_settings.save()
+                info(f"Join keys: {', '.join(join_key)}")
+            else:
+                warn("No joins found in recipe settings — join keys not applied")
+
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created join recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+_VALID_AGGS = frozenset({"sum", "avg", "min", "max", "count", "count_distinct", "concat", "stddev"})
+
+
+@app.command("create-group")
+def create_group(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    group_key: str = typer.Option(None, "--group-key", "-k", help="Column to group by (add more via set-definition)"),
+    agg: list[str] = typer.Option(None, "--agg", help="Aggregation: 'col:func1,func2'. Functions: sum, avg, min, max, count, count_distinct, concat, stddev. Repeatable."),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Group (aggregate) recipe. NEVER use Python for aggregations — use this instead.
+
+    Use --agg to configure aggregation functions: --agg 'amount:sum,avg' --agg 'id:count'.
+    Without --agg, defaults to COUNT per group. Use -k for the group key.
+    """
+    project_key = resolve_project(project)
+    # Validate --agg format early (before any API calls)
+    if agg:
+        for agg_spec in agg:
+            if ":" not in agg_spec:
+                exit_with_error(
+                    f"Invalid --agg format: '{agg_spec}'.",
+                    code="invalid_argument",
+                    details=["Expected: 'column:func1,func2'. Example: --agg 'amount:sum,avg'"],
+                )
+            _, funcs_str = agg_spec.split(":", 1)
+            funcs = {f.strip().lower() for f in funcs_str.split(",")}
+            invalid = funcs - _VALID_AGGS
+            if invalid:
+                exit_with_error(
+                    f"Unknown aggregation functions: {', '.join(sorted(invalid))}.",
+                    code="invalid_argument",
+                    details=[f"Valid: {', '.join(sorted(_VALID_AGGS))}"],
+                )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("grouping", recipe_name)
+        builder.with_input(input_ds)
+        if group_key:
+            builder.with_group_key(group_key)
+        builder.with_existing_output(output_ds)
+        builder.build()
+
+        # Configure aggregation functions if provided
+        if agg:
+            recipe_obj = proj.get_recipe(recipe_name)
+            group_settings = recipe_obj.get_settings()
+            for agg_spec in agg:
+                col, funcs_str = agg_spec.split(":", 1)
+                funcs = {f.strip().lower() for f in funcs_str.split(",")}
+                group_settings.set_column_aggregations(
+                    col.strip(), **{f: (f in funcs) for f in _VALID_AGGS},
+                )
+            group_settings.save()
+            info(f"Aggregations: {', '.join(agg)}")
+
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created group recipe '{recipe_name}' in {project_key}")
+        if group_key:
+            info(f"Grouped by: {group_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-stack")
+def create_stack(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    inputs: list[str] = typer.Option(..., "--input", "-i", "--input-ds", help="Input datasets to stack (repeat: -i ds1 -i ds2)"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Stack recipe. Vertically concatenates datasets (UNION).
+
+    Use this instead of pd.concat in Python.
+    """
+    project_key = resolve_project(project)
+    if len(inputs) < 2:
+        exit_with_error(
+            "Stack recipes need at least 2 input datasets.",
+            code="invalid_argument",
+            details=["Use: dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out -P PROJ"],
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("vstack", recipe_name)
+        for ds in inputs:
+            builder.with_input(ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created stack recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-distinct")
+def create_distinct(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Distinct recipe. Deduplicates rows.
+
+    Use this instead of df.drop_duplicates() in Python.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("distinct", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created distinct recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-sort")
+def create_sort(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Sort recipe.
+
+    Use this instead of df.sort_values() in Python.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("sort", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created sort recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-filter")
+def create_filter(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Sample/Filter recipe. Filters rows by condition.
+
+    Use this instead of df[df.col > X] in Python. Configure the filter
+    condition in the DSS UI or via set-definition.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("sampling", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created filter recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-window")
+def create_window(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Window recipe. Computes window/analytic functions (rank, lag, cumsum).
+
+    Use this instead of df.groupby().transform() in Python.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("window", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created window recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-split")
+def create_split(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="First output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Split recipe. Splits data into multiple datasets by condition.
+
+    Add more outputs via add-output. Configure split conditions in the DSS UI
+    or via set-definition.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("split", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created split recipe '{recipe_name}' in {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-topn")
+def create_topn(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(..., "--input", "-i", "--input-ds", help="Input dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", "--output-dataset", help="Output dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Top N recipe. Returns the top/bottom N rows.
+
+    Use this instead of df.nlargest() or df.head() in Python.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("topn", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_output(output_ds)
+        builder.build()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created topn recipe '{recipe_name}' in {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -514,7 +938,7 @@ def create_extract(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with documents"),
-    output_ds: str = typer.Option(..., "--output", help="Output dataset name"),
+    output_ds: str = typer.Option(..., "--output-ds", help="Output dataset name"),
     vlm: str = typer.Option(..., "--vlm", help="Vision LLM ID for content extraction"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -539,7 +963,7 @@ def create_llm_eval(
     recipe_name: str = typer.Argument(help="Recipe name"),
     input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with LLM outputs to evaluate"),
     eval_store: str = typer.Option(..., "--eval-store", help="LLM evaluation store ID"),
-    output_ds: str = typer.Option(None, "--output", help="Output scored dataset name"),
+    output_ds: str = typer.Option(None, "--output-ds", help="Output scored dataset name"),
     output_metrics: str = typer.Option(None, "--output-metrics", help="Metrics dataset name"),
     task_type: str = typer.Option(None, "--task-type", help="Task type (e.g. QUESTION_ANSWERING, SUMMARIZATION)"),
     metrics: str = typer.Option(None, "--metrics", help="Comma-separated metrics (e.g. answerRelevancy,faithfulness)"),
@@ -606,7 +1030,7 @@ def create_agent_eval(
     recipe_name: str = typer.Argument(help="Recipe name"),
     input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset with agent outputs"),
     eval_store: str = typer.Option(..., "--eval-store", help="Agent evaluation store ID"),
-    output_ds: str = typer.Option(None, "--output", help="Output scored dataset name"),
+    output_ds: str = typer.Option(None, "--output-ds", help="Output scored dataset name"),
     output_metrics: str = typer.Option(None, "--output-metrics", help="Metrics dataset name"),
     metrics: str = typer.Option(None, "--metrics", help="Comma-separated metrics (e.g. toolCallExactMatch,agentGoalAccuracyWithoutReference)"),
     completion_llm: str = typer.Option(None, "--completion-llm", help="Completion LLM ID"),

@@ -84,7 +84,7 @@ def test_recipe_create(patch_client):
         "recipe", "create", "new_recipe",
         "--type", "python",
         "--input", "input_ds",
-        "--output", "output_ds",
+        "--output-ds", "output_ds",
         "--project", "PROJ1",
     ])
     assert result.exit_code == 0
@@ -93,8 +93,75 @@ def test_recipe_create(patch_client):
     proj.new_recipe.assert_called_once_with("python", "new_recipe")
     builder = proj.new_recipe.return_value
     builder.with_input.assert_called_once_with("input_ds")
+    # MagicMock has all attrs, so hasattr picks with_existing_output
     builder.with_existing_output.assert_called_once_with("output_ds")
     builder.build.assert_called_once()
+
+
+def test_recipe_create_code_recipe_fallback(patch_client):
+    """CodeRecipeCreator lacks with_existing_output — falls back to with_output."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Remove with_existing_output to simulate CodeRecipeCreator
+    del builder.with_existing_output
+    result = runner.invoke(app, [
+        "recipe", "create", "code_recipe",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    builder.with_output.assert_called_once_with("output_ds")
+    builder.build.assert_called_once()
+
+
+def test_recipe_create_output_confusion_detected(patch_client):
+    """Using --output with a dataset name suggests --output-ds."""
+    result = runner.invoke(app, [
+        "recipe", "create", "my_recipe",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--output", "my_dataset",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "--output-ds" in result.output
+    assert "my_dataset" in result.output
+
+
+def test_recipe_create_output_dataset_alias(patch_client):
+    """--output-dataset works as an alias for --output-ds."""
+    result = runner.invoke(app, [
+        "recipe", "create", "my_recipe",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-dataset", "output_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    builder.with_existing_output.assert_called_once_with("output_ds")
+
+
+def test_recipe_create_output_ds_already_exists(patch_client):
+    """Recipe create gives specific error when output dataset already exists."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    builder.build.side_effect = Exception("already exists: dataset 'output_ds'")
+    result = runner.invoke(app, [
+        "recipe", "create", "new_recipe",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "already exists" in result.output
 
 
 def test_recipe_delete(patch_client):
@@ -149,6 +216,36 @@ def test_recipe_get_code_json(patch_client):
     assert "import dataiku" in result.output
 
 
+def test_recipe_set_code_from_stdin(patch_client):
+    stdin_code = "import dataiku\nprint('from stdin')"
+    result = runner.invoke(app, [
+        "recipe", "set-code", "recipe1",
+        "--code", "-",
+        "--project", "PROJ1",
+    ], input=stdin_code)
+    assert result.exit_code == 0
+    assert "Updated code" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    settings = recipe.get_settings()
+    payload_arg = settings.set_payload.call_args[0][0]
+    assert "import dataiku" in payload_arg
+    assert "from stdin" in payload_arg
+
+
+def test_recipe_create_type_as_name_detected(patch_client):
+    """Detect when recipe_name is actually a recipe type (e.g. 'python')."""
+    result = runner.invoke(app, [
+        "recipe", "create", "python",
+        "--type", "python",
+        "--input", "input_ds",
+        "--output-ds", "output_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "looks like a recipe type" in result.output
+    assert "dku recipe create <NAME> --type python" in result.output
+
+
 def test_recipe_set_definition(patch_client):
     new_def = json.dumps({"type": "sql", "customFields": {"key": "val"}})
     result = runner.invoke(app, [
@@ -165,8 +262,7 @@ def test_recipe_set_definition(patch_client):
 
 def test_recipe_add_input(patch_client):
     result = runner.invoke(app, [
-        "recipe", "add-input", "recipe1",
-        "--ref", "extra_input",
+        "recipe", "add-input", "recipe1", "extra_input",
         "--project", "PROJ1",
     ])
     assert result.exit_code == 0
@@ -179,8 +275,7 @@ def test_recipe_add_input(patch_client):
 
 def test_recipe_add_output(patch_client):
     result = runner.invoke(app, [
-        "recipe", "add-output", "recipe1",
-        "--ref", "extra_output",
+        "recipe", "add-output", "recipe1", "extra_output",
         "--project", "PROJ1",
     ])
     assert result.exit_code == 0
@@ -193,8 +288,7 @@ def test_recipe_add_output(patch_client):
 
 def test_recipe_add_input_custom_role(patch_client):
     result = runner.invoke(app, [
-        "recipe", "add-input", "recipe1",
-        "--ref", "lookup_ds",
+        "recipe", "add-input", "recipe1", "lookup_ds",
         "--role", "lookup",
         "--project", "PROJ1",
     ])
@@ -281,7 +375,7 @@ def test_recipe_create_extract(patch_client):
     result = runner.invoke(app, [
         "recipe", "create-extract", "my_extract",
         "--input", "documents",
-        "--output", "extracted_text",
+        "--output-ds", "extracted_text",
         "--vlm", "openai:gpt-4o",
         "--project", "PROJ1",
     ])
@@ -325,7 +419,7 @@ def test_recipe_create_llm_eval_full(patch_client):
         "recipe", "create-llm-eval", "rag_eval",
         "--input", "qa_data",
         "--eval-store", "eval_store_1",
-        "--output", "eval_scored",
+        "--output-ds", "eval_scored",
         "--output-metrics", "eval_metrics",
         "--task-type", "QUESTION_ANSWERING",
         "--metrics", "answerRelevancy,faithfulness",
@@ -384,7 +478,7 @@ def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
         "recipe", "create-llm-eval", "rag_eval",
         "--input", "qa_data",
         "--eval-store", "eval_store_1",
-        "--output", "eval_scored",
+        "--output-ds", "eval_scored",
         "--project", "PROJ1",
     ])
     assert result.exit_code == 1
@@ -422,7 +516,7 @@ def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_cli
         "recipe", "create-llm-eval", "rag_eval",
         "--input", "qa_data",
         "--eval-store", "eval_store_1",
-        "--output", "eval_scored",
+        "--output-ds", "eval_scored",
         "--project", "PROJ1",
     ])
     assert result.exit_code == 2
@@ -460,7 +554,7 @@ def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client)
         "recipe", "create-agent-eval", "agent_eval",
         "--input", "agent_runs",
         "--eval-store", "agent_store_1",
-        "--output", "eval_out",
+        "--output-ds", "eval_out",
         "--project", "PROJ1",
     ])
     assert result.exit_code == 1
@@ -496,7 +590,7 @@ def test_recipe_create_agent_eval_full(patch_client):
         "recipe", "create-agent-eval", "agent_eval",
         "--input", "agent_runs",
         "--eval-store", "agent_store_1",
-        "--output", "eval_out",
+        "--output-ds", "eval_out",
         "--output-metrics", "eval_metrics",
         "--metrics", "toolCallExactMatch,agentGoalAccuracyWithoutReference",
         "--completion-llm", "openai:gpt-4o",
@@ -598,3 +692,296 @@ def test_recipe_apply_schema_with_changes(patch_client):
     assert result.exit_code == 0
     assert "applied" in result.output.lower()
     updates.apply.assert_called_once()
+
+
+# ── Visual recipe: create-join ────────────────────────────────────────
+
+
+def test_recipe_create_join(patch_client):
+    """Basic join recipe creation with 2 inputs."""
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "orders", "-i", "customers",
+        "--output-ds", "joined_data",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created join recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_called_once_with("join", "my_join")
+    builder = proj.new_recipe.return_value
+    assert builder.with_input.call_count == 2
+    builder.with_existing_output.assert_called_once_with("joined_data")
+    builder.build.assert_called_once()
+
+
+def test_recipe_create_join_requires_two_inputs(patch_client):
+    """Join needs >= 2 inputs."""
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "only_one",
+        "--output-ds", "out",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "at least 2" in result.output
+
+
+def test_recipe_create_join_with_join_key(patch_client):
+    """--join-key adds EQ condition to first join."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    join_dict = {"table1": 0, "table2": 1, "on": []}
+    settings.raw_joins = [join_dict]
+
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "orders", "-i", "customers",
+        "--output-ds", "joined",
+        "--join-key", "customer_id",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert len(join_dict["on"]) == 1
+    assert join_dict["on"][0]["column1"]["name"] == "customer_id"
+    assert join_dict["on"][0]["column2"]["name"] == "customer_id"
+    assert join_dict["on"][0]["type"] == "EQ"
+    settings.save.assert_called()
+
+
+def test_recipe_create_join_with_different_column_names(patch_client):
+    """--join-key col1=col2 maps different column names."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    join_dict = {"table1": 0, "table2": 1, "on": []}
+    settings.raw_joins = [join_dict]
+
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "orders", "-i", "customers",
+        "--output-ds", "joined",
+        "--join-key", "order_cust_id=id",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert join_dict["on"][0]["column1"]["name"] == "order_cust_id"
+    assert join_dict["on"][0]["column2"]["name"] == "id"
+
+
+def test_recipe_create_join_multiple_keys(patch_client):
+    """Multiple --join-key flags add multiple conditions."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    join_dict = {"table1": 0, "table2": 1, "on": []}
+    settings.raw_joins = [join_dict]
+
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "orders", "-i", "customers",
+        "--output-ds", "joined",
+        "--join-key", "customer_id",
+        "--join-key", "region=region_code",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert len(join_dict["on"]) == 2
+    assert join_dict["on"][0]["column1"]["name"] == "customer_id"
+    assert join_dict["on"][1]["column1"]["name"] == "region"
+    assert join_dict["on"][1]["column2"]["name"] == "region_code"
+
+
+def test_recipe_create_join_no_key_backward_compat(patch_client):
+    """Without --join-key, join recipe is created with default behavior."""
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "orders", "-i", "customers",
+        "--output-ds", "joined",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created join recipe" in result.output
+    # get_settings should NOT be called for join key configuration
+    proj = patch_client.get_project("PROJ1")
+    # builder.build is called, but no post-build settings modification
+    proj.new_recipe.return_value.build.assert_called_once()
+
+
+# ── Visual recipe: create-group with --agg ────────────────────────────
+
+
+def test_recipe_create_group(patch_client):
+    """Basic group recipe creation."""
+    result = runner.invoke(app, [
+        "recipe", "create-group", "my_group",
+        "-i", "sales",
+        "--output-ds", "sales_grouped",
+        "-k", "region",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created group recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_called_once_with("grouping", "my_group")
+    builder = proj.new_recipe.return_value
+    builder.with_group_key.assert_called_once_with("region")
+
+
+def test_recipe_create_group_with_agg(patch_client):
+    """--agg configures column aggregations after build."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(app, [
+        "recipe", "create-group", "my_group",
+        "-i", "sales",
+        "--output-ds", "sales_grouped",
+        "-k", "region",
+        "--agg", "amount:sum,avg",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    settings.set_column_aggregations.assert_called_once_with(
+        "amount",
+        sum=True, avg=True, min=False, max=False,
+        count=False, count_distinct=False, concat=False, stddev=False,
+    )
+    settings.save.assert_called()
+
+
+def test_recipe_create_group_multiple_agg(patch_client):
+    """Multiple --agg flags configure different columns."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(app, [
+        "recipe", "create-group", "my_group",
+        "-i", "sales",
+        "--output-ds", "sales_grouped",
+        "-k", "region",
+        "--agg", "amount:sum,avg",
+        "--agg", "order_id:count",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert settings.set_column_aggregations.call_count == 2
+
+
+def test_recipe_create_group_invalid_agg_format(patch_client):
+    """--agg without colon gives clear error."""
+    result = runner.invoke(app, [
+        "recipe", "create-group", "my_group",
+        "-i", "sales",
+        "--output-ds", "sales_grouped",
+        "--agg", "amount_sum",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "Invalid --agg format" in result.output
+
+
+def test_recipe_create_group_invalid_agg_function(patch_client):
+    """--agg with unknown function gives clear error."""
+    result = runner.invoke(app, [
+        "recipe", "create-group", "my_group",
+        "-i", "sales",
+        "--output-ds", "sales_grouped",
+        "--agg", "amount:median",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 1
+    assert "Unknown aggregation" in result.output
+
+
+def test_recipe_create_group_no_agg_backward_compat(patch_client):
+    """Without --agg, group recipe uses default COUNT behavior."""
+    result = runner.invoke(app, [
+        "recipe", "create-group", "my_group",
+        "-i", "sales",
+        "--output-ds", "sales_grouped",
+        "-k", "region",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created group recipe" in result.output
+
+
+# ── Auto apply-schema ─────────────────────────────────────────────────
+
+
+def test_visual_recipe_auto_applies_schema(patch_client):
+    """Visual recipe creation auto-applies schema updates."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    updates = recipe_mock.compute_schema_updates.return_value
+    updates.any_action_required.return_value = True
+
+    result = runner.invoke(app, [
+        "recipe", "create-join", "my_join",
+        "-i", "orders", "-i", "customers",
+        "--output-ds", "joined",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    updates.apply.assert_called_once()
+
+
+def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
+    """Schema auto-apply failure emits warning, doesn't crash."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    recipe_mock.compute_schema_updates.side_effect = Exception("schema error")
+
+    result = runner.invoke(app, [
+        "recipe", "create-distinct", "my_distinct",
+        "-i", "data",
+        "--output-ds", "deduped",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "Created distinct recipe" in result.output
+
+
+# ── Dynamic connection discovery ──────────────────────────────────────
+
+
+def test_ensure_output_finds_managed_connection(patch_client):
+    """Uses first connection with allowManagedDatasets=True."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_definition.side_effect = Exception("NotFoundException")
+
+    patch_client.list_connections.return_value = {
+        "my_sql_conn": {"type": "PostgreSQL", "allowManagedDatasets": False},
+        "s3_managed": {"type": "S3", "allowManagedDatasets": True},
+    }
+
+    result = runner.invoke(app, [
+        "recipe", "create-distinct", "my_distinct",
+        "-i", "data",
+        "--output-ds", "new_output",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    builder = proj.new_managed_dataset.return_value
+    builder.with_store_into.assert_called_once_with("s3_managed")
+
+
+def test_ensure_output_falls_back_on_permission_error(patch_client):
+    """Falls back to filesystem_managed when list_connections fails (403)."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_definition.side_effect = Exception("NotFoundException")
+    patch_client.list_connections.side_effect = Exception("403 Forbidden")
+
+    result = runner.invoke(app, [
+        "recipe", "create-distinct", "my_distinct",
+        "-i", "data",
+        "--output-ds", "new_output",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    builder = proj.new_managed_dataset.return_value
+    builder.with_store_into.assert_called_once_with("filesystem_managed")

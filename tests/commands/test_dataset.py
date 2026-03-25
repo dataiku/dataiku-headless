@@ -180,12 +180,48 @@ def test_dataset_create_fails_on_conflicting_definition_type(patch_client, tmp_p
     assert "conflicts with definition type" in result.output
 
 
+# --- dataset create --if-not-exists ---
+
+
+def test_dataset_create_if_not_exists_when_exists(patch_client):
+    """--if-not-exists silently succeeds when dataset already exists."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_dataset.side_effect = Exception("Dataset 'new_ds' already exists")
+    result = runner.invoke(app, [
+        "dataset", "create", "new_ds",
+        "--type", "SQL",
+        "--if-not-exists",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "already exists" in result.output.lower()
+
+
+def test_dataset_create_if_not_exists_when_new(patch_client):
+    """--if-not-exists creates normally when dataset doesn't exist."""
+    result = runner.invoke(app, [
+        "dataset", "create", "new_ds",
+        "--type", "SQL",
+        "--if-not-exists",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    patch_client.get_project("PROJ1").create_dataset.assert_called_once()
+
+
 def test_dataset_delete(patch_client):
-    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"])
+    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"])
     assert result.exit_code == 0
     assert "Deleted dataset" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.delete.assert_called_once()
+
+
+def test_dataset_delete_prompts_without_yes(patch_client):
+    """Without --yes, delete prompts for confirmation."""
+    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"], input="y\n")
+    assert result.exit_code == 0
+    assert "Deleted dataset" in result.output
 
 
 def test_dataset_clear(patch_client):
@@ -256,15 +292,55 @@ def test_dataset_upload(patch_client, tmp_path):
     assert "Format detected" in result.output
 
 
-def test_dataset_create_filesystem_requires_connection(patch_client):
+def test_dataset_create_filesystem_defaults_to_filesystem_managed(patch_client):
+    """Filesystem without -c defaults to filesystem_managed connection."""
     result = runner.invoke(app, [
         "dataset", "create", "fs_ds",
         "--type", "Filesystem",
         "--project", "PROJ1",
     ])
-    assert result.exit_code == 1
-    assert "requires --connection" in result.output
-    patch_client.get_project("PROJ1").new_managed_dataset.assert_not_called()
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.new_managed_dataset.assert_called_once_with("fs_ds")
+    builder = proj.new_managed_dataset.return_value
+    builder.with_store_into.assert_called_once_with("filesystem_managed")
+    builder.create.assert_called_once()
+
+
+def test_dataset_create_default_type_is_filesystem(patch_client):
+    """No --type flag defaults to Filesystem on filesystem_managed."""
+    result = runner.invoke(app, [
+        "dataset", "create", "fs_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.new_managed_dataset.assert_called_once_with("fs_ds")
+    builder = proj.new_managed_dataset.return_value
+    builder.with_store_into.assert_called_once_with("filesystem_managed")
+
+
+def test_dataset_create_shows_recipe_tip(patch_client):
+    """Filesystem create shows tip about --output-ds auto-creation."""
+    result = runner.invoke(app, [
+        "dataset", "create", "fs_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code == 0
+    assert "recipe create --output-ds" in result.output
+
+
+def test_dataset_create_already_exists_shows_hint(patch_client):
+    """Already-exists error without --if-not-exists shows actionable hint."""
+    proj = patch_client.get_project("PROJ1")
+    proj.new_managed_dataset.return_value.create.side_effect = Exception("Dataset already exists")
+    result = runner.invoke(app, [
+        "dataset", "create", "fs_ds",
+        "--project", "PROJ1",
+    ])
+    assert result.exit_code != 0
+    assert "--if-not-exists" in result.output
+    assert "--yes" in result.output
 
 
 def test_dataset_create_filesystem_uses_managed_dataset_builder(patch_client):

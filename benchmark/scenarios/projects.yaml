@@ -1,0 +1,255 @@
+tests:
+  # ──────────────────────────────────────────────────────────
+  # Level 1: Bare minimum — create project, upload data
+  # ──────────────────────────────────────────────────────────
+  - id: p1_create_and_upload
+    tier: 6
+    category: project-build
+    prompt: |
+      Create a new DSS project called BENCH_SIMPLE with name "Benchmark Simple".
+      Then create a managed dataset called 'customers' in it.
+      Generate a small CSV file with 10 rows of synthetic customer data
+      (columns: id, name, email, age, city) and upload it to the dataset.
+      Finally verify the data landed by showing the schema and first 5 rows.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku dataset schema"
+          required: false
+        - pattern: "dku dataset head"
+          required: false
+      verify:
+        - command: "dku project get BENCH_SIMPLE -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.3
+
+  # ──────────────────────────────────────────────────────────
+  # Level 2: Multi-dataset project with relationships
+  # ──────────────────────────────────────────────────────────
+  - id: p2_multi_dataset
+    tier: 6
+    category: project-build
+    prompt: |
+      Create a DSS project called BENCH_ECOMMERCE with name "Benchmark E-Commerce".
+
+      Create and upload these 3 datasets with synthetic data:
+
+      1. 'orders' — 20 rows: order_id, customer_id, product, quantity, price, order_date
+      2. 'customers' — 10 rows: customer_id, name, email, country, signup_date
+      3. 'products' — 5 rows: product_id, name, category, unit_price
+
+      Make sure the customer_ids in orders reference the customers dataset
+      and the products reference the products dataset.
+
+      After uploading, verify all 3 datasets exist and show their schemas.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+      verify:
+        - command: "dku dataset list -P BENCH_ECOMMERCE -o json"
+          expect_contains: "orders"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.2
+
+  # ──────────────────────────────────────────────────────────
+  # Level 3: Project with recipe pipeline
+  # ──────────────────────────────────────────────────────────
+  - id: p3_recipe_pipeline
+    tier: 6
+    category: project-build
+    prompt: |
+      Create a DSS project called BENCH_PIPELINE with name "Benchmark Pipeline".
+
+      1. Create a managed dataset 'raw_transactions' and upload synthetic data:
+         20 rows with: tx_id, customer_name, amount, currency, timestamp, status
+         Include some rows with status="failed" and some with null amounts.
+
+      2. Create a Python recipe called 'compute_clean_transactions' that:
+         - Takes 'raw_transactions' as input
+         - Outputs to 'clean_transactions'
+         - Filters out rows where status="failed" and drops nulls
+
+      3. Set the recipe code to a working Python script that does the cleaning.
+
+      4. Verify the recipe exists and show the flow graph.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create"
+          required: true
+        - pattern: "dku recipe set-code"
+          required: true
+        - pattern: "dku flow graph"
+          required: false
+      verify:
+        - command: "dku recipe list -P BENCH_PIPELINE -o json"
+          expect_contains: "compute_clean_transactions"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.2
+
+  # ──────────────────────────────────────────────────────────
+  # Level 4: Project with scenario automation
+  # ──────────────────────────────────────────────────────────
+  - id: p4_scenario_automation
+    tier: 6
+    category: project-build
+    prompt: |
+      Create a DSS project called BENCH_AUTOMATED with name "Benchmark Automated".
+
+      1. Create and upload a dataset 'sales_data' with 15 rows:
+         date, region, product, units_sold, revenue
+
+      2. Create a Python recipe 'compute_sales_summary' that aggregates
+         sales_data by region, outputting to 'sales_summary'.
+
+      3. Set the recipe code to a working aggregation script.
+
+      4. Create a scenario called 'build_all' that can be used to
+         rebuild the pipeline.
+
+      5. Show the final flow graph and list of scenarios.
+    needs_project: false
+    timeout: 300
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku recipe create"
+          required: true
+        - pattern: "dku scenario create"
+          required: true
+      verify:
+        - command: "dku scenario list -P BENCH_AUTOMATED -o json"
+          expect_contains: "build_all"
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.2
+
+  # ──────────────────────────────────────────────────────────
+  # Level 5: GenAI project (LLM + knowledge bank)
+  # ──────────────────────────────────────────────────────────
+  - id: p5_genai_project
+    tier: 6
+    category: project-build
+    prompt: |
+      Create a DSS project called BENCH_GENAI with name "Benchmark GenAI".
+
+      1. Create a dataset 'faq_documents' and upload synthetic FAQ data:
+         10 rows with: doc_id, title, content, category
+         The content should be short FAQ answers about a fictional product.
+
+      2. List available LLMs to find an embedding model and a completion model.
+
+      3. Create a knowledge bank called 'faq_kb'.
+
+      4. Create an embedding recipe that embeds 'faq_documents' into 'faq_kb'
+         using an available embedding model.
+
+      5. Show the flow graph and list the knowledge banks.
+
+      This project tests the GenAI workflow — if any commands aren't available
+      or fail, explain what happened and what the limitation is.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku llm list"
+          required: true
+        - pattern: "dku knowledge create"
+          required: false
+        - pattern: "dku recipe create-embed"
+          required: false
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 0.5
+      efficiency: 0.1
+
+  # ──────────────────────────────────────────────────────────
+  # Level 6: Full project with wiki + library code
+  # ──────────────────────────────────────────────────────────
+  - id: p6_full_project
+    tier: 6
+    category: project-build
+    prompt: |
+      Create a comprehensive DSS project called BENCH_FULL with name "Benchmark Full".
+
+      Build it step by step:
+
+      1. DATASETS: Create and upload synthetic data for:
+         - 'raw_events' (20 rows): event_id, user_id, event_type, timestamp, payload
+         - 'user_profiles' (10 rows): user_id, name, plan_type, created_at
+
+      2. RECIPES: Create a Python recipe 'compute_enriched_events' that joins
+         events with user profiles. Set working Python code for it.
+
+      3. LIBRARY: Write a utility module to the project library at
+         'python/utils/helpers.py' with a simple helper function.
+
+      4. WIKI: Create a wiki article titled "Project Overview" documenting
+         what this project does.
+
+      5. VARIABLES: Set project variables: environment=benchmark, version=1.0
+
+      6. Show the final state: flow graph, dataset list, recipe list, wiki list.
+    needs_project: false
+    timeout: 600
+    expect:
+      commands:
+        - pattern: "dku project create"
+          required: true
+        - pattern: "dku dataset create"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create"
+          required: true
+        - pattern: "dku library write"
+          required: true
+        - pattern: "dku wiki create"
+          required: true
+        - pattern: "dku project set-variables"
+          required: true
+      verify:
+        - command: "dku dataset list -P BENCH_FULL -o json"
+          expect_contains: "raw_events"
+        - command: "dku wiki list -P BENCH_FULL -o json"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.1

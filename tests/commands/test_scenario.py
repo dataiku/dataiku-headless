@@ -67,7 +67,7 @@ def test_scenario_create(patch_client):
     assert "Created scenario" in result.output
     assert "new_scen" in result.output
     proj = patch_client.get_project("PROJ1")
-    proj.create_scenario.assert_called_once_with(name="My New Scenario", type="step_based")
+    proj.create_scenario.assert_called_once_with(scenario_name="My New Scenario", type="step_based")
 
 
 def test_scenario_create_with_definition(patch_client):
@@ -80,7 +80,7 @@ def test_scenario_create_with_definition(patch_client):
     assert "Created scenario" in result.output
     proj = patch_client.get_project("PROJ1")
     call_kwargs = proj.create_scenario.call_args[1]
-    assert call_kwargs["name"] == "Custom Scenario"
+    assert call_kwargs["scenario_name"] == "Custom Scenario"
     assert call_kwargs["type"] == "step_based"
     assert call_kwargs["definition"] == {"steps": [{"type": "build_flowitem"}]}
 
@@ -94,6 +94,29 @@ def test_scenario_create_custom_type(patch_client):
     proj = patch_client.get_project("PROJ1")
     call_kwargs = proj.create_scenario.call_args[1]
     assert call_kwargs["type"] == "custom_python"
+
+
+def test_scenario_create_if_not_exists(patch_client):
+    """--if-not-exists suppresses already-exists errors."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_scenario.side_effect = Exception("409 Conflict: scenario already exists")
+    result = runner.invoke(
+        app,
+        ["scenario", "create", "Existing", "--project", "PROJ1", "--if-not-exists"],
+    )
+    assert result.exit_code == 0
+    assert "already exists" in result.output
+
+
+def test_scenario_create_already_exists_fails(patch_client):
+    """Without --if-not-exists, already-exists errors propagate."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_scenario.side_effect = Exception("409 Conflict: scenario already exists")
+    result = runner.invoke(
+        app,
+        ["scenario", "create", "Existing", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
 
 
 def test_scenario_delete(patch_client):

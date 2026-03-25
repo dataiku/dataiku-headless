@@ -4,9 +4,14 @@
 
 **Gold standard references:**
 - `dss-plugin-agent-hub` (17.6k LOC, Tier 5 enterprise platform)
+- [`dss-plugin-semantic-models-lab`](https://github.com/dataiku/dss-plugin-semantic-models-lab) (agentic tools with LangGraph orchestration, Vue 3 SPA)
 - `dss-plugin-aws-bedrock-agentcore-resources` (dual-mode blocks + tools + agent connector)
+- `field-specialist-plugins` (6-plugin monorepo: structured agents, deep agent, toolkit)
+- `dss-plugin-visual-edit` (modern webapp: pyproject.toml, Playwright, custom-fields)
 
-**Production codebases analyzed:** genai_insights_dashboard, honeywell-regression, opencode-agent-tool, dataiku-mcp-gateway, dss-plugin-agent-hub, dss-plugin-aws-bedrock-agentcore-resources
+**40+ public plugin repos** at `github.com/dataiku` — see [Official Plugin Repos](#official-plugin-repos-pattern-references) for the full list by component type.
+
+**Production codebases analyzed:** genai_insights_dashboard, honeywell-regression, opencode-agent-tool, dataiku-mcp-gateway, dss-plugin-agent-hub, dss-plugin-aws-bedrock-agentcore-resources, dss-plugin-google-search-tool, dss-plugin-sureguard, dss-plugin-graph-editor, dss-plugin-semantic-models-lab
 
 ---
 
@@ -130,6 +135,81 @@ my-agent-integration/
 - **Namespace scoping:** Per-app isolation vs cross-app shared memory
 
 **See:** `references/visual-agent-blocks.md` for detailed patterns.
+
+---
+
+### Tier 2c — Agentic Tool Plugin (Internal Agent Loop)
+
+**Complexity:** Medium-High | **Files:** 20-50 | **LOC:** 3k-15k
+**Components:** Agent tools with internal LangGraph orchestration, webapp, shared service layer
+
+This tier represents tools that run multi-step reasoning loops internally. The tool receives a question and orchestrates multiple LLM calls + internal tool executions via LangGraph before returning a final answer.
+
+```
+my-agentic-plugin/
+├── plugin.json
+├── python-agent-tools/
+│   ├── lite-tool/                       # Auto-spec mode (ease-of-use)
+│   │   ├── tool.json
+│   │   └── tool.py                      # BaseAgentTool → run_agent()
+│   └── full-tool/                       # Explicit model mode (power users)
+│       ├── tool.json
+│       └── tool.py                      # BaseAgentTool → run_agent()
+├── webapps/my-editor/
+│   ├── webapp.json
+│   ├── backend.py                       # One-liner: setup_app(app)
+│   └── meta.json
+├── python-lib/my_plugin/
+│   ├── __init__.py
+│   ├── setup.py                         # Flask app factory (DSS + local dev)
+│   ├── config.py                        # AppConfig + ContextVar override
+│   ├── exceptions.py                    # Custom exception hierarchy
+│   ├── logging_utils.py                 # Request context + redaction
+│   ├── agent/
+│   │   ├── query_runner/                # LangGraph agent loop
+│   │   │   └── core.py                  # build_agent_graph(), run_agent_core()
+│   │   └── tools/                       # Internal tools (@tool decorator)
+│   │       ├── schema_tools.py          # list_entities, get_attributes
+│   │       ├── sql_tools.py             # generate_sql, execute_sql
+│   │       └── resolution_tools.py      # resolve_values, get_glossary
+│   ├── services/
+│   │   ├── factory.py                   # get_service(client=)
+│   │   ├── client.py                    # DSS API adapter (normalizes quirks)
+│   │   └── service.py                   # Business logic (zero DSS imports)
+│   ├── routes/                          # Flask Blueprints
+│   │   ├── __init__.py                  # register_all_routes(app)
+│   │   ├── common.py                    # Global error handler
+│   │   └── *.py                         # Domain-specific route files
+│   ├── prompts/                         # LLM prompt builders
+│   ├── resolution/                      # Fuzzy + semantic matching
+│   └── utils/
+├── resource/
+│   ├── params_helper.py                 # Dynamic param resolution via service
+│   └── frontend/                        # Vue 3 / React SPA
+│       ├── src/
+│       └── vite.config.ts
+├── code-env/python/
+│   ├── desc.json                        # PYTHON310/311/312
+│   └── spec/requirements.txt            # langgraph, langchain-core, dataiku-api-client
+├── wsgi.py                              # Local dev entry point
+├── Makefile                             # setup, backend-dev, frontend-dev, check-all
+└── tests/
+```
+
+**Example:** [`dss-plugin-semantic-models-lab`](https://github.com/dataiku/dss-plugin-semantic-models-lab)
+
+**Key patterns:**
+- **Dual-mode tools:** Lite (auto-spec) and Full (explicit model) share same LangGraph agent loop
+- **LangGraph orchestration:** `StateGraph` with internal `@tool` functions (NOT `BaseAgentTool`)
+- **Service factory:** `get_service(client=)` with `LocalClient` abstracting DSS API
+- **ContextVar config:** Thread-safe config serving both webapp and agent tool contexts
+- **One-liner backend.py:** `setup_app(app)` delegates to `python-lib/`
+- **Flask Blueprints:** Route organization via `register_all_routes(app)`
+- **Local dev mode:** `wsgi.py` + `LOCAL_DEV=true` + CORS + `.env` + Makefile
+- **Production logging:** Request context injection, sensitive data redaction, timing hooks
+- **End-user security:** `enduser_sql_execution` param for row-level security delegation
+
+**See:** `references/agent-tool-patterns.md` (Agentic Tool Pattern section) for detailed patterns.
 
 ---
 
@@ -638,6 +718,97 @@ load_local_config()          → Dev overrides from local_config.json
 | **Logging** | `RedactSensitiveDataFilter` strips passwords, tokens, API keys |
 | **Credential sanitizing** | DB URLs + OAuth tokens sanitized in log output |
 | **Request logging** | `@log_http_request` decorator with req_id, user, timing |
+
+---
+
+## Official Plugin Repos (Pattern References)
+
+All plugins below are public at `github.com/dataiku`. When building a plugin, clone or browse the most relevant repo to see real production patterns. **Bias towards repos updated in 2025-2026** — older patterns may use deprecated APIs.
+
+### Agent Tools & Agents (Tier 2)
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| [`dss-plugin-semantic-models-lab`](https://github.com/dataiku/dss-plugin-semantic-models-lab) | 2026-03 | **State-of-the-art agentic plugin (Tier 2c)** — LangGraph internal agent loop, `DKUChatModel`, dual-mode tools, service factory, Flask Blueprints, Vue 3 SPA, local dev mode, production logging |
+| `dss-plugin-google-search-tool` | 2025-11 | **Cleanest single agent tool** — minimal `python-agent-tools/`, parameter-sets |
+| `dss-plugin-sql-question-answering-tool` | 2026-02 | Agent tool + eval-tool + python-lib + tests |
+| `dss-plugin-agent-optimization-tool` | 2026-02 | Agent optimization patterns |
+| `dss-plugin-a2a-agents` | 2025-11 | **A2A protocol** — `python-agents/a2a` implementation |
+| `dss-plugin-aws-bedrock-agents` | 2026-02 | AWS Bedrock agent integration |
+| `dss-plugin-vertex-ai-agents` | 2026-02 | Vertex AI agent integration |
+| `dss-plugin-microsoft-copilot-agents` | 2026-01 | Microsoft Copilot agent integration |
+| `field-specialist-plugins` | 2026-03 | **Monorepo with 6 plugins**: structured agent patterns (`bs-agent-architectures`), deep research agent (`deep-agent`), field toolkit (tools + guardrails + recipes) |
+
+### Guardrails
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `dss-plugin-sample-guardrail-rewrite-answer` | 2025-02 | **Simplest guardrail structure** — `python-guardrails/` rewrite example |
+| `dss-plugin-guardrail-bias-detector` | 2025-12 | Bias detection guardrail |
+
+### Webapps (Tier 3-5)
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `dss-plugin-agent-hub` | 2026-03 | **Gold standard (Tier 5)** — 17.6k LOC, Vue 3 + Flask + SQLAlchemy + Alembic + SocketIO |
+| `dss-plugin-visual-edit` | 2026-03 | **Most modern build**: `pyproject.toml`, Makefile, Playwright tests, custom-fields |
+| `dss-plugin-graph-editor` | 2026-03 | **Multi-component exemplar**: 2 webapps, 5 recipes, agent tools, parameter-sets, JS build |
+| `dss-plugin-document-question-answering` | 2026-03 | Complex webapp + GenAI, OpenAPI spec, JS build, Playwright tests |
+| `dss-plugin-sureguard` | 2026-03 | LLM evaluation webapp ("unified-dashboard"), recipes, python-lib. Has its own CLAUDE.md |
+| `dss-plugin-traces-explorer` | 2026-03 | LLM trace visualization webapp, has AGENTS.md |
+| `dss-agents-portal` | 2026-03 | **Agent Connect UI** — multi-agent chat, modern JS, Playwright tests |
+
+### Recipes (Tier 1)
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `dss-plugin-nlp-preparation` | 2026-01 | **Most starred plugin** (22 stars) — language detection, spellcheck, text cleaning |
+| `dss-plugin-timeseries-forecast` | 2025-12 | Deep learning + statistical forecasting, well-structured tests |
+| `dss-plugin-nlp-named-entity-recognition` | 2026-02 | NER with multiple backends |
+| `dss-plugin-synthetic-data-generation` | 2026-02 | Synthetic data generation |
+
+### Connectors
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `dss-plugin-sharepoint-online` | 2026-02 | **Best connector example** — connectors + FS providers + recipes + parameter-sets |
+| `dss-plugin-servicenow` | 2026-03 | ServiceNow connector (recent) |
+| `dss-plugin-googledrive` | 2026-01 | Google Drive + Sheets connector |
+| `dss-plugin-neo4j` | 2025-10 | Graph DB connector |
+
+### LLM Plugins
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `plugins-llm` | 2026-01 | **21 custom LLM connection plugins** (Bedrock, Azure APIM, NVIDIA NIM, HuggingFace, customer-specific) |
+| `dss-plugin-graphrag` | 2026-02 | GraphRAG implementation |
+| `dss-plugin-rag-optimization` | 2026-02 | RAG optimization tooling |
+
+### RAG & Knowledge Banks
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `dss-plugin-nlp-embedding` | 2026-01 | Vector embedding extraction |
+| `dss-plugin-prompt-optimization` | 2026-02 | Prompt optimization |
+
+### Tooling & Libraries
+
+| Repo | Updated | What to learn |
+|------|---------|---------------|
+| `dss-plugin-template` | 2025-09 | **Canonical starting point** — minimal plugin scaffold |
+| `greffon-cli` | 2026-03 | Dataiku's internal CLI for plugin/solution builds (uv, justfile) |
+| `dataiku-plugin-tests-utils` | 2025-07 | Official testing utilities for plugins |
+| `dss-plugin-dkulib` | 2026-03 | Reusable shared Python code for plugins |
+| `dataiku-api-client-python` | 2026-03 | **`dataikuapi` source** (41 stars) — verify API quirks against real code |
+
+### How to Use These Repos
+
+When building a new plugin:
+1. Pick the closest match by component type from the tables above
+2. Browse on GitHub (`github.com/dataiku/<repo-name>`) or clone locally
+3. Study the `plugin.json`, component JSON configs, and code patterns
+4. Pay attention to: folder structure, parameter types, code-env setup, test patterns
+5. **Prefer repos updated 2025+** — older repos may use deprecated patterns (`get_definition()`, `installCorePackages: true`, etc.)
 
 ---
 

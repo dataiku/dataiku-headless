@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-The **Dataiku DevKit** enables any AI coding agent to do anything in Dataiku DSS. It ships a `dku` CLI (139 commands, 25 groups) and 9 agent skills with 26 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
+The **Dataiku DevKit** enables any AI coding agent to do anything in Dataiku DSS. It ships a `dku` CLI (139 commands, 25 groups) and 2 skills with 28 platform reference docs. Works with Claude Code, Codex, Cursor, and any agent that reads SKILL.md files.
 
 ## Quick Setup
 
@@ -39,15 +39,8 @@ src/dku_cli/               # Python CLI source
 └── commands/              # One file per noun (25 command groups)
 
 skills/                    # AI agent skills (Claude Code plugin + skills.sh)
-├── dataiku/               # Platform knowledge (26 reference docs)
-├── dku-cli/               # CLI operations and composability
-├── new-plugin/            # Scaffold a Dataiku plugin
-├── new-tool/              # Add agent tool to plugin
-├── new-recipe/            # Add custom recipe
-├── new-webapp/            # Add webapp component
-├── new-guardrail/         # Add LLM guardrail
-├── deploy-plugin/         # Build + push to DSS
-└── review-plugin/         # Code review checklist
+├── dataiku/               # Platform knowledge (28 reference docs incl. scaffolding)
+└── dku-cli/               # CLI operations and composability
 
 agents/                    # Subagents for complex tasks
 ├── plugin-reviewer.md     # Deep plugin code review
