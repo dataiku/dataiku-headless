@@ -71,6 +71,36 @@ Every `dku` CLI command maps to one or more `dataikuapi` calls. This table is th
 | `dku model list` | `project.list_saved_models()` |
 | `dku model get ID` | `get_saved_model(ID).get_status()` |
 | `dku model versions ID` | `get_saved_model(ID).list_versions()` |
+| `dku model set-active-version ID VER` | `get_saved_model(ID).set_active_version(VER)` |
+| `dku model metrics ID` | `get_saved_model(ID).get_version_details(VER).get_performance_metrics()` |
+| `dku model delete-version ID --version VER` | `get_saved_model(ID).delete_versions([VER])` |
+| `dku ml create-prediction DS TARGET` | `project.create_prediction_ml_task(DS, TARGET, ...)` |
+| `dku ml create-clustering DS` | `project.create_clustering_ml_task(DS, ...)` |
+| `dku ml create-timeseries DS TARGET TIME` | `project.create_timeseries_forecasting_ml_task(DS, TARGET, TIME, ...)` |
+| `dku ml create-causal DS OUTCOME TREATMENT` | `project.create_causal_prediction_ml_task(DS, OUTCOME, TREATMENT, ...)` |
+| `dku ml list` | `project.list_ml_tasks()` |
+| `dku ml status AID TID` | `project.get_ml_task(AID, TID).get_status()` |
+| `dku ml train AID TID` | `get_ml_task(AID, TID).train()` / `.start_train()` |
+| `dku ml models AID TID` | `get_ml_task(...).get_trained_models_ids()` + `.get_trained_model_snippet()` |
+| `dku ml details AID TID MID` | `get_ml_task(...).get_trained_model_details(MID).get_performance_metrics()` |
+| `dku ml deploy AID TID MID` | `get_ml_task(...).deploy_to_flow(MID, name, train_ds)` |
+| `dku ml redeploy AID TID MID` | `get_ml_task(...).redeploy_to_flow(MID, ...)` |
+| `dku ml settings AID TID` | `get_ml_task(...).get_settings().get_raw()` |
+| `dku ml algorithms AID TID` | `get_settings().get_all_possible_algorithm_names()` + `.get_enabled_algorithm_names()` |
+| `dku ml set-algorithm AID TID` | `get_settings().set_algorithm_enabled()` + `.save()` |
+| `dku ml delete AID TID` | `get_ml_task(...).delete()` |
+| `dku analysis list` | `project.list_analyses()` |
+| `dku analysis create DS` | `project.create_analysis(DS)` |
+| `dku analysis get AID` | `project.get_analysis(AID).get_definition().get_raw()` |
+| `dku analysis delete AID` | `project.get_analysis(AID).delete()` |
+| `dku analysis tasks AID` | `project.get_analysis(AID).list_ml_tasks()` |
+| `dku evaluation-store list` | `project.list_model_evaluation_stores()` |
+| `dku evaluation-store create NAME` | `project.create_model_evaluation_store(NAME)` |
+| `dku evaluation-store get SID` | `get_model_evaluation_store(SID).get_settings().get_raw()` |
+| `dku evaluation-store evaluations SID` | `get_model_evaluation_store(SID).list_model_evaluations()` |
+| `dku evaluation-store latest SID` | `get_model_evaluation_store(SID).get_latest_model_evaluation()` |
+| `dku evaluation-store build SID` | `get_model_evaluation_store(SID).build(wait=...)` |
+| `dku evaluation-store delete SID` | `get_model_evaluation_store(SID).delete()` |
 | `dku folder list` | `project.list_managed_folders()` |
 | `dku folder ls ID` | `get_managed_folder(ID).list_contents()` |
 | `dku folder upload ID FILE` | `get_managed_folder(ID).put_file()` |

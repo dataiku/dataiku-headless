@@ -80,7 +80,7 @@ When you receive benchmark feedback:
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v` (468 tests, all must pass)
+5. **Run tests** — `uv run pytest -v` (523 tests, all must pass)
 6. **Check `--help`** — `uv run dku <command> --help` must read well to an agent
 
 ---
@@ -120,7 +120,7 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code. **Every error must tell the agent what to do next.** |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-### Command Groups (28 + whoami)
+### Command Groups (31 + whoami)
 
 | Group | File | Commands |
 |---|---|---|
@@ -134,7 +134,10 @@ Every command follows the same flow:
 | `plugin` | `plugin.py` | list, push, settings |
 | `code-env` | `codeenv.py` | list, get, create, delete, update |
 | `connection` | `connection.py` | list, create, test |
-| `model` | `model.py` | list, get, versions |
+| `model` | `model.py` | list, get, versions, set-active-version, metrics, delete-version |
+| `ml` | `ml.py` | create-prediction, create-clustering, create-timeseries, create-causal, list, status, train, models, details, deploy, redeploy, settings, algorithms, set-algorithm, delete |
+| `analysis` | `analysis.py` | list, create, get, delete, tasks |
+| `evaluation-store` | `evaluation_store.py` | list, create, get, evaluations, latest, build, delete |
 | `folder` | `folder.py` | list, ls, upload, download |
 | `llm` | `llm.py` | list, completion, embeddings |
 | `webapp` | `webapp.py` | list, start, stop, status, get-definition, set-definition |
@@ -421,6 +424,14 @@ my-plugin-id/
 | `new_agent_tool()` returns builder, NOT tool | `agent_tool.py` — must call `.create()` on builder |
 | `VectorStoreSearch` creator has `.with_knowledge_bank()` | `agent_tool.py` — only subclass with extra builder method |
 | `systemPrompt` inside `toolsUsingAgentSettings` | `agent.py` — `set-prompt` writes to `ver_raw["toolsUsingAgentSettings"]["systemPrompt"]` |
+| `create_prediction_ml_task()` blocks during guess (5-30s) | `ml.py` — `wait_guess_complete=True` is default, correct for CLI |
+| `mltask.train()` blocks; `start_train()` is async | `ml.py` — `--wait` (default) uses `.train()`, `--no-wait` uses `.start_train()` |
+| `DSSMLTask` stores `.analysis_id` and `.mltask_id` | `ml.py` — both needed for subsequent commands, returned by create-* |
+| `deploy_to_flow()` returns dict `{savedModelId, trainRecipeName}` | `ml.py` — rendered directly |
+| `set_active_version()` returns None (`_perform_empty`) | `model.py` — just output success message |
+| `list_model_evaluation_stores()` returns objects (not dicts) | `evaluation_store.py` — accesses `.id` property |
+| `DSSModelEvaluation` has `.evaluation_id` property | `evaluation_store.py` — not `.id` |
+| `DSSEvaluationStore.build()` has `wait=True` default | `evaluation_store.py` — maps to `--wait/--no-wait` flag |
 
 ---
 
@@ -433,7 +444,7 @@ See `docs/command-api-mapping.md` for the full table mapping every CLI command t
 ## Testing
 
 ```bash
-uv run pytest -v    # 468 tests
+uv run pytest -v    # 523 tests
 ```
 
 - Unit tests mock `DSSClient` via `conftest.py` fixtures (`mock_client`, `patch_client`)

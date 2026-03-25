@@ -11,6 +11,7 @@ from dku_cli.commands import (
     agent,
     agent_block,
     agent_tool,
+    analysis,
     api_service,
     auth_cmd,
     bundle,
@@ -19,6 +20,7 @@ from dku_cli.commands import (
     connection,
     dashboard,
     dataset,
+    evaluation_store,
     flow,
     folder,
     insight,
@@ -27,6 +29,7 @@ from dku_cli.commands import (
     library,
     llm,
     macro,
+    ml,
     model,
     plugin,
     project,
@@ -47,6 +50,7 @@ app = typer.Typer(
 )
 
 # Register sub-commands
+app.add_typer(analysis.app, name="analysis")
 app.add_typer(agent.app, name="agent")
 app.add_typer(agent_block.app, name="agent-block")
 app.add_typer(agent_tool.app, name="agent-tool")
@@ -54,6 +58,7 @@ app.add_typer(api_service.app, name="api-service")
 app.add_typer(auth_cmd.app, name="auth")
 app.add_typer(bundle.app, name="bundle")
 app.add_typer(dashboard.app, name="dashboard")
+app.add_typer(evaluation_store.app, name="evaluation-store")
 app.add_typer(project.app, name="project")
 app.add_typer(dataset.app, name="dataset")
 app.add_typer(scenario.app, name="scenario")
@@ -63,6 +68,7 @@ app.add_typer(config_cmd.app, name="config")
 app.add_typer(recipe.app, name="recipe")
 app.add_typer(codeenv.app, name="code-env")
 app.add_typer(connection.app, name="connection")
+app.add_typer(ml.app, name="ml")
 app.add_typer(model.app, name="model")
 app.add_typer(folder.app, name="folder")
 app.add_typer(insight.app, name="insight")

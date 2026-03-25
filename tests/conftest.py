@@ -450,7 +450,19 @@ def mock_client():
     model_mock.get_active_version.return_value = {"id": "v1"}
     model_mock.list_versions.return_value = [
         {"id": "v1", "active": True, "snippet": {"algorithm": "RandomForest"}},
+        {"id": "v2", "active": False, "snippet": {"algorithm": "XGBoost"}},
     ]
+    model_mock.set_active_version.return_value = None
+    model_mock.delete_versions.return_value = None
+    version_details_mock = MagicMock()
+    version_details_mock.get_performance_metrics.return_value = {
+        "auc": 0.92,
+        "accuracy": 0.88,
+        "precision": 0.85,
+        "recall": 0.91,
+        "f1": 0.88,
+    }
+    model_mock.get_version_details.return_value = version_details_mock
     proj1.get_saved_model.return_value = model_mock
 
     # LLM mock
@@ -709,7 +721,106 @@ def mock_client():
     proj1.get_knowledge_bank.return_value = kb_mock
     proj1.create_knowledge_bank.return_value = kb_mock
 
-    # NOTE: Eval store + comparison fixtures removed — add back when those command groups land.
+    # ML task mocks — used by dku ml commands
+    mltask_mock = MagicMock()
+    mltask_mock.analysis_id = "a1"
+    mltask_mock.mltask_id = "t1"
+    mltask_mock.get_status.return_value = {
+        "guessing": False,
+        "training": False,
+        "fullModelIds": ["A-PROJ1-a1-t1-s1-pp1-m1"],
+    }
+    mltask_mock.train.return_value = ["A-PROJ1-a1-t1-s1-pp1-m1"]
+    mltask_mock.start_train.return_value = None
+    mltask_mock.get_trained_models_ids.return_value = ["A-PROJ1-a1-t1-s1-pp1-m1"]
+    mltask_mock.get_trained_model_snippet.return_value = {
+        "algorithm": "RandomForest",
+        "sessionId": "s1",
+        "auc": 0.92,
+    }
+    ml_details_mock = MagicMock()
+    ml_details_mock.get_performance_metrics.return_value = {
+        "auc": 0.92,
+        "accuracy": 0.88,
+    }
+    mltask_mock.get_trained_model_details.return_value = ml_details_mock
+    mltask_mock.deploy_to_flow.return_value = {
+        "savedModelId": "sm1",
+        "trainRecipeName": "train_recipe1",
+    }
+    mltask_mock.redeploy_to_flow.return_value = {"impactsDownstream": False}
+    mltask_mock.delete.return_value = None
+
+    # ML task settings mock
+    ml_settings_mock = MagicMock()
+    ml_settings_mock.get_raw.return_value = {
+        "taskType": "PREDICTION",
+        "targetVariable": "churn",
+    }
+    ml_settings_mock.get_all_possible_algorithm_names.return_value = [
+        "RandomForest", "XGBoost", "LogitRegression",
+    ]
+    ml_settings_mock.get_enabled_algorithm_names.return_value = ["RandomForest"]
+    ml_settings_mock.save.return_value = None
+    mltask_mock.get_settings.return_value = ml_settings_mock
+
+    # Project-level ML task creation methods
+    proj1.create_prediction_ml_task.return_value = mltask_mock
+    proj1.create_clustering_ml_task.return_value = mltask_mock
+    proj1.create_timeseries_forecasting_ml_task.return_value = mltask_mock
+    proj1.create_causal_prediction_ml_task.return_value = mltask_mock
+    proj1.list_ml_tasks.return_value = [
+        {"analysisId": "a1", "mlTaskId": "t1", "taskType": "PREDICTION", "targetVariable": "churn"},
+    ]
+    proj1.get_ml_task.return_value = mltask_mock
+
+    # Analysis mocks
+    analysis_mock = MagicMock()
+    analysis_mock.analysis_id = "a1"
+    analysis_def_mock = MagicMock()
+    analysis_def_mock.get_raw.return_value = {
+        "analysisId": "a1",
+        "inputDataset": "ds1",
+    }
+    analysis_mock.get_definition.return_value = analysis_def_mock
+    analysis_mock.list_ml_tasks.return_value = [
+        {"mlTaskId": "t1", "taskType": "PREDICTION"},
+    ]
+    analysis_mock.delete.return_value = None
+    proj1.list_analyses.return_value = [
+        {"analysisId": "a1", "inputDataset": "ds1"},
+    ]
+    proj1.create_analysis.return_value = analysis_mock
+    proj1.get_analysis.return_value = analysis_mock
+
+    # Model evaluation stores
+    mes_mock = MagicMock()
+    mes_mock.id = "mes1"
+    mes_mock.evaluation_store_id = "mes1"
+    mes_settings_mock = MagicMock()
+    mes_settings_mock.get_raw.return_value = {
+        "id": "mes1",
+        "name": "Churn Eval Store",
+        "mesFlavor": "TABULAR",
+    }
+    mes_mock.get_settings.return_value = mes_settings_mock
+
+    eval_mock = MagicMock()
+    eval_mock.evaluation_id = "eval1"
+    eval_full_info = MagicMock()
+    eval_full_info.get_raw.return_value = {"evaluationId": "eval1", "metrics": {}}
+    eval_mock.get_full_info.return_value = eval_full_info
+
+    mes_mock.list_model_evaluations.return_value = [eval_mock]
+    mes_mock.get_latest_model_evaluation.return_value = eval_mock
+    build_job_mock = MagicMock()
+    build_job_mock.id = "job_mes_build"
+    mes_mock.build.return_value = build_job_mock
+    mes_mock.delete.return_value = None
+
+    proj1.list_model_evaluation_stores.return_value = [mes_mock]
+    proj1.create_model_evaluation_store.return_value = mes_mock
+    proj1.get_model_evaluation_store.return_value = mes_mock
 
     # Wiki — DSSWikiArticle has .article_id + .get_data() → DSSWikiArticleData
     wiki_mock = MagicMock()
