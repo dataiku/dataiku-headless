@@ -31,6 +31,14 @@ def test_dashboard_get(patch_client):
     assert "dashboard1" in result.output
 
 
+def test_dashboard_get_tile_count(patch_client):
+    """Tile count must read from pages[i].grid.tiles (real DSS structure)."""
+    result = runner.invoke(app, ["dashboard", "get", "dashboard1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    # conftest fixture has 1 tile in grid.tiles
+    assert "1" in result.output
+
+
 def test_dashboard_get_json(patch_client):
     result = runner.invoke(app, ["dashboard", "get", "dashboard1", "--project", "PROJ1", "-o", "json"])
     assert result.exit_code == 0

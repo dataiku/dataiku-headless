@@ -62,7 +62,10 @@ def get(
             render_raw(raw, output_format=output)
         else:
             pages = raw.get("pages", [])
-            tiles = sum(len(p.get("tiles", [])) for p in pages)
+            tiles = sum(
+                len(p.get("grid", {}).get("tiles", p.get("tiles", [])))
+                for p in pages
+            )
             data = [
                 {"field": "ID", "value": raw.get("id", dashboard_id)},
                 {"field": "Name", "value": raw.get("name", "")},

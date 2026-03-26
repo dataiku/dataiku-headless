@@ -304,21 +304,26 @@ dku dashboard set-definition DASHBOARD_ID --definition JSON [-P PROJECT]
 
 - No create via API for individual tiles/charts — manage via the raw JSON definition
 - `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
+- Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
+- See `skills/dataiku/references/dashboard-charts.md` for full chart JSON anatomy
 
 ## insight
 
 ```bash
 dku insight list [-P PROJECT] [-o FORMAT]
 dku insight get INSIGHT_ID [-P PROJECT] [-o FORMAT]
-dku insight create NAME [--type TYPE] [-P PROJECT] [--definition JSON] [--if-not-exists]
+dku insight create NAME [--type TYPE] [--dataset DS] [-P PROJECT] [--definition JSON] [--if-not-exists]
 dku insight delete INSIGHT_ID [-P PROJECT]
 dku insight get-definition INSIGHT_ID [-P PROJECT] [-o json]
 dku insight set-definition INSIGHT_ID --definition JSON [-P PROJECT]
+dku insight validate INSIGHT_ID [-P PROJECT]
 ```
 
 - `create` defaults to `--type dataset_table`. Common types: `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`, `eda`, `jupyter`
+- `--dataset` / `--ds` binds the insight to a dataset (sets `params.datasetSmartName`). Required for chart/dataset_table types
 - `--definition` overrides/extends creation info (merged with `--type` and name)
+- `validate` checks chart column references against the dataset schema (client-side). Reports mismatches with fuzzy suggestions
 
 ## macro
 

@@ -236,6 +236,7 @@ Platform knowledge lives in `skills/dataiku/references/`. Read the relevant doc 
 | `skills/dataiku/references/plugin-review-checklist.md` | Reviewing plugins, code review criteria, scoring rubric |
 | `skills/dataiku/references/scaffolding.md` | Plugin scaffolding, adding components, deploying, reviewing |
 | `skills/dataiku/references/prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
+| `skills/dataiku/references/dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
 
 ---
 
@@ -336,6 +337,10 @@ When `create_code_env()` fails, the broken env persists. Delete it before retryi
 - DSS runs tools as `dssuser_dataiku` (not `dataiku`). HOME is `/data/home/dssuser_dataiku`
 - Tool server processes persist between Quick Test invocations. Stale processes can block new ones
 
+### Chart Column Names Must Match Dataset Schema
+
+Chart definitions that reference non-existent column names save successfully via the API but render blank charts in the dashboard. There is NO server-side validation. Use `dku insight validate INSIGHT_ID -P PROJ` for client-side column checking, or verify column names with `dku dataset schema DS -P PROJ` before building the chart definition. Dashboard tiles live at `pages[i].grid.tiles`, NOT `pages[i].tiles`.
+
 ### Plugin Deployment via API
 
 ```python
@@ -404,8 +409,10 @@ my-plugin-id/
 | Webapp code lives in `get_settings().get_raw()["params"]` | `webapp.py` — keys: `html`, `css`, `js`, `python` |
 | `list_dashboards()` returns dicts | `dashboard.py` — accesses via `.get()` |
 | `create_dashboard()` returns object with `.dashboard_id` | `dashboard.py` — NOT `.id` |
+| Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles` | `dashboard.py` — checks `grid.tiles` with fallback |
 | `list_insights()` returns dicts | `insight.py` — accesses via `.get()` |
 | `create_insight()` takes `creation_info` dict, not name string | `insight.py` — builds `{"type": T, "name": N}` |
+| Chart insight dataset binding at `params.datasetSmartName` | `insight.py` — `--dataset` flag sets this |
 | `DSSInsight` uses `.insight_id` not `.id` | `insight.py` — matches `DSSDashboard.dashboard_id` pattern |
 | Insight `settings.save()` uses POST not PUT | `dataikuapi` handles internally — wraps as `{"insight": settings}` |
 | Knowledge Bank access needs `.as_core_knowledge_bank()` | See `skills/dataiku/references/recipes.md` |

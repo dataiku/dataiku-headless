@@ -165,6 +165,7 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **Agent Tool Patterns** | Advanced: subprocess tools, MCP gateway, multi-agent orchestration, OAuth, HITL | `references/agent-tool-patterns.md` |
 | **Plugin Review** | Reviewing plugins, code review criteria, scoring rubric | `references/plugin-review-checklist.md` |
 | **Scaffolding & Lifecycle** | Creating new plugins, adding components (tool/recipe/webapp/guardrail), deploying, reviewing | `references/scaffolding.md` |
+| **Dashboard & Charts** | Chart JSON anatomy, insight definitions, dashboard tiles, chart types, end-to-end examples | `references/dashboard-charts.md` |
 
 ### Platform Knowledge
 

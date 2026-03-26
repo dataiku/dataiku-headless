@@ -20,14 +20,15 @@ metadata:
 > **Agent Cheat Sheet (read this first)**
 >
 > 1. **STOP — DO NOT write Python for joins, aggregations, dedup, sort, filter, stack, or window ops.** Use `create-join`, `create-group`, `create-stack`, `create-distinct`, `create-sort`, `create-filter`, `create-window`, `create-topn`. Python is ONLY for custom logic (scoring, feature engineering, API calls). See [Recipe Decision Tree](#recipe-decision-tree).
-> 2. **Visual recipes auto-apply schema.** `create-join`/`create-group`/etc. auto-propagate output schemas. For manual control: `dku recipe apply-schema RECIPE -P PROJ`, or `--auto-update-schema` on build.
-> 3. **Upload = UploadedFiles.** `dku dataset create NAME --type UploadedFiles -P PROJ`. Never Filesystem for uploads.
-> 4. **Recipe create auto-creates output.** Visual recipe commands auto-create the output dataset. Do NOT pre-create it.
-> 5. **Chain everything.** All related commands in ONE `&&`-chained Bash call. Never separate tool calls.
+> 2. **Use `dku ml` for ML — not Python.** `dku ml create-prediction` + `dku ml train` + `dku ml deploy` covers prediction, clustering, timeseries, and causal. Python ONLY for custom model architectures.
+> 3. **Visual recipes auto-apply schema.** `create-join`/`create-group`/etc. auto-propagate output schemas. For manual control: `dku recipe apply-schema RECIPE -P PROJ`, or `--auto-update-schema` on build.
+> 4. **Upload = UploadedFiles.** `dku dataset create NAME --type UploadedFiles -P PROJ`. Never Filesystem for uploads.
+> 5. **Recipe create auto-creates output.** Visual recipe commands auto-create the output dataset. Do NOT pre-create it.
+> 6. **Chain everything.** All related commands in ONE `&&`-chained Bash call. Never separate tool calls.
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **149 commands** across 28 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~195 commands** across 31 groups.
 
 ## Prerequisites
 
@@ -378,6 +379,25 @@ dku knowledge create my_kb --embedding-llm "openai:conn:text-embedding-3-small" 
 dku knowledge build my_kb -P MY_PROJ --wait && \
 dku agent add-tool my_agent --tool my_tool -P MY_PROJ
 ```
+
+### ML Pipeline (1 tool call)
+
+```bash
+# Create prediction task, train, deploy to flow — all one call
+dku ml create-prediction customers churn --type BINARY_CLASSIFICATION -P MY_PROJ -o json && \
+dku ml train ANALYSIS_ID MLTASK_ID -P MY_PROJ -o json && \
+dku ml deploy ANALYSIS_ID MLTASK_ID MODEL_ID --name ChurnModel --train-dataset customers -P MY_PROJ
+```
+
+**Typical ML workflow:**
+1. `dku ml create-prediction DS TARGET -P PROJ` — creates analysis + ML task, returns `analysis_id` and `mltask_id`
+2. `dku ml algorithms AID TID -P PROJ` — see available/enabled algorithms
+3. `dku ml set-algorithm AID TID --disable-all --enable XGBoost --enable RandomForest -P PROJ` — tune algorithms
+4. `dku ml train AID TID -P PROJ` — train and get model IDs
+5. `dku ml details AID TID MODEL_ID -P PROJ` — check metrics
+6. `dku ml deploy AID TID MODEL_ID --name MyModel --train-dataset DS -P PROJ` — deploy to flow
+7. `dku model set-active-version MODEL_ID VERSION_ID -P PROJ` — activate specific version
+8. `dku model metrics MODEL_ID -P PROJ` — check deployed model metrics
 
 ### Deploy (1 tool call)
 
@@ -767,3 +787,61 @@ dku recipe run rag_eval -P PROJ --wait
 ### LLM Evaluation Task Types
 
 `QUESTION_ANSWERING`, `SUMMARIZATION`, `CLASSIFICATION`, and others. Use `--task-type` to set.
+
+## Dashboard & Chart Patterns
+
+### Workflow: Three Steps
+
+1. **Create chart insight** bound to a dataset
+2. **Configure the chart** via `set-definition` (dimensions, measures, chart type)
+3. **Create dashboard** with tiles referencing the insight
+
+```bash
+# Step 1: Create insight with dataset binding
+dku insight create "Sales Trend" --type chart --dataset sales_monthly -P PROJ
+
+# Step 2: Configure chart (see dashboard-charts.md for full JSON anatomy)
+dku insight set-definition INSIGHT_ID -d @chart.json -P PROJ
+
+# Step 3: Validate column references
+dku insight validate INSIGHT_ID -P PROJ
+
+# Step 4: Create dashboard and add tiles
+dku dashboard create "Sales Dashboard" -P PROJ
+dku dashboard set-definition DASH_ID -d @dashboard.json -P PROJ
+```
+
+### Chart Types
+
+| Type | Description |
+|------|-------------|
+| `lines` | Line chart |
+| `multi_columns_lines` | Bar/column chart (multi-series) |
+| `stacked_bars` | Stacked bar chart |
+| `grouped_columns` | Grouped columns |
+| `stacked_area` | Stacked area |
+| `pie` | Pie / donut |
+| `scatter` | Scatter plot |
+| `pivot_table` | Pivot table |
+
+### Key JSON Fields
+
+| Field | Path | Purpose |
+|-------|------|---------|
+| Dataset binding | `params.datasetSmartName` | Which dataset the chart reads |
+| Chart type | `params.def.type` | Chart visualization type |
+| X-axis | `params.def.genericDimension0` | Category/time dimensions |
+| Color breakdown | `params.def.genericDimension1` | Series grouping |
+| Y-axis values | `params.def.genericMeasures` | Aggregated values |
+| Tile position | `pages[i].grid.tiles[j].box` | `{top, left, width, height}` on 36-col grid |
+
+### Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Tiles at `pages[i].tiles` | Must be `pages[i].grid.tiles` |
+| Missing `params.datasetSmartName` | Use `--dataset` on `insight create` |
+| Wrong column names (chart renders blank) | Run `dku insight validate ID -P PROJ` |
+| Missing `engineType: "LINO"` | Always include in chart params |
+
+**Full JSON reference:** See `skills/dataiku/references/dashboard-charts.md`

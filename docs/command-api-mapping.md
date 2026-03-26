@@ -126,6 +126,7 @@ Every `dku` CLI command maps to one or more `dataikuapi` calls. This table is th
 | `dku insight delete ID` | `get_insight(ID).delete()` |
 | `dku insight get-definition ID` | `get_insight(ID).get_settings().get_raw()` |
 | `dku insight set-definition ID` | `get_insight(ID).get_settings()` → update raw → `.save()` |
+| `dku insight validate ID` | `get_insight(ID).get_settings().get_raw()` + `get_dataset(ds).get_definition()` (client-side) |
 | `dku macro list` | `project.list_macros()` |
 | `dku macro run ID` | `get_macro(ID).run()` |
 | `dku user list` | `client.list_users()` |

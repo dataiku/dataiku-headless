@@ -401,7 +401,7 @@ def mock_client():
     dashboard_settings.get_raw.return_value = {
         "id": "dashboard1",
         "name": "Sales Dashboard",
-        "pages": [{"id": "page1", "title": "Overview", "tiles": []}],
+        "pages": [{"id": "page1", "title": "Overview", "grid": {"tiles": [{"tileType": "INSIGHT", "insightId": "i1"}]}}],
     }
     dashboard_settings.save.return_value = None
     dashboard_mock.get_settings.return_value = dashboard_settings
