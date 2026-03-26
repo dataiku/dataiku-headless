@@ -329,16 +329,14 @@ def mock_client():
     proj1.get_scenario.return_value = scenario_mock
 
     # Job mocks
+    # list_jobs() returns top-level fields (NOT nested under baseStatus).
+    # baseStatus wrapper is only from get_status() on a single job.
     proj1.list_jobs.return_value = [
         {
-            "baseStatus": {
-                "def": {"id": "job1", "initiator": "testuser"},
-                "state": "DONE",
-                "timing": {
-                    "startTime": "2025-01-01T00:00:00",
-                    "endTime": "2025-01-01T00:01:00",
-                },
-            }
+            "def": {"id": "job1", "initiator": "testuser"},
+            "state": "DONE",
+            "startTime": "2025-01-01T00:00:00",
+            "endTime": "2025-01-01T00:01:00",
         },
     ]
     job_mock = MagicMock()

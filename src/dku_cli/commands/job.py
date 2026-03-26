@@ -38,13 +38,15 @@ def list_jobs(
 
         data = []
         for j in jobs[:limit]:
-            base = j.get("baseStatus", {})
+            # list_jobs() returns top-level fields (state, def.id, startTime),
+            # NOT nested under baseStatus (that's only from get_status()).
+            job_def = j.get("def", {})
             data.append(
                 {
-                    "id": base.get("def", {}).get("id", ""),
-                    "state": base.get("state", ""),
-                    "initiator": base.get("def", {}).get("initiator", ""),
-                    "start": base.get("timing", {}).get("startTime", ""),
+                    "id": job_def.get("id", ""),
+                    "state": j.get("state", ""),
+                    "initiator": job_def.get("initiator", ""),
+                    "start": j.get("startTime", ""),
                 }
             )
 
