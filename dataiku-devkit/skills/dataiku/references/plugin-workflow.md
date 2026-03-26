@@ -251,6 +251,8 @@ zip -r my-plugin-v2.1.3.zip * -x "*.git*" "*.dku-backup" "__pycache__/*"
 ```
 Install: Plugins > Add Plugin > Upload zip
 
+**Zip exclusions matter for plugins with frontends.** Dev-only files inflate the zip and can cause issues. Exclude: `docs/`, `scripts/`, `CLAUDE.md`, `*.pptx`, lock files, frontend source (`resource/frontend/src/`), `alembic/`, `node_modules/`, `tests/`, dev databases.
+
 ### Method 2: Git Repository
 
 ```bash
@@ -344,6 +346,27 @@ pip install -r code-env/python/spec/requirements.txt --dry-run
 | **Rebuild code env** | Added/changed packages in requirements.txt |
 | **Reinstall** | Changed plugin.json structure, added/removed components |
 
+## CLI-Based Plugin Deployment
+
+The `dku` CLI supports the full plugin lifecycle without dropping to Python:
+
+```bash
+# First install: push + create code env + assign
+dku plugin push plugin.zip --install && \
+dku plugin create-code-env my-plugin && \
+dku plugin set-code-env my-plugin plugin_my_plugin_managed
+
+# Update: push + optionally rebuild code env
+dku plugin push plugin.zip && \
+dku plugin update-code-env my-plugin   # Only if deps changed
+
+# Check state
+dku plugin get my-plugin -o json
+dku plugin usages my-plugin
+```
+
+**Code env is NOT auto-created on install.** You must explicitly create and assign it. Without it, DSS runs backend code on its base Python with none of your dependencies.
+
 ## Code Environment Patterns
 
 **code-env/python/desc.json:**
@@ -355,6 +378,8 @@ pip install -r code-env/python/spec/requirements.txt --dry-run
   "installJupyterSupport": false
 }
 ```
+
+**CRITICAL:** `installCorePackages` must be `false`. If `true`, DSS installs its own packages (pandas, scikit-learn) which conflict with your pinned versions on Python 3.11+.
 
 ## Common Patterns Across Plugins
 

@@ -212,11 +212,23 @@ Instance-level (no project needed).
 
 ```bash
 dku plugin list [-o FORMAT]
+dku plugin get PLUGIN_ID [-o FORMAT]
 dku plugin push ZIP_PATH [--update/--install]
+dku plugin delete PLUGIN_ID [--confirm/--yes/-y] [--force]
 dku plugin settings PLUGIN_ID [-o FORMAT] [--set key=value ...]
+dku plugin create-code-env PLUGIN_ID [--wait/--no-wait] [-o FORMAT]
+dku plugin set-code-env PLUGIN_ID ENV_NAME
+dku plugin update-code-env PLUGIN_ID [--wait/--no-wait]
+dku plugin usages PLUGIN_ID [-P PROJECT] [-o FORMAT]
 ```
 
 - `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install
+- `get` shows plugin details including version, code env, and dev status
+- `create-code-env` creates and waits for the managed code env (use after first install)
+- `set-code-env` assigns a code env to the plugin (use after create-code-env)
+- `update-code-env` rebuilds the code env after dependency changes
+- `usages` shows where plugin components are used; filter by project with `-P`
+- First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
 
 ## code-env
 

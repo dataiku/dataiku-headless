@@ -315,7 +315,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `auth` | login, logout, status, list, switch | No |
 | `config` | set, get, list, path, variables, set-variables | No |
 | `project` | list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
-| `plugin` | list, push, settings | No |
+| `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages | No |
 | `code-env` | list, get, create, delete, update | No |
 | `connection` | list, create, test | No (admin) |
 | `user` | list, create | No (admin) |
@@ -405,6 +405,23 @@ dku ml deploy ANALYSIS_ID MLTASK_ID MODEL_ID --name ChurnModel --train-dataset c
 # Export + download bundle — all one call
 dku bundle export v1 -P MY_PROJ && \
 dku bundle download v1 -P MY_PROJ --dest ./bundles
+```
+
+### Plugin Lifecycle (1 tool call)
+
+```bash
+# First install: push + create code env + assign it
+dku plugin push plugin.zip --install && \
+dku plugin create-code-env my-plugin && \
+dku plugin set-code-env my-plugin plugin_my_plugin_managed
+
+# Update: push + rebuild code env (if deps changed)
+dku plugin push plugin.zip && \
+dku plugin update-code-env my-plugin
+
+# Check plugin state
+dku plugin get my-plugin -o json
+dku plugin usages my-plugin
 ```
 
 ### Shell Variable Capture

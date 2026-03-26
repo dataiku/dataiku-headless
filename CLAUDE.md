@@ -131,7 +131,7 @@ Every command follows the same flow:
 | `recipe` | `recipe.py` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, list-steps, add-step, remove-step, get-step, enable-step, disable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval |
 | `scenario` | `scenario.py` | list, run, abort, status, create, delete, get-definition, set-definition |
 | `job` | `job.py` | list, run, status, log, abort, wait |
-| `plugin` | `plugin.py` | list, push, settings |
+| `plugin` | `plugin.py` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages |
 | `code-env` | `codeenv.py` | list, get, create, delete, update |
 | `connection` | `connection.py` | list, create, test |
 | `model` | `model.py` | list, get, versions, set-active-version, metrics, delete-version |
@@ -392,6 +392,11 @@ my-plugin-id/
 | `list_plugins()` returns dicts, not objects | `plugin.py` — accesses `p["id"]` |
 | `update_from_zip()` returns None | `plugin.py` — no result check |
 | `install_plugin_from_archive()` returns None | `plugin.py` — no result check |
+| `plugin.create_code_env()` returns `DSSFuture` with `{"envName": "..."}` | `plugin.py` — `wait_for_result()` to get env name |
+| `plugin.update_code_env()` returns `DSSFuture` | `plugin.py` — `wait_for_result()` |
+| `plugin.delete(force)` returns `DSSFuture` | `plugin.py` — `wait_for_result()`, guard for None |
+| `DSSPluginSettings.set_code_env(name)` sets `codeEnvName`, needs `.save()` | `plugin.py` — call `save()` after |
+| `plugin.list_usages(project_key)` returns `DSSPluginUsages` with `.get_raw()` | `plugin.py` — `get_raw()["usages"]` |
 | `uploaded_add_file()` returns None | `dataset.py` — no result check |
 | `list_code_envs()` returns dicts | `codeenv.py` — accesses via `.get()` |
 | `get_code_env()` requires `lang` + `name` | `codeenv.py` — defaults `--lang PYTHON` |
