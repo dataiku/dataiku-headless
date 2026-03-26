@@ -257,7 +257,7 @@ dku project delete AGENT_TEST --confirm
 
 ### Command Reference
 
-Full reference for all 139 commands across 25 groups: [docs/commands.md](docs/commands.md)
+Full reference for all commands: [skills/dku-cli/references/commands.md](dataiku-devkit/skills/dku-cli/references/commands.md)
 
 ---
 
