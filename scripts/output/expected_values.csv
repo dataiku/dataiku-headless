@@ -1,4 +1,0 @@
-check_id,check_name,check_type,filter_month,expected_value
-1,June 2025 Total,monthly_total,2025-06,37478820.0
-2,July 2025 Total,monthly_total,2025-07,43237566.0249003
-3,August 2025 Total,monthly_total,2025-08,39141848.10211948
