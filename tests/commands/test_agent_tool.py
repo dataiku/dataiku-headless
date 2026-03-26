@@ -78,7 +78,16 @@ def test_agent_tool_delete(patch_client):
 
 def test_agent_tool_create(patch_client):
     result = runner.invoke(
-        app, ["agent-tool", "create", "my_lookup", "--type", "DatasetRowLookup", "--project", "PROJ1"]
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_lookup",
+            "--type",
+            "DatasetRowLookup",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     assert "Created agent tool" in result.output
@@ -89,12 +98,18 @@ def test_agent_tool_create(patch_client):
 
 def test_agent_tool_create_vector_search(patch_client):
     result = runner.invoke(
-        app, [
-            "agent-tool", "create", "my_search",
-            "--type", "VectorStoreSearch",
-            "--kb", "my_kb",
-            "--project", "PROJ1",
-        ]
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_search",
+            "--type",
+            "VectorStoreSearch",
+            "--kb",
+            "my_kb",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     builder = patch_client.get_project("PROJ1").new_agent_tool.return_value
@@ -105,7 +120,16 @@ def test_agent_tool_create_vector_search(patch_client):
 def test_agent_tool_create_vector_search_no_kb(patch_client):
     """VectorStoreSearch without --knowledge-bank should fail with prescriptive error."""
     result = runner.invoke(
-        app, ["agent-tool", "create", "my_search", "--type", "VectorStoreSearch", "--project", "PROJ1"]
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_search",
+            "--type",
+            "VectorStoreSearch",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code != 0
 
@@ -125,3 +149,45 @@ def test_agent_tool_types_json(patch_client):
     type_names = [t["type"] for t in parsed]
     assert "DatasetRowLookup" in type_names
     assert "VectorStoreSearch" in type_names
+
+
+def test_agent_tool_set_definition(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "set-definition",
+            "tool1",
+            "--definition",
+            '{"params": {"apiKey": "secret"}}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    tool = patch_client.get_project("PROJ1").get_agent_tool("tool1")
+    tool.get_settings.assert_called()
+    tool.get_settings.return_value.save.assert_called_once()
+    # Verify the update was actually applied to the raw dict
+    raw = tool.get_settings.return_value.get_raw.return_value
+    assert raw["params"] == {"apiKey": "secret"}
+
+
+def test_agent_tool_set_definition_from_file(patch_client, tmp_path):
+    config = tmp_path / "tool-config.json"
+    config.write_text('{"params": {"model": "gpt-4"}}')
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "set-definition",
+            "tool1",
+            "--definition",
+            f"@{config}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    tool = patch_client.get_project("PROJ1").get_agent_tool("tool1")
+    tool.get_settings.return_value.save.assert_called_once()

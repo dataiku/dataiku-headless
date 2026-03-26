@@ -146,6 +146,18 @@ state["items"].size() > 0
 ```
 Without this, the first iteration's spread operator (`...(state.all_results || [])`) works but is fragile.
 
+**CRITICAL — `"[]"` stores a JSON string, not a Python list.** When a PYTHON_CODE block reads state initialized with `"value": "[]"`, it receives the string `"[]"`, not an empty list. Calling `.append()` or `.extend()` on it will crash with `AttributeError`. Always deserialize before use:
+
+```python
+# Safe accumulation pattern in PYTHON_CODE blocks
+def process(trace):
+    existing = state.get("all_discovered_events", "[]")
+    if isinstance(existing, str):
+        existing = json.loads(existing)
+    existing.extend(new_items)
+    state["all_discovered_events"] = existing
+```
+
 ---
 
 ### 4. EMIT_OUTPUT — Message to User
@@ -187,17 +199,45 @@ Without this, the first iteration's spread operator (`...(state.all_results || [
 - `maxLoopIterations` — Safety limit (default 25)
 - `stateAware: true` — LLM can read/write agent state (powerful but expensive)
 - `exitConditions` — Break the loop when state has specific keys
-- `defaultNextBlock` — Where to go after the loop completes
+- `defaultNextBlock` — Where to go after the loop completes (**not** `nextBlock` — STANDARD_REACT is the only block type that uses `defaultNextBlock` instead of `nextBlock`)
 
 **PATTERN — KB search with structured output:**
 ```json
 {
   "type": "STANDARD_REACT",
-  "tools": [{"toolRef": "kb_search_tool", ...}],
+  "tools": [{"toolRef": "kb_search_tool", "type": "EXPLICIT_TOOL", "forwardContext": true, "returnSources": true, "enableSetArgs": false, "setArgs": [], "outputHandling": "ADD_TO_MESSAGES", "treatAsJSON": false}],
   "systemPromptAfterHistory": "Search the KB for original article text...",
   "outputMode": "SAVE_TO_STATE",
   "outputStateKey": "search_results",
-  "streamOutput": false
+  "streamOutput": false,
+  "defaultNextBlock": "next_block_id"
+}
+```
+
+**PATTERN — Plugin tool (e.g., web search, geocoder):**
+
+Plugin-based agent tools (created via `dku agent-tool create`) require specific fields in the `tools` array. The `toolRef` is the tool ID returned by `dku agent-tool create`.
+
+```json
+{
+  "type": "STANDARD_REACT",
+  "tools": [
+    {
+      "toolRef": "<tool-id-from-agent-tool-create>",
+      "type": "EXPLICIT_TOOL",
+      "forwardContext": true,
+      "returnSources": true,
+      "enableSetArgs": false,
+      "setArgs": [],
+      "outputHandling": "ADD_TO_MESSAGES",
+      "treatAsJSON": false
+    }
+  ],
+  "systemPromptAfterHistory": "Use the web search tool to find current information about {{state.topic}}.",
+  "outputMode": "SAVE_TO_STATE",
+  "outputStateKey": "search_results",
+  "streamOutput": false,
+  "defaultNextBlock": "analyze_results"
 }
 ```
 
@@ -307,7 +347,12 @@ The block after PARALLEL can read outputs from both branches since all state/scr
 - `blockIdToRepeat` — Block to execute per item
 - `forEachInputKey` — Key in scratchpad for current item (default: `"forEachInput"`)
 
-Access current item in child blocks: `{{article.field}}` (if `forEachInputKey: "article"`) or `scratchpad["forEachInput"]`.
+**Accessing the current item in child blocks:**
+- In LLM prompts: use `{{forEachInputKey}}` directly — e.g., if `forEachInputKey: "article"`, use `{{article.field_name}}`
+- For **string items** (not objects): use `{{current_event_type}}` directly — no field access, no `scratchpad.` prefix
+- In PYTHON_CODE: use `scratchpad["article"]` or `scratchpad["forEachInput"]`
+
+**Rule:** The `forEachInputKey` value is placed directly in scratchpad AND is accessible directly in LLM prompt templates without the `scratchpad.` prefix. `{{article.article_ref}}` works; `{{scratchpad.article.article_ref}}` does NOT.
 
 **ACCUMULATION PATTERN (Critical):**
 
@@ -356,8 +401,19 @@ def process(trace):
     # Optional: yield text to stream to user
     yield "Processed article"
 
-    # Optional: dynamic routing
+    # Required for routing: yield NextBlock to specify where to go next
     yield NextBlock("next_block_id")
+```
+
+**CRITICAL — `nextBlock` field does NOT persist for PYTHON_CODE blocks.** Unlike other block types, setting `nextBlock` in the JSON definition of a PYTHON_CODE block has no effect. The only way to control routing is by yielding `NextBlock("target_id")` from the `process()` function. You must also declare `validNextBlocksFromCode: ["target_id"]` in the block definition so DSS validates the target:
+
+```json
+{
+  "type": "PYTHON_CODE",
+  "id": "my_python_block",
+  "validNextBlocksFromCode": ["next_block_id"],
+  "code": "..."
+}
 ```
 
 **DESIGN RULE:** Always wrap `json.loads()` in try/except — LLM outputs are not guaranteed valid JSON even with `strict: true`.
@@ -520,6 +576,22 @@ LLM_REQUEST (parse regulation)
 **Wrong:** ROUTING block with clauses but no `defaultNextBlockIfNoClauseMatch`.
 **Fix:** Always set a default — at minimum an EMIT_OUTPUT with a clear error message.
 
+### 8. PYTHON_CODE nextBlock in JSON is ignored
+**Wrong:** Setting `"nextBlock": "target"` in the PYTHON_CODE block definition and expecting it to route there.
+**Fix:** Yield `NextBlock("target")` from `process()`, and declare `"validNextBlocksFromCode": ["target"]` in the block JSON.
+
+### 9. STANDARD_REACT uses `defaultNextBlock`, not `nextBlock`
+**Wrong:** Setting `"nextBlock": "next_block"` on a STANDARD_REACT block — it has no effect.
+**Fix:** Use `"defaultNextBlock": "next_block"`. This is the only block type that uses `defaultNextBlock` instead of `nextBlock`.
+
+### 10. SET_STATE_ENTRIES `"[]"` is a string in PYTHON_CODE
+**Wrong:** `state["results"].extend(items)` — crashes if `results` was initialized as `"[]"` (a JSON string).
+**Fix:** Always deserialize: `existing = json.loads(state["results"]) if isinstance(state["results"], str) else state["results"]`.
+
+### 11. connect fails for PYTHON_CODE blocks
+**Wrong:** Using `dku agent-block connect` to wire PYTHON_CODE blocks — `nextBlock` is ignored by DSS for this type.
+**Fix:** The CLI rejects `connect` for PYTHON_CODE with a prescriptive error. Use `validNextBlocksFromCode` in the block JSON and `yield NextBlock()` from `process()`. Push via `set-graph`. Note: `connect` works correctly for STANDARD_REACT (automatically sets `defaultNextBlock`).
+
 ---
 
 ## Scaling Guidance
@@ -537,26 +609,45 @@ LLM_REQUEST (parse regulation)
 
 ## CLI Workflow
 
-Build SVAs entirely from the command line:
+### Recommended: get-graph → patch JSON → set-graph
+
+**This is the reliable pattern for complex graphs.** `dku agent-block connect` does not support `PYTHON_CODE` blocks (exits with an error). For `STANDARD_REACT`, `connect` works correctly (sets `defaultNextBlock`). For non-trivial graphs, use the patch-and-push workflow:
 
 ```bash
-# Create agent
+# 1. Create agent and add blocks
 dku agent create "My SVA" -P PROJ
+dku agent-block add AGENT_ID --set-start -b @parse_block.json -P PROJ && \
+dku agent-block add AGENT_ID -b @routing_block.json -P PROJ && \
+dku agent-block add AGENT_ID -b @react_block.json -P PROJ
 
-# Add blocks (auto-switches to BLOCKS_GRAPH mode)
-dku agent-block add AGENT_ID --set-start -b @parse_block.json -P PROJ
-dku agent-block add AGENT_ID -b @routing_block.json -P PROJ
-dku agent-block add AGENT_ID -b @analysis_block.json -P PROJ
+# 2. Export the graph
+dku agent-block get-graph AGENT_ID -P PROJ -o json > /tmp/graph.json
 
-# Wire connections
-dku agent-block connect AGENT_ID --from parse --to routing -P PROJ
+# 3. Patch block connections (nextBlock, defaultNextBlock, validNextBlocksFromCode)
+python3 -c "
+import json
+g = json.load(open('/tmp/graph.json'))
+blocks = {b['id']: b for b in g['blocks']}
+blocks['parse']['nextBlock'] = 'routing'
+blocks['react']['defaultNextBlock'] = 'emit_output'
+json.dump(g, open('/tmp/graph.json', 'w'))
+"
 
-# List / verify
+# 4. Push patched graph
+dku agent-block set-graph AGENT_ID -d @/tmp/graph.json -P PROJ
+
+# 5. Verify
 dku agent-block list AGENT_ID -P PROJ
+```
 
-# Export / import full graph
-dku agent-block get-graph AGENT_ID -P PROJ > graph.json
-dku agent-block set-graph AGENT_ID -d @graph.json -P PROJ
+### Convenience: connect (simple cases only)
+
+`dku agent-block connect` works reliably for `LLM_REQUEST` and `ROUTING` blocks. Use it only for simple wiring, and always verify the graph afterwards:
+
+```bash
+dku agent-block connect AGENT_ID --from parse --to routing -P PROJ
+# Verify the connection persisted:
+dku agent-block get-graph AGENT_ID -P PROJ -o json | jq '.blocks[] | {id, nextBlock, defaultNextBlock}'
 ```
 
 See `docs/block-graph-api.md` for the complete JSON schema of each block type.

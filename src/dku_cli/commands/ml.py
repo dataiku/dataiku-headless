@@ -7,11 +7,13 @@ from typing import List, Optional
 
 import typer
 
-from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Create, train, and deploy ML models (prediction, clustering, timeseries, causal).")
+app = typer.Typer(
+    help="Create, train, and deploy ML models (prediction, clustering, timeseries, causal)."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -25,11 +27,14 @@ def create_prediction(
     dataset: str = typer.Argument(help="Input dataset name"),
     target: str = typer.Argument(help="Target variable to predict"),
     prediction_type: Optional[str] = typer.Option(
-        None, "--type", "-t",
+        None,
+        "--type",
+        "-t",
         help="BINARY_CLASSIFICATION, REGRESSION, or MULTICLASS (auto-detected if omitted)",
     ),
     guess_policy: str = typer.Option(
-        "DEFAULT", "--guess-policy",
+        "DEFAULT",
+        "--guess-policy",
         help="DEFAULT, SIMPLE_FORMULA, DECISION_TREE, EXPLANATORY, or PERFORMANCE",
     ),
     backend: str = typer.Option(
@@ -49,7 +54,8 @@ def create_prediction(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.create_prediction_ml_task(
-            dataset, target,
+            dataset,
+            target,
             ml_backend_type=backend,
             guess_policy=guess_policy,
             prediction_type=prediction_type,
@@ -108,11 +114,14 @@ def create_timeseries(
     target: str = typer.Argument(help="Target variable to forecast"),
     time_column: str = typer.Argument(help="Time variable column (must be Date type)"),
     identifiers: Optional[List[str]] = typer.Option(
-        None, "--identifier", "-i",
+        None,
+        "--identifier",
+        "-i",
         help="Time series identifier column(s) for multi-series (repeatable)",
     ),
     guess_policy: str = typer.Option(
-        "TIMESERIES_DEFAULT", "--guess-policy",
+        "TIMESERIES_DEFAULT",
+        "--guess-policy",
         help="TIMESERIES_DEFAULT, TIMESERIES_STATISTICAL, or TIMESERIES_DEEP_LEARNING",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -128,7 +137,9 @@ def create_timeseries(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.create_timeseries_forecasting_ml_task(
-            dataset, target, time_column,
+            dataset,
+            target,
+            time_column,
             timeseries_identifiers=identifiers,
             guess_policy=guess_policy,
             wait_guess_complete=True,
@@ -149,7 +160,9 @@ def create_causal(
     outcome: str = typer.Argument(help="Outcome variable to predict"),
     treatment: str = typer.Argument(help="Treatment variable"),
     prediction_type: Optional[str] = typer.Option(
-        None, "--type", "-t",
+        None,
+        "--type",
+        "-t",
         help="CAUSAL_BINARY_CLASSIFICATION or CAUSAL_REGRESSION (auto-detected if omitted)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -165,7 +178,9 @@ def create_causal(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.create_causal_prediction_ml_task(
-            dataset, outcome, treatment,
+            dataset,
+            outcome,
+            treatment,
             prediction_type=prediction_type,
             wait_guess_complete=True,
         )
@@ -199,12 +214,14 @@ def list_tasks(
 
         data = []
         for t in tasks:
-            data.append({
-                "analysis_id": t.get("analysisId", ""),
-                "mltask_id": t.get("mlTaskId", ""),
-                "type": t.get("taskType", ""),
-                "target": t.get("targetVariable", ""),
-            })
+            data.append(
+                {
+                    "analysis_id": t.get("analysisId", ""),
+                    "mltask_id": t.get("mlTaskId", ""),
+                    "type": t.get("taskType", ""),
+                    "target": t.get("targetVariable", ""),
+                }
+            )
 
         render(
             data,
@@ -265,7 +282,9 @@ def train(
     session_name: Optional[str] = typer.Option(
         None, "--session-name", help="Training session name"
     ),
-    wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for training to complete"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for training to complete"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
@@ -330,11 +349,13 @@ def models(
         data = []
         for mid in ids:
             snippet = mltask.get_trained_model_snippet(id=mid)
-            data.append({
-                "model_id": mid,
-                "algorithm": snippet.get("algorithm", ""),
-                "session": snippet.get("sessionId", ""),
-            })
+            data.append(
+                {
+                    "model_id": mid,
+                    "algorithm": snippet.get("algorithm", ""),
+                    "session": snippet.get("sessionId", ""),
+                }
+            )
 
         render(
             data,
@@ -394,7 +415,9 @@ def deploy(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     model_id: str = typer.Argument(help="Trained model ID (from 'dku ml models')"),
-    name: str = typer.Option(..., "--name", "-n", help="Name for the saved model in the flow"),
+    name: str = typer.Option(
+        ..., "--name", "-n", help="Name for the saved model in the flow"
+    ),
     train_dataset: str = typer.Option(
         ..., "--train-dataset", help="Dataset to use as training set"
     ),
@@ -402,7 +425,8 @@ def deploy(
         None, "--test-dataset", help="Optional test dataset"
     ),
     redo_optimization: bool = typer.Option(
-        True, "--redo-optimization/--no-redo-optimization",
+        True,
+        "--redo-optimization/--no-redo-optimization",
         help="Redo hyperparameter optimization on full train set",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -420,7 +444,9 @@ def deploy(
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
         result = mltask.deploy_to_flow(
-            model_id, name, train_dataset,
+            model_id,
+            name,
+            train_dataset,
             test_dataset=test_dataset,
             redo_optimization=redo_optimization,
         )
@@ -444,11 +470,13 @@ def redeploy(
         None, "--recipe-name", help="Existing training recipe name to update"
     ),
     activate: bool = typer.Option(
-        True, "--activate/--no-activate",
+        True,
+        "--activate/--no-activate",
         help="Make the new version active (default: yes)",
     ),
     redo_optimization: bool = typer.Option(
-        False, "--redo-optimization/--no-redo-optimization",
+        False,
+        "--redo-optimization/--no-redo-optimization",
         help="Redo hyperparameter optimization",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -539,8 +567,7 @@ def algorithms(
         enabled = set(task_settings.get_enabled_algorithm_names())
 
         data = [
-            {"algorithm": a, "enabled": str(a in enabled)}
-            for a in sorted(all_algos)
+            {"algorithm": a, "enabled": str(a in enabled)} for a in sorted(all_algos)
         ]
 
         render(
@@ -584,10 +611,10 @@ def set_algorithm(
         if disable_all:
             task_settings.disable_all_algorithms()
 
-        for alg in (disable or []):
+        for alg in disable or []:
             task_settings.set_algorithm_enabled(alg, False)
 
-        for alg in (enable or []):
+        for alg in enable or []:
             task_settings.set_algorithm_enabled(alg, True)
 
         task_settings.save()

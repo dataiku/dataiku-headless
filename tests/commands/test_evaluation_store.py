@@ -12,9 +12,7 @@ runner = CliRunner()
 
 
 def test_evaluation_store_list(patch_client):
-    result = runner.invoke(
-        app, ["evaluation-store", "list", "--project", "PROJ1"]
-    )
+    result = runner.invoke(app, ["evaluation-store", "list", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "mes1" in result.output
 
@@ -34,9 +32,9 @@ def test_evaluation_store_create(patch_client):
     )
     assert result.exit_code == 0
     assert "Created evaluation store" in result.output
-    patch_client.get_project("PROJ1").create_model_evaluation_store.assert_called_once_with(
-        "Churn Eval"
-    )
+    patch_client.get_project(
+        "PROJ1"
+    ).create_model_evaluation_store.assert_called_once_with("Churn Eval")
 
 
 def test_evaluation_store_create_if_not_exists(patch_client):
@@ -44,7 +42,14 @@ def test_evaluation_store_create_if_not_exists(patch_client):
     proj.create_model_evaluation_store.side_effect = Exception("already exists")
     result = runner.invoke(
         app,
-        ["evaluation-store", "create", "Churn Eval", "--if-not-exists", "--project", "PROJ1"],
+        [
+            "evaluation-store",
+            "create",
+            "Churn Eval",
+            "--if-not-exists",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     assert "already exists" in result.output

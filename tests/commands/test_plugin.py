@@ -207,9 +207,7 @@ def test_plugin_create_code_env_no_wait(patch_client):
     plugin_obj.create_code_env.return_value = future
     patch_client.get_plugin.return_value = plugin_obj
 
-    result = runner.invoke(
-        app, ["plugin", "create-code-env", "my-plugin", "--no-wait"]
-    )
+    result = runner.invoke(app, ["plugin", "create-code-env", "my-plugin", "--no-wait"])
     assert result.exit_code == 0
     future.wait_for_result.assert_not_called()
     assert "started" in result.output
@@ -252,9 +250,7 @@ def test_plugin_update_code_env_no_wait(patch_client):
     plugin_obj.update_code_env.return_value = future
     patch_client.get_plugin.return_value = plugin_obj
 
-    result = runner.invoke(
-        app, ["plugin", "update-code-env", "my-plugin", "--no-wait"]
-    )
+    result = runner.invoke(app, ["plugin", "update-code-env", "my-plugin", "--no-wait"])
     assert result.exit_code == 0
     future.wait_for_result.assert_not_called()
     assert "started" in result.output
@@ -327,8 +323,6 @@ def test_plugin_usages_with_project_filter(patch_client):
     plugin_obj.list_usages.return_value = usage_obj
     patch_client.get_plugin.return_value = plugin_obj
 
-    result = runner.invoke(
-        app, ["plugin", "usages", "my-plugin", "-P", "PROJ1"]
-    )
+    result = runner.invoke(app, ["plugin", "usages", "my-plugin", "-P", "PROJ1"])
     assert result.exit_code == 0
     plugin_obj.list_usages.assert_called_once_with(project_key="PROJ1")

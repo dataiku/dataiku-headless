@@ -5,7 +5,12 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_text_input, resolve_agent, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_text_input,
+    resolve_agent,
+    resolve_project,
+)
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS agents.")
@@ -201,7 +206,11 @@ def add_tool(
 def set_prompt(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
-    prompt: str = typer.Option(..., "--prompt", help="System prompt: literal string, @file.txt, or '-' for stdin"),
+    prompt: str = typer.Option(
+        ...,
+        "--prompt",
+        help="System prompt: literal string, @file.txt, or '-' for stdin",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the system prompt for an agent's active version. Accepts agent ID or name.
@@ -225,6 +234,7 @@ def set_prompt(
             version_ids = settings.get_version_ids()
             if not version_ids:
                 from dku_cli.output import error
+
                 error("Agent has no versions.")
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
@@ -245,7 +255,9 @@ def set_prompt(
 def set_llm(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
-    llm_id: str = typer.Option(..., "--llm-id", help="LLM ID to set (e.g. 'openai:conn:gpt-4o')"),
+    llm_id: str = typer.Option(
+        ..., "--llm-id", help="LLM ID to set (e.g. 'openai:conn:gpt-4o')"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the LLM for an agent's active version. Accepts agent ID or name.

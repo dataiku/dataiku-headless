@@ -8,7 +8,7 @@ We ship two components that work together:
 
 1. **`dku` CLI** — a `kubectl`-style tool (167 commands, 28 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 
-2. **Agent skills & knowledge** — 2 skills, 28 reference docs, and 3 subagents that teach agents how to operate DSS. The skill (`SKILL.md`) is the first thing agents read — it must steer them right on the first pass.
+2. **Agent skills & knowledge** — 2 skills, 27 reference docs, and 3 subagents that teach agents how to operate DSS. The skill (`SKILL.md`) is the first thing agents read — it must steer them right on the first pass.
 
 **NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
 
@@ -180,7 +180,7 @@ The DevKit layer lives alongside the CLI source — skills, agents, and referenc
 
 ```
 skills/                    # Skills (auto-discovered by Claude Code, Codex, Cursor, etc.)
-├── dataiku/               # Platform knowledge router (28 reference docs incl. scaffolding)
+├── dataiku/               # Platform knowledge router (27 reference docs incl. scaffolding)
 │   ├── SKILL.md           # Routes to correct reference doc based on task
 │   └── references/*.md    # Deep platform knowledge (progressive disclosure layer 3)
 └── dku-cli/               # CLI operations and composability patterns
@@ -226,8 +226,7 @@ Platform knowledge lives in `skills/dataiku/references/`. Read the relevant doc 
 | `skills/dataiku/references/python-api.md` | dataiku/dataikuapi packages, dataset I/O, SQL |
 | `skills/dataiku/references/scenarios.md` | Automation, triggers, steps, reporters |
 | `skills/dataiku/references/mlops.md` | Model lifecycle, drift detection, API Node |
-| `skills/dataiku/references/genai-features.md` | LLM Mesh overview, Knowledge Banks, agents |
-| `skills/dataiku/references/dataiku-reference.md` | Quick reference for DSS concepts |
+| `skills/dataiku/references/guardrails.md` | LLM guardrails: blocking, filtering, PII, LLM judge, trace API |
 | `skills/dataiku/references/styling.md` | Dataiku brand colors, typography, components |
 | `skills/dataiku/references/plugin-architecture.md` | Plugin tiers (1-5), patterns/anti-patterns, official docs gaps |
 | `skills/dataiku/references/visual-agent-blocks.md` | BlockHandler, block.json, dual-mode components, agent connectors |
@@ -504,5 +503,5 @@ uv run pytest -v           # Run tests
 | `docs/block-graph-api.md` | Undocumented block graph API — all 13 block types, connection model, state/scratchpad |
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
-| `skills/dataiku/references/*.md` | 29 platform reference docs — see [Dataiku Reference Docs](#dataiku-reference-docs) table above |
+| `skills/dataiku/references/*.md` | 27 platform reference docs — see [Dataiku Reference Docs](#dataiku-reference-docs) table above |
 | `docs/prepare-recipe-audit.md` | Prepare recipe deep dive: dataikuapi API surface, processor catalog, CLI design |

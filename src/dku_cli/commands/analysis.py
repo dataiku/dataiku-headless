@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import typer
 
 from dku_cli.errors import handle_api_error
@@ -29,10 +27,12 @@ def list_analyses(
 
         data = []
         for a in analyses:
-            data.append({
-                "analysis_id": a.get("analysisId", ""),
-                "dataset": a.get("inputDataset", ""),
-            })
+            data.append(
+                {
+                    "analysis_id": a.get("analysisId", ""),
+                    "dataset": a.get("inputDataset", ""),
+                }
+            )
 
         render(
             data,
@@ -74,13 +74,13 @@ def get(
 ) -> None:
     """Show visual analysis definition."""
     project_key = resolve_project(project)
-    resolve_output_format(output)
+    output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         analysis = proj.get_analysis(analysis_id)
         definition = analysis.get_definition().get_raw()
-        print(json.dumps(definition, indent=2, default=str))
+        render_raw(definition, output_format=output)
     except Exception as e:
         handle_api_error(e)
 
@@ -121,10 +121,12 @@ def tasks(
 
         data = []
         for t in ml_tasks:
-            data.append({
-                "mltask_id": t.get("mlTaskId", ""),
-                "type": t.get("taskType", ""),
-            })
+            data.append(
+                {
+                    "mltask_id": t.get("mlTaskId", ""),
+                    "type": t.get("taskType", ""),
+                }
+            )
 
         render(
             data,

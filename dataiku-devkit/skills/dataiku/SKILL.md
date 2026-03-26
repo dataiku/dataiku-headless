@@ -37,6 +37,14 @@ triggers:
   - deploy plugin
   - push plugin
   - review plugin
+  - mlops
+  - model deployment
+  - model scoring
+  - model retraining
+  - scoring pipeline
+  - prepare recipe
+  - computed column
+  - dataiku formula
 globs:
   - "**/plugin.json"
   - "**/tool.json"
@@ -165,6 +173,7 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **Agent Tool Patterns** | Advanced: subprocess tools, MCP gateway, multi-agent orchestration, OAuth, HITL | `references/agent-tool-patterns.md` |
 | **Plugin Review** | Reviewing plugins, code review criteria, scoring rubric | `references/plugin-review-checklist.md` |
 | **Scaffolding & Lifecycle** | Creating new plugins, adding components (tool/recipe/webapp/guardrail), deploying, reviewing | `references/scaffolding.md` |
+| **Guardrails** | Building plugin guardrails, BaseGuardrail, blocking vs filtering, PII detection, LLM judge, trace API | `references/guardrails.md` |
 | **Dashboard & Charts** | Chart JSON anatomy, insight definitions, dashboard tiles, chart types, end-to-end examples | `references/dashboard-charts.md` |
 
 ### Platform Knowledge
@@ -177,8 +186,6 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **Scenarios** | Automation, triggers, steps, reporters, metrics/checks, pipeline orchestration | `references/scenarios.md` |
 | **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
-| **GenAI Features** | LLM Mesh overview, Knowledge Banks, LLM recipes, agent architecture, use cases | `references/genai-features.md` |
-| **DSS Quick Reference** | Key concepts (Projects, Flow, Recipes), common operations, API reference | `references/dataiku-reference.md` |
 | **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
 
 ## Instructions
@@ -201,7 +208,7 @@ Common task combinations that span multiple references:
 - **"Add an agent tool to a plugin"** -> `scaffolding.md` (Section 2.1) + `llm-tools.md`
 - **"Add a recipe to a plugin"** -> `scaffolding.md` (Section 2.2) + `recipes.md`
 - **"Add a webapp to a plugin"** -> `scaffolding.md` (Section 2.3) + `webapps.md` + `webapp-pitfalls.md`
-- **"Add a guardrail to a plugin"** -> `scaffolding.md` (Section 2.4) + `llm-mesh.md`
+- **"Add a guardrail to a plugin"** -> `scaffolding.md` (Section 2.4) + `guardrails.md`
 - **"Deploy a plugin to DSS"** -> `scaffolding.md` (Section 3)
 - **"Review a plugin"** -> `scaffolding.md` (Section 4) + `plugin-review-checklist.md`, or spawn `plugin-reviewer` agent
 - **"Build a Dataiku plugin"** -> `plugin-structure.md` + `code-environments.md` + `best-practices.md`
@@ -221,9 +228,9 @@ Common task combinations that span multiple references:
 - **"Read data and write to a folder"** -> `python-api.md`
 - **"Deploy a model to production"** -> `mlops.md` + `scenarios.md`
 - **"Test a plugin thoroughly"** -> `testing.md` + `best-practices.md`
-- **"Set up a RAG pipeline"** -> `llm-mesh.md` + `genai-features.md`
+- **"Set up a RAG pipeline"** -> `llm-mesh.md`
 - **"Build a scoring pipeline with checks"** -> `scenarios.md` + `python-api.md` + `mlops.md`
-- **"Build a guardrail"** -> `llm-mesh.md` (guardrails section)
+- **"Build a guardrail"** -> `guardrails.md` + `scaffolding.md` (Section 2.4)
 - **"Build a dataset connector"** -> `datasets.md` + `plugin-structure.md`
 - **"Build a macro/runnable"** -> `macros.md` + `plugin-structure.md`
 - **"Optimize plugin performance"** -> `best-practices.md` + `webapp-patterns.md` (if webapp)

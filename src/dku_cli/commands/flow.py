@@ -8,7 +8,13 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, render_dag, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    render,
+    render_dag,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Inspect and manage DSS project flow.")
 
@@ -138,7 +144,7 @@ def _resolve_zone(flow, zone_ref: str, project_key: str):
         details=[
             f"Available zones: {zone_list}",
             f"List zones: dku flow zones -P {project_key}",
-            f"Create zone: dku flow create-zone \"<name>\" -P {project_key}",
+            f'Create zone: dku flow create-zone "<name>" -P {project_key}',
         ],
     )
 
@@ -154,9 +160,21 @@ _ITEM_RESOLVERS = {
 @app.command()
 def move(
     ctx: typer.Context,
-    items: list[str] = typer.Argument(help="Item names to move (datasets by default). Use --type for other item types."),
-    zone: str = typer.Option(..., "--zone", "-z", help="Target zone name or ID. Use 'dku flow zones' to list."),
-    item_type: str = typer.Option("DATASET", "--type", "-t", help="Item type: DATASET, RECIPE, MANAGED_FOLDER, SAVED_MODEL"),
+    items: list[str] = typer.Argument(
+        help="Item names to move (datasets by default). Use --type for other item types."
+    ),
+    zone: str = typer.Option(
+        ...,
+        "--zone",
+        "-z",
+        help="Target zone name or ID. Use 'dku flow zones' to list.",
+    ),
+    item_type: str = typer.Option(
+        "DATASET",
+        "--type",
+        "-t",
+        help="Item type: DATASET, RECIPE, MANAGED_FOLDER, SAVED_MODEL",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Move items to a flow zone. Use instead of manually organizing in the DSS UI.
@@ -193,11 +211,18 @@ def move(
                 resolved.append(obj)
             except Exception as e:
                 if is_not_found_error(e):
-                    list_cmd = {"DATASET": "dataset list", "RECIPE": "recipe list", "MANAGED_FOLDER": "folder list", "SAVED_MODEL": "model list"}
+                    list_cmd = {
+                        "DATASET": "dataset list",
+                        "RECIPE": "recipe list",
+                        "MANAGED_FOLDER": "folder list",
+                        "SAVED_MODEL": "model list",
+                    }
                     exit_with_error(
                         f"{item_type_upper} '{name}' not found in project '{project_key}'.",
                         code="not_found",
-                        details=[f"List available: dku {list_cmd.get(item_type_upper, 'dataset list')} -P {project_key}"],
+                        details=[
+                            f"List available: dku {list_cmd.get(item_type_upper, 'dataset list')} -P {project_key}"
+                        ],
                     )
                 raise
 

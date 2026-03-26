@@ -10,7 +10,15 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import error, info, render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    error,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS plugins.")
 
@@ -175,7 +183,9 @@ def get(
         plugins = client.list_plugins()
         plugin_meta = None
         for p in plugins:
-            pid = p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", "")
+            pid = (
+                p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", "")
+            )
             if pid == plugin_id:
                 plugin_meta = p
                 break
@@ -194,8 +204,12 @@ def get(
             render_raw(
                 {
                     "id": plugin_id,
-                    "version": plugin_meta.get("version", "") if isinstance(plugin_meta, dict) else "",
-                    "dev": plugin_meta.get("isDev", False) if isinstance(plugin_meta, dict) else False,
+                    "version": plugin_meta.get("version", "")
+                    if isinstance(plugin_meta, dict)
+                    else "",
+                    "dev": plugin_meta.get("isDev", False)
+                    if isinstance(plugin_meta, dict)
+                    else False,
                     "codeEnvName": code_env,
                     "config": raw.get("config", {}),
                 },
@@ -204,8 +218,18 @@ def get(
         else:
             data = [
                 {"field": "ID", "value": plugin_id},
-                {"field": "Version", "value": plugin_meta.get("version", "") if isinstance(plugin_meta, dict) else ""},
-                {"field": "Dev", "value": str(plugin_meta.get("isDev", False)) if isinstance(plugin_meta, dict) else ""},
+                {
+                    "field": "Version",
+                    "value": plugin_meta.get("version", "")
+                    if isinstance(plugin_meta, dict)
+                    else "",
+                },
+                {
+                    "field": "Dev",
+                    "value": str(plugin_meta.get("isDev", False))
+                    if isinstance(plugin_meta, dict)
+                    else "",
+                },
                 {"field": "Code Env", "value": code_env or "(default)"},
             ]
             config = raw.get("config", {})
@@ -235,7 +259,9 @@ def get(
 def delete(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    force: bool = typer.Option(False, "--force", help="Force delete even if plugin is in use"),
+    force: bool = typer.Option(
+        False, "--force", help="Force delete even if plugin is in use"
+    ),
     confirm: bool = typer.Option(
         False, "--confirm", "--yes", "-y", help="Confirm deletion"
     ),
@@ -262,7 +288,9 @@ def delete(
 def create_code_env(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for code env creation"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for code env creation"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create the managed code environment for a plugin.
@@ -286,7 +314,9 @@ def create_code_env(
                     output_format="json",
                 )
             else:
-                success(f"Created code environment '{env_name}' for plugin '{plugin_id}'")
+                success(
+                    f"Created code environment '{env_name}' for plugin '{plugin_id}'"
+                )
                 info(f"Assign it: dku plugin set-code-env {plugin_id} {env_name}")
         else:
             success(f"Code environment creation started for plugin '{plugin_id}'")
@@ -319,7 +349,9 @@ def set_code_env(
 def update_code_env(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for update to complete"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for update to complete"
+    ),
 ) -> None:
     """Rebuild a plugin's code environment after dependency changes.
 
@@ -344,7 +376,9 @@ def update_code_env(
 def usages(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    project: str | None = typer.Option(None, "--project", "-P", help="Filter by project key"),
+    project: str | None = typer.Option(
+        None, "--project", "-P", help="Filter by project key"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show where a plugin's components are used across projects."""

@@ -625,16 +625,18 @@ export default defineConfig({
 
 ### What Official Docs Have That We Should Add
 
-| Gap in Our Docs | Where to Add |
-|-----------------|--------------|
-| `CREDENTIAL_REQUEST` parameter type (OAuth2 flow) | `parameters.md` |
-| `KEY_VALUE_LIST` return format `[{from, to}]` | `parameters.md` |
-| `allowedColumnTypes` constraint on COLUMN params | `parameters.md` |
-| `triggerParameters` + `disableAutoReload` on dynamic selects | `parameters.md` |
-| `API_SERVICE_VERSION` + `ML_TASK` linked params | `parameters.md` |
-| `corePackagesSet` values (`AUTO`, `LEGACY_PANDAS023`, `PANDAS1`, `PANDAS10`) | `code-environments.md` |
-| `WebappImpersonationContext()` security pattern | `webapps.md` |
-| `desc.json` `corePackagesSet: "AUTO"` as default | `code-environments.md` |
+All previously identified gaps have been addressed. ✓
+
+| Item | Status |
+|------|--------|
+| `CREDENTIAL_REQUEST` parameter type (OAuth2 flow) | ✓ `parameters.md` |
+| `KEY_VALUE_LIST` return format `[{from, to}]` | ✓ `parameters.md` |
+| `allowedColumnTypes` constraint on COLUMN params | ✓ `parameters.md` |
+| `triggerParameters` + `disableAutoReload` on dynamic selects | ✓ `parameters.md` |
+| `API_SERVICE_VERSION` + `ML_TASK` linked params | ✓ `parameters.md` |
+| `corePackagesSet` values (`AUTO`, `LEGACY_PANDAS023`, `PANDAS1`, `PANDAS10`) | ✓ `code-environments.md` |
+| `WebappImpersonationContext()` security pattern | ✓ `webapps.md` |
+| `desc.json` `corePackagesSet: "AUTO"` as default | ✓ `code-environments.md` |
 
 ---
 

@@ -35,10 +35,18 @@ def test_analysis_create(patch_client):
 
 
 def test_analysis_get(patch_client):
-    result = runner.invoke(app, ["analysis", "get", "a1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["analysis", "get", "a1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["analysisId"] == "a1"
+
+
+def test_analysis_get_table(patch_client):
+    result = runner.invoke(app, ["analysis", "get", "a1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "analysisId" in result.output
 
 
 def test_analysis_delete(patch_client):

@@ -27,10 +27,12 @@ def list_dashboards(
 
         data = []
         for d in dashboards:
-            data.append({
-                "id": d.get("id", ""),
-                "name": d.get("name", ""),
-            })
+            data.append(
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", ""),
+                }
+            )
 
         render(
             data,
@@ -63,8 +65,7 @@ def get(
         else:
             pages = raw.get("pages", [])
             tiles = sum(
-                len(p.get("grid", {}).get("tiles", p.get("tiles", [])))
-                for p in pages
+                len(p.get("grid", {}).get("tiles", p.get("tiles", []))) for p in pages
             )
             data = [
                 {"field": "ID", "value": raw.get("id", dashboard_id)},
@@ -72,7 +73,12 @@ def get(
                 {"field": "Pages", "value": str(len(pages))},
                 {"field": "Tiles", "value": str(tiles)},
             ]
-            render(data, ["field", "value"], output_format="table", title=f"Dashboard: {dashboard_id}")
+            render(
+                data,
+                ["field", "value"],
+                output_format="table",
+                title=f"Dashboard: {dashboard_id}",
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -83,9 +89,14 @@ def create(
     name: str = typer.Argument(help="Dashboard name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str | None = typer.Option(
-        None, "--definition", "-d", help="JSON settings (string, @file.json, or - for stdin)"
+        None,
+        "--definition",
+        "-d",
+        help="JSON settings (string, @file.json, or - for stdin)",
     ),
-    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if dashboard already exists"),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if dashboard already exists"
+    ),
 ) -> None:
     """Create a new dashboard."""
     project_key = resolve_project(project)
@@ -149,7 +160,10 @@ def set_definition(
     dashboard_id: str = typer.Argument(help="Dashboard ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str = typer.Option(
-        ..., "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
+        ...,
+        "--definition",
+        "-d",
+        help="JSON definition (string, @file.json, or - for stdin)",
     ),
 ) -> None:
     """Update a dashboard's definition from JSON."""

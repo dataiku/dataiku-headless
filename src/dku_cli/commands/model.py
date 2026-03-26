@@ -9,7 +9,7 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import render, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS saved models.")
 
@@ -152,7 +152,7 @@ def set_active_version(
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
-                f"Version or model not found.",
+                "Version or model not found.",
                 details=[
                     f"List available versions: dku model versions {model_id} -P {project_key}",
                 ],
@@ -220,7 +220,7 @@ def metrics(
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
-                f"Model or version not found.",
+                "Model or version not found.",
                 details=[
                     f"List versions: dku model versions {model_id} -P {project_key}",
                 ],
@@ -254,7 +254,7 @@ def delete_version(
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
-                f"Model or version not found.",
+                "Model or version not found.",
                 details=[
                     f"List versions: dku model versions {model_id} -P {project_key}",
                 ],

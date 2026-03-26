@@ -334,7 +334,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `flow` | graph, zones, create-zone, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir | Yes |
 | `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm | Yes |
-| `agent-tool` | list, get, run, delete | Yes |
+| `agent-tool` | list, get, run, delete, **create**, set-definition, types | Yes (except `types`) |
 | `knowledge` | list, create, get, build, search, delete | Yes |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages | Yes |
@@ -518,6 +518,65 @@ dku agent add-tool my_agent --tool my_tool -P PROJ
 ```
 
 Valid types: `TOOLS_USING_AGENT`, `PYTHON_AGENT`, `PLUGIN_AGENT`, `STRUCTURED_AGENT`.
+
+### Structured Visual Agent (SVA) Graph — Canonical Workflow
+
+**Use `set-graph` as the primary pattern.** The `dku agent-block connect` command does not support `PYTHON_CODE` blocks (exits with an error — use `validNextBlocksFromCode` + `NextBlock()` yield instead). For `STANDARD_REACT`, `connect` works correctly (sets `defaultNextBlock` automatically). For any non-trivial graph, always use `get-graph → patch JSON → set-graph`:
+
+```bash
+# 1. Add all blocks
+dku agent-block add AGENT_ID -b @parse_block.json --set-start -P PROJ && \
+dku agent-block add AGENT_ID -b @routing_block.json -P PROJ && \
+dku agent-block add AGENT_ID -b @python_code_block.json -P PROJ && \
+dku agent-block add AGENT_ID -b @react_block.json -P PROJ
+
+# 2. Export the graph
+dku agent-block get-graph AGENT_ID -P PROJ -o json > /tmp/graph.json
+
+# 3. Patch connections in Python (nextBlock, defaultNextBlock, etc.)
+python3 -c "
+import json
+g = json.load(open('/tmp/graph.json'))
+# wire blocks by editing g['blocks']
+json.dump(g, open('/tmp/graph.json', 'w'))
+"
+
+# 4. Push the patched graph back
+dku agent-block set-graph AGENT_ID -d @/tmp/graph.json -P PROJ
+```
+
+**`connect` is a convenience shortcut only.** Use it for simple `LLM_REQUEST → ROUTING`, `STANDARD_REACT → EMIT_OUTPUT`, or other direct wiring. For `PYTHON_CODE` blocks, `connect` will error — use `set-graph` with `validNextBlocksFromCode` and `NextBlock()` yield in `process()`.
+
+### Agent Tool Creation (Two-Step Workflow)
+
+Creating a plugin-based agent tool requires two separate commands — `agent-tool create` creates the tool instance, then `agent add-tool` attaches it to an agent.
+
+```bash
+# Step 1: Create the tool (returns a tool ID)
+dku agent-tool create "Web Search" \
+  --type Custom_agent_tool_google-search-tool_google-search-tool \
+  -P PROJ
+
+# Step 2: Attach to agent (use the tool ID from step 1)
+dku agent add-tool AGENT_ID --tool TOOL_ID -P PROJ
+```
+
+**Discovering available tool types:**
+```bash
+# List available tool types (does NOT accept -P — this is project-independent)
+dku agent-tool types
+```
+
+> **Gotcha:** `dku agent-tool types` is listed under the `agent-tool` group but does NOT accept a `-P` flag. Passing `-P` will throw an error. Run it without a project argument.
+
+**Updating tool definitions:** Use `dku agent-tool set-definition` to update tool parameters after creation (e.g., inject an API key):
+```bash
+# Update specific fields (merges into existing definition)
+dku agent-tool set-definition TOOL_ID -d '{"params": {"apiKey": "secret"}}' -P PROJ
+
+# Or from a file
+dku agent-tool set-definition TOOL_ID -d @tool-config.json -P PROJ
+```
 
 ### LLM ID Format
 

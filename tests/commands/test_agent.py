@@ -121,7 +121,16 @@ def test_agent_set_llm(patch_client):
 
 def test_agent_set_prompt(patch_client):
     result = runner.invoke(
-        app, ["agent", "set-prompt", "agent1", "--prompt", "You are a helpful analyst.", "--project", "PROJ1"]
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "agent1",
+            "--prompt",
+            "You are a helpful analyst.",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     assert "Set system prompt" in result.output
@@ -130,20 +139,33 @@ def test_agent_set_prompt(patch_client):
     settings.save.assert_called()
     ver_settings = settings.get_version_settings("v1")
     raw = ver_settings.get_raw()
-    assert raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a helpful analyst."
+    assert (
+        raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a helpful analyst."
+    )
 
 
 def test_agent_set_prompt_from_file(patch_client, tmp_path):
     prompt_file = tmp_path / "prompt.txt"
     prompt_file.write_text("You are a financial analyst.")
     result = runner.invoke(
-        app, ["agent", "set-prompt", "agent1", "--prompt", f"@{prompt_file}", "--project", "PROJ1"]
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "agent1",
+            "--prompt",
+            f"@{prompt_file}",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
     ver_settings = settings.get_version_settings("v1")
     raw = ver_settings.get_raw()
-    assert raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a financial analyst."
+    assert (
+        raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a financial analyst."
+    )
 
 
 def test_agent_resolve_by_name(patch_client):
