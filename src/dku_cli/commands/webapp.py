@@ -8,7 +8,9 @@ from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Manage DSS web applications (list, start/stop, read/edit code).")
+app = typer.Typer(
+    help="Manage DSS web applications (list, start/stop, read/edit code)."
+)
 
 
 @app.command("list")
@@ -138,7 +140,10 @@ def set_definition(
     webapp_id: str = typer.Argument(help="Web app ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str = typer.Option(
-        ..., "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
+        ...,
+        "--definition",
+        "-d",
+        help="JSON definition (string, @file.json, or - for stdin)",
     ),
 ) -> None:
     """Update a web app's definition from JSON (use get-definition to read current state first)."""

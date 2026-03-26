@@ -33,7 +33,9 @@ def test_insight_get(patch_client):
 
 
 def test_insight_get_json(patch_client):
-    result = runner.invoke(app, ["insight", "get", "insight1", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["insight", "get", "insight1", "--project", "PROJ1", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "insight1"
@@ -41,12 +43,16 @@ def test_insight_get_json(patch_client):
 
 
 def test_insight_create(patch_client):
-    result = runner.invoke(app, ["insight", "create", "My Insight", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "create", "My Insight", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "Created insight" in result.output
     assert "new_insight_1" in result.output
     proj = patch_client.get_project("PROJ1")
-    proj.create_insight.assert_called_once_with({"type": "dataset_table", "name": "My Insight"})
+    proj.create_insight.assert_called_once_with(
+        {"type": "dataset_table", "name": "My Insight"}
+    )
 
 
 def test_insight_create_with_type(patch_client):
@@ -62,7 +68,17 @@ def test_insight_create_with_type(patch_client):
 def test_insight_create_with_dataset(patch_client):
     result = runner.invoke(
         app,
-        ["insight", "create", "My Chart", "--project", "PROJ1", "--type", "chart", "--dataset", "sales_monthly"],
+        [
+            "insight",
+            "create",
+            "My Chart",
+            "--project",
+            "PROJ1",
+            "--type",
+            "chart",
+            "--dataset",
+            "sales_monthly",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -76,7 +92,17 @@ def test_insight_create_dataset_with_definition(patch_client):
     defn = json.dumps({"type": "chart", "params": {"engineType": "LINO"}})
     result = runner.invoke(
         app,
-        ["insight", "create", "My Chart", "--project", "PROJ1", "--dataset", "forecast", "--definition", defn],
+        [
+            "insight",
+            "create",
+            "My Chart",
+            "--project",
+            "PROJ1",
+            "--dataset",
+            "forecast",
+            "--definition",
+            defn,
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -129,7 +155,9 @@ def test_insight_delete(patch_client):
 
 
 def test_insight_get_definition(patch_client):
-    result = runner.invoke(app, ["insight", "get-definition", "insight1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "get-definition", "insight1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "insight1"
@@ -137,10 +165,20 @@ def test_insight_get_definition(patch_client):
 
 
 def test_insight_set_definition(patch_client):
-    new_def = json.dumps({"id": "insight1", "name": "Updated", "type": "chart", "params": {"x": 1}})
+    new_def = json.dumps(
+        {"id": "insight1", "name": "Updated", "type": "chart", "params": {"x": 1}}
+    )
     result = runner.invoke(
         app,
-        ["insight", "set-definition", "insight1", "--project", "PROJ1", "--definition", new_def],
+        [
+            "insight",
+            "set-definition",
+            "insight1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
     )
     assert result.exit_code == 0
     assert "Updated definition" in result.output
@@ -151,10 +189,20 @@ def test_insight_set_definition(patch_client):
 
 def test_insight_set_definition_from_file(tmp_path, patch_client):
     defn_file = tmp_path / "insight_def.json"
-    defn_file.write_text(json.dumps({"id": "insight1", "name": "FromFile", "type": "chart"}))
+    defn_file.write_text(
+        json.dumps({"id": "insight1", "name": "FromFile", "type": "chart"})
+    )
     result = runner.invoke(
         app,
-        ["insight", "set-definition", "insight1", "--project", "PROJ1", "--definition", f"@{defn_file}"],
+        [
+            "insight",
+            "set-definition",
+            "insight1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            f"@{defn_file}",
+        ],
     )
     assert result.exit_code == 0
     assert "Updated definition" in result.output
@@ -166,16 +214,24 @@ def test_insight_set_definition_from_file(tmp_path, patch_client):
 # --- validate command tests ---
 
 
-def _setup_chart_insight(patch_client, chart_columns, schema_columns, insight_type="chart"):
+def _setup_chart_insight(
+    patch_client, chart_columns, schema_columns, insight_type="chart"
+):
     """Helper to configure mocks for validate tests."""
     proj = patch_client.get_project("PROJ1")
 
     # Build chart def with column refs
     chart_def = {
         "type": "lines",
-        "genericDimension0": [{"column": c, "type": "ALPHANUM"} for c in chart_columns.get("dim0", [])],
-        "genericDimension1": [{"column": c, "type": "ALPHANUM"} for c in chart_columns.get("dim1", [])],
-        "genericMeasures": [{"column": c, "function": "SUM"} for c in chart_columns.get("measures", [])],
+        "genericDimension0": [
+            {"column": c, "type": "ALPHANUM"} for c in chart_columns.get("dim0", [])
+        ],
+        "genericDimension1": [
+            {"column": c, "type": "ALPHANUM"} for c in chart_columns.get("dim1", [])
+        ],
+        "genericMeasures": [
+            {"column": c, "function": "SUM"} for c in chart_columns.get("measures", [])
+        ],
     }
 
     insight_settings = MagicMock()
@@ -208,7 +264,9 @@ def test_insight_validate_valid_columns(patch_client):
         chart_columns={"dim0": ["month"], "measures": ["revenue"]},
         schema_columns=["month", "revenue", "product"],
     )
-    result = runner.invoke(app, ["insight", "validate", "insight1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "validate", "insight1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "2 column reference(s) valid" in result.output
 
@@ -219,7 +277,9 @@ def test_insight_validate_invalid_column_with_suggestion(patch_client):
         chart_columns={"dim0": ["month"], "measures": ["revnue"]},
         schema_columns=["month", "revenue", "product"],
     )
-    result = runner.invoke(app, ["insight", "validate", "insight1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "validate", "insight1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 1
     assert "revnue" in result.output
     assert "revenue" in result.output
@@ -238,7 +298,9 @@ def test_insight_validate_missing_dataset_binding(patch_client):
     insight_mock.get_settings.return_value = insight_settings
     proj.get_insight.return_value = insight_mock
 
-    result = runner.invoke(app, ["insight", "validate", "insight1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "validate", "insight1", "--project", "PROJ1"]
+    )
     assert result.exit_code != 0
     assert "datasetSmartName" in result.output
 
@@ -250,6 +312,8 @@ def test_insight_validate_non_chart_type(patch_client):
         schema_columns=["month", "revenue"],
         insight_type="dataset_table",
     )
-    result = runner.invoke(app, ["insight", "validate", "insight1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "validate", "insight1", "--project", "PROJ1"]
+    )
     assert result.exit_code != 0
     assert "dataset_table" in result.output

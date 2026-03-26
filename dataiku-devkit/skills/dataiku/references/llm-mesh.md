@@ -175,91 +175,51 @@ completion.settings["toolChoice"] = {
 
 Agents are LLM-powered applications that use tools to accomplish tasks.
 
-### Basic Agent Pattern
+> **Production agents:** For production plugin agents, always use `BaseAgentTool` + DSS's Visual Agent or SVA infrastructure — not LangChain's `AgentExecutor` (deprecated). For agentic tools with internal LangGraph loops, see `references/agent-tool-patterns.md` (the `DKUChatModel` + LangGraph pattern from `dss-plugin-semantic-models-lab`).
+
+### LangGraph Agent Loop (recommended for agentic tools)
 
 ```python
-from langchain.agents import create_react_agent, AgentExecutor
-from langchain import hub
+from langgraph.graph import StateGraph, END
+from langchain_core.tools import tool
+from langchain_core.messages import SystemMessage, HumanMessage
 
-# Get ReAct prompt template
-prompt = hub.pull("hwchase17/react")
+# Internal tools use @tool decorator (not BaseAgentTool)
+@tool
+def calculate_sum(a: int, b: int) -> int:
+    """Add two numbers."""
+    return a + b
 
-# Create agent
-agent = create_react_agent(
-    llm=llm_langchain,
-    tools=tools,
-    prompt=prompt
-)
+# Wrap DSS LLM for LangChain/LangGraph compatibility
+from dataiku.langchain import DKUChatModel
+llm = DKUChatModel(llm_id).bind_tools([calculate_sum])
 
-# Create executor
-agent_executor = AgentExecutor(
-    agent=agent,
-    tools=tools,
-    verbose=True,
-    max_iterations=10
-)
-
-# Run agent
-result = agent_executor.invoke({
-    "input": "Calculate 25 + 17"
-})
-print(result["output"])
+# Build graph
+graph = StateGraph(...)
+# ... see agent-tool-patterns.md for full LangGraph pattern
 ```
 
-### Custom Agent Loop
+### Minimal ReAct Loop (notebooks / prototyping only)
 
 ```python
-def run_agent(query: str, llm, tools, max_iterations=5):
-    """Custom agent execution loop."""
-    tools_by_name = {t.name: t for t in tools}
-    llm_with_tools = llm.bind_tools(tools)
+from langchain_core.messages import HumanMessage, ToolMessage
 
+def run_agent(query: str, llm_langchain, tools, max_iterations=5):
+    """Minimal tool-calling loop for notebooks. Use LangGraph for production."""
+    tools_by_name = {t.name: t for t in tools}
+    llm_with_tools = llm_langchain.bind_tools(tools)
     messages = [HumanMessage(content=query)]
 
-    for iteration in range(max_iterations):
-        # Get LLM response
+    for _ in range(max_iterations):
         ai_msg = llm_with_tools.invoke(messages)
         messages.append(ai_msg)
-
-        # Check if done
         if not ai_msg.tool_calls:
             return ai_msg.content
-
-        # Execute tool calls
-        for tool_call in ai_msg.tool_calls:
-            tool_name = tool_call["name"]
-            tool = tools_by_name[tool_name]
-            result = tool.invoke(tool_call)
-            messages.append(ToolMessage(
-                content=str(result),
-                tool_call_id=tool_call["id"]
-            ))
+        for call in ai_msg.tool_calls:
+            result = tools_by_name[call["name"]].invoke(call)
+            messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
     return "Max iterations reached"
-```
-
-### Agent with Memory
-
-```python
-from langchain.memory import ConversationBufferMemory
-
-# Create memory
-memory = ConversationBufferMemory(
-    memory_key="chat_history",
-    return_messages=True
-)
-
-# Create agent with memory
-agent_executor = AgentExecutor(
-    agent=agent,
-    tools=tools,
-    memory=memory,
-    verbose=True
-)
-
-# Multi-turn conversation
-agent_executor.invoke({"input": "My name is Alice"})
-agent_executor.invoke({"input": "What's my name?"})
 ```
 
 ## Managing Agents via Python API
@@ -341,94 +301,35 @@ print(sm.get_active_version()['id'])
 
 ## Guardrails
 
-Guardrails provide safety and quality controls for LLM applications.
+Guardrails intercept LLM completions to enforce safety, compliance, and quality policies. They can block queries (raise an exception) or rewrite content (mutate the `input` dict).
 
-### Custom Guardrail Component
-
-```
-python-guardrails/
-└── my-guardrail/
-    ├── guardrail.json
-    └── guardrail.py
-```
-
-### Plugin Guardrail Implementation (BaseGuardrail)
-
-For plugin-packaged guardrails, extend `BaseGuardrail`. This is the current API (DSS 14.x):
-
-```python
-import logging
-from dataiku.llm.guardrails import BaseGuardrail
-
-class ContentFilterGuardrail(BaseGuardrail):
-    """Content filtering guardrail using BaseGuardrail pattern."""
-
-    def set_config(self, config, plugin_config):
-        """Initialize from DSS plugin configuration."""
-        self.blocked_terms = config.get("blockedTerms", [])
-        self.check_queries = config.get("checkQueries", True)
-        self.check_responses = config.get("checkResponses", True)
-
-    def process(self, input, trace):
-        """Process input — check queries and/or responses for violations."""
-        with trace.subspan("Content Filter Guardrail") as subspan:
-            # Check queries
-            if self.check_queries and "completionQuery" in input:
-                messages = input.get("completionQuery", {}).get("messages", [])
-                if messages:
-                    last_msg = messages[-1]
-                    text = last_msg.get("content", "")
-                    for term in self.blocked_terms:
-                        if term.lower() in text.lower():
-                            logging.warning("[Content Filter] Blocked term detected in query")
-                            raise Exception("Query blocked: prohibited content detected.")
-
-            # Check responses
-            if self.check_responses and "completionResponse" in input:
-                text = input.get("completionResponse", {}).get("text", "")
-                for term in self.blocked_terms:
-                    if term.lower() in text.lower():
-                        logging.warning("[Content Filter] Blocked term detected in response")
-                        input["completionResponse"]["text"] = "Response blocked: prohibited content."
-
-        return input
-```
+> **Full reference**: See `references/guardrails.md` for `BaseGuardrail` implementation, `guardrail.json` template, and all patterns (content filter, PII detection, LLM judge, token budget).
 
 Each guardrail lives in `python-guardrails/{name}/` with `guardrail.py` + `guardrail.json`.
 
-### Guardrail Patterns
-
-**PII Detection:**
 ```python
-def process(self, input, trace):
-    import re
-    with trace.subspan("PII Detection") as subspan:
-        if "completionQuery" in input:
-            messages = input["completionQuery"].get("messages", [])
+from dataiku.llm.guardrails import BaseGuardrail
+
+class MyGuardrail(BaseGuardrail):
+    def set_config(self, config, plugin_config):
+        self.config = config
+
+    def process(self, input, trace):
+        with trace.subspan("My Guardrail") as span:
+            # Check query (before LLM)
+            messages = input.get("completionQuery", {}).get("messages", [])
             if messages:
                 text = messages[-1].get("content", "")
-                if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text):
-                    raise Exception("Query contains PII. Please remove email addresses.")
-    return input
-```
+                if "blocked" in text.lower():
+                    raise Exception("Query blocked.")  # Block
 
-**LLM Judge (delegate to another LLM):**
-```python
-def process(self, input, trace):
-    with trace.subspan("LLM Judge") as subspan:
-        if "completionQuery" in input:
-            messages = input["completionQuery"].get("messages", [])
-            if messages:
-                text = messages[-1].get("content", "")
-                completion = self.llm_judge.new_completion()
-                completion.with_message(self.system_prompt, role="system")
-                completion.with_message(f"Check this: {text}\nViolation? yes/no", role="user")
-                resp = completion.execute()
-                if subspan and hasattr(resp, "trace"):
-                    subspan.append_trace(resp.trace)
-                if "yes" in resp.text.strip().lower():
-                    raise Exception(self.block_message)
-    return input
+            # Check response (after LLM)
+            resp = input.get("completionResponse", {})
+            if resp.get("text"):
+                input["completionResponse"]["text"] = resp["text"]  # Rewrite
+
+            span.attributes["checked"] = True
+        return input  # Always return input
 ```
 
 ## Knowledge Banks & RAG
@@ -455,6 +356,32 @@ kb_core.add_documents([
     }
 ])
 ```
+
+### Embedding Models
+
+| Provider | Model | Dimensions |
+|----------|-------|------------|
+| OpenAI | text-embedding-3-large | 3072 |
+| OpenAI | text-embedding-3-small | 1536 |
+| Cohere | embed-english-v3.0 | 1024 |
+| AWS Bedrock | Titan Embeddings | 1536 |
+| Custom | Any sentence-transformers | Varies |
+
+### Chunking Strategies
+
+| Strategy | Best For |
+|----------|----------|
+| **Fixed Size** | Uniform documents |
+| **Sentence** | Natural text |
+| **Paragraph** | Structured documents |
+| **Recursive** | Mixed content |
+| **Semantic** | Topic-based retrieval |
+
+**Chunk tuning:**
+- **Size**: 256–512 tokens for most use cases
+- **Overlap**: 10–20% for context continuity
+- **Metadata**: Include source, date, category for filtering
+- **Hybrid search**: Combine semantic + keyword for precision
 
 ### RAG Query Pattern
 
@@ -490,6 +417,34 @@ Answer:"""
 
     return response.text
 ```
+
+## LLM Recipes (Visual)
+
+Visual recipes for LLM-powered data processing — no code required.
+
+### Prompt Engineering Recipe
+
+Apply a prompt template to every row in a dataset.
+
+| Parameter | Description |
+|-----------|-------------|
+| System Prompt | Define model behavior |
+| User Prompt | Template with `{{column_name}}` references |
+| Temperature | 0 (deterministic) to 1 (creative) |
+| Max Tokens | Output length limit |
+| Stop Sequences | Early termination triggers |
+
+Column reference syntax: `Summarize this text: {{text_column}}`
+
+### Embedding Recipe
+
+Converts a text column to a vector embedding column (array of floats). Use to prepare data for semantic search, clustering, or similarity computation.
+
+### RAG Query Recipe
+
+Queries a Knowledge Bank and injects retrieved context into a prompt template. Parameters: knowledge bank selection, top-K retrieval count, similarity threshold, prompt template with `{{context}}` placeholder.
+
+---
 
 ## Cost Control
 

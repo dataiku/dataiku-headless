@@ -1,4 +1,4 @@
-"""dku agent-tool — list, get, run, create, types, delete."""
+"""dku agent-tool — list, get, create, set-definition, run, types, delete."""
 
 from __future__ import annotations
 
@@ -60,9 +60,13 @@ def list_agent_tools(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Tool name"),
-    tool_type: str = typer.Option(..., "--type", "-t", help="Tool type (run 'dku agent-tool types' to list)"),
+    tool_type: str = typer.Option(
+        ..., "--type", "-t", help="Tool type (run 'dku agent-tool types' to list)"
+    ),
     knowledge_bank: str | None = typer.Option(
-        None, "--knowledge-bank", "--kb",
+        None,
+        "--knowledge-bank",
+        "--kb",
         help="Knowledge bank ID (required for VectorStoreSearch)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -76,6 +80,7 @@ def create(
       dku agent-tool create my_lookup --type DatasetRowLookup -P PROJ
       dku agent-tool create my_search --type VectorStoreSearch --kb my_kb -P PROJ
       dku agent-tool create my_llm_tool --type LLMMeshLLMQuery -P PROJ
+      dku agent-tool create "Web Search" --type Custom_agent_tool_google-search-tool_google-search-tool -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -88,6 +93,7 @@ def create(
         if tool_type == "VectorStoreSearch":
             if knowledge_bank is None:
                 from dku_cli.errors import exit_with_error
+
                 exit_with_error(
                     "VectorStoreSearch tools require --knowledge-bank.",
                     code="missing_param",
@@ -104,6 +110,34 @@ def create(
         handle_api_error(e)
 
 
+@app.command("set-definition")
+def set_definition(
+    ctx: typer.Context,
+    tool_id: str = typer.Argument(help="Agent tool ID"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Definition JSON (string, @file.json, or - for stdin)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Update agent tool settings (params, config, etc.)."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        tool = proj.get_agent_tool(tool_id)
+        settings = tool.get_settings()
+        raw = settings.get_raw()
+        updates = read_json_input(definition)
+        raw.update(updates)
+        settings.save()
+        success(f"Updated agent tool '{tool_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command()
 def types(
     ctx: typer.Context,
@@ -116,7 +150,9 @@ def types(
     """
     output = resolve_output_format(output)
     data = [{"type": t, "description": d} for t, d in BUILTIN_TOOL_TYPES.items()]
-    render(data, ["type", "description"], output_format=output, title="Agent Tool Types")
+    render(
+        data, ["type", "description"], output_format=output, title="Agent Tool Types"
+    )
 
 
 @app.command()

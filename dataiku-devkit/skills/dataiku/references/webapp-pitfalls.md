@@ -187,8 +187,91 @@ Backend not responding. Check:
 2. **Route name mismatch** -> `fetch(getWebAppBackendUrl('filters'))` must match `@app.route('/filters')`
 3. **Data loading** -> Verify `@app.before_request` exists and `data_cache` loads successfully
 
+## Plugin Webapp Pitfalls (Beyond Project Webapps)
+
+Plugin webapps have additional pitfalls not present in project-level webapps.
+
+### Required files: app.js + meta.json
+
+DSS requires `app.js` in the webapp directory even if it's empty. Without it: `IllegalStateException: The plugin webapp has no JavaScript file`. Also need `meta.json` with `backendEnabled: true`.
+
+### webapp.json must declare codeEnv
+
+```json
+{
+  "codeEnv": { "envMode": "PLUGIN_MANAGED" }
+}
+```
+
+Without this, DSS runs your backend on its base Python (`/data/dataiku/dss_data/bin/python`) which has none of your pip dependencies. This field tells DSS to use the plugin's code environment.
+
+### getWebAppBackendUrl lives on window.parent
+
+DSS runs the webapp in an iframe. The function is injected on the **parent** window, not the iframe:
+
+```javascript
+const getUrl = window.getWebAppBackendUrl || window.parent.getWebAppBackendUrl;
+```
+
+If you only check `window`, all API calls 404 in DSS.
+
+### DSS WSGI doesn't support WebSockets
+
+Socket.IO's websocket transport causes `AssertionError: write() before start_response` and a 500 that kills the backend. Force polling-only in production:
+
+```javascript
+transports: isLocal() ? ["websocket", "polling"] : ["polling"]
+```
+
+### No writable storage in plugin directory
+
+The plugin install directory (`/data/dataiku/dss_data/plugins/installed/my-plugin/`) is **read-only**. `DKU_CUSTOM_RESOURCE_FOLDER` points there too. For writable storage:
+
+```python
+from dataiku.core import workload_local_folder
+path = workload_local_folder.get_workload_local_folder_path()
+```
+
+This gives a writable path per webapp instance.
+
+### No Alembic subprocess in DSS
+
+`alembic.ini` and migration scripts aren't available at expected paths in DSS. Use `db.create_all()` for table creation. Don't rely on Alembic subprocess for schema migrations.
+
+### DSS caches body.html aggressively
+
+After changing `webapp.json` or `body.html`, you often need to **delete and re-create** the webapp instance in the DSS project. Just restarting the backend isn't enough.
+
+### Vite base path must match DSS plugin resource path
+
+Lazy-loaded chunks resolve relative to `base`. Default `/` means chunks load from `/assets/Foo.js` instead of `/plugins/my-plugin/resource/dist/assets/Foo.js`:
+
+```javascript
+// vite.config.ts
+base: mode === "production" ? "/plugins/my-plugin/resource/dist/" : "/"
+```
+
+### paramsPythonSetup runs on DSS base Python
+
+The `params_helper.py` (for dynamic SELECT choices like DB connections) runs on DSS's base Python, not your code env. Don't import your plugin's dependencies in that file.
+
+### Google Fonts will fail in air-gapped DSS
+
+CDN fonts (Google Fonts, etc.) won't load in enterprise environments without internet. Bundle fonts in `resource/dist/` for those deployments.
+
+### Python 3.9-3.11: no `str | None` syntax
+
+DSS Python is 3.9-3.11. Use `from __future__ import annotations` at the top of any file using modern type union syntax. Otherwise: `TypeError: unsupported operand type(s) for |`.
+
+### Plugin ID flows everywhere
+
+The plugin ID in `plugin.json` appears in: Vite base path, `body.html` script/link tags, socket config, zip filename, code env name (`plugin_{id}_managed`). Renaming it breaks multiple things.
+
+---
+
 ## Pre-Deployment Checklist
 
+**Project-level webapps:**
 - [ ] No `<script src="...">` or `<link href="...">` for local files
 - [ ] All four tabs have content (no empty HTML/CSS/JS/Python)
 - [ ] JavaScript uses `getWebAppBackendUrl('endpoint')`
@@ -196,7 +279,17 @@ Backend not responding. Check:
 - [ ] Route names match: `fetch(getWebAppBackendUrl('filters'))` <-> `@app.route('/filters')`
 - [ ] CDN libraries in HTML tab (Bootstrap, Chart.js, etc.)
 - [ ] `@app.before_request` exists to load data on startup
-- [ ] Tested: Filters load, no console errors, tabs load data
+
+**Plugin webapps (additional checks):**
+- [ ] `app.js` and `meta.json` exist in webapp directory
+- [ ] `webapp.json` has `"codeEnv": { "envMode": "PLUGIN_MANAGED" }`
+- [ ] `desc.json` has `"installCorePackages": false`
+- [ ] Backend does NOT define `app = Flask(__name__)` — DSS injects it
+- [ ] `getWebAppBackendUrl` checks both `window` and `window.parent`
+- [ ] Vite `base` path matches `/plugins/{id}/resource/dist/` in production
+- [ ] No WebSocket transport (polling only)
+- [ ] No `from __future__` missing for type union syntax
+- [ ] Writable storage uses `workload_local_folder`, not plugin directory
 
 ## Summary
 
@@ -212,3 +305,5 @@ Backend not responding. Check:
 - Use hardcoded paths like `/api/filters` or `/filters` directly
 - Wrap CSS in `<style>` or JS in `<script>` (Dataiku does it)
 - Leave tabs empty
+- Define `app = Flask(__name__)` in plugin webapps
+- Use WebSocket transport in DSS

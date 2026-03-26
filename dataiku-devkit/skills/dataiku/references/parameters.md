@@ -596,6 +596,38 @@ Scenario selection.
 
 ---
 
+### API_SERVICE_VERSION
+
+API Service + endpoint version selection. Use when your plugin needs to call a deployed API service endpoint.
+
+```json
+{
+  "name": "api_endpoint",
+  "type": "API_SERVICE_VERSION",
+  "label": "API Endpoint"
+}
+```
+
+**Access in Python**: `config.get("api_endpoint")` -> `str` (service version ID)
+
+---
+
+### ML_TASK
+
+ML Task (AutoML) selection. Links the component to a specific model training task.
+
+```json
+{
+  "name": "training_task",
+  "type": "ML_TASK",
+  "label": "ML Task"
+}
+```
+
+**Access in Python**: `config.get("training_task")` -> `str` (ML task ID)
+
+---
+
 ## Special Types
 
 ### SEPARATOR

@@ -14,12 +14,23 @@ app = typer.Typer(help="Manage visual agent block graphs.")
 # Known block types (DSS 13.x) — warn on unknown, don't block
 # ---------------------------------------------------------------------------
 
-_KNOWN_BLOCK_TYPES = frozenset({
-    "SET_STATE_ENTRIES", "LLM_REQUEST", "ROUTING", "EMIT_OUTPUT",
-    "STANDARD_REACT", "MANUAL_TOOL_CALL", "MANDATORY_TOOL_CALL",
-    "PARALLEL", "FOR_EACH", "PYTHON_CODE", "REFLECTION",
-    "DELEGATE_TO_OTHER_AGENT", "GENERATE_ARTIFACT",
-})
+_KNOWN_BLOCK_TYPES = frozenset(
+    {
+        "SET_STATE_ENTRIES",
+        "LLM_REQUEST",
+        "ROUTING",
+        "EMIT_OUTPUT",
+        "STANDARD_REACT",
+        "MANUAL_TOOL_CALL",
+        "MANDATORY_TOOL_CALL",
+        "PARALLEL",
+        "FOR_EACH",
+        "PYTHON_CODE",
+        "REFLECTION",
+        "DELEGATE_TO_OTHER_AGENT",
+        "GENERATE_ARTIFACT",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -66,7 +77,11 @@ def _find_dangling_refs(blocks: list[dict], removed_id: str) -> list[tuple[str, 
     for b in blocks:
         bid = b.get("id", "?")
         # Direct nextBlock fields
-        for field in ("nextBlock", "defaultNextBlock", "defaultNextBlockIfNoClauseMatch"):
+        for field in (
+            "nextBlock",
+            "defaultNextBlock",
+            "defaultNextBlockIfNoClauseMatch",
+        ):
             if b.get(field) == removed_id:
                 refs.append((bid, field))
         # PARALLEL.blockIds
@@ -86,7 +101,9 @@ def _find_dangling_refs(blocks: list[dict], removed_id: str) -> list[tuple[str, 
     return refs
 
 
-def _fetch_settings_and_tuas(ctx: typer.Context, agent_id: str, project: str | None, version: str | None):
+def _fetch_settings_and_tuas(
+    ctx: typer.Context, agent_id: str, project: str | None, version: str | None
+):
     """Common fetch pattern: returns (settings, raw, tuas, version_id)."""
     project_key = resolve_project(project)
     client = get_client_from_ctx(ctx)
@@ -109,13 +126,17 @@ def list_blocks(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List blocks in an agent's block graph."""
     output = resolve_output_format(output)
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         mode = tuas.get("mode", "SIMPLE")
         if mode != "BLOCKS_GRAPH":
@@ -127,19 +148,26 @@ def list_blocks(
         data = []
         for b in blocks:
             bid = b.get("id", "")
-            data.append({
-                "id": bid,
-                "type": b.get("type", ""),
-                "next_block": b.get("nextBlock", ""),
-                "start": "*" if bid == starting else "",
-            })
+            data.append(
+                {
+                    "id": bid,
+                    "type": b.get("type", ""),
+                    "next_block": b.get("nextBlock", ""),
+                    "start": "*" if bid == starting else "",
+                }
+            )
 
         render(
             data,
             ["id", "type", "next_block", "start"],
             output_format=output,
             title=f"Blocks in {agent_id}",
-            headers={"id": "ID", "type": "TYPE", "next_block": "NEXT_BLOCK", "start": "START"},
+            headers={
+                "id": "ID",
+                "type": "TYPE",
+                "next_block": "NEXT_BLOCK",
+                "start": "START",
+            },
         )
     except Exception as e:
         handle_api_error(e)
@@ -151,19 +179,24 @@ def get_block(
     agent_id: str = typer.Argument(help="Agent ID"),
     block_id: str = typer.Argument(help="Block ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show a single block definition."""
     output = resolve_output_format(output)
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         block = _find_block(tuas, block_id)
         if block is None:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
-                code="not_found", status=3,
+                code="not_found",
+                status=3,
             )
 
         render_raw(block, output_format=output)
@@ -175,29 +208,45 @@ def get_block(
 def add_block(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID"),
-    block_json: str = typer.Option(..., "--block", "-b", help="Block JSON (string, @file.json, or - for stdin)"),
+    block_json: str = typer.Option(
+        ..., "--block", "-b", help="Block JSON (string, @file.json, or - for stdin)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
-    set_start: bool = typer.Option(False, "--set-start", help="Set this block as the starting block"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
+    set_start: bool = typer.Option(
+        False, "--set-start", help="Set this block as the starting block"
+    ),
 ) -> None:
     """Add a block to the agent's block graph."""
     try:
         new_block = read_json_input(block_json)
         if not new_block:
-            exit_with_error("Block JSON cannot be empty.", code="invalid_input", status=1)
+            exit_with_error(
+                "Block JSON cannot be empty.", code="invalid_input", status=1
+            )
 
         block_id = new_block.get("id")
         if not block_id:
-            exit_with_error("Block JSON must have an 'id' field.", code="invalid_input", status=1)
+            exit_with_error(
+                "Block JSON must have an 'id' field.", code="invalid_input", status=1
+            )
 
         block_type = new_block.get("type")
         if not block_type:
-            exit_with_error("Block JSON must have a 'type' field.", code="invalid_input", status=1)
+            exit_with_error(
+                "Block JSON must have a 'type' field.", code="invalid_input", status=1
+            )
 
         if block_type not in _KNOWN_BLOCK_TYPES:
-            warn(f"Unknown block type '{block_type}'. Known: {', '.join(sorted(_KNOWN_BLOCK_TYPES))}")
+            warn(
+                f"Unknown block type '{block_type}'. Known: {', '.join(sorted(_KNOWN_BLOCK_TYPES))}"
+            )
 
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         # Auto-switch to BLOCKS_GRAPH mode if in SIMPLE
         if tuas.get("mode", "SIMPLE") != "BLOCKS_GRAPH":
@@ -209,7 +258,8 @@ def add_block(
         if _find_block(tuas, block_id) is not None:
             exit_with_error(
                 f"Block '{block_id}' already exists in agent '{agent_id}'.",
-                code="already_exists", status=1,
+                code="already_exists",
+                status=1,
             )
 
         tuas["blocks"].append(new_block)
@@ -230,11 +280,15 @@ def remove_block(
     agent_id: str = typer.Argument(help="Agent ID"),
     block_id: str = typer.Argument(help="Block ID to remove"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
 ) -> None:
     """Remove a block from the agent's block graph."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         blocks = tuas.get("blocks", [])
         original_len = len(blocks)
@@ -243,18 +297,23 @@ def remove_block(
         if len(tuas["blocks"]) == original_len:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
-                code="not_found", status=3,
+                code="not_found",
+                status=3,
             )
 
         # Warn if starting block was removed
         if tuas.get("startingBlockId") == block_id:
             tuas["startingBlockId"] = None
-            warn(f"Removed starting block '{block_id}'. Set a new one: dku agent-block set-start {agent_id} <BLOCK_ID>")
+            warn(
+                f"Removed starting block '{block_id}'. Set a new one: dku agent-block set-start {agent_id} <BLOCK_ID>"
+            )
 
         # Warn about dangling references
         dangling = _find_dangling_refs(tuas["blocks"], block_id)
         for ref_bid, ref_field in dangling:
-            warn(f"Block '{ref_bid}' references removed block '{block_id}' via {ref_field}")
+            warn(
+                f"Block '{ref_bid}' references removed block '{block_id}' via {ref_field}"
+            )
 
         settings.save()
         success(f"Removed block '{block_id}' from agent '{agent_id}'")
@@ -269,21 +328,43 @@ def connect_blocks(
     from_id: str = typer.Option(..., "--from", help="Source block ID"),
     to_id: str = typer.Option(..., "--to", help="Target block ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
 ) -> None:
     """Connect two blocks (set nextBlock on source)."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         source = _find_block(tuas, from_id)
         if source is None:
-            exit_with_error(f"Source block '{from_id}' not found.", code="not_found", status=3)
+            exit_with_error(
+                f"Source block '{from_id}' not found.", code="not_found", status=3
+            )
 
         target = _find_block(tuas, to_id)
         if target is None:
-            exit_with_error(f"Target block '{to_id}' not found.", code="not_found", status=3)
+            exit_with_error(
+                f"Target block '{to_id}' not found.", code="not_found", status=3
+            )
 
-        source["nextBlock"] = to_id
+        block_type = source.get("type", "")
+        if block_type == "PYTHON_CODE":
+            exit_with_error(
+                f"Cannot wire PYTHON_CODE blocks with 'connect' — nextBlock is ignored by DSS. "
+                f'Declare \'validNextBlocksFromCode: ["{to_id}"]\' in the block JSON and yield NextBlock("{to_id}") '
+                f"from process(). Use 'dku agent-block set-graph' to push the full graph.",
+                code="unsupported_block_type",
+                status=1,
+            )
+
+        if block_type == "STANDARD_REACT":
+            source["defaultNextBlock"] = to_id
+        else:
+            source["nextBlock"] = to_id
+
         settings.save()
         success(f"Connected '{from_id}' -> '{to_id}' in agent '{agent_id}'")
     except Exception as e:
@@ -296,17 +377,35 @@ def disconnect_block(
     agent_id: str = typer.Argument(help="Agent ID"),
     block_id: str = typer.Argument(help="Block ID to disconnect"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
 ) -> None:
     """Disconnect a block (remove nextBlock, making it terminal)."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         block = _find_block(tuas, block_id)
         if block is None:
-            exit_with_error(f"Block '{block_id}' not found.", code="not_found", status=3)
+            exit_with_error(
+                f"Block '{block_id}' not found.", code="not_found", status=3
+            )
 
-        block.pop("nextBlock", None)
+        block_type = block.get("type", "")
+        if block_type == "PYTHON_CODE":
+            exit_with_error(
+                "Cannot disconnect PYTHON_CODE blocks with 'disconnect' — nextBlock is ignored by DSS. "
+                "Remove 'validNextBlocksFromCode' and the NextBlock() yield from process(). "
+                "Use 'dku agent-block set-graph' to push the full graph.",
+                code="unsupported_block_type",
+                status=1,
+            )
+        if block_type == "STANDARD_REACT":
+            block.pop("defaultNextBlock", None)
+        else:
+            block.pop("nextBlock", None)
         settings.save()
         success(f"Disconnected block '{block_id}' (now terminal) in agent '{agent_id}'")
     except Exception as e:
@@ -319,16 +418,21 @@ def set_start(
     agent_id: str = typer.Argument(help="Agent ID"),
     block_id: str = typer.Argument(help="Block ID to set as starting block"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
 ) -> None:
     """Set the starting block of the agent's block graph."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         if _find_block(tuas, block_id) is None:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
-                code="not_found", status=3,
+                code="not_found",
+                status=3,
             )
 
         tuas["startingBlockId"] = block_id
@@ -344,16 +448,21 @@ def set_mode(
     agent_id: str = typer.Argument(help="Agent ID"),
     mode: str = typer.Argument(help="Mode: SIMPLE or BLOCKS_GRAPH"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
 ) -> None:
     """Switch agent mode between SIMPLE and BLOCKS_GRAPH."""
     if mode not in ("SIMPLE", "BLOCKS_GRAPH"):
         exit_with_error(
             f"Invalid mode '{mode}'. Must be SIMPLE or BLOCKS_GRAPH.",
-            code="invalid_input", status=1,
+            code="invalid_input",
+            status=1,
         )
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
 
         tuas["mode"] = mode
 
@@ -374,13 +483,17 @@ def get_graph(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Dump the full block graph definition (toolsUsingAgentSettings)."""
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(ctx, agent_id, project, version)
+        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+            ctx, agent_id, project, version
+        )
         render_raw(tuas, output_format=output)
     except Exception as e:
         handle_api_error(e)
@@ -390,15 +503,24 @@ def get_graph(
 def set_graph(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID"),
-    definition: str = typer.Option(..., "--definition", "-d", help="Full graph JSON (string, @file.json, or - for stdin)"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Full graph JSON (string, @file.json, or - for stdin)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    version: str | None = typer.Option(None, "--version", help="Version ID (default: active)"),
+    version: str | None = typer.Option(
+        None, "--version", help="Version ID (default: active)"
+    ),
 ) -> None:
     """Replace the full block graph definition (toolsUsingAgentSettings)."""
     try:
         new_tuas = read_json_input(definition)
         if not new_tuas:
-            exit_with_error("Definition JSON cannot be empty.", code="invalid_input", status=1)
+            exit_with_error(
+                "Definition JSON cannot be empty.", code="invalid_input", status=1
+            )
 
         project_key = resolve_project(project)
         client = get_client_from_ctx(ctx)
@@ -415,6 +537,8 @@ def set_graph(
         settings.save()
         block_count = len(new_tuas.get("blocks", []))
         mode = new_tuas.get("mode", "unknown")
-        success(f"Updated block graph for agent '{agent_id}' (mode={mode}, blocks={block_count})")
+        success(
+            f"Updated block graph for agent '{agent_id}' (mode={mode}, blocks={block_count})"
+        )
     except Exception as e:
         handle_api_error(e)

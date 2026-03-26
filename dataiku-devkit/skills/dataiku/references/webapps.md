@@ -1130,6 +1130,34 @@ function loadState() {
 - **Access control** - Check permissions
 - **Credentials** - Use Dataiku connections, don't store in webapp
 
+#### Per-User Impersonation
+
+By default, webapp backends run as the DSS service account. To make API calls on behalf of the connected user (respecting their project/dataset permissions):
+
+```python
+from dataiku.customwebapp import get_webapp_config
+from dataiku import WebappImpersonationContext
+from flask import request, jsonify
+
+@app.route("/api/data")
+def get_user_data():
+    # Resolve the calling user from DSS browser headers
+    headers = dict(request.headers)
+    auth = dataiku.api_client().get_auth_info_from_browser_headers(headers)
+    user_login = auth["authIdentifier"]
+
+    # All API calls inside this context run as `user_login`
+    with WebappImpersonationContext(user_login):
+        client = dataiku.api_client()
+        project = client.get_default_project()
+        ds = dataiku.Dataset("my_dataset")
+        df = ds.get_dataframe(limit=100)
+
+    return jsonify(df.to_dict(orient="records"))
+```
+
+**Why**: Without impersonation, the webapp can read datasets the user cannot — bypassing DSS row-level security and project permissions. Use impersonation whenever the webapp exposes user-specific or access-controlled data.
+
 ---
 
 ## Troubleshooting

@@ -267,12 +267,14 @@ def process_data(df):
     # Use pandas/numpy here
     return df.apply(np.mean)
 
-def call_llm(prompt):
-    """Call LLM using langchain."""
-    from langchain.llms import OpenAI
-
-    llm = OpenAI()
-    return llm(prompt)
+def get_llm_completion(prompt: str, llm_id: str) -> str:
+    """Call LLM via DSS LLM Mesh — deferred import."""
+    import dataiku
+    project = dataiku.api_client().get_default_project()
+    llm = project.get_llm(llm_id)
+    completion = llm.new_completion()
+    completion.with_message(prompt)
+    return completion.execute().text
 ```
 
 ### Conditional Imports

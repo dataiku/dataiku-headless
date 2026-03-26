@@ -1,4 +1,4 @@
-"""dku plugin — list, push, settings."""
+"""dku plugin — list, get, push, delete, settings, code-env management, usages."""
 
 from __future__ import annotations
 
@@ -10,7 +10,15 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import error, info, render, resolve_output_format, success
+from dku_cli.output import (
+    error,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS plugins.")
 
@@ -156,6 +164,257 @@ def settings(
                 ["key", "value"],
                 output_format=output,
                 title=f"Plugin Settings: {plugin_id}",
+            )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def get(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show plugin details including version, code env, and dev status."""
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        # dataikuapi quirk: list_plugins() returns dicts — find this plugin's metadata
+        plugins = client.list_plugins()
+        plugin_meta = None
+        for p in plugins:
+            pid = (
+                p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", "")
+            )
+            if pid == plugin_id:
+                plugin_meta = p
+                break
+
+        if plugin_meta is None:
+            error(f"Plugin '{plugin_id}' not found.")
+            info("Run: dku plugin list")
+            raise typer.Exit(3)
+
+        plugin = client.get_plugin(plugin_id)
+        plugin_settings = plugin.get_settings()
+        raw = plugin_settings.get_raw()
+        code_env = raw.get("codeEnvName", "")
+
+        if output == "json":
+            render_raw(
+                {
+                    "id": plugin_id,
+                    "version": plugin_meta.get("version", "")
+                    if isinstance(plugin_meta, dict)
+                    else "",
+                    "dev": plugin_meta.get("isDev", False)
+                    if isinstance(plugin_meta, dict)
+                    else False,
+                    "codeEnvName": code_env,
+                    "config": raw.get("config", {}),
+                },
+                output_format="json",
+            )
+        else:
+            data = [
+                {"field": "ID", "value": plugin_id},
+                {
+                    "field": "Version",
+                    "value": plugin_meta.get("version", "")
+                    if isinstance(plugin_meta, dict)
+                    else "",
+                },
+                {
+                    "field": "Dev",
+                    "value": str(plugin_meta.get("isDev", False))
+                    if isinstance(plugin_meta, dict)
+                    else "",
+                },
+                {"field": "Code Env", "value": code_env or "(default)"},
+            ]
+            config = raw.get("config", {})
+            for k, v in config.items():
+                display_v = (
+                    "****"
+                    if "password" in k.lower()
+                    or "secret" in k.lower()
+                    or "key" in k.lower()
+                    else str(v)
+                )
+                data.append({"field": k, "value": display_v})
+
+            render(
+                data,
+                ["field", "value"],
+                output_format=output,
+                title=f"Plugin: {plugin_id}",
+            )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def delete(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    force: bool = typer.Option(
+        False, "--force", help="Force delete even if plugin is in use"
+    ),
+    confirm: bool = typer.Option(
+        False, "--confirm", "--yes", "-y", help="Confirm deletion"
+    ),
+) -> None:
+    """Delete a plugin. Requires --confirm / --yes flag.
+
+    Use --force to delete even if the plugin is used by recipes, agents, etc.
+    """
+    if not confirm:
+        warn("Deletion requires --confirm (or --yes / -y) flag.")
+        raise typer.Exit(1)
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        future = plugin.delete(force=force)
+        if future is not None:
+            future.wait_for_result()
+        success(f"Deleted plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-code-env")
+def create_code_env(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for code env creation"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Create the managed code environment for a plugin.
+
+    Use after first install: dku plugin push ... --install && dku plugin create-code-env PLUGIN_ID
+    """
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        if output != "json":
+            info(f"Creating code environment for plugin '{plugin_id}'...")
+        future = plugin.create_code_env()
+
+        if wait:
+            result = future.wait_for_result()
+            env_name = result.get("envName", "") if isinstance(result, dict) else ""
+            if output == "json":
+                render_raw(
+                    {"pluginId": plugin_id, "envName": env_name},
+                    output_format="json",
+                )
+            else:
+                success(
+                    f"Created code environment '{env_name}' for plugin '{plugin_id}'"
+                )
+                info(f"Assign it: dku plugin set-code-env {plugin_id} {env_name}")
+        else:
+            success(f"Code environment creation started for plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-code-env")
+def set_code_env(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    env_name: str = typer.Argument(help="Code environment name to assign"),
+) -> None:
+    """Assign a code environment to a plugin.
+
+    After creating a code env: dku plugin set-code-env PLUGIN_ID ENV_NAME
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        plugin_settings = plugin.get_settings()
+        plugin_settings.set_code_env(env_name)
+        plugin_settings.save()
+        success(f"Assigned code environment '{env_name}' to plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("update-code-env")
+def update_code_env(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for update to complete"
+    ),
+) -> None:
+    """Rebuild a plugin's code environment after dependency changes.
+
+    Run after updating requirements.txt: dku plugin push ... && dku plugin update-code-env PLUGIN_ID
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        info(f"Updating code environment for plugin '{plugin_id}'...")
+        future = plugin.update_code_env()
+
+        if wait:
+            future.wait_for_result()
+            success(f"Updated code environment for plugin '{plugin_id}'")
+        else:
+            success(f"Code environment update started for plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def usages(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    project: str | None = typer.Option(
+        None, "--project", "-P", help="Filter by project key"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show where a plugin's components are used across projects."""
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        usage_obj = plugin.list_usages(project_key=project)
+
+        # DSSPluginUsages has .get_raw() returning usage data
+        raw = usage_obj.get_raw() if hasattr(usage_obj, "get_raw") else {}
+
+        if output == "json":
+            render_raw(raw, output_format="json")
+        else:
+            usages_list = raw.get("usages", [])
+            if not usages_list:
+                info(f"No usages found for plugin '{plugin_id}'")
+                return
+
+            data = []
+            for u in usages_list:
+                data.append(
+                    {
+                        "project": u.get("projectKey", ""),
+                        "type": u.get("objectType", ""),
+                        "id": u.get("objectId", ""),
+                        "element": u.get("elementKind", ""),
+                    }
+                )
+
+            render(
+                data,
+                ["project", "type", "id", "element"],
+                output_format=output,
+                title=f"Plugin Usages: {plugin_id}",
             )
     except Exception as e:
         handle_api_error(e)

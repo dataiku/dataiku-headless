@@ -144,7 +144,7 @@ When NOT to use: ...
 
 
 class {ToolClassName}(BaseAgentTool):
-    def get_descriptor(self, tool_config, trace):
+    def get_descriptor(self, tool):
         return {
             "description": TOOL_DESCRIPTION,
             "inputSchema": {
@@ -355,38 +355,24 @@ class {GuardrailClassName}(BaseGuardrail):
         self.plugin_config = plugin_config
 
     def process(self, input, trace):
-        # Check queries (before LLM call)
         messages = input.get("completionQuery", {}).get("messages", [])
         if messages:
             with trace.subspan("check-query") as span:
                 last_message = messages[-1].get("content", "")
-                logger.info(f"[{GuardrailClassName}] Checking query: {last_message[:100]}...")
-
-                # Raise an exception to block:  raise Exception("Query blocked: reason")
-                # Modify to filter/rewrite:     input["completionQuery"]["messages"][-1]["content"] = filtered
-
+                # Raise to block:   raise Exception("Query blocked: reason")
+                # Rewrite:          input["completionQuery"]["messages"][-1]["content"] = filtered
                 span.attributes["query_checked"] = True
 
-        # Check responses (after LLM call)
         response_text = input.get("completionResponse", {}).get("text", "")
         if response_text:
             with trace.subspan("check-response") as span:
-                logger.info(f"[{GuardrailClassName}] Checking response: {response_text[:100]}...")
-
-                # Modify response:  input["completionResponse"]["text"] = filtered_response
-
+                # Modify:  input["completionResponse"]["text"] = filtered_response
                 span.attributes["response_checked"] = True
 
         return input
 ```
 
-Key guardrail patterns:
-- Use `trace.subspan()` for observability (NOT `trace.set_attribute()`)
-- Use `trace.attributes[key] = value` or `span.attributes[key] = value` to record results
-- Raise exceptions to **block** queries (for security guardrails)
-- Modify `input` dict to **filter** or **rewrite** content
-- Always fail safely — block on error rather than allow through
-- See `references/llm-mesh.md` for guardrail configuration and chaining
+> **Full reference**: See `references/guardrails.md` for detailed patterns (PII detection, content filter, LLM judge, token budget) and the complete design checklist.
 
 ### After Adding Any Component
 

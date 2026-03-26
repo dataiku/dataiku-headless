@@ -66,9 +66,7 @@ def create(
     try:
         client = get_client_from_ctx(ctx)
         group_list = [g.strip() for g in groups.split(",")] if groups else []
-        client.create_user(
-            login, password, display_name, email, groups=group_list
-        )
+        client.create_user(login, password, display_name, email, groups=group_list)
 
         success(f"Created user '{login}'")
     except Exception as e:

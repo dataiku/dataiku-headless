@@ -196,9 +196,7 @@ def duplicate(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        proj.duplicate(
-            target_project_key=target_key, target_project_name=target_name
-        )
+        proj.duplicate(target_project_key=target_key, target_project_name=target_name)
 
         data = [
             {"field": "Source", "value": project_key},

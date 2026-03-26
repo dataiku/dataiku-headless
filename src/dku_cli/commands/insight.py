@@ -8,7 +8,15 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import error, info, render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    error,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS insights (charts, reports, metrics views).")
 
@@ -29,11 +37,13 @@ def list_insights(
 
         data = []
         for i in insights:
-            data.append({
-                "id": i.get("id", ""),
-                "name": i.get("name", ""),
-                "type": i.get("type", ""),
-            })
+            data.append(
+                {
+                    "id": i.get("id", ""),
+                    "name": i.get("name", ""),
+                    "type": i.get("type", ""),
+                }
+            )
 
         render(
             data,
@@ -69,7 +79,12 @@ def get(
                 {"field": "Name", "value": raw.get("name", "")},
                 {"field": "Type", "value": raw.get("type", "")},
             ]
-            render(data, ["field", "value"], output_format="table", title=f"Insight: {insight_id}")
+            render(
+                data,
+                ["field", "value"],
+                output_format="table",
+                title=f"Insight: {insight_id}",
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -79,15 +94,27 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Insight name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    insight_type: str = typer.Option("dataset_table", "--type", "-t", help="Insight type (chart, dataset_table, report, etc.)"),
+    insight_type: str = typer.Option(
+        "dataset_table",
+        "--type",
+        "-t",
+        help="Insight type (chart, dataset_table, report, etc.)",
+    ),
     dataset: str | None = typer.Option(
-        None, "--dataset", "--ds",
+        None,
+        "--dataset",
+        "--ds",
         help="Dataset to bind (sets params.datasetSmartName). Required for chart/dataset_table types.",
     ),
     definition: str | None = typer.Option(
-        None, "--definition", "-d", help="JSON creation info (string, @file.json, or - for stdin)"
+        None,
+        "--definition",
+        "-d",
+        help="JSON creation info (string, @file.json, or - for stdin)",
     ),
-    if_not_exists: bool = typer.Option(False, "--if-not-exists", help="Skip if insight already exists"),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if insight already exists"
+    ),
 ) -> None:
     """Create a new insight.
 
@@ -158,7 +185,10 @@ def set_definition(
     insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str = typer.Option(
-        ..., "--definition", "-d", help="JSON definition (string, @file.json, or - for stdin)"
+        ...,
+        "--definition",
+        "-d",
+        help="JSON definition (string, @file.json, or - for stdin)",
     ),
 ) -> None:
     """Update an insight's definition from JSON."""
@@ -224,7 +254,7 @@ def validate(
                 f"Insight '{insight_id}' has no dataset binding (params.datasetSmartName is missing)",
                 details=[
                     "Set it with: dku insight set-definition "
-                    f"{insight_id} -d '{{\"params\":{{\"datasetSmartName\":\"DATASET_NAME\"}}}}' -P {project_key}",
+                    f'{insight_id} -d \'{{"params":{{"datasetSmartName":"DATASET_NAME"}}}}\' -P {project_key}',
                 ],
             )
 
@@ -235,14 +265,20 @@ def validate(
             return
 
         ds_def = proj.get_dataset(ds_name).get_definition()
-        schema_columns = {c["name"] for c in ds_def.get("schema", {}).get("columns", [])}
+        schema_columns = {
+            c["name"] for c in ds_def.get("schema", {}).get("columns", [])
+        }
 
         invalid = []
         for col in chart_columns:
             if col not in schema_columns:
-                matches = difflib.get_close_matches(col, schema_columns, n=3, cutoff=0.6)
+                matches = difflib.get_close_matches(
+                    col, schema_columns, n=3, cutoff=0.6
+                )
                 suggestion = f" Did you mean: {', '.join(matches)}?" if matches else ""
-                invalid.append(f"  Column '{col}' not found in dataset '{ds_name}'.{suggestion}")
+                invalid.append(
+                    f"  Column '{col}' not found in dataset '{ds_name}'.{suggestion}"
+                )
 
         if invalid:
             available = ", ".join(sorted(schema_columns))
@@ -250,7 +286,9 @@ def validate(
             for line in invalid:
                 info(line)
             info(f"  Available columns: {available}")
-            info(f"  Fix: dku insight set-definition {insight_id} -d @fixed.json -P {project_key}")
+            info(
+                f"  Fix: dku insight set-definition {insight_id} -d @fixed.json -P {project_key}"
+            )
             raise SystemExit(1)
         else:
             success(

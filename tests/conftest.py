@@ -165,6 +165,7 @@ def mock_client():
         if zone_id in zones:
             return zones[zone_id]
         raise Exception(f"NotFoundException: Zone {zone_id} does not exist")
+
     flow_mock.get_zone.side_effect = _get_zone
 
     # Flow schema propagation — uses new_schema_propagation(dataset_name) builder
@@ -401,7 +402,13 @@ def mock_client():
     dashboard_settings.get_raw.return_value = {
         "id": "dashboard1",
         "name": "Sales Dashboard",
-        "pages": [{"id": "page1", "title": "Overview", "grid": {"tiles": [{"tileType": "INSIGHT", "insightId": "i1"}]}}],
+        "pages": [
+            {
+                "id": "page1",
+                "title": "Overview",
+                "grid": {"tiles": [{"tileType": "INSIGHT", "insightId": "i1"}]},
+            }
+        ],
     }
     dashboard_settings.save.return_value = None
     dashboard_mock.get_settings.return_value = dashboard_settings
@@ -635,18 +642,26 @@ def mock_client():
             "startingBlockId": "init_state",
             "blocks": [
                 {
-                    "type": "SET_STATE_ENTRIES", "id": "init_state",
-                    "entriesToSet": [{"secret": False, "key": "status", "value": "started"}],
+                    "type": "SET_STATE_ENTRIES",
+                    "id": "init_state",
+                    "entriesToSet": [
+                        {"secret": False, "key": "status", "value": "started"}
+                    ],
                     "nextBlock": "classify",
                 },
                 {
-                    "type": "LLM_REQUEST", "id": "classify", "llmId": "llm1",
-                    "outputMode": "SAVE_TO_STATE", "outputStateKey": "intent",
+                    "type": "LLM_REQUEST",
+                    "id": "classify",
+                    "llmId": "llm1",
+                    "outputMode": "SAVE_TO_STATE",
+                    "outputStateKey": "intent",
                     "nextBlock": "emit_result",
                 },
                 {
-                    "type": "EMIT_OUTPUT", "id": "emit_result",
-                    "templateType": "CEL_EXPANSION", "template": "Done",
+                    "type": "EMIT_OUTPUT",
+                    "id": "emit_result",
+                    "templateType": "CEL_EXPANSION",
+                    "template": "Done",
                     "addToMessages": True,
                 },
             ],
@@ -679,6 +694,7 @@ def mock_client():
         if agent_id == "agent_blocks":
             return agent_blocks_mock
         raise Exception(f"NotFoundException: Agent {agent_id} does not exist")
+
     proj1.get_agent.side_effect = _get_agent
 
     # create_agent returns agent with .id
@@ -758,7 +774,9 @@ def mock_client():
         "targetVariable": "churn",
     }
     ml_settings_mock.get_all_possible_algorithm_names.return_value = [
-        "RandomForest", "XGBoost", "LogitRegression",
+        "RandomForest",
+        "XGBoost",
+        "LogitRegression",
     ]
     ml_settings_mock.get_enabled_algorithm_names.return_value = ["RandomForest"]
     ml_settings_mock.save.return_value = None
@@ -770,7 +788,12 @@ def mock_client():
     proj1.create_timeseries_forecasting_ml_task.return_value = mltask_mock
     proj1.create_causal_prediction_ml_task.return_value = mltask_mock
     proj1.list_ml_tasks.return_value = [
-        {"analysisId": "a1", "mlTaskId": "t1", "taskType": "PREDICTION", "targetVariable": "churn"},
+        {
+            "analysisId": "a1",
+            "mlTaskId": "t1",
+            "taskType": "PREDICTION",
+            "targetVariable": "churn",
+        },
     ]
     proj1.get_ml_task.return_value = mltask_mock
 

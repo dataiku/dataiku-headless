@@ -30,55 +30,7 @@ my-plugin/
         └── tool.py          # Minimal: invoke -> core -> response
 ```
 
-### 2. Dependency Inversion
-
-```python
-# python-lib/my_plugin/core/processor.py
-from abc import ABC, abstractmethod
-from typing import List, Dict
-
-
-class LLMProvider(ABC):
-    """Abstract LLM interface - no Dataiku dependency."""
-
-    @abstractmethod
-    def complete(self, prompt: str) -> str:
-        pass
-
-
-class DataProcessor:
-    """Core processor using injected dependencies."""
-
-    def __init__(self, llm: LLMProvider):
-        self.llm = llm
-
-    def process(self, items: List[Dict]) -> List[Dict]:
-        """Pure business logic."""
-        results = []
-        for item in items:
-            response = self.llm.complete(item["text"])
-            results.append({**item, "response": response})
-        return results
-
-
-# python-lib/my_plugin/adapters/llm.py
-import dataiku
-from my_plugin.core.processor import LLMProvider
-
-
-class DataikuLLMAdapter(LLMProvider):
-    """Dataiku-specific LLM implementation."""
-
-    def __init__(self, project, llm_id: str):
-        self.llm = project.get_llm(llm_id)
-
-    def complete(self, prompt: str) -> str:
-        completion = self.llm.new_completion()
-        completion.with_message(prompt, role="user")
-        return completion.execute().text
-```
-
-### 3. Configuration Management
+### 2. Configuration Management
 
 ```python
 # python-lib/my_plugin/config.py
@@ -118,7 +70,7 @@ class ProcessingConfig:
             raise ValueError("temperature must be between 0 and 2")
 ```
 
-### 4. Thread-Safe Config with ContextVar (Advanced)
+### 3. Thread-Safe Config with ContextVar (Advanced)
 
 For plugins that serve both webapp and agent tool contexts, use `ContextVar` for thread-safe config overrides:
 
@@ -198,7 +150,7 @@ def override_app_config(**overrides: Any) -> Iterator[AppConfig]:
 
 **Why ContextVar?** Without it, a webapp request and an agent tool invocation could stomp on each other's config. `ContextVar` provides per-coroutine/per-thread isolation without explicit thread-local storage.
 
-### 5. Service Factory Pattern
+### 4. Service Factory Pattern
 
 Wrap DSS API quirks behind a service layer. Inject the client for testability:
 
@@ -429,6 +381,8 @@ def parallel_process(
 
 ### Streaming Large Datasets
 
+Set the output schema from the first chunk **before** opening the writer, then use a single persistent writer for all chunks. Never mix `write_with_schema()` (which truncates the dataset) with a separate `get_writer()` call.
+
 ```python
 def process_large_dataset(
     input_ds: dataiku.Dataset,
@@ -436,25 +390,26 @@ def process_large_dataset(
     process_fn: Callable,
     chunk_size: int = 10000
 ) -> dict:
-    """Process large dataset in chunks to manage memory."""
+    """Process large dataset in chunks using a single writer."""
     stats = {"processed": 0, "errors": 0}
-    first_chunk = True
+    chunks = input_ds.iter_dataframes(chunksize=chunk_size)
 
-    for chunk in input_ds.iter_dataframes(chunksize=chunk_size):
-        # Process chunk
-        processed_chunk = process_fn(chunk)
+    # Process first chunk to establish output schema before opening writer
+    first = next(chunks, None)
+    if first is None:
+        return stats
+    processed_first = process_fn(first)
+    output_ds.write_schema_from_dataframe(processed_first)
 
-        # Write output
-        if first_chunk:
-            output_ds.write_with_schema(processed_chunk)
-            first_chunk = False
-        else:
-            with output_ds.get_writer() as writer:
-                for _, row in processed_chunk.iterrows():
-                    writer.write_row_dict(row.to_dict())
+    with output_ds.get_writer() as writer:
+        writer.write_dataframe(processed_first)
+        stats["processed"] += len(first)
 
-        stats["processed"] += len(chunk)
-        logger.info(f"Processed {stats['processed']} rows")
+        for chunk in chunks:
+            processed = process_fn(chunk)
+            writer.write_dataframe(processed)
+            stats["processed"] += len(chunk)
+            logger.info(f"Processed {stats['processed']} rows")
 
     return stats
 ```
@@ -860,128 +815,6 @@ def prevent_prompt_injection(prompt: str, user_input: str) -> str:
 </user_input>
 
 Process the content within <user_input> tags."""
-```
-
----
-
-## Documentation Patterns
-
-### Self-Documenting Code
-
-```python
-def evaluate_scenario(
-    scenario: Scenario,
-    llm: LLMProvider,
-    *,  # Force keyword arguments
-    max_turns: int = 10,
-    timeout_seconds: int = 300,
-    include_trace: bool = True
-) -> EvalResult:
-    """
-    Evaluate an LLM agent on a scenario.
-
-    This function runs a multi-turn conversation simulation where
-    a simulated user attempts to achieve their goals using the
-    provided LLM agent.
-
-    Args:
-        scenario: The test scenario containing user goals and context.
-        llm: The LLM provider to evaluate.
-        max_turns: Maximum conversation turns before timeout (default: 10).
-        timeout_seconds: Overall timeout in seconds (default: 300).
-        include_trace: Whether to include full conversation trace (default: True).
-
-    Returns:
-        EvalResult containing scores and optional trace.
-
-    Raises:
-        TimeoutError: If evaluation exceeds timeout_seconds.
-        LLMError: If LLM fails to respond.
-
-    Example:
-        >>> scenario = Scenario.from_dict({"scenario_id": "test", ...})
-        >>> llm = DataikuLLMAdapter(project, "openai:gpt-4")
-        >>> result = evaluate_scenario(scenario, llm, max_turns=5)
-        >>> print(f"Score: {result.overall_score}")
-    """
-    ...
-```
-
-### Component Documentation
-
-```json
-// recipe.json
-{
-  "meta": {
-    "label": "Evaluate LLM Scenarios",
-    "description": "Evaluate LLM performance on predefined test scenarios. Supports multi-turn conversations, multiple LLMs in parallel, and comprehensive scoring including action completion, tool selection quality, and efficiency metrics.",
-    "icon": "icon-beaker"
-  },
-  ...
-}
-```
-
----
-
-## Versioning & Compatibility
-
-### Semantic Versioning
-
-```
-MAJOR.MINOR.PATCH
-
-MAJOR: Breaking changes (incompatible API changes)
-MINOR: New features (backwards compatible)
-PATCH: Bug fixes (backwards compatible)
-```
-
-### Deprecation Pattern
-
-```python
-import warnings
-
-
-def old_function(arg):
-    """
-    Deprecated: Use new_function() instead.
-
-    This function will be removed in version 3.0.0.
-    """
-    warnings.warn(
-        "old_function is deprecated, use new_function instead",
-        DeprecationWarning,
-        stacklevel=2
-    )
-    return new_function(arg)
-
-
-def new_function(arg):
-    """The new implementation."""
-    ...
-```
-
-### Feature Flags
-
-```python
-# python-lib/my_plugin/features.py
-
-FEATURES = {
-    "streaming_responses": True,
-    "parallel_evaluation": True,
-    "experimental_rag": False,  # Not ready for production
-}
-
-
-def is_enabled(feature: str) -> bool:
-    """Check if a feature is enabled."""
-    return FEATURES.get(feature, False)
-
-
-# Usage
-if is_enabled("parallel_evaluation"):
-    result = parallel_evaluate(scenarios)
-else:
-    result = sequential_evaluate(scenarios)
 ```
 
 ---

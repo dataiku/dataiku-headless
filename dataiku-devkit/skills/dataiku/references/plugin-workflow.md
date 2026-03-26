@@ -37,53 +37,7 @@ Master the complete plugin development lifecycle from initial development to pro
 # Plugins > Add Plugin > Fetch from Git -> Enable "Development mode"
 ```
 
-### Plugin Structure
-
-```
-my-plugin/
-├── plugin.json              # Plugin metadata
-├── code-env/
-│   ├── python/
-│   │   ├── desc.json       # Python environment descriptor
-│   │   └── spec/
-│   │       └── requirements.txt
-│   └── r/
-│       └── desc.json
-├── python-lib/
-│   └── my_plugin/          # Shared Python libraries
-│       ├── __init__.py
-│       └── utils.py
-├── custom-recipes/
-│   └── my-recipe/
-│       ├── recipe.json
-│       └── recipe.py
-├── python-connectors/
-│   └── my-connector/
-│       ├── connector.json
-│       └── connector.py
-├── python-processors/
-│   └── my-processor/
-│       ├── processor.json
-│       └── processor.py
-├── python-runnables/
-│   └── my-macro/
-│       ├── runnable.json
-│       └── runnable.py
-├── webapps/
-│   └── my-webapp/
-│       ├── webapp.json
-│       ├── backend.py
-│       └── app.js
-├── resource/
-│   ├── images/
-│   └── documentation/
-├── tests/
-│   ├── test_recipe.py
-│   └── test_connector.py
-├── README.md
-├── CHANGELOG.md
-└── LICENSE
-```
+See `plugin-structure.md` for the complete folder layout.
 
 ## Version Control with Git
 
@@ -160,63 +114,7 @@ git tag -a v2.1.3 -m "Release version 2.1.3"
 git push origin v2.1.3
 ```
 
-## Testing
-
-### Unit Testing Structure
-
-```
-tests/
-├── __init__.py
-├── test_recipe.py
-├── test_connector.py
-├── test_processor.py
-├── test_utils.py
-├── fixtures/
-│   ├── sample_data.csv
-│   └── test_config.json
-└── conftest.py
-```
-
-### Unit Test Example
-
-```python
-import pytest
-import pandas as pd
-from python_lib.my_plugin.utils import process_data
-
-def test_process_data_basic():
-    input_df = pd.DataFrame({'col1': [1, 2, 3], 'col2': ['a', 'b', 'c']})
-    result = process_data(input_df, operation='filter')
-    assert len(result) == 3
-    assert 'col1' in result.columns
-
-def test_process_data_empty():
-    input_df = pd.DataFrame()
-    result = process_data(input_df, operation='filter')
-    assert len(result) == 0
-
-def test_process_data_missing_column():
-    input_df = pd.DataFrame({'col1': [1, 2, 3]})
-    with pytest.raises(ValueError, match="Column 'col2' not found"):
-        process_data(input_df, operation='transform', column='col2')
-
-@pytest.mark.parametrize("operation,expected_count", [
-    ('filter', 2), ('transform', 3), ('aggregate', 1)
-])
-def test_process_data_operations(operation, expected_count):
-    input_df = pd.DataFrame({'col1': [1, 2, 3], 'col2': ['a', 'b', 'c']})
-    result = process_data(input_df, operation=operation)
-    assert len(result) == expected_count
-```
-
-### Running Tests
-
-```bash
-pytest tests/
-pytest --cov=python-lib tests/
-pytest tests/test_recipe.py::test_process_data_basic
-pytest --cov=python-lib --cov-report=html tests/
-```
+See `testing.md` for full test patterns, mock fixtures, and integration test setup.
 
 ## Code Quality
 
@@ -250,6 +148,8 @@ repos:
 zip -r my-plugin-v2.1.3.zip * -x "*.git*" "*.dku-backup" "__pycache__/*"
 ```
 Install: Plugins > Add Plugin > Upload zip
+
+**Zip exclusions matter for plugins with frontends.** Dev-only files inflate the zip and can cause issues. Exclude: `docs/`, `scripts/`, `CLAUDE.md`, `*.pptx`, lock files, frontend source (`resource/frontend/src/`), `alembic/`, `node_modules/`, `tests/`, dev databases.
 
 ### Method 2: Git Repository
 
@@ -344,6 +244,27 @@ pip install -r code-env/python/spec/requirements.txt --dry-run
 | **Rebuild code env** | Added/changed packages in requirements.txt |
 | **Reinstall** | Changed plugin.json structure, added/removed components |
 
+## CLI-Based Plugin Deployment
+
+The `dku` CLI supports the full plugin lifecycle without dropping to Python:
+
+```bash
+# First install: push + create code env + assign
+dku plugin push plugin.zip --install && \
+dku plugin create-code-env my-plugin && \
+dku plugin set-code-env my-plugin plugin_my_plugin_managed
+
+# Update: push + optionally rebuild code env
+dku plugin push plugin.zip && \
+dku plugin update-code-env my-plugin   # Only if deps changed
+
+# Check state
+dku plugin get my-plugin -o json
+dku plugin usages my-plugin
+```
+
+**Code env is NOT auto-created on install.** You must explicitly create and assign it. Without it, DSS runs backend code on its base Python with none of your dependencies.
+
 ## Code Environment Patterns
 
 **code-env/python/desc.json:**
@@ -355,6 +276,8 @@ pip install -r code-env/python/spec/requirements.txt --dry-run
   "installJupyterSupport": false
 }
 ```
+
+**CRITICAL:** `installCorePackages` must be `false`. If `true`, DSS installs its own packages (pandas, scikit-learn) which conflict with your pinned versions on Python 3.11+.
 
 ## Common Patterns Across Plugins
 

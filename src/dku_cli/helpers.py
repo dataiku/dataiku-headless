@@ -52,7 +52,11 @@ def resolve_agent(project, agent_ref: str):
         agent.get_settings()
         return agent
     except Exception as e:
-        if "not found" not in str(e).lower() and "NotFoundException" not in str(e) and "does not exist" not in str(e):
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
             raise
     # Fall back to name lookup
     agents = project.list_agents()
@@ -60,6 +64,7 @@ def resolve_agent(project, agent_ref: str):
         if a.get("name", "") == agent_ref:
             return project.get_agent(a.get("id", a["id"]))
     from dku_cli.errors import exit_with_error
+
     agent_names = [f"  {a.get('id', '')} ({a.get('name', '')})" for a in agents]
     exit_with_error(
         f"Agent '{agent_ref}' not found (checked as both ID and name).",
@@ -68,7 +73,9 @@ def resolve_agent(project, agent_ref: str):
             "Available agents:",
             *agent_names,
             "Use the agent ID (left column) or exact name.",
-        ] if agent_names else [
+        ]
+        if agent_names
+        else [
             "No agents found in this project.",
             "Create one with: dku agent create NAME -P PROJECT",
         ],
