@@ -99,6 +99,39 @@ ALWAYS use visual recipes when possible. Python/SQL are last resort.
 Common flags: --project/-P PROJECT_KEY, --output/-o json|csv|table, --quiet, --yes
 Datasets: use --type UploadedFiles for datasets you'll upload to. Default Filesystem is for recipe outputs.
 Embedding models: `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` (default only shows completion models).
+
+## Visual Recipe Flags (key options for common recipes)
+
+| Recipe | Key flags |
+|--------|-----------|
+| create-group | `-k col` (repeatable for multi-column), `--agg 'col:sum,avg'` |
+| create-topn | `--n 10`, `--rank-by col:desc` (repeatable), `-k partition_col` |
+| create-window | `-k partition_col`, `--order-key col:desc`, `--compute 'TYPE:col:output'` |
+| create-pivot | `--row-key col` (repeatable), `--column-key col`, `--value-column col`, `--agg-type SUM` |
+| create-sampling | `--method RANDOM_FIXED_NB`, `--size 1000`, `--ratio 0.1` |
+| create-join | `-i ds1 -i ds2`, `--join-key col`, `--join-type LEFT/INNER/CROSS` |
+| set-definition | `--definition JSON` (recipe-level) or `--payload JSON` (visual recipe config) |
+
+Window --compute types: rowNumber, rank, denseRank, lag, lead, sum, avg, min, max, count, first, last.
+Format: `--compute 'TYPE:source_col:output_col'` or `--compute 'rowNumber::rn'` (no source for rank types).
+
+## After completing the task: META-FEEDBACK (REQUIRED)
+
+After you finish the task (whether you succeeded or failed), output a structured feedback section.
+This helps us improve the CLI and skill documentation. Use this EXACT format:
+
+```
+META-FEEDBACK:
+skill_helpful: [yes/no/partial] — Did the CLI reference above help you pick the right commands?
+commands_worked: [list of dku commands that worked as expected]
+commands_failed: [list of dku commands that failed or had unexpected behavior, with brief error description]
+commands_missing: [operations you wanted to do but couldn't find a dku command for]
+confusing: [anything that was unclear, misleading, or took multiple attempts to figure out]
+python_fallback: [yes/no] — Did you fall back to Python when a visual recipe should have worked? If yes, why?
+help_text_gaps: [any --help output that was insufficient or misleading]
+suggestion: [one specific improvement that would have saved you the most time]
+END-META-FEEDBACK
+```
 """
 
 

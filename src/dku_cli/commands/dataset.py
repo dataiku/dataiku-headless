@@ -200,7 +200,7 @@ def create(
         help="Dataset type (Filesystem, UploadedFiles, SQL, S3). Default: Filesystem",
     ),
     connection: str | None = typer.Option(
-        None, "--connection", "-c", help="Connection name"
+        None, "--connection", "-c", help="Connection name (defaults to filesystem_managed for Filesystem; required for SQL/S3)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     if_not_exists: bool = typer.Option(

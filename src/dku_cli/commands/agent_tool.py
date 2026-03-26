@@ -4,19 +4,18 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
-# Known built-in agent tool types in DSS.
+# Known built-in agent tool types in DSS (verified on DSS 14.4+).
 # The server accepts these as the `type` param in new_agent_tool().
+# For custom Python tools, create a plugin with python-agent-tools/ and use
+# the Custom_agent_tool_<plugin>_<tool> type format.
 BUILTIN_TOOL_TYPES = {
-    "DatasetRowLookup": "Query rows from a dataset by column values",
-    "VectorStoreSearch": "Search a knowledge bank (requires --knowledge-bank)",
-    "LLMMeshLLMQuery": "Call another LLM or agent via LLM Mesh",
-    "PythonFunction": "Custom Python function tool",
-    "RetrieveDatasetSchema": "Get the schema of a dataset",
-    "SQLQuery": "Execute SQL queries against a connection",
+    "DatasetRowLookup": "Query rows from a dataset by column values (use --dataset)",
+    "VectorStoreSearch": "Search a knowledge bank (use --knowledge-bank)",
+    "LLMMeshLLMQuery": "Call another LLM or agent via LLM Mesh (use --llm)",
 }
 
 app = typer.Typer(help="Manage DSS agent tools.")
@@ -69,17 +68,29 @@ def create(
         "--kb",
         help="Knowledge bank ID (required for VectorStoreSearch)",
     ),
+    dataset: str | None = typer.Option(
+        None,
+        "--dataset",
+        "--ds",
+        help="Dataset name (sets datasetSmartName for DatasetRowLookup)",
+    ),
+    llm: str | None = typer.Option(
+        None,
+        "--llm",
+        help="LLM ID e.g. openai:conn:gpt-4o (sets llmId for LLMMeshLLMQuery)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a new agent tool.
 
-    Uses the dataikuapi builder pattern (project.new_agent_tool()).
-    Run 'dku agent-tool types' to see valid tool types.
+    Built-in types: DatasetRowLookup, VectorStoreSearch, LLMMeshLLMQuery.
+    For custom Python tools, build a plugin and use Custom_agent_tool_<plugin>_<tool>.
+    Run 'dku agent-tool types' to see built-in types.
 
     Examples:
-      dku agent-tool create my_lookup --type DatasetRowLookup -P PROJ
+      dku agent-tool create my_lookup --type DatasetRowLookup --dataset customers -P PROJ
       dku agent-tool create my_search --type VectorStoreSearch --kb my_kb -P PROJ
-      dku agent-tool create my_llm_tool --type LLMMeshLLMQuery -P PROJ
+      dku agent-tool create my_llm --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P PROJ
       dku agent-tool create "Web Search" --type Custom_agent_tool_google-search-tool_google-search-tool -P PROJ
     """
     project_key = resolve_project(project)
@@ -92,8 +103,6 @@ def create(
         # VectorStoreSearch requires a knowledge bank
         if tool_type == "VectorStoreSearch":
             if knowledge_bank is None:
-                from dku_cli.errors import exit_with_error
-
                 exit_with_error(
                     "VectorStoreSearch tools require --knowledge-bank.",
                     code="missing_param",
@@ -105,6 +114,34 @@ def create(
             builder.with_knowledge_bank(knowledge_bank)
 
         tool = builder.create()
+
+        # Post-creation param configuration for built-in types
+        if dataset and tool_type == "DatasetRowLookup":
+            settings = tool.get_settings()
+            settings.params["datasetSmartName"] = dataset
+            settings.save()
+        elif dataset:
+            exit_with_error(
+                f"--dataset is only for DatasetRowLookup tools, not {tool_type}.",
+                code="invalid_param",
+                details=[
+                    f"Example: dku agent-tool create {name} --type DatasetRowLookup --dataset my_ds -P {project_key}",
+                ],
+            )
+
+        if llm and tool_type == "LLMMeshLLMQuery":
+            settings = tool.get_settings()
+            settings.params["llmId"] = llm
+            settings.save()
+        elif llm:
+            exit_with_error(
+                f"--llm is only for LLMMeshLLMQuery tools, not {tool_type}.",
+                code="invalid_param",
+                details=[
+                    f"Example: dku agent-tool create {name} --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P {project_key}",
+                ],
+            )
+
         success(f"Created agent tool '{name}' (id={tool.id}, type={tool_type})")
     except Exception as e:
         handle_api_error(e)
@@ -146,7 +183,8 @@ def types(
     """List known built-in agent tool types.
 
     These are the type names accepted by 'dku agent-tool create --type TYPE'.
-    DSS may support additional plugin-provided types not listed here.
+    For custom Python tools, build a plugin with python-agent-tools/ and use
+    the type format: Custom_agent_tool_<plugin-id>_<tool-id>
     """
     output = resolve_output_format(output)
     data = [{"type": t, "description": d} for t, d in BUILTIN_TOOL_TYPES.items()]

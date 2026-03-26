@@ -67,6 +67,11 @@ class Recommender:
             for r in codex_only:
                 sections.append(f"- **{r.test_id}**: {r.score.details}")
 
+        # Agent meta-feedback section (from structured self-reports)
+        meta_recs = self._meta_feedback_recommendations(records)
+        if meta_recs:
+            sections.append(meta_recs)
+
         content = "\n".join(sections)
         self._write(content)
         return content
@@ -136,6 +141,60 @@ class Recommender:
             ),
         }
         return fixes.get(pattern, "Review the specific test failures for details.")
+
+    def _meta_feedback_recommendations(self, records: list[TestResultRecord]) -> str:
+        """Generate recommendations from agent meta-feedback across all tests."""
+        all_meta = [
+            (r.test_id, r.trace_summary.get("meta_feedback"))
+            for r in records
+            if r.trace_summary.get("meta_feedback")
+        ]
+        if not all_meta:
+            return ""
+
+        lines = []
+        lines.append("## Agent Self-Reported Feedback\n")
+        lines.append(
+            f"**{len(all_meta)}/{len(records)} tests** included structured meta-feedback.\n"
+        )
+
+        # Aggregate suggestions (most actionable)
+        suggestions = [
+            (tid, m["suggestion"])
+            for tid, m in all_meta
+            if m and m.get("suggestion") and m["suggestion"].lower() not in ("none", "n/a", "")
+        ]
+        if suggestions:
+            lines.append("### Top suggestions from the agent\n")
+            for tid, sug in suggestions:
+                lines.append(f"- [{tid}] {sug}")
+            lines.append("")
+
+        # Missing commands
+        missing = [
+            (tid, m["commands_missing"])
+            for tid, m in all_meta
+            if m and m.get("commands_missing") and m["commands_missing"].lower() not in ("none", "n/a", "")
+        ]
+        if missing:
+            lines.append("### Commands the agent wanted but couldn't find\n")
+            for tid, cmd in missing:
+                lines.append(f"- [{tid}] {cmd}")
+            lines.append("")
+
+        # Python fallbacks
+        fallbacks = [
+            (tid, m["python_fallback"])
+            for tid, m in all_meta
+            if m and m.get("python_fallback", "").lower().startswith("yes")
+        ]
+        if fallbacks:
+            lines.append("### Python fallbacks (visual recipe should have worked)\n")
+            for tid, reason in fallbacks:
+                lines.append(f"- [{tid}] {reason}")
+            lines.append("")
+
+        return "\n".join(lines)
 
     def _write(self, content: str):
         """Write recommendations to file."""

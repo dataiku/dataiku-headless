@@ -158,6 +158,25 @@ class Reporter:
         if analysis:
             lines.append(f"\n**Skill/CLI insight:** {analysis}")
 
+        # Agent's own meta-feedback (structured self-report)
+        meta = rec.trace_summary.get("meta_feedback")
+        if meta:
+            lines.append("\n**Agent meta-feedback:**")
+            if meta.get("skill_helpful"):
+                lines.append(f"  - Skill helpful: {meta['skill_helpful']}")
+            if meta.get("commands_failed"):
+                lines.append(f"  - Commands failed: {meta['commands_failed']}")
+            if meta.get("commands_missing"):
+                lines.append(f"  - Commands missing: {meta['commands_missing']}")
+            if meta.get("confusing"):
+                lines.append(f"  - Confusing: {meta['confusing']}")
+            if meta.get("python_fallback") and meta["python_fallback"].lower().startswith("yes"):
+                lines.append(f"  - Python fallback: {meta['python_fallback']}")
+            if meta.get("help_text_gaps"):
+                lines.append(f"  - Help text gaps: {meta['help_text_gaps']}")
+            if meta.get("suggestion"):
+                lines.append(f"  - Suggestion: {meta['suggestion']}")
+
         lines.append("")
         return "\n".join(lines)
 
@@ -278,6 +297,67 @@ class Reporter:
             for r in timeout_tests:
                 lines.append(f"- {r.test_id}")
 
+        # Aggregate agent meta-feedback across all tests
+        all_meta = [
+            (r.test_id, r.trace_summary.get("meta_feedback"))
+            for r in records
+            if r.trace_summary.get("meta_feedback")
+        ]
+        if all_meta:
+            lines.append("\n## Agent Meta-Feedback (self-reported by agent)\n")
+
+            # Collect failed commands across tests
+            failed_cmds = []
+            missing_cmds = []
+            confusing_items = []
+            suggestions = []
+            python_fallbacks = []
+            help_gaps = []
+
+            for test_id, meta in all_meta:
+                if meta.get("commands_failed"):
+                    failed_cmds.append((test_id, meta["commands_failed"]))
+                if meta.get("commands_missing"):
+                    missing_cmds.append((test_id, meta["commands_missing"]))
+                if meta.get("confusing"):
+                    confusing_items.append((test_id, meta["confusing"]))
+                if meta.get("suggestion"):
+                    suggestions.append((test_id, meta["suggestion"]))
+                if meta.get("python_fallback", "").lower().startswith("yes"):
+                    python_fallbacks.append((test_id, meta["python_fallback"]))
+                if meta.get("help_text_gaps"):
+                    help_gaps.append((test_id, meta["help_text_gaps"]))
+
+            if failed_cmds:
+                lines.append("### Commands that failed")
+                for tid, detail in failed_cmds:
+                    lines.append(f"- **{tid}**: {detail}")
+
+            if missing_cmds:
+                lines.append("\n### Missing commands (agent wanted but couldn't find)")
+                for tid, detail in missing_cmds:
+                    lines.append(f"- **{tid}**: {detail}")
+
+            if python_fallbacks:
+                lines.append("\n### Python fallbacks (should have been visual recipe)")
+                for tid, detail in python_fallbacks:
+                    lines.append(f"- **{tid}**: {detail}")
+
+            if confusing_items:
+                lines.append("\n### Confusing / unclear")
+                for tid, detail in confusing_items:
+                    lines.append(f"- **{tid}**: {detail}")
+
+            if help_gaps:
+                lines.append("\n### Help text gaps")
+                for tid, detail in help_gaps:
+                    lines.append(f"- **{tid}**: {detail}")
+
+            if suggestions:
+                lines.append("\n### Agent suggestions (highest-impact improvements)")
+                for tid, detail in suggestions:
+                    lines.append(f"- **{tid}**: {detail}")
+
         lines.append("")
         return "\n".join(lines)
 
@@ -335,6 +415,7 @@ class Reporter:
                     "duration_ms": rec.agent_result.duration_ms,
                     "output_tokens": rec.agent_result.output_tokens,
                     "issues": rec.score.details,
+                    "meta_feedback": rec.trace_summary.get("meta_feedback"),
                 }
             )
 

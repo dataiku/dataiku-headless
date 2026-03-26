@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "dataiku": {
+      "source": "dataiku/dataiku-cli",
+      "sourceType": "github",
+      "computedHash": "ebddf6a4897e112c897abd10c5f9142556ebe9fcc2b19c84c70c6826b8b184b8"
+    },
+    "dku-cli": {
+      "source": "dataiku/dataiku-cli",
+      "sourceType": "github",
+      "computedHash": "9e1f127fc4134fcb682cf5852a909b21afbe9ef613bc71a2a7f7cf78e95fe4ab"
+    }
+  }
+}

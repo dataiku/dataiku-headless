@@ -55,9 +55,40 @@ def extract_skills_read(result: AgentResult) -> list[str]:
     return skill_reads
 
 
+def parse_meta_feedback(result: AgentResult) -> dict | None:
+    """Extract structured META-FEEDBACK from agent output.
+
+    Returns a dict with keys: skill_helpful, commands_worked, commands_failed,
+    commands_missing, confusing, python_fallback, help_text_gaps, suggestion.
+    Returns None if no feedback block found.
+    """
+    text = result.assistant_text
+    match = re.search(
+        r"META-FEEDBACK:\s*\n(.*?)END-META-FEEDBACK", text, re.DOTALL
+    )
+    if not match:
+        return None
+
+    feedback = {}
+    block = match.group(1)
+    for line in block.strip().splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip().rstrip(":")
+        value = value.strip()
+        # Strip leading [ and trailing ] for list-like values
+        if value.startswith("[") and value.endswith("]"):
+            value = value[1:-1].strip()
+        feedback[key] = value
+    return feedback if feedback else None
+
+
 def summarize_trace(result: AgentResult) -> dict:
     """Produce a human-readable summary of what the agent did."""
     dku_cmds = extract_dku_commands(result)
+    meta = parse_meta_feedback(result)
     return {
         "agent": result.agent,
         "dku_commands": dku_cmds,
@@ -73,4 +104,5 @@ def summarize_trace(result: AgentResult) -> dict:
         "duration_ms": result.duration_ms,
         "timed_out": result.timed_out,
         "errors": result.errors,
+        "meta_feedback": meta,
     }

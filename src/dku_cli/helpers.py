@@ -83,6 +83,50 @@ def resolve_agent(project, agent_ref: str):
     )
 
 
+def resolve_knowledge_bank(project, kb_ref: str):
+    """Resolve a knowledge bank by ID or name.
+
+    Tries get_knowledge_bank(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing knowledge banks and matching by name.
+    Returns a DSSKnowledgeBank handle.
+    """
+    try:
+        kb = project.get_knowledge_bank(kb_ref)
+        # Verify it exists by fetching settings (get_knowledge_bank is lazy)
+        kb.get_settings()
+        return kb
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    # Fall back to name lookup
+    banks = project.list_knowledge_banks()
+    for b in banks:
+        if b.get("name", "") == kb_ref:
+            return project.get_knowledge_bank(b.get("id", b["id"]))
+    from dku_cli.errors import exit_with_error
+
+    kb_names = [f"  {b.get('id', '')} ({b.get('name', '')})" for b in banks]
+    exit_with_error(
+        f"Knowledge bank '{kb_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available knowledge banks:",
+            *kb_names,
+            "Use the knowledge bank ID (left column) or exact name.",
+        ]
+        if kb_names
+        else [
+            "No knowledge banks found in this project.",
+            "Create one with: dku knowledge create NAME --embedding-llm LLM_ID -P PROJECT",
+        ],
+        status=3,
+    )
+
+
 def read_text_input(value: str) -> str:
     """Read text from: raw string, @file.txt path, or stdin if value is '-'.
 

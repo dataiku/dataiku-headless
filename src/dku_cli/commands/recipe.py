@@ -1,4 +1,4 @@
-"""dku recipe — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, plus GenAI recipe creation."""
+"""dku recipe — list, get, get-definition, run, create, delete, set-code, get-code, set-definition, add-input, add-output, plus GenAI recipe creation."""
 
 from __future__ import annotations
 
@@ -130,8 +130,21 @@ def _get_recipe_payload(settings) -> dict:
     payload = settings.obj_payload
     if payload is None:
         payload = {}
-        settings.obj_payload = payload
+        settings._obj_payload = payload
     return payload
+
+
+def _parse_order_specs(specs: list[str]) -> list[dict]:
+    """Parse order specifications like 'col', 'col:desc', 'col:asc' into payload format."""
+    orders = []
+    for spec in specs:
+        if spec.endswith(":desc"):
+            orders.append({"column": spec[:-5], "desc": True})
+        elif spec.endswith(":asc"):
+            orders.append({"column": spec[:-4], "desc": False})
+        else:
+            orders.append({"column": spec, "desc": False})
+    return orders
 
 
 def _get_prepare_settings(proj, recipe_name: str, project_key: str):
@@ -254,6 +267,56 @@ def get(
                 ["field", "value"],
                 output_format=output,
                 title=f"Recipe: {recipe_name}",
+            )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-definition")
+def get_definition(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the full recipe definition (raw definition + payload).
+
+    Returns the recipe's raw_definition (I/O mappings, connection, type) and
+    obj_payload (visual recipe config: aggregations, join keys, window specs, etc.).
+    Use 'dku recipe set-definition' to update these values.
+
+    Examples:
+      dku recipe get-definition my_group -P PROJ -o json
+      dku recipe get-definition my_join -P PROJ
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        recipe = proj.get_recipe(recipe_name)
+        settings = recipe.get_settings()
+        raw_def = settings.get_recipe_raw_definition()
+        payload = settings.obj_payload
+
+        if output == "json":
+            result = {"definition": raw_def, "payload": payload}
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            input_refs = settings.get_flat_input_refs()
+            output_refs = settings.get_flat_output_refs()
+            data = [
+                {"field": "Name", "value": recipe_name},
+                {"field": "Type", "value": raw_def.get("type", "")},
+                {"field": "Inputs", "value": ", ".join(input_refs) or "(none)"},
+                {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
+                {"field": "Payload", "value": json.dumps(payload, default=str) if payload else "(none)"},
+            ]
+            render(
+                data,
+                ["field", "value"],
+                output_format=output,
+                title=f"Recipe Definition: {recipe_name}",
             )
     except Exception as e:
         handle_api_error(e)
@@ -519,25 +582,62 @@ def get_code(
 def set_definition(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    definition: str = typer.Option(
-        ...,
+    definition: str | None = typer.Option(
+        None,
         "--definition",
         "-d",
-        help="Definition JSON (string, @file.json, or '-' for stdin)",
+        help="Recipe definition JSON — updates raw_definition (connection, I/O). String, @file.json, or '-' for stdin.",
+    ),
+    payload_json: str | None = typer.Option(
+        None,
+        "--payload",
+        help="Recipe payload JSON — updates obj_payload (visual recipe config: aggregations, computations, etc.). String, @file.json, or '-' for stdin.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Set the definition of a recipe from JSON."""
+    """Set the definition or payload of a recipe from JSON.
+
+    Use --definition to update recipe-level settings (I/O mappings, connection info).
+    Use --payload to update the visual recipe configuration (aggregations, window
+    computations, join keys, filter conditions, etc.). These are mutually exclusive.
+
+    Examples:
+      dku recipe set-definition my_topn --payload '{"topN": 5}' -P PROJ
+      dku recipe set-definition my_recipe -d @recipe_def.json -P PROJ
+    """
+    if not definition and not payload_json:
+        exit_with_error(
+            "Provide either --definition or --payload.",
+            code="invalid_argument",
+            details=[
+                "--definition: updates raw recipe definition (connection, I/O mappings)",
+                "--payload: updates obj_payload (visual recipe config: aggregations, computations)",
+            ],
+        )
+    if definition and payload_json:
+        exit_with_error(
+            "Cannot use both --definition and --payload. Provide one.",
+            code="invalid_argument",
+        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         recipe = client.get_project(project_key).get_recipe(recipe_name)
         settings = recipe.get_settings()
-        new_def = read_json_input(definition)
-        raw = settings.get_recipe_raw_definition()
-        raw.update(new_def)
+        if definition:
+            new_def = read_json_input(definition)
+            raw = settings.get_recipe_raw_definition()
+            raw.update(new_def)
+            target = "definition"
+        else:
+            new_payload = read_json_input(payload_json)
+            current = _get_recipe_payload(settings)
+            current.update(new_payload)
+            target = "payload"
         settings.save()
-        success(f"Updated definition for recipe '{recipe_name}'")
+        success(f"Updated {target} for recipe '{recipe_name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1188,6 +1288,77 @@ def add_find_replace(
     )
 
 
+@app.command("add-fold")
+def add_fold(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    columns: str = typer.Option(
+        None,
+        "--columns",
+        help="Comma-separated column names to fold (wide→long). Mutually exclusive with --pattern.",
+    ),
+    pattern: str = typer.Option(
+        None,
+        "--pattern",
+        help="Regex pattern matching column names to fold (e.g. '.*-25'). Mutually exclusive with --columns.",
+    ),
+    key_column: str = typer.Option(
+        "fold_key", "--key-column", help="Output column for original column names"
+    ),
+    value_column: str = typer.Option(
+        "fold_value", "--value-column", help="Output column for cell values"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Fold (unpivot) multiple columns into key-value rows (wide→long).
+
+    Use instead of pd.melt() or pd.wide_to_long() in Python.
+    Specify columns explicitly with --columns, or match by regex with --pattern.
+
+    Example: dku recipe add-fold prep1 --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ
+    """
+    if columns and pattern:
+        exit_with_error(
+            "Use --columns OR --pattern, not both.",
+            code="invalid_argument",
+            details=["--columns: explicit list. --pattern: regex match."],
+        )
+    if not columns and not pattern:
+        exit_with_error(
+            "Specify --columns or --pattern to select columns to fold.",
+            code="invalid_argument",
+            details=[
+                'Example: dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ',
+                'Example: dku recipe add-fold RECIPE --pattern ".*-25" --key-column month --value-column sales -P PROJ',
+            ],
+        )
+    if columns:
+        col_list = [c.strip() for c in columns.split(",")]
+        _add_prepare_step(
+            ctx,
+            recipe_name,
+            project,
+            "FoldColumnsByName",
+            {
+                "columns": col_list,
+                "keyColumn": key_column,
+                "valueColumn": value_column,
+            },
+        )
+    else:
+        _add_prepare_step(
+            ctx,
+            recipe_name,
+            project,
+            "FoldColumnsByPattern",
+            {
+                "columnNamePattern": pattern,
+                "columnNameColumn": key_column,
+                "columnContentColumn": value_column,
+            },
+        )
+
+
 # ---------------------------------------------------------------------------
 # Visual recipe creation commands (prefer these over Python)
 # ---------------------------------------------------------------------------
@@ -1252,17 +1423,39 @@ def create_join(
         None,
         "--join-key",
         "-k",
-        help="Join key: 'col' (same name both sides) or 'left=right'. Repeatable.",
+        help=(
+            "Join key: 'col' (same both sides) or 'left=right'. Repeatable. "
+            "For multi-input joins (3+ datasets), prefix with join index: '1:col' targets the 2nd join pair. "
+            "Unprefixed keys target join 0 (first pair)."
+        ),
+    ),
+    join_type: str = typer.Option(
+        "LEFT",
+        "--join-type",
+        "-j",
+        help="Join type: LEFT, INNER, RIGHT, CROSS. Applied to all join pairs. Default: LEFT.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Join recipe. NEVER use Python for joins — use this instead.
 
-    Join keys: auto-detected from matching column names, or set explicitly
-    with --join-key. Use --join-key col (same name both sides) or
-    --join-key left_col=right_col (different names). Repeatable for composite keys.
+    Supports 2+ input datasets in a single recipe. Join keys are auto-detected
+    from matching column names, or set explicitly with --join-key.
+
+    For multi-input joins, use indexed keys: --join-key col (join 0)
+    --join-key 1:region=region_name (join 1). CROSS joins need no keys.
     """
+    _VALID_JOIN_TYPES = {"LEFT", "INNER", "RIGHT", "CROSS"}
     project_key = resolve_project(project)
+    jt = join_type.upper()
+    if jt not in _VALID_JOIN_TYPES:
+        exit_with_error(
+            f"Invalid join type '{join_type}'. Must be one of: {', '.join(sorted(_VALID_JOIN_TYPES))}",
+            code="invalid_argument",
+            details=[
+                "Use: dku recipe create-join NAME -i ds1 -i ds2 --output-ds out --join-type LEFT -P PROJ"
+            ],
+        )
     if len(inputs) < 2:
         exit_with_error(
             "Join recipes need at least 2 input datasets.",
@@ -1281,33 +1474,60 @@ def create_join(
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Configure join keys if provided
-        if join_key:
+        recipe_obj = proj.get_recipe(recipe_name)
+        join_settings = recipe_obj.get_settings()
+        joins = join_settings.raw_joins
+
+        # Set join type on all existing join pairs
+        for j in joins:
+            j["type"] = jt
+
+        # Configure join keys if provided (skip for CROSS joins)
+        if join_key and jt != "CROSS":
+            import re
+
             from dataikuapi.dss.recipe import JoinRecipeSettings
 
-            recipe_obj = proj.get_recipe(recipe_name)
-            join_settings = recipe_obj.get_settings()
-            joins = join_settings.raw_joins
-            if joins:
-                target_join = joins[0]
-                for key_spec in join_key:
-                    if "=" in key_spec:
-                        col1, col2 = key_spec.split("=", 1)
-                    else:
-                        col1 = col2 = key_spec
+            # Parse indexed key specs: "col", "left=right", "1:col", "1:left=right"
+            keys_by_idx: dict[int, list[tuple[str, str]]] = {}
+            for key_spec in join_key:
+                idx = 0
+                spec = key_spec
+                m = re.match(r"^(\d+):", key_spec)
+                if m:
+                    idx = int(m.group(1))
+                    spec = key_spec[m.end():]
+                if "=" in spec:
+                    col1, col2 = spec.split("=", 1)
+                else:
+                    col1 = col2 = spec
+                keys_by_idx.setdefault(idx, []).append((col1.strip(), col2.strip()))
+
+            for idx, key_pairs in keys_by_idx.items():
+                if idx >= len(joins):
+                    exit_with_error(
+                        f"Join index {idx} out of range — recipe has {len(joins)} join pair(s) (0-indexed).",
+                        code="invalid_argument",
+                        details=[
+                            f"With {len(inputs)} inputs, valid join indices are 0..{len(joins) - 1}",
+                        ],
+                    )
+                target_join = joins[idx]
+                for col1, col2 in key_pairs:
                     JoinRecipeSettings.add_condition_to_join(
                         target_join,
                         type="EQ",
-                        column1=col1.strip(),
-                        column2=col2.strip(),
+                        column1=col1,
+                        column2=col2,
                     )
-                join_settings.save()
-                info(f"Join keys: {', '.join(join_key)}")
-            else:
-                warn("No joins found in recipe settings — join keys not applied")
 
+            info(f"Join keys: {', '.join(join_key)}")
+        elif join_key and jt == "CROSS":
+            warn("CROSS join ignores --join-key (no conditions needed)")
+
+        join_settings.save()
         _auto_apply_schema(proj, recipe_name)
-        success(f"Created join recipe '{recipe_name}' in {project_key}")
+        success(f"Created {jt} join recipe '{recipe_name}' in {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -1329,11 +1549,11 @@ def create_group(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
-    group_key: str = typer.Option(
+    group_key: list[str] | None = typer.Option(
         None,
         "--group-key",
         "-k",
-        help="Column to group by (add more via set-definition)",
+        help="Column(s) to group by. Repeatable: -k col1 -k col2.",
     ),
     agg: list[str] = typer.Option(
         None,
@@ -1345,7 +1565,7 @@ def create_group(
     """Create a Group (aggregate) recipe. NEVER use Python for aggregations — use this instead.
 
     Use --agg to configure aggregation functions: --agg 'amount:sum,avg' --agg 'id:count'.
-    Without --agg, defaults to COUNT per group. Use -k for the group key.
+    Without --agg, defaults to COUNT per group. Use -k for group keys (repeatable: -k col1 -k col2).
     """
     project_key = resolve_project(project)
     # Validate --agg format early (before any API calls)
@@ -1375,28 +1595,37 @@ def create_group(
         builder = proj.new_recipe("grouping", recipe_name)
         builder.with_input(input_ds)
         if group_key:
-            builder.with_group_key(group_key)
+            builder.with_group_key(group_key[0])
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Configure aggregation functions if provided
-        if agg:
+        # Post-build: add extra group keys and/or aggregation config
+        needs_settings = (group_key and len(group_key) > 1) or agg
+        if needs_settings:
             recipe_obj = proj.get_recipe(recipe_name)
             group_settings = recipe_obj.get_settings()
-            for agg_spec in agg:
-                col, funcs_str = agg_spec.split(":", 1)
-                funcs = {f.strip().lower() for f in funcs_str.split(",")}
-                group_settings.set_column_aggregations(
-                    col.strip(),
-                    **{f: (f in funcs) for f in _VALID_AGGS},
-                )
+            if group_key and len(group_key) > 1:
+                for extra_key in group_key[1:]:
+                    group_settings.add_grouping_key(extra_key)
+            if agg:
+                for agg_spec in agg:
+                    col, funcs_str = agg_spec.split(":", 1)
+                    funcs = {f.strip().lower() for f in funcs_str.split(",")}
+                    # Use set_column_aggregations for most flags, then patch avg
+                    # directly — dataikuapi has a bug where avg= is accepted but
+                    # never written to the settings dict.
+                    cs = group_settings.set_column_aggregations(
+                        col.strip(),
+                        **{f: (f in funcs) for f in _VALID_AGGS},
+                    )
+                    cs["avg"] = "avg" in funcs
+                info(f"Aggregations: {', '.join(agg)}")
             group_settings.save()
-            info(f"Aggregations: {', '.join(agg)}")
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created group recipe '{recipe_name}' in {project_key}")
         if group_key:
-            info(f"Grouped by: {group_key}")
+            info(f"Grouped by: {', '.join(group_key)}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -1541,6 +1770,97 @@ def create_filter(
         handle_api_error(e)
 
 
+_VALID_WINDOW_TYPES = frozenset(
+    {
+        "lag", "lead", "rank", "denseRank", "rowNumber",
+        "sum", "avg", "min", "max", "count",
+        "first", "last", "stddev", "concat",
+    }
+)
+# These are top-level booleans in the DSS payload, not per-column
+_TOP_LEVEL_WINDOW_TYPES = frozenset({"rank", "denseRank", "rowNumber"})
+# These are per-column boolean flags in the values[] array
+_COLUMN_WINDOW_TYPES = frozenset(
+    {"lag", "lead", "sum", "avg", "min", "max", "count",
+     "countDistinct", "first", "last", "stddev", "concat"}
+)
+
+
+def _parse_compute_specs(specs: list[str]) -> list[dict]:
+    """Parse --compute specs like 'TYPE:column:output' into computation dicts.
+
+    For rank/denseRank/rowNumber, source column is optional: 'rank::output' or 'rank:output'.
+    For other types, source column is required: 'lag:price:price_lag1'.
+    """
+    parsed = []
+    for comp_spec in specs:
+        parts = comp_spec.split(":")
+        if len(parts) == 2:
+            # TYPE:output_column (no source column)
+            comp_type, output_col = parts
+            source_col = None
+        elif len(parts) == 3:
+            # TYPE:column:output_column (empty column OK for rank types)
+            comp_type = parts[0]
+            source_col = parts[1] or None
+            output_col = parts[2]
+        else:
+            exit_with_error(
+                f"Invalid --compute format: '{comp_spec}'.",
+                code="invalid_argument",
+                details=[
+                    "Expected: 'TYPE:column:output_column' or 'TYPE::output_column' (for rank/rowNumber).",
+                    "Examples: --compute 'lag:price:price_lag1' --compute 'rank::row_rank'",
+                ],
+            )
+        if comp_type not in _VALID_WINDOW_TYPES:
+            exit_with_error(
+                f"Unknown window computation type: '{comp_type}'.",
+                code="invalid_argument",
+                details=[f"Valid types: {', '.join(sorted(_VALID_WINDOW_TYPES))}"],
+            )
+        if comp_type not in _TOP_LEVEL_WINDOW_TYPES and not source_col:
+            exit_with_error(
+                f"Computation type '{comp_type}' requires a source column.",
+                code="invalid_argument",
+                details=[f"Use: --compute '{comp_type}:COLUMN:OUTPUT_COLUMN'"],
+            )
+        entry: dict = {"type": comp_type, "outputColumn": output_col}
+        if source_col:
+            entry["column"] = source_col
+        parsed.append(entry)
+    return parsed
+
+
+def _apply_window_computations(payload: dict, computations: list[dict]) -> None:
+    """Apply parsed --compute specs to a Window recipe obj_payload.
+
+    DSS Window recipes use two mechanisms:
+    - Top-level booleans: rowNumber, rank, denseRank (global, not per-column)
+    - values[] array: per-column flags like lag, lead, sum, avg, etc.
+    """
+    values = payload.setdefault("values", [])
+
+    for comp in computations:
+        comp_type = comp["type"]
+        if comp_type in _TOP_LEVEL_WINDOW_TYPES:
+            # Enable top-level flag (e.g., payload["rowNumber"] = True)
+            payload[comp_type] = True
+        else:
+            # Find or create the column entry in values[]
+            source_col = comp["column"]
+            col_entry = None
+            for v in values:
+                if v.get("column") == source_col:
+                    col_entry = v
+                    break
+            if col_entry is None:
+                col_entry = {"column": source_col, "value": False}
+                values.append(col_entry)
+            # Enable the computation type flag
+            col_entry[comp_type] = True
+
+
 @app.command("create-window")
 def create_window(
     ctx: typer.Context,
@@ -1562,15 +1882,29 @@ def create_window(
         "--order-key",
         help="ORDER BY column. Append ':desc' for descending (default: ascending). Repeatable.",
     ),
+    compute: list[str] | None = typer.Option(
+        None,
+        "--compute",
+        help=(
+            "Window computation. Format: TYPE:column:output_column. "
+            "Column optional for rank/denseRank/rowNumber (use TYPE::output). "
+            "Types: lag, lead, rank, denseRank, rowNumber, sum, avg, min, max, count, first, last. "
+            "Repeatable."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Window recipe. Computes window/analytic functions (rank, lag, cumsum).
 
     Use this instead of df.groupby().transform() in Python.
-    Use --partition-key for PARTITION BY and --order-key for ORDER BY.
-    Configure computations (lag, cumsum, rank) via set-definition or the DSS UI.
+    Use --partition-key for PARTITION BY, --order-key for ORDER BY,
+    and --compute for window functions.
+
+    Example: dku recipe create-window ranked -i data --output-ds ranked -k stock --order-key date --compute 'rowNumber::rn' -P PROJ
     """
     project_key = resolve_project(project)
+    # Validate --compute format early (before any API calls)
+    parsed_computations = _parse_compute_specs(compute) if compute else []
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -1580,8 +1914,8 @@ def create_window(
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Configure partition/order keys if provided (WindowRecipeSettings has no helpers)
-        if partition_key or order_key:
+        # Configure partition/order keys and computations (WindowRecipeSettings has no helpers)
+        if partition_key or order_key or parsed_computations:
             recipe_obj = proj.get_recipe(recipe_name)
             win_settings = recipe_obj.get_settings()
             payload = _get_recipe_payload(win_settings)
@@ -1591,16 +1925,11 @@ def create_window(
                 ]
                 info(f"Partition by: {', '.join(partition_key)}")
             if order_key:
-                orders = []
-                for spec in order_key:
-                    if spec.endswith(":desc"):
-                        orders.append({"column": spec[:-5], "desc": True})
-                    elif spec.endswith(":asc"):
-                        orders.append({"column": spec[:-4], "desc": False})
-                    else:
-                        orders.append({"column": spec, "desc": False})
-                payload["orders"] = orders
+                payload["orders"] = _parse_order_specs(order_key)
                 info(f"Order by: {', '.join(order_key)}")
+            if parsed_computations:
+                _apply_window_computations(payload, parsed_computations)
+                info(f"Computations: {', '.join(c['type'] for c in parsed_computations)}")
             win_settings.save()
 
         _auto_apply_schema(proj, recipe_name)
@@ -1653,11 +1982,29 @@ def create_topn(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    n: int = typer.Option(
+        10, "--n", "-n", help="Number of top rows to keep (default: 10)"
+    ),
+    rank_by: list[str] | None = typer.Option(
+        None,
+        "--rank-by",
+        help="Ranking column. Append ':desc' for descending (default: ascending). Repeatable.",
+    ),
+    partition_key: list[str] | None = typer.Option(
+        None,
+        "--partition-key",
+        "-k",
+        help="Partition column for top N per group. Repeatable.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a Top N recipe. Returns the top/bottom N rows.
+    """Create a Top N recipe. Returns the top/bottom N rows per group.
 
     Use this instead of df.nlargest() or df.head() in Python.
+    Use --rank-by for the ordering column, --n for how many rows, and
+    --partition-key for top N per group.
+
+    Example: dku recipe create-topn top10 -i sales --output-ds top10 --n 10 --rank-by revenue:desc -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -1668,8 +2015,177 @@ def create_topn(
         builder.with_input(input_ds)
         builder.with_output(output_ds)
         builder.build()
+
+        # Configure topN settings in obj_payload (TopNRecipeSettings has no helpers).
+        # DSS uses `firstRows` for the actual row count and `keys` (string array)
+        # for partition columns — NOT `topN` alone or `partitioningColumns`.
+        recipe_obj = proj.get_recipe(recipe_name)
+        topn_settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(topn_settings)
+        payload["topN"] = n
+        payload["firstRows"] = n
+        if rank_by:
+            payload["orders"] = _parse_order_specs(rank_by)
+            info(f"Rank by: {', '.join(rank_by)}")
+        if partition_key:
+            payload["keys"] = list(partition_key)
+            info(f"Partition by: {', '.join(partition_key)}")
+        topn_settings.save()
+
         _auto_apply_schema(proj, recipe_name)
-        success(f"Created topn recipe '{recipe_name}' in {project_key}")
+        success(f"Created topn recipe '{recipe_name}' (top {n}) in {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-pivot")
+def create_pivot(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
+    row_key: list[str] | None = typer.Option(
+        None, "--row-key", "-r", help="Row dimension column(s). Repeatable."
+    ),
+    column_key: str | None = typer.Option(
+        None, "--column-key", "-c", help="Column dimension (values become column headers)"
+    ),
+    value_column: str | None = typer.Option(
+        None, "--value-column", "-v", help="Value column to aggregate into cells"
+    ),
+    agg_type: str | None = typer.Option(
+        None,
+        "--agg-type",
+        help="Aggregation type for pivot cells: SUM, AVG, MIN, MAX, COUNT, COUNT_DISTINCT, CONCAT, STDDEV.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Pivot recipe (long→wide). NEVER use df.pivot_table() in Python.
+
+    Transposes rows into columns: each unique value in --column-key becomes
+    a new column, filled with aggregated --value-column values.
+
+    Example: dku recipe create-pivot piv -i sales --output-ds sales_wide --row-key product --column-key month --value-column revenue --agg-type SUM -P PROJ
+    """
+    _VALID_PIVOT_AGGS = frozenset(
+        {"SUM", "AVG", "MIN", "MAX", "COUNT", "COUNT_DISTINCT", "CONCAT", "STDDEV"}
+    )
+    if agg_type and agg_type.upper() not in _VALID_PIVOT_AGGS:
+        exit_with_error(
+            f"Unknown aggregation type: '{agg_type}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_PIVOT_AGGS))}"],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("pivot", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+
+        # Configure pivot dimensions and aggregation.
+        # DSS stores pivot config in payload.explicitIdentifiers (row keys) and
+        # payload.pivots[0] (column key, value columns, aggregation functions).
+        if row_key or column_key or value_column or agg_type:
+            recipe_obj = proj.get_recipe(recipe_name)
+            settings = recipe_obj.get_settings()
+            payload = _get_recipe_payload(settings)
+            if row_key:
+                payload["explicitIdentifiers"] = list(row_key)
+            # Configure the first pivot entry (DSS default creates one)
+            pivots = payload.setdefault("pivots", [{}])
+            pivot = pivots[0] if pivots else {}
+            if not pivots:
+                pivots.append(pivot)
+            if column_key:
+                pivot["keyColumns"] = [column_key]
+            if value_column:
+                agg_fn = agg_type.upper() if agg_type else "SUM"
+                pivot["valueColumns"] = [
+                    {"column": value_column, "function": agg_fn}
+                ]
+            elif agg_type:
+                # agg_type without value_column — set on existing valueColumns
+                for vc in pivot.get("valueColumns", []):
+                    vc["function"] = agg_type.upper()
+            settings.save()
+            info(f"Pivot config: row={row_key}, column={column_key}, value={value_column}, agg={agg_type}")
+
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created pivot recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-sampling")
+def create_sampling(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    input_ds: str = typer.Option(
+        ..., "--input", "-i", "--input-ds", help="Input dataset name"
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
+    method: str = typer.Option(
+        "RANDOM_FIXED_NB",
+        "--method",
+        "-m",
+        help="Sampling method: RANDOM_FIXED_NB, RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED, CLASS_REBALANCE",
+    ),
+    size: int | None = typer.Option(
+        None, "--size", "-n", help="Sample size (for RANDOM_FIXED_NB)"
+    ),
+    ratio: float | None = typer.Option(
+        None, "--ratio", help="Sample ratio 0.0-1.0 (for RANDOM_FIXED_RATIO)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Sampling recipe. Takes a random, stratified, or head sample.
+
+    Use this instead of df.sample() in Python. For row filtering by condition,
+    use create-filter instead.
+
+    Example: dku recipe create-sampling sample_1k -i big_data --output-ds sample --size 1000 -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+        builder = proj.new_recipe("sampling", recipe_name)
+        builder.with_input(input_ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+
+        # Configure sampling method and params in raw definition (DSS reads
+        # from definition.params.selection, NOT obj_payload.selection)
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        raw_def = settings.get_recipe_raw_definition()
+        selection = raw_def.setdefault("params", {}).setdefault("selection", {})
+        selection["samplingMethod"] = method.upper()
+        if size is not None:
+            selection["maxRecords"] = size
+        if ratio is not None:
+            selection["targetRatio"] = ratio
+        settings.save()
+
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created sampling recipe '{recipe_name}' ({method}) in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1695,9 +2211,23 @@ def create_embed(
     vector_store_type: str = typer.Option(
         "CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"
     ),
+    text_column: str | None = typer.Option(
+        None,
+        "--text-column",
+        help="Column containing text to embed (sets knowledgeColumn). "
+        "Without this, the recipe will fail with 'Embedding column is missing'.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create an Embed Dataset recipe (embeds text columns into a Knowledge Bank)."""
+    """Create an Embed Dataset recipe (embeds text columns into a Knowledge Bank).
+
+    Use --text-column to set which column to embed. Without it, the recipe
+    requires manual configuration before it can run.
+
+    Example:
+      dku recipe create-embed embed_resorts -i resorts --output-kb resort_kb \\
+        --embedding-llm openai:conn:text-embedding-3-small --text-column description -P PROJ
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -1706,7 +2236,17 @@ def create_embed(
         builder.with_input(input_ds)
         builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
         builder.build()
+
+        if text_column:
+            recipe = proj.get_recipe(recipe_name)
+            settings = recipe.get_settings()
+            payload = _get_recipe_payload(settings)
+            payload["knowledgeColumn"] = text_column
+            settings.save()
+
         success(f"Created embed recipe '{recipe_name}' in {project_key}")
+        if text_column:
+            info(f"Text column set to '{text_column}'")
     except Exception as e:
         handle_api_error(e)
 

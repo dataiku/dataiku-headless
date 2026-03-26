@@ -25,7 +25,7 @@ def test_agent_tool_list_json(patch_client):
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "tool1"
     assert parsed[0]["name"] == "My Tool"
-    assert parsed[0]["type"] == "python"
+    assert parsed[0]["type"] == "DatasetRowLookup"
 
 
 def test_agent_tool_get(patch_client):
@@ -149,6 +149,105 @@ def test_agent_tool_types_json(patch_client):
     type_names = [t["type"] for t in parsed]
     assert "DatasetRowLookup" in type_names
     assert "VectorStoreSearch" in type_names
+
+
+def test_agent_tool_create_with_dataset(patch_client):
+    """DatasetRowLookup with --dataset should set datasetSmartName in params."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_lookup",
+            "--type",
+            "DatasetRowLookup",
+            "--dataset",
+            "customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created agent tool" in result.output
+    new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
+    new_tool.get_settings.assert_called()
+    settings = new_tool.get_settings.return_value
+    assert settings.params["datasetSmartName"] == "customers"
+    settings.save.assert_called()
+
+
+def test_agent_tool_create_with_dataset_wrong_type(patch_client):
+    """--dataset on non-DatasetRowLookup should fail."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_search",
+            "--type",
+            "VectorStoreSearch",
+            "--kb",
+            "my_kb",
+            "--dataset",
+            "customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_agent_tool_create_with_llm(patch_client):
+    """LLMMeshLLMQuery with --llm should set llmId in params."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_llm",
+            "--type",
+            "LLMMeshLLMQuery",
+            "--llm",
+            "openai:conn:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created agent tool" in result.output
+    new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
+    new_tool.get_settings.assert_called()
+    settings = new_tool.get_settings.return_value
+    assert settings.params["llmId"] == "openai:conn:gpt-4o"
+    settings.save.assert_called()
+
+
+def test_agent_tool_create_with_llm_wrong_type(patch_client):
+    """--llm on non-LLMMeshLLMQuery should fail."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_lookup",
+            "--type",
+            "DatasetRowLookup",
+            "--llm",
+            "openai:conn:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_agent_tool_types_no_python_function(patch_client):
+    """PythonFunction, SQLQuery, RetrieveDatasetSchema should NOT be in types."""
+    result = runner.invoke(app, ["agent-tool", "types"])
+    assert result.exit_code == 0
+    assert "PythonFunction" not in result.output
+    assert "SQLQuery" not in result.output
+    assert "RetrieveDatasetSchema" not in result.output
 
 
 def test_agent_tool_set_definition(patch_client):

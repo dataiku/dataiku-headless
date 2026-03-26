@@ -40,6 +40,29 @@ def test_recipe_get_json(patch_client):
     assert "type" in parsed
 
 
+def test_recipe_get_definition_json(patch_client):
+    """get-definition returns both definition and payload in JSON mode."""
+    result = runner.invoke(
+        app,
+        ["recipe", "get-definition", "recipe1", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "definition" in parsed
+    assert "payload" in parsed
+    assert "type" in parsed["definition"]
+
+
+def test_recipe_get_definition_table(patch_client):
+    """get-definition shows key fields in table mode."""
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "recipe1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Type" in result.output
+    assert "Payload" in result.output
+
+
 def test_recipe_run(patch_client):
     result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -572,6 +595,61 @@ def test_recipe_create_embed_custom_vector_store(patch_client):
     )
 
 
+def test_recipe_create_embed_with_text_column(patch_client):
+    """--text-column sets knowledgeColumn in recipe payload after creation."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--text-column",
+            "description",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "description" in result.output
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe("my_embed")
+    settings = recipe.get_settings()
+    assert settings.obj_payload["knowledgeColumn"] == "description"
+    settings.save.assert_called_once()
+
+
+def test_recipe_create_embed_without_text_column_no_save(patch_client):
+    """Without --text-column, recipe settings are NOT modified after build."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe("my_embed")
+    settings = recipe.get_settings()
+    # save should NOT have been called (no text_column to set)
+    settings.save.assert_not_called()
+
+
 def test_recipe_create_embed_docs(patch_client):
     result = runner.invoke(
         app,
@@ -772,7 +850,8 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
     )
 
     assert result.exit_code == 0
-    assert settings.obj_payload["taskType"] == "QUESTION_ANSWERING"
+    # _get_recipe_payload initializes via _obj_payload when obj_payload is None
+    assert settings._obj_payload["taskType"] == "QUESTION_ANSWERING"
     settings.save.assert_called()
 
 
@@ -1152,7 +1231,7 @@ def test_recipe_create_join(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "Created join recipe" in result.output
+    assert "Created LEFT join recipe" in result.output
     proj = patch_client.get_project("PROJ1")
     proj.new_recipe.assert_called_once_with("join", "my_join")
     builder = proj.new_recipe.return_value
@@ -1300,11 +1379,555 @@ def test_recipe_create_join_no_key_backward_compat(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "Created join recipe" in result.output
+    assert "Created LEFT join recipe" in result.output
     # get_settings should NOT be called for join key configuration
     proj = patch_client.get_project("PROJ1")
     # builder.build is called, but no post-build settings modification
     proj.new_recipe.return_value.build.assert_called_once()
+
+
+# ── Visual recipe: create-join --join-type and indexed keys ────────────
+
+
+def _setup_join_mock(patch_client, num_joins=1):
+    """Configure mock for join recipe tests with real dicts for raw_joins."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_obj = proj.get_recipe.return_value
+    settings = recipe_obj.get_settings.return_value
+    mock_joins = [
+        {"type": "LEFT", "on": [], "table1": 0, "table2": i + 1}
+        for i in range(num_joins)
+    ]
+    type(settings).raw_joins = property(lambda self: mock_joins)
+    return proj, settings, mock_joins
+
+
+def test_recipe_create_join_with_join_type_inner(patch_client):
+    """--join-type INNER sets type on all join pairs."""
+    _proj, _settings, mock_joins = _setup_join_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-join", "my_join",
+            "-i", "orders", "-i", "customers",
+            "--output-ds", "joined",
+            "--join-type", "INNER",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created INNER join recipe" in result.output
+    assert mock_joins[0]["type"] == "INNER"
+
+
+def test_recipe_create_join_cross_no_keys(patch_client):
+    """CROSS join skips key configuration."""
+    _proj, _settings, mock_joins = _setup_join_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-join", "my_cross",
+            "-i", "records", "-i", "months",
+            "--output-ds", "expanded",
+            "--join-type", "CROSS",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created CROSS join recipe" in result.output
+    assert mock_joins[0]["type"] == "CROSS"
+
+
+def test_recipe_create_join_cross_ignores_keys(patch_client):
+    """CROSS join warns when --join-key is provided."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-join", "my_cross",
+            "-i", "records", "-i", "months",
+            "--output-ds", "expanded",
+            "--join-type", "CROSS",
+            "--join-key", "id",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "CROSS join ignores" in result.output
+
+
+def test_recipe_create_join_invalid_type_error(patch_client):
+    """Invalid join type raises error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-join", "my_join",
+            "-i", "a", "-i", "b",
+            "--output-ds", "out",
+            "--join-type", "FULL_OUTER",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid join type" in result.output
+
+
+def test_recipe_create_join_multi_input_indexed_keys(patch_client):
+    """Indexed --join-key targets specific join pairs."""
+    _proj, _settings, mock_joins = _setup_join_mock(patch_client, num_joins=2)
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-join", "multi_join",
+            "-i", "main", "-i", "lookup_a", "-i", "lookup_b",
+            "--output-ds", "enriched",
+            "--join-key", "entity=company",
+            "--join-key", "1:region=region_name",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # Join 0 should have entity=company condition
+    assert len(mock_joins[0]["on"]) >= 1
+    assert mock_joins[0]["on"][0]["column1"]["name"] == "entity"
+    # Join 1 should have region=region_name condition
+    assert len(mock_joins[1]["on"]) >= 1
+    assert mock_joins[1]["on"][0]["column1"]["name"] == "region"
+
+
+# ── Visual recipe: create-pivot ────────────────────────────────────────
+
+
+def test_recipe_create_pivot_basic(patch_client):
+    """Basic pivot recipe creation."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-pivot", "my_pivot",
+            "-i", "long_data",
+            "--output-ds", "wide_data",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created pivot recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_called_once_with("pivot", "my_pivot")
+
+
+def test_recipe_create_pivot_with_keys(patch_client):
+    """Pivot with row/column/value configuration."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-pivot", "my_pivot",
+            "-i", "sales",
+            "--output-ds", "sales_wide",
+            "--row-key", "product",
+            "--column-key", "month",
+            "--value-column", "revenue",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created pivot recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    recipe_obj = proj.get_recipe("my_pivot")
+    settings = recipe_obj.get_settings()
+    settings.save.assert_called()
+
+
+# ── Visual recipe: create-sampling ─────────────────────────────────────
+
+
+def test_recipe_create_sampling_basic(patch_client):
+    """Basic sampling recipe creation."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-sampling", "sample_1k",
+            "-i", "big_data",
+            "--output-ds", "sample",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created sampling recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_called_once_with("sampling", "sample_1k")
+
+
+def test_recipe_create_sampling_with_method_and_size(patch_client):
+    """Sampling with method and size configuration."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-sampling", "sample_head",
+            "-i", "data",
+            "--output-ds", "head_sample",
+            "--method", "HEAD_SEQUENTIAL",
+            "--size", "500",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "HEAD_SEQUENTIAL" in result.output
+    proj = patch_client.get_project("PROJ1")
+    recipe_obj = proj.get_recipe("sample_head")
+    settings = recipe_obj.get_settings()
+    settings.save.assert_called()
+
+
+# ── Visual recipe: create-topn with configuration ─────────────────────
+
+
+def test_recipe_create_topn_basic(patch_client):
+    """Basic topn creation with default N=10."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-topn", "my_topn",
+            "-i", "data",
+            "--output-ds", "top_data",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "top 10" in result.output
+    assert settings.obj_payload["topN"] == 10
+    settings.save.assert_called()
+
+
+def test_recipe_create_topn_with_rank_by(patch_client):
+    """--rank-by sets orders in payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-topn", "top5",
+            "-i", "sales",
+            "--output-ds", "top5_sales",
+            "--n", "5",
+            "--rank-by", "revenue:desc",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "top 5" in result.output
+    assert settings.obj_payload["topN"] == 5
+    assert settings.obj_payload["orders"] == [{"column": "revenue", "desc": True}]
+
+
+def test_recipe_create_topn_with_partition(patch_client):
+    """--partition-key sets partitioningColumns for top N per group."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-topn", "top3_per_cat",
+            "-i", "products",
+            "--output-ds", "top_products",
+            "--n", "3",
+            "--rank-by", "price:desc",
+            "--partition-key", "category",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert settings.obj_payload["topN"] == 3
+    assert settings.obj_payload["firstRows"] == 3
+    assert settings.obj_payload["orders"] == [{"column": "price", "desc": True}]
+    assert settings.obj_payload["keys"] == ["category"]
+
+
+# ── Visual recipe: create-pivot with --agg-type ──────────────────────
+
+
+def test_recipe_create_pivot_with_agg_type(patch_client):
+    """--agg-type sets valueFunctions in payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-pivot", "my_pivot",
+            "-i", "sales",
+            "--output-ds", "sales_wide",
+            "--row-key", "product",
+            "--column-key", "month",
+            "--value-column", "revenue",
+            "--agg-type", "SUM",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    pivots = settings.obj_payload["pivots"]
+    assert pivots[0]["keyColumns"] == ["month"]
+    assert pivots[0]["valueColumns"] == [{"column": "revenue", "function": "SUM"}]
+    assert settings.obj_payload["explicitIdentifiers"] == ["product"]
+
+
+def test_recipe_create_pivot_invalid_agg_type(patch_client):
+    """--agg-type with unknown type gives error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-pivot", "my_pivot",
+            "-i", "sales",
+            "--output-ds", "sales_wide",
+            "--agg-type", "MEDIAN",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Unknown aggregation type" in result.output
+
+
+# ── Window recipe: --compute flag ─────────────────────────────────────
+
+
+def test_recipe_create_window_with_compute_rank(patch_client):
+    """--compute rowNumber::rn sets top-level boolean in payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-window", "my_window",
+            "-i", "transactions",
+            "--output-ds", "windowed",
+            "--partition-key", "customer_id",
+            "--order-key", "date",
+            "--compute", "rowNumber::rn",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # rowNumber is a top-level boolean in DSS Window payload
+    assert settings.obj_payload["rowNumber"] is True
+
+
+def test_recipe_create_window_with_compute_lag(patch_client):
+    """--compute lag:col:output enables lag on the column in values[]."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-window", "my_window",
+            "-i", "transactions",
+            "--output-ds", "windowed",
+            "--partition-key", "customer_id",
+            "--order-key", "date",
+            "--compute", "lag:price:price_lag1",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # lag is a per-column boolean in values[] array
+    values = settings.obj_payload["values"]
+    price_entry = next(v for v in values if v["column"] == "price")
+    assert price_entry["lag"] is True
+
+
+def test_recipe_create_window_multiple_computes(patch_client):
+    """Multiple --compute flags: top-level + per-column."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-window", "my_window",
+            "-i", "transactions",
+            "--output-ds", "windowed",
+            "--compute", "rowNumber::rn",
+            "--compute", "sum:amount:cumulative_amount",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # rowNumber as top-level boolean
+    assert settings.obj_payload["rowNumber"] is True
+    # sum as per-column flag in values[]
+    values = settings.obj_payload["values"]
+    amount_entry = next(v for v in values if v["column"] == "amount")
+    assert amount_entry["sum"] is True
+
+
+def test_recipe_create_window_invalid_compute_type(patch_client):
+    """--compute with unknown type gives error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-window", "my_window",
+            "-i", "transactions",
+            "--output-ds", "windowed",
+            "--compute", "median:price:price_med",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Unknown window computation type" in result.output
+
+
+def test_recipe_create_window_compute_missing_column(patch_client):
+    """--compute sum without source column gives error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-window", "my_window",
+            "-i", "transactions",
+            "--output-ds", "windowed",
+            "--compute", "sum::cumsum",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "requires a source column" in result.output
+
+
+# ── set-definition --payload flag ─────────────────────────────────────
+
+
+def test_recipe_set_definition_payload(patch_client):
+    """--payload writes to obj_payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    new_payload = json.dumps({"topN": 5, "orders": [{"column": "price", "desc": True}]})
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "set-definition", "recipe1",
+            "--payload", new_payload,
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated payload" in result.output
+    settings.save.assert_called()
+
+
+def test_recipe_set_definition_no_flag(patch_client):
+    """Missing both --definition and --payload gives error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "set-definition", "recipe1",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Provide either" in result.output
+
+
+def test_recipe_set_definition_both_flags(patch_client):
+    """Both --definition and --payload is an error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "set-definition", "recipe1",
+            "--definition", '{"type": "python"}',
+            "--payload", '{"topN": 5}',
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Cannot use both" in result.output
+
+
+# ── Prepare step: add-fold ─────────────────────────────────────────────
+
+
+def test_recipe_add_fold_by_name(patch_client):
+    """Fold by explicit column names."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "add-fold", "prep1",
+            "--columns", "jan,feb,mar",
+            "--key-column", "month",
+            "--value-column", "sales",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "FoldColumnsByName" in result.output
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FoldColumnsByName"
+    assert step["params"]["columns"] == ["jan", "feb", "mar"]
+    assert step["params"]["keyColumn"] == "month"
+    assert step["params"]["valueColumn"] == "sales"
+
+
+def test_recipe_add_fold_by_pattern(patch_client):
+    """Fold by regex pattern."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "add-fold", "prep1",
+            "--pattern", ".*-25",
+            "--key-column", "month",
+            "--value-column", "value",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "FoldColumnsByPattern" in result.output
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FoldColumnsByPattern"
+    assert step["params"]["columnNamePattern"] == ".*-25"
+
+
+def test_recipe_add_fold_requires_columns_or_pattern(patch_client):
+    """Error when neither --columns nor --pattern given."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "add-fold", "prep1",
+            "--key-column", "month",
+            "--value-column", "sales",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Specify --columns or --pattern" in result.output
+
+
+def test_recipe_add_fold_both_columns_and_pattern_error(patch_client):
+    """Error when both --columns and --pattern given."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "add-fold", "prep1",
+            "--columns", "jan,feb",
+            "--pattern", ".*-25",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not both" in result.output
 
 
 # ── Visual recipe: create-group with --agg ────────────────────────────
@@ -1469,6 +2092,81 @@ def test_recipe_create_group_no_agg_backward_compat(patch_client):
     )
     assert result.exit_code == 0
     assert "Created group recipe" in result.output
+
+
+def test_recipe_create_group_multi_key(patch_client):
+    """Multiple -k flags add all grouping keys."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-group", "my_group",
+            "-i", "sales",
+            "--output-ds", "sales_grouped",
+            "-k", "region",
+            "-k", "category",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created group recipe" in result.output
+    builder = proj.new_recipe.return_value
+    builder.with_group_key.assert_called_once_with("region")
+    settings.add_grouping_key.assert_called_once_with("category")
+    settings.save.assert_called()
+
+
+def test_recipe_create_group_three_keys(patch_client):
+    """Three -k flags: first to builder, remaining via settings."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-group", "my_group",
+            "-i", "sales",
+            "--output-ds", "sales_grouped",
+            "-k", "region",
+            "-k", "category",
+            "-k", "year",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    builder = proj.new_recipe.return_value
+    builder.with_group_key.assert_called_once_with("region")
+    assert settings.add_grouping_key.call_count == 2
+    settings.add_grouping_key.assert_any_call("category")
+    settings.add_grouping_key.assert_any_call("year")
+
+
+def test_recipe_create_group_multi_key_with_agg(patch_client):
+    """Multi-key plus aggregation in single settings call."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe", "create-group", "my_group",
+            "-i", "sales",
+            "--output-ds", "sales_grouped",
+            "-k", "region",
+            "-k", "category",
+            "--agg", "amount:sum",
+            "--project", "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings.add_grouping_key.assert_called_once_with("category")
+    settings.set_column_aggregations.assert_called_once()
+    settings.save.assert_called()
 
 
 # ── Auto apply-schema ─────────────────────────────────────────────────

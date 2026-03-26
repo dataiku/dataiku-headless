@@ -3,13 +3,35 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
 from dku_cli.main import app
 
 runner = CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# Helper: simulate name-based resolution (ID fails, name lookup succeeds)
+# ---------------------------------------------------------------------------
+
+
+def _setup_name_resolution(patch_client):
+    """Configure mocks so get_knowledge_bank raises for non-ID args, enabling name fallback."""
+    proj = patch_client.get_project("PROJ1")
+    kb_mock = proj.get_knowledge_bank.return_value  # the default mock
+
+    def _get_kb(ref):
+        if ref == "kb1":
+            return kb_mock
+        # For name-based lookups, return a mock whose get_settings raises
+        bad = MagicMock()
+        bad.get_settings.side_effect = Exception("Object not found: kb_ref")
+        return bad
+
+    proj.get_knowledge_bank.side_effect = _get_kb
+    return proj, kb_mock
 
 
 def test_knowledge_list(patch_client):
@@ -211,3 +233,99 @@ def test_knowledge_delete(patch_client):
     patch_client.get_project("PROJ1").get_knowledge_bank(
         "kb1"
     ).delete.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Name-to-ID resolution tests
+# ---------------------------------------------------------------------------
+
+
+def test_knowledge_build_by_name(patch_client):
+    """Passing a name instead of ID should resolve via list_knowledge_banks."""
+    proj, kb_mock = _setup_name_resolution(patch_client)
+    result = runner.invoke(
+        app, ["knowledge", "build", "My KB", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    # Should have resolved "My KB" → "kb1" via list_knowledge_banks fallback
+    proj.list_knowledge_banks.assert_called_once()
+    kb_mock.build.assert_called_once()
+
+
+def test_knowledge_search_by_name(patch_client):
+    """Search command resolves by name."""
+    proj, kb_mock = _setup_name_resolution(patch_client)
+    result = runner.invoke(
+        app,
+        ["knowledge", "search", "My KB", "--query", "test", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj.list_knowledge_banks.assert_called_once()
+
+
+def test_knowledge_delete_by_name(patch_client):
+    """Delete command resolves by name."""
+    proj, kb_mock = _setup_name_resolution(patch_client)
+    result = runner.invoke(
+        app, ["knowledge", "delete", "My KB", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    kb_mock.delete.assert_called_once()
+
+
+def test_knowledge_not_found(patch_client):
+    """Unknown name/ID gives prescriptive error listing available KBs."""
+    proj, _ = _setup_name_resolution(patch_client)
+    result = runner.invoke(
+        app, ["knowledge", "build", "nonexistent", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower()
+    assert "kb1" in result.output  # should list available KBs
+
+
+# ---------------------------------------------------------------------------
+# set-definition tests
+# ---------------------------------------------------------------------------
+
+
+def test_knowledge_set_definition(patch_client):
+    """set-definition merges JSON into KB settings and saves."""
+    result = runner.invoke(
+        app,
+        [
+            "knowledge",
+            "set-definition",
+            "kb1",
+            "--definition",
+            '{"vectorStoreType": "CHROMA"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    kb = patch_client.get_project("PROJ1").get_knowledge_bank("kb1")
+    settings = kb.get_settings()
+    raw = settings.get_raw()
+    assert raw["vectorStoreType"] == "CHROMA"
+    settings.save.assert_called_once()
+
+
+def test_knowledge_set_definition_by_name(patch_client):
+    """set-definition resolves KB by name."""
+    proj, kb_mock = _setup_name_resolution(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "knowledge",
+            "set-definition",
+            "My KB",
+            "--definition",
+            '{"vectorStoreType": "CHROMA"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj.list_knowledge_banks.assert_called_once()
+    kb_mock.get_settings().save.assert_called()

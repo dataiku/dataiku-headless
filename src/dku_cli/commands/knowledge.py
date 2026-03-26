@@ -1,11 +1,16 @@
-"""dku knowledge — list, create, get, build, search, delete."""
+"""dku knowledge — list, create, get, set-definition, build, search, delete."""
 
 from __future__ import annotations
 
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    resolve_knowledge_bank,
+    resolve_project,
+)
 from dku_cli.output import (
     info,
     render,
@@ -140,7 +145,7 @@ def create(
 @app.command()
 def get(
     ctx: typer.Context,
-    kb_id: str = typer.Argument(help="Knowledge bank ID"),
+    kb_id: str = typer.Argument(help="Knowledge bank ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
@@ -149,8 +154,45 @@ def get(
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        raw = _get_knowledge_bank_raw_settings(client, project_key, kb_id)
+        proj = client.get_project(project_key)
+        kb = resolve_knowledge_bank(proj, kb_id)
+        raw = _get_knowledge_bank_raw_settings(client, project_key, kb.id)
         render_raw(raw, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-definition")
+def set_definition(
+    ctx: typer.Context,
+    kb_ref: str = typer.Argument(help="Knowledge bank ID or name"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Definition JSON — merges into current settings. String, @file.json, or '-' for stdin.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Update a knowledge bank's definition from JSON.
+
+    Merges the provided JSON into the current settings (shallow merge).
+    Get current settings first: dku knowledge get KB -P PROJ -o json
+
+    Examples:
+      dku knowledge set-definition my_kb -d '{"vectorStoreType": "CHROMA"}' -P PROJ
+      dku knowledge set-definition my_kb -d @kb_settings.json -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        kb = resolve_knowledge_bank(proj, kb_ref)
+        updates = read_json_input(definition)
+        settings = kb.get_settings()
+        settings.get_raw().update(updates)
+        settings.save()
+        success(f"Updated knowledge bank '{kb_ref}' definition")
     except Exception as e:
         handle_api_error(e)
 
@@ -158,7 +200,7 @@ def get(
 @app.command()
 def build(
     ctx: typer.Context,
-    kb_id: str = typer.Argument(help="Knowledge bank ID"),
+    kb_id: str = typer.Argument(help="Knowledge bank ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     wait: bool = typer.Option(
         False, "--wait/--no-wait", help="Wait for build to complete"
@@ -169,7 +211,7 @@ def build(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        kb = proj.get_knowledge_bank(kb_id)
+        kb = resolve_knowledge_bank(proj, kb_id)
         future = kb.build()
 
         if wait:
@@ -185,7 +227,7 @@ def build(
 @app.command()
 def search(
     ctx: typer.Context,
-    kb_id: str = typer.Argument(help="Knowledge bank ID"),
+    kb_id: str = typer.Argument(help="Knowledge bank ID or name"),
     query: str = typer.Option(..., "--query", "-q", help="Search query"),
     max_results: int = typer.Option(
         10, "--max", "-n", help="Maximum number of results"
@@ -199,7 +241,7 @@ def search(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        kb = proj.get_knowledge_bank(kb_id)
+        kb = resolve_knowledge_bank(proj, kb_id)
         results = kb.search(query, max_documents=max_results)
         render_raw(results, output_format=output)
     except Exception as e:
@@ -209,7 +251,7 @@ def search(
 @app.command()
 def delete(
     ctx: typer.Context,
-    kb_id: str = typer.Argument(help="Knowledge bank ID"),
+    kb_id: str = typer.Argument(help="Knowledge bank ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Delete a knowledge bank."""
@@ -217,7 +259,7 @@ def delete(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        kb = proj.get_knowledge_bank(kb_id)
+        kb = resolve_knowledge_bank(proj, kb_id)
         kb.delete()
         success(f"Deleted knowledge bank '{kb_id}'")
     except Exception as e:

@@ -704,11 +704,19 @@ def mock_client():
 
     # Agent tools
     proj1.list_agent_tools.return_value = [
-        {"id": "tool1", "name": "My Tool", "type": "python"}
+        {"id": "tool1", "name": "My Tool", "type": "DatasetRowLookup"}
     ]
     tool_mock = MagicMock()
+    tool_raw = {
+        "id": "tool1",
+        "name": "My Tool",
+        "type": "DatasetRowLookup",
+        "params": {"retrievalMode": "SINGLE_RECORD", "maxRecords": 5},
+    }
     tool_settings = MagicMock()
-    tool_settings.get_raw.return_value = {"id": "tool1", "name": "My Tool"}
+    tool_settings.get_raw.return_value = tool_raw
+    tool_settings.params = tool_raw["params"]
+    tool_settings.save.return_value = None
     tool_mock.get_settings.return_value = tool_settings
     tool_mock.run.return_value = {"result": "success", "output": "done"}
     tool_mock.delete.return_value = None
@@ -718,6 +726,10 @@ def mock_client():
     # Agent tool creation — new_agent_tool() returns a builder with .create()
     new_tool_mock = MagicMock()
     new_tool_mock.id = "new_tool_1"
+    new_tool_settings = MagicMock()
+    new_tool_settings.params = {}
+    new_tool_settings.save.return_value = None
+    new_tool_mock.get_settings.return_value = new_tool_settings
     tool_builder = MagicMock()
     tool_builder.with_knowledge_bank.return_value = tool_builder
     tool_builder.create.return_value = new_tool_mock

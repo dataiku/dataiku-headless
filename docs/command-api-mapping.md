@@ -38,6 +38,10 @@ Every `dku` CLI command maps to one or more `dataikuapi` calls. This table is th
 | `dku recipe add-output NAME` | `get_recipe(NAME).get_settings().add_output(role, ref)` → `.save()` |
 | `dku recipe check-schema NAME` | `get_recipe(NAME).compute_schema_updates()` |
 | `dku recipe apply-schema NAME` | `get_recipe(NAME).compute_schema_updates().apply()` |
+| `dku recipe add-fold RECIPE` | `get_recipe().get_settings()` → `obj_payload["steps"].append({"type": "FoldColumnsByName"/"FoldColumnsByPattern", ...})` → `.save()` |
+| `dku recipe create-join NAME --join-type` | `project.new_recipe("join", NAME)` → `.build()` → `settings.raw_joins[i]["type"] = join_type` → `.save()` |
+| `dku recipe create-pivot NAME` | `project.new_recipe("pivot", NAME)` → `PivotRecipeCreator` → `.build()` → `settings.obj_payload` config → `.save()` |
+| `dku recipe create-sampling NAME` | `project.new_recipe("sampling", NAME)` → `SamplingRecipeCreator` → `.build()` → `settings.obj_payload.selection` config → `.save()` |
 | `dku recipe create-embed NAME` | `project.new_recipe("nlp_llm_rag_embedding", NAME)` → `.with_input()` → `.with_output_knowledge_bank()` → `.build()` |
 | `dku recipe create-embed-docs NAME` | `project.new_recipe("embed_documents", NAME)` → `.with_input()` → `.with_vlm()` → `.with_output_knowledge_bank()` → `.build()` |
 | `dku recipe create-extract NAME` | `project.new_recipe("extract_content", NAME)` → `.with_input()` → `.with_vlm()` → `.with_existing_output()` → `.build()` |

@@ -12,7 +12,7 @@ def test_icon_is_diamond():
 def test_version_string():
     result = version_string()
     assert result.startswith("◆ dku-cli ")
-    assert "0.2.0" in result
+    assert "0.3.0" in result
 
 
 def test_welcome():
