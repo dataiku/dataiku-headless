@@ -512,7 +512,10 @@ def recipes(
                     plugin_obj = client.get_plugin(pid)
                     file_tree = plugin_obj.list_files()
                     for item in file_tree:
-                        if isinstance(item, dict) and item.get("name") == "custom-recipes":
+                        if (
+                            isinstance(item, dict)
+                            and item.get("name") == "custom-recipes"
+                        ):
                             for child in item.get("children", []):
                                 if isinstance(child, dict) and "children" in child:
                                     recipe_ids.append(child["name"])

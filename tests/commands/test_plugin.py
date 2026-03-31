@@ -414,14 +414,19 @@ def _make_file_tree(recipe_names):
     """Create a mock plugin file tree with custom-recipes directories."""
     children = []
     for name in recipe_names:
-        children.append({
-            "name": name,
-            "path": f"custom-recipes/{name}",
-            "children": [
-                {"name": "recipe.json", "path": f"custom-recipes/{name}/recipe.json"},
-                {"name": "recipe.py", "path": f"custom-recipes/{name}/recipe.py"},
-            ],
-        })
+        children.append(
+            {
+                "name": name,
+                "path": f"custom-recipes/{name}",
+                "children": [
+                    {
+                        "name": "recipe.json",
+                        "path": f"custom-recipes/{name}/recipe.json",
+                    },
+                    {"name": "recipe.py", "path": f"custom-recipes/{name}/recipe.py"},
+                ],
+            }
+        )
     return [
         {"name": "plugin.json", "path": "plugin.json"},
         {"name": "custom-recipes", "path": "custom-recipes", "children": children},
