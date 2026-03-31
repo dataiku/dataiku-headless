@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
 from dku_cli.output import render, resolve_output_format, success
 
@@ -146,6 +146,13 @@ def write(
                 else:
                     f = lib.get_file(path)
 
+        if f is None:
+            exit_with_error(
+                f"Could not open file '{path}' for writing in project library.",
+                details=[
+                    f"Try creating the parent directory first: dku library mkdir {parent} -P {project_key}"
+                ],
+            )
         f.write(content_bytes)
         success(f"Wrote {len(content_bytes)} bytes to {path}")
     except Exception as e:

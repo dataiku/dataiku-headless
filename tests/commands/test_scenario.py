@@ -4,21 +4,11 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from typer.testing import CliRunner
 
 from dku_cli.main import app
-from dku_cli.output import set_quiet
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _reset_quiet():
-    """Ensure quiet mode is off before each test (global state leak fix)."""
-    set_quiet(False)
-    yield
-    set_quiet(False)
 
 
 # ── Existing tests ──────────────────────────────────────────────────────

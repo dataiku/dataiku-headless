@@ -30,7 +30,7 @@ metadata:
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~195 commands** across 31 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~244 commands** across 32 groups.
 
 ## Prerequisites
 
@@ -397,7 +397,10 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `recipe` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, **create-join, create-geojoin, create-fuzzy-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance**, list-steps, get-step, remove-step, enable-step, disable-step | Yes |
 | `scenario` | list, run, abort, status, create, delete, get-definition, set-definition | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
-| `model` | list, get, versions | Yes |
+| `model` | list, get, versions, set-active-version, metrics, delete-version | Yes |
+| `ml` | create-prediction, create-clustering, create-timeseries, create-causal, list, status, train, models, details, deploy, redeploy, settings, algorithms, set-algorithm, delete | Yes |
+| `analysis` | list, create, get, delete, tasks | Yes |
+| `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
 | `folder` | list, ls, upload, download | Yes |
 | `llm` | list, completion, embeddings | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
@@ -406,9 +409,10 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `macro` | list, run | Yes |
 | `flow` | graph, zones, create-zone, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir | Yes |
-| `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm | Yes |
+| `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-prompt, set-llm | Yes |
+| `agent-block` | list, get, add, remove, connect, disconnect, set-start, set-mode, get-graph, set-graph | Yes |
 | `agent-tool` | list, get, run, delete, **create**, set-definition, types | Yes (except `types`) |
-| `knowledge` | list, create, get, build, search, delete | Yes |
+| `knowledge` | list, create, get, set-definition, build, search, delete | Yes |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages | Yes |
 | `wiki` | list, create, get, update, delete | Yes |

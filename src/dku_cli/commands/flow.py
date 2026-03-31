@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
@@ -35,7 +33,7 @@ def graph(
         graph_obj = flow.get_graph()
 
         if output == "json":
-            print(json.dumps(graph_obj.data, indent=2, default=str))
+            render_raw(graph_obj.data, output_format="json")
         else:
             data = []
             for node_id, node in graph_obj.nodes.items():
@@ -326,7 +324,7 @@ def check(
                                 }
                             )
             if output == "json":
-                print(json.dumps({"summary": summary, "errors": errors}, indent=2))
+                render_raw({"summary": summary, "errors": errors}, output_format="json")
             else:
                 render(
                     [{"field": k, "value": str(v)} for k, v in summary.items()],

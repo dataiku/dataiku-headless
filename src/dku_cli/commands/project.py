@@ -179,8 +179,6 @@ def inspect(
             warn(f"Could not fetch variables: {exc}")
 
         if output == "json":
-            import json as json_mod
-
             result_data = {
                 "key": key,
                 "name": meta.get("label", key),
@@ -200,7 +198,7 @@ def inspect(
                     "wiki_articles": len(articles),
                 },
             }
-            print(json_mod.dumps(result_data, indent=2, default=str))
+            render_raw(result_data, output_format="json")
         else:
             data = [
                 {"section": "Name", "detail": meta.get("label", key)},

@@ -319,7 +319,66 @@ dku connection test CONNECTION_NAME
 dku model list [-P PROJECT] [-o FORMAT]
 dku model get MODEL_ID [-P PROJECT] [-o FORMAT]
 dku model versions MODEL_ID [-P PROJECT] [-o FORMAT]
+dku model set-active-version MODEL_ID VERSION_ID [-P PROJECT]
+dku model metrics MODEL_ID [-P PROJECT] [-o FORMAT]
+dku model delete-version MODEL_ID VERSION_ID [-P PROJECT]
 ```
+
+## ml
+
+AutoML task management — create, train, evaluate, and deploy ML models.
+
+```bash
+dku ml create-prediction DATASET TARGET [--prediction-type REGRESSION|TWO_CLASS|MULTICLASS] [--guess-policy DEFAULT] [--backend PY_MEMORY] [-P PROJECT] [-o FORMAT]
+dku ml create-clustering DATASET [--guess-policy DEFAULT] [--backend PY_MEMORY] [-P PROJECT] [-o FORMAT]
+dku ml create-timeseries DATASET TARGET TIME_COL [--identifiers COL ...] [--guess-policy DEFAULT] [-P PROJECT] [-o FORMAT]
+dku ml create-causal DATASET OUTCOME TREATMENT [--prediction-type REGRESSION|TWO_CLASS] [-P PROJECT] [-o FORMAT]
+dku ml list [-P PROJECT] [-o FORMAT]
+dku ml status ANALYSIS_ID MLTASK_ID [-P PROJECT] [-o FORMAT]
+dku ml train ANALYSIS_ID MLTASK_ID [--session-name NAME] [--wait/--no-wait] [-P PROJECT] [-o FORMAT]
+dku ml models ANALYSIS_ID MLTASK_ID [--session SESSION] [--algorithm ALG] [-P PROJECT] [-o FORMAT]
+dku ml details ANALYSIS_ID MLTASK_ID MODEL_ID [-P PROJECT] [-o FORMAT]
+dku ml deploy ANALYSIS_ID MLTASK_ID MODEL_ID [--name NAME] [--train-dataset DS] [--test-dataset DS] [--redo-optimization] [-P PROJECT] [-o FORMAT]
+dku ml redeploy ANALYSIS_ID MLTASK_ID MODEL_ID [--saved-model-id ID] [--recipe-name NAME] [--activate] [--redo-optimization] [-P PROJECT] [-o FORMAT]
+dku ml settings ANALYSIS_ID MLTASK_ID [-P PROJECT] [-o FORMAT]
+dku ml algorithms ANALYSIS_ID MLTASK_ID [-P PROJECT] [-o FORMAT]
+dku ml set-algorithm ANALYSIS_ID MLTASK_ID [--enable ALG ...] [--disable ALG ...] [--disable-all] [-P PROJECT]
+dku ml delete ANALYSIS_ID MLTASK_ID [-P PROJECT]
+```
+
+- `create-prediction` blocks during guess phase (5-30s). Returns `{analysisId, mltaskId}` needed for subsequent commands
+- `train --wait` (default) blocks until training completes; `--no-wait` starts async
+- `deploy` creates a saved model + train recipe in the flow. Returns `{savedModelId, trainRecipeName}`
+- `redeploy` updates an existing deployed model with a new trained version
+
+## analysis
+
+Visual analyses — containers for ML tasks.
+
+```bash
+dku analysis list [-P PROJECT] [-o FORMAT]
+dku analysis create DATASET [-P PROJECT] [-o FORMAT]
+dku analysis get ANALYSIS_ID [-P PROJECT] [-o FORMAT]
+dku analysis delete ANALYSIS_ID [-P PROJECT]
+dku analysis tasks ANALYSIS_ID [-P PROJECT] [-o FORMAT]
+```
+
+## evaluation-store
+
+Model evaluation stores — track model performance over time.
+
+```bash
+dku evaluation-store list [-P PROJECT] [-o FORMAT]
+dku evaluation-store create NAME [--if-not-exists] [-P PROJECT] [-o FORMAT]
+dku evaluation-store get STORE_ID [-P PROJECT] [-o FORMAT]
+dku evaluation-store evaluations STORE_ID [-P PROJECT] [-o FORMAT]
+dku evaluation-store latest STORE_ID [-P PROJECT] [-o FORMAT]
+dku evaluation-store build STORE_ID [--wait/--no-wait] [-P PROJECT]
+dku evaluation-store delete STORE_ID [-P PROJECT]
+```
+
+- `create --if-not-exists` returns existing store if name matches (idempotent)
+- `build --wait` (default) blocks until evaluation completes
 
 ## folder
 
@@ -459,8 +518,12 @@ dku agent wake-up AGENT_ID [-P PROJECT]
 dku agent shutdown AGENT_ID [-P PROJECT]
 dku agent status AGENT_ID [-P PROJECT] [-o FORMAT]
 dku agent add-tool AGENT_ID --tool TOOL_ID [-P PROJECT]
+dku agent set-prompt AGENT_ID --prompt "TEXT" [-P PROJECT]
 dku agent set-llm AGENT_ID --llm-id LLM_ID [-P PROJECT]
 ```
+
+- `set-prompt` writes to the active version system prompt. Accepts literal text, `@file.txt`, or `-` for stdin
+- STRUCTURED_AGENT uses `systemPromptAppend` field; TOOLS_USING_AGENT uses `systemPrompt`
 
 - `create --type` defaults to TOOLS_USING_AGENT. Options: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT
 - `set-llm` and `add-tool` operate on the active version
@@ -491,7 +554,7 @@ dku agent-block set-graph AGENT_ID --definition/-d JSON [-P PROJECT] [--version 
 - **DSS 14.5+ block names:** `GENERATE_OUTPUT` (not `EMIT_OUTPUT`), `CORE_LOOP` (not `STANDARD_REACT`). DSS 13.x names are accepted but silently renamed. Use 14.5+ names to avoid confusion.
 - **DSS 14.5+ settings path:** blocks are stored in `structuredAgentSettings` (not `toolsUsingAgentSettings`). `get-graph` returns `structuredAgentSettings` directly.
 - Block types (DSS 14.5+): SET_STATE_ENTRIES, LLM_REQUEST, ROUTING, GENERATE_OUTPUT, CORE_LOOP, MANUAL_TOOL_CALL, MANDATORY_TOOL_CALL, PARALLEL, FOR_EACH, PYTHON_CODE, REFLECTION, DELEGATE_TO_OTHER_AGENT, GENERATE_ARTIFACT, CONTEXT_COMPRESSION, SET_SCRATCHPAD_ENTRIES, EDIT_LAST_USER_MESSAGE
-- See `docs/block-graph-api.md` for full schema of each block type
+- See `references/structured-agents.md` for full schema of each block type
 
 **Example: Build an SVA from scratch (DSS 14.5+):**
 ```bash

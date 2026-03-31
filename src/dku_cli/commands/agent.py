@@ -198,11 +198,14 @@ def add_tool(
         try:
             ver_settings.add_tool(tool_id)
         except (ValueError, AttributeError):
-            # Structured agent — add tool to raw settings directly
+            # Structured agent — add tool to raw settings directly.
+            # Use agent type (not key presence) — newly-created STRUCTURED_AGENT
+            # may lack the structuredAgentSettings key.
             ver_raw = ver_settings.get_raw()
+            agent_raw = settings.get_raw()
             cfg_key = (
                 "structuredAgentSettings"
-                if "structuredAgentSettings" in ver_raw
+                if agent_raw.get("type") == "STRUCTURED_AGENT"
                 else "toolsUsingAgentSettings"
             )
             if cfg_key not in ver_raw:
@@ -252,11 +255,12 @@ def set_prompt(
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
 
-        # Detect agent settings key: structuredAgentSettings (DSS 14.5+)
-        # vs toolsUsingAgentSettings (simple agents)
+        # Detect agent settings key using agent type (not key presence —
+        # newly-created STRUCTURED_AGENT may lack the key).
         ver_settings = settings.get_version_settings(active_ver_id)
         raw = ver_settings.get_raw()
-        if "structuredAgentSettings" in raw:
+        agent_raw = settings.get_raw()
+        if agent_raw.get("type") == "STRUCTURED_AGENT":
             cfg_key = "structuredAgentSettings"
             prompt_field = "systemPromptAppend"
         else:
@@ -310,14 +314,14 @@ def set_llm(
             ver_settings.llm_id = llm_id
         except (ValueError, AttributeError):
             # Structured agent — dataikuapi property raises ValueError.
-            # Fall back to raw dict mutation.
+            # Use agent type (not key presence) — newly-created STRUCTURED_AGENT
+            # may lack the structuredAgentSettings key.
             ver_raw = ver_settings.get_raw()
-            if "structuredAgentSettings" in ver_raw:
-                ver_raw["structuredAgentSettings"]["llmId"] = llm_id
+            agent_raw = settings.get_raw()
+            if agent_raw.get("type") == "STRUCTURED_AGENT":
+                ver_raw.setdefault("structuredAgentSettings", {})["llmId"] = llm_id
             else:
-                if "toolsUsingAgentSettings" not in ver_raw:
-                    ver_raw["toolsUsingAgentSettings"] = {}
-                ver_raw["toolsUsingAgentSettings"]["llmId"] = llm_id
+                ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
         settings.save()
         success(f"Set LLM '{llm_id}' on agent '{agent_id}'")
     except Exception as e:

@@ -87,10 +87,13 @@ def _get_agent_settings(raw: dict, version_id: str) -> dict:
 
     STRUCTURED_AGENT uses structuredAgentSettings (DSS 14.5+).
     TOOLS_USING_AGENT uses toolsUsingAgentSettings.
+
+    Uses raw["type"] for detection — newly-created STRUCTURED_AGENT may lack
+    the structuredAgentSettings key, so key-presence checks are unreliable.
     """
     ver = _get_version_data(raw, version_id)
-    if _STRUCTURED_KEY in ver:
-        return ver[_STRUCTURED_KEY]
+    if raw.get("type") == "STRUCTURED_AGENT":
+        return ver.setdefault(_STRUCTURED_KEY, {})
     if _SIMPLE_KEY in ver:
         return ver[_SIMPLE_KEY]
     # Fallback: create simple agent settings
@@ -98,9 +101,9 @@ def _get_agent_settings(raw: dict, version_id: str) -> dict:
     return ver[_SIMPLE_KEY]
 
 
-def _get_settings_key(version_data: dict) -> str:
-    """Return the correct settings key for a version dict."""
-    if _STRUCTURED_KEY in version_data:
+def _get_settings_key(raw: dict) -> str:
+    """Return the correct settings key based on agent type."""
+    if raw.get("type") == "STRUCTURED_AGENT":
         return _STRUCTURED_KEY
     return _SIMPLE_KEY
 
@@ -580,7 +583,7 @@ def set_graph(
 
         # Write to the correct settings key for this agent type
         version_data = _get_version_data(raw, version_id)
-        key = _get_settings_key(version_data)
+        key = _get_settings_key(raw)
         version_data[key] = new_agent_cfg
 
         settings.save()
