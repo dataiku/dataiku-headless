@@ -17,7 +17,7 @@ A single plugin can offer the same capability through multiple component types:
 | Component | Execution | Use When | Folder |
 |-----------|-----------|----------|--------|
 | **Agent Tool** | Non-deterministic — LLM decides when to call | Open-ended reasoning, ad-hoc use | `python-agent-tools/` |
-| **Visual Agent Block** | Deterministic — always runs at graph position | Pre/post-turn orchestration, guaranteed execution, routing | `python-blocks-graph-blocks/` |
+| **Visual Agent Block** | Deterministic — always runs at graph position | Pre/post-turn orchestration, guaranteed execution, routing | `python-structured-agent-blocks/` |
 | **Python Agent Connector** | Runtime delegation — wraps external agent as LLM | Calling external agent runtimes as if they were an LLM | `python-agents/` |
 
 **Dual-mode pattern:** Offer both a tool AND a block for the same capability when it makes sense both ways:
@@ -30,7 +30,7 @@ A single plugin can offer the same capability through multiple component types:
 
 ```
 my-plugin/
-├── python-blocks-graph-blocks/
+├── python-structured-agent-blocks/
 │   └── my-block/
 │       ├── block.json              # Block metadata, params, UI config
 │       └── dynamic_choices.py      # Dynamic SELECT population (optional)
@@ -49,9 +49,7 @@ my-plugin/
         "description": "Injects external context into the agent graph flow",
         "icon": "icon-puzzle-piece"
     },
-    "kind": "PYTHON",
-    "blockHandlerClass": "my_plugin.blocks.MyCustomBlock",
-    "blockHandlerModule": "my_plugin.blocks",
+    "pyClazzName": "my_plugin.blocks.MyCustomBlock",
     "params": [
         {
             "name": "resource_id",
@@ -99,9 +97,7 @@ my-plugin/
 
 | Field | Description |
 |-------|-------------|
-| `kind` | Always `"PYTHON"` for custom blocks |
-| `blockHandlerClass` | Fully-qualified class name in python-lib |
-| `blockHandlerModule` | Module containing the class |
+| `pyClazzName` | Fully-qualified class name in python-lib (e.g. `"my_plugin.blocks.MyCustomBlock"`) |
 | `params` | Same parameter types as tools/recipes (STRING, SELECT, BOOLEAN, etc.) |
 | `visibilityCondition` | CEL expression for conditional param display |
 | `triggerParameters` | Re-evaluate dynamic choices when these params change |
@@ -113,51 +109,43 @@ my-plugin/
 
 ```python
 # python-lib/my_plugin/blocks.py
-from dataiku.agents.blocks import BlockHandler
+from dataiku.llm.python.blocks_graph import BlockHandler, NextBlock
 
 class MyContextBlock(BlockHandler):
     """Inject external context into the agent's conversation."""
 
-    def process(self, context, input_data, block_definition):
+    def __init__(self, turn, sequence_context, block_config):
+        super().__init__(turn, sequence_context, block_config)
+        self.config = self.block_config.get("config") or {}
+        self.max_chars = int(self.config.get("max_chars", 4000))
+        if not self.config.get("resource_id"):
+            raise ValueError("Please configure resource_id on block %s" % self.block_config["id"])
+
+    def process_stream(self, trace):
         """
-        Execute block logic.
+        Execute block logic. Generator — yield NextBlock at the end to advance the graph.
 
-        Args:
-            context: Graph execution context
-                - context.messages: List of conversation messages [{role, content}]
-                - context.dkuOnBehalfOf: Authenticated user token (from Agent Hub)
-                - context.dkuConversationId: Current conversation ID
-                - context.get(key): Access context variables set by other blocks
-            input_data: Flow inputs from upstream blocks
-            block_definition: Block configuration
-                - block_definition.get("config", {}): Parameter values from UI
-
-        Returns:
-            tuple: (output_dict, next_block_id_or_None)
-                - output_dict: Data to pass to downstream blocks
-                - next_block_id: Explicit routing to a named block, or None for default flow
+        Key attributes:
+            self.block_config          — full block definition dict
+            self.block_config["id"]    — this block's ID
+            self.block_config.get("defaultNextBlock") — the next block ID configured in the graph
+            self.config                — dict of parameter values from the UI (set in __init__)
+            self.turn.initial_messages — list of [{role, content}] at start of turn (read-only)
+            self.turn.context_get("conversationId") — current conversation ID
+            self.sequence_context.generated_messages — list to append injected messages into
         """
-        config = block_definition.get("config", {})
-        resource_id = config.get("resource_id")
-        max_chars = int(config.get("max_chars", 4000))
+        result_text = self._fetch_context(self.config["resource_id"], self.config)
 
-        if not resource_id:
-            return {"error": "No resource configured"}, None
+        if len(result_text) > self.max_chars:
+            result_text = result_text[:self.max_chars] + "\n[truncated]"
 
-        # Fetch external context
-        result_text = self._fetch_context(resource_id, config)
-
-        # Truncate to budget
-        if len(result_text) > max_chars:
-            result_text = result_text[:max_chars] + "\n[truncated]"
-
-        # Inject into conversation as context message
-        context.messages.append({
-            "role": "user",
+        # Inject as system message — LLM sees this in the next generation step
+        self.sequence_context.generated_messages.append({
+            "role": "system",
             "content": f"[Injected Context]\n{result_text}"
         })
 
-        return {"injected": True, "chars": len(result_text)}, None
+        yield NextBlock(id=self.block_config.get("defaultNextBlock"))
 
     def _fetch_context(self, resource_id, config):
         # Your logic here — API calls, DB queries, etc.
@@ -168,11 +156,13 @@ class MyContextBlock(BlockHandler):
 
 1. **Blocks run in the agent's code environment**, not the plugin's. If your block imports `boto3` or any library, the agent's code env must have it installed.
 
-2. **`context.messages`** is the live conversation. Appending to it injects content that the LLM sees in the next generation step.
+2. **`process_stream()` is a generator** — you must `yield NextBlock(id=self.block_config.get("defaultNextBlock"))` at the end to advance the graph. Not returning it — yielding it.
 
-3. **Return `(output, next_block_id)`** — `next_block_id=None` follows the default graph flow. Return a block ID string to route to a specific branch.
+3. **`self.sequence_context.generated_messages`** is where you inject content. Appended messages (role `"system"` or `"user"`) are visible to the LLM in the next generation step.
 
-4. **`context.dkuOnBehalfOf`** provides the authenticated user identity when running inside Agent Hub. Use this for per-user scoping of external resources.
+4. **`self.turn.initial_messages`** is the conversation history at the start of the turn (read-only). Use it to read what the user said.
+
+5. **Use `__init__` for config validation** — raising `ValueError` there gives a clear error before the block runs rather than mid-graph.
 
 ---
 
@@ -182,17 +172,20 @@ Blocks can route to different downstream blocks based on logic:
 
 ```python
 class RoutingBlock(BlockHandler):
-    def process(self, context, input_data, block_definition):
-        config = block_definition.get("config", {})
-        last_msg = context.messages[-1]["content"] if context.messages else ""
+    def __init__(self, turn, sequence_context, block_config):
+        super().__init__(turn, sequence_context, block_config)
+        self.config = self.block_config.get("config") or {}
 
-        # Route based on content
+    def process_stream(self, trace):
+        last_msg = self.turn.initial_messages[-1]["content"] if self.turn.initial_messages else ""
+
+        # Route based on content — yield NextBlock with explicit target ID
         if "code" in last_msg.lower():
-            return {"route": "code"}, "code-interpreter-block"
+            yield NextBlock(id="code-interpreter-block")
         elif "search" in last_msg.lower():
-            return {"route": "search"}, "search-block"
+            yield NextBlock(id="search-block")
         else:
-            return {"route": "default"}, None  # Default flow
+            yield NextBlock(id=self.block_config.get("defaultNextBlock"))
 ```
 
 For simple routing, prefer DSS's built-in **Expression Block** (CEL-based) over custom Python blocks. Use Python routing blocks only when you need complex logic that CEL can't express.
@@ -204,7 +197,7 @@ For simple routing, prefer DSS's built-in **Expression Block** (CEL-based) over 
 ### Block-Level dynamic_choices.py
 
 ```python
-# python-blocks-graph-blocks/my-block/dynamic_choices.py
+# python-structured-agent-blocks/my-block/dynamic_choices.py
 
 def do(payload, config, plugin_config, inputs):
     """
@@ -254,7 +247,7 @@ def _list_resources(config, plugin_config):
 
 ### Shared Choices Between Tools and Blocks
 
-If both tools and blocks need the same dropdown data, put the helper in `resource/dynamic_choices.py` and import it from both `python-blocks-graph-blocks/*/dynamic_choices.py` and `python-agent-tools/*/` code.
+If both tools and blocks need the same dropdown data, put the helper in `resource/dynamic_choices.py` and import it from both `python-structured-agent-blocks/*/dynamic_choices.py` and `python-agent-tools/*/` code.
 
 ---
 
@@ -456,20 +449,18 @@ The `dss-plugin-aws-bedrock-agentcore-resources` plugin is the reference impleme
 ## Checklist: Visual Agent Block Plugin
 
 ### block.json
-- [ ] `kind: "PYTHON"`
-- [ ] `blockHandlerClass` points to fully-qualified class in python-lib
-- [ ] `blockHandlerModule` matches the module path
+- [ ] `pyClazzName` is fully-qualified class name (e.g. `"my_plugin.blocks.MyBlock"`)
 - [ ] Dynamic SELECTs have `getChoicesFromPython: true`
 - [ ] `triggerParameters` set for dependent dropdowns
 - [ ] `visibilityCondition` for advanced settings
 
 ### BlockHandler
-- [ ] Inherits from `BlockHandler`
-- [ ] `process(context, input_data, block_definition)` returns `(output, next_block_id)`
-- [ ] Reads params from `block_definition.get("config", {})`
-- [ ] Uses `context.messages` to read/inject conversation state
-- [ ] Uses `context.dkuOnBehalfOf` for identity (not hardcoded)
-- [ ] Handles missing/invalid params gracefully (returns error output, doesn't crash)
+- [ ] Imports from `dataiku.llm.python.blocks_graph` (`BlockHandler`, `NextBlock`)
+- [ ] `__init__(self, turn, sequence_context, block_config)` validates required config (raises `ValueError` early)
+- [ ] `process_stream(self, trace)` is a generator that yields `NextBlock(id=...)`
+- [ ] Reads params from `self.block_config.get("config") or {}` (set in `__init__`)
+- [ ] Injects messages via `self.sequence_context.generated_messages.append({"role": "system", ...})`
+- [ ] Reads turn messages via `self.turn.initial_messages`
 
 ### Dynamic Choices
 - [ ] NEVER raises exceptions (returns fallback choices with error in label)

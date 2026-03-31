@@ -221,3 +221,50 @@ def test_scenario_set_definition_from_file(tmp_path, patch_client):
     scenario.set_definition.assert_called_once_with(
         {"type": "step_based", "name": "FromFile"}
     )
+
+
+# ── run --wait polling tests ─────────────────────────────────────────────
+
+
+def test_scenario_run_wait_polls(patch_client):
+    """--wait polls get_last_runs when trigger lacks wait_for_result."""
+    from unittest.mock import patch as mock_patch, MagicMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    # Trigger has no wait_for_result (spec=[] in conftest)
+    trigger = MagicMock(spec=[])
+    scenario.run.return_value = trigger
+    # First poll: outcome is None (still running), second: SUCCESS
+    run_in_progress = MagicMock()
+    run_in_progress.outcome = None
+    run_done = MagicMock()
+    run_done.outcome = "SUCCESS"
+    scenario.get_last_runs.side_effect = [[run_in_progress], [run_done]]
+
+    with mock_patch("dku_cli.commands.scenario.time.sleep"):
+        result = runner.invoke(
+            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+        )
+    assert result.exit_code == 0
+    assert "SUCCESS" in result.output
+
+
+def test_scenario_run_wait_failure(patch_client):
+    """--wait reports non-SUCCESS outcomes."""
+    from unittest.mock import patch as mock_patch, MagicMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    trigger = MagicMock(spec=[])
+    scenario.run.return_value = trigger
+    run_done = MagicMock()
+    run_done.outcome = "FAILED"
+    scenario.get_last_runs.return_value = [run_done]
+
+    with mock_patch("dku_cli.commands.scenario.time.sleep"):
+        result = runner.invoke(
+            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+        )
+    assert result.exit_code == 0
+    assert "FAILED" in result.output

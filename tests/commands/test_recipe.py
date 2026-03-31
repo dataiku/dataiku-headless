@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
@@ -340,6 +341,40 @@ def test_recipe_create_connection_required_error(patch_client):
     assert "filesystem_managed" in result.output
 
 
+def test_recipe_create_visual_type_connection_error_suggests_pre_create(patch_client):
+    """Visual recipe (prepare) should suggest pre-creating the output dataset, not --connection."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Simulate a visual recipe — has with_existing_output
+    builder.with_existing_output.side_effect = None
+    builder.build.side_effect = Exception(
+        "java.lang.IllegalArgumentException: Need to create output dataset or folder, "
+        "but creationInfo params are suppressing it"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "prep1",
+            "--type",
+            "prepare",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    # Should suggest creating the output dataset, NOT --connection
+    assert "does not exist" in result.output or "created first" in result.output
+    assert "dku dataset create" in result.output
+    # Should NOT suggest --connection for visual recipes
+    assert "add --connection" not in result.output
+
+
 def test_recipe_delete(patch_client):
     result = runner.invoke(app, ["recipe", "delete", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -540,6 +575,9 @@ def test_recipe_add_input_custom_role(patch_client):
 
 
 def test_recipe_create_embed(patch_client):
+    """New KB: get_knowledge_bank raises, so with_output_knowledge_bank is used."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_knowledge_bank.side_effect = Exception("not found")
     result = runner.invoke(
         app,
         [
@@ -558,7 +596,6 @@ def test_recipe_create_embed(patch_client):
     )
     assert result.exit_code == 0
     assert "Created embed recipe" in result.output
-    proj = patch_client.get_project("PROJ1")
     proj.new_recipe.assert_called_once_with("nlp_llm_rag_embedding", "my_embed")
     builder = proj.new_recipe.return_value
     builder.with_input.assert_called_once_with("text_data")
@@ -569,6 +606,9 @@ def test_recipe_create_embed(patch_client):
 
 
 def test_recipe_create_embed_custom_vector_store(patch_client):
+    """New KB with custom vector store type."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_knowledge_bank.side_effect = Exception("not found")
     result = runner.invoke(
         app,
         [
@@ -588,15 +628,22 @@ def test_recipe_create_embed_custom_vector_store(patch_client):
         ],
     )
     assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
     builder.with_output_knowledge_bank.assert_called_once_with(
         "my_kb", "openai:text-embedding-3-large", "FAISS"
     )
 
 
-def test_recipe_create_embed_with_text_column(patch_client):
-    """--text-column sets knowledgeColumn in recipe payload after creation."""
+def test_recipe_create_embed_with_embed_column(patch_client):
+    """--embed-column sets embeddingColumn in recipe raw definition after creation."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_knowledge_bank.side_effect = Exception("not found")
+    # Set up mock for get_recipe_raw_definition
+    recipe_mock = proj.get_recipe.return_value
+    settings_mock = recipe_mock.get_settings.return_value
+    raw_def = {"params": {}}
+    settings_mock.get_recipe_raw_definition.return_value = raw_def
+
     result = runner.invoke(
         app,
         [
@@ -609,7 +656,7 @@ def test_recipe_create_embed_with_text_column(patch_client):
             "my_kb",
             "--embedding-llm",
             "openai:text-embedding-3-small",
-            "--text-column",
+            "--embed-column",
             "description",
             "--project",
             "PROJ1",
@@ -617,15 +664,14 @@ def test_recipe_create_embed_with_text_column(patch_client):
     )
     assert result.exit_code == 0
     assert "description" in result.output
+    assert raw_def["params"]["embeddingColumn"] == "description"
+    settings_mock.save.assert_called_once()
+
+
+def test_recipe_create_embed_without_embed_column_warns(patch_client):
+    """Without --embed-column, a warning is shown and save is NOT called."""
     proj = patch_client.get_project("PROJ1")
-    recipe = proj.get_recipe("my_embed")
-    settings = recipe.get_settings()
-    assert settings.obj_payload["knowledgeColumn"] == "description"
-    settings.save.assert_called_once()
-
-
-def test_recipe_create_embed_without_text_column_no_save(patch_client):
-    """Without --text-column, recipe settings are NOT modified after build."""
+    proj.get_knowledge_bank.side_effect = Exception("not found")
     result = runner.invoke(
         app,
         [
@@ -643,11 +689,9 @@ def test_recipe_create_embed_without_text_column_no_save(patch_client):
         ],
     )
     assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
-    recipe = proj.get_recipe("my_embed")
-    settings = recipe.get_settings()
-    # save should NOT have been called (no text_column to set)
-    settings.save.assert_not_called()
+    assert "No --embed-column specified" in result.output
+    # get_recipe should NOT have been called (no embed_column to set)
+    proj.get_recipe.assert_not_called()
 
 
 def test_recipe_create_embed_docs(patch_client):
@@ -827,10 +871,15 @@ def test_recipe_create_llm_eval_full(patch_client):
 
 
 def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
+    from unittest.mock import PropertyMock
+
     patch_client._perform_json.return_value = {"name": "rag_eval"}
     recipe = patch_client.get_project("PROJ1").get_recipe.return_value
     settings = recipe.get_settings.return_value
-    settings.obj_payload = None
+    # obj_payload is a read-only property that returns None (no payload yet)
+    type(settings).obj_payload = PropertyMock(return_value=None)
+    # Provide raw_params dict so _get_recipe_payload can write to it
+    settings.raw_params = {}
 
     result = runner.invoke(
         app,
@@ -850,8 +899,8 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
     )
 
     assert result.exit_code == 0
-    # _get_recipe_payload initializes via _obj_payload when obj_payload is None
-    assert settings._obj_payload["taskType"] == "QUESTION_ANSWERING"
+    # _get_recipe_payload falls through to raw_params when obj_payload is None
+    assert settings.raw_params["payload"]["taskType"] == "QUESTION_ANSWERING"
     settings.save.assert_called()
 
 
@@ -1408,11 +1457,19 @@ def test_recipe_create_join_with_join_type_inner(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-join", "my_join",
-            "-i", "orders", "-i", "customers",
-            "--output-ds", "joined",
-            "--join-type", "INNER",
-            "--project", "PROJ1",
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "customers",
+            "--output-ds",
+            "joined",
+            "--join-type",
+            "INNER",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1426,11 +1483,19 @@ def test_recipe_create_join_cross_no_keys(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-join", "my_cross",
-            "-i", "records", "-i", "months",
-            "--output-ds", "expanded",
-            "--join-type", "CROSS",
-            "--project", "PROJ1",
+            "recipe",
+            "create-join",
+            "my_cross",
+            "-i",
+            "records",
+            "-i",
+            "months",
+            "--output-ds",
+            "expanded",
+            "--join-type",
+            "CROSS",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1443,12 +1508,21 @@ def test_recipe_create_join_cross_ignores_keys(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-join", "my_cross",
-            "-i", "records", "-i", "months",
-            "--output-ds", "expanded",
-            "--join-type", "CROSS",
-            "--join-key", "id",
-            "--project", "PROJ1",
+            "recipe",
+            "create-join",
+            "my_cross",
+            "-i",
+            "records",
+            "-i",
+            "months",
+            "--output-ds",
+            "expanded",
+            "--join-type",
+            "CROSS",
+            "--join-key",
+            "id",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1460,11 +1534,19 @@ def test_recipe_create_join_invalid_type_error(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-join", "my_join",
-            "-i", "a", "-i", "b",
-            "--output-ds", "out",
-            "--join-type", "FULL_OUTER",
-            "--project", "PROJ1",
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "out",
+            "--join-type",
+            "FULL_OUTER",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code != 0
@@ -1477,12 +1559,23 @@ def test_recipe_create_join_multi_input_indexed_keys(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-join", "multi_join",
-            "-i", "main", "-i", "lookup_a", "-i", "lookup_b",
-            "--output-ds", "enriched",
-            "--join-key", "entity=company",
-            "--join-key", "1:region=region_name",
-            "--project", "PROJ1",
+            "recipe",
+            "create-join",
+            "multi_join",
+            "-i",
+            "main",
+            "-i",
+            "lookup_a",
+            "-i",
+            "lookup_b",
+            "--output-ds",
+            "enriched",
+            "--join-key",
+            "entity=company",
+            "--join-key",
+            "1:region=region_name",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1502,10 +1595,15 @@ def test_recipe_create_pivot_basic(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-pivot", "my_pivot",
-            "-i", "long_data",
-            "--output-ds", "wide_data",
-            "--project", "PROJ1",
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "long_data",
+            "--output-ds",
+            "wide_data",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1519,13 +1617,21 @@ def test_recipe_create_pivot_with_keys(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-pivot", "my_pivot",
-            "-i", "sales",
-            "--output-ds", "sales_wide",
-            "--row-key", "product",
-            "--column-key", "month",
-            "--value-column", "revenue",
-            "--project", "PROJ1",
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1544,10 +1650,15 @@ def test_recipe_create_sampling_basic(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-sampling", "sample_1k",
-            "-i", "big_data",
-            "--output-ds", "sample",
-            "--project", "PROJ1",
+            "recipe",
+            "create-sampling",
+            "sample_1k",
+            "-i",
+            "big_data",
+            "--output-ds",
+            "sample",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1561,12 +1672,19 @@ def test_recipe_create_sampling_with_method_and_size(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-sampling", "sample_head",
-            "-i", "data",
-            "--output-ds", "head_sample",
-            "--method", "HEAD_SEQUENTIAL",
-            "--size", "500",
-            "--project", "PROJ1",
+            "recipe",
+            "create-sampling",
+            "sample_head",
+            "-i",
+            "data",
+            "--output-ds",
+            "head_sample",
+            "--method",
+            "HEAD_SEQUENTIAL",
+            "--size",
+            "500",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1575,6 +1693,52 @@ def test_recipe_create_sampling_with_method_and_size(patch_client):
     recipe_obj = proj.get_recipe("sample_head")
     settings = recipe_obj.get_settings()
     settings.save.assert_called()
+
+
+# ── Visual recipe: create-sort with --sort-col ────────────────────────
+
+
+def test_recipe_create_sort_with_sort_col(patch_client):
+    """--sort-col configures sort column."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-sort",
+            "my_sort",
+            "-i",
+            "data",
+            "--output-ds",
+            "sorted",
+            "--sort-col",
+            "price",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "sort" in result.output.lower() or "Created" in result.output
+
+
+def test_recipe_create_sort_desc(patch_client):
+    """--sort-col col:desc sorts descending."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-sort",
+            "my_sort",
+            "-i",
+            "data",
+            "--output-ds",
+            "sorted",
+            "--sort-col",
+            "price:desc",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
 
 
 # ── Visual recipe: create-topn with configuration ─────────────────────
@@ -1589,10 +1753,15 @@ def test_recipe_create_topn_basic(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-topn", "my_topn",
-            "-i", "data",
-            "--output-ds", "top_data",
-            "--project", "PROJ1",
+            "recipe",
+            "create-topn",
+            "my_topn",
+            "-i",
+            "data",
+            "--output-ds",
+            "top_data",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1610,12 +1779,19 @@ def test_recipe_create_topn_with_rank_by(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-topn", "top5",
-            "-i", "sales",
-            "--output-ds", "top5_sales",
-            "--n", "5",
-            "--rank-by", "revenue:desc",
-            "--project", "PROJ1",
+            "recipe",
+            "create-topn",
+            "top5",
+            "-i",
+            "sales",
+            "--output-ds",
+            "top5_sales",
+            "--n",
+            "5",
+            "--rank-by",
+            "revenue:desc",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1633,13 +1809,21 @@ def test_recipe_create_topn_with_partition(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-topn", "top3_per_cat",
-            "-i", "products",
-            "--output-ds", "top_products",
-            "--n", "3",
-            "--rank-by", "price:desc",
-            "--partition-key", "category",
-            "--project", "PROJ1",
+            "recipe",
+            "create-topn",
+            "top3_per_cat",
+            "-i",
+            "products",
+            "--output-ds",
+            "top_products",
+            "--n",
+            "3",
+            "--rank-by",
+            "price:desc",
+            "--partition-key",
+            "category",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1647,6 +1831,35 @@ def test_recipe_create_topn_with_partition(patch_client):
     assert settings.obj_payload["firstRows"] == 3
     assert settings.obj_payload["orders"] == [{"column": "price", "desc": True}]
     assert settings.obj_payload["keys"] == ["category"]
+
+
+def test_recipe_create_topn_with_flags(patch_client):
+    """--sort-col and --n configure topn recipe."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-topn",
+            "my_topn",
+            "-i",
+            "data",
+            "--output-ds",
+            "top10",
+            "--sort-col",
+            "revenue:desc",
+            "--n",
+            "10",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert settings.obj_payload["topN"] == 10
+    assert settings.obj_payload["orders"] == [{"column": "revenue", "desc": True}]
 
 
 # ── Visual recipe: create-pivot with --agg-type ──────────────────────
@@ -1661,14 +1874,23 @@ def test_recipe_create_pivot_with_agg_type(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-pivot", "my_pivot",
-            "-i", "sales",
-            "--output-ds", "sales_wide",
-            "--row-key", "product",
-            "--column-key", "month",
-            "--value-column", "revenue",
-            "--agg-type", "SUM",
-            "--project", "PROJ1",
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1683,11 +1905,17 @@ def test_recipe_create_pivot_invalid_agg_type(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-pivot", "my_pivot",
-            "-i", "sales",
-            "--output-ds", "sales_wide",
-            "--agg-type", "MEDIAN",
-            "--project", "PROJ1",
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--agg-type",
+            "MEDIAN",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 1
@@ -1706,13 +1934,21 @@ def test_recipe_create_window_with_compute_rank(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-window", "my_window",
-            "-i", "transactions",
-            "--output-ds", "windowed",
-            "--partition-key", "customer_id",
-            "--order-key", "date",
-            "--compute", "rowNumber::rn",
-            "--project", "PROJ1",
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--partition-key",
+            "customer_id",
+            "--order-key",
+            "date",
+            "--compute",
+            "rowNumber::rn",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1729,13 +1965,21 @@ def test_recipe_create_window_with_compute_lag(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-window", "my_window",
-            "-i", "transactions",
-            "--output-ds", "windowed",
-            "--partition-key", "customer_id",
-            "--order-key", "date",
-            "--compute", "lag:price:price_lag1",
-            "--project", "PROJ1",
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--partition-key",
+            "customer_id",
+            "--order-key",
+            "date",
+            "--compute",
+            "lag:price:price_lag1",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1754,12 +1998,19 @@ def test_recipe_create_window_multiple_computes(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-window", "my_window",
-            "-i", "transactions",
-            "--output-ds", "windowed",
-            "--compute", "rowNumber::rn",
-            "--compute", "sum:amount:cumulative_amount",
-            "--project", "PROJ1",
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--compute",
+            "rowNumber::rn",
+            "--compute",
+            "sum:amount:cumulative_amount",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1776,11 +2027,17 @@ def test_recipe_create_window_invalid_compute_type(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-window", "my_window",
-            "-i", "transactions",
-            "--output-ds", "windowed",
-            "--compute", "median:price:price_med",
-            "--project", "PROJ1",
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--compute",
+            "median:price:price_med",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 1
@@ -1792,11 +2049,17 @@ def test_recipe_create_window_compute_missing_column(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-window", "my_window",
-            "-i", "transactions",
-            "--output-ds", "windowed",
-            "--compute", "sum::cumsum",
-            "--project", "PROJ1",
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--compute",
+            "sum::cumsum",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 1
@@ -1817,9 +2080,13 @@ def test_recipe_set_definition_payload(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "set-definition", "recipe1",
-            "--payload", new_payload,
-            "--project", "PROJ1",
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            new_payload,
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1832,8 +2099,11 @@ def test_recipe_set_definition_no_flag(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "set-definition", "recipe1",
-            "--project", "PROJ1",
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 1
@@ -1845,10 +2115,15 @@ def test_recipe_set_definition_both_flags(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "set-definition", "recipe1",
-            "--definition", '{"type": "python"}',
-            "--payload", '{"topN": 5}',
-            "--project", "PROJ1",
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            '{"type": "python"}',
+            "--payload",
+            '{"topN": 5}',
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 1
@@ -1864,11 +2139,17 @@ def test_recipe_add_fold_by_name(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "add-fold", "prep1",
-            "--columns", "jan,feb,mar",
-            "--key-column", "month",
-            "--value-column", "sales",
-            "--project", "PROJ1",
+            "recipe",
+            "add-fold",
+            "prep1",
+            "--columns",
+            "jan,feb,mar",
+            "--key-column",
+            "month",
+            "--value-column",
+            "sales",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1886,11 +2167,17 @@ def test_recipe_add_fold_by_pattern(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "add-fold", "prep1",
-            "--pattern", ".*-25",
-            "--key-column", "month",
-            "--value-column", "value",
-            "--project", "PROJ1",
+            "recipe",
+            "add-fold",
+            "prep1",
+            "--pattern",
+            ".*-25",
+            "--key-column",
+            "month",
+            "--value-column",
+            "value",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -1905,10 +2192,15 @@ def test_recipe_add_fold_requires_columns_or_pattern(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "add-fold", "prep1",
-            "--key-column", "month",
-            "--value-column", "sales",
-            "--project", "PROJ1",
+            "recipe",
+            "add-fold",
+            "prep1",
+            "--key-column",
+            "month",
+            "--value-column",
+            "sales",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code != 0
@@ -1920,10 +2212,15 @@ def test_recipe_add_fold_both_columns_and_pattern_error(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "add-fold", "prep1",
-            "--columns", "jan,feb",
-            "--pattern", ".*-25",
-            "--project", "PROJ1",
+            "recipe",
+            "add-fold",
+            "prep1",
+            "--columns",
+            "jan,feb",
+            "--pattern",
+            ".*-25",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code != 0
@@ -2103,12 +2400,19 @@ def test_recipe_create_group_multi_key(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-group", "my_group",
-            "-i", "sales",
-            "--output-ds", "sales_grouped",
-            "-k", "region",
-            "-k", "category",
-            "--project", "PROJ1",
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "-k",
+            "category",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -2128,13 +2432,21 @@ def test_recipe_create_group_three_keys(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-group", "my_group",
-            "-i", "sales",
-            "--output-ds", "sales_grouped",
-            "-k", "region",
-            "-k", "category",
-            "-k", "year",
-            "--project", "PROJ1",
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "-k",
+            "category",
+            "-k",
+            "year",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -2154,13 +2466,21 @@ def test_recipe_create_group_multi_key_with_agg(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "create-group", "my_group",
-            "-i", "sales",
-            "--output-ds", "sales_grouped",
-            "-k", "region",
-            "-k", "category",
-            "--agg", "amount:sum",
-            "--project", "PROJ1",
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "-k",
+            "category",
+            "--agg",
+            "amount:sum",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -3022,3 +3342,918 @@ def test_recipe_create_window_multiple_keys(patch_client):
         {"column": "date", "desc": False},
         {"column": "amount", "desc": True},
     ]
+
+
+# ── Plugin recipe tests ────────────────────────────────────────────
+
+
+def test_recipe_create_plugin_recipe(patch_client):
+    """Plugin recipes (CustomCode_*) use DSSRecipeCreator in raw mode."""
+    proj = patch_client.get_project("PROJ1")
+    # project.create_recipe is the low-level method called by DSSRecipeCreator.build()
+    recipe_handle = MagicMock()
+    proj.create_recipe.return_value = recipe_handle
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_plugin_step",
+            "--type",
+            "CustomCode_my-plugin_my-recipe",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+
+    # DSSRecipeCreator.build() calls project.create_recipe(recipe_proto, creation_settings)
+    proj.create_recipe.assert_called_once()
+    call_args = proj.create_recipe.call_args
+    recipe_proto = call_args[0][0]
+    creation_settings = call_args[0][1]
+
+    assert recipe_proto["type"] == "CustomCode_my-plugin_my-recipe"
+    assert recipe_proto["name"] == "my_plugin_step"
+    assert "main" in recipe_proto["inputs"]
+    assert recipe_proto["inputs"]["main"]["items"][0]["ref"] == "input_ds"
+    assert "main" in recipe_proto["outputs"]
+    assert recipe_proto["outputs"]["main"]["items"][0]["ref"] == "output_ds"
+    assert creation_settings["rawCreation"] is True
+
+
+def test_recipe_create_plugin_recipe_with_params(patch_client, tmp_path):
+    """Plugin recipes accept --params for initial configuration."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_handle = MagicMock()
+    proj.create_recipe.return_value = recipe_handle
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_plugin_step",
+            "--type",
+            "CustomCode_my-plugin_my-recipe",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--params",
+            '{"mode": "advanced", "threshold": 0.5}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+    call_args = proj.create_recipe.call_args
+    creation_settings = call_args[0][1]
+    assert creation_settings["rawCreation"] is True
+    raw_payload = json.loads(creation_settings["rawPayload"])
+    assert raw_payload == {"mode": "advanced", "threshold": 0.5}
+
+
+def test_recipe_create_plugin_recipe_params_from_file(patch_client, tmp_path):
+    """Plugin recipe --params accepts @file.json."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_recipe.return_value = MagicMock()
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text('{"key": "value"}')
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "CustomCode_plug_rec",
+            "--input",
+            "in_ds",
+            "--output-ds",
+            "out_ds",
+            "--params",
+            f"@{config_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    raw_payload = json.loads(proj.create_recipe.call_args[0][1]["rawPayload"])
+    assert raw_payload == {"key": "value"}
+
+
+def test_recipe_create_plugin_recipe_invalid_params(patch_client):
+    """Plugin recipe --params with invalid JSON shows helpful error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "CustomCode_plug_rec",
+            "--input",
+            "in_ds",
+            "--output-ds",
+            "out_ds",
+            "--params",
+            "not json",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid JSON" in result.output
+
+
+def test_recipe_create_plugin_recipe_custom_roles(patch_client):
+    """Plugin recipes support --input-role and --output-role."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_recipe.return_value = MagicMock()
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "CustomCode_plug_rec",
+            "--input",
+            "in_ds",
+            "--output-ds",
+            "out_ds",
+            "--input-role",
+            "documents",
+            "--output-role",
+            "results",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    recipe_proto = proj.create_recipe.call_args[0][0]
+    assert "documents" in recipe_proto["inputs"]
+    assert "results" in recipe_proto["outputs"]
+
+
+def test_recipe_create_unknown_type_error(patch_client):
+    """Unknown non-plugin recipe type gives helpful error."""
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.return_value = None
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "nonexistent",
+            "--input",
+            "in_ds",
+            "--output-ds",
+            "out_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unknown recipe type" in result.output
+    assert "CustomCode_" in result.output
+
+
+# ── get-settings / set-settings ──────────────────────────────────────
+
+
+def test_recipe_get_settings_json(patch_client):
+    """get-settings returns full settings including payload."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "get-settings",
+            "recipe1",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "type" in parsed  # From raw definition
+    assert "name" in parsed
+
+
+def test_recipe_set_settings_updates_definition(patch_client):
+    """set-settings updates raw definition keys."""
+    settings_json = json.dumps({"engineType": "DSS"})
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "recipe1",
+            "--settings",
+            settings_json,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated settings" in result.output
+
+
+def test_recipe_set_settings_updates_payload(patch_client):
+    """set-settings with payload key updates visual recipe config."""
+    settings_json = json.dumps(
+        {"payload": {"orders": [{"column": "price", "desc": True}]}}
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "recipe1",
+            "--settings",
+            settings_json,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
+def test_recipe_create_filter_with_formula(patch_client):
+    """--filter-formula configures filter expression."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-filter",
+            "my_filter",
+            "-i",
+            "data",
+            "--output-ds",
+            "filtered",
+            "--filter-formula",
+            "age > 30",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created filter recipe" in result.output
+    assert settings.obj_payload["filterExpression"] == "age > 30"
+    assert settings.obj_payload["samplingMethod"] == "FULL"
+    settings.save.assert_called()
+
+
+def test_recipe_create_window_with_partition_col(patch_client):
+    """--partition-col alias configures window partitioning."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "data",
+            "--output-ds",
+            "windowed",
+            "--partition-col",
+            "customer_id",
+            "--order-col",
+            "date",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created window recipe" in result.output
+    assert settings.obj_payload["partitioningColumns"] == [{"column": "customer_id"}]
+    assert settings.obj_payload["orders"] == [{"column": "date", "desc": False}]
+    settings.save.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Geo Join recipe tests
+# ---------------------------------------------------------------------------
+
+
+def _setup_geojoin_mock(patch_client):
+    """Configure mock for geo join recipe tests, patching the direct creator."""
+    from unittest.mock import patch
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {"joins": [{"table1": 0, "table2": 1, "on": []}]}
+    settings._obj_payload = settings.obj_payload
+
+    builder = MagicMock()
+    builder.with_input.return_value = builder
+    builder.with_existing_output.return_value = builder
+    builder.build.return_value = recipe_mock
+
+    patcher = patch(
+        "dku_cli.commands.recipe.GeoJoinRecipeCreator", return_value=builder
+    )
+    mock_cls = patcher.start()
+    return proj, builder, settings, mock_cls, patcher
+
+
+def test_recipe_create_geojoin(patch_client):
+    """Basic geo join recipe creation with 2 inputs."""
+    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-geojoin",
+                "my_geojoin",
+                "-i",
+                "stores",
+                "-i",
+                "customers",
+                "--output-ds",
+                "nearby",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Created geo join recipe" in result.output
+        mock_cls.assert_called_once_with("my_geojoin", proj)
+        assert builder.with_input.call_count == 2
+        builder.with_existing_output.assert_called_once_with("nearby")
+        builder.build.assert_called_once()
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_geojoin_requires_exactly_two_inputs(patch_client):
+    """Geo join needs exactly 2 inputs."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-geojoin",
+            "my_geojoin",
+            "-i",
+            "only_one",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "exactly 2" in result.output
+
+
+def test_recipe_create_geojoin_rejects_three_inputs(patch_client):
+    """Geo join rejects 3 inputs."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-geojoin",
+            "my_geojoin",
+            "-i",
+            "ds1",
+            "-i",
+            "ds2",
+            "-i",
+            "ds3",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "exactly 2" in result.output
+
+
+def test_recipe_create_geojoin_invalid_operator(patch_client):
+    """Invalid geo operator gives prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-geojoin",
+            "my_geojoin",
+            "-i",
+            "ds1",
+            "-i",
+            "ds2",
+            "--output-ds",
+            "out",
+            "--operator",
+            "INVALID",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid geo operator" in result.output
+
+
+def test_recipe_create_geojoin_invalid_distance_unit(patch_client):
+    """Invalid distance unit gives prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-geojoin",
+            "my_geojoin",
+            "-i",
+            "ds1",
+            "-i",
+            "ds2",
+            "--output-ds",
+            "out",
+            "--distance-unit",
+            "parsec",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid distance unit" in result.output
+
+
+def test_recipe_create_geojoin_with_operator(patch_client):
+    """--operator INTERSECTS sets geo join operator."""
+    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-geojoin",
+                "my_geojoin",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "--operator",
+                "INTERSECTS",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "INTERSECTS" in result.output
+        geo_join = settings.obj_payload["joins"][0]
+        assert geo_join["geoOperator"] == "INTERSECTS"
+        assert geo_join["geoJoin"] is True
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_geojoin_with_distance(patch_client):
+    """--distance and --distance-unit configure distance threshold."""
+    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-geojoin",
+                "my_geojoin",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "--distance",
+                "5000",
+                "--distance-unit",
+                "km",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        geo_join = settings.obj_payload["joins"][0]
+        assert geo_join["geoDistance"] == 5000.0
+        assert geo_join["geoUnit"] == "km"
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_geojoin_with_geo_columns(patch_client):
+    """--geo-column specifies left and right geo columns."""
+    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-geojoin",
+                "my_geojoin",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "-g",
+                "location_left",
+                "-g",
+                "location_right",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        geo_join = settings.obj_payload["joins"][0]
+        assert geo_join["geoColumn1"] == "location_left"
+        assert geo_join["geoColumn2"] == "location_right"
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_geojoin_geo_columns_requires_two(patch_client):
+    """--geo-column must be specified exactly twice."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-geojoin",
+            "my_geojoin",
+            "-i",
+            "ds1",
+            "-i",
+            "ds2",
+            "--output-ds",
+            "out",
+            "-g",
+            "only_one",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "exactly twice" in result.output
+
+
+def test_recipe_create_geojoin_auto_applies_schema(patch_client):
+    """Schema auto-propagation happens after creation."""
+    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    try:
+        recipe_mock = proj.get_recipe.return_value
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-geojoin",
+                "my_geojoin",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        # _auto_apply_schema calls compute_schema_updates().apply()
+        recipe_mock.compute_schema_updates.assert_called()
+    finally:
+        patcher.stop()
+
+
+# ---------------------------------------------------------------------------
+# Fuzzy Join recipe tests
+# ---------------------------------------------------------------------------
+
+
+def _setup_fuzzyjoin_mock(patch_client):
+    """Configure mock for fuzzy join recipe tests, patching the direct creator."""
+    from unittest.mock import patch
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {"joins": [{"table1": 0, "table2": 1, "on": []}]}
+    settings._obj_payload = settings.obj_payload
+
+    builder = MagicMock()
+    builder.with_input.return_value = builder
+    builder.with_existing_output.return_value = builder
+    builder.build.return_value = recipe_mock
+
+    patcher = patch(
+        "dku_cli.commands.recipe.FuzzyJoinRecipeCreator", return_value=builder
+    )
+    mock_cls = patcher.start()
+    return proj, builder, settings, mock_cls, patcher
+
+
+def test_recipe_create_fuzzy_join(patch_client):
+    """Basic fuzzy join recipe creation."""
+    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-fuzzy-join",
+                "my_fuzzy",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "matched",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Created fuzzy join recipe" in result.output
+        mock_cls.assert_called_once_with("my_fuzzy", proj)
+        assert builder.with_input.call_count == 2
+        builder.with_existing_output.assert_called_once_with("matched")
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_fuzzy_join_requires_two_inputs(patch_client):
+    """Fuzzy join needs exactly 2 inputs."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-fuzzy-join",
+            "my_fuzzy",
+            "-i",
+            "only_one",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "exactly 2" in result.output
+
+
+def test_recipe_create_fuzzy_join_invalid_method(patch_client):
+    """Invalid fuzzy method gives prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-fuzzy-join",
+            "my_fuzzy",
+            "-i",
+            "ds1",
+            "-i",
+            "ds2",
+            "--output-ds",
+            "out",
+            "--method",
+            "SOUNDEX",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid fuzzy method" in result.output
+
+
+def test_recipe_create_fuzzy_join_with_fuzzy_key(patch_client):
+    """--fuzzy-key adds FUZZY condition to join."""
+    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-fuzzy-join",
+                "my_fuzzy",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "--fuzzy-key",
+                "name",
+                "--max-distance",
+                "3",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        fj = settings.obj_payload["joins"][0]
+        assert fj["fuzzyJoinMethod"] == "LEVENSHTEIN"
+        assert fj["fuzzyJoinMaxDistance"] == 3
+        assert len(fj["on"]) == 1
+        assert fj["on"][0]["type"] == "FUZZY"
+        assert fj["on"][0]["column1"]["name"] == "name"
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_fuzzy_join_with_exact_and_fuzzy_keys(patch_client):
+    """Both --join-key (exact) and --fuzzy-key can be combined."""
+    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-fuzzy-join",
+                "my_fuzzy",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "--join-key",
+                "city",
+                "--fuzzy-key",
+                "name",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        fj = settings.obj_payload["joins"][0]
+        conditions = fj["on"]
+        assert len(conditions) == 2
+        fuzzy_conds = [c for c in conditions if c["type"] == "FUZZY"]
+        eq_conds = [c for c in conditions if c["type"] == "EQ"]
+        assert len(fuzzy_conds) == 1
+        assert len(eq_conds) == 1
+        assert fuzzy_conds[0]["column1"]["name"] == "name"
+        assert eq_conds[0]["column1"]["name"] == "city"
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_fuzzy_join_left_right_key(patch_client):
+    """Fuzzy key with left=right syntax."""
+    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-fuzzy-join",
+                "my_fuzzy",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "out",
+                "--fuzzy-key",
+                "first_name=fname",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        cond = settings.obj_payload["joins"][0]["on"][0]
+        assert cond["column1"]["name"] == "first_name"
+        assert cond["column2"]["name"] == "fname"
+    finally:
+        patcher.stop()
+
+
+# ---------------------------------------------------------------------------
+# Geo prepare shortcut tests
+# ---------------------------------------------------------------------------
+
+
+def test_recipe_add_geopoint(patch_client):
+    """add-geopoint creates GeoPointCreator step."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-geopoint",
+            "prep1",
+            "--lat-column",
+            "latitude",
+            "--lon-column",
+            "longitude",
+            "--output-column",
+            "location",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "GeoPointCreator"
+    assert step["params"]["lat_column"] == "latitude"
+    assert step["params"]["lon_column"] == "longitude"
+    assert step["params"]["out_column"] == "location"
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_geopoint_default_column(patch_client):
+    """Default output column is 'geopoint'."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-geopoint",
+            "prep1",
+            "--lat-column",
+            "lat",
+            "--lon-column",
+            "lon",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["out_column"] == "geopoint"
+
+
+def test_recipe_add_geodistance(patch_client):
+    """add-geodistance creates GeoDistanceProcessor step."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-geodistance",
+            "prep1",
+            "--from-column",
+            "origin",
+            "--to-column",
+            "destination",
+            "--output-column",
+            "dist_km",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "GeoDistanceProcessor"
+    assert step["params"]["input1_column"] == "origin"
+    assert step["params"]["input2_column"] == "destination"
+    assert step["params"]["output_column"] == "dist_km"
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_geodistance_default_output(patch_client):
+    """Default output column is 'geo_distance'."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-geodistance",
+            "prep1",
+            "--from-column",
+            "origin",
+            "--to-column",
+            "destination",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["output_column"] == "geo_distance"

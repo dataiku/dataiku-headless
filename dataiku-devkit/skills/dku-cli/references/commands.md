@@ -14,7 +14,8 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [config](#config) — set, get, list, path, variables, set-variables
 - [project](#project) — list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
 - [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
-- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
+- [dq](#dq) — list, create, compute, status, results, delete, project-status
+- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-join, create-geojoin, create-fuzzy-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance, list-steps, get-step, remove-step, enable-step, disable-step
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
 - [job](#job) — list, run, status, log, abort, wait
 - [plugin](#plugin) — list, push, settings
@@ -121,6 +122,31 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
+- `create --type UploadedFiles --connection NAME` for cloud DSS instances that require explicit upload connection
+
+## dq
+
+Data quality rules on DSS datasets. Requires DSS 14.5+.
+
+```bash
+dku dq list DATASET [-P PROJECT] [-o FORMAT]
+dku dq create DATASET [--type TYPE] [--column COL] [--min N] [--max N] [--name NAME] [-P PROJECT]
+dku dq create DATASET --config JSON [-P PROJECT]
+dku dq compute DATASET [-P PROJECT] [--wait|--no-wait] [--partition PART] [--rule-id ID]
+dku dq status DATASET [-P PROJECT] [-o FORMAT]
+dku dq results DATASET [-P PROJECT] [--partition PART] [-o FORMAT]
+dku dq delete DATASET --rule-id ID [--yes] [-P PROJECT]
+dku dq project-status [-P PROJECT] [--all] [-o FORMAT]
+```
+
+- `create --type`: `record-count`, `not-empty`, `value-in-range`, `column-min`, `column-max`, `column-avg`, `column-sum`
+- `value-in-range` creates TWO rules (ColumnMinInRangeRule + ColumnMaxInRangeRule)
+- Column rules require `--column`. Range rules use `--min` and/or `--max` (warning-level thresholds)
+- `create --config` for raw JSON (any of 13+ DSS rule types including median, stddev, schema, file-size)
+- `compute --wait` (default) blocks until computation finishes
+- `compute --rule-id` computes a single rule only
+- `project-status` shows monitored datasets only by default; `--all` includes non-monitored
+- `not-empty` (ColumnNotEmptyRule) has a known DSS 14.5 beta bug — use `column-min --min 1` as workaround
 
 ## recipe
 
@@ -128,20 +154,57 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 
 ```bash
 dku recipe create-join NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]     # Join (auto-detects keys)
-dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [-P PROJECT]  # Group/aggregate
+dku recipe create-geojoin NAME -i DS1 -i DS2 --output-ds OUT [--operator OP] [--distance N] [-P PROJECT]  # Geo join
+dku recipe create-fuzzy-join NAME -i DS1 -i DS2 --output-ds OUT [--fuzzy-key COL] [-P PROJECT]  # Fuzzy/approx join
+dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [--agg COL:FUNCS] [-P PROJECT]  # Group/aggregate
 dku recipe create-stack NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]    # Stack/union
 dku recipe create-distinct NAME -i DS --output-ds OUT [-P PROJECT]         # Deduplicate
-dku recipe create-sort NAME -i DS --output-ds OUT [-P PROJECT]             # Sort
-dku recipe create-filter NAME -i DS --output-ds OUT [-P PROJECT]           # Filter/sample
-dku recipe create-window NAME -i DS --output-ds OUT [-P PROJECT]           # Window functions
+dku recipe create-sort NAME -i DS --output-ds OUT [--sort-col COL:desc] [-P PROJECT]  # Sort
+dku recipe create-filter NAME -i DS --output-ds OUT [--filter-formula GREL] [-P PROJECT]  # Filter
+dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL:desc] [-P PROJECT]  # Window functions
 dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
 dku recipe create-topn NAME -i DS --output-ds OUT [-P PROJECT]             # Top/bottom N rows
+dku recipe create-pivot NAME -i DS --output-ds OUT [-P PROJECT]            # Pivot/crosstab
+dku recipe create-sampling NAME -i DS --output-ds OUT [-P PROJECT]         # Sample rows
 ```
 
 - `create-join` requires 2+ inputs. Use `--join-key col` or `--join-key left=right` to set join conditions (repeatable for composite keys). Auto-detects from matching column names if `--join-key` omitted
+- `create-geojoin` requires exactly 2 inputs. `--operator`: WITHIN_DISTANCE (default), CONTAINS, INTERSECTS, etc. `--distance` in meters (for WITHIN_DISTANCE). `--geo-column col1,col2` to specify geo columns
+- `create-fuzzy-join` requires exactly 2 inputs. `--fuzzy-key col` for the column to match on. `--method`: NORMALIZED_LEVENSHTEIN (default), BEIDER_MORSE, DOUBLE_METAPHONE, SOUNDEX
 - `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group
+- `create-sort --sort-col col:desc` for descending, `--sort-col col` for ascending (repeatable)
+- `create-filter --filter-formula GREL` sets the filter expression (e.g. `"price > 100"`)
+- `create-window --partition-col col` sets partitioning, `--order-col col:desc` sets ordering (both repeatable)
 - Visual recipes auto-apply schema updates after creation. For manual control: `apply-schema RECIPE -P PROJ`
 - Configure additional visual recipe details (join type, sort order, filter conditions) in the DSS UI or via `set-definition`
+
+### Prepare recipe step commands
+
+```bash
+dku recipe add-formula RECIPE --column COL --expr GREL [-P PROJECT]              # Computed column
+dku recipe add-rename RECIPE --from OLD --to NEW [-P PROJECT]                     # Rename column
+dku recipe add-rename RECIPE --mappings '{"old1":"new1","old2":"new2"}' [-P PROJECT]  # Bulk rename
+dku recipe add-filter-rows RECIPE --formula GREL --action KEEP_ROW|REMOVE_ROW [-P PROJECT]  # Filter by formula
+dku recipe add-filter-rows RECIPE --column COL --values "a,b" --action KEEP_ROW [-P PROJECT]  # Filter by value
+dku recipe add-fill-empty RECIPE --column COL --value VAL [-P PROJECT]            # Fill nulls
+dku recipe add-delete-columns RECIPE --columns "col1,col2" [-P PROJECT]           # Drop columns
+dku recipe add-find-replace RECIPE --column COL --find X --replace Y [--matching SUBSTRING] [-P PROJECT]  # Find/replace
+dku recipe add-fold RECIPE --columns "a,b,c" --key-column K --value-column V [-P PROJECT]  # Unpivot (wide→long)
+dku recipe add-geopoint RECIPE --lat-column LAT --lon-column LON [-c OUTPUT_COL] [-P PROJECT]  # Create geopoint
+dku recipe add-geodistance RECIPE --from-column A --to-column B [-c OUTPUT_COL] [-P PROJECT]  # Geo distance
+dku recipe list-steps RECIPE [-P PROJECT] [-o FORMAT]     # List all steps
+dku recipe get-step RECIPE INDEX [-P PROJECT] [-o FORMAT]  # Get step by index
+dku recipe remove-step RECIPE INDEX [INDEX ...] [-P PROJECT]  # Remove step(s)
+dku recipe enable-step RECIPE INDEX [INDEX ...] [-P PROJECT]  # Enable step(s)
+dku recipe disable-step RECIPE INDEX [INDEX ...] [-P PROJECT]  # Disable step(s)
+```
+
+- All step commands require the recipe to be of type `prepare` (or `shaker`)
+- `add-formula --expr` accepts GREL expressions. `--column` is the output column name
+- `add-filter-rows --action`: KEEP_ROW, REMOVE_ROW, CLEAR_CELL, FLAG
+- `add-find-replace --matching`: FULL_STRING (default), SUBSTRING, PATTERN (regex)
+- `add-fold --pattern REGEX` can be used instead of `--columns` to match column names by regex
+- Step indices are 0-based
 
 ### Code and management commands
 
@@ -285,6 +348,7 @@ dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
   ```
   Valid `--purpose` values: `GENERIC_COMPLETION`, `TEXT_EMBEDDING_EXTRACTION`, `IMAGE_EMBEDDING_EXTRACTION`, `RERANKING`, `IMAGE_GENERATION`
 - `embeddings` rejects LLM IDs that are not available for `TEXT_EMBEDDING_EXTRACTION` in the target project
+- `embeddings` outputs raw JSON to stdout — no `-o` flag; pipe to `jq` as needed
 
 ## webapp
 
@@ -419,21 +483,23 @@ dku agent-block set-graph AGENT_ID --definition/-d JSON [-P PROJECT] [--version 
 ```
 
 - `--block` and `--definition` accept inline JSON, `@file.json`, or `-` for stdin
-- `add` auto-switches agent to `BLOCKS_GRAPH` mode if currently `SIMPLE`
+- **All `agent-block` subcommands require the agent ID, not the name.** Use `dku agent list -P PROJ -o json | jq '.[].id'` to get IDs. Other `dku agent` commands accept names, but `agent-block` does not.
 - `add --set-start` sets the new block as starting block (auto-set for first block)
 - `connect` sets `nextBlock` on the source block (for ROUTING clauses use `get-graph`/`set-graph`)
 - `remove` warns about dangling references from other blocks
 - `--version` defaults to active version
-- 13 block types: SET_STATE_ENTRIES, LLM_REQUEST, ROUTING, EMIT_OUTPUT, STANDARD_REACT, MANUAL_TOOL_CALL, MANDATORY_TOOL_CALL, PARALLEL, FOR_EACH, PYTHON_CODE, REFLECTION, DELEGATE_TO_OTHER_AGENT, GENERATE_ARTIFACT
+- **DSS 14.5+ block names:** `GENERATE_OUTPUT` (not `EMIT_OUTPUT`), `CORE_LOOP` (not `STANDARD_REACT`). DSS 13.x names are accepted but silently renamed. Use 14.5+ names to avoid confusion.
+- **DSS 14.5+ settings path:** blocks are stored in `structuredAgentSettings` (not `toolsUsingAgentSettings`). `get-graph` returns `structuredAgentSettings` directly.
+- Block types (DSS 14.5+): SET_STATE_ENTRIES, LLM_REQUEST, ROUTING, GENERATE_OUTPUT, CORE_LOOP, MANUAL_TOOL_CALL, MANDATORY_TOOL_CALL, PARALLEL, FOR_EACH, PYTHON_CODE, REFLECTION, DELEGATE_TO_OTHER_AGENT, GENERATE_ARTIFACT, CONTEXT_COMPRESSION, SET_SCRATCHPAD_ENTRIES, EDIT_LAST_USER_MESSAGE
 - See `docs/block-graph-api.md` for full schema of each block type
 
-**Example: Build an SVA from scratch:**
+**Example: Build an SVA from scratch (DSS 14.5+):**
 ```bash
-dku agent create "My SVA" -P PROJ
-dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
-dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
-dku agent-block add My_SVA -b '{"type":"EMIT_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
-dku agent-block list My_SVA -P PROJ
+AGENT_ID=$(dku agent create "My SVA" -P PROJ -o json | jq -r '.id')
+dku agent-block add "$AGENT_ID" --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
+dku agent-block add "$AGENT_ID" -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
+dku agent-block add "$AGENT_ID" -b '{"type":"GENERATE_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
+dku agent-block list "$AGENT_ID" -P PROJ
 ```
 
 ## agent-tool
@@ -443,7 +509,13 @@ dku agent-tool list [-P PROJECT] [-o FORMAT]
 dku agent-tool get TOOL_ID [-P PROJECT] [-o FORMAT]
 dku agent-tool run TOOL_ID [--input JSON] [-P PROJECT] [-o FORMAT]
 dku agent-tool delete TOOL_ID [-P PROJECT]
+dku agent-tool set-definition TOOL_ID -d JSON [-P PROJECT]
+dku agent-tool types [-o FORMAT]
 ```
+
+- **Plugin-based tool type naming:** `Custom_agent_tool_<plugin-id>_<tool-folder-name>`. Run `dku agent-tool types` to see built-in types plus the naming template for plugin tools.
+- `set-definition` saves params to DSS but the running tool instance uses a cached copy — params don't take effect until the plugin server reloads (re-push the plugin or restart DSS).
+- `run` on a VectorStoreSearch tool will fail with a prescriptive error if the knowledge bank has not been built yet.
 
 ## knowledge
 
@@ -459,7 +531,8 @@ dku knowledge delete KB_ID [-P PROJECT]
 ```
 
 - `create` requires `--embedding-llm` (use `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` to find one)
-- `create --vector-store-type` defaults to FAISS. Options: FAISS, CHROMA, PINECONE, ELASTICSEARCH, AZURE_AI_SEARCH, VERTEX_AI_GCS_BASED, QDRANT_LOCAL, MILVUS_LOCAL, MILVUS_REMOTE
+- `create --vector-store-type` defaults to **CHROMA**. Options: CHROMA, FAISS, PINECONE, ELASTICSEARCH, AZURE_AI_SEARCH, VERTEX_AI_GCS_BASED, QDRANT_LOCAL, MILVUS_LOCAL, MILVUS_REMOTE
+- `build` requires the KB to have a document source first — add one via `dku recipe create-embed`. Running `build` on a KB with no source fails with a prescriptive error.
 - `get` expects JSON from DSS; on getitstarted instances the sleep/wake page can intercept the request and return HTML instead
 
 ## bundle

@@ -152,7 +152,7 @@ def test_agent_tool_types_json(patch_client):
 
 
 def test_agent_tool_create_with_dataset(patch_client):
-    """DatasetRowLookup with --dataset should set datasetSmartName in params."""
+    """DatasetRowLookup with --dataset writes to both fields when neither exists."""
     result = runner.invoke(
         app,
         [
@@ -172,7 +172,9 @@ def test_agent_tool_create_with_dataset(patch_client):
     new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
     new_tool.get_settings.assert_called()
     settings = new_tool.get_settings.return_value
+    # When neither field exists, writes both for version compat
     assert settings.params["datasetSmartName"] == "customers"
+    assert settings.params["datasetRef"] == "customers"
     settings.save.assert_called()
 
 
@@ -248,6 +250,55 @@ def test_agent_tool_types_no_python_function(patch_client):
     assert "PythonFunction" not in result.output
     assert "SQLQuery" not in result.output
     assert "RetrieveDatasetSchema" not in result.output
+
+
+def test_agent_tool_create_with_dataset_detects_datasetRef(patch_client):
+    """When tool already has datasetRef key (DSS 14.5+), write to that field only."""
+    # Pre-populate params with DSS 14.5 field name
+    new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
+    new_tool.get_settings.return_value.params = {"datasetRef": ""}
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_lookup",
+            "--type",
+            "DatasetRowLookup",
+            "--dataset",
+            "customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = new_tool.get_settings.return_value
+    assert settings.params["datasetRef"] == "customers"
+    assert "datasetSmartName" not in settings.params
+
+
+def test_agent_tool_create_with_dataset_detects_datasetSmartName(patch_client):
+    """When tool already has datasetSmartName key (DSS 13.x), write to that field only."""
+    new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
+    new_tool.get_settings.return_value.params = {"datasetSmartName": ""}
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "my_lookup",
+            "--type",
+            "DatasetRowLookup",
+            "--dataset",
+            "customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = new_tool.get_settings.return_value
+    assert settings.params["datasetSmartName"] == "customers"
+    assert "datasetRef" not in settings.params
 
 
 def test_agent_tool_set_definition(patch_client):

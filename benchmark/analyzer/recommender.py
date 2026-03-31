@@ -162,7 +162,9 @@ class Recommender:
         suggestions = [
             (tid, m["suggestion"])
             for tid, m in all_meta
-            if m and m.get("suggestion") and m["suggestion"].lower() not in ("none", "n/a", "")
+            if m
+            and m.get("suggestion")
+            and m["suggestion"].lower() not in ("none", "n/a", "")
         ]
         if suggestions:
             lines.append("### Top suggestions from the agent\n")
@@ -174,7 +176,9 @@ class Recommender:
         missing = [
             (tid, m["commands_missing"])
             for tid, m in all_meta
-            if m and m.get("commands_missing") and m["commands_missing"].lower() not in ("none", "n/a", "")
+            if m
+            and m.get("commands_missing")
+            and m["commands_missing"].lower() not in ("none", "n/a", "")
         ]
         if missing:
             lines.append("### Commands the agent wanted but couldn't find\n")

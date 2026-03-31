@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -21,6 +22,32 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS plugins.")
+
+
+def _zip_directory(dir_path: Path) -> Path:
+    """Zip a plugin directory to a temporary file for upload.
+
+    Raises typer.BadParameter if dir_path does not contain plugin.json.
+    """
+    plugin_json = dir_path / "plugin.json"
+    if not plugin_json.exists():
+        raise typer.BadParameter(
+            f"Directory '{dir_path}' does not contain plugin.json.\n"
+            "Expected a plugin root directory with plugin.json, or a .zip archive.\n"
+            "Plugin directory structure:\n"
+            "  my-plugin/\n"
+            "  ├── plugin.json\n"
+            "  ├── python-lib/\n"
+            "  └── python-structured-agent-blocks/ (or other component dirs)"
+        )
+    fd = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp = Path(fd.name)
+    fd.close()
+    with ZipFile(tmp, "w") as zf:
+        for file in sorted(dir_path.rglob("*")):
+            if file.is_file():
+                zf.write(file, file.relative_to(dir_path))
+    return tmp
 
 
 def _read_plugin_id(zip_path: Path) -> str:
@@ -82,22 +109,41 @@ def list_plugins(
 @app.command()
 def push(
     ctx: typer.Context,
-    zip_path: Path = typer.Argument(help="Path to plugin ZIP file"),
+    path: Path = typer.Argument(
+        help="Plugin directory (containing plugin.json) or .zip archive"
+    ),
     update: bool = typer.Option(
         True, "--update/--install", help="Update existing or install new"
     ),
 ) -> None:
-    """Push a plugin ZIP to DSS."""
-    if not zip_path.exists():
-        error(f"File not found: {zip_path}")
-        raise typer.Exit(1)
-    if not zip_path.suffix == ".zip":
-        error("File must be a .zip archive")
+    """Push a plugin to DSS from a directory or ZIP archive.
+
+    If PATH is a directory containing plugin.json, it is automatically
+    zipped before upload. If PATH is a .zip file, it is used directly.
+    """
+    if not path.exists():
+        error(f"Not found: {path}")
         raise typer.Exit(1)
 
-    plugin_id = _read_plugin_id(zip_path)
+    tmp_zip: Path | None = None
+    if path.is_dir():
+        tmp_zip = _zip_directory(path)
+        info(f"Zipped plugin directory: {path}")
+        zip_path = tmp_zip
+    elif path.suffix == ".zip":
+        zip_path = path
+    else:
+        error(
+            f"Unsupported file type: {path.suffix}\n"
+            "Expected a plugin directory (with plugin.json) or a .zip archive.\n"
+            "Example: dku plugin push ./my-plugin/\n"
+            "Example: dku plugin push my-plugin.zip"
+        )
+        raise typer.Exit(1)
 
     try:
+        plugin_id = _read_plugin_id(zip_path)
+
         client = get_client_from_ctx(ctx)
         installed_ids = {
             p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", "")
@@ -113,8 +159,13 @@ def push(
                 client.install_plugin_from_archive(f)
                 success(f"Installed plugin '{plugin_id}'")
 
+    except SystemExit:
+        raise
     except Exception as e:
         handle_api_error(e)
+    finally:
+        if tmp_zip and tmp_zip.exists():
+            tmp_zip.unlink()
 
 
 @app.command()
@@ -416,5 +467,87 @@ def usages(
                 output_format=output,
                 title=f"Plugin Usages: {plugin_id}",
             )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def recipes(
+    ctx: typer.Context,
+    plugin_id: str | None = typer.Argument(
+        None, help="Plugin ID (optional — lists recipes from all plugins if omitted)"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List plugin recipe types available for use with 'dku recipe create'.
+
+    Shows the full type string needed for --type, e.g.:
+      dku recipe create my_step -t CustomCode_my-plugin_my-recipe -i in --output-ds out -P PROJ
+
+    Plugin metadata comes from the DSS /plugins/ API. Each plugin dict may include
+    a 'customRecipes' field listing recipe components. If your DSS version doesn't
+    expose components in list_plugins(), this command shows installed plugins with
+    the CustomCode type pattern to use.
+    """
+    output_fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        plugins = client.list_plugins()
+
+        data = []
+        for p in plugins:
+            pid = p.get("id", "") if isinstance(p, dict) else ""
+            if plugin_id and pid != plugin_id:
+                continue
+
+            # DSS list_plugins() may include customRecipes component list
+            custom_recipes = p.get("customRecipes", []) if isinstance(p, dict) else []
+            if custom_recipes:
+                for cr in custom_recipes:
+                    rid = cr.get("id", "") if isinstance(cr, dict) else str(cr)
+                    label = cr.get("label", rid) if isinstance(cr, dict) else rid
+                    data.append(
+                        {
+                            "plugin": pid,
+                            "recipe_id": rid,
+                            "label": label,
+                            "type": f"CustomCode_{pid}_{rid}",
+                        }
+                    )
+            else:
+                # Component data not in list_plugins() response — show the plugin
+                # with the naming pattern so the agent knows how to construct the type
+                data.append(
+                    {
+                        "plugin": pid,
+                        "recipe_id": "(check DSS UI)",
+                        "label": "(see plugin docs)",
+                        "type": f"CustomCode_{pid}_<recipeId>",
+                    }
+                )
+
+        if plugin_id and not data:
+            error(f"Plugin '{plugin_id}' not found.")
+            info("Run: dku plugin list")
+            raise typer.Exit(3)
+
+        if not data:
+            info("No plugins installed. Install one: dku plugin push <path>")
+            return
+
+        render(
+            data,
+            ["plugin", "recipe_id", "label", "type"],
+            output_format=output_fmt,
+            title="Plugin Recipes",
+            headers={
+                "plugin": "PLUGIN",
+                "recipe_id": "RECIPE ID",
+                "label": "LABEL",
+                "type": "TYPE (use with --type)",
+            },
+        )
+    except SystemExit:
+        raise
     except Exception as e:
         handle_api_error(e)

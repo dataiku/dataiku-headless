@@ -170,7 +170,9 @@ class Reporter:
                 lines.append(f"  - Commands missing: {meta['commands_missing']}")
             if meta.get("confusing"):
                 lines.append(f"  - Confusing: {meta['confusing']}")
-            if meta.get("python_fallback") and meta["python_fallback"].lower().startswith("yes"):
+            if meta.get("python_fallback") and meta[
+                "python_fallback"
+            ].lower().startswith("yes"):
                 lines.append(f"  - Python fallback: {meta['python_fallback']}")
             if meta.get("help_text_gaps"):
                 lines.append(f"  - Help text gaps: {meta['help_text_gaps']}")

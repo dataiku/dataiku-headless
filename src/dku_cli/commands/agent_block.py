@@ -5,13 +5,18 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    resolve_agent,
+    resolve_project,
+)
 from dku_cli.output import render, render_raw, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage visual agent block graphs.")
 
 # ---------------------------------------------------------------------------
-# Known block types (DSS 13.x) — warn on unknown, don't block
+# Known block types — warn on unknown, don't block
 # ---------------------------------------------------------------------------
 
 _KNOWN_BLOCK_TYPES = frozenset(
@@ -19,8 +24,6 @@ _KNOWN_BLOCK_TYPES = frozenset(
         "SET_STATE_ENTRIES",
         "LLM_REQUEST",
         "ROUTING",
-        "EMIT_OUTPUT",
-        "STANDARD_REACT",
         "MANUAL_TOOL_CALL",
         "MANDATORY_TOOL_CALL",
         "PARALLEL",
@@ -29,8 +32,29 @@ _KNOWN_BLOCK_TYPES = frozenset(
         "REFLECTION",
         "DELEGATE_TO_OTHER_AGENT",
         "GENERATE_ARTIFACT",
+        # DSS 13.x names
+        "EMIT_OUTPUT",
+        "STANDARD_REACT",
+        # DSS 14.5+ names
+        "CORE_LOOP",
+        "GENERATE_OUTPUT",
+        # DSS 14.5+ additional types
+        "CUSTOM",
+        "CONTEXT_COMPRESSION",
+        "SET_SCRATCHPAD_ENTRIES",
+        "EDIT_LAST_USER_MESSAGE",
     }
 )
+
+# ---------------------------------------------------------------------------
+# Agent settings key detection (DSS version-agnostic)
+# ---------------------------------------------------------------------------
+
+_STRUCTURED_KEY = "structuredAgentSettings"
+_SIMPLE_KEY = "toolsUsingAgentSettings"
+
+# Block types that use defaultNextBlock instead of nextBlock
+_DEFAULT_NEXT_BLOCK_TYPES = frozenset({"STANDARD_REACT", "CORE_LOOP"})
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -58,14 +82,32 @@ def _get_version_data(raw: dict, version_id: str) -> dict:
     exit_with_error(f"Version '{version_id}' not found.", code="not_found", status=3)
 
 
-def _get_tuas(raw: dict, version_id: str) -> dict:
-    """Get toolsUsingAgentSettings for a version."""
-    return _get_version_data(raw, version_id)["toolsUsingAgentSettings"]
+def _get_agent_settings(raw: dict, version_id: str) -> dict:
+    """Get the agent settings dict for a version, auto-detecting the correct key.
+
+    STRUCTURED_AGENT uses structuredAgentSettings (DSS 14.5+).
+    TOOLS_USING_AGENT uses toolsUsingAgentSettings.
+    """
+    ver = _get_version_data(raw, version_id)
+    if _STRUCTURED_KEY in ver:
+        return ver[_STRUCTURED_KEY]
+    if _SIMPLE_KEY in ver:
+        return ver[_SIMPLE_KEY]
+    # Fallback: create simple agent settings
+    ver[_SIMPLE_KEY] = {}
+    return ver[_SIMPLE_KEY]
 
 
-def _find_block(tuas: dict, block_id: str) -> dict | None:
+def _get_settings_key(version_data: dict) -> str:
+    """Return the correct settings key for a version dict."""
+    if _STRUCTURED_KEY in version_data:
+        return _STRUCTURED_KEY
+    return _SIMPLE_KEY
+
+
+def _find_block(agent_cfg: dict, block_id: str) -> dict | None:
     """Find a block by ID. Returns None if not found."""
-    for b in tuas.get("blocks", []):
+    for b in agent_cfg.get("blocks", []):
         if b.get("id") == block_id:
             return b
     return None
@@ -101,19 +143,23 @@ def _find_dangling_refs(blocks: list[dict], removed_id: str) -> list[tuple[str, 
     return refs
 
 
-def _fetch_settings_and_tuas(
+def _fetch_settings(
     ctx: typer.Context, agent_id: str, project: str | None, version: str | None
 ):
-    """Common fetch pattern: returns (settings, raw, tuas, version_id)."""
+    """Common fetch pattern: returns (settings, raw, agent_cfg, version_id).
+
+    agent_cfg is the agent settings dict (structuredAgentSettings or
+    toolsUsingAgentSettings), auto-detected from the version data.
+    """
     project_key = resolve_project(project)
     client = get_client_from_ctx(ctx)
     proj = client.get_project(project_key)
-    agent = proj.get_agent(agent_id)
+    agent = resolve_agent(proj, agent_id)
     settings = agent.get_settings()
     raw = settings.get_raw()
     version_id = _resolve_version_id(settings, version)
-    tuas = _get_tuas(raw, version_id)
-    return settings, raw, tuas, version_id
+    agent_cfg = _get_agent_settings(raw, version_id)
+    return settings, raw, agent_cfg, version_id
 
 
 # ---------------------------------------------------------------------------
@@ -134,16 +180,18 @@ def list_blocks(
     """List blocks in an agent's block graph."""
     output = resolve_output_format(output)
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        mode = tuas.get("mode", "SIMPLE")
-        if mode != "BLOCKS_GRAPH":
-            warn(f"Agent '{agent_id}' is in {mode} mode (no block graph).")
+        # On DSS 14.5+, blocks live in structuredAgentSettings with no explicit
+        # mode field — presence of blocks means block-graph mode is active.
+        has_blocks = bool(agent_cfg.get("blocks"))
+        if not has_blocks:
+            warn(f"Agent '{agent_id}' has no blocks yet.")
 
-        blocks = tuas.get("blocks", [])
-        starting = tuas.get("startingBlockId")
+        blocks = agent_cfg.get("blocks", [])
+        starting = agent_cfg.get("startingBlockId")
 
         data = []
         for b in blocks:
@@ -187,11 +235,11 @@ def get_block(
     """Show a single block definition."""
     output = resolve_output_format(output)
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        block = _find_block(tuas, block_id)
+        block = _find_block(agent_cfg, block_id)
         if block is None:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
@@ -244,29 +292,29 @@ def add_block(
                 f"Unknown block type '{block_type}'. Known: {', '.join(sorted(_KNOWN_BLOCK_TYPES))}"
             )
 
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        # Auto-switch to BLOCKS_GRAPH mode if in SIMPLE
-        if tuas.get("mode", "SIMPLE") != "BLOCKS_GRAPH":
-            tuas["mode"] = "BLOCKS_GRAPH"
-            if "blocks" not in tuas or tuas["blocks"] is None:
-                tuas["blocks"] = []
+        # Ensure blocks list exists (on DSS 14.5+ mode is implicit, not a field)
+        if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:
+            agent_cfg["blocks"] = []
 
         # Check duplicate ID
-        if _find_block(tuas, block_id) is not None:
+        if _find_block(agent_cfg, block_id) is not None:
             exit_with_error(
                 f"Block '{block_id}' already exists in agent '{agent_id}'.",
                 code="already_exists",
                 status=1,
             )
 
-        tuas["blocks"].append(new_block)
+        agent_cfg["blocks"].append(new_block)
 
         # Set as starting block if requested or if it's the first block
-        if set_start or (len(tuas["blocks"]) == 1 and not tuas.get("startingBlockId")):
-            tuas["startingBlockId"] = block_id
+        if set_start or (
+            len(agent_cfg["blocks"]) == 1 and not agent_cfg.get("startingBlockId")
+        ):
+            agent_cfg["startingBlockId"] = block_id
 
         settings.save()
         success(f"Added block '{block_id}' (type={block_type}) to agent '{agent_id}'")
@@ -286,15 +334,15 @@ def remove_block(
 ) -> None:
     """Remove a block from the agent's block graph."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        blocks = tuas.get("blocks", [])
+        blocks = agent_cfg.get("blocks", [])
         original_len = len(blocks)
-        tuas["blocks"] = [b for b in blocks if b.get("id") != block_id]
+        agent_cfg["blocks"] = [b for b in blocks if b.get("id") != block_id]
 
-        if len(tuas["blocks"]) == original_len:
+        if len(agent_cfg["blocks"]) == original_len:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
                 code="not_found",
@@ -302,14 +350,14 @@ def remove_block(
             )
 
         # Warn if starting block was removed
-        if tuas.get("startingBlockId") == block_id:
-            tuas["startingBlockId"] = None
+        if agent_cfg.get("startingBlockId") == block_id:
+            agent_cfg["startingBlockId"] = None
             warn(
                 f"Removed starting block '{block_id}'. Set a new one: dku agent-block set-start {agent_id} <BLOCK_ID>"
             )
 
         # Warn about dangling references
-        dangling = _find_dangling_refs(tuas["blocks"], block_id)
+        dangling = _find_dangling_refs(agent_cfg["blocks"], block_id)
         for ref_bid, ref_field in dangling:
             warn(
                 f"Block '{ref_bid}' references removed block '{block_id}' via {ref_field}"
@@ -334,17 +382,17 @@ def connect_blocks(
 ) -> None:
     """Connect two blocks (set nextBlock on source)."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        source = _find_block(tuas, from_id)
+        source = _find_block(agent_cfg, from_id)
         if source is None:
             exit_with_error(
                 f"Source block '{from_id}' not found.", code="not_found", status=3
             )
 
-        target = _find_block(tuas, to_id)
+        target = _find_block(agent_cfg, to_id)
         if target is None:
             exit_with_error(
                 f"Target block '{to_id}' not found.", code="not_found", status=3
@@ -360,7 +408,7 @@ def connect_blocks(
                 status=1,
             )
 
-        if block_type == "STANDARD_REACT":
+        if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
             source["defaultNextBlock"] = to_id
         else:
             source["nextBlock"] = to_id
@@ -383,11 +431,11 @@ def disconnect_block(
 ) -> None:
     """Disconnect a block (remove nextBlock, making it terminal)."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        block = _find_block(tuas, block_id)
+        block = _find_block(agent_cfg, block_id)
         if block is None:
             exit_with_error(
                 f"Block '{block_id}' not found.", code="not_found", status=3
@@ -402,7 +450,7 @@ def disconnect_block(
                 code="unsupported_block_type",
                 status=1,
             )
-        if block_type == "STANDARD_REACT":
+        if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
             block.pop("defaultNextBlock", None)
         else:
             block.pop("nextBlock", None)
@@ -424,18 +472,18 @@ def set_start(
 ) -> None:
     """Set the starting block of the agent's block graph."""
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        if _find_block(tuas, block_id) is None:
+        if _find_block(agent_cfg, block_id) is None:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
                 code="not_found",
                 status=3,
             )
 
-        tuas["startingBlockId"] = block_id
+        agent_cfg["startingBlockId"] = block_id
         settings.save()
         success(f"Set starting block to '{block_id}' in agent '{agent_id}'")
     except Exception as e:
@@ -460,16 +508,16 @@ def set_mode(
             status=1,
         )
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        tuas["mode"] = mode
+        agent_cfg["mode"] = mode
 
         if mode == "BLOCKS_GRAPH":
-            if not tuas.get("blocks"):
-                tuas["blocks"] = []
-        elif mode == "SIMPLE" and tuas.get("blocks"):
+            if not agent_cfg.get("blocks"):
+                agent_cfg["blocks"] = []
+        elif mode == "SIMPLE" and agent_cfg.get("blocks"):
             warn("Existing blocks will be preserved but inactive in SIMPLE mode.")
 
         settings.save()
@@ -488,13 +536,13 @@ def get_graph(
     ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Dump the full block graph definition (toolsUsingAgentSettings)."""
+    """Dump the full block graph definition (auto-detects settings key)."""
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
-        settings, raw, tuas, version_id = _fetch_settings_and_tuas(
+        settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
-        render_raw(tuas, output_format=output)
+        render_raw(agent_cfg, output_format=output)
     except Exception as e:
         handle_api_error(e)
 
@@ -514,10 +562,10 @@ def set_graph(
         None, "--version", help="Version ID (default: active)"
     ),
 ) -> None:
-    """Replace the full block graph definition (toolsUsingAgentSettings)."""
+    """Replace the full block graph definition (auto-detects settings key)."""
     try:
-        new_tuas = read_json_input(definition)
-        if not new_tuas:
+        new_agent_cfg = read_json_input(definition)
+        if not new_agent_cfg:
             exit_with_error(
                 "Definition JSON cannot be empty.", code="invalid_input", status=1
             )
@@ -530,13 +578,14 @@ def set_graph(
         raw = settings.get_raw()
         version_id = _resolve_version_id(settings, version)
 
-        # Replace the toolsUsingAgentSettings in the target version
+        # Write to the correct settings key for this agent type
         version_data = _get_version_data(raw, version_id)
-        version_data["toolsUsingAgentSettings"] = new_tuas
+        key = _get_settings_key(version_data)
+        version_data[key] = new_agent_cfg
 
         settings.save()
-        block_count = len(new_tuas.get("blocks", []))
-        mode = new_tuas.get("mode", "unknown")
+        block_count = len(new_agent_cfg.get("blocks", []))
+        mode = new_agent_cfg.get("mode", "unknown")
         success(
             f"Updated block graph for agent '{agent_id}' (mode={mode}, blocks={block_count})"
         )

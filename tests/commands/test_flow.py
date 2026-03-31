@@ -109,7 +109,9 @@ def test_flow_check_json(patch_client):
     """Flow check with JSON output."""
     result = runner.invoke(app, ["flow", "check", "--project", "PROJ1", "-o", "json"])
     assert result.exit_code == 0
-    assert "status" in result.output
+    parsed = json.loads(result.output)
+    assert "summary" in parsed
+    assert "errors" in parsed
 
 
 def test_flow_sources(patch_client):
@@ -220,3 +222,19 @@ def test_flow_move_recipe_type(patch_client):
     assert "Moved" in result.output
     proj = patch_client.get_project("PROJ1")
     proj.get_recipe.assert_called_with("recipe1")
+
+
+def test_flow_sources_with_dataset(patch_client):
+    """flow sources DATASET traces upstream to find source nodes."""
+    # Mock graph: ds1 -> recipe1, recipe1 has no successors
+    # So recipe1's parent is ds1, and ds1 has no parents = source
+    result = runner.invoke(app, ["flow", "sources", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "ds1" in result.output
+
+
+def test_flow_sources_without_dataset(patch_client):
+    """flow sources (no arg) lists all project root sources."""
+    result = runner.invoke(app, ["flow", "sources", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "ds1" in result.output

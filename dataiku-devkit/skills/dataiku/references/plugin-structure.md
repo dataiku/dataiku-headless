@@ -19,7 +19,7 @@ Dataiku DSS plugins are self-contained packages that extend the platform with cu
 | LLM Tools | `python-agent-tools/` | `tool.json` | `tool.py` | Agent capabilities |
 | Custom Agents | `python-agents/` | `agent.json` | `agent.py` | Full LLM agents |
 | Guardrails | `python-guardrails/` | `guardrail.json` | `guardrail.py` | LLM safety controls |
-| Visual Agent Blocks | `python-blocks-graph-blocks/` | `block.json` | `block.py` | Structured agent blocks (DSS 14+) |
+| Visual Agent Blocks | `python-structured-agent-blocks/` | `block.json` | `block.py` | Structured agent blocks (DSS 14+) |
 | File Formats | `python-formats/` | `format.json` | `format.py` | Custom file extractors/exporters |
 | Filesystem Providers | `python-fs-providers/` | `fsprovider.json` | `fsprovider.py` | Custom storage backends |
 | Metric Probes | `python-probes/` | `probe.json` | `probe.py` | Custom dataset/model metrics |

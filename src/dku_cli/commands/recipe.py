@@ -9,6 +9,11 @@ from pathlib import Path
 
 import typer
 
+from dataikuapi.dss.recipe import (
+    FuzzyJoinRecipeCreator,
+    GeoJoinRecipeCreator,
+)
+
 from dku_cli.errors import (
     exit_with_error,
     handle_api_error,
@@ -16,7 +21,12 @@ from dku_cli.errors import (
     is_connection_required_error,
     is_not_found_error,
 )
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    read_text_input,
+    resolve_project,
+)
 from dku_cli.output import (
     info,
     render,
@@ -59,8 +69,15 @@ _KNOWN_RECIPE_TYPES = frozenset(
         "shell",
         "cpython",
         "streaming",
+        "geojoin",
+        "fuzzyjoin",
     }
 )
+
+
+def _is_plugin_recipe_type(type_name: str) -> bool:
+    """Plugin recipe types follow the pattern CustomCode_<pluginId>_<recipeId>."""
+    return type_name.startswith("CustomCode_") and type_name.count("_") >= 2
 
 
 def _require_existing_dataset(
@@ -127,11 +144,23 @@ def _create_eval_recipe_raw(
 
 
 def _get_recipe_payload(settings) -> dict:
-    payload = settings.obj_payload
-    if payload is None:
-        payload = {}
-        settings._obj_payload = payload
-    return payload
+    """Get or init the recipe payload, handling read-only obj_payload property."""
+    try:
+        payload = settings.obj_payload
+        if payload is not None:
+            return payload
+    except (AttributeError, TypeError, KeyError):
+        pass
+
+    # obj_payload is read-only in real dataikuapi — write to raw_params directly
+    if hasattr(settings, "raw_params"):
+        settings.raw_params.setdefault("payload", {})
+        return settings.raw_params["payload"]
+
+    # Last resort: manipulate the raw recipe definition dict
+    raw = settings.get_recipe_raw_definition()
+    raw.setdefault("params", {}).setdefault("payload", {})
+    return raw["params"]["payload"]
 
 
 def _parse_order_specs(specs: list[str]) -> list[dict]:
@@ -310,7 +339,10 @@ def get_definition(
                 {"field": "Type", "value": raw_def.get("type", "")},
                 {"field": "Inputs", "value": ", ".join(input_refs) or "(none)"},
                 {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
-                {"field": "Payload", "value": json.dumps(payload, default=str) if payload else "(none)"},
+                {
+                    "field": "Payload",
+                    "value": json.dumps(payload, default=str) if payload else "(none)",
+                },
             ]
             render(
                 data,
@@ -403,7 +435,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Recipe type: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync",
+        help="Recipe type: python, sql, join, group, etc. For plugin recipes: CustomCode_<pluginId>_<recipeId>",
     ),
     input_ds: str = typer.Option(
         ...,
@@ -417,13 +449,28 @@ def create(
         ...,
         "--output-ds",
         "--output-dataset",
-        help="Output dataset name (auto-created for code recipes)",
+        help="Output dataset name (auto-created for code recipes, must exist for plugin recipes)",
     ),
     connection: str | None = typer.Option(
         None,
         "--connection",
         "-c",
         help="Connection for output dataset (code recipes). Use when project has no default managed connection. Run 'dku connection list' to see available connections.",
+    ),
+    input_role: str = typer.Option(
+        "main",
+        "--input-role",
+        help="Input role name (for plugin recipes with non-standard roles)",
+    ),
+    output_role: str = typer.Option(
+        "main",
+        "--output-role",
+        help="Output role name (for plugin recipes with non-standard roles)",
+    ),
+    params: str | None = typer.Option(
+        None,
+        "--params",
+        help="Plugin recipe config as JSON string, @file.json, or '-' for stdin",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(
@@ -441,6 +488,14 @@ def create(
     For code recipes (python, sql), the output dataset is auto-created. If the DSS
     project has no default managed connection, use --connection to specify one
     (e.g. --connection filesystem_managed).
+
+    Plugin recipes use type CustomCode_<pluginId>_<recipeId>. The output dataset
+    must already exist. Use --params to pass initial configuration:
+
+      dku recipe create my_step -t CustomCode_my-plugin_my-recipe \\
+        -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
+
+    Discover available plugin recipes: dku plugin recipes [PLUGIN_ID]
     """
     project_key = resolve_project(project)
     # Detect type passed as recipe name (e.g. `dku recipe create python ...`)
@@ -462,26 +517,66 @@ def create(
                 "Use --output-ds for the output dataset name, -o for output format (table/json/csv).",
             ],
         )
+    # Parse --params if provided
+    params_dict = None
+    if params is not None:
+        params_text = read_text_input(params)
+        try:
+            params_dict = json.loads(params_text)
+        except json.JSONDecodeError as exc:
+            exit_with_error(
+                f"Invalid JSON in --params: {exc}",
+                code="invalid_argument",
+                details=[
+                    'Pass a JSON object: --params \'{"key": "value"}\'',
+                    "Or from file: --params @config.json",
+                    "Or from stdin: echo '{...}' | dku recipe create ... --params -",
+                ],
+            )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        builder = proj.new_recipe(type_name, recipe_name)
-        builder.with_input(input_ds)
-        # Visual recipe creators have with_existing_output() — output must already exist.
-        # Code recipe creators (CodeRecipeCreator) use:
-        #   - with_new_output_dataset(name, connection) when --connection is provided
-        #   - with_output(name) when no connection (requires existing dataset or project default)
-        if hasattr(builder, "with_existing_output"):
-            if connection:
-                warn(
-                    "--connection is ignored for visual recipes (output must already exist)."
-                )
-            builder.with_existing_output(output_ds)
-        elif connection:
-            builder.with_new_output_dataset(output_ds, connection)
+        if _is_plugin_recipe_type(type_name):
+            # Plugin recipes: project.new_recipe() returns None for unknown types.
+            # Use DSSRecipeCreator directly in raw mode.
+            from dataikuapi.dss.recipe import DSSRecipeCreator
+
+            builder = DSSRecipeCreator(type_name, recipe_name, proj)
+            builder.set_raw_mode()
+            builder.with_input(input_ds, role=input_role)
+            builder.with_output(output_ds, role=output_role)
+            if params_dict is not None:
+                builder.creation_settings["rawPayload"] = json.dumps(params_dict)
+            builder.build()
         else:
-            builder.with_output(output_ds)
-        builder.build()
+            builder = proj.new_recipe(type_name, recipe_name)
+            if builder is None:
+                exit_with_error(
+                    f"Unknown recipe type '{type_name}'.",
+                    code="unknown_recipe_type",
+                    details=[
+                        "Built-in types: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync",
+                        "Plugin recipe types use format: CustomCode_<pluginId>_<recipeId>",
+                        "Discover plugin recipes: dku plugin recipes",
+                    ],
+                )
+            builder.with_input(input_ds)
+            # Visual recipe creators have with_existing_output() — output must already exist.
+            # Code recipe creators (CodeRecipeCreator) use:
+            #   - with_new_output_dataset(name, connection) when --connection is provided
+            #   - with_output(name) when no connection (requires existing dataset or project default)
+            is_visual = hasattr(builder, "with_existing_output")
+            if is_visual:
+                if connection:
+                    warn(
+                        "--connection is ignored for visual recipes (output must already exist)."
+                    )
+                builder.with_existing_output(output_ds)
+            elif connection:
+                builder.with_new_output_dataset(output_ds, connection)
+            else:
+                builder.with_output(output_ds)
+            builder.build()
         success(f"Created recipe '{recipe_name}' in {project_key}")
     except Exception as e:
         if is_already_exists_error(e):
@@ -495,16 +590,45 @@ def create(
                 ],
             )
         if is_connection_required_error(e):
-            exit_with_error(
-                f"Cannot auto-create output dataset '{output_ds}' — no default managed connection configured.",
-                code="connection_required",
-                details=[
-                    "This DSS project has no default managed connection for auto-creating datasets.",
-                    "Fix: add --connection <NAME> to specify where the output should be stored.",
-                    "Find available connections: dku connection list",
-                    f"Example: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
-                ],
-            )
+            # Visual recipes (prepare, sync, etc.) need the output to pre-exist.
+            # Code recipes need a --connection for auto-creation.
+            visual_types = {
+                "prepare",
+                "shaker",
+                "sync",
+                "join",
+                "group",
+                "sort",
+                "distinct",
+                "topn",
+                "window",
+                "stack",
+                "split",
+                "filter",
+                "pivot",
+                "sample",
+            }
+            if type_name in visual_types:
+                exit_with_error(
+                    f"Output dataset '{output_ds}' does not exist. Visual recipes require the output dataset to be created first.",
+                    code="output_not_found",
+                    details=[
+                        f"Create it first: dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
+                        f"Then retry: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} -P {project_key}",
+                        "Tip: visual recipe shortcuts (create-join, create-group, etc.) auto-create the output dataset.",
+                    ],
+                )
+            else:
+                exit_with_error(
+                    f"Cannot auto-create output dataset '{output_ds}' — no default managed connection configured.",
+                    code="connection_required",
+                    details=[
+                        "This DSS project has no default managed connection for auto-creating datasets.",
+                        "Fix: add --connection <NAME> to specify where the output should be stored.",
+                        "Find available connections: dku connection list",
+                        f"Example: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
+                    ],
+                )
         handle_api_error(e)
 
 
@@ -638,6 +762,87 @@ def set_definition(
         success(f"Updated {target} for recipe '{recipe_name}'")
     except typer.Exit:
         raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-settings")
+def get_settings_cmd(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get full recipe settings as JSON (includes visual recipe payload).
+
+    Unlike 'get' which shows a summary, this returns the complete settings
+    including the payload — visual recipe configuration like sort orders,
+    join keys, filter conditions, aggregations, etc.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        settings = recipe.get_settings()
+        raw_def = settings.get_recipe_raw_definition()
+        # Build complete settings dict: definition + parsed payload
+        full = dict(raw_def)
+        try:
+            payload = settings.obj_payload
+            if payload is not None:
+                full["payload"] = payload
+        except (AttributeError, TypeError):
+            pass
+        if "payload" not in full and hasattr(settings, "raw_params"):
+            full["payload"] = settings.raw_params.get("payload")
+        render_raw(full, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-settings")
+def set_settings_cmd(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    settings_json: str = typer.Option(
+        ...,
+        "--settings",
+        "-s",
+        help="Settings JSON (string, @file.json, or '-' for stdin)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set full recipe settings from JSON (supports visual recipe payload).
+
+    Accepts a JSON object. Keys at root level update the recipe definition.
+    The 'payload' key (if present) updates the visual recipe configuration
+    (sort orders, join keys, filter conditions, aggregations, etc.).
+
+    Payload update is a SHALLOW merge: top-level payload keys are replaced,
+    not deep-merged. Use 'get-settings' first to read, modify, then 'set-settings'
+    to preserve existing nested configuration.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        settings = recipe.get_settings()
+        new_settings = read_json_input(settings_json)
+
+        # Update definition (everything except payload)
+        raw = settings.get_recipe_raw_definition()
+        for k, v in new_settings.items():
+            if k != "payload":
+                raw[k] = v
+
+        # Update payload (visual recipe config) — shallow merge at top level
+        if "payload" in new_settings:
+            payload = _get_recipe_payload(settings)
+            payload.update(new_settings["payload"])
+
+        settings.save()
+        success(f"Updated settings for recipe '{recipe_name}'")
     except Exception as e:
         handle_api_error(e)
 
@@ -1359,6 +1564,76 @@ def add_fold(
         )
 
 
+@app.command("add-geopoint")
+def add_geopoint(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    lat_column: str = typer.Option(
+        ..., "--lat-column", "--lat", help="Latitude column name"
+    ),
+    lon_column: str = typer.Option(
+        ..., "--lon-column", "--lon", help="Longitude column name"
+    ),
+    output_column: str = typer.Option(
+        "geopoint", "--output-column", "-c", help="Output geopoint column name"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a geopoint column from latitude/longitude columns.
+
+    Use instead of manually formatting WKT in Python. Output is a WKT POINT
+    in EPSG:4326 (WGS84) that can be used in geo join recipes and map charts.
+
+    Example: dku recipe add-geopoint prep1 --lat-column lat --lon-column lon -P PROJ
+    """
+    _add_prepare_step(
+        ctx,
+        recipe_name,
+        project,
+        "GeoPointCreator",
+        {
+            "lat_column": lat_column,
+            "lon_column": lon_column,
+            "out_column": output_column,
+        },
+    )
+
+
+@app.command("add-geodistance")
+def add_geodistance(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    from_column: str = typer.Option(
+        ..., "--from-column", "--from", help="Source geopoint or geometry column"
+    ),
+    to_column: str = typer.Option(
+        ..., "--to-column", "--to", help="Target geopoint or geometry column"
+    ),
+    output_column: str = typer.Option(
+        "geo_distance", "--output-column", "-c", help="Output distance column name"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Compute distance between two geopoint/geometry columns.
+
+    Use instead of haversine calculations in Python. Both columns must be
+    geopoint or geometry type (use add-geopoint first if needed).
+
+    Example: dku recipe add-geodistance prep1 --from origin --to destination -P PROJ
+    """
+    _add_prepare_step(
+        ctx,
+        recipe_name,
+        project,
+        "GeoDistanceProcessor",
+        {
+            "input1_column": from_column,
+            "input2_column": to_column,
+            "output_column": output_column,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Visual recipe creation commands (prefer these over Python)
 # ---------------------------------------------------------------------------
@@ -1367,7 +1642,8 @@ def add_fold(
 def _ensure_output_dataset(client, proj, dataset_name: str, project_key: str) -> None:
     """Create a managed output dataset if it doesn't exist (visual recipes need it).
 
-    Discovers the first connection with allowManagedDatasets=True.
+    Prefers 'filesystem_managed' if it allows managed datasets.
+    Otherwise discovers the first connection with allowManagedDatasets=True.
     Falls back to 'filesystem_managed' if discovery fails (admin-only API).
     """
     try:
@@ -1377,17 +1653,23 @@ def _ensure_output_dataset(client, proj, dataset_name: str, project_key: str) ->
             conn_name = "filesystem_managed"
             try:
                 conns = client.list_connections()
-                for name, props in conns.items():
-                    if props.get("allowManagedDatasets"):
-                        conn_name = name
-                        break
+                # Prefer filesystem_managed — it's the safest default
+                if "filesystem_managed" in conns and conns["filesystem_managed"].get(
+                    "allowManagedDatasets"
+                ):
+                    conn_name = "filesystem_managed"
+                else:
+                    for name, props in conns.items():
+                        if props.get("allowManagedDatasets"):
+                            conn_name = name
+                            break
             except Exception:
                 pass  # list_connections is admin-only, fall back
             builder = proj.new_managed_dataset(dataset_name)
             builder.with_store_into(conn_name)
             builder.create()
             info(
-                f"Auto-created managed output dataset '{dataset_name}' on '{conn_name}' in {project_key}"
+                f"Auto-created managed output dataset '{dataset_name}' on connection '{conn_name}' in {project_key}"
             )
             return
         raise
@@ -1439,11 +1721,13 @@ def create_join(
 ) -> None:
     """Create a Join recipe. NEVER use Python for joins — use this instead.
 
-    Supports 2+ input datasets in a single recipe. Join keys are auto-detected
-    from matching column names, or set explicitly with --join-key.
+    Supports 2+ input datasets in a SINGLE recipe — prefer this over
+    cascading join recipes. Pass all datasets with -i: -i ds1 -i ds2 -i ds3.
 
-    For multi-input joins, use indexed keys: --join-key col (join 0)
-    --join-key 1:region=region_name (join 1). CROSS joins need no keys.
+    Join keys auto-detect from matching column names. For explicit keys,
+    use --join-key col (join 0, first pair) and --join-key 1:col (join 1,
+    second pair). Format: 'col' (same both sides) or 'left=right'.
+    CROSS joins need no keys.
     """
     _VALID_JOIN_TYPES = {"LEFT", "INNER", "RIGHT", "CROSS"}
     project_key = resolve_project(project)
@@ -1478,6 +1762,12 @@ def create_join(
         join_settings = recipe_obj.get_settings()
         joins = join_settings.raw_joins
 
+        # Newly created join recipes may have an empty joins list.
+        # Create the default join structure(s) matching DSS's expected format.
+        if not joins:
+            for i in range(len(inputs) - 1):
+                joins.append({"table1": 0, "table2": i + 1, "type": jt, "on": []})
+
         # Set join type on all existing join pairs
         for j in joins:
             j["type"] = jt
@@ -1496,7 +1786,7 @@ def create_join(
                 m = re.match(r"^(\d+):", key_spec)
                 if m:
                     idx = int(m.group(1))
-                    spec = key_spec[m.end():]
+                    spec = key_spec[m.end() :]
                 if "=" in spec:
                     col1, col2 = spec.split("=", 1)
                 else:
@@ -1528,6 +1818,289 @@ def create_join(
         join_settings.save()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created {jt} join recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+_VALID_GEO_OPERATORS = frozenset(
+    {"WITHIN_DISTANCE", "BEYOND_DISTANCE", "INTERSECTS", "CONTAINS"}
+)
+
+_VALID_GEO_DISTANCE_UNITS = frozenset(
+    {"meter", "km", "foot", "yard", "mile", "nautical_mile"}
+)
+
+
+@app.command("create-geojoin")
+def create_geojoin(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    inputs: list[str] = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        "--input-ds",
+        help="Input datasets (exactly 2: -i left_ds -i right_ds)",
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
+    geo_column: list[str] | None = typer.Option(
+        None,
+        "--geo-column",
+        "-g",
+        help=(
+            "Geo columns from each dataset (repeat 2x: -g left_geo -g right_geo). "
+            "Omit to let DSS auto-detect from geopoint/geometry columns."
+        ),
+    ),
+    operator: str = typer.Option(
+        "WITHIN_DISTANCE",
+        "--operator",
+        "--op",
+        help="Geo operator: WITHIN_DISTANCE, BEYOND_DISTANCE, INTERSECTS, CONTAINS",
+    ),
+    distance: float = typer.Option(
+        1000,
+        "--distance",
+        "-d",
+        help="Distance threshold (only for WITHIN_DISTANCE / BEYOND_DISTANCE)",
+    ),
+    distance_unit: str = typer.Option(
+        "meter",
+        "--distance-unit",
+        "-u",
+        help="Distance unit: meter, km, foot, yard, mile, nautical_mile",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Geo Join recipe. NEVER use Python haversine — use this instead.
+
+    Joins two datasets using geospatial matching. Both datasets must have
+    a geopoint or geometry column (use add-geopoint to create one first).
+
+    Operators:
+      WITHIN_DISTANCE  — rows within --distance of each other (default)
+      BEYOND_DISTANCE  — rows farther than --distance
+      INTERSECTS       — geometries that overlap (no distance needed)
+      CONTAINS         — left geometry contains right geometry
+
+    Example: dku recipe create-geojoin geo_step -i stores -i customers \\
+      --output-ds nearby --operator WITHIN_DISTANCE --distance 5000 -u meter -P PROJ
+    """
+    project_key = resolve_project(project)
+    op = operator.upper()
+    if op not in _VALID_GEO_OPERATORS:
+        exit_with_error(
+            f"Invalid geo operator '{operator}'. Must be one of: {', '.join(sorted(_VALID_GEO_OPERATORS))}",
+            code="invalid_argument",
+            details=[
+                "Use: dku recipe create-geojoin NAME -i ds1 -i ds2 --output-ds out --operator WITHIN_DISTANCE -P PROJ"
+            ],
+        )
+    du = distance_unit.lower()
+    if du not in _VALID_GEO_DISTANCE_UNITS:
+        exit_with_error(
+            f"Invalid distance unit '{distance_unit}'. Must be one of: {', '.join(sorted(_VALID_GEO_DISTANCE_UNITS))}",
+            code="invalid_argument",
+        )
+    if len(inputs) != 2:
+        exit_with_error(
+            f"Geo join requires exactly 2 input datasets, got {len(inputs)}.",
+            code="invalid_argument",
+            details=[
+                "Use: dku recipe create-geojoin NAME -i left_ds -i right_ds --output-ds out -P PROJ"
+            ],
+        )
+    if geo_column and len(geo_column) != 2:
+        exit_with_error(
+            f"--geo-column must be specified exactly twice (left and right), got {len(geo_column)}.",
+            code="invalid_argument",
+            details=[
+                "Use: -g left_geo_col -g right_geo_col",
+                "Or omit --geo-column to let DSS auto-detect from geopoint/geometry columns.",
+            ],
+        )
+    if op in ("INTERSECTS", "CONTAINS") and distance != 1000:
+        warn(f"{op} ignores --distance (no distance threshold needed)")
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+
+        # GeoJoinRecipeCreator exists in dataikuapi but is not wired into
+        # DSSProject.new_recipe(). Instantiate directly.
+        builder = GeoJoinRecipeCreator(recipe_name, proj)
+        for ds in inputs:
+            builder.with_input(ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+
+        # Configure geo join conditions in payload
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(settings)
+
+        # Geo join stores its config in the joins array, similar to regular join.
+        # Each join entry has geoJoin fields for spatial matching.
+        joins = payload.get("joins", [])
+        if not joins:
+            joins = [{"table1": 0, "table2": 1, "on": []}]
+            payload["joins"] = joins
+
+        geo_join = joins[0]
+        geo_join["geoJoin"] = True
+        geo_join["geoOperator"] = op
+        if op in ("WITHIN_DISTANCE", "BEYOND_DISTANCE"):
+            geo_join["geoDistance"] = distance
+            geo_join["geoUnit"] = du
+
+        if geo_column:
+            geo_join["geoColumn1"] = geo_column[0]
+            geo_join["geoColumn2"] = geo_column[1]
+
+        settings.save()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created geo join recipe '{recipe_name}' ({op}) in {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+_VALID_FUZZY_METHODS = frozenset(
+    {"LEVENSHTEIN", "JARO_WINKLER", "NORMALIZED_LEVENSHTEIN"}
+)
+
+
+@app.command("create-fuzzy-join")
+def create_fuzzy_join(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    inputs: list[str] = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        "--input-ds",
+        help="Input datasets (exactly 2: -i left_ds -i right_ds)",
+    ),
+    output_ds: str = typer.Option(
+        ..., "--output-ds", "--output-dataset", help="Output dataset name"
+    ),
+    fuzzy_key: list[str] | None = typer.Option(
+        None,
+        "--fuzzy-key",
+        "-f",
+        help="Fuzzy match column: 'col' (same both sides) or 'left=right'. Repeatable.",
+    ),
+    join_key: list[str] | None = typer.Option(
+        None,
+        "--join-key",
+        "-k",
+        help="Exact-match key: 'col' (same both sides) or 'left=right'. Repeatable.",
+    ),
+    max_distance: int = typer.Option(
+        1,
+        "--max-distance",
+        help="Maximum edit distance for fuzzy matching (default: 1)",
+    ),
+    method: str = typer.Option(
+        "LEVENSHTEIN",
+        "--method",
+        "-m",
+        help="Fuzzy method: LEVENSHTEIN, JARO_WINKLER, NORMALIZED_LEVENSHTEIN",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a Fuzzy Join recipe for approximate string matching.
+
+    Joins two datasets using approximate (fuzzy) matching on text columns.
+    Use for name deduplication, address matching, or linking messy text data.
+
+    Example: dku recipe create-fuzzy-join fuzzy_step -i ds1 -i ds2 \\
+      --output-ds matched --fuzzy-key name --max-distance 2 -P PROJ
+    """
+    project_key = resolve_project(project)
+    m = method.upper()
+    if m not in _VALID_FUZZY_METHODS:
+        exit_with_error(
+            f"Invalid fuzzy method '{method}'. Must be one of: {', '.join(sorted(_VALID_FUZZY_METHODS))}",
+            code="invalid_argument",
+        )
+    if len(inputs) != 2:
+        exit_with_error(
+            f"Fuzzy join requires exactly 2 input datasets, got {len(inputs)}.",
+            code="invalid_argument",
+            details=[
+                "Use: dku recipe create-fuzzy-join NAME -i left_ds -i right_ds --output-ds out -P PROJ"
+            ],
+        )
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _ensure_output_dataset(client, proj, output_ds, project_key)
+
+        # FuzzyJoinRecipeCreator exists in dataikuapi but is not wired into
+        # DSSProject.new_recipe(). Instantiate directly.
+        builder = FuzzyJoinRecipeCreator(recipe_name, proj)
+        for ds in inputs:
+            builder.with_input(ds)
+        builder.with_existing_output(output_ds)
+        builder.build()
+
+        # Configure fuzzy join conditions in payload
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(settings)
+
+        joins = payload.get("joins", [])
+        if not joins:
+            joins = [{"table1": 0, "table2": 1, "on": []}]
+            payload["joins"] = joins
+
+        fj = joins[0]
+        fj["fuzzyJoinMethod"] = m
+        fj["fuzzyJoinMaxDistance"] = max_distance
+
+        # Configure fuzzy key conditions
+        if fuzzy_key:
+            conditions = fj.setdefault("on", [])
+            for key_spec in fuzzy_key:
+                if "=" in key_spec:
+                    col1, col2 = key_spec.split("=", 1)
+                else:
+                    col1 = col2 = key_spec
+                conditions.append(
+                    {
+                        "column1": {"name": col1.strip(), "table": 0},
+                        "column2": {"name": col2.strip(), "table": 1},
+                        "type": "FUZZY",
+                    }
+                )
+
+        # Configure exact-match key conditions
+        if join_key:
+            conditions = fj.setdefault("on", [])
+            for key_spec in join_key:
+                if "=" in key_spec:
+                    col1, col2 = key_spec.split("=", 1)
+                else:
+                    col1 = col2 = key_spec
+                conditions.append(
+                    {
+                        "column1": {"name": col1.strip(), "table": 0},
+                        "column2": {"name": col2.strip(), "table": 1},
+                        "type": "EQ",
+                    }
+                )
+
+        settings.save()
+        _auto_apply_schema(proj, recipe_name)
+        success(f"Created fuzzy join recipe '{recipe_name}' ({m}) in {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -1717,11 +2290,20 @@ def create_sort(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    sort_col: list[str] = typer.Option(
+        None,
+        "--sort-col",
+        "-s",
+        help="Sort column: 'col' (asc) or 'col:desc'. Repeatable.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Sort recipe.
 
     Use this instead of df.sort_values() in Python.
+    Use --sort-col to configure sort columns at creation time.
+
+    Example: dku recipe create-sort my_sort -i data --output-ds sorted --sort-col price:desc -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -1732,6 +2314,32 @@ def create_sort(
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
+
+        if sort_col:
+            recipe_obj = proj.get_recipe(recipe_name)
+            sort_settings = recipe_obj.get_settings()
+            try:
+                sort_settings.clear_sorting_keys()
+            except (AttributeError, TypeError):
+                pass
+            for col_spec in sort_col:
+                if ":" in col_spec:
+                    col, direction = col_spec.rsplit(":", 1)
+                    ascending = direction.strip().lower() != "desc"
+                else:
+                    col = col_spec
+                    ascending = True
+                try:
+                    sort_settings.add_sorting_key(col.strip(), ascending=ascending)
+                except (AttributeError, TypeError):
+                    # Fallback: set via raw params
+                    raw = sort_settings.get_recipe_raw_definition()
+                    params = raw.setdefault("params", {})
+                    orders = params.setdefault("orders", [])
+                    orders.append({"column": col.strip(), "desc": not ascending})
+            sort_settings.save()
+            info(f"Sort columns: {', '.join(sort_col)}")
+
         _auto_apply_schema(proj, recipe_name)
         success(f"Created sort recipe '{recipe_name}' in {project_key}")
     except Exception as e:
@@ -1748,12 +2356,20 @@ def create_filter(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    filter_formula: str = typer.Option(
+        None,
+        "--filter-formula",
+        "--filter",
+        "-f",
+        help="DSS formula filter expression (e.g. 'age > 30')",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Sample/Filter recipe. Filters rows by condition.
 
-    Use this instead of df[df.col > X] in Python. Configure the filter
-    condition in the DSS UI or via set-definition.
+    Use this instead of df[df.col > X] in Python. Pass --filter-formula to
+    configure the filter expression inline, or configure in the DSS UI / via
+    set-definition.
     """
     project_key = resolve_project(project)
     try:
@@ -1764,6 +2380,14 @@ def create_filter(
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
+        if filter_formula:
+            recipe_obj = proj.get_recipe(recipe_name)
+            filter_settings = recipe_obj.get_settings()
+            payload = _get_recipe_payload(filter_settings)
+            payload["filterExpression"] = filter_formula
+            payload["samplingMethod"] = "FULL"
+            filter_settings.save()
+            info(f"Filter: {filter_formula}")
         _auto_apply_schema(proj, recipe_name)
         success(f"Created filter recipe '{recipe_name}' in {project_key}")
     except Exception as e:
@@ -1772,17 +2396,40 @@ def create_filter(
 
 _VALID_WINDOW_TYPES = frozenset(
     {
-        "lag", "lead", "rank", "denseRank", "rowNumber",
-        "sum", "avg", "min", "max", "count",
-        "first", "last", "stddev", "concat",
+        "lag",
+        "lead",
+        "rank",
+        "denseRank",
+        "rowNumber",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "count",
+        "first",
+        "last",
+        "stddev",
+        "concat",
     }
 )
 # These are top-level booleans in the DSS payload, not per-column
 _TOP_LEVEL_WINDOW_TYPES = frozenset({"rank", "denseRank", "rowNumber"})
 # These are per-column boolean flags in the values[] array
 _COLUMN_WINDOW_TYPES = frozenset(
-    {"lag", "lead", "sum", "avg", "min", "max", "count",
-     "countDistinct", "first", "last", "stddev", "concat"}
+    {
+        "lag",
+        "lead",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "count",
+        "countDistinct",
+        "first",
+        "last",
+        "stddev",
+        "concat",
+    }
 )
 
 
@@ -1874,12 +2521,16 @@ def create_window(
     partition_key: list[str] | None = typer.Option(
         None,
         "--partition-key",
+        "--partition-col",
+        "--partition",
         "-k",
         help="PARTITION BY column (repeatable). Defines groups for window functions.",
     ),
     order_key: list[str] | None = typer.Option(
         None,
         "--order-key",
+        "--order-col",
+        "--order",
         help="ORDER BY column. Append ':desc' for descending (default: ascending). Repeatable.",
     ),
     compute: list[str] | None = typer.Option(
@@ -1929,7 +2580,9 @@ def create_window(
                 info(f"Order by: {', '.join(order_key)}")
             if parsed_computations:
                 _apply_window_computations(payload, parsed_computations)
-                info(f"Computations: {', '.join(c['type'] for c in parsed_computations)}")
+                info(
+                    f"Computations: {', '.join(c['type'] for c in parsed_computations)}"
+                )
             win_settings.save()
 
         _auto_apply_schema(proj, recipe_name)
@@ -1985,6 +2638,12 @@ def create_topn(
     n: int = typer.Option(
         10, "--n", "-n", help="Number of top rows to keep (default: 10)"
     ),
+    sort_col: str = typer.Option(
+        None,
+        "--sort-col",
+        "-s",
+        help="Column to rank by: 'col' (desc) or 'col:asc'. Default direction: desc (top values).",
+    ),
     rank_by: list[str] | None = typer.Option(
         None,
         "--rank-by",
@@ -2001,10 +2660,10 @@ def create_topn(
     """Create a Top N recipe. Returns the top/bottom N rows per group.
 
     Use this instead of df.nlargest() or df.head() in Python.
-    Use --rank-by for the ordering column, --n for how many rows, and
+    Use --sort-col or --rank-by for the ordering column, --n for how many rows, and
     --partition-key for top N per group.
 
-    Example: dku recipe create-topn top10 -i sales --output-ds top10 --n 10 --rank-by revenue:desc -P PROJ
+    Example: dku recipe create-topn top10 -i sales --output-ds top10 --n 10 --sort-col revenue:desc -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -2024,7 +2683,17 @@ def create_topn(
         payload = _get_recipe_payload(topn_settings)
         payload["topN"] = n
         payload["firstRows"] = n
-        if rank_by:
+        # --sort-col takes precedence over --rank-by (single-column shorthand)
+        if sort_col:
+            if ":" in sort_col:
+                col, direction = sort_col.rsplit(":", 1)
+                desc = direction.strip().lower() != "asc"
+            else:
+                col = sort_col
+                desc = True  # TopN default: desc (top values)
+            payload["orders"] = [{"column": col.strip(), "desc": desc}]
+            info(f"Sort: {sort_col}")
+        elif rank_by:
             payload["orders"] = _parse_order_specs(rank_by)
             info(f"Rank by: {', '.join(rank_by)}")
         if partition_key:
@@ -2054,7 +2723,10 @@ def create_pivot(
         None, "--row-key", "-r", help="Row dimension column(s). Repeatable."
     ),
     column_key: str | None = typer.Option(
-        None, "--column-key", "-c", help="Column dimension (values become column headers)"
+        None,
+        "--column-key",
+        "-c",
+        help="Column dimension (values become column headers)",
     ),
     value_column: str | None = typer.Option(
         None, "--value-column", "-v", help="Value column to aggregate into cells"
@@ -2110,15 +2782,15 @@ def create_pivot(
                 pivot["keyColumns"] = [column_key]
             if value_column:
                 agg_fn = agg_type.upper() if agg_type else "SUM"
-                pivot["valueColumns"] = [
-                    {"column": value_column, "function": agg_fn}
-                ]
+                pivot["valueColumns"] = [{"column": value_column, "function": agg_fn}]
             elif agg_type:
                 # agg_type without value_column — set on existing valueColumns
                 for vc in pivot.get("valueColumns", []):
                     vc["function"] = agg_type.upper()
             settings.save()
-            info(f"Pivot config: row={row_key}, column={column_key}, value={value_column}, agg={agg_type}")
+            info(
+                f"Pivot config: row={row_key}, column={column_key}, value={value_column}, agg={agg_type}"
+            )
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created pivot recipe '{recipe_name}' in {project_key}")
@@ -2201,7 +2873,7 @@ def create_embed(
     recipe_name: str = typer.Argument(help="Recipe name"),
     input_ds: str = typer.Option(..., "--input", "-i", help="Input dataset name"),
     output_kb: str = typer.Option(
-        ..., "--output-kb", help="Output knowledge bank name"
+        ..., "--output-kb", help="Output knowledge bank name or ID"
     ),
     embedding_llm: str = typer.Option(
         ...,
@@ -2211,22 +2883,17 @@ def create_embed(
     vector_store_type: str = typer.Option(
         "CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"
     ),
-    text_column: str | None = typer.Option(
+    embed_column: str = typer.Option(
         None,
-        "--text-column",
-        help="Column containing text to embed (sets knowledgeColumn). "
-        "Without this, the recipe will fail with 'Embedding column is missing'.",
+        "--embed-column",
+        help="Column name to embed (required for dataset embedding)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create an Embed Dataset recipe (embeds text columns into a Knowledge Bank).
 
-    Use --text-column to set which column to embed. Without it, the recipe
-    requires manual configuration before it can run.
-
-    Example:
-      dku recipe create-embed embed_resorts -i resorts --output-kb resort_kb \\
-        --embedding-llm openai:conn:text-embedding-3-small --text-column description -P PROJ
+    Use --embed-column to set which text column to embed. If omitted, you must
+    configure the embedding column via set-definition before building the KB.
     """
     project_key = resolve_project(project)
     try:
@@ -2234,19 +2901,38 @@ def create_embed(
         proj = client.get_project(project_key)
         builder = proj.new_recipe("nlp_llm_rag_embedding", recipe_name)
         builder.with_input(input_ds)
+
+        # Check if KB already exists to avoid creating duplicates
+        kb_exists = False
+        try:
+            proj.get_knowledge_bank(output_kb)
+            kb_exists = True
+        except Exception as exc:
+            if not is_not_found_error(exc):
+                raise  # Re-raise auth/network errors; only swallow not-found
+
+        if kb_exists:
+            info(f"Using existing knowledge bank '{output_kb}'")
         builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
+
         builder.build()
 
-        if text_column:
-            recipe = proj.get_recipe(recipe_name)
-            settings = recipe.get_settings()
-            payload = _get_recipe_payload(settings)
-            payload["knowledgeColumn"] = text_column
+        # Set embedding column if provided
+        if embed_column:
+            recipe_obj = proj.get_recipe(recipe_name)
+            settings = recipe_obj.get_settings()
+            raw = settings.get_recipe_raw_definition()
+            params = raw.setdefault("params", {})
+            params["embeddingColumn"] = embed_column
             settings.save()
+            info(f"Embedding column set to '{embed_column}'")
+        else:
+            warn(
+                "No --embed-column specified. Set the embedding column via "
+                "'dku recipe set-definition' before building the knowledge bank."
+            )
 
         success(f"Created embed recipe '{recipe_name}' in {project_key}")
-        if text_column:
-            info(f"Text column set to '{text_column}'")
     except Exception as e:
         handle_api_error(e)
 
@@ -2363,16 +3049,30 @@ def create_llm_eval(
             _require_existing_dataset(
                 proj, output_metrics, project_key, "Metrics output"
             )
-        recipe = _create_eval_recipe_raw(
-            client,
-            proj,
-            recipe_name,
-            "nlp_llm_evaluation",
-            input_ds,
-            eval_store,
-            output_ds,
-            output_metrics,
-        )
+        try:
+            recipe = _create_eval_recipe_raw(
+                client,
+                proj,
+                recipe_name,
+                "nlp_llm_evaluation",
+                input_ds,
+                eval_store,
+                output_ds,
+                output_metrics,
+            )
+        except Exception as e:
+            if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+                raise
+            from dku_cli.errors import exit_with_error as _exit
+
+            _exit(
+                f"Failed to create LLM eval recipe — eval store '{eval_store}' may not exist.",
+                code="eval_store_not_found",
+                details=[
+                    "Evaluation stores must be created in the DSS UI before use.",
+                    "Verify the eval store ID in: Administration > Evaluation Stores",
+                ],
+            )
 
         # Post-creation payload configuration
         settings = recipe.get_settings()
@@ -2457,16 +3157,30 @@ def create_agent_eval(
             _require_existing_dataset(
                 proj, output_metrics, project_key, "Metrics output"
             )
-        recipe = _create_eval_recipe_raw(
-            client,
-            proj,
-            recipe_name,
-            "nlp_agent_evaluation",
-            input_ds,
-            eval_store,
-            output_ds,
-            output_metrics,
-        )
+        try:
+            recipe = _create_eval_recipe_raw(
+                client,
+                proj,
+                recipe_name,
+                "nlp_agent_evaluation",
+                input_ds,
+                eval_store,
+                output_ds,
+                output_metrics,
+            )
+        except Exception as e:
+            if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+                raise
+            from dku_cli.errors import exit_with_error as _exit
+
+            _exit(
+                f"Failed to create agent eval recipe — eval store '{eval_store}' may not exist.",
+                code="eval_store_not_found",
+                details=[
+                    "Evaluation stores must be created in the DSS UI before use.",
+                    "Verify the eval store ID in: Administration > Evaluation Stores",
+                ],
+            )
 
         # Post-creation payload configuration
         settings = recipe.get_settings()

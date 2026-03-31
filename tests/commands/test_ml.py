@@ -392,7 +392,7 @@ def test_ml_algorithms_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    algos = {a["algorithm"]: a["enabled"] for a in parsed}
+    algos = {a["name"]: a["enabled"] for a in parsed}
     assert algos["RandomForest"] == "True"
     assert algos["XGBoost"] == "False"
 

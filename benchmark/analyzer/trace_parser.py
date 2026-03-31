@@ -63,9 +63,7 @@ def parse_meta_feedback(result: AgentResult) -> dict | None:
     Returns None if no feedback block found.
     """
     text = result.assistant_text
-    match = re.search(
-        r"META-FEEDBACK:\s*\n(.*?)END-META-FEEDBACK", text, re.DOTALL
-    )
+    match = re.search(r"META-FEEDBACK:\s*\n(.*?)END-META-FEEDBACK", text, re.DOTALL)
     if not match:
         return None
 

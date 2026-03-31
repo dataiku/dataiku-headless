@@ -31,3 +31,41 @@ brainstorm/
 # Benchmark outputs
 benchmark/reports/
 benchmark/.env
+
+
+demo_assets/
+plans/
+plugins/
+# Temp files
+tmp/
+demo/
+work/
+
+# AI coding tool configs (benchmark artifacts)
+.adal/
+.augment/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/

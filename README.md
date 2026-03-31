@@ -20,13 +20,13 @@
 **Dataiku DevKit** — enables any AI coding agent to do anything in Dataiku DSS.
 
 Ships two components:
-- **`dku` CLI** — 139 commands across 25 groups. A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
-- **Dataiku DevKit** — 2 skills, 28 platform reference docs, and 3 subagents that teach AI coding agents how to build plugins, manage projects, and operate DSS.
+- **`dku` CLI** — 200+ commands across 31 groups. A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
+- **Dataiku DevKit** — 2 skills, reference docs, and 3 subagents that teach AI coding agents how to build plugins, manage projects, and operate DSS.
 
 ```bash
 uv tool install git+https://github.com/dataiku/dataiku-cli.git          # CLI
-/plugin marketplace add git@github.com:dataiku/dataiku-cli.git          # DevKit (skills+agents) — Claude Code
-npx skills add dataiku/dataiku-cli -g -a codex                          # DevKit (skills) — Codex
+/plugin marketplace add dataiku/dataiku-cli                              # DevKit (skills+agents) — Claude Code
+npx skills add dataiku/dataiku-cli -g -a codex                           # DevKit (skills) — Codex
 ```
 
 ---
@@ -35,14 +35,9 @@ npx skills add dataiku/dataiku-cli -g -a codex                          # DevKit
 
 - [Why DevKit & CLI?](#why-devkit--cli)
 - [`dku` CLI](#dku-cli)
-  - [Quick Start](#quick-start)
   - [Installation](#installation)
+  - [Quick Start](#quick-start)
   - [Authentication](#authentication)
-  - [Output Formats](#output-formats)
-  - [JSON Input](#json-input)
-  - [Configuration](#configuration)
-  - [Agentic Workflow](#agentic-workflow)
-  - [Command Reference](#command-reference)
 - [Dataiku DevKit](#dataiku-devkit)
   - [Installation](#installation-1)
   - [Components](#components)
@@ -86,178 +81,43 @@ The `dku-cli` skill reduces cost 30–50% by documenting exact commands upfront,
 
 ## `dku` CLI
 
-### Quick Start
-
-```bash
-# Authenticate
-dku auth login
-# DSS URL: https://my-dss.company.com
-# API Key: ········
-# ◆ Connected to DSS 14.0.2 as chris
-
-# Quick status check
-dku whoami
-# ◆ chris on https://my-dss.company.com (DSS 14.0.2) [admin]
-
-# List projects
-dku project list
-
-# Create a project
-dku project create MYPROJECT --name "My Project"
-
-# Preview a dataset
-dku dataset head my_dataset -P MYPROJECT
-
-# List plugins (JSON for scripting)
-dku plugin list -o json | jq '.[].id'
-```
-
 ### Installation
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
-**Remote:**
 ```bash
 uv tool install git+https://github.com/dataiku/dataiku-cli.git
-```
 
-**Local (from cloned repo):**
-```bash
-git clone https://github.com/dataiku/dataiku-cli && cd dataiku-cli
+# Update
+uv tool install --reinstall git+https://github.com/dataiku/dataiku-cli.git
+
+# Local dev (from cloned repo)
 uv tool install .
 ```
 
-**Update:**
+### Quick Start
+
 ```bash
-uv tool install --reinstall git+https://github.com/dataiku/dataiku-cli.git
+dku auth login        # authenticate to your DSS instance
+dku whoami            # verify connection
+dku project list      # list projects
+dku dataset head my_dataset -P MYPROJECT   # preview data
+dku plugin list -o json | jq '.[].id'      # JSON output for scripting
 ```
+
+Full command reference: [skills/dku-cli/references/commands.md](dataiku-devkit/skills/dku-cli/references/commands.md)
 
 ### Authentication
 
-#### Profiles
-
-dku-cli supports named profiles for managing multiple DSS instances:
-
 ```bash
-# Login to default profile
-dku auth login
-
-# Login to a named profile
-dku auth login --profile production
-
-# Non-interactive (CI/CD)
-dku auth login --profile prod --url https://dss.example.com --api-key YOUR_KEY
-
-# Switch active profile
-dku auth switch production
-
-# List profiles
-dku auth list
-
-# Check current status
-dku auth status
-
-# Remove a profile
-dku auth logout --profile production
-
-# Remove all stored profiles
-dku auth logout --all
+dku auth login                    # interactive login
+dku auth login --profile prod \
+  --url https://dss.example.com \
+  --api-key YOUR_KEY              # non-interactive (CI/CD)
+dku auth switch production        # switch active profile
 ```
 
-#### Credential Storage
-
-Credentials are resolved in this order:
-
-1. **CLI flags**: `--url` + `--api-key`
-2. **Environment variables**: `DKU_URL` + `DKU_API_KEY`
-3. **Stored profile**: selected by `--profile`, otherwise the active profile
-4. **OS keychain**: macOS Keychain, GNOME Keyring, Windows Credential Manager
-5. **Fallback file**: `~/.config/dku/credentials.toml` (0600 permissions)
-
-Defaults resolve in a similarly predictable order:
-
-1. **Project**: `--project` → `DKU_PROJECT` → active profile `default_project`
-2. **Output**: `-o/--output` → config `output` → command fallback
-
-#### CI/CD
-
-```bash
-export DKU_URL=https://dss.company.com
-export DKU_API_KEY=$DSS_API_KEY
-dku project list -o json
-```
-
-### Output Formats
-
-All list/get commands support `-o` / `--output`:
-
-```bash
-dku project list                         # Table (default) — for humans
-dku project list -o json | jq '.[].key'  # JSON — for scripting
-dku project list -o csv > projects.csv   # CSV — for spreadsheets
-```
-
-Persist a default: `dku config set output json`. For agents, use JSON + quiet mode: `dku -q project list -o json`.
-
-For machine-readable failures, add `--errors json`. Success payloads still go to stdout and error payloads go to stderr.
-
-```bash
-dku --errors json recipe get missing_recipe -P MYPROJECT -o json
-```
-
-### JSON Input
-
-Creation and mutation commands accept structured JSON:
-
-```bash
-dku dataset set-schema ds1 -P PROJ --definition '{"columns":[...]}'  # Literal
-dku recipe set-code my_recipe -P PROJ --code @transform.py           # From file
-cat schema.json | dku dataset set-schema ds1 -P PROJ --definition -  # From stdin
-```
-
-### Configuration
-
-```toml
-# ~/.config/dku/config.toml
-active_profile = "sandbox"
-output = "json"
-
-[sandbox]
-url = "https://sandbox.dss.example.com"
-default_project = "MYPROJECT"
-
-[production]
-url = "https://prod.dss.example.com"
-```
-
-| Variable | Description |
-|---|---|
-| `DKU_URL` | DSS instance URL |
-| `DKU_API_KEY` | API key |
-| `DKU_PROJECT` | Default project key |
-
-### Agentic Workflow
-
-Build a complete DSS project from scratch — all composable shell commands:
-
-```bash
-dku project create AGENT_TEST --name "Agent Test"
-dku project set-variables -P AGENT_TEST --set env=dev
-dku dataset create raw_data --type UploadedFiles -P AGENT_TEST
-dku dataset upload raw_data data.csv -P AGENT_TEST
-dku dataset set-schema raw_data -P AGENT_TEST --definition @schema.json
-dku recipe create transform --type python --input raw_data --output clean_data -P AGENT_TEST
-dku recipe set-code transform -P AGENT_TEST --code @transform.py
-dku library write python/utils/helpers.py -P AGENT_TEST --content @helpers.py
-dku scenario create daily_build -P AGENT_TEST
-dku knowledge create my_kb -P AGENT_TEST
-dku bundle export v1 -P AGENT_TEST
-dku project delete AGENT_TEST --confirm
-```
-
-### Command Reference
-
-Full reference for all commands: [skills/dku-cli/references/commands.md](dataiku-devkit/skills/dku-cli/references/commands.md)
+Credentials resolve in order: CLI flags → `DKU_URL`/`DKU_API_KEY` env vars → stored profile → OS keychain.
 
 ---
 
@@ -265,42 +125,22 @@ Full reference for all commands: [skills/dku-cli/references/commands.md](dataiku
 
 ### Installation
 
-The DevKit teaches AI coding agents how to use the CLI and build Dataiku plugins. Installing it gives your agent 2 skills (28 reference docs) and 3 subagents. The skills reference `dku` commands throughout — install the CLI too if you haven't already.
-
-#### Claude Code — via marketplace (recommended)
+#### Claude Code
 
 ```bash
-/plugin marketplace add git@github.com:dataiku/dataiku-cli.git
-/plugin install dataiku-devkit@dataiku-marketplace
+/plugin marketplace add dataiku/dataiku-cli
 ```
 
-SSH is recommended over HTTPS — key-based auth means background updates work without a token. After installation, updates are one command:
+Update later with `/plugin marketplace update`.
 
-```bash
-/plugin marketplace update
-```
-
-#### Claude Code — local (from cloned repo)
-
-```bash
-/plugin marketplace add ./
-/plugin install dataiku-devkit@dataiku-marketplace
-```
-
-#### Codex, Cursor, Copilot, and other agents — via npx skills
+#### Codex, Cursor, Copilot, and other agents
 
 ```bash
 npx skills add dataiku/dataiku-cli -g -a codex    # OpenAI Codex
 npx skills add dataiku/dataiku-cli -g -a cursor   # Cursor
 ```
 
-`-g` installs globally across all projects. Update later with:
-
-```bash
-npx skills update dataiku/dataiku-cli
-```
-
-#### Manual (no Node.js, no git required)
+#### Manual
 
 Copy `dataiku-devkit/skills/` and `dataiku-devkit/agents/` into your agent's directories (e.g., `~/.claude/skills/`, `~/.claude/agents/`).
 
@@ -308,15 +148,15 @@ Copy `dataiku-devkit/skills/` and `dataiku-devkit/agents/` into your agent's dir
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| `dataiku` | Skill | Platform knowledge — 28 reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
-| `dku-cli` | Skill | CLI operations — 139 commands, chaining patterns, composability |
+| `dataiku` | Skill | Platform knowledge — reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
+| `dku-cli` | Skill | CLI operations — 200+ commands, chaining patterns, composability |
 | `plugin-reviewer` | Agent | Deep code review against a structured checklist |
 | `dss-explorer` | Agent | Explore a DSS project via CLI and produce a structured report |
 | `tool-designer` | Agent | Design agent tool schemas and implementation plans |
 
 ### Benchmark
 
-We benchmarked how AI agents (Claude Code) perform DSS tasks using `dku` CLI commands vs writing `dataikuapi` Python scripts directly. Both approaches use `dataikuapi` under the hood — the CLI just gives agents a higher-level interface with less boilerplate per operation.
+We benchmarked how AI agents (Claude Code) perform DSS tasks using `dku` CLI commands vs writing `dataikuapi` Python scripts directly.
 
 **Setup:** 12 runs — 2 tasks (simple, complex) × 2 approaches × 3 runs each. Model: Claude Opus, headless (`claude -p --dangerously-skip-permissions`). Validated against DSS state + ground truth data.
 
@@ -344,8 +184,6 @@ We benchmarked how AI agents (Claude Code) perform DSS tasks using `dku` CLI com
 2. **Pre-documented interface** — The CLI skill documents exact commands and flags upfront, so agents don't need to discover API signatures at runtime.
 3. **`--wait` eliminates polling** — `dku dataset build X --wait` blocks until done, replacing manual status-polling loops.
 4. **Composite operations** — `dku dataset upload` combines file upload + format detection + schema inference in one command.
-
-Note: CLI runs still use Python for operations the CLI can't handle (recipe config, ML training) — the advantage is using CLI for the ~60% that's CRUD/inspection/builds.
 
 <details>
 <summary>Per-run data and before/after bug fixes</summary>
@@ -398,14 +236,14 @@ dataiku-cli/
 │   ├── config.py                   # TOML config read/write via platformdirs
 │   ├── output.py                   # All rendering: table/json/csv, quiet mode
 │   ├── errors.py                   # dataikuapi exception → user-friendly message + exit code
-│   └── commands/                   # one file per noun (25 command groups)
+│   └── commands/                   # one file per noun (31 command groups)
 ├── dataiku-devkit/                 # AI agent DevKit
 │   ├── .claude-plugin/
 │   │   └── plugin.json             # Plugin manifest (Claude Code marketplace)
 │   ├── skills/
 │   │   ├── dataiku/
 │   │   │   ├── SKILL.md            # Platform knowledge router
-│   │   │   └── references/         # 28 reference docs
+│   │   │   └── references/         # Platform reference docs
 │   │   └── dku-cli/
 │   │       ├── SKILL.md            # CLI operations reference
 │   │       └── references/
@@ -415,20 +253,7 @@ dataiku-cli/
 │       ├── dss-explorer.md         # Explore DSS projects via CLI
 │       └── tool-designer.md        # Design agent tool schemas
 ├── benchmark/                      # 9-tier agent performance benchmark (192 scenarios)
-│   ├── README.md
-│   ├── runner.py
-│   ├── generator.py
-│   ├── config.yaml
-│   ├── scenarios/
-│   └── agents/
-├── tests/                          # CLI unit tests (298 tests)
-│   ├── conftest.py                 # Mock fixtures, patch_client
-│   ├── test_auth.py
-│   ├── test_output.py
-│   └── commands/                   # Per-group test files (27 files)
-├── docs/
-│   ├── commands.md                 # Full CLI command reference
-│   └── command-api-mapping.md      # CLI command → dataikuapi call mapping
+├── tests/                          # CLI unit tests
 └── pyproject.toml
 ```
 
@@ -440,9 +265,22 @@ dataiku-cli/
 git clone https://github.com/dataiku/dataiku-cli
 cd dataiku-cli
 uv sync
-uv run dku --help
+uv run pre-commit install
 uv run pytest -v
 ```
+
+**Skills** (available anywhere the DevKit is installed):
+
+| Skill | When to use |
+|-------|-------------|
+| `cli-meta-analysis` | After any session using the dku CLI or Dataiku skills — surfaces friction and gaps, writes to `.learnings/PENDING.md` |
+
+**Slash commands** (Claude Code, when working in this repo):
+
+| Command | When to use |
+|---------|-------------|
+| `/cli-improvement` | When you have benchmark results or learnings to turn into fixes — also reads `.learnings/PENDING.md` |
+| `/cli-pr-review` | Before merging PRs that touch CLI commands, flags, or skill docs |
 
 ---
 

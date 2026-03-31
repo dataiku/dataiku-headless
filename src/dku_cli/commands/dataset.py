@@ -200,7 +200,10 @@ def create(
         help="Dataset type (Filesystem, UploadedFiles, SQL, S3). Default: Filesystem",
     ),
     connection: str | None = typer.Option(
-        None, "--connection", "-c", help="Connection name (defaults to filesystem_managed for Filesystem; required for SQL/S3)"
+        None,
+        "--connection",
+        "-c",
+        help="Connection name (defaults to filesystem_managed for Filesystem; required for SQL/S3)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     if_not_exists: bool = typer.Option(
@@ -235,6 +238,29 @@ def create(
             params["connection"] = connection
 
         dataset_type = definition_type or type_name
+
+        # UploadedFiles uses "uploadConnection" param, not "connection".
+        # Map --connection to the correct param for this type.
+        if dataset_type == "UploadedFiles" and "uploadConnection" not in params:
+            if connection:
+                params["uploadConnection"] = connection
+                params.pop("connection", None)
+            else:
+                # Try common default upload connections
+                try:
+                    conns = client.list_connections()
+                    conn_names = [c for c in conns]
+                    # Prefer the first available upload-friendly connection
+                    for candidate in ["dataiku-managed-storage", "filesystem_managed"]:
+                        if candidate in conn_names:
+                            params["uploadConnection"] = candidate
+                            break
+                    if "uploadConnection" not in params and conn_names:
+                        # Fall back to first available connection
+                        params["uploadConnection"] = conn_names[0]
+                except Exception:
+                    pass  # list_connections may require admin — fall through to create attempt
+
         if dataset_type == "Filesystem":
             if definition:
                 error(
@@ -248,13 +274,29 @@ def create(
             builder.with_store_into(connection)
             builder.create()
         else:
-            proj.create_dataset(
-                dataset_name,
-                dataset_type,
-                params=params,
-                formatType=dataset_definition.get("formatType"),
-                formatParams=dataset_definition.get("formatParams"),
-            )
+            try:
+                proj.create_dataset(
+                    dataset_name,
+                    dataset_type,
+                    params=params,
+                    formatType=dataset_definition.get("formatType"),
+                    formatParams=dataset_definition.get("formatParams"),
+                )
+            except Exception as create_err:
+                msg = str(create_err).lower()
+                if dataset_type == "UploadedFiles" and (
+                    "connection" in msg or "target" in msg
+                ):
+                    exit_with_error(
+                        "Cannot create UploadedFiles dataset — no upload connection found.",
+                        code="connection_required",
+                        details=[
+                            "Cloud DSS instances require an explicit upload connection.",
+                            f"Fix: dku dataset create {dataset_name} --type UploadedFiles --connection <CONNECTION_NAME> -P {project_key}",
+                            "Find connections: dku connection list",
+                        ],
+                    )
+                raise
         success(
             f"Created dataset '{dataset_name}' (type={dataset_type}) in {project_key}"
         )
@@ -322,6 +364,19 @@ def upload(
             success(
                 f"Format detected: {detected.get_raw().get('formatType', 'unknown')} ({len(schema_cols)} columns)"
             )
+            # Warn if all columns detected as STRING — common with CSV uploads
+            # and causes downstream aggregation failures (group/window SUM)
+            if schema_cols:
+                from dku_cli.output import warn
+
+                string_cols = [c for c in schema_cols if c.get("type") == "string"]
+                if len(string_cols) == len(schema_cols):
+                    warn(
+                        "All columns detected as STRING. Downstream aggregation "
+                        "recipes (group, window) may fail on numeric operations. "
+                        f"Fix with: dku dataset set-schema {dataset_name} -d "
+                        f"@schema.json -P {project_key}"
+                    )
     except Exception as e:
         handle_api_error(e)
 

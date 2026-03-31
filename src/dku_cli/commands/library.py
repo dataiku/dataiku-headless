@@ -19,10 +19,15 @@ def _get_or_create_folder(lib, folder_path: str):
     parts = PurePosixPath(folder_path).parts
     current = lib
     for part in parts:
+        child = None
         try:
-            current = current.get_folder(part)
+            child = current.get_folder(part)
         except Exception:
+            pass
+        if child is None:
             current = current.add_folder(part)
+        else:
+            current = child
     return current
 
 
@@ -125,16 +130,21 @@ def write(
         parent = str(p.parent)
         filename = p.name
 
-        try:
-            # Try updating existing file
-            f = lib.get_file(path)
-        except Exception:
+        # get_file() returns None for missing files (does NOT raise)
+        f = lib.get_file(path)
+        if f is None:
             # File doesn't exist — create it in the appropriate folder
             if parent and parent != ".":
                 folder = _get_or_create_folder(lib, parent)
                 f = folder.add_file(filename)
             else:
                 f = lib.add_file(filename)
+            # add_file() may return None in some dataikuapi versions — re-fetch
+            if f is None:
+                if parent and parent != ".":
+                    f = folder.get_file(filename)
+                else:
+                    f = lib.get_file(path)
 
         f.write(content_bytes)
         success(f"Wrote {len(content_bytes)} bytes to {path}")

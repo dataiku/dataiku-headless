@@ -326,3 +326,160 @@ def test_plugin_usages_with_project_filter(patch_client):
     result = runner.invoke(app, ["plugin", "usages", "my-plugin", "-P", "PROJ1"])
     assert result.exit_code == 0
     plugin_obj.list_usages.assert_called_once_with(project_key="PROJ1")
+
+
+# --- push from directory ---
+
+
+def test_plugin_push_directory(tmp_path, patch_client):
+    """Push from a directory containing plugin.json — auto-zips and uploads."""
+    plugin_dir = tmp_path / "my-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"id": "dir-plugin", "version": "1.0.0"})
+    )
+    (plugin_dir / "python-lib").mkdir()
+    (plugin_dir / "python-lib" / "helper.py").write_text("# helper")
+
+    plugin_obj = MagicMock()
+    patch_client.get_plugin.return_value = plugin_obj
+    patch_client.list_plugins.return_value = [
+        {"id": "dir-plugin", "version": "0.9.0", "isDev": True}
+    ]
+
+    result = runner.invoke(app, ["plugin", "push", str(plugin_dir)])
+    assert result.exit_code == 0
+    plugin_obj.update_from_zip.assert_called_once()
+    assert "Updated plugin 'dir-plugin'" in result.output
+
+
+def test_plugin_push_directory_install(tmp_path, patch_client):
+    """Push from a directory when plugin is not installed — installs new."""
+    plugin_dir = tmp_path / "new-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"id": "new-plugin", "version": "1.0.0"})
+    )
+
+    patch_client.list_plugins.return_value = []
+
+    result = runner.invoke(app, ["plugin", "push", str(plugin_dir)])
+    assert result.exit_code == 0
+    patch_client.install_plugin_from_archive.assert_called_once()
+    assert "Installed plugin 'new-plugin'" in result.output
+
+
+def test_plugin_push_directory_no_plugin_json(tmp_path):
+    """Directory without plugin.json gives prescriptive error."""
+    empty_dir = tmp_path / "bad-plugin"
+    empty_dir.mkdir()
+
+    result = runner.invoke(app, ["plugin", "push", str(empty_dir)])
+    assert result.exit_code != 0
+    assert "plugin.json" in result.output
+
+
+def test_plugin_push_unsupported_file_type(tmp_path):
+    """Non-zip, non-directory path gives prescriptive error."""
+    tarball = tmp_path / "plugin.tar.gz"
+    tarball.write_text("not a zip")
+
+    result = runner.invoke(app, ["plugin", "push", str(tarball)])
+    assert result.exit_code != 0
+    assert "Unsupported file type" in result.output
+
+
+# ── Plugin recipes tests ────────────────────────────────────────────
+
+
+def test_plugin_recipes_with_components(patch_client):
+    """List plugin recipes when DSS returns customRecipes in list_plugins()."""
+    patch_client.list_plugins.return_value = [
+        {
+            "id": "my-plugin",
+            "version": "1.0.0",
+            "isDev": True,
+            "customRecipes": [
+                {"id": "my-recipe", "label": "My Custom Recipe"},
+                {"id": "other-recipe", "label": "Other Recipe"},
+            ],
+        },
+    ]
+    # Use JSON to avoid table truncation
+    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    types = [r["type"] for r in parsed]
+    assert "CustomCode_my-plugin_my-recipe" in types
+    assert "CustomCode_my-plugin_other-recipe" in types
+    assert parsed[0]["label"] == "My Custom Recipe"
+
+
+def test_plugin_recipes_without_components(patch_client):
+    """When DSS doesn't return customRecipes, show naming pattern."""
+    patch_client.list_plugins.return_value = [
+        {"id": "some-plugin", "version": "2.0.0", "isDev": False},
+    ]
+    # Use JSON to avoid table truncation
+    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["type"] == "CustomCode_some-plugin_<recipeId>"
+
+
+def test_plugin_recipes_filter_by_plugin_id(patch_client):
+    """Filter recipes by specific plugin ID."""
+    patch_client.list_plugins.return_value = [
+        {
+            "id": "plugin-a",
+            "version": "1.0.0",
+            "isDev": False,
+            "customRecipes": [{"id": "rec-a", "label": "Recipe A"}],
+        },
+        {
+            "id": "plugin-b",
+            "version": "1.0.0",
+            "isDev": False,
+            "customRecipes": [{"id": "rec-b", "label": "Recipe B"}],
+        },
+    ]
+    result = runner.invoke(app, ["plugin", "recipes", "plugin-a"])
+    assert result.exit_code == 0
+    assert "CustomCode_plugin-a_rec-a" in result.output
+    assert "plugin-b" not in result.output
+
+
+def test_plugin_recipes_not_found(patch_client):
+    """Unknown plugin ID gives exit 3 with prescriptive error."""
+    patch_client.list_plugins.return_value = [
+        {"id": "existing", "version": "1.0.0", "isDev": False},
+    ]
+    result = runner.invoke(app, ["plugin", "recipes", "nonexistent"])
+    assert result.exit_code != 0
+
+
+def test_plugin_recipes_json_output(patch_client):
+    """JSON output returns structured data."""
+    patch_client.list_plugins.return_value = [
+        {
+            "id": "my-plugin",
+            "version": "1.0.0",
+            "isDev": True,
+            "customRecipes": [
+                {"id": "my-recipe", "label": "My Recipe"},
+            ],
+        },
+    ]
+    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["type"] == "CustomCode_my-plugin_my-recipe"
+
+
+def test_plugin_recipes_no_plugins(patch_client):
+    """No plugins installed shows helpful message."""
+    patch_client.list_plugins.return_value = []
+    result = runner.invoke(app, ["plugin", "recipes"])
+    assert result.exit_code == 0
+    assert "No plugins installed" in result.output

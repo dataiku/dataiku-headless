@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import typer
 
 from dku_cli.errors import handle_api_error, is_already_exists_error
@@ -17,6 +19,23 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS scenarios.")
+
+
+def _poll_scenario_outcome(
+    scenario, poll_interval: float = 3.0, timeout: float = 3600
+) -> str:
+    """Poll scenario last runs until completion or timeout."""
+    elapsed = 0.0
+    while elapsed < timeout:
+        runs = scenario.get_last_runs(limit=1)
+        if runs:
+            run = runs[0]
+            outcome = run.outcome if hasattr(run, "outcome") else run.get("outcome")
+            if outcome is not None:
+                return outcome
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+    return "TIMEOUT"
 
 
 @app.command("list")
@@ -73,12 +92,22 @@ def run(
 
         if wait:
             info("Waiting for completion...")
-            result = trigger.wait_for_result()
-            outcome = (
-                result.get("scenarioRun", {})
-                .get("result", {})
-                .get("outcome", "unknown")
-            )
+            # DSSTriggerFire may not have wait_for_result() in all dataikuapi versions.
+            if hasattr(trigger, "wait_for_result") and callable(
+                getattr(trigger, "wait_for_result", None)
+            ):
+                try:
+                    result = trigger.wait_for_result()
+                    outcome = (
+                        result.get("scenarioRun", {})
+                        .get("result", {})
+                        .get("outcome", "unknown")
+                    )
+                except (AttributeError, TypeError):
+                    outcome = _poll_scenario_outcome(scenario)
+            else:
+                outcome = _poll_scenario_outcome(scenario)
+
             if outcome == "SUCCESS":
                 success(f"Scenario completed: {outcome}")
             else:
@@ -210,7 +239,9 @@ def get_definition(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        defn = scenario.get_definition().get_raw()
+        defn = scenario.get_definition()
+        if hasattr(defn, "get_raw"):
+            defn = defn.get_raw()
         render_raw(defn, output_format=output)
     except Exception as e:
         handle_api_error(e)

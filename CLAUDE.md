@@ -1,76 +1,39 @@
 # CLAUDE.md — Dataiku DevKit
 
-> **Scope: This file is ONLY for development of the `dku` CLI and skill framework.** Platform knowledge (how DSS works, how to write plugins/webapps/agent tools, recipe patterns, formula syntax) belongs in `skills/dataiku/references/*.md`. If you're tempted to add DSS platform knowledge here, put it in the appropriate reference doc and add a one-line pointer from `skills/dataiku/SKILL.md` instead.
+## Quick Start
+
+```bash
+uv sync                    # Install deps
+uv run pre-commit install  # Install git hooks (commitlint, ruff, whitespace fixes)
+uv run pytest -v           # Run tests (all must pass)
+uv run ruff check .        # Lint
+uv run ruff format .       # Format
+uv run dku                 # Run CLI locally
+uv build                   # Build wheel
+```
 
 ## Mission
 
 **This repo exists to make AI coding agents excellent at operating Dataiku DSS.** Every change — CLI code, skill docs, error messages, tests — is evaluated by one question: *does this make agents more successful?*
 
-We ship two components that work together:
+We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (169 commands, 28 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
-
-2. **Agent skills & knowledge** — 2 skills, 27 reference docs, and 3 subagents that teach agents how to operate DSS. The skill (`SKILL.md`) is the first thing agents read — it must steer them right on the first pass.
+1. **`dku` CLI** — a `kubectl`-style tool (167 commands, 28 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
 **NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
 
 ---
 
-## Strategy: How We Make Agents Better
+## Strategy
 
-### 1. Progressive Disclosure in Skills
+Five levers make agents better:
 
-The skill is what gets loaded when any agent is asked to do anything in Dataiku. It follows a strict progressive disclosure pattern:
-
-```
-SKILL.md cheat sheet (6 rules)        ← Agent reads this ALWAYS (first 30 lines)
-  → SKILL.md full reference            ← Agent reads relevant sections on-demand
-    → references/*.md (28 docs)        ← Deep platform knowledge, read when building plugins/recipes/etc.
-```
-
-**The cheat sheet is the most important text in this repo.** If an agent only reads 30 lines, those 30 lines must prevent the top 6 failure modes. Every benchmark failure should make you ask: "Could a cheat sheet rule have prevented this?"
-
-### 2. CLI as Agent Co-Pilot
-
-The CLI is the agent's hands. Every command must:
-
-- **`--help` is documentation.** Agents read `--help` before docs. Descriptions must explain WHEN to use the command, not just WHAT it does. Include gotcha warnings directly in help text.
-- **Error messages are instructions.** When a command fails, the error must tell the agent exactly what to do next — the correct command, the missing flag, the alternative approach. Never just "error occurred".
-- **Suggest built-in alternatives.** If an agent is reaching for Python when a visual recipe exists, the CLI should say so. Error messages and help text actively steer toward DSS built-in features.
-- **Idempotent where possible.** `--if-not-exists` on creation commands. Clear messages on conflicts. Safe to re-run.
-
-### 3. Built-In Features First
-
-DSS is a platform with 50+ visual recipes, AutoML, agents, knowledge banks, and more. **Python is the escape hatch, not the default.** The skill and CLI must steer agents toward built-in capabilities:
-
-| Priority | Capability | Python instead? |
-|----------|-----------|-----------------|
-| 1 | Visual recipes (join, group, stack, filter, sort, distinct, window, topn) | NEVER |
-| 2 | GenAI recipes (embed, embed-docs, extract, LLM eval, agent eval) | Only if recipe type doesn't exist |
-| 3 | AutoML (visual ML, prediction, clustering) | Only for custom architectures |
-| 4 | Agents & Knowledge Banks | Only for custom logic beyond tool-calling |
-| 5 | Scenarios & automation | Only for complex conditional logic |
-| 6 | SQL recipes | When SQL is cleaner than visual |
-| 7 | Python/R recipes | **ONLY when nothing above fits** |
-
-### 4. Gotchas in Three Places
-
-Every production gotcha must be documented in ALL THREE:
-
-1. **CLI error message** (`errors.py` / command `except` blocks) — agent sees this at failure time, must include the fix command
-2. **Skill cheat sheet or gotchas table** (`skills/dku-cli/SKILL.md`) — agent sees this before attempting, prevents the failure
-3. **CLAUDE.md Critical Gotchas** (below) — YOU see this when writing code, prevents introducing the bug
-
-If a gotcha only exists in one place, it will be missed. The CLI error is for recovery. The skill is for prevention. CLAUDE.md is for development.
-
-### 5. Benchmark-Driven Improvement
-
-The 9-tier benchmark (192 scenarios) is how we measure agent success. Every code change should either:
-- Fix a benchmark failure (most common)
-- Prevent a class of failures (error handling, skill guidance)
-- Enable a new capability (new commands, new recipe types)
-
-See `benchmark/README.md` for architecture and tiers.
+1. **Progressive disclosure in skills** — Cheat sheet (top 30 lines, always loaded) → full SKILL.md → `references/*.md`. The cheat sheet must prevent the top 6 failure modes.
+2. **CLI as agent co-pilot** — `--help` is documentation; error messages are instructions with the fix command; idempotent where possible.
+3. **Built-in features first** — Visual recipes > GenAI recipes > AutoML > Agents/Knowledge Banks > Scenarios > SQL > Python. Python is the escape hatch, not the default.
+4. **Gotchas in three places** — CLI error message (recovery) + SKILL.md cheat sheet (prevention) + CLAUDE.md below (development). All three or it will be missed.
+5. **Benchmark-driven** — 9-tier benchmark (192 scenarios) measures agent success. See `benchmark/README.md`.
 
 ---
 
@@ -78,12 +41,11 @@ See `benchmark/README.md` for architecture and tiers.
 
 When you receive benchmark feedback:
 
-1. **Capability check first** — For every Python recipe the agent wrote, ask: could a visual recipe, model, agent, or knowledge bank do this? If yes, the fix is in skill docs, not CLI code.
+1. **Capability check first** — Could a visual recipe, model, agent, or knowledge bank replace the Python recipe the agent wrote?
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v` (597 tests, all must pass)
-6. **Check `--help`** — `uv run dku <command> --help` must read well to an agent
+5. **Run tests** — `uv run pytest -v`
 
 ---
 
@@ -122,42 +84,7 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code. **Every error must tell the agent what to do next.** |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-### Command Groups (31 + whoami)
-
-| Group | File | Commands |
-|---|---|---|
-| `auth` | `auth_cmd.py` | login, logout, status, list, switch |
-| `config` | `config_cmd.py` | set, get, list, path, variables, set-variables |
-| `project` | `project.py` | list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags |
-| `dataset` | `dataset.py` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema |
-| `recipe` | `recipe.py` | list, get, get-definition, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, list-steps, add-step, remove-step, get-step, enable-step, disable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval |
-| `scenario` | `scenario.py` | list, run, abort, status, create, delete, get-definition, set-definition |
-| `job` | `job.py` | list, run, status, log, abort, wait |
-| `plugin` | `plugin.py` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages |
-| `code-env` | `codeenv.py` | list, get, create, delete, update |
-| `connection` | `connection.py` | list, create, test |
-| `model` | `model.py` | list, get, versions, set-active-version, metrics, delete-version |
-| `ml` | `ml.py` | create-prediction, create-clustering, create-timeseries, create-causal, list, status, train, models, details, deploy, redeploy, settings, algorithms, set-algorithm, delete |
-| `analysis` | `analysis.py` | list, create, get, delete, tasks |
-| `evaluation-store` | `evaluation_store.py` | list, create, get, evaluations, latest, build, delete |
-| `folder` | `folder.py` | list, ls, upload, download |
-| `llm` | `llm.py` | list, completion, embeddings |
-| `webapp` | `webapp.py` | list, start, stop, status, get-definition, set-definition |
-| `dashboard` | `dashboard.py` | list, get, create, delete, get-definition, set-definition |
-| `insight` | `insight.py` | list, get, create, delete, get-definition, set-definition |
-| `macro` | `macro.py` | list, run |
-| `user` | `user.py` | list, create |
-| `flow` | `flow.py` | graph, zones, create-zone, move, propagate, check, sources, successors |
-| `library` | `library.py` | list, read, write, delete, mkdir |
-| `agent` | `agent.py` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-prompt, set-llm |
-| `agent-block` | `agent_block.py` | list, get, add, remove, connect, disconnect, set-start, set-mode, get-graph, set-graph |
-| `agent-tool` | `agent_tool.py` | list, get, create (--dataset, --llm, --kb), set-definition, run, types, delete |
-| `knowledge` | `knowledge.py` | list, create, get, set-definition, build, search, delete |
-| `bundle` | `bundle.py` | list, export, download, import, activate |
-| `api-service` | `api_service.py` | list, create, get, create-package, list-packages |
-| `wiki` | `wiki.py` | list, create, get, update, delete |
-| `sql` | `sql.py` | query |
-| (root) | `main.py` | whoami |
+**31 command groups** — see `skills/dku-cli/references/commands.md` for full reference.
 
 ---
 
@@ -172,179 +99,156 @@ Every command follows the same flow:
 - **Version** is single-sourced from `src/dku_cli/__init__.py` via `[tool.hatch.version]` in `pyproject.toml`.
 - **Error messages are prescriptive** — every `except` block must tell the agent the next command to run, not just what went wrong. Use `exit_with_error()` with `details=[]` for multi-line guidance.
 - **Agent commands resolve by name or ID** — `helpers.resolve_agent()` tries `get_agent(ref)` first (by ID), falls back to `list_agents()` name match. All agent commands use this.
-- **Knowledge bank commands resolve by name or ID** — `helpers.resolve_knowledge_bank()` same pattern as `resolve_agent()`. All knowledge commands (get, set-definition, build, search, delete) use this.
 - **Text input helper** — `helpers.read_text_input(value)` reads from literal string, `@file.txt`, or stdin (`-`). Used by `set-prompt`, same pattern as `set-code`.
 
 ---
 
 ## DevKit: Skills, Agents & Plugin
 
-The DevKit layer lives alongside the CLI source — skills, agents, and reference docs that any AI coding agent auto-discovers:
-
 ```
-skills/                    # Skills (auto-discovered by Claude Code, Codex, Cursor, etc.)
-├── dataiku/               # Platform knowledge router (27 reference docs incl. scaffolding)
-│   ├── SKILL.md           # Routes to correct reference doc based on task
-│   └── references/*.md    # Deep platform knowledge (progressive disclosure layer 3)
-└── dku-cli/               # CLI operations and composability patterns
-    ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
-    └── references/        # CLI command reference
-agents/                    # Subagents for complex tasks
-├── plugin-reviewer.md     # Deep plugin code review
-├── dss-explorer.md        # Explore DSS projects via CLI
-└── tool-designer.md       # Design agent tool schemas
+dataiku-devkit/
+├── skills/
+│   ├── dataiku/               # Platform knowledge router
+│   │   ├── SKILL.md           # Routes to correct reference doc based on task
+│   │   └── references/*.md    # Deep platform knowledge (progressive disclosure layer 3)
+│   └── dku-cli/               # CLI operations and composability patterns
+│       ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
+│       └── references/        # CLI command reference
+└── agents/                    # Subagents for complex tasks
+    ├── plugin-reviewer.md
+    ├── dss-explorer.md
+    └── tool-designer.md
 .claude-plugin/            # Plugin manifest for Claude Code marketplace
 ```
 
 ### Skill Quality Standards
 
-When editing `skills/dku-cli/SKILL.md`:
+When editing `dataiku-devkit/skills/dku-cli/SKILL.md`:
 
 - **Cheat sheet** (top 30 lines): Must prevent the top failure modes. One line per rule. If you add a gotcha to CLAUDE.md, ask: does the cheat sheet need a rule too?
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
-- **Reference docs**: Only for deep knowledge the agent doesn't need on every task. Don't bloat the skill with info that belongs in `references/`.
 
 ### Dataiku Reference Docs
 
-Platform knowledge (27 docs) lives in `skills/dataiku/references/`. The routing table is in `skills/dataiku/SKILL.md` — read the relevant reference doc BEFORE working on that topic.
+Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read the relevant doc BEFORE working on that topic.
+
+| Document | Read when... |
+|----------|--------------|
+| `plugin-structure.md` | Creating a new plugin, plugin.json anatomy |
+| `recipes.md` | Building custom recipes, dataset operations |
+| `webapps.md` | Building webapp dashboards (Flask/Vue/React) |
+| `webapp-pitfalls.md` | Debugging webapp errors, critical mistakes |
+| `llm-tools.md` | Creating agent tools, custom agents |
+| `parameters.md` | Defining plugin parameters (30+ types) |
+| `code-environments.md` | Python dependency management, code env config |
+| `datasets.md` | Building dataset connectors |
+| `macros.md` | Building runnables/macros |
+| `testing.md` | Unit/integration/E2E testing patterns |
+| `best-practices.md` | Architecture, error handling, performance |
+| `plugin-workflow.md` | Git integration, versioning, CI/CD, distribution |
+| `formulas.md` | Formula language, Prepare recipe expressions |
+| `llm-mesh.md` | LLM connections, guardrails, RAG, knowledge banks |
+| `structured-agents.md` | SVA design guide: all 13 block types, graph patterns, state, CLI workflow |
+| `python-api.md` | dataiku/dataikuapi packages, dataset I/O, SQL |
+| `scenarios.md` | Automation, triggers, steps, reporters |
+| `mlops.md` | Model lifecycle, drift detection, API Node |
+| `guardrails.md` | LLM guardrails: blocking, filtering, PII, LLM judge, trace API |
+| `styling.md` | Dataiku brand colors, typography, components |
+| `plugin-architecture.md` | Plugin tiers (1-5), patterns/anti-patterns, official docs gaps |
+| `visual-agent-blocks.md` | BlockHandler, block.json, dual-mode components, agent connectors |
+| `webapp-patterns.md` | Advanced: multi-tab dashboards, filters, caching, React+Vite, Chart.js |
+| `agent-tool-patterns.md` | Advanced: subprocess tools, MCP gateway, OAuth, multi-agent, HITL |
+| `plugin-review-checklist.md` | Reviewing plugins, code review criteria, scoring rubric |
+| `scaffolding.md` | Plugin scaffolding, adding components, deploying, reviewing |
+| `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
+| `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
+| `geospatial.md` | Geospatial data handling, projections, spatial joins |
 
 ---
 
 ## Critical Gotchas
 
-These are real production bugs that have caused hours of debugging. They're here so you never introduce them, and so you always handle them in CLI error messages AND skill docs.
+**Rule: Every gotcha below MUST also exist in `dataiku-devkit/skills/dku-cli/SKILL.md` gotchas table AND be caught with a prescriptive error message in the CLI code.**
 
-**Rule: Every gotcha below MUST also exist in `skills/dku-cli/SKILL.md` gotchas table AND be caught with a prescriptive error message in the CLI code.**
+### Dataset Create + Upload
+`dku dataset create` defaults to Filesystem, which does NOT support `dku dataset upload`. Use `--type UploadedFiles` for anything being uploaded via CLI.
 
-### Dataset Create + Upload (CLI)
+`dku dataset delete` / `dku project delete` have no `--yes` flag. For non-interactive deletion: `echo y | dku dataset delete NAME -P PROJ`.
 
-**`dku dataset create` defaults to Filesystem type, which does NOT support `dku dataset upload`.** You MUST specify `--type UploadedFiles` for datasets that will receive file uploads:
+### Code Recipe Create + Connection
+`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c`. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). Visual recipes don't need `--connection`.
 
-```bash
-# WRONG — creates Filesystem dataset, upload will fail
-dku dataset create my_data -P PROJ
-dku dataset upload my_data data.csv -P PROJ   # ERROR: upload not supported
+### Plugin Webapp Backend
+DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app = Flask(__name__)` — it breaks `/__ping`. Import from `dataiku.customwebapp`, not `dataiku.webapp`. Folder is `webapps/`, not `custom-webapps/`. `webapp.json` needs `hasBackend: true`, `noJSSecurity: true`.
 
-# RIGHT — UploadedFiles type supports upload
-dku dataset create my_data --type UploadedFiles -P PROJ
-dku dataset upload my_data data.csv -P PROJ   # Works
-```
-
-Use Filesystem (default) for recipe outputs that are built, not uploaded. Use UploadedFiles for anything you're uploading via CLI.
-
-`dku dataset delete` and `dku project delete` do not have `--yes` or `-y` flags. For non-interactive deletion, pipe: `echo y | dku dataset delete NAME -P PROJ`.
-
-### Code Recipe Create + Connection (CLI)
-
-**`dku recipe create` for code recipes (python, sql, r, shell, pyspark) fails if the DSS project has no default managed connection.** The error is: `"Need to create output dataset or folder, but creationInfo params are suppressing it"`. Fix: add `--connection` / `-c` to specify where the output dataset is stored:
-
-```bash
-# WRONG — fails if no default managed connection on the project
-dku recipe create my_step -t python -i input_ds --output-ds output_ds -P PROJ
-
-# RIGHT — explicitly specify the connection
-dku recipe create my_step -t python -i input_ds --output-ds output_ds -c filesystem_managed -P PROJ
-```
-
-Use `dku connection list` to find available connections. `filesystem_managed` is the most common default. Visual recipes (`create-join`, `create-group`, etc.) don't need `--connection` — they use `with_existing_output()` and require the output dataset to already exist.
-
-**CLI handling:** `recipe.py` catches `is_connection_required_error()` and suggests the `--connection` flag with an example command.
+### Code Environments on Python 3.11
+NEVER use `installCorePackages: true` — installs `pandas==0.23.4` which fails on Python 3.11. Use `installCorePackages: false` + explicit `requirements.txt`: `pandas>=2.0,<3`, `numpy>=1.22,<3`, `python-dateutil>=2.8,<3`, `requests>=2.28,<3`. Include all four even if not used directly. If `create_code_env()` fails, the broken env persists — delete it before retrying.
 
 ### GREL Formula Quirks
+`log()` = base-10 (no `ln()`). `exp()` IS base-e (inconsistent). `numval()`/`val()` don't work — use direct arithmetic. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
 
-- **`log()` = base-10 logarithm.** There is NO `ln()` function. Use `log(x) * 2.302585092994046` for natural log.
-- **`exp()` IS base-e** (inconsistent with `log()`).
-- **`numval()` / `val()` DO NOT WORK** for type conversion. Direct arithmetic auto-coerces: `"123" * 2` → `246`.
-- **Prepare recipe formula columns default to STRING type.** Downstream SUM/AVG will produce corrupt results. Always run `apply-schema` after adding formula steps, or use `--auto-update-schema` on build.
+### Agent Tool Patterns
+Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_metadata()`. `invoke()` input is at `input.get("input", {})`, not root. Subprocess tools MUST set `stdin=subprocess.DEVNULL` + `env["CI"] = "true"` + `env["NO_COLOR"] = "1"`.
 
-### Chart Column Names Must Match Dataset Schema
+### Chart Column Names
+Not validated server-side — wrong column names save but render blank charts. Verify with `dku dataset schema DS -P PROJ` first. Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles`.
 
-Chart definitions that reference non-existent column names save successfully via the API but render blank charts in the dashboard. There is NO server-side validation. Use `dku insight validate INSIGHT_ID -P PROJ` for client-side column checking, or verify column names with `dku dataset schema DS -P PROJ` before building the chart definition. Dashboard tiles live at `pages[i].grid.tiles`, NOT `pages[i].tiles`.
+### Plugin Deployment via API
+`install_plugin_from_archive()` / `update_from_zip()` return None (use async variants for futures). ZIP must have `plugin.json` at root. Plugin must NOT be in `plugins/dev/` when installing via API.
 
----
-
-## dataikuapi Quirks (Baked Into CLI)
-
-| Quirk | Where Handled |
-|---|---|
-| `list_plugins()` returns dicts, not objects | `plugin.py` — accesses `p["id"]` |
-| `update_from_zip()` returns None | `plugin.py` — no result check |
-| `install_plugin_from_archive()` returns None | `plugin.py` — no result check |
-| `plugin.create_code_env()` returns `DSSFuture` with `{"envName": "..."}` | `plugin.py` — `wait_for_result()` to get env name |
-| `plugin.update_code_env()` returns `DSSFuture` | `plugin.py` — `wait_for_result()` |
-| `plugin.delete(force)` returns `DSSFuture` | `plugin.py` — `wait_for_result()`, guard for None |
-| `DSSPluginSettings.set_code_env(name)` sets `codeEnvName`, needs `.save()` | `plugin.py` — call `save()` after |
-| `plugin.list_usages(project_key)` returns `DSSPluginUsages` with `.get_raw()` | `plugin.py` — `get_raw()["usages"]` |
-| `uploaded_add_file()` returns None | `dataset.py` — no result check |
-| `list_code_envs()` returns dicts | `codeenv.py` — accesses via `.get()` |
-| `get_code_env()` requires `lang` + `name` | `codeenv.py` — defaults `--lang PYTHON` |
-| `list_connections()` is admin-only | `connection.py` — catch 403 |
-| `list_managed_folders()` returns dicts with `id` key | `folder.py` — accesses via `.get()` |
-| LLM completion uses builder pattern | `llm.py` — `new_completion().with_message().execute()` |
-| Project metadata requires separate `get_metadata()` call | `project.py` — fetches per project |
-| Auth info via `get_auth_info()` returns dict | `auth_cmd.py`, `main.py` (whoami) |
-| Prompt/Classify/Summarize recipes are UI-only | No dataikuapi builder — use UI then `set-definition` |
-| `"embed_dataset"` is alias for `"nlp_llm_rag_embedding"` | `recipe.py` — uses canonical name |
-| Eval recipe payload config is post-build | `recipe.py` — `build()` first, then `settings.obj_payload[key] = val` + `save()` |
-| `with_output_knowledge_bank()` accepts str/DSSLLM/DSSLLMListItem | `recipe.py` — passes LLM ID string directly |
-| Block graph is inside `toolsUsingAgentSettings`, not separate type | `mode: "BLOCKS_GRAPH"` + `blocks: [...]` + `startingBlockId` |
-| No public API for webapp creation or deletion | DSS UI only — but `get_settings()`/`save()` works for editing |
-| Webapp code lives in `get_settings().get_raw()["params"]` | `webapp.py` — keys: `html`, `css`, `js`, `python` |
-| `list_dashboards()` returns dicts | `dashboard.py` — accesses via `.get()` |
-| `create_dashboard()` returns object with `.dashboard_id` | `dashboard.py` — NOT `.id` |
-| Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles` | `dashboard.py` — checks `grid.tiles` with fallback |
-| `list_insights()` returns dicts | `insight.py` — accesses via `.get()` |
-| `create_insight()` takes `creation_info` dict, not name string | `insight.py` — builds `{"type": T, "name": N}` |
-| Chart insight dataset binding at `params.datasetSmartName` | `insight.py` — `--dataset` flag sets this |
-| `DSSInsight` uses `.insight_id` not `.id` | `insight.py` — matches `DSSDashboard.dashboard_id` pattern |
-| Insight `settings.save()` uses POST not PUT | `dataikuapi` handles internally — wraps as `{"insight": settings}` |
-| Knowledge Bank access needs `.as_core_knowledge_bank()` | See `skills/dataiku/references/recipes.md` |
-| `DSSKnowledgeBankSettings.get_raw()` returns mutable dict, `save()` does PUT | `knowledge.py` — `set-definition` uses `get_raw().update()` + `save()` |
-| No public eval recipe builder with eval-store output | `recipe.py` — uses `client._perform_json()` |
-| `get_knowledge_bank().get_settings()` hides raw JSON | `knowledge.py` — uses `client._perform_http()` |
-| `get_definition()`/`set_definition()` deprecated on Dataset, Scenario | CLI still uses them (works) — replacement: `get_settings()`/`save()` |
-| `client.get_variables()`/`set_variables()` deprecated | CLI still uses them — replacement: `get_global_variables()` handle |
-| `get_payload()`/`set_payload()` deprecated on CodeRecipeSettings | Replacement: `get_code()`/`set_code()` |
-| `CodeRecipeCreator` has no `with_existing_output()` | `recipe.py` — uses `with_new_output_dataset(name, connection)` when `--connection` provided, `with_output(name)` otherwise |
-| `PrepareRecipeSettings.raw_steps` raises KeyError on non-prepare | `recipe.py` — `_get_prepare_settings()` validates type before accessing |
-| `obj_payload` may be None on fresh prepare recipes | `recipe.py` — `_ensure_steps_array()` defensively initializes `{"steps": []}` |
-| `WindowRecipeSettings` has no helper methods (just `pass`) | `recipe.py` — top-level booleans for `rowNumber`/`rank`/`denseRank`, per-column flags in `values[]` for `lag`/`lead`/`sum`/etc. |
-| `PivotRecipeSettings` has no helper methods (just `pass`) | `recipe.py` — row keys in `obj_payload.explicitIdentifiers`, pivot column/values in `obj_payload.pivots[0].keyColumns` and `.valueColumns` |
-| `SamplingRecipeSettings` has no helper methods (just `pass`) | `recipe.py` — config via `raw_definition.params.selection` (`samplingMethod`, `maxRecords`, `targetRatio`), NOT `obj_payload` |
-| `TopNRecipeSettings` has no helper methods (just `pass`) | `recipe.py` — `obj_payload.firstRows` (actual count), `topN` (display), `keys` (string array for partition), `orders` for rank |
-| `TopNRecipeCreator` extends `DSSRecipeCreator` not `SingleOutputRecipeCreator` | `recipe.py` — uses `with_output()` not `with_existing_output()` |
-| `GroupingRecipeSettings.add_grouping_key()` appends to `keys` list | `recipe.py` — builder takes one key, additional keys added via settings after build |
-| `GroupingRecipeSettings.set_column_aggregations()` has bug: `avg` param is ignored | `recipe.py` — workaround: set `cs["avg"]` directly after calling `set_column_aggregations()` |
-| `set-definition --payload` writes to `obj_payload` (visual recipe config) | `recipe.py` — `--definition` writes to raw_definition (I/O mappings), `--payload` writes to obj_payload |
-| `DSSFlowZone.add_item()` accepts dataset/recipe/folder/model objects | `flow.py` — resolves via `proj.get_dataset(name)` etc. before passing to zone |
-| `DSSAgent.status()` NOT `get_status()` | `agent.py` — uses `agent.status()`. Different from `DSSJob.get_status()` |
-| `get_agent(id)` is lazy — no API call | `helpers.py` — `resolve_agent()` calls `get_settings()` to verify existence |
-| `new_agent_tool()` returns builder, NOT tool | `agent_tool.py` — must call `.create()` on builder |
-| `VectorStoreSearch` creator has `.with_knowledge_bank()` | `agent_tool.py` — only subclass with extra builder method |
-| `systemPrompt` inside `toolsUsingAgentSettings` | `agent.py` — `set-prompt` writes to `ver_raw["toolsUsingAgentSettings"]["systemPrompt"]` |
-| `create_prediction_ml_task()` blocks during guess (5-30s) | `ml.py` — `wait_guess_complete=True` is default, correct for CLI |
-| `mltask.train()` blocks; `start_train()` is async | `ml.py` — `--wait` (default) uses `.train()`, `--no-wait` uses `.start_train()` |
-| `DSSMLTask` stores `.analysis_id` and `.mltask_id` | `ml.py` — both needed for subsequent commands, returned by create-* |
-| `deploy_to_flow()` returns dict `{savedModelId, trainRecipeName}` | `ml.py` — rendered directly |
-| `set_active_version()` returns None (`_perform_empty`) | `model.py` — just output success message |
-| `list_model_evaluation_stores()` returns objects (not dicts) | `evaluation_store.py` — accesses `.id` property |
-| `DSSModelEvaluation` has `.evaluation_id` property | `evaluation_store.py` — not `.id` |
-| `DSSEvaluationStore.build()` has `wait=True` default | `evaluation_store.py` — maps to `--wait/--no-wait` flag |
+### Plugin Structure
+`python-agent-tools/`, `webapps/`, `custom-recipes/`, `python-runnables/`, `python-connectors/`, `python-lib/`, `code-env/`. See `skills/dataiku/references/plugin-structure.md`.
 
 ---
 
-## Command → dataikuapi Mapping
+## dataikuapi Quirks
 
-See `docs/command-api-mapping.md` for the full table mapping every CLI command to its `dataikuapi` call.
+Quirks are annotated inline in each `commands/*.py` file. See `docs/command-api-mapping.md` for the full mapping table. Key patterns:
+
+- `list_*()` usually returns dicts, not objects — access via `.get()`
+- `create_*()` returns objects with non-standard id fields (e.g. `.dashboard_id`, `.insight_id`)
+- Async operations return `DSSFuture` — call `.wait_for_result()`
+- `get_agent(id)` is lazy — call `get_settings()` to verify existence
+
+---
+
+## Pull Request Descriptions
+
+Every PR description must answer: *does this make agents more successful?*
+
+- **What changed** — CLI commands, flags, skill docs, error messages, tests (be specific)
+- **Why** — benchmark feedback / discovered gotcha / PR review finding / skill gap
+- **Agent impact** — what failure mode this prevents or what new capability it unlocks
+- **Test plan** — `uv run pytest -v` + any manual `dku` commands to verify the behavior
+
+---
+
+## Commit Conventions
+
+Uses [Conventional Commits](https://www.conventionalcommits.org/) — enforced by commitlint pre-commit hook on `commit-msg` stage:
+
+```
+feat: add new command group
+fix: handle empty dataset schema
+docs: update skill reference
+test: add recipe creation tests
+chore: bump dependency versions
+```
+
+Hook pipeline also runs: `ruff-check --fix`, `ruff-format`, `uv-lock` sync, trailing-whitespace, detect-private-key.
 
 ---
 
 ## Testing
 
 ```bash
-uv run pytest -v    # 597 tests
+uv run pytest -v                # All tests (must all pass)
+uv run pytest tests/commands/   # Command tests only
+uv run pytest -k "test_dataset" # Filter by name
 ```
+
+CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 
 - Unit tests mock `DSSClient` via `conftest.py` fixtures (`mock_client`, `patch_client`)
 - `patch_client` patches `dku_cli.client.get_client` AND `dku_cli.helpers.get_client`
@@ -352,20 +256,10 @@ uv run pytest -v    # 597 tests
 - Pass `--project PROJ1` in tests instead of patching `resolve_project`
 - Test both table and JSON output modes
 - **Test error messages too** — verify agents get prescriptive guidance on failure
-- No real DSS connection required
 
 ---
 
-## Build, Install & Publish
-
-```bash
-uv sync                    # Install deps
-uv run dku                 # Run locally
-uv build                   # Build wheel
-uv run pytest -v           # Run tests
-```
-
-### Distribution
+## Distribution
 
 **CLI (Python package) — NOT on PyPI. Install from GitHub source:**
 
@@ -387,9 +281,6 @@ uv run pytest -v           # Run tests
 
 | Doc | Description |
 |-----|-------------|
-| `docs/command-api-mapping.md` | Full table mapping every CLI command to its `dataikuapi` call |
-| `docs/block-graph-api.md` | Undocumented block graph API — all 13 block types, connection model, state/scratchpad |
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
-| `skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
-| `skills/dataiku/references/*.md` | 27 platform reference docs — see [Dataiku Reference Docs](#dataiku-reference-docs) table above |
-| `docs/prepare-recipe-audit.md` | Prepare recipe deep dive: dataikuapi API surface, processor catalog, CLI design |
+| `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
+| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |

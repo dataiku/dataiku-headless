@@ -162,9 +162,13 @@ def test_add_block_missing_type(patch_client):
 
 
 def test_add_block_auto_mode_switch(patch_client):
-    """Adding a block to a SIMPLE-mode agent should auto-switch to BLOCKS_GRAPH."""
+    """Adding a block should populate the blocks list and set the starting block.
+
+    On DSS 14.5+, block-graph mode is implicit (no mode field). The add command
+    no longer sets mode=BLOCKS_GRAPH — blocks presence is sufficient.
+    """
     block = json.dumps(
-        {"type": "EMIT_OUTPUT", "id": "first_block", "template": "Hello"}
+        {"type": "GENERATE_OUTPUT", "id": "first_block", "template": "Hello"}
     )
     result = runner.invoke(
         app, ["agent-block", "add", "agent1", "--block", block, "--project", "PROJ1"]
@@ -173,7 +177,8 @@ def test_add_block_auto_mode_switch(patch_client):
 
     raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
     tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    assert tuas["mode"] == "BLOCKS_GRAPH"
+    # blocks list must be populated
+    assert any(b["id"] == "first_block" for b in tuas.get("blocks", []))
     # First block should auto-become starting block
     assert tuas.get("startingBlockId") == "first_block"
 
@@ -638,6 +643,148 @@ def test_set_graph_from_file(patch_client, tmp_path):
 
 
 # ── agent not found ───────────────────────────────────────────────────────
+
+
+# ── Structured agent (DSS 14.5+ — structuredAgentSettings) ──────────────
+
+
+def test_list_blocks_structured_agent(patch_client):
+    """Structured agents use structuredAgentSettings, not toolsUsingAgentSettings."""
+    result = runner.invoke(
+        app, ["agent-block", "list", "structured_agent", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "main_loop" in result.output
+    assert "output" in result.output
+
+
+def test_get_graph_structured_agent(patch_client):
+    """get-graph should return structuredAgentSettings for structured agents."""
+    result = runner.invoke(
+        app, ["agent-block", "get-graph", "structured_agent", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["mode"] == "BLOCKS_GRAPH"
+    assert len(parsed["blocks"]) == 2
+    assert parsed["blocks"][0]["type"] == "CORE_LOOP"
+
+
+def test_set_graph_structured_agent(patch_client):
+    """set-graph should write to structuredAgentSettings for structured agents."""
+    new_graph = json.dumps(
+        {
+            "mode": "BLOCKS_GRAPH",
+            "startingBlockId": "loop",
+            "blocks": [
+                {"type": "CORE_LOOP", "id": "loop", "defaultNextBlock": "out"},
+                {"type": "GENERATE_OUTPUT", "id": "out", "template": "Done"},
+            ],
+            "tools": [],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "set-graph",
+            "structured_agent",
+            "--definition",
+            new_graph,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    # Must write to structuredAgentSettings, NOT toolsUsingAgentSettings
+    cfg = raw["versions"][0]["structuredAgentSettings"]
+    assert cfg["mode"] == "BLOCKS_GRAPH"
+    assert len(cfg["blocks"]) == 2
+    assert cfg["blocks"][0]["type"] == "CORE_LOOP"
+
+
+def test_connect_core_loop_uses_default_next_block(patch_client):
+    """CORE_LOOP blocks (DSS 14.5+) must use defaultNextBlock, same as STANDARD_REACT."""
+    # Add a CORE_LOOP block to the existing structured agent
+    block = json.dumps({"type": "CORE_LOOP", "id": "new_loop", "tools": []})
+    runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "connect",
+            "structured_agent",
+            "--from",
+            "new_loop",
+            "--to",
+            "output",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    loop = [b for b in blocks if b["id"] == "new_loop"][0]
+    assert loop.get("defaultNextBlock") == "output"
+    assert "nextBlock" not in loop
+
+
+def test_add_block_structured_agent(patch_client):
+    """Adding blocks to structured agent should work via structuredAgentSettings."""
+    block = json.dumps({"type": "LLM_REQUEST", "id": "classify", "llmId": "llm1"})
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    ids = [b["id"] for b in blocks]
+    assert "classify" in ids
+
+
+# ── agent not found ───────────────────────────────────────────────────
 
 
 def test_list_blocks_agent_not_found(patch_client):

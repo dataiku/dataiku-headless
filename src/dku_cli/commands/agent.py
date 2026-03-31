@@ -193,9 +193,22 @@ def add_tool(
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
 
-        # Use dataikuapi's version settings API (appends {"toolRef": tool_id})
+        # Try dataikuapi's version settings API (works for TOOLS_USING_AGENT only)
         ver_settings = settings.get_version_settings(active_ver_id)
-        ver_settings.add_tool(tool_id)
+        try:
+            ver_settings.add_tool(tool_id)
+        except (ValueError, AttributeError):
+            # Structured agent — add tool to raw settings directly
+            ver_raw = ver_settings.get_raw()
+            cfg_key = (
+                "structuredAgentSettings"
+                if "structuredAgentSettings" in ver_raw
+                else "toolsUsingAgentSettings"
+            )
+            if cfg_key not in ver_raw:
+                ver_raw[cfg_key] = {}
+            tools = ver_raw[cfg_key].setdefault("tools", [])
+            tools.append({"toolRef": tool_id})
         settings.save()
         success(f"Added tool '{tool_id}' to agent '{agent_id}'")
     except Exception as e:
@@ -239,14 +252,23 @@ def set_prompt(
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
 
-        # Set systemPrompt on the active version's toolsUsingAgentSettings
+        # Detect agent settings key: structuredAgentSettings (DSS 14.5+)
+        # vs toolsUsingAgentSettings (simple agents)
         ver_settings = settings.get_version_settings(active_ver_id)
         raw = ver_settings.get_raw()
-        if "toolsUsingAgentSettings" not in raw:
-            raw["toolsUsingAgentSettings"] = {}
-        raw["toolsUsingAgentSettings"]["systemPrompt"] = prompt_text
+        if "structuredAgentSettings" in raw:
+            cfg_key = "structuredAgentSettings"
+            prompt_field = "systemPromptAppend"
+        else:
+            cfg_key = "toolsUsingAgentSettings"
+            prompt_field = "systemPrompt"
+        if cfg_key not in raw:
+            raw[cfg_key] = {}
+        raw[cfg_key][prompt_field] = prompt_text
         settings.save()
-        success(f"Set system prompt on agent '{agent_id}' ({len(prompt_text)} chars)")
+        success(
+            f"Set system prompt on agent '{agent_id}' ({len(prompt_text)} chars, field={prompt_field})"
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -282,9 +304,20 @@ def set_llm(
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
 
-        # Use dataikuapi's version settings API (sets toolsUsingAgentSettings.llmId)
+        # Try dataikuapi's property setter (works for TOOLS_USING_AGENT only)
         ver_settings = settings.get_version_settings(active_ver_id)
-        ver_settings.llm_id = llm_id
+        try:
+            ver_settings.llm_id = llm_id
+        except (ValueError, AttributeError):
+            # Structured agent — dataikuapi property raises ValueError.
+            # Fall back to raw dict mutation.
+            ver_raw = ver_settings.get_raw()
+            if "structuredAgentSettings" in ver_raw:
+                ver_raw["structuredAgentSettings"]["llmId"] = llm_id
+            else:
+                if "toolsUsingAgentSettings" not in ver_raw:
+                    ver_raw["toolsUsingAgentSettings"] = {}
+                ver_raw["toolsUsingAgentSettings"]["llmId"] = llm_id
         settings.save()
         success(f"Set LLM '{llm_id}' on agent '{agent_id}'")
     except Exception as e:

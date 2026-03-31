@@ -114,13 +114,13 @@ def mock_client():
     lib_file_mock.delete.return_value = None
     library_mock.get_file.return_value = lib_file_mock
 
-    # add_file() returns DSSLibraryFile
-    library_mock.add_file.return_value = lib_file_mock
+    # add_file() — Real dataikuapi returns None
+    library_mock.add_file.return_value = None  # Real dataikuapi returns None
 
     # get_folder()/add_folder() return DSSLibraryFolder
     lib_folder_mock = MagicMock()
     lib_folder_mock.list.return_value = [lib_item1, lib_item2]
-    lib_folder_mock.add_file.return_value = lib_file_mock
+    lib_folder_mock.add_file.return_value = None  # Real dataikuapi returns None
     lib_folder_mock.add_folder.return_value = lib_folder_mock
     lib_folder_mock.get_folder.return_value = lib_folder_mock
     library_mock.get_folder.return_value = lib_folder_mock
@@ -243,6 +243,8 @@ def mock_client():
 
     # obj_payload for GenAI recipe post-creation settings
     recipe_settings.obj_payload = {}
+    # Provide raw_params fallback for _get_recipe_payload (obj_payload may be read-only in real API)
+    recipe_settings.raw_params = {"payload": {}}
 
     # Dataset mocks — iter_rows returns lists (not dicts)
     dataset_mock = MagicMock()
@@ -284,6 +286,88 @@ def mock_client():
     autodetect_result.save.return_value = None
     dataset_mock.autodetect_settings.return_value = autodetect_result
 
+    # Data Quality mocks
+    dq_ruleset = MagicMock()
+
+    dq_rule1_raw = {
+        "id": "rule1",
+        "displayName": "Record count check",
+        "type": "RecordCountInRangeRule",
+        "enabled": True,
+        "softMinimum": 10,
+        "softMinimumEnabled": True,
+    }
+    dq_rule2_raw = {
+        "id": "rule2",
+        "displayName": "Country not empty",
+        "type": "ColumnNotEmptyRule",
+        "enabled": True,
+        "column": "CountryISO",
+    }
+
+    dq_rule_obj1 = MagicMock()
+    dq_rule_obj1.id = "rule1"
+    dq_rule_obj1.name = "Record count check"
+    dq_rule_obj1.get_raw.return_value = dq_rule1_raw
+    dq_rule_obj1.delete.return_value = None
+    dq_rule_obj1.compute.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"status": "OK"})
+    )
+
+    dq_rule_obj2 = MagicMock()
+    dq_rule_obj2.id = "rule2"
+    dq_rule_obj2.name = "Country not empty"
+    dq_rule_obj2.get_raw.return_value = dq_rule2_raw
+    dq_rule_obj2.delete.return_value = None
+
+    def _dq_list_rules(as_type="objects"):
+        if as_type == "dict":
+            return [dq_rule1_raw, dq_rule2_raw]
+        return [dq_rule_obj1, dq_rule_obj2]
+
+    dq_ruleset.list_rules.side_effect = _dq_list_rules
+
+    new_dq_rule = MagicMock()
+    new_dq_rule.id = "new_rule_1"
+    new_dq_rule.name = "New Rule"
+    new_dq_rule.get_raw.return_value = {
+        "id": "new_rule_1",
+        "displayName": "New Rule",
+        "type": "RecordCountInRangeRule",
+    }
+    dq_ruleset.create_rule.return_value = new_dq_rule
+
+    dq_ruleset.compute_rules.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"status": "OK"})
+    )
+    dq_ruleset.get_status.return_value = {"status": "OK", "outcome": "OK"}
+
+    dq_result1 = MagicMock()
+    dq_result1.id = "rule1"
+    dq_result1.name = "Record count check"
+    dq_result1.outcome = "OK"
+    dq_result1.message = "Record count: 79 >= 10"
+    dq_result1.compute_date = "2026-03-27T00:00:00"
+    dq_result1.run_origin = "MANUAL"
+    dq_result1.partition = "NP"
+    dq_result1.get_raw.return_value = {
+        "id": "rule1",
+        "name": "Record count check",
+        "outcome": "OK",
+        "message": "Record count: 79 >= 10",
+        "computeDate": "2026-03-27T00:00:00",
+        "runOrigin": "MANUAL",
+        "partition": "NP",
+    }
+    dq_ruleset.get_last_rules_results.return_value = [dq_result1]
+
+    dataset_mock.get_data_quality_rules.return_value = dq_ruleset
+
+    # Project-level DQ status
+    proj1.get_data_quality_status.return_value = {
+        "ds1": {"status": "OK", "lastCheck": "2026-03-27"},
+    }
+
     proj1.get_dataset.return_value = dataset_mock
 
     # create_dataset returns a dataset mock
@@ -301,22 +385,18 @@ def mock_client():
 
     # Scenario run/abort/status/delete/definition mocks
     scenario_mock = MagicMock()
-    scenario_mock.run.return_value = MagicMock(
-        wait_for_result=MagicMock(
-            return_value={"scenarioRun": {"result": {"outcome": "SUCCESS"}}}
-        )
-    )
+    # Real DSSTriggerFire may not have wait_for_result() — simulate that
+    trigger_fire_mock = MagicMock(spec=[])  # empty spec = no auto-created attrs
+    scenario_mock.run.return_value = trigger_fire_mock
     scenario_mock.abort.return_value = None
     scenario_mock.delete.return_value = None
 
-    # get_definition returns a settings object with .get_raw()
-    scenario_def_mock = MagicMock()
-    scenario_def_mock.get_raw.return_value = {
+    # Real dataikuapi returns a plain dict from get_definition(), not an object with .get_raw()
+    scenario_mock.get_definition.return_value = {
         "type": "step_based",
         "name": "Build All",
         "params": {},
     }
-    scenario_mock.get_definition.return_value = scenario_def_mock
     scenario_mock.set_definition.return_value = None
 
     # get_last_runs returns DSSScenarioRun objects with properties
@@ -685,12 +765,87 @@ def mock_client():
     agent_blocks_mock.delete.return_value = None
     agent_blocks_mock.id = "agent_blocks"
 
+    # Structured Agent (DSS 14.5+ — structuredAgentSettings)
+    structured_agent_mock = MagicMock()
+    structured_agent_version_data = {
+        "versionId": "v1",
+        "structuredAgentSettings": {
+            "mode": "BLOCKS_GRAPH",
+            "startingBlockId": "main_loop",
+            "blocks": [
+                {
+                    "type": "CORE_LOOP",
+                    "id": "main_loop",
+                    "defaultNextBlock": "output",
+                    "tools": [],
+                },
+                {
+                    "type": "GENERATE_OUTPUT",
+                    "id": "output",
+                    "template": "Done",
+                },
+            ],
+            "tools": [],
+        },
+    }
+    structured_agent_raw = {
+        "projectKey": "PROJ1",
+        "id": "structured_agent",
+        "name": "Structured Agent",
+        "type": "STRUCTURED_AGENT",
+        "activeVersion": "v1",
+        "versions": [structured_agent_version_data],
+    }
+    structured_agent_settings = MagicMock()
+    structured_agent_settings.get_raw.return_value = structured_agent_raw
+    structured_agent_settings.active_version = "v1"
+    structured_agent_settings.type = "STRUCTURED_AGENT"
+    structured_agent_settings.get_version_ids.return_value = ["v1"]
+    structured_agent_settings.save.return_value = None
+
+    structured_agent_ver_settings = MagicMock()
+    structured_agent_ver_settings.get_raw.return_value = structured_agent_version_data
+
+    # llm_id property raises ValueError for structured agents (no dataikuapi support)
+    def _structured_set_llm_id(value):
+        raise ValueError("Cannot set llm_id on structured agent via property")
+
+    type(structured_agent_ver_settings).llm_id = property(
+        lambda self: None,
+        lambda self, v: _structured_set_llm_id(v),
+    )
+
+    # add_tool raises ValueError for structured agents
+    def _structured_add_tool(tool):
+        raise ValueError("Cannot add tool on structured agent via method")
+
+    structured_agent_ver_settings.add_tool = _structured_add_tool
+
+    structured_agent_settings.get_version_settings.return_value = (
+        structured_agent_ver_settings
+    )
+
+    structured_agent_mock.get_settings.return_value = structured_agent_settings
+    structured_agent_mock.status.return_value = {"state": "RUNNING"}
+    structured_agent_mock.delete.return_value = None
+    structured_agent_mock.wake_up.return_value = None
+    structured_agent_mock.shutdown.return_value = None
+    structured_agent_mock.id = "structured_agent"
+
+    # Include structured_agent in list_agents
+    proj1.list_agents.return_value = [
+        {"id": "agent1", "name": "My Agent"},
+        {"id": "structured_agent", "name": "Structured Agent"},
+    ]
+
     # Route get_agent by agent_id
     def _get_agent(agent_id):
         if agent_id == "agent1":
             return agent_mock
         if agent_id == "agent_blocks":
             return agent_blocks_mock
+        if agent_id == "structured_agent":
+            return structured_agent_mock
         raise Exception(f"NotFoundException: Agent {agent_id} does not exist")
 
     proj1.get_agent.side_effect = _get_agent

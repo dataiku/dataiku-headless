@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
@@ -65,7 +65,7 @@ def test_knowledge_create(patch_client):
     )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").create_knowledge_bank.assert_called_once_with(
-        "My KB", "FAISS", "openai:conn:text-embedding-3-small"
+        "My KB", "CHROMA", "openai:conn:text-embedding-3-small"
     )
 
 
@@ -243,9 +243,7 @@ def test_knowledge_delete(patch_client):
 def test_knowledge_build_by_name(patch_client):
     """Passing a name instead of ID should resolve via list_knowledge_banks."""
     proj, kb_mock = _setup_name_resolution(patch_client)
-    result = runner.invoke(
-        app, ["knowledge", "build", "My KB", "--project", "PROJ1"]
-    )
+    result = runner.invoke(app, ["knowledge", "build", "My KB", "--project", "PROJ1"])
     assert result.exit_code == 0
     # Should have resolved "My KB" → "kb1" via list_knowledge_banks fallback
     proj.list_knowledge_banks.assert_called_once()
@@ -266,9 +264,7 @@ def test_knowledge_search_by_name(patch_client):
 def test_knowledge_delete_by_name(patch_client):
     """Delete command resolves by name."""
     proj, kb_mock = _setup_name_resolution(patch_client)
-    result = runner.invoke(
-        app, ["knowledge", "delete", "My KB", "--project", "PROJ1"]
-    )
+    result = runner.invoke(app, ["knowledge", "delete", "My KB", "--project", "PROJ1"])
     assert result.exit_code == 0
     kb_mock.delete.assert_called_once()
 

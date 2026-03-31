@@ -20,6 +20,7 @@ from dku_cli.commands import (
     connection,
     dashboard,
     dataset,
+    dq,
     evaluation_store,
     flow,
     folder,
@@ -58,6 +59,7 @@ app.add_typer(api_service.app, name="api-service")
 app.add_typer(auth_cmd.app, name="auth")
 app.add_typer(bundle.app, name="bundle")
 app.add_typer(dashboard.app, name="dashboard")
+app.add_typer(dq.app, name="dq")
 app.add_typer(evaluation_store.app, name="evaluation-store")
 app.add_typer(project.app, name="project")
 app.add_typer(dataset.app, name="dataset")

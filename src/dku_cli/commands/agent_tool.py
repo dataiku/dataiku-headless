@@ -72,7 +72,7 @@ def create(
         None,
         "--dataset",
         "--ds",
-        help="Dataset name (sets datasetSmartName for DatasetRowLookup)",
+        help="Dataset name for DatasetRowLookup (auto-detects field name per DSS version)",
     ),
     llm: str | None = typer.Option(
         None,
@@ -118,7 +118,16 @@ def create(
         # Post-creation param configuration for built-in types
         if dataset and tool_type == "DatasetRowLookup":
             settings = tool.get_settings()
-            settings.params["datasetSmartName"] = dataset
+            # Detect which field the server uses (datasetRef in DSS 14.5+,
+            # datasetSmartName in older versions). Write to existing field,
+            # or both if fresh tool for version compatibility.
+            if "datasetRef" in settings.params:
+                settings.params["datasetRef"] = dataset
+            elif "datasetSmartName" in settings.params:
+                settings.params["datasetSmartName"] = dataset
+            else:
+                settings.params["datasetSmartName"] = dataset
+                settings.params["datasetRef"] = dataset
             settings.save()
         elif dataset:
             exit_with_error(
@@ -184,10 +193,19 @@ def types(
 
     These are the type names accepted by 'dku agent-tool create --type TYPE'.
     For custom Python tools, build a plugin with python-agent-tools/ and use
-    the type format: Custom_agent_tool_<plugin-id>_<tool-id>
+    the type format: Custom_agent_tool_<plugin-id>_<tool-folder-name>
+
+    Example: plugin 'my-tools' with tool folder 'web-search' →
+      dku agent-tool create "Web Search" --type Custom_agent_tool_my-tools_web-search -P PROJ
     """
     output = resolve_output_format(output)
     data = [{"type": t, "description": d} for t, d in BUILTIN_TOOL_TYPES.items()]
+    data.append(
+        {
+            "type": "Custom_agent_tool_<plugin-id>_<tool-folder>",
+            "description": "Plugin-based tool (build a plugin with python-agent-tools/)",
+        }
+    )
     render(
         data, ["type", "description"], output_format=output, title="Agent Tool Types"
     )
@@ -233,7 +251,21 @@ def run(
         tool = proj.get_agent_tool(tool_id)
 
         input_dict = read_json_input(input_data) or {}
-        result = tool.run(input_dict)
+        try:
+            result = tool.run(input_dict)
+        except Exception as e:
+            if "NullPointerException" in str(e) or "null" in str(e).lower():
+                exit_with_error(
+                    f"Agent tool '{tool_id}' failed with a server-side null error.",
+                    code="tool_run_error",
+                    details=[
+                        "If this is a VectorStoreSearch tool, the knowledge bank must be built first.",
+                        f"Build it with: dku knowledge build <KB_ID> --wait -P {project_key}",
+                        "To check knowledge banks: dku knowledge list -P "
+                        + project_key,
+                    ],
+                )
+            raise
 
         render_raw(result, output_format=output)
     except Exception as e:

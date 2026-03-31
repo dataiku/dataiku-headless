@@ -62,10 +62,17 @@ def test_library_write_inline(patch_client):
 
 
 def test_library_write_creates_new_file(patch_client):
-    """When get_file raises, write should create the file via folder.add_file."""
+    """When get_file returns None (file missing), write creates via add_file."""
+    from unittest.mock import MagicMock
+
     proj = patch_client.get_project("PROJ1")
     lib = proj.get_library()
-    lib.get_file.side_effect = Exception("not found")
+    # Real dataikuapi: get_file returns None for missing files (does NOT raise)
+    lib.get_file.return_value = None
+    new_file = MagicMock()
+    new_file.write.return_value = None
+    lib_folder = lib.get_folder.return_value
+    lib_folder.add_file.return_value = new_file
     result = runner.invoke(
         app,
         [
@@ -79,8 +86,7 @@ def test_library_write_creates_new_file(patch_client):
         ],
     )
     assert result.exit_code == 0
-    # Restores side_effect for other tests
-    lib.get_file.side_effect = None
+    new_file.write.assert_called_once_with(b"print('hello')")
 
 
 def test_library_write_from_file(patch_client, tmp_path):

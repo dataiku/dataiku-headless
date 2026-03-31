@@ -25,15 +25,27 @@ def list_bundles(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        bundles = proj.list_exported_bundles()
+        bundles_raw = proj.list_exported_bundles()
+
+        # dataikuapi may return a dict {"bundles": [...]} or a list directly
+        if isinstance(bundles_raw, dict) and "bundles" in bundles_raw:
+            bundles = bundles_raw["bundles"]
+        elif isinstance(bundles_raw, list):
+            bundles = bundles_raw
+        else:
+            bundles = list(bundles_raw) if bundles_raw else []
 
         data = []
         for b in bundles:
-            data.append(
-                {
-                    "id": b.get("id", "") if isinstance(b, dict) else str(b),
-                }
-            )
+            if isinstance(b, dict):
+                bid = b.get("id", b.get("bundleId", b.get("name", str(b))))
+            elif hasattr(b, "id"):
+                bid = b.id
+            elif hasattr(b, "bundleId"):
+                bid = b.bundleId
+            else:
+                bid = str(b)
+            data.append({"id": bid})
 
         render(
             data,

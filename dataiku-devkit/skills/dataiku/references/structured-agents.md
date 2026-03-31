@@ -5,6 +5,11 @@ Build production-grade AI agents using Dataiku's deterministic block graph. Unli
 > **API reference:** For the JSON schema of every block type, see `docs/block-graph-api.md`.
 > **CLI reference:** For `dku agent-block` commands, see `skills/dku-cli/references/commands.md`.
 > **Custom plugin blocks:** For building your own block types as plugins, see `references/visual-agent-blocks.md`.
+>
+> **Version caveat:** Block type names differ across DSS versions. DSS 13.x uses `STANDARD_REACT` / `EMIT_OUTPUT`.
+> DSS 14.5+ uses `CORE_LOOP` / `GENERATE_OUTPUT`. Settings path: `TOOLS_USING_AGENT` → `toolsUsingAgentSettings`,
+> `STRUCTURED_AGENT` → `structuredAgentSettings`. The CLI auto-detects the correct path.
+> **Always inspect a working agent on your target instance before building.**
 
 ---
 
@@ -24,16 +29,19 @@ Build production-grade AI agents using Dataiku's deterministic block graph. Unli
 
 ## Architecture: How SVAs Work
 
-SVAs are `TOOLS_USING_AGENT` agents with `mode: "BLOCKS_GRAPH"`. Blocks are a **flat list** with connections via `nextBlock` fields — no nested graph structure.
+SVAs are `TOOLS_USING_AGENT` agents. Blocks are a **flat list** with connections via `nextBlock` fields — no nested graph structure.
+
+**DSS 14.5+:** blocks live in `structuredAgentSettings` (not `toolsUsingAgentSettings`). There is no `mode` field — block-graph mode is implicit when blocks exist.
 
 ```
-Agent Settings
-└─ versions[0].toolsUsingAgentSettings
-   ├─ mode: "BLOCKS_GRAPH"
+Agent Settings (DSS 14.5+)
+└─ versions[0].structuredAgentSettings
    ├─ startingBlockId: "first_block"
    ├─ blocks: [ ...flat list of block definitions... ]
    └─ nextTurnBehaviour: "STARTING_BLOCK" | "SMART" | "LAST_BLOCK"
 ```
+
+**Important:** Always run `dku agent get <id> -o json -P PROJ` on a working agent to confirm the actual path before building — it differs from older DSS versions.
 
 **Two storage layers:**
 - **State** (`state["key"]`) — Persistent across the turn. Shared between all blocks. Use for accumulated results, final outputs.
@@ -41,14 +49,14 @@ Agent Settings
 
 ---
 
-## The 13 Block Types — When and Why
+## Block Types (19 in DSS 14.5+) — When and Why
 
 ### Decision Framework
 
 ```
 Need to call an LLM?
 ├─ No tools needed → LLM_REQUEST
-├─ Tools, LLM decides when → STANDARD_REACT
+├─ Tools, LLM decides when → STANDARD_REACT / CORE_LOOP
 ├─ Must call one specific tool → MANDATORY_TOOL_CALL
 └─ Multi-perspective analysis → REFLECTION
 
@@ -62,12 +70,20 @@ Need control flow?
 └─ Custom logic / dynamic routing → PYTHON_CODE
 
 Need data management?
-└─ Initialize or update variables → SET_STATE_ENTRIES
+├─ Initialize or update state → SET_STATE_ENTRIES
+├─ Initialize or update scratchpad → SET_SCRATCHPAD_ENTRIES
+└─ Compress long conversations → CONTEXT_COMPRESSION
 
 Need output?
-├─ Message to user → EMIT_OUTPUT
+├─ Message to user → EMIT_OUTPUT / GENERATE_OUTPUT
 ├─ Document (DOCX/PDF) → GENERATE_ARTIFACT
 └─ Hand off to another agent → DELEGATE_TO_OTHER_AGENT
+
+Need prompt rewriting?
+└─ Modify user message before LLM → EDIT_LAST_USER_MESSAGE
+
+Need plugin-defined behavior?
+└─ Custom block from plugin → CUSTOM (see references/visual-agent-blocks.md)
 ```
 
 ---
@@ -469,6 +485,22 @@ Remediation items: {{ state.all_results | selectattr('status', 'ne', 'ALIGNED') 
 ```
 
 **DESIGN RULE:** All data the template references must be in state/scratchpad BEFORE this block runs. Build the template last — design the data pipeline first.
+
+---
+
+### DSS 14.5+ Additional Block Types
+
+The following block types were added in DSS 14.5+:
+
+**14. CUSTOM** — Plugin-defined blocks. Executes a `BlockHandler` subclass from an installed plugin. Use when you need behavior that no built-in block provides. See `references/visual-agent-blocks.md` for the full plugin development guide.
+
+**15. CONTEXT_COMPRESSION** — Compresses conversation context to reduce token count in long conversations. Place before a CORE_LOOP to keep context within token budgets.
+
+**16. SET_SCRATCHPAD_ENTRIES** — Like SET_STATE_ENTRIES but targets the temporary scratchpad instead of persistent state. Use for intermediate values scoped to the current execution branch.
+
+**17. EDIT_LAST_USER_MESSAGE** — Rewrites or augments the last user message before LLM processing. Use for prompt injection, context augmentation, or query rewriting.
+
+**Aliases:** `CORE_LOOP` = `STANDARD_REACT` (DSS 14.5+ name). `GENERATE_OUTPUT` = `EMIT_OUTPUT` (DSS 14.5+ name). Both old and new names are accepted.
 
 ---
 

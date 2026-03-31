@@ -351,15 +351,16 @@ def models(
             snippet = mltask.get_trained_model_snippet(id=mid)
             data.append(
                 {
-                    "model_id": mid,
+                    "id": mid,
                     "algorithm": snippet.get("algorithm", ""),
                     "session": snippet.get("sessionId", ""),
+                    "state": snippet.get("trainInfo", {}).get("state", ""),
                 }
             )
 
         render(
             data,
-            ["model_id", "algorithm", "session"],
+            ["id", "algorithm", "session", "state"],
             output_format=output,
             title=f"Trained Models ({mltask_id})",
         )
@@ -454,6 +455,21 @@ def deploy(
         sm_id = result.get("savedModelId", "")
         success(f"Deployed to flow. Saved model: {sm_id}")
     except Exception as e:
+        if "non-DONE model" in str(e):
+            exit_with_error(
+                f"Model '{model_id}' is not in DONE state and cannot be deployed.",
+                details=[
+                    f"Check model states: dku ml models {analysis_id} {mltask_id} -P {project} (look for STATE=DONE)",
+                    "If training failed silently, try retraining: dku ml train "
+                    + analysis_id
+                    + " "
+                    + mltask_id
+                    + " -P "
+                    + (project or "PROJ"),
+                    "If the model trained on a small dataset, XGBoost/GBT may fail — try RANDOM_FOREST_REGRESSION or RIDGE_REGRESSION",
+                    "Deploy workaround: dku ml deploy ... --no-redo-optimization (skips optimization on full train set)",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -566,13 +582,11 @@ def algorithms(
         all_algos = task_settings.get_all_possible_algorithm_names()
         enabled = set(task_settings.get_enabled_algorithm_names())
 
-        data = [
-            {"algorithm": a, "enabled": str(a in enabled)} for a in sorted(all_algos)
-        ]
+        data = [{"name": a, "enabled": str(a in enabled)} for a in sorted(all_algos)]
 
         render(
             data,
-            ["algorithm", "enabled"],
+            ["name", "enabled"],
             output_format=output,
             title=f"Algorithms ({mltask_id})",
         )

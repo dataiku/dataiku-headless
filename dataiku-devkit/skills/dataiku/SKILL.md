@@ -187,6 +187,7 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
 | **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
+| **Geospatial** | Geo data types (geopoint/geometry), geo join recipe, fuzzy join, prepare processors, GREL geo formulas | `references/geospatial.md` |
 
 ## Instructions
 

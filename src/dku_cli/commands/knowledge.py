@@ -64,6 +64,29 @@ def _get_knowledge_bank_raw_settings(client, project_key: str, kb_id: str) -> di
         raise
 
 
+def _serialize_search_documents(documents: list) -> list:
+    """Convert KB search result documents to JSON-serializable dicts.
+
+    DSSKnowledgeBankSearchResultDocument objects have .text, .score, .metadata
+    attributes but are not directly JSON-serializable.
+    """
+    serialized = []
+    for doc in documents:
+        if isinstance(doc, dict):
+            serialized.append(doc)
+        else:
+            entry = {}
+            for attr in ("text", "score", "metadata", "content"):
+                if hasattr(doc, attr):
+                    val = getattr(doc, attr)
+                    if val is not None:
+                        entry[attr] = val
+            if not entry:
+                entry["content"] = str(doc)
+            serialized.append(entry)
+    return serialized
+
+
 @app.command("list")
 def list_knowledge_banks(
     ctx: typer.Context,
@@ -108,9 +131,9 @@ def create(
         "Find IDs: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION",
     ),
     vector_store_type: str = typer.Option(
-        "FAISS",
+        "CHROMA",
         "--vector-store-type",
-        help="Vector store type (FAISS, CHROMA, PINECONE)",
+        help="Vector store type (CHROMA, FAISS, PINECONE)",
     ),
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if knowledge bank already exists"
@@ -212,7 +235,22 @@ def build(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         kb = resolve_knowledge_bank(proj, kb_id)
-        future = kb.build()
+        try:
+            future = kb.build()
+        except Exception as e:
+            if "not found or not buildable" in str(
+                e
+            ).lower() or "Computable not found" in str(e):
+                exit_with_error(
+                    f"Knowledge bank '{kb_id}' cannot be built — no data source is configured.",
+                    code="not_buildable",
+                    details=[
+                        "Knowledge banks require a document source before building.",
+                        f"Add one with: dku recipe create-embed RECIPE_NAME --input DS --output-kb {kb_id} --embedding-llm LLM_ID --embed-column COLUMN -P {project_key}",
+                        f"Find embedding models with: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P {project_key}",
+                    ],
+                )
+            raise
 
         if wait:
             future.wait_for_result()
@@ -243,7 +281,28 @@ def search(
         proj = client.get_project(project_key)
         kb = resolve_knowledge_bank(proj, kb_id)
         results = kb.search(query, max_documents=max_results)
-        render_raw(results, output_format=output)
+
+        # DSSKnowledgeBankSearchResult is not directly JSON-serializable.
+        # Extract raw data defensively depending on return type.
+        if isinstance(results, dict):
+            data = results
+        elif hasattr(results, "documents"):
+            # Real dataikuapi: DSSKnowledgeBankSearchResult.documents is a list
+            # of DSSKnowledgeBankSearchResultDocument objects (also not serializable).
+            data = _serialize_search_documents(results.documents)
+        elif hasattr(results, "get_raw"):
+            data = results.get_raw()
+        elif hasattr(results, "raw"):
+            data = results.raw
+        elif isinstance(results, list):
+            data = _serialize_search_documents(results)
+        else:
+            try:
+                data = list(results)
+            except TypeError:
+                data = str(results)
+
+        render_raw(data, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

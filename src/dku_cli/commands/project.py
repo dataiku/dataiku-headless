@@ -90,6 +90,170 @@ def get(
 
 
 @app.command()
+def inspect(
+    ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """One-shot project summary: datasets, recipes, flow, scenarios, jobs, wiki, variables."""
+    key = project_key or project
+    key = resolve_project(key)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(key)
+        meta = proj.get_metadata()
+
+        # Datasets
+        datasets = proj.list_datasets()
+        ds_info = [
+            {"name": d.get("name", d.get("id", "")), "type": d.get("type", "")}
+            for d in datasets
+        ]
+
+        # Recipes
+        recipes = proj.list_recipes()
+        recipe_info = [
+            {"name": r.get("name", ""), "type": r.get("type", "")} for r in recipes
+        ]
+
+        # Scenarios
+        scenarios = proj.list_scenarios()
+        scen_info = []
+        for s in scenarios:
+            scen_info.append(
+                {
+                    "id": s.get("id", ""),
+                    "name": s.get("name", ""),
+                    "active": s.get("active", False),
+                }
+            )
+
+        # Flow sources
+        try:
+            flow = proj.get_flow()
+            graph_obj = flow.get_graph()
+            downstream_nodes: set = set()
+            for node_id, node in graph_obj.nodes.items():
+                downstream_nodes.update(node.get("successors", []))
+            source_nodes = [
+                node_id
+                for node_id, node in graph_obj.nodes.items()
+                if node_id not in downstream_nodes
+                and node.get("type") == "COMPUTABLE_DATASET"
+            ]
+        except Exception:
+            source_nodes = []
+
+        # Jobs (last 5)
+        jobs = proj.list_jobs()
+        job_info = []
+        for j in jobs[:5]:
+            job_info.append(
+                {
+                    "id": j.get("def", {}).get("id", ""),
+                    "state": j.get("state", ""),
+                }
+            )
+
+        # Wiki
+        try:
+            wiki = proj.get_wiki()
+            articles = wiki.list_articles()
+            wiki_info = []
+            for a in articles:
+                article_data = a.get_data()
+                wiki_info.append({"id": a.article_id, "title": article_data.get_name()})
+        except Exception as exc:
+            articles = []
+            wiki_info = []
+            warn(f"Could not fetch wiki: {exc}")
+
+        # Variables
+        try:
+            variables = proj.get_variables()
+            standard_vars = variables.get("standard", {})
+        except Exception as exc:
+            standard_vars = {}
+            warn(f"Could not fetch variables: {exc}")
+
+        if output == "json":
+            import json as json_mod
+
+            result_data = {
+                "key": key,
+                "name": meta.get("label", key),
+                "description": meta.get("shortDesc", ""),
+                "datasets": ds_info,
+                "recipes": recipe_info,
+                "scenarios": scen_info,
+                "flow_sources": source_nodes,
+                "recent_jobs": job_info,
+                "wiki_articles": wiki_info,
+                "variables": standard_vars,
+                "counts": {
+                    "datasets": len(datasets),
+                    "recipes": len(recipes),
+                    "scenarios": len(scenarios),
+                    "jobs": len(jobs),
+                    "wiki_articles": len(articles),
+                },
+            }
+            print(json_mod.dumps(result_data, indent=2, default=str))
+        else:
+            data = [
+                {"section": "Name", "detail": meta.get("label", key)},
+                {"section": "Description", "detail": meta.get("shortDesc", "")},
+                {
+                    "section": "Datasets",
+                    "detail": f"{len(datasets)}: {', '.join(d['name'] for d in ds_info[:10])}"
+                    + ("..." if len(ds_info) > 10 else ""),
+                },
+                {
+                    "section": "Recipes",
+                    "detail": f"{len(recipes)}: {', '.join(r['name'] for r in recipe_info[:10])}"
+                    + ("..." if len(recipe_info) > 10 else ""),
+                },
+                {
+                    "section": "Scenarios",
+                    "detail": f"{len(scenarios)}: {', '.join(s['id'] for s in scen_info[:10])}"
+                    + ("..." if len(scen_info) > 10 else ""),
+                },
+                {
+                    "section": "Flow Sources",
+                    "detail": ", ".join(source_nodes[:10]) or "(none)",
+                },
+                {
+                    "section": "Recent Jobs",
+                    "detail": ", ".join(f"{j['id']}({j['state']})" for j in job_info)
+                    or "(none)",
+                },
+                {
+                    "section": "Wiki Articles",
+                    "detail": f"{len(articles)}: {', '.join(w['title'] for w in wiki_info[:10])}"
+                    + ("..." if len(wiki_info) > 10 else ""),
+                },
+                {
+                    "section": "Variables",
+                    "detail": ", ".join(
+                        f"{k}={v}" for k, v in list(standard_vars.items())[:10]
+                    )
+                    or "(none)",
+                },
+            ]
+            render(
+                data,
+                ["section", "detail"],
+                output_format="table",
+                title=f"Project Inspect: {key}",
+                headers={"section": "SECTION", "detail": "DETAIL"},
+            )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
 def export(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
@@ -247,15 +411,17 @@ def set_metadata(
 @app.command()
 def variables(
     ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show project variables."""
-    project_key = resolve_project(project)
+    key = project_key or project
+    key = resolve_project(key)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
+        proj = client.get_project(key)
         vars_data = proj.get_variables()
         render_raw(vars_data, output_format=output)
     except Exception as e:
@@ -265,6 +431,7 @@ def variables(
 @app.command("set-variables")
 def set_variables(
     ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     set_var: Optional[List[str]] = typer.Option(
         None, "--set", help="Set standard variable (key=value)"
@@ -276,15 +443,16 @@ def set_variables(
     ),
 ) -> None:
     """Set project variables. Use --set for individual standard vars or --definition to replace all."""
-    project_key = resolve_project(project)
+    key = project_key or project
+    key = resolve_project(key)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
+        proj = client.get_project(key)
 
         if definition is not None:
             new_vars = read_json_input(definition)
             proj.set_variables(new_vars)
-            success(f"Replaced variables for {project_key}")
+            success(f"Replaced variables for {key}")
         elif set_var:
             current = proj.get_variables()
             standard = current.get("standard", {})
@@ -296,7 +464,7 @@ def set_variables(
                 standard[k] = v
             current["standard"] = standard
             proj.set_variables(current)
-            success(f"Updated standard variables for {project_key}")
+            success(f"Updated standard variables for {key}")
         else:
             error("Provide --set key=value or --definition JSON.")
             raise typer.Exit(1)
@@ -309,15 +477,17 @@ def set_variables(
 @app.command()
 def permissions(
     ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show project permissions."""
-    project_key = resolve_project(project)
+    key = project_key or project
+    key = resolve_project(key)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
+        proj = client.get_project(key)
         perms = proj.get_permissions()
         render_raw(perms, output_format=output)
     except Exception as e:
@@ -327,6 +497,7 @@ def permissions(
 @app.command("set-permissions")
 def set_permissions(
     ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     definition: str = typer.Option(
         ...,
@@ -335,13 +506,14 @@ def set_permissions(
     ),
 ) -> None:
     """Set project permissions from JSON definition."""
-    project_key = resolve_project(project)
+    key = project_key or project
+    key = resolve_project(key)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
+        proj = client.get_project(key)
         perms = read_json_input(definition)
         proj.set_permissions(perms)
-        success(f"Updated permissions for {project_key}")
+        success(f"Updated permissions for {key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -349,15 +521,17 @@ def set_permissions(
 @app.command()
 def tags(
     ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show project tags."""
-    project_key = resolve_project(project)
+    key = project_key or project
+    key = resolve_project(key)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
+        proj = client.get_project(key)
         meta = proj.get_metadata()
         tag_list = meta.get("tags", [])
         render_raw(tag_list, output_format=output)

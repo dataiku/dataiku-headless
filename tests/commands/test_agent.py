@@ -189,3 +189,104 @@ def test_agent_status_calls_status_not_get_status(patch_client):
     result = runner.invoke(app, ["agent", "status", "agent1", "--project", "PROJ1"])
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_agent("agent1").status.assert_called_once()
+
+
+# ── Structured agent (DSS 14.5+) ──────────────────────────────────────
+
+
+def test_agent_set_prompt_structured_agent(patch_client):
+    """Structured agents use systemPromptAppend in structuredAgentSettings."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "structured_agent",
+            "--prompt",
+            "New structured prompt",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "systemPromptAppend" in result.output
+
+    settings = (
+        patch_client.get_project("PROJ1").get_agent("structured_agent").get_settings()
+    )
+    ver_raw = settings.get_version_settings("v1").get_raw()
+    assert (
+        ver_raw["structuredAgentSettings"]["systemPromptAppend"]
+        == "New structured prompt"
+    )
+
+
+def test_agent_set_prompt_simple_agent(patch_client):
+    """Simple agents use systemPrompt in toolsUsingAgentSettings."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "agent1",
+            "--prompt",
+            "New simple prompt",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "systemPrompt" in result.output
+
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    ver_raw = settings.get_version_settings("v1").get_raw()
+    assert ver_raw["toolsUsingAgentSettings"]["systemPrompt"] == "New simple prompt"
+
+
+def test_agent_set_llm_structured_agent(patch_client):
+    """set-llm should fall back to raw dict mutation for structured agents."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-llm",
+            "structured_agent",
+            "--llm-id",
+            "anthropic:conn:claude-4",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Set LLM" in result.output
+
+    settings = (
+        patch_client.get_project("PROJ1").get_agent("structured_agent").get_settings()
+    )
+    ver_raw = settings.get_version_settings("v1").get_raw()
+    assert ver_raw["structuredAgentSettings"]["llmId"] == "anthropic:conn:claude-4"
+
+
+def test_agent_add_tool_structured_agent(patch_client):
+    """add-tool should fall back to raw dict mutation for structured agents."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-tool",
+            "structured_agent",
+            "--tool",
+            "new_tool_2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added tool" in result.output
+
+    settings = (
+        patch_client.get_project("PROJ1").get_agent("structured_agent").get_settings()
+    )
+    ver_raw = settings.get_version_settings("v1").get_raw()
+    tools = ver_raw["structuredAgentSettings"]["tools"]
+    assert any(t.get("toolRef") == "new_tool_2" for t in tools)

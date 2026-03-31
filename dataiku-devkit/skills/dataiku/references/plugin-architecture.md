@@ -99,7 +99,7 @@ my-agent-integration/
 │   └── capability-b-tool/
 │       ├── tool.json
 │       └── tool.py
-├── python-blocks-graph-blocks/         # Always runs at graph position
+├── python-structured-agent-blocks/     # Always runs at graph position
 │   ├── capability-a-block/
 │   │   ├── block.json
 │   │   └── dynamic_choices.py

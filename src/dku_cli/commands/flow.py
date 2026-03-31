@@ -308,10 +308,45 @@ def check(
             )
             future.wait_for_result()
             state = tool.get_state()
-            render_raw(state, output_format=output)
-            success("Consistency check complete.")
+            summary = state.get("summary", {})
+            errors = []
+            for node_id, node_state in state.get("stateByNode", {}).items():
+                for check_key in ("recipeCheckResult", "datasetCheckResult"):
+                    check = node_state.get(check_key, {})
+                    for msg in check.get("messages", []):
+                        if msg.get("isFatal") or msg.get("severity") in (
+                            "ERROR",
+                            "FATAL",
+                        ):
+                            errors.append(
+                                {
+                                    "node": node_id,
+                                    "code": msg.get("code", ""),
+                                    "message": msg.get("message", ""),
+                                }
+                            )
+            if output == "json":
+                print(json.dumps({"summary": summary, "errors": errors}, indent=2))
+            else:
+                render(
+                    [{"field": k, "value": str(v)} for k, v in summary.items()],
+                    ["field", "value"],
+                    output_format=output,
+                    title=f"Flow Check Summary ({project_key})",
+                )
+                if errors:
+                    render(
+                        errors,
+                        ["node", "code", "message"],
+                        output_format=output,
+                        title="Errors",
+                    )
+                success("Consistency check complete.")
         finally:
-            tool.stop()
+            try:
+                tool.stop()
+            except Exception:
+                pass
     except Exception as e:
         handle_api_error(e)
 
@@ -319,10 +354,17 @@ def check(
 @app.command()
 def sources(
     ctx: typer.Context,
+    dataset: str = typer.Argument(
+        None, help="Dataset to find upstream sources for (omit for all project sources)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Find source datasets (nodes with no upstream dependencies)."""
+    """Find source datasets (nodes with no upstream dependencies).
+
+    Without an argument, lists all root sources in the project.
+    With a dataset argument, traces upstream from that dataset to find its sources.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -331,16 +373,32 @@ def sources(
         flow = proj.get_flow()
         graph_obj = flow.get_graph()
 
-        # Build set of all nodes that are downstream of something
-        downstream_nodes: set[str] = set()
-        for node_id, node in graph_obj.nodes.items():
-            successors = node.get("successors", [])
-            downstream_nodes.update(successors)
+        if dataset:
+            # Trace upstream from the given dataset to find its sources
+            # Build reverse adjacency: child -> set of parents
+            parents: dict[str, set[str]] = {}
+            for node_id, node in graph_obj.nodes.items():
+                for succ in node.get("successors", []):
+                    parents.setdefault(succ, set()).add(node_id)
 
-        # Sources are nodes not in the downstream set
-        data = []
-        for node_id, node in graph_obj.nodes.items():
-            if node_id not in downstream_nodes:
+            # BFS upstream from target
+            visited: set[str] = set()
+            queue = [dataset]
+            source_nodes: list[str] = []
+            while queue:
+                current = queue.pop(0)
+                if current in visited:
+                    continue
+                visited.add(current)
+                ups = parents.get(current, set())
+                if not ups:
+                    source_nodes.append(current)
+                else:
+                    queue.extend(ups)
+
+            data = []
+            for node_id in source_nodes:
+                node = graph_obj.nodes.get(node_id, {})
                 data.append(
                     {
                         "id": node_id,
@@ -349,11 +407,32 @@ def sources(
                     }
                 )
 
+            title = f"Sources of {dataset} ({project_key})"
+        else:
+            # Original behavior: all project root sources
+            downstream_nodes: set[str] = set()
+            for node_id, node in graph_obj.nodes.items():
+                successors = node.get("successors", [])
+                downstream_nodes.update(successors)
+
+            data = []
+            for node_id, node in graph_obj.nodes.items():
+                if node_id not in downstream_nodes:
+                    data.append(
+                        {
+                            "id": node_id,
+                            "type": node.get("type", ""),
+                            "ref": node.get("ref", node_id),
+                        }
+                    )
+
+            title = f"Source Nodes ({project_key})"
+
         render(
             data,
             ["id", "type", "ref"],
             output_format=output,
-            title=f"Source Nodes ({project_key})",
+            title=title,
         )
     except Exception as e:
         handle_api_error(e)

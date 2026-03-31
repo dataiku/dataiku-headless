@@ -496,6 +496,55 @@ def test_dataset_create_filesystem_uses_managed_dataset_builder(patch_client):
     proj.create_dataset.assert_not_called()
 
 
+def test_dataset_create_uploaded_files_maps_connection_to_upload_connection(
+    patch_client,
+):
+    """--connection for UploadedFiles should set params.uploadConnection, not params.connection."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "upload_ds",
+            "--type",
+            "UploadedFiles",
+            "--connection",
+            "dataiku-managed-storage",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_kwargs = proj.create_dataset.call_args[1]
+    assert call_kwargs["params"]["uploadConnection"] == "dataiku-managed-storage"
+    assert "connection" not in call_kwargs["params"]
+
+
+def test_dataset_create_uploaded_files_auto_detects_connection(patch_client):
+    """UploadedFiles without --connection should auto-detect from available connections."""
+    patch_client.list_connections.return_value = {
+        "dataiku-managed-storage": {},
+        "filesystem_managed": {},
+    }
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "upload_ds",
+            "--type",
+            "UploadedFiles",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    call_kwargs = proj.create_dataset.call_args[1]
+    assert call_kwargs["params"]["uploadConnection"] == "dataiku-managed-storage"
+
+
 def test_dataset_upload_no_autodetect(patch_client, tmp_path):
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1,col2\na,1\nb,2")

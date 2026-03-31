@@ -364,6 +364,54 @@ def test_project_tags(patch_client):
     assert isinstance(parsed, list)
 
 
+def test_project_tags_positional(patch_client):
+    result = runner.invoke(app, ["project", "tags", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+
+
+# --- project inspect ---
+
+
+def test_project_inspect_json(patch_client):
+    result = runner.invoke(app, ["project", "inspect", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["key"] == "PROJ1"
+    assert parsed["name"] == "Project One"
+    assert "datasets" in parsed
+    assert "recipes" in parsed
+    assert "scenarios" in parsed
+    assert "counts" in parsed
+
+
+def test_project_inspect_table(patch_client):
+    result = runner.invoke(app, ["project", "inspect", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Project Inspect" in result.output
+
+
+def test_project_inspect_with_flag(patch_client):
+    result = runner.invoke(app, ["project", "inspect", "-P", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["key"] == "PROJ1"
+
+
+# --- positional project key ---
+
+
+def test_project_variables_positional(patch_client):
+    result = runner.invoke(app, ["project", "variables", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["standard"]["key1"] == "val1"
+
+
+def test_project_permissions_positional(patch_client):
+    result = runner.invoke(app, ["project", "permissions", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+
+
 def test_project_tags_with_tags(patch_client):
     # Patch metadata to include tags
     proj = patch_client.get_project("PROJ1")
