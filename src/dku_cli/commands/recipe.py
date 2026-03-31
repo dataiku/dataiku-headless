@@ -649,7 +649,7 @@ def create(
                 code="unknown_recipe_type",
                 details=[
                     "Plugin recipe type format is: CustomCode_<recipeComponentId>",
-                    "  (NOT CustomCode_<recipeComponentId> — plugin ID is NOT part of the type)",
+                    "  The plugin ID is NOT part of the type. Only the recipe directory name.",
                     "Discover available types: dku plugin recipes",
                     "If the plugin was just installed, DSS may need a restart to register types.",
                 ],
