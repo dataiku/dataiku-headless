@@ -74,6 +74,11 @@ _KNOWN_RECIPE_TYPES = frozenset(
     }
 )
 
+# Code recipe types that support creation without an input dataset (data generation use case).
+_INPUT_OPTIONAL_TYPES = frozenset(
+    {"python", "r", "shell", "pyspark", "cpython", "sparkr"}
+)
+
 
 def _is_plugin_recipe_type(type_name: str) -> bool:
     """Plugin recipe types follow the pattern CustomCode_<pluginId>_<recipeId>."""
@@ -434,13 +439,13 @@ def create(
         "-t",
         help="Recipe type: python, sql, join, group, etc. For plugin recipes: CustomCode_<pluginId>_<recipeId>",
     ),
-    input_ds: str = typer.Option(
-        ...,
+    input_ds: str | None = typer.Option(
+        None,
         "--input",
         "-i",
         "--input-ds",
         "--input-dataset",
-        help="Input dataset name (must exist)",
+        help="Input dataset name (must exist). Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
     ),
     output_ds: str = typer.Option(
         ...,
@@ -533,6 +538,16 @@ def create(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
+        # Validate --input is provided for types that require it
+        if input_ds is None and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
+            exit_with_error(
+                f"--input is required for recipe type '{type_name}'.",
+                code="missing_input",
+                details=[
+                    "Only code recipes (python, r, shell, pyspark, cpython, sparkr) support creation without an input dataset.",
+                    f"Example: dku recipe create {recipe_name} -t {type_name} -i <INPUT_DS> --output-ds {output_ds} -P {project_key}",
+                ],
+            )
         if _is_plugin_recipe_type(type_name):
             # Plugin recipes: project.new_recipe() returns None for unknown types.
             # Use DSSRecipeCreator directly in raw mode.
@@ -540,7 +555,8 @@ def create(
 
             builder = DSSRecipeCreator(type_name, recipe_name, proj)
             builder.set_raw_mode()
-            builder.with_input(input_ds, role=input_role)
+            if input_ds is not None:
+                builder.with_input(input_ds, role=input_role)
             builder.with_output(output_ds, role=output_role)
             if params_dict is not None:
                 builder.creation_settings["rawPayload"] = json.dumps(params_dict)
@@ -557,7 +573,8 @@ def create(
                         "Discover plugin recipes: dku plugin recipes",
                     ],
                 )
-            builder.with_input(input_ds)
+            if input_ds is not None:
+                builder.with_input(input_ds)
             # Visual recipe creators have with_existing_output() — output must already exist.
             # Code recipe creators (CodeRecipeCreator) use:
             #   - with_new_output_dataset(name, connection) when --connection is provided

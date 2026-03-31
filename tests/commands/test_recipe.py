@@ -176,6 +176,96 @@ def test_recipe_create_code_recipe_fallback(patch_client):
     builder.build.assert_called_once()
 
 
+def test_recipe_create_python_without_input(patch_client):
+    """Python recipes can be created without --input (data generation use case)."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    del builder.with_existing_output  # simulate CodeRecipeCreator
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "gen_data",
+            "--type",
+            "python",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    builder.with_input.assert_not_called()
+    builder.with_output.assert_called_once_with("output_ds")
+    builder.build.assert_called_once()
+
+
+def test_recipe_create_shell_without_input(patch_client):
+    """Shell recipes can be created without --input."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    del builder.with_existing_output
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "gen_shell",
+            "--type",
+            "shell",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    builder.with_input.assert_not_called()
+
+
+def test_recipe_create_sql_requires_input(patch_client):
+    """SQL recipes must have --input — not in _INPUT_OPTIONAL_TYPES."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_sql_recipe",
+            "--type",
+            "sql",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--input is required" in result.output
+    assert "code recipes" in result.output.lower()
+
+
+def test_recipe_create_visual_requires_input(patch_client):
+    """Visual recipe types (join, group, etc.) must have --input."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_join",
+            "--type",
+            "join",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--input is required" in result.output
+
+
 def test_recipe_create_output_confusion_detected(patch_client):
     """Using --output with a dataset name suggests --output-ds."""
     result = runner.invoke(
