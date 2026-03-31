@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -146,6 +146,43 @@ def test_recipe_create(patch_client):
     # MagicMock has all attrs, so hasattr picks with_existing_output
     builder.with_existing_output.assert_called_once_with("output_ds")
     builder.build.assert_called_once()
+
+
+def test_recipe_create_plugin_type_uses_raw_mode(patch_client):
+    """CustomCode_* plugin types bypass new_recipe() and use DSSRecipeCreator in raw mode."""
+    proj = patch_client.get_project("PROJ1")
+
+    with patch("dataikuapi.dss.recipe.DSSRecipeCreator") as mock_creator_cls:
+        mock_builder = MagicMock()
+        mock_creator_cls.return_value = mock_builder
+
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create",
+                "plugin_recipe",
+                "--type",
+                "CustomCode_my-plugin_my-recipe",
+                "--input",
+                "input_ds",
+                "--output-ds",
+                "output_ds",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Created recipe" in result.output
+        mock_creator_cls.assert_called_once_with(
+            "CustomCode_my-plugin_my-recipe", "plugin_recipe", proj
+        )
+        mock_builder.set_raw_mode.assert_called_once()
+        mock_builder.with_input.assert_called_once()
+        mock_builder.with_output.assert_called_once()
+        mock_builder.build.assert_called_once()
+        # Should NOT have called proj.new_recipe for plugin types
+        proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_code_recipe_fallback(patch_client):

@@ -643,6 +643,18 @@ def create(
                         f"Example: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
                     ],
                 )
+        if "recipe type" in str(e).lower() and "unknown" in str(e).lower():
+            exit_with_error(
+                f"Recipe type '{type_name}' is unknown to DSS.",
+                code="unknown_recipe_type",
+                details=[
+                    "For plugin recipe types (CustomCode_<pluginId>_<recipeId>):",
+                    "  1. DSS may need a restart after plugin installation for types to register.",
+                    "  2. Or reload the plugin from DSS UI: Plugins > Actions > Reload.",
+                    f"  3. Check available types: dku plugin recipes {type_name.split('_')[1] if '_' in type_name else type_name}",
+                    "  4. If installed via API, the UI install path is more reliable.",
+                ],
+            )
         handle_api_error(e)
 
 
