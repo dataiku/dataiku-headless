@@ -8,9 +8,19 @@ uv run pre-commit install  # Install git hooks (commitlint, ruff, whitespace fix
 uv run pytest -v           # Run tests (all must pass)
 uv run ruff check .        # Lint
 uv run ruff format .       # Format
-uv run dku                 # Run CLI locally
+uv run dku                 # Run CLI locally (dev, uses .venv)
 uv build                   # Build wheel
 ```
+
+### Reinstalling the global `dku` CLI
+
+The globally-installed `dku` tool (via `uv tool install`) caches its build. After merging changes to the main repo, you must force-reinstall to pick them up:
+
+```bash
+uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-cli dku-cli --force --reinstall
+```
+
+**`--force` alone is not enough** — it reuses the cached wheel. `--reinstall` rebuilds from source. Without both flags, `dku folder create --help` etc. will show "No such command" even though the code is on disk.
 
 ## Mission
 
@@ -46,6 +56,7 @@ When you receive benchmark feedback:
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
 5. **Run tests** — `uv run pytest -v`
+6. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
 
@@ -210,6 +221,9 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `create_*()` returns objects with non-standard id fields (e.g. `.dashboard_id`, `.insight_id`)
 - Async operations return `DSSFuture` — call `.wait_for_result()`
 - `get_agent(id)` is lazy — call `get_settings()` to verify existence
+- `create_managed_folder()` returns `DSSManagedFolder` with `.id` (8-char hash)
+- `plugin.list_files()` returns nested dict tree — dev plugins only
+- Plugin recipe types not registered until JVM restart after API install
 
 ---
 

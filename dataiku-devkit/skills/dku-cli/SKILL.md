@@ -401,7 +401,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `ml` | create-prediction, create-clustering, create-timeseries, create-causal, list, status, train, models, details, deploy, redeploy, settings, algorithms, set-algorithm, delete | Yes |
 | `analysis` | list, create, get, delete, tasks | Yes |
 | `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
-| `folder` | list, ls, upload, download | Yes |
+| `folder` | list, create, ls, upload, download | Yes |
 | `llm` | list, completion, embeddings | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition | Yes |
@@ -497,18 +497,22 @@ dku plugin set-code-env my-plugin plugin_my_plugin_managed
 dku plugin push plugin.zip && \
 dku plugin update-code-env my-plugin
 
-# Check plugin state
+# Check plugin state and available recipe types
 dku plugin get my-plugin -o json
+dku plugin recipes my-plugin
 dku plugin usages my-plugin
 
 # Discover plugin recipe types
 dku plugin recipes                      # all plugins
 dku plugin recipes my-plugin -o json    # specific plugin
 
-# Create a plugin recipe (type = CustomCode_<pluginId>_<recipeId>)
-dku recipe create my_step -t CustomCode_my-plugin_my-recipe \
+# Create a plugin recipe (type = CustomCode_<recipeComponentId>)
+# NOTE: plugin ID is NOT part of the type — only the recipe component directory name
+dku recipe create my_step -t CustomCode_my-recipe \
   -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
 ```
+
+> **Plugin Recipe Type Format:** The type is `CustomCode_<recipeComponentId>` where `recipeComponentId` is the directory name in `custom-recipes/` inside the plugin. The plugin ID is **NOT** part of the type string. Example: plugin `sureguard` with recipe dir `cost-analysis` → type is `CustomCode_cost-analysis`. Use `dku plugin recipes` to discover available types.
 
 ### Shell Variable Capture
 
@@ -1057,7 +1061,7 @@ dku dashboard set-definition DASH_ID -d @dashboard.json -P PROJ
 | `ColumnValueInRangeRule` type doesn't exist | Use `--type value-in-range` (creates ColumnMin + ColumnMax pair) |
 | Min/max/avg/sum rule on STRING column | Returns "Cannot check: STRING is not numeric". Check types: `dku dataset schema DS -P PROJ` |
 | `dku dq project-status` returns empty | Default = monitored only. Use `--all`. Enable monitoring via DSS UI (no API) |
-| Plugin recipe create fails / unknown type | Use `CustomCode_<pluginId>_<recipeId>` as `--type`. Discover with `dku plugin recipes`. Output dataset must exist first |
+| Plugin recipe create fails / unknown type | Type is `CustomCode_<recipeComponentId>` — plugin ID is NOT in the type. Discover with `dku plugin recipes`. Output dataset must exist first |
 
 **Full JSON reference:** See `skills/dataiku/references/dashboard-charts.md`
 

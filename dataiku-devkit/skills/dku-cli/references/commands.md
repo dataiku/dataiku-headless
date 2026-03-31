@@ -18,11 +18,11 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-join, create-geojoin, create-fuzzy-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance, list-steps, get-step, remove-step, enable-step, disable-step
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
 - [job](#job) — list, run, status, log, abort, wait
-- [plugin](#plugin) — list, push, settings
+- [plugin](#plugin) — list, push, settings, recipes
 - [code-env](#code-env) — list, get, create, delete, update
 - [connection](#connection) — list, create, test
 - [model](#model) — list, get, versions
-- [folder](#folder) — list, ls, upload, download
+- [folder](#folder) — list, create, ls, upload, download
 - [llm](#llm) — list, completion, embeddings
 - [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
 - [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition
@@ -283,14 +283,16 @@ dku plugin create-code-env PLUGIN_ID [--wait/--no-wait] [-o FORMAT]
 dku plugin set-code-env PLUGIN_ID ENV_NAME
 dku plugin update-code-env PLUGIN_ID [--wait/--no-wait]
 dku plugin usages PLUGIN_ID [-P PROJECT] [-o FORMAT]
+dku plugin recipes PLUGIN_ID [-o FORMAT]
 ```
 
-- `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install
+- `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install. **Warns about recipe type registration** — DSS may need restart for new recipe types
 - `get` shows plugin details including version, code env, and dev status
 - `create-code-env` creates and waits for the managed code env (use after first install)
 - `set-code-env` assigns a code env to the plugin (use after create-code-env)
 - `update-code-env` rebuilds the code env after dependency changes
 - `usages` shows where plugin components are used; filter by project with `-P`
+- `recipes` reads custom recipe types from dev plugin files; type format is `CustomCode_<recipeComponentId>` (plugin ID is NOT in the type)
 - First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
 
 ## code-env
@@ -386,10 +388,13 @@ Managed folders.
 
 ```bash
 dku folder list [-P PROJECT] [-o FORMAT]
+dku folder create NAME [-P PROJECT] [-c CONNECTION] [-t TYPE] [--if-not-exists] [-o FORMAT]
 dku folder ls FOLDER_ID [-P PROJECT] [-o FORMAT]
 dku folder upload FOLDER_ID FILE_PATH [-P PROJECT] [--remote-path PATH]
 dku folder download FOLDER_ID REMOTE_PATH [-P PROJECT] [--dest DIR]
 ```
+
+- `create` defaults to `filesystem_folders` connection; use `--connection` for S3, GCS, etc. Returns the folder ID needed for subsequent commands.
 
 ## llm
 
