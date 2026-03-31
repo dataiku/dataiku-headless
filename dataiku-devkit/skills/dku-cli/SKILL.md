@@ -401,7 +401,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `ml` | create-prediction, create-clustering, create-timeseries, create-causal, list, status, train, models, details, deploy, redeploy, settings, algorithms, set-algorithm, delete | Yes |
 | `analysis` | list, create, get, delete, tasks | Yes |
 | `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
-| `folder` | list, ls, upload, download | Yes |
+| `folder` | list, create, ls, upload, download | Yes |
 | `llm` | list, completion, embeddings | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition | Yes |
@@ -497,8 +497,9 @@ dku plugin set-code-env my-plugin plugin_my_plugin_managed
 dku plugin push plugin.zip && \
 dku plugin update-code-env my-plugin
 
-# Check plugin state
+# Check plugin state and available recipe types
 dku plugin get my-plugin -o json
+dku plugin recipes my-plugin
 dku plugin usages my-plugin
 
 # Discover plugin recipe types
@@ -509,6 +510,8 @@ dku plugin recipes my-plugin -o json    # specific plugin
 dku recipe create my_step -t CustomCode_my-plugin_my-recipe \
   -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
 ```
+
+> **Plugin Deployment Gotcha:** After `dku plugin push`, custom recipe types (`CustomCode_<pluginId>_<recipeId>`) may NOT be immediately available. DSS registers plugin recipe types at JVM startup. API-based install extracts files but does NOT refresh the in-memory registry. If recipe creation fails with "unknown type", restart DSS or reload the plugin from the DSS UI (Plugins > Actions > Reload). Use `dku plugin recipes PLUGIN_ID` to check available types.
 
 ### Shell Variable Capture
 

@@ -159,6 +159,11 @@ def push(
                 client.install_plugin_from_archive(f)
                 success(f"Installed plugin '{plugin_id}'")
 
+        warn(
+            "Plugin recipe types may not be available until DSS is restarted "
+            "or the plugin is reloaded from the DSS UI."
+        )
+
     except SystemExit:
         raise
     except Exception as e:

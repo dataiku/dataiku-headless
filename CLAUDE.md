@@ -210,6 +210,9 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `create_*()` returns objects with non-standard id fields (e.g. `.dashboard_id`, `.insight_id`)
 - Async operations return `DSSFuture` — call `.wait_for_result()`
 - `get_agent(id)` is lazy — call `get_settings()` to verify existence
+- `create_managed_folder()` returns `DSSManagedFolder` with `.id` (8-char hash)
+- `plugin.list_files()` returns nested dict tree — dev plugins only
+- Plugin recipe types not registered until JVM restart after API install
 
 ---
 

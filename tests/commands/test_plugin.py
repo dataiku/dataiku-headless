@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from zipfile import ZipFile
 
 from typer.testing import CliRunner
@@ -92,6 +92,24 @@ def test_plugin_push_installs_when_plugin_is_missing(tmp_path, patch_client):
     assert result.exit_code == 0
     patch_client.install_plugin_from_archive.assert_called_once()
     assert "Installed plugin 'real-plugin'" in result.output
+
+
+def test_plugin_push_warns_about_recipe_types(tmp_path, patch_client):
+    """After push, CLI warns about recipe type registration."""
+    plugin_obj = MagicMock()
+    patch_client.get_plugin.return_value = plugin_obj
+    patch_client.list_plugins.return_value = [
+        {"id": "real-plugin", "version": "1.0.0", "isDev": False}
+    ]
+
+    zip_path = tmp_path / "release-1.2.3.zip"
+    _write_plugin_zip(zip_path, "real-plugin")
+
+    with patch("dku_cli.commands.plugin.warn") as mock_warn:
+        result = runner.invoke(app, ["plugin", "push", str(zip_path)])
+        assert result.exit_code == 0
+        mock_warn.assert_called_once()
+        assert "recipe type" in mock_warn.call_args[0][0].lower()
 
 
 # --- get ---

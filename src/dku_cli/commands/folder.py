@@ -1,4 +1,4 @@
-"""dku folder — list, ls, upload, download."""
+"""dku folder — list, create, ls, upload, download."""
 
 from __future__ import annotations
 
@@ -7,9 +7,16 @@ from pathlib import Path
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, resolve_output_format, success
+from dku_cli.output import (
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS managed folders.")
 
@@ -46,6 +53,62 @@ def list_folders(
             title=f"Managed Folders ({project_key})",
         )
     except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def create(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Managed folder name"),
+    connection: str = typer.Option(
+        "filesystem_folders",
+        "--connection",
+        "-c",
+        help="Connection name (default: filesystem_folders)",
+    ),
+    folder_type: str | None = typer.Option(
+        None, "--type", "-t", help="Folder type (defaults to connection type)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    if_not_exists: bool = typer.Option(
+        False, "--if-not-exists", help="Skip if folder already exists"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Create a managed folder.
+
+    Use --connection for non-default storage (S3, GCS, etc.).
+    The returned folder ID is needed for subsequent folder commands (ls, upload, download).
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = proj.create_managed_folder(
+            name, folder_type=folder_type, connection_name=connection
+        )
+
+        if output == "json":
+            render_raw(
+                {"id": folder.id, "name": name, "project": project_key},
+                output_format="json",
+            )
+        else:
+            success(
+                f"Created managed folder '{name}' (id={folder.id}) in {project_key}"
+            )
+            info(
+                f"Use folder ID for subsequent commands: dku folder ls {folder.id} -P {project_key}"
+            )
+    except SystemExit:
+        raise
+    except Exception as e:
+        if if_not_exists and is_already_exists_error(e):
+            warn(
+                f"Managed folder '{name}' already exists in {project_key}, skipping create"
+            )
+            return
         handle_api_error(e)
 
 

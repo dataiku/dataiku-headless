@@ -49,3 +49,72 @@ def test_folder_upload_missing_file(patch_client):
         ["folder", "upload", "folder1", "/nonexistent/file.csv", "--project", "PROJ1"],
     )
     assert result.exit_code != 0
+
+
+# --- create ---
+
+
+def test_folder_create_basic(patch_client):
+    result = runner.invoke(app, ["folder", "create", "MyFolder", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.create_managed_folder.assert_called_once_with(
+        "MyFolder", folder_type=None, connection_name="filesystem_folders"
+    )
+    assert "aBcDeFgH" in result.output
+
+
+def test_folder_create_with_connection(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "create",
+            "MyFolder",
+            "--connection",
+            "s3_data",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.create_managed_folder.assert_called_once_with(
+        "MyFolder", folder_type=None, connection_name="s3_data"
+    )
+
+
+def test_folder_create_with_type(patch_client):
+    result = runner.invoke(
+        app,
+        ["folder", "create", "MyFolder", "--type", "S3", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.create_managed_folder.assert_called_once_with(
+        "MyFolder", folder_type="S3", connection_name="filesystem_folders"
+    )
+
+
+def test_folder_create_json(patch_client):
+    result = runner.invoke(
+        app,
+        ["folder", "create", "MyFolder", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "aBcDeFgH"
+    assert parsed["name"] == "MyFolder"
+    assert parsed["project"] == "PROJ1"
+
+
+def test_folder_create_if_not_exists(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.create_managed_folder.side_effect = Exception("already exists")
+
+    result = runner.invoke(
+        app,
+        ["folder", "create", "MyFolder", "--project", "PROJ1", "--if-not-exists"],
+    )
+    assert result.exit_code == 0
+    assert "already exists" in result.output.lower()

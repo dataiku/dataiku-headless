@@ -519,6 +519,7 @@ def mock_client():
 
     # Managed folder mock
     folder_mock = MagicMock()
+    folder_mock.id = "aBcDeFgH"
     folder_mock.list_contents.return_value = {
         "items": [
             {"path": "/data.csv", "size": 1024, "lastModified": 1700000000000},
@@ -526,6 +527,7 @@ def mock_client():
     }
     folder_mock.put_file.return_value = None
     proj1.get_managed_folder.return_value = folder_mock
+    proj1.create_managed_folder.return_value = folder_mock
 
     # Saved model mock — uses get_settings().get_raw() and get_active_version()
     model_mock = MagicMock()
