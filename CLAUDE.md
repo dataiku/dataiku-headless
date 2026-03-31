@@ -8,9 +8,19 @@ uv run pre-commit install  # Install git hooks (commitlint, ruff, whitespace fix
 uv run pytest -v           # Run tests (all must pass)
 uv run ruff check .        # Lint
 uv run ruff format .       # Format
-uv run dku                 # Run CLI locally
+uv run dku                 # Run CLI locally (dev, uses .venv)
 uv build                   # Build wheel
 ```
+
+### Reinstalling the global `dku` CLI
+
+The globally-installed `dku` tool (via `uv tool install`) caches its build. After merging changes to the main repo, you must force-reinstall to pick them up:
+
+```bash
+uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-cli dku-cli --force --reinstall
+```
+
+**`--force` alone is not enough** — it reuses the cached wheel. `--reinstall` rebuilds from source. Without both flags, `dku folder create --help` etc. will show "No such command" even though the code is on disk.
 
 ## Mission
 
