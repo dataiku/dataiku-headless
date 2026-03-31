@@ -81,8 +81,8 @@ _INPUT_OPTIONAL_TYPES = frozenset(
 
 
 def _is_plugin_recipe_type(type_name: str) -> bool:
-    """Plugin recipe types follow the pattern CustomCode_<pluginId>_<recipeId>."""
-    return type_name.startswith("CustomCode_") and type_name.count("_") >= 2
+    """Plugin recipe types follow the pattern CustomCode_<recipeComponentId>."""
+    return type_name.startswith("CustomCode_") and len(type_name) > len("CustomCode_")
 
 
 def _require_existing_dataset(
@@ -437,7 +437,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Recipe type: python, sql, join, group, etc. For plugin recipes: CustomCode_<pluginId>_<recipeId>",
+        help="Recipe type: python, sql, join, group, etc. For plugin recipes: CustomCode_<recipeComponentId>",
     ),
     input_ds: str | None = typer.Option(
         None,
@@ -491,10 +491,10 @@ def create(
     project has no default managed connection, use --connection to specify one
     (e.g. --connection filesystem_managed).
 
-    Plugin recipes use type CustomCode_<pluginId>_<recipeId>. The output dataset
+    Plugin recipes use type CustomCode_<recipeComponentId>. The output dataset
     must already exist. Use --params to pass initial configuration:
 
-      dku recipe create my_step -t CustomCode_my-plugin_my-recipe \\
+      dku recipe create my_step -t CustomCode_my-recipe \\
         -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
 
     Discover available plugin recipes: dku plugin recipes [PLUGIN_ID]
@@ -569,7 +569,7 @@ def create(
                     code="unknown_recipe_type",
                     details=[
                         "Built-in types: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync",
-                        "Plugin recipe types use format: CustomCode_<pluginId>_<recipeId>",
+                        "Plugin recipe types use format: CustomCode_<recipeComponentId>",
                         "Discover plugin recipes: dku plugin recipes",
                     ],
                 )
@@ -648,11 +648,10 @@ def create(
                 f"Recipe type '{type_name}' is unknown to DSS.",
                 code="unknown_recipe_type",
                 details=[
-                    "For plugin recipe types (CustomCode_<pluginId>_<recipeId>):",
-                    "  1. DSS may need a restart after plugin installation for types to register.",
-                    "  2. Or reload the plugin from DSS UI: Plugins > Actions > Reload.",
-                    f"  3. Check available types: dku plugin recipes {type_name.split('_')[1] if '_' in type_name else type_name}",
-                    "  4. If installed via API, the UI install path is more reliable.",
+                    "Plugin recipe type format is: CustomCode_<recipeComponentId>",
+                    "  (NOT CustomCode_<recipeComponentId> — plugin ID is NOT part of the type)",
+                    "Discover available types: dku plugin recipes",
+                    "If the plugin was just installed, DSS may need a restart to register types.",
                 ],
             )
         handle_api_error(e)

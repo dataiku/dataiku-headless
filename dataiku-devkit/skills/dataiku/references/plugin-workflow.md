@@ -266,11 +266,9 @@ dku plugin usages my-plugin
 
 **Code env is NOT auto-created on install.** You must explicitly create and assign it. Without it, DSS runs backend code on its base Python with none of your dependencies.
 
-**IMPORTANT: Recipe Type Registration Gotcha.** After `dku plugin push`, DSS extracts plugin files but does NOT refresh its in-memory recipe type registry. Plugin recipe types (`CustomCode_<pluginId>_<recipeId>`) become available only after:
-1. DSS restart, OR
-2. Plugin reload from DSS UI (Plugins > Actions > Reload)
+**Plugin Recipe Type Format.** The DSS recipe type is `CustomCode_<recipeComponentId>` where `recipeComponentId` is the directory name inside `custom-recipes/`. The plugin ID is **NOT** part of the type string. Example: plugin `sureguard` with recipe dir `cost-analysis` → type `CustomCode_cost-analysis`.
 
-This means a push-then-create-recipe workflow may fail with "unknown recipe type". After pushing, verify types are registered with `dku plugin recipes my-plugin`. If types are missing, restart DSS or reload from the UI.
+After `dku plugin push`, verify types are registered with `dku plugin recipes`. If the plugin was just installed, DSS may need a restart for types to register.
 
 ## Code Environment Patterns
 

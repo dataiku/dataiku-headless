@@ -410,60 +410,70 @@ def test_plugin_push_unsupported_file_type(tmp_path):
 # ── Plugin recipes tests ────────────────────────────────────────────
 
 
-def test_plugin_recipes_with_components(patch_client):
-    """List plugin recipes when DSS returns customRecipes in list_plugins()."""
-    patch_client.list_plugins.return_value = [
-        {
-            "id": "my-plugin",
-            "version": "1.0.0",
-            "isDev": True,
-            "customRecipes": [
-                {"id": "my-recipe", "label": "My Custom Recipe"},
-                {"id": "other-recipe", "label": "Other Recipe"},
+def _make_file_tree(recipe_names):
+    """Create a mock plugin file tree with custom-recipes directories."""
+    children = []
+    for name in recipe_names:
+        children.append({
+            "name": name,
+            "path": f"custom-recipes/{name}",
+            "children": [
+                {"name": "recipe.json", "path": f"custom-recipes/{name}/recipe.json"},
+                {"name": "recipe.py", "path": f"custom-recipes/{name}/recipe.py"},
             ],
-        },
+        })
+    return [
+        {"name": "plugin.json", "path": "plugin.json"},
+        {"name": "custom-recipes", "path": "custom-recipes", "children": children},
     ]
-    # Use JSON to avoid table truncation
+
+
+def test_plugin_recipes_dev_plugin(patch_client):
+    """Dev plugin: reads file tree, outputs CustomCode_<recipeId> format."""
+    plugin_obj = MagicMock()
+    plugin_obj.list_files.return_value = _make_file_tree(["my-recipe", "other-recipe"])
+    patch_client.get_plugin.return_value = plugin_obj
+    patch_client.list_plugins.return_value = [
+        {"id": "my-plugin", "version": "1.0.0", "isDev": True},
+    ]
+
     result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     types = [r["type"] for r in parsed]
-    assert "CustomCode_my-plugin_my-recipe" in types
-    assert "CustomCode_my-plugin_other-recipe" in types
-    assert parsed[0]["label"] == "My Custom Recipe"
+    assert "CustomCode_my-recipe" in types
+    assert "CustomCode_other-recipe" in types
 
 
-def test_plugin_recipes_without_components(patch_client):
-    """When DSS doesn't return customRecipes, show naming pattern."""
+def test_plugin_recipes_non_dev_fallback(patch_client):
+    """Non-dev plugin: can't read files, shows pattern hint."""
     patch_client.list_plugins.return_value = [
         {"id": "some-plugin", "version": "2.0.0", "isDev": False},
     ]
-    # Use JSON to avoid table truncation
     result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert parsed[0]["type"] == "CustomCode_some-plugin_<recipeId>"
+    assert parsed[0]["type"] == "CustomCode_<recipeId>"
 
 
 def test_plugin_recipes_filter_by_plugin_id(patch_client):
     """Filter recipes by specific plugin ID."""
+    plugin_a = MagicMock()
+    plugin_a.list_files.return_value = _make_file_tree(["rec-a"])
+
+    def get_plugin_side_effect(pid):
+        if pid == "plugin-a":
+            return plugin_a
+        return MagicMock(list_files=MagicMock(side_effect=Exception("not dev")))
+
+    patch_client.get_plugin.side_effect = get_plugin_side_effect
     patch_client.list_plugins.return_value = [
-        {
-            "id": "plugin-a",
-            "version": "1.0.0",
-            "isDev": False,
-            "customRecipes": [{"id": "rec-a", "label": "Recipe A"}],
-        },
-        {
-            "id": "plugin-b",
-            "version": "1.0.0",
-            "isDev": False,
-            "customRecipes": [{"id": "rec-b", "label": "Recipe B"}],
-        },
+        {"id": "plugin-a", "version": "1.0.0", "isDev": True},
+        {"id": "plugin-b", "version": "1.0.0", "isDev": True},
     ]
     result = runner.invoke(app, ["plugin", "recipes", "plugin-a"])
     assert result.exit_code == 0
-    assert "CustomCode_plugin-a_rec-a" in result.output
+    assert "CustomCode_rec-a" in result.output
     assert "plugin-b" not in result.output
 
 
@@ -474,25 +484,6 @@ def test_plugin_recipes_not_found(patch_client):
     ]
     result = runner.invoke(app, ["plugin", "recipes", "nonexistent"])
     assert result.exit_code != 0
-
-
-def test_plugin_recipes_json_output(patch_client):
-    """JSON output returns structured data."""
-    patch_client.list_plugins.return_value = [
-        {
-            "id": "my-plugin",
-            "version": "1.0.0",
-            "isDev": True,
-            "customRecipes": [
-                {"id": "my-recipe", "label": "My Recipe"},
-            ],
-        },
-    ]
-    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
-    assert result.exit_code == 0
-    parsed = json.loads(result.output)
-    assert len(parsed) == 1
-    assert parsed[0]["type"] == "CustomCode_my-plugin_my-recipe"
 
 
 def test_plugin_recipes_no_plugins(patch_client):

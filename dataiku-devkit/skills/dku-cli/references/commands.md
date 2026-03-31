@@ -292,7 +292,7 @@ dku plugin recipes PLUGIN_ID [-o FORMAT]
 - `set-code-env` assigns a code env to the plugin (use after create-code-env)
 - `update-code-env` rebuilds the code env after dependency changes
 - `usages` shows where plugin components are used; filter by project with `-P`
-- `recipes` reads custom recipe types from dev plugin files; shows `CustomCode_{id}_{recipe}` format type IDs
+- `recipes` reads custom recipe types from dev plugin files; type format is `CustomCode_<recipeComponentId>` (plugin ID is NOT in the type)
 - First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
 
 ## code-env

@@ -506,12 +506,13 @@ dku plugin usages my-plugin
 dku plugin recipes                      # all plugins
 dku plugin recipes my-plugin -o json    # specific plugin
 
-# Create a plugin recipe (type = CustomCode_<pluginId>_<recipeId>)
-dku recipe create my_step -t CustomCode_my-plugin_my-recipe \
+# Create a plugin recipe (type = CustomCode_<recipeComponentId>)
+# NOTE: plugin ID is NOT part of the type — only the recipe component directory name
+dku recipe create my_step -t CustomCode_my-recipe \
   -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
 ```
 
-> **Plugin Deployment Gotcha:** After `dku plugin push`, custom recipe types (`CustomCode_<pluginId>_<recipeId>`) may NOT be immediately available. DSS registers plugin recipe types at JVM startup. API-based install extracts files but does NOT refresh the in-memory registry. If recipe creation fails with "unknown type", restart DSS or reload the plugin from the DSS UI (Plugins > Actions > Reload). Use `dku plugin recipes PLUGIN_ID` to check available types.
+> **Plugin Recipe Type Format:** The type is `CustomCode_<recipeComponentId>` where `recipeComponentId` is the directory name in `custom-recipes/` inside the plugin. The plugin ID is **NOT** part of the type string. Example: plugin `sureguard` with recipe dir `cost-analysis` → type is `CustomCode_cost-analysis`. Use `dku plugin recipes` to discover available types.
 
 ### Shell Variable Capture
 
@@ -1060,7 +1061,7 @@ dku dashboard set-definition DASH_ID -d @dashboard.json -P PROJ
 | `ColumnValueInRangeRule` type doesn't exist | Use `--type value-in-range` (creates ColumnMin + ColumnMax pair) |
 | Min/max/avg/sum rule on STRING column | Returns "Cannot check: STRING is not numeric". Check types: `dku dataset schema DS -P PROJ` |
 | `dku dq project-status` returns empty | Default = monitored only. Use `--all`. Enable monitoring via DSS UI (no API) |
-| Plugin recipe create fails / unknown type | Use `CustomCode_<pluginId>_<recipeId>` as `--type`. Discover with `dku plugin recipes`. Output dataset must exist first |
+| Plugin recipe create fails / unknown type | Type is `CustomCode_<recipeComponentId>` — plugin ID is NOT in the type. Discover with `dku plugin recipes`. Output dataset must exist first |
 
 **Full JSON reference:** See `skills/dataiku/references/dashboard-charts.md`
 

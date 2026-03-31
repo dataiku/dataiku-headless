@@ -163,7 +163,7 @@ def test_recipe_create_plugin_type_uses_raw_mode(patch_client):
                 "create",
                 "plugin_recipe",
                 "--type",
-                "CustomCode_my-plugin_my-recipe",
+                "CustomCode_my-recipe",
                 "--input",
                 "input_ds",
                 "--output-ds",
@@ -175,7 +175,7 @@ def test_recipe_create_plugin_type_uses_raw_mode(patch_client):
         assert result.exit_code == 0
         assert "Created recipe" in result.output
         mock_creator_cls.assert_called_once_with(
-            "CustomCode_my-plugin_my-recipe", "plugin_recipe", proj
+            "CustomCode_my-recipe", "plugin_recipe", proj
         )
         mock_builder.set_raw_mode.assert_called_once()
         mock_builder.with_input.assert_called_once()
@@ -3485,7 +3485,7 @@ def test_recipe_create_plugin_recipe(patch_client):
             "create",
             "my_plugin_step",
             "--type",
-            "CustomCode_my-plugin_my-recipe",
+            "CustomCode_my-recipe",
             "--input",
             "input_ds",
             "--output-ds",
@@ -3503,7 +3503,7 @@ def test_recipe_create_plugin_recipe(patch_client):
     recipe_proto = call_args[0][0]
     creation_settings = call_args[0][1]
 
-    assert recipe_proto["type"] == "CustomCode_my-plugin_my-recipe"
+    assert recipe_proto["type"] == "CustomCode_my-recipe"
     assert recipe_proto["name"] == "my_plugin_step"
     assert "main" in recipe_proto["inputs"]
     assert recipe_proto["inputs"]["main"]["items"][0]["ref"] == "input_ds"
@@ -3525,7 +3525,7 @@ def test_recipe_create_plugin_recipe_with_params(patch_client, tmp_path):
             "create",
             "my_plugin_step",
             "--type",
-            "CustomCode_my-plugin_my-recipe",
+            "CustomCode_my-recipe",
             "--input",
             "input_ds",
             "--output-ds",

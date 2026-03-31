@@ -487,12 +487,11 @@ def recipes(
     """List plugin recipe types available for use with 'dku recipe create'.
 
     Shows the full type string needed for --type, e.g.:
-      dku recipe create my_step -t CustomCode_my-plugin_my-recipe -i in --output-ds out -P PROJ
+      dku recipe create my_step -t CustomCode_my-recipe -i in --output-ds out -P PROJ
 
-    Plugin metadata comes from the DSS /plugins/ API. Each plugin dict may include
-    a 'customRecipes' field listing recipe components. If your DSS version doesn't
-    expose components in list_plugins(), this command shows installed plugins with
-    the CustomCode type pattern to use.
+    IMPORTANT: Plugin recipe type format is CustomCode_<recipeComponentId>.
+    The plugin ID is NOT part of the type string. The recipeComponentId comes
+    from the directory name in custom-recipes/ inside the plugin.
     """
     output_fmt = resolve_output_format(output)
     try:
@@ -505,29 +504,39 @@ def recipes(
             if plugin_id and pid != plugin_id:
                 continue
 
-            # DSS list_plugins() may include customRecipes component list
-            custom_recipes = p.get("customRecipes", []) if isinstance(p, dict) else []
-            if custom_recipes:
-                for cr in custom_recipes:
-                    rid = cr.get("id", "") if isinstance(cr, dict) else str(cr)
-                    label = cr.get("label", rid) if isinstance(cr, dict) else rid
+            # Try to get recipe components from dev plugin file tree
+            is_dev = p.get("isDev", False) if isinstance(p, dict) else False
+            recipe_ids = []
+            if is_dev:
+                try:
+                    plugin_obj = client.get_plugin(pid)
+                    file_tree = plugin_obj.list_files()
+                    for item in file_tree:
+                        if isinstance(item, dict) and item.get("name") == "custom-recipes":
+                            for child in item.get("children", []):
+                                if isinstance(child, dict) and "children" in child:
+                                    recipe_ids.append(child["name"])
+                except Exception:
+                    pass
+
+            if recipe_ids:
+                for rid in recipe_ids:
                     data.append(
                         {
                             "plugin": pid,
                             "recipe_id": rid,
-                            "label": label,
-                            "type": f"CustomCode_{pid}_{rid}",
+                            "label": rid,
+                            "type": f"CustomCode_{rid}",
                         }
                     )
             else:
-                # Component data not in list_plugins() response — show the plugin
-                # with the naming pattern so the agent knows how to construct the type
+                # Can't read file tree — show the plugin with the naming pattern
                 data.append(
                     {
                         "plugin": pid,
                         "recipe_id": "(check DSS UI)",
                         "label": "(see plugin docs)",
-                        "type": f"CustomCode_{pid}_<recipeId>",
+                        "type": "CustomCode_<recipeId>",
                     }
                 )
 
