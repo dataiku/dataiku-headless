@@ -18,7 +18,7 @@ uv build                   # Build wheel
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (167 commands, 28 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool (~244 commands, 32 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
 **NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
@@ -204,7 +204,7 @@ Not validated server-side — wrong column names save but render blank charts. V
 
 ## dataikuapi Quirks
 
-Quirks are annotated inline in each `commands/*.py` file. See `docs/command-api-mapping.md` for the full mapping table. Key patterns:
+Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 
 - `list_*()` usually returns dicts, not objects — access via `.get()`
 - `create_*()` returns objects with non-standard id fields (e.g. `.dashboard_id`, `.insight_id`)

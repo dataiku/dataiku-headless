@@ -198,7 +198,7 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 5. Apply the patterns and examples from the references
 6. For webapps, always also check `references/webapp-pitfalls.md`
 7. For dependency or compatibility issues, check `references/code-environments.md`
-8. For structured visual agents (SVAs), read `references/structured-agents.md` for design patterns and block selection, then `docs/block-graph-api.md` for JSON schemas
+8. For structured visual agents (SVAs), read `references/structured-agents.md` for design patterns, block selection, and JSON schemas
 9. **When unsure about a pattern**, check the "Official Plugin Repos" section in `references/plugin-architecture.md` — it lists 40+ public repos at `github.com/dataiku` organized by component type. Browse the closest match to see real production code.
 
 ## Cross-Cutting Patterns

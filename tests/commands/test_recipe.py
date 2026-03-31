@@ -635,14 +635,11 @@ def test_recipe_create_embed_custom_vector_store(patch_client):
 
 
 def test_recipe_create_embed_with_embed_column(patch_client):
-    """--embed-column sets embeddingColumn in recipe raw definition after creation."""
+    """--embed-column sets knowledgeColumn in obj_payload after creation."""
     proj = patch_client.get_project("PROJ1")
     proj.get_knowledge_bank.side_effect = Exception("not found")
-    # Set up mock for get_recipe_raw_definition
     recipe_mock = proj.get_recipe.return_value
     settings_mock = recipe_mock.get_settings.return_value
-    raw_def = {"params": {}}
-    settings_mock.get_recipe_raw_definition.return_value = raw_def
 
     result = runner.invoke(
         app,
@@ -664,7 +661,7 @@ def test_recipe_create_embed_with_embed_column(patch_client):
     )
     assert result.exit_code == 0
     assert "description" in result.output
-    assert raw_def["params"]["embeddingColumn"] == "description"
+    assert settings_mock.obj_payload["knowledgeColumn"] == "description"
     settings_mock.save.assert_called_once()
 
 

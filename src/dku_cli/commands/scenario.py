@@ -26,6 +26,8 @@ def _poll_scenario_outcome(
 ) -> str:
     """Poll scenario last runs until completion or timeout."""
     elapsed = 0.0
+    time.sleep(1)  # Brief wait for new run to register before first poll
+    elapsed += 1.0
     while elapsed < timeout:
         runs = scenario.get_last_runs(limit=1)
         if runs:

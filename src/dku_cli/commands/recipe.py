@@ -196,11 +196,8 @@ def _get_prepare_settings(proj, recipe_name: str, project_key: str):
 
 def _ensure_steps_array(settings) -> list:
     """Ensure obj_payload has a 'steps' list. Fresh recipes may not have it. Returns the steps list."""
-    payload = settings.obj_payload
-    if payload is None:
-        payload = {"steps": []}
-        settings._obj_payload = payload
-    elif "steps" not in payload:
+    payload = _get_recipe_payload(settings)
+    if "steps" not in payload:
         payload["steps"] = []
     return payload["steps"]
 
@@ -2921,9 +2918,8 @@ def create_embed(
         if embed_column:
             recipe_obj = proj.get_recipe(recipe_name)
             settings = recipe_obj.get_settings()
-            raw = settings.get_recipe_raw_definition()
-            params = raw.setdefault("params", {})
-            params["embeddingColumn"] = embed_column
+            payload = _get_recipe_payload(settings)
+            payload["knowledgeColumn"] = embed_column
             settings.save()
             info(f"Embedding column set to '{embed_column}'")
         else:
@@ -3061,18 +3057,19 @@ def create_llm_eval(
                 output_metrics,
             )
         except Exception as e:
-            if "not found" in str(e).lower() or "does not exist" in str(e).lower():
-                raise
-            from dku_cli.errors import exit_with_error as _exit
-
-            _exit(
-                f"Failed to create LLM eval recipe — eval store '{eval_store}' may not exist.",
-                code="eval_store_not_found",
-                details=[
-                    "Evaluation stores must be created in the DSS UI before use.",
-                    "Verify the eval store ID in: Administration > Evaluation Stores",
-                ],
-            )
+            msg = str(e).lower()
+            if "not found" in msg or "does not exist" in msg:
+                raise  # Let handle_api_error process not-found errors
+            if "eval" in msg or "evaluation" in msg or "store" in msg:
+                exit_with_error(
+                    f"Failed to create LLM eval recipe — eval store '{eval_store}' may not exist.",
+                    code="eval_store_not_found",
+                    details=[
+                        "Evaluation stores must be created in the DSS UI before use.",
+                        "Verify the eval store ID in: Administration > Evaluation Stores",
+                    ],
+                )
+            raise  # Re-raise network/auth/other errors unchanged
 
         # Post-creation payload configuration
         settings = recipe.get_settings()
@@ -3169,18 +3166,19 @@ def create_agent_eval(
                 output_metrics,
             )
         except Exception as e:
-            if "not found" in str(e).lower() or "does not exist" in str(e).lower():
-                raise
-            from dku_cli.errors import exit_with_error as _exit
-
-            _exit(
-                f"Failed to create agent eval recipe — eval store '{eval_store}' may not exist.",
-                code="eval_store_not_found",
-                details=[
-                    "Evaluation stores must be created in the DSS UI before use.",
-                    "Verify the eval store ID in: Administration > Evaluation Stores",
-                ],
-            )
+            msg = str(e).lower()
+            if "not found" in msg or "does not exist" in msg:
+                raise  # Let handle_api_error process not-found errors
+            if "eval" in msg or "evaluation" in msg or "store" in msg:
+                exit_with_error(
+                    f"Failed to create agent eval recipe — eval store '{eval_store}' may not exist.",
+                    code="eval_store_not_found",
+                    details=[
+                        "Evaluation stores must be created in the DSS UI before use.",
+                        "Verify the eval store ID in: Administration > Evaluation Stores",
+                    ],
+                )
+            raise  # Re-raise network/auth/other errors unchanged
 
         # Post-creation payload configuration
         settings = recipe.get_settings()

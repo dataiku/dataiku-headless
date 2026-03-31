@@ -2,7 +2,7 @@
 
 > Reference for building **custom** visual agent (SVA) blocks as plugin components. Blocks execute deterministically in the agent's graph flow — always at specified points, regardless of LLM choice.
 
-> **Using built-in blocks?** See `references/structured-agents.md` for the design guide (when/why for all 13 block types) and `docs/block-graph-api.md` for JSON schemas. This doc is for building NEW block types as plugin components.
+> **Using built-in blocks?** See `references/structured-agents.md` for the design guide (when/why for all block types) and their JSON schemas. This doc is for building NEW block types as plugin components.
 
 **Example plugin:** `dss-plugin-aws-bedrock-agentcore-resources` (memory + code interpreter + browser)
 

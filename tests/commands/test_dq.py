@@ -17,7 +17,8 @@ runner = CliRunner()
 def test_dq_list_table(patch_client):
     result = runner.invoke(app, ["dq", "list", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "rule1" in result.output or "Record count" in result.output
+    assert "rule1" in result.output
+    assert "Record count" in result.output
 
 
 def test_dq_list_json(patch_client):
@@ -314,6 +315,7 @@ def test_dq_compute_single_rule(patch_client):
 def test_dq_status(patch_client):
     result = runner.invoke(app, ["dq", "status", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
+    assert "OK" in result.output
 
 
 def test_dq_status_json(patch_client):
@@ -322,7 +324,8 @@ def test_dq_status_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert "status" in parsed or "outcome" in parsed
+    assert "status" in parsed
+    assert parsed["status"] == "OK"
 
 
 # ── results ──────────────────────────────────────────────────────────────
@@ -331,6 +334,7 @@ def test_dq_status_json(patch_client):
 def test_dq_results(patch_client):
     result = runner.invoke(app, ["dq", "results", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
+    assert "rule1" in result.output
 
 
 def test_dq_results_json(patch_client):
@@ -388,3 +392,4 @@ def test_dq_project_status_json(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert "ds1" in parsed
+    assert parsed["ds1"]["status"] == "OK"

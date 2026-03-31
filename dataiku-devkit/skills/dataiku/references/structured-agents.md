@@ -2,7 +2,7 @@
 
 Build production-grade AI agents using Dataiku's deterministic block graph. Unlike free-form agents that loop indefinitely with variable results, structured visual agents (SVAs) guarantee consistent, auditable outputs through explicit control flow.
 
-> **API reference:** For the JSON schema of every block type, see `docs/block-graph-api.md`.
+> **API reference:** Block type schemas and connection models are documented inline below.
 > **CLI reference:** For `dku agent-block` commands, see `skills/dku-cli/references/commands.md`.
 > **Custom plugin blocks:** For building your own block types as plugins, see `references/visual-agent-blocks.md`.
 >
@@ -682,4 +682,4 @@ dku agent-block connect AGENT_ID --from parse --to routing -P PROJ
 dku agent-block get-graph AGENT_ID -P PROJ -o json | jq '.blocks[] | {id, nextBlock, defaultNextBlock}'
 ```
 
-See `docs/block-graph-api.md` for the complete JSON schema of each block type.
+See block type definitions in the sections above for the complete schema of each block type.
