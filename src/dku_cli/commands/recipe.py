@@ -814,8 +814,10 @@ def set_definition(
                 current.update(new_payload)
             target = "payload"
         settings.save()
-        success(f"Updated {target} for recipe '{recipe_name}'"
-                + (" (deep-merged)" if deep_merge else ""))
+        success(
+            f"Updated {target} for recipe '{recipe_name}'"
+            + (" (deep-merged)" if deep_merge else "")
+        )
     except typer.Exit:
         raise
     except Exception as e:

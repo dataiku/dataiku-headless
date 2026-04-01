@@ -2269,10 +2269,14 @@ def test_recipe_set_definition_deep_merge(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "set-definition", "recipe1",
-            "--payload", '{"postFilter": {"enabled": true}}',
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            '{"postFilter": {"enabled": true}}',
             "--deep-merge",
-            "--project", "PROJ1",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -2295,10 +2299,14 @@ def test_recipe_set_definition_deep_merge_replaces_non_dict(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "set-definition", "recipe1",
-            "--payload", '{"topN": 10, "keys": ["new_key"]}',
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            '{"topN": 10, "keys": ["new_key"]}',
             "--deep-merge",
-            "--project", "PROJ1",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 0
@@ -2312,10 +2320,14 @@ def test_recipe_set_definition_deep_merge_without_payload(patch_client):
     result = runner.invoke(
         app,
         [
-            "recipe", "set-definition", "recipe1",
-            "--definition", '{"type": "python"}',
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            '{"type": "python"}',
             "--deep-merge",
-            "--project", "PROJ1",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code == 1

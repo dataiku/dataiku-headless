@@ -69,10 +69,15 @@ def test_dataset_head_columns_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "dataset", "head", "ds1",
-            "--columns", "col2",
-            "--project", "PROJ1",
-            "-o", "json",
+            "dataset",
+            "head",
+            "ds1",
+            "--columns",
+            "col2",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
         ],
     )
     assert result.exit_code == 0
@@ -87,9 +92,13 @@ def test_dataset_head_columns_missing(patch_client):
     result = runner.invoke(
         app,
         [
-            "dataset", "head", "ds1",
-            "--columns", "nonexistent",
-            "--project", "PROJ1",
+            "dataset",
+            "head",
+            "ds1",
+            "--columns",
+            "nonexistent",
+            "--project",
+            "PROJ1",
         ],
     )
     assert result.exit_code != 0

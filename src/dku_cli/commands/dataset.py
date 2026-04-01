@@ -130,7 +130,11 @@ def head(
                     code="invalid_column",
                     details=[
                         f"Available columns: {', '.join(all_columns[:20])}"
-                        + (f" ... ({len(all_columns)} total)" if len(all_columns) > 20 else ""),
+                        + (
+                            f" ... ({len(all_columns)} total)"
+                            if len(all_columns) > 20
+                            else ""
+                        ),
                         f"Check schema: dku dataset schema {dataset_name} -P {project_key}",
                     ],
                 )
