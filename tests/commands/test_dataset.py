@@ -52,6 +52,59 @@ def test_dataset_head(patch_client):
     assert result.exit_code == 0
 
 
+def test_dataset_head_columns_filter(patch_client):
+    """--columns filters output to specific columns."""
+    result = runner.invoke(
+        app,
+        ["dataset", "head", "ds1", "--columns", "col1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    # Rich renders column headers uppercase; check values are present
+    assert "a" in result.output
+    assert "b" in result.output
+
+
+def test_dataset_head_columns_json(patch_client):
+    """--columns works with JSON output."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "head",
+            "ds1",
+            "--columns",
+            "col2",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    # Only col2 should be present
+    assert list(parsed[0].keys()) == ["col2"]
+
+
+def test_dataset_head_columns_missing(patch_client):
+    """--columns with nonexistent column gives prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "head",
+            "ds1",
+            "--columns",
+            "nonexistent",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower() or "nonexistent" in result.output
+
+
 def test_dataset_build(patch_client):
     result = runner.invoke(app, ["dataset", "build", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0

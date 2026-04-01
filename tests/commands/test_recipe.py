@@ -2254,6 +2254,86 @@ def test_recipe_set_definition_both_flags(patch_client):
     assert "Cannot use both" in result.output
 
 
+def test_recipe_set_definition_deep_merge(patch_client):
+    """--deep-merge recursively merges nested payload objects."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {
+        "topN": 5,
+        "postFilter": {"enabled": False, "distinct": True},
+        "keys": ["customer_id"],
+    }
+
+    # Deep merge should update postFilter.enabled without losing postFilter.distinct
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            '{"postFilter": {"enabled": true}}',
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "deep-merged" in result.output
+    payload = settings.obj_payload
+    assert payload["postFilter"]["enabled"] is True
+    assert payload["postFilter"]["distinct"] is True  # preserved
+    assert payload["topN"] == 5  # preserved
+    assert payload["keys"] == ["customer_id"]  # preserved
+    settings.save.assert_called()
+
+
+def test_recipe_set_definition_deep_merge_replaces_non_dict(patch_client):
+    """--deep-merge replaces non-dict values in patch."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {"topN": 5, "keys": ["old_key"]}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            '{"topN": 10, "keys": ["new_key"]}',
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = settings.obj_payload
+    assert payload["topN"] == 10
+    assert payload["keys"] == ["new_key"]
+
+
+def test_recipe_set_definition_deep_merge_without_payload(patch_client):
+    """--deep-merge without --payload is an error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            '{"type": "python"}',
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--deep-merge can only be used with --payload" in result.output
+
+
 # ── Prepare step: add-fold ─────────────────────────────────────────────
 
 

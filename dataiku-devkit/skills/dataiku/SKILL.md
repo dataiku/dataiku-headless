@@ -66,6 +66,54 @@ Comprehensive knowledge base for building Dataiku plugins, webapps, agents, and 
 
 ---
 
+## Companion Skill: `dku-cli`
+
+**This skill and `dku-cli` are a pair. Always use both.**
+
+- **This skill** tells you *what* to build and *how* DSS works (recipes, agents, plugins, formulas, MLOps patterns)
+- **`dku-cli`** tells you *how to execute* — create projects, upload data, wire recipes, build pipelines, deploy plugins
+
+**Typical workflow:**
+1. Read this skill to understand the right DSS approach (visual recipe? agent? plugin?)
+2. Use `dku-cli` commands to create, configure, build, and verify everything
+3. **Verify every outcome** — see [Verification Protocol](#verification-protocol) below
+
+When this skill says "use a visual join recipe", the CLI skill shows the exact `dku recipe create-join` command. When this skill says "create a knowledge bank", the CLI skill shows `dku knowledge create`. Never read one without considering the other.
+
+---
+
+## Verification Protocol — Trust Nothing, Verify Everything
+
+**Every artifact you create MUST be verified before you consider the task done.** DSS commands can succeed (exit 0) while producing empty datasets, broken schemas, or misconfigured recipes. Silent failures are the norm, not the exception.
+
+### Mandatory Verification Steps
+
+After creating and building any pipeline, agent, or plugin:
+
+| What you built | How to verify | What to check |
+|----------------|--------------|---------------|
+| **Dataset upload** | `dku dataset head NAME -P PROJ -n 3` | Rows exist, columns correct, types not all string |
+| **Recipe (any type)** | `dku dataset build OUTPUT --wait -P PROJ` then `dku dataset head OUTPUT -P PROJ -n 5` | Output has rows, schema matches expectations |
+| **Full pipeline** | `dku job run --target LEAF -P PROJ --type RECURSIVE_BUILD --auto-update-schema --wait` then `dku dataset head LEAF -P PROJ` | Final output is populated, no schema mismatches |
+| **Visual recipe config** | `dku recipe get-definition NAME -P PROJ -o json` | Verify join keys, aggregation columns, filter conditions are set |
+| **Agent** | `dku agent status NAME -P PROJ` | Status is correct, LLM is assigned |
+| **Agent tools** | `dku agent-tool list -P PROJ` | Tools are created AND attached to the agent |
+| **Knowledge bank** | `dku knowledge search NAME --query "test" -P PROJ` | Returns results after build |
+| **Plugin push** | `dku plugin get NAME -o json` | Version correct, code env assigned |
+| **Dashboard/Chart** | `dku insight validate ID -P PROJ` | Column names exist in dataset |
+| **Scenario** | `dku scenario run NAME -P PROJ --wait` then `dku scenario status NAME -P PROJ` | Completed successfully |
+| **ML model** | `dku ml details AID TID MID -P PROJ` | Metrics exist, performance is reasonable |
+
+### Verification Rules
+
+1. **Never assume success from exit code alone.** A recipe can "build successfully" but produce 0 rows.
+2. **Always `head` the final output.** This is the single most important verification — if the output looks right, the pipeline works.
+3. **Check schemas after visual recipes.** Visual recipes auto-propagate schemas, but columns may be renamed (e.g., join prefixing) or dropped.
+4. **Test agents end-to-end.** Creating an agent + tools is not enough. Verify the agent can actually call the tools and return useful output.
+5. **Build before declaring done.** An unwired pipeline with 0 built datasets is not a working pipeline.
+
+---
+
 ## Why Visual Matters — Dataiku's Core Value
 
 Dataiku exists to **democratize data science and AI**. Its power is that business analysts, data engineers, and data scientists all work in the same visual environment — no code required for most tasks. Every decision you make should reinforce this principle:
@@ -180,26 +228,33 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 
 | Topic | When to use | Reference |
 |-------|-------------|-----------|
-| **Formulas** | Formula language, computed columns, Prepare recipe expressions, `if()`, `strval()`, `forEach()` | `references/formulas.md` |
+| **Formulas** | Formula language, computed columns, Prepare recipe expressions, `if()`, `strval()`, `forEach()`, log/exp gotchas | `references/formulas.md` |
+| **Prepare Processors** | ~95 processor types with selection guidance. **ALWAYS prefer purpose-built processors over GREL.** Decision table, shared param patterns, canonical JSON for 20 processors | `references/prepare-processors.md` |
+| **Visual Recipe Payloads** | JSON payload structure for join, group, window, filter, topN recipes. Use when CLI flags don't cover your configuration need | `references/visual-recipe-payloads.md` |
+| **Visual Conditions** | Shared `uiData.conditions[]` schema for filters, split conditions, VisualIfRule. Operator catalog, AND/OR groups, canonical examples | `references/visual-conditions.md` |
 | **LLM Mesh** | GenAI apps, LLM connections, tools, guardrails, RAG, knowledge banks, LangChain integration | `references/llm-mesh.md` |
 | **Structured Visual Agents** | SVA design guide: all 13 block types (when/why), graph patterns, state management, CLI workflow | `references/structured-agents.md` |
 | **Scenarios** | Automation, triggers, steps, reporters, metrics/checks, pipeline orchestration | `references/scenarios.md` |
 | **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
 | **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
-| **Geospatial** | Geo data types (geopoint/geometry), geo join recipe, fuzzy join, prepare processors, GREL geo formulas | `references/geospatial.md` |
 
 ## Instructions
 
 1. Identify which topic(s) the user's task involves
-2. For scaffolding tasks (new plugin, add component, deploy, review), read `references/scaffolding.md`
-3. For new plugins, read `references/plugin-architecture.md` first to pick the right tier
-4. Read the relevant reference file(s) — for cross-cutting tasks, read multiple
-5. Apply the patterns and examples from the references
-6. For webapps, always also check `references/webapp-pitfalls.md`
-7. For dependency or compatibility issues, check `references/code-environments.md`
-8. For structured visual agents (SVAs), read `references/structured-agents.md` for design patterns, block selection, and JSON schemas
-9. **When unsure about a pattern**, check the "Official Plugin Repos" section in `references/plugin-architecture.md` — it lists 40+ public repos at `github.com/dataiku` organized by component type. Browse the closest match to see real production code.
+2. **Use `dku-cli` commands to execute.** This skill tells you what to build; the CLI skill tells you how to run it. Always use both.
+3. For scaffolding tasks (new plugin, add component, deploy, review), read `references/scaffolding.md`
+4. For new plugins, read `references/plugin-architecture.md` first to pick the right tier
+5. Read the relevant reference file(s) — for cross-cutting tasks, read multiple
+6. Apply the patterns and examples from the references
+7. For webapps, always also check `references/webapp-pitfalls.md`
+8. For dependency or compatibility issues, check `references/code-environments.md`
+9. For structured visual agents (SVAs), read `references/structured-agents.md` for design patterns and block selection, then `docs/block-graph-api.md` for JSON schemas
+10. **When unsure about a pattern**, check the "Official Plugin Repos" section in `references/plugin-architecture.md` — it lists 40+ public repos at `github.com/dataiku` organized by component type. Browse the closest match to see real production code.
+11. **Verify every outcome.** After building anything, run it and check the output. See [Verification Protocol](#verification-protocol--trust-nothing-verify-everything) above. Your job is done when you've proven the output is correct, not when commands exit 0.
+12. **Prepare recipes: ALWAYS prefer purpose-built processors over GREL.** Before writing any prepare step, READ `references/prepare-processors.md` for the processor decision table and exact params. Use `CreateColumnWithGREL` / `add-formula` ONLY when no dedicated processor exists. There are ~95 processor types — date parsing, string transforms, if/then/else, filtering, binning, JSON flattening, and more all have dedicated processors that are faster and cleaner than GREL.
+13. **Sample data before transforming.** Before creating or configuring ANY recipe, inspect the input dataset with `dku dataset head INPUT -P PROJ -n 5` to verify column names, data formats, and value patterns. Don't assume date formats (`yyyy-MM-dd` vs `MM/dd/yyyy`), column cardinality, or value ranges from schema alone. For joins, verify both datasets have matching key column values.
+14. **Visual recipe payloads.** When CLI flags don't cover your configuration need (custom join conditions, additional aggregations, post-filters), READ `references/visual-recipe-payloads.md` for payload schemas and `references/visual-conditions.md` for filter/condition JSON. Use `dku recipe get-settings` → edit → `dku recipe set-definition --payload`.
 
 ## Cross-Cutting Patterns
 
@@ -223,7 +278,10 @@ Common task combinations that span multiple references:
 - **"Integrate external agent runtime"** -> `visual-agent-blocks.md` (agent connector section) + `llm-mesh.md`
 - **"Build a structured agent"** -> `structured-agents.md` + `llm-mesh.md`
 - **"Build an agent" / "What type of agent?"** -> Read Agent Type Selection section above first, then `structured-agents.md` (SVA) or `llm-mesh.md` (Visual) or `python-api.md` (Code)
-- **"Add a formula processor"** -> `formulas.md` + `recipes.md`
+- **"Add prepare recipe steps"** -> `prepare-processors.md` (READ FIRST — processor selection + params) + `dku-cli` skill (CLI commands)
+- **"Add a formula processor"** -> `prepare-processors.md` (check if a purpose-built processor exists first) + `formulas.md` (only if GREL is truly needed)
+- **"Configure visual recipe beyond CLI flags"** -> `visual-recipe-payloads.md` (payload schemas) + `visual-conditions.md` (filter/condition JSON)
+- **"Add filter/condition to a recipe"** -> `visual-conditions.md` (uiData operator catalog) + `visual-recipe-payloads.md` (where filters go in each recipe type)
 - **"Style a Dataiku dashboard"** -> `styling.md` + `webapps.md`
 - **"Automate model retraining"** -> `scenarios.md` + `mlops.md`
 - **"Read data and write to a folder"** -> `python-api.md`
