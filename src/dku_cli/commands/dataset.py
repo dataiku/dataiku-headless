@@ -94,9 +94,19 @@ def head(
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     rows: int = typer.Option(10, "-n", "--rows", help="Number of rows"),
+    filter_columns: str = typer.Option(
+        None,
+        "--columns",
+        "-C",
+        help="Comma-separated column names to display (default: all). Use to inspect specific columns before transforming.",
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Preview first rows of a dataset."""
+    """Preview first rows of a dataset.
+
+    Use --columns to inspect specific columns before creating recipes:
+      dku dataset head INPUT --columns "order_date,price" -P PROJ -n 10
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -105,24 +115,45 @@ def head(
 
         # Get column names from schema
         ds_def = ds.get_definition()
-        columns = [
+        all_columns = [
             col.get("name", f"col_{i}")
             for i, col in enumerate(ds_def.get("schema", {}).get("columns", []))
         ]
+
+        # Filter columns if requested
+        if filter_columns:
+            requested = [c.strip() for c in filter_columns.split(",") if c.strip()]
+            missing = [c for c in requested if c not in all_columns]
+            if missing:
+                exit_with_error(
+                    f"Column(s) not found: {missing}",
+                    code="invalid_column",
+                    details=[
+                        f"Available columns: {', '.join(all_columns[:20])}"
+                        + (f" ... ({len(all_columns)} total)" if len(all_columns) > 20 else ""),
+                        f"Check schema: dku dataset schema {dataset_name} -P {project_key}",
+                    ],
+                )
+            display_columns = requested
+        else:
+            display_columns = all_columns
 
         # iter_rows() returns lists, not dicts — zip with column names
         data = []
         for i, row in enumerate(ds.iter_rows()):
             if i >= rows:
                 break
-            data.append(dict(zip(columns, row)))
+            full_row = dict(zip(all_columns, row))
+            data.append({c: full_row[c] for c in display_columns})
 
         render(
             data,
-            columns,
+            display_columns,
             output_format=output,
             title=f"{dataset_name} (first {rows} rows)",
         )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

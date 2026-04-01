@@ -12,17 +12,16 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 
 - [auth](#auth) — login, logout, status, list, switch
 - [config](#config) — set, get, list, path, variables, set-variables
-- [project](#project) — list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
+- [project](#project) — list, get, inspect, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
 - [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
-- [dq](#dq) — list, create, compute, status, results, delete, project-status
-- [recipe](#recipe) — list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-join, create-geojoin, create-fuzzy-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance, list-steps, get-step, remove-step, enable-step, disable-step
+- [recipe](#recipe) — list, get, get-definition, get-settings, set-settings, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
 - [job](#job) — list, run, status, log, abort, wait
-- [plugin](#plugin) — list, push, settings, recipes
+- [plugin](#plugin) — list, push, settings
 - [code-env](#code-env) — list, get, create, delete, update
 - [connection](#connection) — list, create, test
 - [model](#model) — list, get, versions
-- [folder](#folder) — list, create, ls, upload, download
+- [folder](#folder) — list, ls, upload, download
 - [llm](#llm) — list, completion, embeddings
 - [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
 - [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition
@@ -32,8 +31,15 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [flow](#flow) — graph, zones, create-zone, propagate, check, sources, successors
 - [library](#library) — list, read, write, delete, mkdir
 - [agent](#agent) — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm
-- [agent-tool](#agent-tool) — list, get, run, delete
-- [knowledge](#knowledge) — list, create, get, build, search, delete
+- [agent-review](#agent-review) — list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results
+- [agent-tool](#agent-tool) — list, get, create, set-definition, run, types, delete
+- [code-studio](#code-studio) — list, create, get, delete, status, start, stop, change-owner, templates
+- [git](#git) — status, log, diff, commit, pull, push, fetch, branches, create-branch, delete-branch, switch, tags, create-tag, remote
+- [api-deployer](#api-deployer) — list-infras, list-services, get-service, list-deployments, create-deployment, get-deployment, update-deployment, delete-deployment, deployment-status
+- [project-deployer](#project-deployer) — list-infras, list-projects, list-deployments, create-deployment, get-deployment, update-deployment, delete-deployment, deployment-status
+- [notebook](#notebook) — list, get, create, delete, sessions, stop, clear-outputs, history
+- [discussion](#discussion) — list, get, create, reply
+- [knowledge](#knowledge) — list, create, get, set-definition, build, search, delete
 - [bundle](#bundle) — list, export, download, import, activate
 - [api-service](#api-service) — list, create, get, create-package, list-packages
 - [wiki](#wiki) — list, create, get, update, delete
@@ -77,6 +83,7 @@ dku config set-variables --set key=value  # Set instance-level variables
 ```bash
 dku project list [-o FORMAT]
 dku project get PROJECT_KEY [-o FORMAT]
+dku project inspect [PROJECT_KEY] [-P PROJECT] [-o FORMAT]
 dku project export PROJECT_KEY [--dest DIR]
 dku project create PROJECT_KEY --name NAME [--description DESC] [--if-not-exists] [-o FORMAT]
 dku project delete PROJECT_KEY --yes
@@ -94,6 +101,7 @@ dku project tags [-P PROJECT] [-o FORMAT]
 - `create --if-not-exists` skips creation silently when the project already exists (idempotent)
 - `set-metadata` updates project display name and/or description after creation
 - `set-variables --set` modifies individual standard vars; `--definition` replaces all
+- `inspect` gives a one-shot project summary: datasets, recipes, scenarios, flow sources, jobs, wiki, variables. Use `-o json` for machine-readable nested output
 
 ## dataset
 
@@ -102,7 +110,7 @@ All commands require project (`-P KEY` / `DKU_PROJECT` / config default).
 ```bash
 dku dataset list [-P PROJECT] [-o FORMAT]
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
-dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-o FORMAT]
+dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-C COLUMNS] [-o FORMAT]
 dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku dataset create DATASET_NAME [--type Filesystem] [-c CONNECTION] [-P PROJECT] [--if-not-exists] [--definition JSON]
 dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect]
@@ -115,108 +123,119 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
 - `upload --no-autodetect` skips detection (if you'll set format manually)
-- `head` defaults to 10 rows, override with `-n`
+- `head` defaults to 10 rows, override with `-n`. Use `--columns "col1,col2"` / `-C` to inspect specific columns before transforming
 - `build --wait` blocks until job completes
 - `build --type RECURSIVE_BUILD --auto-update-schema` builds upstream deps with automatic schema propagation
 - `create --type UploadedFiles` for CSV upload targets
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
-- `create --type UploadedFiles --connection NAME` for cloud DSS instances that require explicit upload connection
-
-## dq
-
-Data quality rules on DSS datasets. Requires DSS 14.5+.
-
-```bash
-dku dq list DATASET [-P PROJECT] [-o FORMAT]
-dku dq create DATASET [--type TYPE] [--column COL] [--min N] [--max N] [--name NAME] [-P PROJECT]
-dku dq create DATASET --config JSON [-P PROJECT]
-dku dq compute DATASET [-P PROJECT] [--wait|--no-wait] [--partition PART] [--rule-id ID]
-dku dq status DATASET [-P PROJECT] [-o FORMAT]
-dku dq results DATASET [-P PROJECT] [--partition PART] [-o FORMAT]
-dku dq delete DATASET --rule-id ID [--yes] [-P PROJECT]
-dku dq project-status [-P PROJECT] [--all] [-o FORMAT]
-```
-
-- `create --type`: `record-count`, `not-empty`, `value-in-range`, `column-min`, `column-max`, `column-avg`, `column-sum`
-- `value-in-range` creates TWO rules (ColumnMinInRangeRule + ColumnMaxInRangeRule)
-- Column rules require `--column`. Range rules use `--min` and/or `--max` (warning-level thresholds)
-- `create --config` for raw JSON (any of 13+ DSS rule types including median, stddev, schema, file-size)
-- `compute --wait` (default) blocks until computation finishes
-- `compute --rule-id` computes a single rule only
-- `project-status` shows monitored datasets only by default; `--all` includes non-monitored
-- `not-empty` (ColumnNotEmptyRule) has a known DSS 14.5 beta bug — use `column-min --min 1` as workaround
 
 ## recipe
 
 ### Visual recipe commands (PREFER these over Python)
 
 ```bash
-dku recipe create-join NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]     # Join (auto-detects keys)
-dku recipe create-geojoin NAME -i DS1 -i DS2 --output-ds OUT [--operator OP] [--distance N] [-P PROJECT]  # Geo join
-dku recipe create-fuzzy-join NAME -i DS1 -i DS2 --output-ds OUT [--fuzzy-key COL] [-P PROJECT]  # Fuzzy/approx join
-dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [--agg COL:FUNCS] [-P PROJECT]  # Group/aggregate
+dku recipe create-join NAME -i DS1 -i DS2 --output-ds OUT [--join-type LEFT] [-P PROJECT]  # Join
+dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [-P PROJECT]  # Group/aggregate
 dku recipe create-stack NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]    # Stack/union
 dku recipe create-distinct NAME -i DS --output-ds OUT [-P PROJECT]         # Deduplicate
-dku recipe create-sort NAME -i DS --output-ds OUT [--sort-col COL:desc] [-P PROJECT]  # Sort
-dku recipe create-filter NAME -i DS --output-ds OUT [--filter-formula GREL] [-P PROJECT]  # Filter
-dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL:desc] [-P PROJECT]  # Window functions
+dku recipe create-sort NAME -i DS --output-ds OUT [--sort-col COL] [-P PROJECT]  # Sort
+dku recipe create-filter NAME -i DS --output-ds OUT [--filter-formula EXPR] [-P PROJECT]  # Filter/sample
+dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL] [-P PROJECT]  # Window functions
 dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
-dku recipe create-topn NAME -i DS --output-ds OUT [-P PROJECT]             # Top/bottom N rows
-dku recipe create-pivot NAME -i DS --output-ds OUT [-P PROJECT]            # Pivot/crosstab
-dku recipe create-sampling NAME -i DS --output-ds OUT [-P PROJECT]         # Sample rows
+dku recipe create-topn NAME -i DS --output-ds OUT [--sort-col COL] [--n N] [-P PROJECT]  # Top/bottom N rows
+dku recipe create-pivot NAME -i DS --output-ds OUT [--row-key COL] [--column-key COL] [-P PROJECT]  # Pivot (long→wide)
+dku recipe create-sampling NAME -i DS --output-ds OUT [--method METHOD] [--size N] [-P PROJECT]     # Random sample
+dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL [-P PROJECT]       # Fold (wide→long)
 ```
 
-- `create-join` requires 2+ inputs. Use `--join-key col` or `--join-key left=right` to set join conditions (repeatable for composite keys). Auto-detects from matching column names if `--join-key` omitted
-- `create-geojoin` requires exactly 2 inputs. `--operator`: WITHIN_DISTANCE (default), CONTAINS, INTERSECTS, etc. `--distance` in meters (for WITHIN_DISTANCE). `--geo-column col1,col2` to specify geo columns
-- `create-fuzzy-join` requires exactly 2 inputs. `--fuzzy-key col` for the column to match on. `--method`: NORMALIZED_LEVENSHTEIN (default), BEIDER_MORSE, DOUBLE_METAPHONE, SOUNDEX
+- `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`
 - `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group
-- `create-sort --sort-col col:desc` for descending, `--sort-col col` for ascending (repeatable)
-- `create-filter --filter-formula GREL` sets the filter expression (e.g. `"price > 100"`)
-- `create-window --partition-col col` sets partitioning, `--order-col col:desc` sets ordering (both repeatable)
+- `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional
+- `create-sampling` takes a sample. `--method`: RANDOM_FIXED_NB (default), RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED. `--size N` or `--ratio 0.1`
+- `add-fold` unpivots columns into rows (wide→long). Use `--columns` for explicit list or `--pattern` for regex match
+- `create-sort --sort-col COL` sets sort columns at creation (repeatable). Use `COL` for ascending or `COL:desc` for descending
+- `create-topn --sort-col COL` and `--n N` set the sort column(s) and row limit at creation
+- `create-filter --filter-formula EXPR` (aliases: `--filter EXPR`, `-f EXPR`) sets the filter expression at creation using Dataiku formula syntax
+- `create-window --partition-col COL` and `--order-col COL` set the window partition and ordering columns at creation
+- `create-embed --embed-column COL` specifies the column to embed (alias for `--text-column`)
 - Visual recipes auto-apply schema updates after creation. For manual control: `apply-schema RECIPE -P PROJ`
-- Configure additional visual recipe details (join type, sort order, filter conditions) in the DSS UI or via `set-definition`
 
 ### Prepare recipe step commands
 
+Manage processor steps in prepare recipes. Create a prepare recipe first with `dku recipe create NAME --type prepare -i INPUT --output-ds OUTPUT -c CONNECTION -P PROJECT`.
+
+**ALWAYS prefer purpose-built processors over `CreateColumnWithGREL`.** See `skills/dataiku/references/prepare-processors.md` for the full processor catalog with param schemas.
+
+#### Step management
+
 ```bash
-dku recipe add-formula RECIPE --column COL --expr GREL [-P PROJECT]              # Computed column
-dku recipe add-rename RECIPE --from OLD --to NEW [-P PROJECT]                     # Rename column
-dku recipe add-rename RECIPE --mappings '{"old1":"new1","old2":"new2"}' [-P PROJECT]  # Bulk rename
-dku recipe add-filter-rows RECIPE --formula GREL --action KEEP_ROW|REMOVE_ROW [-P PROJECT]  # Filter by formula
-dku recipe add-filter-rows RECIPE --column COL --values "a,b" --action KEEP_ROW [-P PROJECT]  # Filter by value
-dku recipe add-fill-empty RECIPE --column COL --value VAL [-P PROJECT]            # Fill nulls
-dku recipe add-delete-columns RECIPE --columns "col1,col2" [-P PROJECT]           # Drop columns
-dku recipe add-find-replace RECIPE --column COL --find X --replace Y [--matching SUBSTRING] [-P PROJECT]  # Find/replace
-dku recipe add-fold RECIPE --columns "a,b,c" --key-column K --value-column V [-P PROJECT]  # Unpivot (wide→long)
-dku recipe add-geopoint RECIPE --lat-column LAT --lon-column LON [-c OUTPUT_COL] [-P PROJECT]  # Create geopoint
-dku recipe add-geodistance RECIPE --from-column A --to-column B [-c OUTPUT_COL] [-P PROJECT]  # Geo distance
-dku recipe list-steps RECIPE [-P PROJECT] [-o FORMAT]     # List all steps
-dku recipe get-step RECIPE INDEX [-P PROJECT] [-o FORMAT]  # Get step by index
-dku recipe remove-step RECIPE INDEX [INDEX ...] [-P PROJECT]  # Remove step(s)
-dku recipe enable-step RECIPE INDEX [INDEX ...] [-P PROJECT]  # Enable step(s)
-dku recipe disable-step RECIPE INDEX [INDEX ...] [-P PROJECT]  # Disable step(s)
+dku recipe list-steps RECIPE [-P PROJECT] [-o FORMAT]                                    # List all steps
+dku recipe add-step RECIPE --type TYPE --params JSON [--at INDEX] [--name NAME] [-P PROJECT]  # Add any processor
+dku recipe get-step RECIPE --index INDEX [-P PROJECT] [-o FORMAT]                        # Get step details
+dku recipe remove-step RECIPE --index INDEX [--index INDEX2] [-P PROJECT]                # Remove step(s)
+dku recipe disable-step RECIPE --index INDEX [--index INDEX2] [-P PROJECT]               # Skip step
+dku recipe enable-step RECIPE --index INDEX [--index INDEX2] [-P PROJECT]                # Re-enable step
 ```
 
-- All step commands require the recipe to be of type `prepare` (or `shaker`)
-- `add-formula --expr` accepts GREL expressions. `--column` is the output column name
-- `add-filter-rows --action`: KEEP_ROW, REMOVE_ROW, CLEAR_CELL, FLAG
-- `add-find-replace --matching`: FULL_STRING (default), SUBSTRING, PATTERN (regex)
-- `add-fold --pattern REGEX` can be used instead of `--columns` to match column names by regex
-- Step indices are 0-based
+- `list-steps` shows index, type, name, disabled status, target column. `-o json` for full params
+- `add-step --type` accepts any of ~95 processor type IDs. `--params` accepts JSON string, `@file.json`, or `-` for stdin
+- `add-step --at N` inserts at position N (0-based). Default: append to end
+- `remove-step --index` is repeatable. Indices removed in descending order (no shifting issues)
+
+#### Named shortcuts (prefer over add-step for these operations)
+
+```bash
+dku recipe add-formula RECIPE --expr EXPRESSION --column OUTPUT_COL [-P PROJECT]
+dku recipe add-rename RECIPE {--from COL --to COL | --mappings JSON} [-P PROJECT]
+dku recipe add-filter-rows RECIPE {--column COL --values CSV | --formula EXPR} [--action ACTION] [-P PROJECT]
+dku recipe add-fill-empty RECIPE --column COL --value VALUE [-P PROJECT]
+dku recipe add-delete-columns RECIPE --columns "COL1,COL2" [-P PROJECT]
+dku recipe add-find-replace RECIPE --column COL --find VALUE --replace VALUE [--matching MODE] [-P PROJECT]
+dku recipe add-fold RECIPE {--columns CSV | --pattern REGEX} --key-column KEY --value-column VAL [-P PROJECT]
+dku recipe add-geopoint RECIPE --lat-column COL --lon-column COL [--output-column COL] [-P PROJECT]
+dku recipe add-geodistance RECIPE --from-column COL --to-column COL [--output-column COL] [-P PROJECT]
+```
+
+- `add-formula` wraps `CreateColumnWithGREL`. **Use as LAST RESORT** — prefer purpose-built processors
+- `add-rename --mappings` accepts JSON: `'{"old1":"new1","old2":"new2"}'` or `@file.json`
+- `add-filter-rows --action`: `KEEP_ROW` (default), `REMOVE_ROW`, `CLEAR_CELL`, `FLAG`
+- `add-filter-rows --formula` uses `FilterOnFormula`; `--column/--values` uses `FlagOnValue`
+- `add-find-replace --matching`: `FULL_STRING` (default), `SUBSTRING`, `PATTERN` (regex)
+- `add-fold --columns` uses `FoldColumnsByName`; `--pattern` uses `FoldColumnsByPattern`
+
+#### Common add-step processors (no shortcut available)
+
+| Task | Type | Example `--params` |
+|------|------|-------------------|
+| Uppercase/lowercase | `StringTransformer` | `'{"mode":"UPPERCASE","appliesTo":"SINGLE_COLUMN","columns":["city"]}'` |
+| Parse dates | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outType":{"name":"out","type":"date"}}'` |
+| Extract year/month | `DateComponentsExtractor` | `'{"column":"date","timezone_id":"UTC","outYearColumn":"year","outMonthColumn":"month"}'` |
+| Date difference | `DateDifference` | `'{"input1":"start","compareTo":"NOW","output":"days_ago","outputUnit":"DAYS","timezone_id":"UTC"}'` |
+| Concat columns | `ColumnsConcat` | `'{"columns":["first","last"],"join":" ","outputColumn":"full_name"}'` |
+| Split column | `ColumnSplitter` | `'{"inCol":"name","separator":" ","outColPrefix":"name_","target":"COLUMNS","keepEmptyChunks":false,"limitOutput":false,"limit":0}'` |
+| Copy column | `ColumnCopier` | `'{"inputColumn":"status","outputColumn":"status_bak"}'` |
+| Remove empty rows | `RemoveRowsOnEmpty` | `'{"appliesTo":"ALL","columns":[],"keep":false}'` |
+| Remove bad-type rows | `FilterOnBadType` | `'{"appliesTo":"SINGLE_COLUMN","columns":["price"],"type":"DoubleMeaning","action":"REMOVE_ROW","considerEmptyAsInvalid":false,"booleanMode":"AND"}'` |
+| Flatten JSON | `JSONFlattener` | `'{"inCol":"metadata","flattenArrays":false,"maxDepth":10,"nullAsEmpty":true,"prefixOutputs":true,"separator":"_"}'` |
+| If/then/else | `VisualIfRule` | See `prepare-processors.md` for full JSON structure |
+| Bin numbers | `BinnerProcessor` | `'{"input":"age","output":"age_group","mode":"WIDTH","width":10.0,"bins":[]}'` |
 
 ### Code and management commands
 
 ```bash
 dku recipe list [-P PROJECT] [-o FORMAT]
 dku recipe get RECIPE_NAME [-P PROJECT] [-o FORMAT]
+dku recipe get-definition RECIPE_NAME [-P PROJECT] [-o FORMAT]
+dku recipe get-settings RECIPE_NAME [-P PROJECT] [-o json]
+dku recipe set-settings RECIPE_NAME --settings JSON [-P PROJECT]
 dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku recipe create RECIPE_NAME --type TYPE --input DS --output-ds DS [-P PROJECT]
 dku recipe delete RECIPE_NAME [-P PROJECT]
 dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
 dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
-dku recipe set-definition RECIPE_NAME --definition JSON [-P PROJECT]
+dku recipe set-definition RECIPE_NAME {--definition JSON | --payload JSON} [--deep-merge] [-P PROJECT]
 dku recipe add-input RECIPE_NAME DS [--role main] [-P PROJECT]
 dku recipe add-output RECIPE_NAME DS [--role main] [-P PROJECT]
 dku recipe check-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
@@ -226,12 +245,16 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 - `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
+- `get-settings` returns full recipe settings as JSON including the visual recipe payload (sort orders, join keys, filter conditions, etc.). Unlike `get`, this includes the payload
+- `set-settings` sets full recipe settings from JSON. Root-level keys update the definition; the `payload` key updates the visual recipe config (shallow merge). Use `get-settings` first to read, modify, then `set-settings` to update
+- `set-definition --payload` updates visual recipe config (aggregations, join keys, filter conditions). `--definition` updates raw recipe definition (I/O, connection). Mutually exclusive
+- `set-definition --deep-merge` (with `--payload`) recursively merges nested objects — patch one field without losing siblings. Default is shallow merge (top-level keys replaced). See `skills/dataiku/references/visual-recipe-payloads.md` for payload schemas
 - **Only use `create -t python` when no visual recipe fits the task**
 
 ### GenAI recipe commands
 
 ```bash
-dku recipe create-embed RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [-P PROJECT]
+dku recipe create-embed RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [--text-column COL] [--embed-column COL] [-P PROJECT]
 dku recipe create-embed-docs RECIPE_NAME --input DS --output-kb KB_ID --embedding-llm LLM_ID [--vlm LLM_ID] [-P PROJECT]
 dku recipe create-extract RECIPE_NAME --input DS --output-ds DS --vlm LLM_ID [-P PROJECT]
 dku recipe create-llm-eval RECIPE_NAME --input DS --eval-store STORE_ID [--output-ds DS] [--output-metrics DS] [--task-type TYPE] [--metrics CSV] [--completion-llm LLM_ID] [--embedding-llm LLM_ID] [-P PROJECT]
@@ -283,16 +306,14 @@ dku plugin create-code-env PLUGIN_ID [--wait/--no-wait] [-o FORMAT]
 dku plugin set-code-env PLUGIN_ID ENV_NAME
 dku plugin update-code-env PLUGIN_ID [--wait/--no-wait]
 dku plugin usages PLUGIN_ID [-P PROJECT] [-o FORMAT]
-dku plugin recipes PLUGIN_ID [-o FORMAT]
 ```
 
-- `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install. **Warns about recipe type registration** — DSS may need restart for new recipe types
+- `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install
 - `get` shows plugin details including version, code env, and dev status
 - `create-code-env` creates and waits for the managed code env (use after first install)
 - `set-code-env` assigns a code env to the plugin (use after create-code-env)
 - `update-code-env` rebuilds the code env after dependency changes
 - `usages` shows where plugin components are used; filter by project with `-P`
-- `recipes` reads custom recipe types from dev plugin files; type format is `CustomCode_<recipeComponentId>` (plugin ID is NOT in the type)
 - First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
 
 ## code-env
@@ -321,66 +342,7 @@ dku connection test CONNECTION_NAME
 dku model list [-P PROJECT] [-o FORMAT]
 dku model get MODEL_ID [-P PROJECT] [-o FORMAT]
 dku model versions MODEL_ID [-P PROJECT] [-o FORMAT]
-dku model set-active-version MODEL_ID VERSION_ID [-P PROJECT]
-dku model metrics MODEL_ID [-P PROJECT] [-o FORMAT]
-dku model delete-version MODEL_ID VERSION_ID [-P PROJECT]
 ```
-
-## ml
-
-AutoML task management — create, train, evaluate, and deploy ML models.
-
-```bash
-dku ml create-prediction DATASET TARGET [--prediction-type REGRESSION|TWO_CLASS|MULTICLASS] [--guess-policy DEFAULT] [--backend PY_MEMORY] [-P PROJECT] [-o FORMAT]
-dku ml create-clustering DATASET [--guess-policy DEFAULT] [--backend PY_MEMORY] [-P PROJECT] [-o FORMAT]
-dku ml create-timeseries DATASET TARGET TIME_COL [--identifiers COL ...] [--guess-policy DEFAULT] [-P PROJECT] [-o FORMAT]
-dku ml create-causal DATASET OUTCOME TREATMENT [--prediction-type REGRESSION|TWO_CLASS] [-P PROJECT] [-o FORMAT]
-dku ml list [-P PROJECT] [-o FORMAT]
-dku ml status ANALYSIS_ID MLTASK_ID [-P PROJECT] [-o FORMAT]
-dku ml train ANALYSIS_ID MLTASK_ID [--session-name NAME] [--wait/--no-wait] [-P PROJECT] [-o FORMAT]
-dku ml models ANALYSIS_ID MLTASK_ID [--session SESSION] [--algorithm ALG] [-P PROJECT] [-o FORMAT]
-dku ml details ANALYSIS_ID MLTASK_ID MODEL_ID [-P PROJECT] [-o FORMAT]
-dku ml deploy ANALYSIS_ID MLTASK_ID MODEL_ID [--name NAME] [--train-dataset DS] [--test-dataset DS] [--redo-optimization] [-P PROJECT] [-o FORMAT]
-dku ml redeploy ANALYSIS_ID MLTASK_ID MODEL_ID [--saved-model-id ID] [--recipe-name NAME] [--activate] [--redo-optimization] [-P PROJECT] [-o FORMAT]
-dku ml settings ANALYSIS_ID MLTASK_ID [-P PROJECT] [-o FORMAT]
-dku ml algorithms ANALYSIS_ID MLTASK_ID [-P PROJECT] [-o FORMAT]
-dku ml set-algorithm ANALYSIS_ID MLTASK_ID [--enable ALG ...] [--disable ALG ...] [--disable-all] [-P PROJECT]
-dku ml delete ANALYSIS_ID MLTASK_ID [-P PROJECT]
-```
-
-- `create-prediction` blocks during guess phase (5-30s). Returns `{analysisId, mltaskId}` needed for subsequent commands
-- `train --wait` (default) blocks until training completes; `--no-wait` starts async
-- `deploy` creates a saved model + train recipe in the flow. Returns `{savedModelId, trainRecipeName}`
-- `redeploy` updates an existing deployed model with a new trained version
-
-## analysis
-
-Visual analyses — containers for ML tasks.
-
-```bash
-dku analysis list [-P PROJECT] [-o FORMAT]
-dku analysis create DATASET [-P PROJECT] [-o FORMAT]
-dku analysis get ANALYSIS_ID [-P PROJECT] [-o FORMAT]
-dku analysis delete ANALYSIS_ID [-P PROJECT]
-dku analysis tasks ANALYSIS_ID [-P PROJECT] [-o FORMAT]
-```
-
-## evaluation-store
-
-Model evaluation stores — track model performance over time.
-
-```bash
-dku evaluation-store list [-P PROJECT] [-o FORMAT]
-dku evaluation-store create NAME [--if-not-exists] [-P PROJECT] [-o FORMAT]
-dku evaluation-store get STORE_ID [-P PROJECT] [-o FORMAT]
-dku evaluation-store evaluations STORE_ID [-P PROJECT] [-o FORMAT]
-dku evaluation-store latest STORE_ID [-P PROJECT] [-o FORMAT]
-dku evaluation-store build STORE_ID [--wait/--no-wait] [-P PROJECT]
-dku evaluation-store delete STORE_ID [-P PROJECT]
-```
-
-- `create --if-not-exists` returns existing store if name matches (idempotent)
-- `build --wait` (default) blocks until evaluation completes
 
 ## folder
 
@@ -388,13 +350,10 @@ Managed folders.
 
 ```bash
 dku folder list [-P PROJECT] [-o FORMAT]
-dku folder create NAME [-P PROJECT] [-c CONNECTION] [-t TYPE] [--if-not-exists] [-o FORMAT]
 dku folder ls FOLDER_ID [-P PROJECT] [-o FORMAT]
 dku folder upload FOLDER_ID FILE_PATH [-P PROJECT] [--remote-path PATH]
 dku folder download FOLDER_ID REMOTE_PATH [-P PROJECT] [--dest DIR]
 ```
-
-- `create` defaults to `filesystem_folders` connection; use `--connection` for S3, GCS, etc. Returns the folder ID needed for subsequent commands.
 
 ## llm
 
@@ -412,7 +371,6 @@ dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
   ```
   Valid `--purpose` values: `GENERIC_COMPLETION`, `TEXT_EMBEDDING_EXTRACTION`, `IMAGE_EMBEDDING_EXTRACTION`, `RERANKING`, `IMAGE_GENERATION`
 - `embeddings` rejects LLM IDs that are not available for `TEXT_EMBEDDING_EXTRACTION` in the target project
-- `embeddings` outputs raw JSON to stdout — no `-o` flag; pipe to `jq` as needed
 
 ## webapp
 
@@ -488,10 +446,11 @@ dku flow zones [-P PROJECT] [-o FORMAT]
 dku flow create-zone NAME [-P PROJECT]
 dku flow propagate DATASET [-P PROJECT] [--stop-at RECIPE ...] [--mark-ok RECIPE ...] [--no-auto-rebuild] [-o FORMAT]
 dku flow check [-P PROJECT] [-o FORMAT]
-dku flow sources [-P PROJECT] [-o FORMAT]
+dku flow sources [DATASET] [-P PROJECT] [-o FORMAT]
 dku flow successors NODE [-P PROJECT] [-o FORMAT]
 ```
 
+- `sources` without arguments lists all flow source datasets. With a `DATASET` argument, lists upstream sources for that specific dataset
 - `propagate` requires a dataset name as starting point for schema propagation
 - `propagate --stop-at` stops propagation at the given recipe (repeatable)
 - `propagate --mark-ok` marks a recipe as always OK during propagation (repeatable)
@@ -523,12 +482,8 @@ dku agent wake-up AGENT_ID [-P PROJECT]
 dku agent shutdown AGENT_ID [-P PROJECT]
 dku agent status AGENT_ID [-P PROJECT] [-o FORMAT]
 dku agent add-tool AGENT_ID --tool TOOL_ID [-P PROJECT]
-dku agent set-prompt AGENT_ID --prompt "TEXT" [-P PROJECT]
 dku agent set-llm AGENT_ID --llm-id LLM_ID [-P PROJECT]
 ```
-
-- `set-prompt` writes to the active version system prompt. Accepts literal text, `@file.txt`, or `-` for stdin
-- STRUCTURED_AGENT uses `systemPromptAppend` field; TOOLS_USING_AGENT uses `systemPrompt`
 
 - `create --type` defaults to TOOLS_USING_AGENT. Options: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT
 - `set-llm` and `add-tool` operate on the active version
@@ -551,39 +506,198 @@ dku agent-block set-graph AGENT_ID --definition/-d JSON [-P PROJECT] [--version 
 ```
 
 - `--block` and `--definition` accept inline JSON, `@file.json`, or `-` for stdin
-- **All `agent-block` subcommands require the agent ID, not the name.** Use `dku agent list -P PROJ -o json | jq '.[].id'` to get IDs. Other `dku agent` commands accept names, but `agent-block` does not.
+- `add` auto-switches agent to `BLOCKS_GRAPH` mode if currently `SIMPLE`
 - `add --set-start` sets the new block as starting block (auto-set for first block)
 - `connect` sets `nextBlock` on the source block (for ROUTING clauses use `get-graph`/`set-graph`)
 - `remove` warns about dangling references from other blocks
 - `--version` defaults to active version
-- **DSS 14.5+ block names:** `GENERATE_OUTPUT` (not `EMIT_OUTPUT`), `CORE_LOOP` (not `STANDARD_REACT`). DSS 13.x names are accepted but silently renamed. Use 14.5+ names to avoid confusion.
-- **DSS 14.5+ settings path:** blocks are stored in `structuredAgentSettings` (not `toolsUsingAgentSettings`). `get-graph` returns `structuredAgentSettings` directly.
-- Block types (DSS 14.5+): SET_STATE_ENTRIES, LLM_REQUEST, ROUTING, GENERATE_OUTPUT, CORE_LOOP, MANUAL_TOOL_CALL, MANDATORY_TOOL_CALL, PARALLEL, FOR_EACH, PYTHON_CODE, REFLECTION, DELEGATE_TO_OTHER_AGENT, GENERATE_ARTIFACT, CONTEXT_COMPRESSION, SET_SCRATCHPAD_ENTRIES, EDIT_LAST_USER_MESSAGE
-- See `references/structured-agents.md` for full schema of each block type
+- 13 block types: SET_STATE_ENTRIES, LLM_REQUEST, ROUTING, EMIT_OUTPUT, STANDARD_REACT, MANUAL_TOOL_CALL, MANDATORY_TOOL_CALL, PARALLEL, FOR_EACH, PYTHON_CODE, REFLECTION, DELEGATE_TO_OTHER_AGENT, GENERATE_ARTIFACT
+- See `docs/block-graph-api.md` for full schema of each block type
 
-**Example: Build an SVA from scratch (DSS 14.5+):**
+**Example: Build an SVA from scratch:**
 ```bash
-AGENT_ID=$(dku agent create "My SVA" -P PROJ -o json | jq -r '.id')
-dku agent-block add "$AGENT_ID" --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
-dku agent-block add "$AGENT_ID" -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
-dku agent-block add "$AGENT_ID" -b '{"type":"GENERATE_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
-dku agent-block list "$AGENT_ID" -P PROJ
+dku agent create "My SVA" -P PROJ
+dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
+dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
+dku agent-block add My_SVA -b '{"type":"EMIT_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
+dku agent-block list My_SVA -P PROJ
 ```
 
+## agent-review
+
+Manage agent reviews — evaluate agent quality with LLM-as-judge traits, test cases, and evaluation runs.
+
+```bash
+dku agent-review list [-P PROJECT] [-o FORMAT]
+dku agent-review create NAME [-P PROJECT]
+dku agent-review get REVIEW_ID [-P PROJECT] [-o FORMAT]
+dku agent-review delete REVIEW_ID [-P PROJECT]
+dku agent-review set-agent REVIEW_ID --agent AGENT_ID [-P PROJECT]
+dku agent-review set-llm REVIEW_ID --llm LLM_ID [-P PROJECT]
+dku agent-review add-trait REVIEW_ID --name NAME [--description DESC] [--criteria CRITERIA] [--llm LLM_ID] [-P PROJECT]
+dku agent-review list-tests REVIEW_ID [-P PROJECT] [-o FORMAT]
+dku agent-review create-test REVIEW_ID --query QUERY [--reference ANSWER] [--expectations EXPECT] [-P PROJECT]
+dku agent-review import-tests REVIEW_ID --dataset DS --query-column COL [--reference-column COL] [--expectations-column COL] [--top-n N] [-P PROJECT]
+dku agent-review export-tests REVIEW_ID --dataset DS [--create-new] [--connection CONN] [-P PROJECT]
+dku agent-review run REVIEW_ID [--wait/--no-wait] [--name NAME] [-P PROJECT]
+dku agent-review list-runs REVIEW_ID [-P PROJECT] [-o FORMAT]
+dku agent-review results REVIEW_ID --run RUN_ID [-P PROJECT] [-o FORMAT]
+```
+
+- `REVIEW_ID` accepts review ID or name (resolved automatically)
+- `add-trait`: `--criteria` is the evaluation prompt for the LLM judge (e.g. "Does the answer directly address the user's question?")
+- `import-tests`: bulk-creates test cases from dataset rows; each row becomes one test
+- `run`: executes all tests, sending each query to the agent and scoring responses against configured traits
+- `results`: shows per-test evaluation results including trait pass/fail status
+
+---
+
 ## agent-tool
+
+Manage agent tools (create, configure, run, inspect).
 
 ```bash
 dku agent-tool list [-P PROJECT] [-o FORMAT]
 dku agent-tool get TOOL_ID [-P PROJECT] [-o FORMAT]
+dku agent-tool create NAME --type TYPE [--knowledge-bank KB_ID] [--dataset DS] [--llm LLM_ID] [-P PROJECT]
+dku agent-tool set-definition TOOL_ID --definition JSON [-P PROJECT]
 dku agent-tool run TOOL_ID [--input JSON] [-P PROJECT] [-o FORMAT]
-dku agent-tool delete TOOL_ID [-P PROJECT]
-dku agent-tool set-definition TOOL_ID -d JSON [-P PROJECT]
 dku agent-tool types [-o FORMAT]
+dku agent-tool delete TOOL_ID [-P PROJECT]
 ```
 
-- **Plugin-based tool type naming:** `Custom_agent_tool_<plugin-id>_<tool-folder-name>`. Run `dku agent-tool types` to see built-in types plus the naming template for plugin tools.
-- `set-definition` saves params to DSS but the running tool instance uses a cached copy — params don't take effect until the plugin server reloads (re-push the plugin or restart DSS).
-- `run` on a VectorStoreSearch tool will fail with a prescriptive error if the knowledge bank has not been built yet.
+- `create --type` accepts built-in types (`DatasetRowLookup`, `VectorStoreSearch`, `LLMMeshLLMQuery`) or plugin types (`Custom_agent_tool_<plugin>_<tool>`). Run `dku agent-tool types` to list built-in types.
+- `create --knowledge-bank` / `--kb` required for `VectorStoreSearch`.
+- `create --dataset` / `--ds` sets `datasetSmartName` for `DatasetRowLookup`.
+- `create --llm` sets `llmId` for `LLMMeshLLMQuery`.
+- `set-definition` accepts JSON as literal string, `@file.json`, or `-` for stdin. Merges into existing settings (shallow — replaces top-level keys).
+- `types` does NOT accept `-P` (project-independent).
+- For custom Python tools, build a plugin with `python-agent-tools/` and deploy via `dku plugin push`.
+
+## code-studio
+
+Manage Code Studio instances — interactive development environments in DSS.
+
+```bash
+dku code-studio list [-P PROJECT] [-o FORMAT]
+dku code-studio create NAME --template TEMPLATE_ID [-P PROJECT]
+dku code-studio get CS_ID [-P PROJECT] [-o FORMAT]
+dku code-studio delete CS_ID [-P PROJECT]
+dku code-studio status CS_ID [-P PROJECT] [-o FORMAT]
+dku code-studio start CS_ID [--wait/--no-wait] [-P PROJECT]
+dku code-studio stop CS_ID [--wait/--no-wait] [-P PROJECT]
+dku code-studio change-owner CS_ID --owner NEW_OWNER [-P PROJECT]
+dku code-studio templates [-o FORMAT]
+```
+
+- `templates` is a client-level command (no `--project` needed) — lists available templates
+- `start`/`stop` return DSSFuture; `--wait` (default) blocks until state change completes
+- States: STOPPED, STARTING, RUNNING, STOPPING
+- Use `dku code-studio templates` to find the `TEMPLATE_ID` for `create`
+
+---
+
+## api-deployer
+
+Deploy API services to API Nodes. No `--project` needed — operates at instance level.
+
+```bash
+dku api-deployer list-infras [-o FORMAT]
+dku api-deployer list-services [-o FORMAT]
+dku api-deployer get-service SERVICE_ID [-o FORMAT]
+dku api-deployer list-deployments [-o FORMAT]
+dku api-deployer create-deployment --id ID --service SERVICE_ID --infra INFRA_ID --version VERSION
+dku api-deployer get-deployment DEPLOYMENT_ID [-o FORMAT]
+dku api-deployer update-deployment DEPLOYMENT_ID [--wait/--no-wait]
+dku api-deployer delete-deployment DEPLOYMENT_ID
+dku api-deployer deployment-status DEPLOYMENT_ID [-o FORMAT]
+```
+
+---
+
+## project-deployer
+
+Deploy project bundles to Automation Nodes. No `--project` needed — operates at instance level.
+
+```bash
+dku project-deployer list-infras [-o FORMAT]
+dku project-deployer list-projects [-o FORMAT]
+dku project-deployer list-deployments [-o FORMAT]
+dku project-deployer create-deployment --id ID --project-key KEY --infra INFRA_ID --bundle BUNDLE_ID
+dku project-deployer get-deployment DEPLOYMENT_ID [-o FORMAT]
+dku project-deployer update-deployment DEPLOYMENT_ID [--wait/--no-wait]
+dku project-deployer delete-deployment DEPLOYMENT_ID
+dku project-deployer deployment-status DEPLOYMENT_ID [-o FORMAT]
+```
+
+---
+
+## git
+
+Manage DSS project version control (branches, commits, tags, push/pull).
+
+```bash
+dku git status [-P PROJECT] [-o FORMAT]
+dku git log [--count N] [-P PROJECT] [-o FORMAT]
+dku git diff [--from COMMIT] [--to COMMIT] [-P PROJECT] [-o FORMAT]
+dku git commit -m MESSAGE [-P PROJECT]
+dku git pull [--branch NAME] [-P PROJECT] [-o FORMAT]
+dku git push [--branch NAME] [-P PROJECT] [-o FORMAT]
+dku git fetch [-P PROJECT] [-o FORMAT]
+dku git branches [--remote] [-P PROJECT] [-o FORMAT]
+dku git create-branch NAME [--from COMMIT] [-P PROJECT]
+dku git delete-branch NAME [--force] [--remote] [-P PROJECT]
+dku git switch BRANCH [-P PROJECT] [-o FORMAT]
+dku git tags [-P PROJECT] [-o FORMAT]
+dku git create-tag NAME [--ref REF] [-m MESSAGE] [-P PROJECT]
+dku git remote [--set URL] [--name NAME] [-P PROJECT] [-o FORMAT]
+```
+
+- `commit`: DSS auto-adds untracked files before committing
+- `remote`: reads remote URL by default; use `--set URL` to update
+- `branches --remote`: lists remote tracking branches
+- All commands require `--project` since git is per-project in DSS
+
+---
+
+## notebook
+
+Manage Jupyter and SQL notebooks.
+
+```bash
+dku notebook list [--type jupyter|sql] [-P PROJECT] [-o FORMAT]
+dku notebook get NAME [-P PROJECT] [-o FORMAT]
+dku notebook create NAME [-P PROJECT]
+dku notebook delete NAME [-P PROJECT]
+dku notebook sessions [-P PROJECT] [-o FORMAT]
+dku notebook stop NAME [--session SESSION_ID] [-P PROJECT]
+dku notebook clear-outputs NAME [-P PROJECT]
+dku notebook history NAME [-P PROJECT] [-o FORMAT]
+```
+
+- `list` combines Jupyter + SQL notebooks; use `--type` to filter
+- `history` is for SQL notebooks only
+- `sessions` lists all running notebook kernels in the project
+- `stop` kills a notebook's kernel; `--session` targets a specific session
+
+---
+
+## discussion
+
+Manage discussions/comments on any DSS object.
+
+```bash
+dku discussion list --type TYPE --name NAME [-P PROJECT] [-o FORMAT]
+dku discussion get DISCUSSION_ID --type TYPE --name NAME [-P PROJECT] [-o FORMAT]
+dku discussion create --type TYPE --name NAME --topic TOPIC --message MSG [-P PROJECT]
+dku discussion reply DISCUSSION_ID --type TYPE --name NAME --message MSG [-P PROJECT]
+```
+
+- `--type`: dataset, recipe, scenario, model, dashboard, insight
+- `--name`: the object's name/ID to attach the discussion to
+- Works on any DSS object that supports `get_object_discussions()`
+
+---
 
 ## knowledge
 
@@ -591,16 +705,18 @@ Knowledge banks.
 
 ```bash
 dku knowledge list [-P PROJECT] [-o FORMAT]
-dku knowledge create NAME --embedding-llm LLM_ID [--vector-store-type FAISS|CHROMA|PINECONE|...] [--if-not-exists] [-P PROJECT]
-dku knowledge get KB_ID [-P PROJECT] [-o FORMAT]
-dku knowledge build KB_ID [-P PROJECT] [--wait]
-dku knowledge search KB_ID --query TEXT [--max N] [-P PROJECT] [-o FORMAT]
-dku knowledge delete KB_ID [-P PROJECT]
+dku knowledge create NAME --embedding-llm LLM_ID [--vector-store-type CHROMA|FAISS|PINECONE|...] [--if-not-exists] [-P PROJECT]
+dku knowledge get KB_REF [-P PROJECT] [-o FORMAT]
+dku knowledge set-definition KB_REF --definition JSON|@file.json|- [-P PROJECT]
+dku knowledge build KB_REF [-P PROJECT] [--wait]
+dku knowledge search KB_REF --query TEXT [--max N] [-P PROJECT] [-o FORMAT]
+dku knowledge delete KB_REF [-P PROJECT]
 ```
 
+- All commands (except `list`, `create`) accept knowledge bank ID **or name** — name is resolved via list fallback
 - `create` requires `--embedding-llm` (use `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` to find one)
-- `create --vector-store-type` defaults to **CHROMA**. Options: CHROMA, FAISS, PINECONE, ELASTICSEARCH, AZURE_AI_SEARCH, VERTEX_AI_GCS_BASED, QDRANT_LOCAL, MILVUS_LOCAL, MILVUS_REMOTE
-- `build` requires the KB to have a document source first — add one via `dku recipe create-embed`. Running `build` on a KB with no source fails with a prescriptive error.
+- `create --vector-store-type` defaults to CHROMA. Options: CHROMA, FAISS, PINECONE, ELASTICSEARCH, AZURE_AI_SEARCH, VERTEX_AI_GCS_BASED, QDRANT_LOCAL, MILVUS_LOCAL, MILVUS_REMOTE
+- `set-definition` merges JSON into current settings (shallow merge). Get current: `dku knowledge get KB -o json`
 - `get` expects JSON from DSS; on getitstarted instances the sleep/wake page can intercept the request and return HTML instead
 
 ## bundle

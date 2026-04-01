@@ -19,18 +19,77 @@ metadata:
 
 > **Agent Cheat Sheet (read this first)**
 >
-> 1. **STOP — DO NOT write Python for joins, geo joins, aggregations, dedup, sort, filter, stack, or window ops.** Use `create-join`, `create-geojoin`, `create-fuzzy-join`, `create-group`, `create-stack`, `create-distinct`, `create-sort`, `create-filter`, `create-window`, `create-topn`. Python is ONLY for custom logic (scoring, feature engineering, API calls). **One join recipe handles 3+ datasets** — prefer a single multi-input join over cascading separate ones. **NEVER write Python haversine — use `create-geojoin` instead.** See [Recipe Decision Tree](#recipe-decision-tree).
+> 1. **STOP — DO NOT write Python for joins, aggregations, dedup, sort, filter, stack, or window ops.** Use `create-join`, `create-group`, `create-stack`, `create-distinct`, `create-sort`, `create-filter`, `create-window`, `create-topn`. Python is ONLY for custom logic (scoring, feature engineering, API calls). See [Recipe Decision Tree](#recipe-decision-tree).
 > 2. **Use `dku ml` for ML — not Python.** `dku ml create-prediction` + `dku ml train` + `dku ml deploy` covers prediction, clustering, timeseries, and causal. Python ONLY for custom model architectures.
 > 3. **Visual recipes auto-apply schema.** `create-join`/`create-group`/etc. auto-propagate output schemas. For manual control: `dku recipe apply-schema RECIPE -P PROJ`, or `--auto-update-schema` on build.
 > 4. **Upload = UploadedFiles.** `dku dataset create NAME --type UploadedFiles -P PROJ`. Never Filesystem for uploads.
 > 5. **Recipe create auto-creates output.** Visual recipe commands auto-create the output dataset. Do NOT pre-create it.
-> 6. **Chain everything.** All related commands in ONE `&&`-chained Bash call. Never separate tool calls.
-> 7. **Set project once, not per-command.** `dku config set default_project KEY` (persistent) or `export DKU_PROJECT=KEY` (session) — then omit `-P` from all subsequent commands.
-> 8. **SVA blocks require agent ID, not name.** `dku agent-block` commands reject names — use the ID from `dku agent list -o json`. On DSS 14.5+, blocks live in `structuredAgentSettings` (not `toolsUsingAgentSettings`), use `GENERATE_OUTPUT` (not `EMIT_OUTPUT`). Always inspect a real agent first: `dku agent get <ID> -o json -P PROJ`.
+> 6. **Investigate with `inspect`.** `dku project inspect PROJ -o json` returns datasets, recipes, scenarios, flow, jobs, wiki, variables in ONE call. Start every investigation here.
+> 7. **Chain everything.** All related commands in ONE `&&`-chained Bash call. Never separate tool calls.
+> 8. **Charts need `--dataset`.** `dku insight create NAME --type chart --dataset DS -P PROJ`. Validate with `dku insight validate ID -P PROJ`.
+> 9. **Verify everything.** After building, ALWAYS `dku dataset head OUTPUT -P PROJ` to confirm real data exists. Exit code 0 ≠ correct output. Also use the `dataiku` skill for platform knowledge — these two skills are a pair.
+> 10. **Prefer purpose-built prepare processors over GREL.** Need to rename? `add-rename`. Parse dates? `add-step --type DateParser`. Uppercase? `add-step --type StringTransformer`. If/then/else? `add-step --type VisualIfRule`. Use `add-formula` (GREL) ONLY when no dedicated processor exists. **READ `dataiku` skill's `references/prepare-processors.md` before writing any `add-step` command** — it has the exact params and JSON for each processor.
+> 11. **Sample data before transforming.** Before writing prepare steps, creating joins, or configuring group-by: run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
+> 12. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~244 commands** across 32 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~250 commands** across 40 groups.
+
+## Companion Skill: `dataiku`
+
+**This skill and `dataiku` are a pair. Always use both.**
+
+- **This skill** tells you *how to execute* — CLI commands, flags, chaining, build patterns
+- **`dataiku`** tells you *what* to build and *how DSS works* — which recipe type, which agent architecture, plugin patterns, formula syntax
+
+**Before writing any CLI commands**, consult the `dataiku` skill to confirm you're using the right DSS approach. The CLI can create a Python recipe in seconds — but if a visual recipe exists for that task, you've chosen wrong. The `dataiku` skill's recipe decision tree and agent type selection guide prevent these mistakes.
+
+## Verification Protocol — Build It, Run It, Prove It
+
+**Your job is not done when commands exit 0. Your job is done when you've verified the output is correct.**
+
+DSS commands frequently succeed silently while producing empty datasets, broken schemas, or misconfigured recipes. You MUST verify every outcome.
+
+### After Every Pipeline Build
+
+```bash
+# 1. Build the full pipeline (always recursive + auto-schema)
+dku job run --target FINAL_OUTPUT -P PROJ \
+  --type RECURSIVE_BUILD \
+  --auto-update-schema \
+  --wait && \
+
+# 2. VERIFY — check the final output has real data
+dku dataset head FINAL_OUTPUT -P PROJ -n 5 && \
+
+# 3. VERIFY — check row count is reasonable
+dku dataset head FINAL_OUTPUT -P PROJ -o json | jq 'length'
+```
+
+### After Creating Agents
+
+```bash
+# Verify agent is alive and has tools attached
+dku agent status AGENT_NAME -P PROJ && \
+dku agent-tool list -P PROJ -o json | jq '[.[] | select(.agentId == "AGENT_ID")]'
+```
+
+### After Creating Knowledge Banks
+
+```bash
+# Build and then test search actually returns results
+dku knowledge build KB_NAME -P PROJ --wait && \
+dku knowledge search KB_NAME --query "test query" -P PROJ
+```
+
+### Verification Rules
+
+1. **Always `head` the final output dataset.** This is the #1 verification — if output looks right, the pipeline works.
+2. **Never assume success from exit code alone.** A recipe can "build successfully" but produce 0 rows.
+3. **Check intermediate datasets when debugging.** If the final output is wrong, `head` each intermediate dataset to find where it breaks.
+4. **Validate chart insights.** `dku insight validate ID -P PROJ` catches column name mismatches that render blank charts.
+5. **Test agents end-to-end.** Creating agent + tools is not enough — verify the agent can actually call its tools.
 
 ## Prerequisites
 
@@ -198,22 +257,41 @@ dku dataset upload orders /tmp/orders.csv -P ECOM
 
 **ALWAYS prefer visual recipes over Python.** DSS has purpose-built visual recipes for common data operations. Python recipes are for custom logic only.
 
+#### Pre-Recipe Checklist
+
+Before creating any recipe, verify your assumptions:
+
+```bash
+# Check columns exist and see actual value formats
+dku dataset head input_ds -P PROJ -n 5
+
+# Check schema for column names and types
+dku dataset schema input_ds -P PROJ
+
+# For joins — verify both datasets have the join key
+dku dataset schema ds1 -P PROJ && dku dataset schema ds2 -P PROJ
+```
+
+Don't guess date formats (`yyyy-MM-dd` vs `MM/dd/yyyy`), column names, or value patterns. A 5-row sample catches most assumption errors before they become broken recipes.
+
 #### Recipe Decision Tree
 
 **Follow this exactly. Do NOT skip to Python.**
 
 ```
-Is the task a join/merge?           → create-join -i ds1 -i ds2 [-i ds3...]  (NEVER pd.merge)
-  Joining 3+ datasets?             → Prefer ONE create-join with all -i flags over cascading joins
-Is the task a geospatial join?      → create-geojoin -i ds1 -i ds2  (NEVER Python haversine)
-Is the task fuzzy/approximate match?→ create-fuzzy-join -i ds1 -i ds2  (NEVER fuzzywuzzy in Python)
-Is the task aggregation/groupby?    → create-group -k col --agg col:sum,avg  (NEVER df.groupby)
+Is the task a join/merge?           → create-join --join-key col  (NEVER pd.merge)
+Is the task aggregation/groupby?    → create-group -k col1 -k col2 --agg col:sum,avg  (NEVER df.groupby)
 Is the task stacking/union/concat?  → create-stack  (NEVER pd.concat)
 Is the task dedup/distinct?         → create-distinct  (NEVER df.drop_duplicates)
 Is the task sorting?                → create-sort  (NEVER df.sort_values)
 Is the task filtering rows?         → create-filter  (NEVER df[condition])
-Is the task window/rank function?   → create-window  (NEVER df.groupby().transform)
-Is the task top/bottom N?           → create-topn  (NEVER df.nlargest)
+Is the task window/rank function?   → create-window --compute 'rowNumber::rn'  (NEVER df.groupby().transform)
+Is the task top/bottom N?           → create-topn --n 10 --rank-by col:desc  (NEVER df.nlargest)
+Is the task top N per group?        → create-topn --n 1 --rank-by col:desc -k group_col  (NEVER groupby().first)
+Is the task wide-to-long (unpivot)? → Prepare recipe + add-fold  (NEVER pd.melt)
+Is the task long-to-wide (pivot)?   → create-pivot --agg-type SUM  (NEVER df.pivot_table)
+Is the task random sampling?        → create-sampling  (NEVER df.sample)
+Is the task row expansion?          → create-join --join-type CROSS  (NEVER nested loops)
 Is the task a passthrough/copy?     → create -t sync  (NEVER Python passthrough)
 None of the above?                  → THEN use Python: create NAME -t python
 ```
@@ -224,45 +302,36 @@ None of the above?                  → THEN use Python: create NAME -t python
 
 | Task | Command | NOT this |
 |------|---------|----------|
-| **Join datasets** | `dku recipe create-join NAME -i ds1 -i ds2 [-i ds3...] --output-ds out -P PROJ` | ~~pd.merge()~~ |
-| **Geo join (spatial)** | `dku recipe create-geojoin NAME -i ds1 -i ds2 --output-ds out --operator WITHIN_DISTANCE --distance 5000 -P PROJ` | ~~haversine in Python~~ |
-| **Fuzzy join (approx match)** | `dku recipe create-fuzzy-join NAME -i ds1 -i ds2 --output-ds out --fuzzy-key name -P PROJ` | ~~fuzzywuzzy~~ |
-| **Aggregate/group by** | `dku recipe create-group NAME -i ds --output-ds out -k col -P PROJ` | ~~df.groupby()~~ |
+| **Join datasets** | `dku recipe create-join NAME -i ds1 -i ds2 --output-ds out -P PROJ` | ~~pd.merge()~~ |
+| **Aggregate/group by** | `dku recipe create-group NAME -i ds --output-ds out -k col1 -k col2 --agg 'amount:sum,avg' -P PROJ` | ~~df.groupby()~~ |
 | **Stack/union** | `dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out -P PROJ` | ~~pd.concat()~~ |
 | **Deduplicate** | `dku recipe create-distinct NAME -i ds --output-ds out -P PROJ` | ~~df.drop_duplicates()~~ |
 | **Sort** | `dku recipe create-sort NAME -i ds --output-ds out -P PROJ` | ~~df.sort_values()~~ |
 | **Filter rows** | `dku recipe create-filter NAME -i ds --output-ds out -P PROJ` | ~~df[df.x > y]~~ |
-| **Window functions** | `dku recipe create-window NAME -i ds --output-ds out -P PROJ` | ~~df.groupby().transform()~~ |
-| **Top N** | `dku recipe create-topn NAME -i ds --output-ds out -P PROJ` | ~~df.nlargest()~~ |
+| **Window functions** | `dku recipe create-window NAME -i ds --output-ds out -k grp --order-key date --compute 'rowNumber::rn' -P PROJ` | ~~df.groupby().transform()~~ |
+| **Top N** | `dku recipe create-topn NAME -i ds --output-ds out --n 10 --rank-by col:desc -P PROJ` | ~~df.nlargest()~~ |
+| **Top N per group** | `dku recipe create-topn NAME -i ds --output-ds out --n 1 --rank-by date:desc -k stock -P PROJ` | ~~groupby().first()~~ |
 | **Split by condition** | `dku recipe create-split NAME -i ds --output-ds out -P PROJ` | ~~manual filtering~~ |
+| **Pivot (long→wide)** | `dku recipe create-pivot NAME -i ds --output-ds out --row-key id --column-key month --value-column val --agg-type SUM -P PROJ` | ~~df.pivot_table()~~ |
+| **Unpivot (wide→long)** | `dku recipe add-fold PREP --columns "jan,feb,mar" --key-column month --value-column val -P PROJ` | ~~pd.melt()~~ |
+| **Random sample** | `dku recipe create-sampling NAME -i ds --output-ds out --size 1000 -P PROJ` | ~~df.sample()~~ |
+| **Cross join (cartesian)** | `dku recipe create-join NAME -i A -i B --output-ds out --join-type CROSS -P PROJ` | ~~itertools.product()~~ |
 | **Custom logic ONLY** | `dku recipe create NAME -t python -i ds --output-ds out -P PROJ` | Last resort |
 
-Visual recipe commands auto-create the output dataset. **`create-join` and `create-group` are fully configured via CLI flags.** For `create-sort`, `create-filter`, `create-window`, `create-topn`, and `create-split`: the recipe is created but requires configuration (sort columns, filter conditions, window partitions, etc.) via the DSS UI or `dku recipe set-definition` before it can be built — otherwise `dku flow check` will report a fatal error on that recipe.
+Visual recipe commands auto-create the output dataset. Configure details (join keys, aggregation functions, sort order, filter conditions) via CLI flags or `dku recipe set-definition --payload` for advanced config.
+
+For advanced configuration beyond CLI flags (custom join conditions, additional aggregations, post-filters), use `dku recipe get-settings RECIPE -P PROJ -o json` to read the current payload, then `dku recipe set-definition RECIPE --payload '...' -P PROJ` to update. **READ `dataiku` skill's `references/visual-recipe-payloads.md` for payload schemas and `references/visual-conditions.md` for filter/condition JSON.**
 
 #### Join Example (replaces Python merge)
 
-**One join recipe can handle multiple datasets — prefer this over cascading separate joins.**
-
 ```bash
-# BAD — cascading joins (3 recipes for 4 datasets)
-dku recipe create-join join_1 -i customers -i orders --output-ds temp1 -P PROJ && \
-dku recipe create-join join_2 -i temp1 -i products --output-ds temp2 -P PROJ && \
-dku recipe create-join join_3 -i temp2 -i regions --output-ds enriched -P PROJ
+# Upload two datasets, then join them visually
+dku dataset create customers --type UploadedFiles -P PROJ && \
+dku dataset upload customers /tmp/customers.csv -P PROJ && \
+dku dataset create orders --type UploadedFiles -P PROJ && \
+dku dataset upload orders /tmp/orders.csv -P PROJ && \
 
-# GOOD — single join recipe with all inputs (1 recipe for 4 datasets)
-dku recipe create-join enrich_all \
-  -i customers -i orders -i products -i regions \
-  --output-ds enriched \
-  --join-key customer_id \
-  --join-key 1:product_id \
-  --join-key 2:region_id \
-  -P PROJ
-```
-
-Join indices: unprefixed `--join-key col` targets join 0 (customers↔orders). `1:col` targets join 1 (customers↔products). `2:col` targets join 2 (customers↔regions). Keys auto-detect from matching column names if omitted.
-
-```bash
-# Simple 2-dataset join (auto-detects key if column names match)
+# Visual join with explicit key (auto-detects if --join-key omitted)
 dku recipe create-join join_orders_customers \
   -i orders -i customers \
   --output-ds enriched_orders \
@@ -289,12 +358,62 @@ dku recipe create-group summarize_by_customer \
 dku dataset build customer_summary -P PROJ --wait
 ```
 
+#### First/Last Row Per Group (common pattern — NEVER use Python for this)
+
+Use **TopN per group** to get the first or last row per group:
+
+```bash
+# First row per group (e.g., earliest transaction per stock)
+dku recipe create-topn first_per_stock \
+  -i transactions \
+  --output-ds first_transactions \
+  --n 1 \
+  --rank-by date \
+  -k stock \
+  -P PROJ
+
+# Last row per group (latest transaction per stock)
+dku recipe create-topn last_per_stock \
+  -i transactions \
+  --output-ds last_transactions \
+  --n 1 \
+  --rank-by date:desc \
+  -k stock \
+  -P PROJ
+```
+
+Alternative with Window + Filter (when you need row_number for other purposes):
+
+```bash
+# Add row number partitioned by stock, ordered by date
+dku recipe create-window add_rank -i data --output-ds ranked \
+  -k stock --order-key date --compute 'rowNumber::rn' -P PROJ && \
+# Filter to keep only first row per group
+dku recipe create-filter keep_first -i ranked --output-ds first_per_group -P PROJ
+# Configure filter condition (rn == 1) via DSS UI or:
+# dku recipe set-definition keep_first --payload '{"filterConditions": ...}' -P PROJ
+```
+
+#### Common Recipe Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Python `groupby([col1, col2])` | Repeat `-k`: `-k col1 -k col2` on `create-group` |
+| Python `nlargest(N)` or `sort + head` | Use `create-topn --n N --rank-by col:desc` |
+| Python `groupby().first()` / `last()` | Use `create-topn --n 1 --rank-by col:desc -k group_col` |
+| Python `groupby().transform(rank)` | Use `create-window --compute 'rowNumber::rn'` |
+| Python `pivot_table(aggfunc='sum')` | Use `create-pivot --agg-type SUM` |
+| `set-definition` doesn't change visual config | Use `--payload` (not `--definition`) for visual recipe config (aggregations, computations, etc.) |
+| TopN recipe has no ordering | Use `--rank-by col:desc` and `--n N` flags |
+| `set-definition` orphans auto-created output (plugin recipes) | Pre-create output datasets before `recipe create` when using plugin recipes with named roles |
+| Plugin recipe SELECT values wrong case | `selectChoices` values are case-sensitive (`"none"` not `"None"`, `"json"` not `"JSON"`). Check `dku plugin recipes PLUGIN -o json` for exact values |
+| `dku dataset build` fails for folder outputs | Managed folder outputs are NOT buildable via `dataset build`. Use `dku recipe run RECIPE -P PROJ --wait` instead |
+
 #### Python Recipe (ONLY when visual recipes can't express the logic)
 
 ```bash
 # Python recipe — for custom transformations, computed columns, ML scoring
-# --connection is REQUIRED on instances without a default managed connection
-dku recipe create compute_risk_score -t python -i customer_features --output-ds risk_scores --connection filesystem_managed -P PROJ && \
+dku recipe create compute_risk_score -t python -i customer_features --output-ds risk_scores -P PROJ && \
 dku recipe set-code compute_risk_score -P PROJ --code @score.py
 ```
 
@@ -302,7 +421,6 @@ dku recipe set-code compute_risk_score -P PROJ --code @score.py
 - `--type python` / `-t python` — recipe type
 - `--input NAME` / `-i NAME` / `--input-ds NAME` — input dataset (MUST already exist)
 - `--output-ds NAME` — output dataset (auto-created for code recipes)
-- `--connection NAME` / `-c NAME` — connection for output dataset (required if no default managed connection; use `dku connection list` to find one)
 - `-P PROJECT` — project key
 
 **Adding extra inputs** after creation:
@@ -311,56 +429,26 @@ dku recipe set-code compute_risk_score -P PROJ --code @score.py
 dku recipe add-input RECIPE_NAME DATASET_NAME -P PROJ
 ```
 
-> **Note on Filesystem datasets:** If you need to manually create a Filesystem dataset (rare — usually recipe create does this), you MUST specify `--connection`: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ`. Without `-c`, it errors. Run `dku connection list` to find available connections.
+#### Plugin Source Recipes (No Input)
 
-> **UploadedFiles on cloud DSS:** If `dku dataset create NAME --type UploadedFiles` fails with "Cannot create dataset without a target connection", add `--connection <NAME>` (e.g. `--connection dataiku-managed-storage`). The CLI auto-detects the upload connection when possible, but some cloud instances require it explicitly.
-
-#### Prepare Recipe Steps (replaces Python column transforms)
-
-Use prepare recipe step commands instead of Python for computed columns, renames, filters, and data cleaning:
+Some plugin recipes (e.g. `generate-rows`) are source recipes with no input role. Omit `-i` — the CLI skips input wiring:
 
 ```bash
-# Create prepare recipe (output must exist first, or use create-sort/etc. which auto-create)
-dku recipe create prep1 -t prepare -i raw_data --output-ds cleaned_data -P PROJ && \
-
-# Add computed column (GREL expression)
-dku recipe add-formula prep1 --column revenue --expr "price * quantity" -P PROJ && \
-
-# Rename column
-dku recipe add-rename prep1 --from country --to region -P PROJ && \
-
-# Delete columns
-dku recipe add-delete-columns prep1 --columns "temp_col,debug_col" -P PROJ && \
-
-# Filter rows by formula
-dku recipe add-filter-rows prep1 --formula "price > 0" --action KEEP_ROW -P PROJ && \
-
-# Fill empty values
-dku recipe add-fill-empty prep1 --column status --value "unknown" -P PROJ && \
-
-# Find and replace
-dku recipe add-find-replace prep1 --column country --find "USA" --replace "United States" -P PROJ && \
-
-# List all steps
-dku recipe list-steps prep1 -P PROJ && \
-
-# Build with schema update
-dku dataset build cleaned_data -P PROJ --wait --auto-update-schema
+dku recipe create gen_data -t CustomCode_my-plugin_generate-rows \
+  --output-ds generated -P PROJ
 ```
 
-| Command | Key Flags | Python Equivalent |
-|---------|-----------|-------------------|
-| `add-formula` | `--expr GREL --column COL` | `df["col"] = expr` |
-| `add-rename` | `--from OLD --to NEW` or `--mappings '{"a":"b"}'` | `df.rename()` |
-| `add-delete-columns` | `--columns "a,b,c"` | `df.drop(columns=[...])` |
-| `add-filter-rows` | `--formula GREL --action KEEP_ROW\|REMOVE_ROW` or `--column COL --values "a,b"` | `df[df.x > y]` |
-| `add-fill-empty` | `--column COL --value VAL` | `df.fillna()` |
-| `add-find-replace` | `--column COL --find X --replace Y [--matching SUBSTRING]` | `df.str.replace()` |
-| `add-fold` | `--columns "a,b,c" --key-column K --value-column V` | `pd.melt()` |
-| `add-geopoint` | `--lat-column LAT --lon-column LON` | Manual WKT formatting |
-| `add-geodistance` | `--from-column A --to-column B` | Haversine in Python |
+#### Plugin Recipes with Named Roles
 
-Step management: `list-steps`, `get-step INDEX`, `remove-step INDEX`, `enable-step INDEX`, `disable-step INDEX`.
+When using `set-definition` with plugin recipes that have named roles (not `main`), **pre-create the output dataset** before `recipe create`. The `--output-ds` auto-create wires to `main` role; `set-definition` rewires to plugin role names, orphaning the dataset:
+
+```bash
+# RIGHT — pre-create, then wire to named role
+dku dataset create output_ds --type Filesystem -c filesystem_managed -P PROJ && \
+dku recipe create my_step -t CustomCode_plugin_recipe -i input --output-ds output_ds --output-role output_role_name -P PROJ
+```
+
+> **Note on Filesystem datasets:** If you need to manually create a Filesystem dataset (rare — usually recipe create does this), you MUST specify `--connection`: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ`. Without `-c`, it errors. Run `dku connection list` to find available connections.
 
 ### Deleting Datasets and Projects
 
@@ -386,33 +474,35 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 |---|---|---|
 | `auth` | login, logout, status, list, switch | No |
 | `config` | set, get, list, path, variables, set-variables | No |
-| `project` | list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
+| `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
 | `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages | No |
 | `code-env` | list, get, create, delete, update | No |
 | `connection` | list, create, test | No (admin) |
 | `user` | list, create | No (admin) |
 | `sql` | query | No |
-| `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema | Yes |
-| `dq` | list, create, compute, status, results, delete, project-status | Yes |
-| `recipe` | list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, **create-join, create-geojoin, create-fuzzy-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance**, list-steps, get-step, remove-step, enable-step, disable-step | Yes |
-| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition | Yes |
+| `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe** | Yes |
+| `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
+| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **set-metadata** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
-| `model` | list, get, versions, set-active-version, metrics, delete-version | Yes |
-| `ml` | create-prediction, create-clustering, create-timeseries, create-causal, list, status, train, models, details, deploy, redeploy, settings, algorithms, set-algorithm, delete | Yes |
-| `analysis` | list, create, get, delete, tasks | Yes |
-| `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
-| `folder` | list, create, ls, upload, download | Yes |
+| `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata** | Yes |
+| `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
 | `llm` | list, completion, embeddings | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
-| `dashboard` | list, get, create, delete, get-definition, set-definition | Yes |
-| `insight` | list, get, create, delete, get-definition, set-definition | Yes |
+| `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
+| `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |
 | `macro` | list, run | Yes |
-| `flow` | graph, zones, create-zone, propagate, check, sources, successors | Yes |
+| `flow` | graph, zones, create-zone, **set-zone**, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir | Yes |
-| `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-prompt, set-llm | Yes |
-| `agent-block` | list, get, add, remove, connect, disconnect, set-start, set-mode, get-graph, set-graph | Yes |
-| `agent-tool` | list, get, run, delete, **create**, set-definition, types | Yes (except `types`) |
-| `knowledge` | list, create, get, set-definition, build, search, delete | Yes |
+| `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, **set-metadata** | Yes |
+| `agent-review` | list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results | Yes |
+| `agent-tool` | list, get, **create** (--dataset, --llm, --kb), set-definition, run, types, delete | Yes (except `types`) |
+| `code-studio` | list, create, get, delete, status, start, stop, change-owner, templates | Yes (except `templates`) |
+| `git` | status, log, diff, commit, pull, push, fetch, branches, create-branch, delete-branch, switch, tags, create-tag, remote | Yes |
+| `api-deployer` | list-infras, list-services, get-service, list-deployments, create-deployment, get-deployment, update-deployment, delete-deployment, deployment-status | No |
+| `project-deployer` | list-infras, list-projects, list-deployments, create-deployment, get-deployment, update-deployment, delete-deployment, deployment-status | No |
+| `notebook` | list, get, create, delete, sessions, stop, clear-outputs, history | Yes |
+| `discussion` | list, get, create, reply | Yes |
+| `knowledge` | list, create, get, set-definition, build, search, delete | Yes (accepts name or ID) |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
@@ -468,12 +558,11 @@ dku ml deploy ANALYSIS_ID MLTASK_ID MODEL_ID --name ChurnModel --train-dataset c
 
 **Typical ML workflow:**
 1. `dku ml create-prediction DS TARGET -P PROJ` — creates analysis + ML task, returns `analysis_id` and `mltask_id`
-2. `dku ml algorithms AID TID -P PROJ -o json | jq -r '.[].name'` — see available algorithm names (JSON key is `name`)
-3. `dku ml set-algorithm AID TID --disable-all --enable XGBOOST_REGRESSION --enable RANDOM_FOREST_REGRESSION -P PROJ` — tune algorithms (use exact algorithm names from step 2)
-4. `dku ml train AID TID -P PROJ -o json | jq -r '.model_ids[0]'` — train and get model IDs
-5. `dku ml models AID TID -P PROJ -o json | jq '.[] | select(.state=="DONE") | .id'` — list DONE models (JSON key is `id`, not `model_id`)
-6. `dku ml details AID TID MODEL_ID -P PROJ` — check metrics
-7. `dku ml deploy AID TID MODEL_ID --name MyModel --train-dataset DS -P PROJ` — deploy to flow (model must be in DONE state)
+2. `dku ml algorithms AID TID -P PROJ` — see available/enabled algorithms
+3. `dku ml set-algorithm AID TID --disable-all --enable XGBoost --enable RandomForest -P PROJ` — tune algorithms
+4. `dku ml train AID TID -P PROJ` — train and get model IDs
+5. `dku ml details AID TID MODEL_ID -P PROJ` — check metrics
+6. `dku ml deploy AID TID MODEL_ID --name MyModel --train-dataset DS -P PROJ` — deploy to flow
 7. `dku model set-active-version MODEL_ID VERSION_ID -P PROJ` — activate specific version
 8. `dku model metrics MODEL_ID -P PROJ` — check deployed model metrics
 
@@ -497,22 +586,10 @@ dku plugin set-code-env my-plugin plugin_my_plugin_managed
 dku plugin push plugin.zip && \
 dku plugin update-code-env my-plugin
 
-# Check plugin state and available recipe types
+# Check plugin state
 dku plugin get my-plugin -o json
-dku plugin recipes my-plugin
 dku plugin usages my-plugin
-
-# Discover plugin recipe types
-dku plugin recipes                      # all plugins
-dku plugin recipes my-plugin -o json    # specific plugin
-
-# Create a plugin recipe (type = CustomCode_<recipeComponentId>)
-# NOTE: plugin ID is NOT part of the type — only the recipe component directory name
-dku recipe create my_step -t CustomCode_my-recipe \
-  -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
 ```
-
-> **Plugin Recipe Type Format:** The type is `CustomCode_<recipeComponentId>` where `recipeComponentId` is the directory name in `custom-recipes/` inside the plugin. The plugin ID is **NOT** part of the type string. Example: plugin `sureguard` with recipe dir `cost-analysis` → type is `CustomCode_cost-analysis`. Use `dku plugin recipes` to discover available types.
 
 ### Shell Variable Capture
 
@@ -546,6 +623,26 @@ fi
 dku dataset create raw_data --type UploadedFiles -P PROJ && \
 dku dataset upload raw_data data.csv -P PROJ && \
 dku dataset build output -P PROJ --wait
+```
+
+### Investigation Workflow (1-2 tool calls)
+
+**When asked to explore, debug, or understand an existing project:**
+
+```bash
+# Tool call 1 — Full project overview (replaces 7+ separate commands)
+dku project inspect MY_PROJ -o json
+```
+
+Parse the JSON output to understand the project structure. Then drill into specifics:
+
+```bash
+# Tool call 2 — Drill into details as needed
+dku dataset head specific_ds -P MY_PROJ -n 5 && \
+dku recipe get-settings suspect_recipe -P MY_PROJ && \
+dku job status last_job_id -P MY_PROJ -o json && \
+# When a build fails, inspect the full job log:
+dku job log JOB_ID -P MY_PROJ
 ```
 
 ## Composability Patterns
@@ -598,38 +695,20 @@ These patterns come from real production usage. Ignoring them wastes 5-60 calls 
 
 ### Agent Creation
 
-Agents require `--type`. Default is `TOOLS_USING_AGENT` (simple visual agent with tools). For block-graph agents, use `STRUCTURED_AGENT` — **type is immutable after creation**.
+Agents require `--type`. Default is `TOOLS_USING_AGENT` (visual agent with tools).
 
 ```bash
-# Simple agent (tools only, no block graph)
+# Create agent with LLM and tools — all one call
 dku agent create my_agent --type TOOLS_USING_AGENT -P PROJ && \
 dku agent set-llm my_agent --llm-id "openai:gpt-4o-mini" -P PROJ && \
 dku agent add-tool my_agent --tool my_tool -P PROJ
-
-# Structured agent (block graph — DSS 14.5+)
-dku agent create my_sva --type STRUCTURED_AGENT -P PROJ && \
-dku agent set-llm my_sva --llm-id "openai:gpt-4o" -P PROJ
 ```
 
 Valid types: `TOOLS_USING_AGENT`, `PYTHON_AGENT`, `PLUGIN_AGENT`, `STRUCTURED_AGENT`.
 
-### Incremental Agent Build (test at each step)
-
-1. Create ONE tool → `dku agent-tool run TOOL_ID -P PROJ` → verify it works
-2. Create agent → `dku agent add-tool AGENT --tool TOOL_ID -P PROJ`
-3. Add ONE block → `dku agent get AGENT -o json -P PROJ` → verify block persisted
-4. Test agent → repeat for remaining tools/blocks
-
-**DO NOT:** create all tools → build full graph → test at the end.
-
 ### Structured Visual Agent (SVA) Graph — Canonical Workflow
 
-> **Version caveat:** Block type names and settings paths differ across DSS versions.
-> - **DSS 13.x:** `STANDARD_REACT` / `EMIT_OUTPUT`, settings in `toolsUsingAgentSettings`
-> - **DSS 14.5+:** `CORE_LOOP` / `GENERATE_OUTPUT`, settings in `structuredAgentSettings`
-> - The CLI auto-detects the correct path. Always inspect a working agent first (cheat sheet rule 7).
-
-**Use `set-graph` as the primary pattern.** The `dku agent-block connect` command does not support `PYTHON_CODE` blocks (exits with an error — use `validNextBlocksFromCode` + `NextBlock()` yield instead). For `STANDARD_REACT`/`CORE_LOOP`, `connect` works correctly (sets `defaultNextBlock` automatically). For any non-trivial graph, always use `get-graph → patch JSON → set-graph`:
+**Use `set-graph` as the primary pattern.** The `dku agent-block connect` command does not support `PYTHON_CODE` blocks (exits with an error — use `validNextBlocksFromCode` + `NextBlock()` yield instead). For `STANDARD_REACT`, `connect` works correctly (sets `defaultNextBlock` automatically). For any non-trivial graph, always use `get-graph → patch JSON → set-graph`:
 
 ```bash
 # 1. Add all blocks
@@ -653,38 +732,55 @@ json.dump(g, open('/tmp/graph.json', 'w'))
 dku agent-block set-graph AGENT_ID -d @/tmp/graph.json -P PROJ
 ```
 
-**`connect` is a convenience shortcut only.** Use it for simple `LLM_REQUEST → ROUTING`, `CORE_LOOP → GENERATE_OUTPUT`, or other direct wiring. For `PYTHON_CODE` blocks, `connect` will error — use `set-graph` with `validNextBlocksFromCode` and `NextBlock()` yield in `process()`.
+**`connect` is a convenience shortcut only.** Use it for simple `LLM_REQUEST → ROUTING`, `STANDARD_REACT → EMIT_OUTPUT`, or other direct wiring. For `PYTHON_CODE` blocks, `connect` will error — use `set-graph` with `validNextBlocksFromCode` and `NextBlock()` yield in `process()`.
 
 ### Agent Tool Creation (Two-Step Workflow)
 
-Creating a plugin-based agent tool requires two separate commands — `agent-tool create` creates the tool instance, then `agent add-tool` attaches it to an agent.
+Creating an agent tool requires two steps — `agent-tool create` creates the tool instance, then `agent add-tool` attaches it to an agent.
+
+**Built-in tool types** (3 types — use `dku agent-tool types` to list):
 
 ```bash
-# Step 1: Create the tool (returns a tool ID)
-dku agent-tool create "Web Search" \
-  --type Custom_agent_tool_google-search-tool_google-search-tool \
-  -P PROJ
+# DatasetRowLookup — query rows by column values
+dku agent-tool create row_lookup --type DatasetRowLookup --dataset customers -P PROJ && \
+dku agent add-tool AGENT_ID --tool TOOL_ID -P PROJ
 
-# Step 2: Attach to agent (use the tool ID from step 1)
+# VectorStoreSearch — search a knowledge bank (--kb required)
+dku agent-tool create kb_search --type VectorStoreSearch --kb my_kb -P PROJ && \
+dku agent add-tool AGENT_ID --tool TOOL_ID -P PROJ
+
+# LLMMeshLLMQuery — call another LLM or agent
+dku agent-tool create sub_llm --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P PROJ && \
 dku agent add-tool AGENT_ID --tool TOOL_ID -P PROJ
 ```
 
+**Plugin-based tools** (custom Python tools):
+
+```bash
+# Plugin tools use Custom_agent_tool_<plugin>_<tool> type format
+dku agent-tool create "Web Search" \
+  --type Custom_agent_tool_google-search-tool_google-search-tool \
+  -P PROJ
+```
+
+> **There is no built-in PythonFunction type.** Custom Python tools MUST be built as plugins (`python-agent-tools/` folder) and deployed via `dku plugin push`. See `references/llm-tools.md` for the full plugin tool development guide.
+
 **Discovering available tool types:**
 ```bash
-# List available tool types (does NOT accept -P — this is project-independent)
+# List built-in types (does NOT accept -P — project-independent)
 dku agent-tool types
 ```
 
-> **Gotcha:** `dku agent-tool types` is listed under the `agent-tool` group but does NOT accept a `-P` flag. Passing `-P` will throw an error. Run it without a project argument.
-
-**Updating tool definitions:** Use `dku agent-tool set-definition` to update tool parameters after creation (e.g., inject an API key):
+**Updating tool definitions post-creation:**
 ```bash
-# Update specific fields (merges into existing definition)
-dku agent-tool set-definition TOOL_ID -d '{"params": {"apiKey": "secret"}}' -P PROJ
+# Merge params (shallow merge on top-level keys)
+dku agent-tool set-definition TOOL_ID -d '{"params": {"maxRecords": 10}}' -P PROJ
 
-# Or from a file
+# From a file
 dku agent-tool set-definition TOOL_ID -d @tool-config.json -P PROJ
 ```
+
+> **Tip:** To discover the exact params structure for any tool type, create one in the DSS UI first, then run `dku agent-tool get TOOL_ID -P PROJ -o json` to inspect its full settings.
 
 ### LLM ID Format
 
@@ -713,9 +809,9 @@ dku recipe add-input my_recipe lookup_table --role lookup -P PROJ
 dku recipe add-output my_recipe extra_output -P PROJ
 ```
 
-### Join Recipes — Column Names
+### Join Recipes — Column Name Prefixing
 
-DSS join recipes do NOT prefix column names by default. Columns from both datasets are merged as-is. Only conflicting column names (same name in both datasets) get prefixed with the dataset name (e.g., `customers_id` and `orders_id`). Plan downstream column references using the original names unless there's a conflict.
+DSS join recipes prefix column names with the dataset name. If you join `customers` and `orders`, the resulting columns are `customers_name`, `orders_amount`, etc. Plan downstream column references accordingly.
 
 ### Project Variables
 
@@ -734,24 +830,9 @@ dku project set-variables -P PROJ --definition @vars.json
 
 **Common mistake:** `--json` does not exist. Use `--set key=value` for individual vars or `--definition JSON` for full replacement.
 
+> **Positional project key:** `dku project variables PROJ`, `dku project permissions PROJ`, and `dku project tags PROJ` accept the project key as a positional argument (in addition to `-P PROJ`).
+
 ## Pipeline Building Best Practices
-
-### Prefer Multi-Input Joins Over Cascading Joins
-
-When joining 3+ datasets, a single multi-input join is usually cleaner than cascading separate join recipes — fewer recipes, no throwaway intermediate datasets.
-
-```bash
-# Cascading — 3 recipes, 2 intermediate datasets
-dku recipe create-join join_ab -i A -i B --output-ds AB -P PROJ && \
-dku recipe create-join join_abc -i AB -i C --output-ds ABC -P PROJ && \
-dku recipe create-join join_abcd -i ABC -i D --output-ds final -P PROJ
-
-# Single multi-input join — 1 recipe, no intermediates
-dku recipe create-join join_all -i A -i B -i C -i D --output-ds final \
-  --join-key id --join-key 1:id --join-key 2:id -P PROJ
-```
-
-`create-join` supports **2+ input datasets in a single recipe**. Each additional input creates a join pair indexed from 0. Use `--join-key N:col` to target specific pairs. Use separate joins when you need different join types per pair or need to filter/transform between joins.
 
 ### Anti-Pattern: Step-by-Step Builds (costs 50%+ extra tokens)
 
@@ -775,11 +856,11 @@ dku dataset create raw_data --type UploadedFiles -P PROJ && \
 dku dataset upload raw_data data.csv -P PROJ && \
 
 # Recipe 1: raw_data -> cleaned (output auto-created)
-dku recipe create clean_step --type python --input raw_data --output-ds cleaned --connection filesystem_managed -P PROJ && \
+dku recipe create clean_step --type python --input raw_data --output-ds cleaned -P PROJ && \
 dku recipe set-code clean_step -P PROJ --code @clean.py && \
 
 # Recipe 2: cleaned -> final (output auto-created)
-dku recipe create agg_step --type python --input cleaned --output-ds final --connection filesystem_managed -P PROJ && \
+dku recipe create agg_step --type python --input cleaned --output-ds final -P PROJ && \
 dku recipe set-code agg_step -P PROJ --code @aggregate.py
 ```
 
@@ -836,6 +917,8 @@ dku job run --target summary -P PROJ \
 | Run consistency check on entire flow | `dku flow check -P PROJ` |
 | Force rebuild everything | `dku job run --target NAME --type RECURSIVE_FORCED_BUILD --auto-update-schema --wait` |
 | Build only missing outputs | `dku job run --target NAME --type RECURSIVE_MISSING_ONLY_BUILD --wait` |
+| Build recipe that outputs to a managed folder | `dku recipe run RECIPE -P PROJ --wait` (folders are NOT buildable via `dku dataset build`) |
+| Inspect a failed build log | `dku job log JOB_ID -P PROJ` |
 
 ### Build Types
 
@@ -851,6 +934,33 @@ dku job run --target summary -P PROJ \
 - **`dku flow propagate SOURCE_DS`**: Propagates schema changes from a source dataset through downstream recipes. Use when you've changed a source schema and want to update downstream schemas WITHOUT building.
 - **`--auto-update-schema` on build/run**: Updates schemas during the build. Use when you want to build AND fix schemas in one shot.
 - **`dku recipe check-schema` + `apply-schema`**: Per-recipe schema inspection. Use when debugging a specific recipe's schema issues. Only works for visual recipes (not Python/R code recipes).
+
+## Agent Evaluation Workflow (1–2 tool calls)
+
+Use `agent-review` to evaluate agent quality with LLM-as-judge traits:
+
+```bash
+# Create review, configure, add tests, run evaluation (1 tool call)
+dku agent-review create "Quality Check" -P PROJ && \
+REVIEW_ID=$(dku agent-review list -P PROJ -o json | jq -r '.[0].id') && \
+dku agent-review set-agent "$REVIEW_ID" --agent MY_AGENT -P PROJ && \
+dku agent-review set-llm "$REVIEW_ID" --llm "openai:...:gpt-4o" -P PROJ && \
+dku agent-review add-trait "$REVIEW_ID" --name "Accuracy" --criteria "Does the answer match the reference answer?" -P PROJ && \
+dku agent-review add-trait "$REVIEW_ID" --name "Helpfulness" --criteria "Is the response helpful and actionable?" -P PROJ && \
+dku agent-review create-test "$REVIEW_ID" -q "What is our refund policy?" -r "30-day money back guarantee" -P PROJ && \
+dku agent-review run "$REVIEW_ID" -P PROJ
+```
+
+```bash
+# Check results (tool call 2)
+RUN_ID=$(dku agent-review list-runs "$REVIEW_ID" -P PROJ -o json | jq -r '.[0].id') && \
+dku agent-review results "$REVIEW_ID" --run "$RUN_ID" -P PROJ -o json
+```
+
+For bulk testing, import from a dataset:
+```bash
+dku agent-review import-tests "$REVIEW_ID" --dataset test_cases --query-column question --reference-column answer -P PROJ
+```
 
 ## Full Project Template (Copy-Paste)
 
@@ -873,7 +983,7 @@ dku recipe create-join join_enriched -i raw_data -i lookup --output-ds enriched 
 dku recipe create-group compute_summary -i enriched --output-ds summary -k category --agg "amount:sum,avg" -P MY_PROJ && \
 
 # Recipe 3: summary → scored (Python — ONLY because custom scoring logic)
-dku recipe create compute_scored --type python --input summary --output-ds scored --connection filesystem_managed -P MY_PROJ && \
+dku recipe create compute_scored --type python --input summary --output-ds scored -P MY_PROJ && \
 dku recipe set-code compute_scored -P MY_PROJ --code @score.py && \
 
 # Library files
@@ -886,7 +996,12 @@ dku project set-variables -P MY_PROJ --set threshold=0.8 --set env=staging && \
 dku scenario create daily_build --if-not-exists -P MY_PROJ && \
 
 # Wiki (--if-not-exists = safe to re-run)
-dku wiki create "Project Overview" --body "# My Project\nAutomated data pipeline." --if-not-exists -P MY_PROJ
+dku wiki create "Project Overview" --body "# My Project\nAutomated data pipeline." --if-not-exists -P MY_PROJ && \
+
+# Document the project (descriptions, column docs)
+dku project set-metadata MY_PROJ --description "Automated data pipeline — enriches raw data, computes summary statistics, scores items." && \
+dku dataset set-column-description raw_data id "Unique record ID" name "Item name" amount "Transaction amount in USD" -P MY_PROJ && \
+dku scenario set-metadata daily_build --description "Nightly rebuild of the full pipeline" -P MY_PROJ
 ```
 
 **Tool call 2 — Build the pipeline:**
@@ -898,11 +1013,67 @@ dku job run --target scored -P MY_PROJ \
   --wait
 ```
 
-**Tool call 3 — Verify:**
+**Tool call 3 — Verify (MANDATORY — never skip this):**
 
 ```bash
+# Check final output has real data (not empty)
 dku dataset head scored -P MY_PROJ -n 5 && \
-dku flow graph -P MY_PROJ -o json | jq '.nodes | keys'
+# Check pipeline topology is correct
+dku flow graph -P MY_PROJ -o json | jq '.nodes | keys' && \
+# Check row count is reasonable
+dku dataset head scored -P MY_PROJ -o json | jq 'length'
+```
+
+> **You are NOT done until Tool call 3 passes.** If `head` returns 0 rows or wrong columns, debug before reporting success.
+
+---
+
+## Documentation Workflow — Always Document What You Build
+
+**Undocumented projects fail review.** Teams can't maintain what they don't understand. Every project you build should have:
+
+1. A project description (`--description` on create, or `set-metadata` after)
+2. Column descriptions on key datasets (`set-column-description`)
+3. At least one wiki article ("Project Overview")
+
+### Metadata Commands (one command per object, no JSON needed)
+
+| Object | Command |
+|--------|---------|
+| Project | `dku project set-metadata PROJ --description "..." --name "..."` |
+| Dataset | `dku dataset set-metadata DS --description "..." --tags "etl,source" -P PROJ` |
+| Dataset columns | `dku dataset set-column-description DS col1 "Revenue" col2 "Customer ID" -P PROJ` |
+| Dataset (AI) | `dku dataset ai-describe DS --save -P PROJ` |
+| Dashboard | `dku dashboard set-metadata ID --description "..." -P PROJ` |
+| Insight | `dku insight set-metadata ID --description "..." -P PROJ` |
+| Scenario | `dku scenario set-metadata ID --description "..." -P PROJ` |
+| Model | `dku model set-metadata ID --description "..." -P PROJ` |
+| Agent | `dku agent set-metadata REF --description "..." -P PROJ` |
+| Folder | `dku folder set-metadata REF --description "..." -P PROJ` |
+| Zone | `dku flow set-zone ZONE --name "..." --color "#2ab1ac" -P PROJ` |
+
+All `set-metadata` commands accept `--description`, `--short-desc`, and `--tags` (comma-separated). Zone uses `--name` and `--color` instead.
+
+### Minimum Documentation Checklist
+
+After wiring a pipeline, add these to your setup:
+
+```bash
+# 1. Project description
+dku project set-metadata MY_PROJ --description "Customer churn analytics — joins customer data with events, computes risk features, summarizes by segment."
+
+# 2. Column descriptions on key datasets
+dku dataset set-column-description customers \
+  customer_id "Unique customer identifier" \
+  monthly_spend "Monthly subscription amount in USD" \
+  tenure_months "Months since customer signup" \
+  -P MY_PROJ
+
+# 3. AI-generated descriptions (quick alternative — requires AI Services enabled)
+dku dataset ai-describe customers --save -P MY_PROJ
+
+# 4. Wiki overview
+dku wiki create "Project Overview" --body "# Customer Churn Analytics\n\nPipeline that identifies at-risk customers using behavioral features.\n\n## Datasets\n- customers: Source customer data\n- events: User activity events\n- churn_features: Computed risk features\n\n## Recipes\n- join_data: Joins customers with events\n- compute_features: Groups and aggregates features\n\n## Schedule\n- daily_build: Runs nightly at 2am UTC" --if-not-exists -P MY_PROJ
 ```
 
 ---
@@ -952,6 +1123,7 @@ dku recipe create-embed embed_step \
   --input qa_documents \
   --output-kb qa_kb \
   --embedding-llm "openai:text-embedding-3-small" \
+  --text-column content \
   -P PROJ && \
 dku recipe run embed_step -P PROJ --wait && \
 dku dataset create eval_scored --type Filesystem -P PROJ && \
@@ -988,6 +1160,191 @@ dku recipe run rag_eval -P PROJ --wait
 ### LLM Evaluation Task Types
 
 `QUESTION_ANSWERING`, `SUMMARIZATION`, `CLASSIFICATION`, and others. Use `--task-type` to set.
+
+### Knowledge Bank + Embed Pipeline (create -> configure -> build)
+
+**CRITICAL: Vector store defaults to CHROMA.** FAISS can fail silently on some DSS installations.
+
+```bash
+# Step 1: Find an embedding model (REQUIRED)
+EMBED_LLM=$(dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ -o json | jq -r '.[0].id') && \
+
+# Step 2: Create embed recipe with column specified
+dku recipe create-embed embed_my_data \
+  --input source_dataset \
+  --output-kb my_kb \
+  --embedding-llm "$EMBED_LLM" \
+  --embed-column text_content \
+  -P PROJ && \
+
+# Step 3: Run to populate the KB
+dku recipe run embed_my_data -P PROJ --wait && \
+
+# Step 4: Verify
+dku knowledge search my_kb --query "test query" -P PROJ
+```
+
+**Common mistakes:**
+- Using a completion LLM ID instead of an embedding LLM ID (`--purpose TEXT_EMBEDDING_EXTRACTION`)
+- Omitting `--embed-column` (build will fail with "Embedding column missing")
+- Forgetting to `run` the embed recipe after creating it
+
+## Data Reshaping Patterns
+
+### Wide-to-Long (Unpivot/Fold)
+
+When columns like `jan`, `feb`, `mar` need to become rows with `month` + `value`:
+
+```bash
+# Create prepare recipe, add fold step, build
+dku recipe create reshape --type prepare -i wide_data --output-ds long_data -c filesystem_managed -P PROJ && \
+dku recipe add-fold reshape --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ && \
+dku job run --target long_data --auto-update-schema --wait -P PROJ
+```
+
+For pattern-based folding (all columns matching a regex):
+```bash
+dku recipe add-fold reshape --pattern ".*-25" --key-column month --value-column value -P PROJ
+```
+
+## Prepare Recipe Steps
+
+Prepare recipes support ~95 processor types for data cleaning, enrichment, and transformation. **ALWAYS prefer purpose-built processors over `CreateColumnWithGREL` (GREL formulas).** GREL is the last resort.
+
+**Before adding prepare steps, READ `dataiku` skill's `references/prepare-processors.md`.** It has the processor decision table, required params for each type, and canonical JSON examples. Do not guess params — each processor has specific required fields that differ.
+
+### Step Management Commands
+
+| Command | Purpose |
+|---------|---------|
+| `list-steps RECIPE -P PROJ` | Show all steps (index, type, disabled, target) |
+| `add-step RECIPE --type TYPE --params JSON -P PROJ` | Add any of ~95 processor types |
+| `get-step RECIPE --index N -P PROJ` | Get full step JSON |
+| `remove-step RECIPE --index N -P PROJ` | Remove step(s) by index |
+| `disable-step RECIPE --index N -P PROJ` | Skip step during execution |
+| `enable-step RECIPE --index N -P PROJ` | Re-enable a disabled step |
+
+### Named Shortcuts (prefer these for common operations)
+
+| Task | Command |
+|------|---------|
+| Computed column (GREL) | `add-formula RECIPE --expr "upper(city)" --column city_upper -P PROJ` |
+| Rename columns | `add-rename RECIPE --from old --to new -P PROJ` |
+| Filter/flag rows | `add-filter-rows RECIPE --column status --values "active" --action KEEP_ROW -P PROJ` |
+| Filter by formula | `add-filter-rows RECIPE --formula "price > 100" --action REMOVE_ROW -P PROJ` |
+| Fill empty cells | `add-fill-empty RECIPE --column age --value "0" -P PROJ` |
+| Delete columns | `add-delete-columns RECIPE --columns "tmp1,tmp2" -P PROJ` |
+| Find & replace | `add-find-replace RECIPE --column city --find "NYC" --replace "New York" -P PROJ` |
+| Fold (wide→long) | `add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column val -P PROJ` |
+| Create geopoint | `add-geopoint RECIPE --lat-column lat --lon-column lon -P PROJ` |
+| Geo distance | `add-geodistance RECIPE --from-column origin --to-column dest -P PROJ` |
+
+### Processor Selection: Don't Default to GREL
+
+Before reaching for `add-formula`, check if a purpose-built processor exists:
+
+| Need to... | Use this instead of GREL |
+|------------|--------------------------|
+| Rename columns | `add-rename` (not GREL concat workarounds) |
+| Uppercase/lowercase | `add-step --type StringTransformer` (not GREL `upper()`) |
+| Concatenate columns | `add-step --type ColumnsConcat` (not GREL `col1 + " " + col2`) |
+| If/then/else logic | `add-step --type VisualIfRule` (not GREL `if()` chains) |
+| Parse dates | `add-step --type DateParser` (not GREL `toDate()`) |
+| Extract year/month/day | `add-step --type DateComponentsExtractor` (not GREL `year()`) |
+| Date differences | `add-step --type DateDifference` (not GREL `dateDiff()`) |
+| Fill empty values | `add-fill-empty` (not GREL `if(isBlank())`) |
+| Bin numbers | `add-step --type BinnerProcessor` (not GREL `if` chains) |
+| Split column | `add-step --type ColumnSplitter` (not GREL `split()`) |
+| Flatten JSON | `add-step --type JSONFlattener` (not Python json.loads) |
+| Remove empty rows | `add-step --type RemoveRowsOnEmpty` (not GREL filter) |
+| Filter invalid types | `add-step --type FilterOnBadType` (not GREL type checks) |
+
+**Before writing any `add-step` command, READ `dataiku` skill's `references/prepare-processors.md`** to get the exact params and canonical JSON for the processor you need. The examples above cover common cases, but each processor has required fields that vary — guessing params will fail silently or produce broken steps.
+
+### add-step Examples (processors without shortcuts)
+
+```bash
+# Parse date strings to ISO 8601
+dku recipe add-step prep --type DateParser \
+  --params '{"appliesTo":"SINGLE_COLUMN","columns":["order_date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outType":{"name":"out","type":"date"}}' -P PROJ
+
+# Extract year and month from parsed date
+dku recipe add-step prep --type DateComponentsExtractor \
+  --params '{"column":"order_date","timezone_id":"UTC","outYearColumn":"order_year","outMonthColumn":"order_month"}' -P PROJ
+
+# Uppercase a text column
+dku recipe add-step prep --type StringTransformer \
+  --params '{"mode":"UPPERCASE","appliesTo":"SINGLE_COLUMN","columns":["city"]}' -P PROJ
+
+# Concatenate first + last name
+dku recipe add-step prep --type ColumnsConcat \
+  --params '{"columns":["first_name","last_name"],"join":" ","outputColumn":"full_name"}' -P PROJ
+
+# Flatten a JSON metadata column
+dku recipe add-step prep --type JSONFlattener \
+  --params '{"inCol":"metadata","flattenArrays":false,"maxDepth":10,"nullAsEmpty":true,"prefixOutputs":true,"separator":"_"}' -P PROJ
+
+# Remove rows with non-numeric price values
+dku recipe add-step prep --type FilterOnBadType \
+  --params '{"appliesTo":"SINGLE_COLUMN","columns":["price"],"type":"DoubleMeaning","action":"REMOVE_ROW","considerEmptyAsInvalid":false,"booleanMode":"AND"}' -P PROJ
+
+# Remove all empty rows
+dku recipe add-step prep --type RemoveRowsOnEmpty \
+  --params '{"appliesTo":"ALL","columns":[],"keep":false}' -P PROJ
+```
+
+### Complete Prepare Workflow (chaining multiple processor types)
+
+```bash
+# Create prepare recipe, add mixed steps (shortcuts + add-step), build
+dku recipe create clean_data --type prepare -i raw_data --output-ds clean_data -c filesystem_managed -P PROJ && \
+dku recipe add-rename clean_data --from "CustomerName" --to "customer_name" -P PROJ && \
+dku recipe add-rename clean_data --from "OrderDate" --to "order_date" -P PROJ && \
+dku recipe add-step clean_data --type RemoveRowsOnEmpty --params '{"appliesTo":"ALL","columns":[],"keep":false}' -P PROJ && \
+dku recipe add-step clean_data --type StringTransformer --params '{"mode":"LOWERCASE","appliesTo":"SINGLE_COLUMN","columns":["customer_name"]}' -P PROJ && \
+dku recipe add-fill-empty clean_data --column price --value "0" -P PROJ && \
+dku recipe add-step clean_data --type FilterOnBadType --params '{"appliesTo":"SINGLE_COLUMN","columns":["price"],"type":"DoubleMeaning","action":"REMOVE_ROW","considerEmptyAsInvalid":false,"booleanMode":"AND"}' -P PROJ && \
+dku recipe add-delete-columns clean_data --columns "debug_col,temp_id" -P PROJ && \
+dku job run --target clean_data --auto-update-schema --wait -P PROJ
+```
+
+### Long-to-Wide (Pivot)
+
+```bash
+dku recipe create-pivot pivot_monthly -i long_data --output-ds wide_data \
+  --row-key customer_id --column-key month --value-column sales -P PROJ
+```
+
+### Cross Join (Row Expansion)
+
+Generate all combinations (e.g., records × future months):
+```bash
+dku recipe create-join expand -i records -i months --output-ds expanded --join-type CROSS -P PROJ
+```
+
+### Multi-Input Join (5+ datasets in one recipe)
+
+```bash
+dku recipe create-join enrich \
+  -i main -i lookup_a -i lookup_b -i lookup_c \
+  --output-ds enriched \
+  --join-key entity=company \
+  --join-key 1:platform \
+  --join-key 2:channel=Channel \
+  -P PROJ
+```
+
+Index prefix (`1:`, `2:`) targets specific join pairs. Unprefixed keys target join 0.
+
+### Random Sampling
+
+```bash
+dku recipe create-sampling sample_1k -i big_data --output-ds sample --method RANDOM_FIXED_NB --size 1000 -P PROJ
+```
+
+Methods: `RANDOM_FIXED_NB`, `RANDOM_FIXED_RATIO` (use `--ratio 0.1`), `HEAD_SEQUENTIAL`, `STRATIFIED`.
+
+---
 
 ## Dashboard & Chart Patterns
 
@@ -1044,68 +1401,5 @@ dku dashboard set-definition DASH_ID -d @dashboard.json -P PROJ
 | Missing `params.datasetSmartName` | Use `--dataset` on `insight create` |
 | Wrong column names (chart renders blank) | Run `dku insight validate ID -P PROJ` |
 | Missing `engineType: "LINO"` | Always include in chart params |
-| Visual recipe output on wrong connection | CLI prefers `filesystem_managed`. If issues, pre-create output dataset on correct connection first |
-| CSV upload → all-string schema → group/window SUM fails | After upload, fix types: `dku dataset set-schema DS -d '{"columns": [{"name":"col","type":"double"},...]}' -P PROJ`. Note: `set-schema` requires `{"columns": [...]}` wrapper — NOT the raw array from `schema -o json`. |
-| `agent-block` rejects agent name | These commands require the agent **ID**, not name. Get it with `dku agent list -o json \| jq '.[].id'` |
-| SVA blocks in wrong settings path | DSS 14.5+: blocks are in `structuredAgentSettings`, not `toolsUsingAgentSettings`. No `mode` field. `get-graph` returns `structuredAgentSettings` directly. |
-| `EMIT_OUTPUT` block gets renamed | On DSS 14.5+, `EMIT_OUTPUT` is silently converted to `GENERATE_OUTPUT`. Use `GENERATE_OUTPUT` to avoid confusion. |
-| `knowledge build` fails with "Computable not found" | KB has no data source. Add one with `dku recipe create-embed` first. |
-| `agent-tool set-definition` has no effect | Saves to DSS but running instance uses cached params. Re-push plugin to reload: `dku plugin push plugin.zip` |
-| `agent-tool types` doesn't show plugin tools | Plugin tools follow naming: `Custom_agent_tool_<plugin-id>_<tool-folder>`. Built-in `types` command now shows this template. |
-| Agent tool shows "no dataset selected" | CLI writes to both `datasetRef` and `datasetSmartName` for version compatibility. If still wrong, use `dku agent-tool set-definition` |
-| SVA block plugin directory wrong | Version-dependent: DSS 14.5+ → `python-structured-agent-blocks/`, DSS 14.4.x → `python-blocks-graph-blocks/`. Wrong name → 0 components, no error |
-| SVA `block.json` uses wrong fields | Use `pyClazzName: "pkg.mod.Class"` (single field). NOT `kind`/`blockHandlerClass`/`blockHandlerModule` (silently ignored) |
-| SVA BlockHandler `process()` wrong signature | Use `process_stream(self, trace)` generator yielding `NextBlock()`. NOT `process(self, context, input_data, block_definition)` returning tuple |
-| `ColumnNotEmptyRule` compute: "Threshold type cannot be null" | DSS 14.5 beta bug. Use `--type column-min --column COL --min 1` as workaround |
-| DQ rule uses `column` (singular) in `--config` JSON | Must be `"columns": ["COL"]` (array). CLI `--column` flag handles this automatically |
-| `ColumnValueInRangeRule` type doesn't exist | Use `--type value-in-range` (creates ColumnMin + ColumnMax pair) |
-| Min/max/avg/sum rule on STRING column | Returns "Cannot check: STRING is not numeric". Check types: `dku dataset schema DS -P PROJ` |
-| `dku dq project-status` returns empty | Default = monitored only. Use `--all`. Enable monitoring via DSS UI (no API) |
-| Plugin recipe create fails / unknown type | Type is `CustomCode_<recipeComponentId>` — plugin ID is NOT in the type. Discover with `dku plugin recipes`. Output dataset must exist first |
 
 **Full JSON reference:** See `skills/dataiku/references/dashboard-charts.md`
-
-## Data Quality Rules
-
-### Workflow: Create + Compute + Check (1 tool call)
-
-```bash
-# Create rules, compute, and check results — all one call
-dku dq create my_dataset --type record-count --min 1 --name "Has records" -P PROJ && \
-dku dq create my_dataset --type column-min --column Price --min 0 --name "Price >= 0" -P PROJ && \
-dku dq create my_dataset --type value-in-range --column Latitude --min -90 --max 90 -P PROJ && \
-dku dq compute my_dataset -P PROJ && \
-dku dq results my_dataset -P PROJ
-```
-
-### Rule Type Reference
-
-| Shorthand | DSS Type | What It Checks | `--column`? | Numeric Only? |
-|---|---|---|---|---|
-| `record-count` | `RecordCountInRangeRule` | Total row count in range | No | N/A |
-| `not-empty` | `ColumnNotEmptyRule` | Column has no nulls/blanks | Yes | No — **BUGGY in DSS 14.5 beta** |
-| `value-in-range` | Creates 2 rules: `ColumnMinInRangeRule` + `ColumnMaxInRangeRule` | All values in column within bounds | Yes | Yes |
-| `column-min` | `ColumnMinInRangeRule` | Minimum value in range | Yes | Yes |
-| `column-max` | `ColumnMaxInRangeRule` | Maximum value in range | Yes | Yes |
-| `column-avg` | `ColumnAvgInRangeRule` | Average value in range | Yes | Yes |
-| `column-sum` | `ColumnSumInRangeRule` | Sum of values in range | Yes | Yes |
-
-For unlisted types (median, stddev, schema, file-size), use `--config` with raw JSON:
-
-```bash
-dku dq create my_dataset -c '{"type":"ColumnMedianInRangeRule","columns":["Score"],"softMinimum":50,"softMinimumEnabled":true}' -P PROJ
-```
-
-Full catalog of all 13 rule types: `docs/dq-rule-types.md`
-
-### Thresholds
-
-- `--min` / `--max` = warning level (`softMinimum` / `softMaximum`)
-- For hard error thresholds (`minimum` / `maximum`), use `--config` with raw JSON
-- Each threshold has an `*Enabled` boolean companion (CLI sets automatically)
-
-### Monitoring
-
-- `dku dq project-status -P PROJ` — shows monitored datasets only by default
-- `dku dq project-status --all -P PROJ` — includes all datasets with rules
-- No public API to enable/disable monitoring — toggle in DSS UI

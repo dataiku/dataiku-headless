@@ -168,6 +168,17 @@ def _get_recipe_payload(settings) -> dict:
     return raw["params"]["payload"]
 
 
+def _deep_merge_dict(base: dict, patch: dict) -> dict:
+    """Recursively merge *patch* into *base*. Non-dict values in *patch* replace *base*."""
+    merged = dict(base)
+    for key, value in patch.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _parse_order_specs(specs: list[str]) -> list[dict]:
     """Parse order specifications like 'col', 'col:desc', 'col:asc' into payload format."""
     orders = []
@@ -742,6 +753,11 @@ def set_definition(
         "--payload",
         help="Recipe payload JSON — updates obj_payload (visual recipe config: aggregations, computations, etc.). String, @file.json, or '-' for stdin.",
     ),
+    deep_merge: bool = typer.Option(
+        False,
+        "--deep-merge",
+        help="Recursively merge nested payload objects instead of replacing top-level keys. Use with --payload to patch deep config without losing sibling fields.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the definition or payload of a recipe from JSON.
@@ -750,8 +766,12 @@ def set_definition(
     Use --payload to update the visual recipe configuration (aggregations, window
     computations, join keys, filter conditions, etc.). These are mutually exclusive.
 
+    Default --payload merge is shallow (top-level keys replaced). Use --deep-merge
+    for recursive merge of nested objects — patch one field without losing siblings.
+
     Examples:
       dku recipe set-definition my_topn --payload '{"topN": 5}' -P PROJ
+      dku recipe set-definition my_join --payload '{"postFilter": {"enabled": true}}' --deep-merge -P PROJ
       dku recipe set-definition my_recipe -d @recipe_def.json -P PROJ
     """
     if not definition and not payload_json:
@@ -768,6 +788,11 @@ def set_definition(
             "Cannot use both --definition and --payload. Provide one.",
             code="invalid_argument",
         )
+    if deep_merge and not payload_json:
+        exit_with_error(
+            "--deep-merge can only be used with --payload.",
+            code="invalid_argument",
+        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -781,10 +806,16 @@ def set_definition(
         else:
             new_payload = read_json_input(payload_json)
             current = _get_recipe_payload(settings)
-            current.update(new_payload)
+            if deep_merge:
+                merged = _deep_merge_dict(current, new_payload)
+                current.clear()
+                current.update(merged)
+            else:
+                current.update(new_payload)
             target = "payload"
         settings.save()
-        success(f"Updated {target} for recipe '{recipe_name}'")
+        success(f"Updated {target} for recipe '{recipe_name}'"
+                + (" (deep-merged)" if deep_merge else ""))
     except typer.Exit:
         raise
     except Exception as e:
