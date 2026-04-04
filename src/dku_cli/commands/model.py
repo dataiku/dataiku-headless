@@ -1,4 +1,4 @@
-"""dku model — list, get, versions, set-active-version, metrics, delete-version."""
+"""dku model — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata."""
 
 from __future__ import annotations
 
@@ -8,8 +8,12 @@ from typing import List
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, resolve_output_format, success
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    resolve_project,
+    update_taggable_metadata,
+)
+from dku_cli.output import error, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS saved models.")
 
@@ -261,4 +265,99 @@ def delete_version(
                 code="not_found",
                 status=3,
             )
+        handle_api_error(e)
+
+
+@app.command()
+def delete(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Delete a saved model.
+
+    Use 'dku model list' to see available model IDs.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        sm = proj.get_saved_model(model_id)
+        sm.delete()
+        success(f"Deleted saved model '{model_id}'")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Model '{model_id}' not found.",
+                details=[
+                    f"List models: dku model list -P {project_key}",
+                ],
+                code="not_found",
+                status=3,
+            )
+        handle_api_error(e)
+
+
+@app.command()
+def usages(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show where a saved model is used (recipes, endpoints, etc.)."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        sm = proj.get_saved_model(model_id)
+        usage_list = sm.get_usages()
+        render_raw(usage_list, output_format=output)
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Model '{model_id}' not found.",
+                details=[
+                    f"List models: dku model list -P {project_key}",
+                ],
+                code="not_found",
+                status=3,
+            )
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Model description"
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update saved model description, short description, and/or tags.
+
+    No JSON needed — updates metadata fields directly.
+    """
+    if description is None and short_desc is None and tags is None:
+        error("Provide --description, --short-desc, and/or --tags to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        settings = model.get_settings()
+        update_taggable_metadata(settings, description, short_desc, tags)
+        success(f"Updated metadata for model '{model_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
         handle_api_error(e)

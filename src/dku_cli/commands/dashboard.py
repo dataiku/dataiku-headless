@@ -1,12 +1,24 @@
-"""dku dashboard — list, get, create, delete, get/set-definition."""
+"""dku dashboard — list, get, create, delete, get/set-definition, set-metadata."""
 
 from __future__ import annotations
 
 import typer
 
 from dku_cli.errors import handle_api_error, is_already_exists_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success, warn
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    resolve_project,
+    update_taggable_metadata,
+)
+from dku_cli.output import (
+    error,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS dashboards.")
 
@@ -179,5 +191,41 @@ def set_definition(
         raw.update(new_def)
         settings.save()
         success(f"Updated definition for dashboard '{dashboard_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    dashboard_id: str = typer.Argument(help="Dashboard ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Dashboard description"
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update dashboard description, short description, and/or tags.
+
+    No JSON needed — updates metadata fields directly.
+    """
+    if description is None and short_desc is None and tags is None:
+        error("Provide --description, --short-desc, and/or --tags to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        dashboard = proj.get_dashboard(dashboard_id)
+        settings = dashboard.get_settings()
+        update_taggable_metadata(settings, description, short_desc, tags)
+        success(f"Updated metadata for dashboard '{dashboard_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

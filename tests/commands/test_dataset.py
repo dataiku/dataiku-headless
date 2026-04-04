@@ -665,3 +665,245 @@ def test_dataset_set_schema_from_file(patch_client, tmp_path):
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     call_arg = ds.set_definition.call_args[0][0]
     assert call_arg["schema"]["columns"][0]["name"] == "file_col"
+
+
+# --- rename ---
+
+
+def test_dataset_rename(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "rename", "ds1", "--name", "ds1_renamed", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Renamed" in result.output
+    assert "ds1_renamed" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.rename.assert_called_once_with("ds1_renamed")
+
+
+# --- copy ---
+
+
+def test_dataset_copy(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "copy", "ds1", "--to-project", "PROJ2", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Copied" in result.output
+    assert "PROJ2.ds1" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.copy_to.assert_called_once()
+
+
+def test_dataset_copy_with_name(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "copy",
+            "ds1",
+            "--to-project",
+            "PROJ2",
+            "--name",
+            "ds1_copy",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "PROJ2.ds1_copy" in result.output
+
+
+# --- partitions ---
+
+
+def test_dataset_partitions(patch_client):
+    result = runner.invoke(app, ["dataset", "partitions", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "2026-01-01" in result.output
+    assert "2026-01-02" in result.output
+
+
+def test_dataset_partitions_json(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "partitions", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    assert parsed[0]["partition"] == "2026-01-01"
+
+
+# --- set-metadata ---
+
+
+def test_dataset_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-metadata",
+            "ds1",
+            "--description",
+            "Customer data",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated metadata" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.set_metadata.assert_called_once()
+    meta = ds.set_metadata.call_args[0][0]
+    assert meta["description"] == "Customer data"
+
+
+def test_dataset_set_metadata_tags(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-metadata",
+            "ds1",
+            "--tags",
+            "etl,source,v2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    meta = ds.set_metadata.call_args[0][0]
+    assert meta["tags"] == ["etl", "source", "v2"]
+
+
+def test_dataset_set_metadata_short_desc(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-metadata",
+            "ds1",
+            "--short-desc",
+            "Brief",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    meta = ds.set_metadata.call_args[0][0]
+    assert meta["shortDesc"] == "Brief"
+
+
+def test_dataset_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "set-metadata", "ds1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+
+
+# --- set-column-description ---
+
+
+def test_dataset_set_column_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-column-description",
+            "ds1",
+            "col1",
+            "First name",
+            "col2",
+            "Age in years",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated descriptions for 2 column(s)" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.set_definition.assert_called_once()
+    ds_def = ds.set_definition.call_args[0][0]
+    cols = ds_def["schema"]["columns"]
+    assert cols[0]["comment"] == "First name"
+    assert cols[1]["comment"] == "Age in years"
+
+
+def test_dataset_set_column_description_odd_args(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "set-column-description", "ds1", "col1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "even count" in result.output
+
+
+def test_dataset_set_column_description_unknown_column(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-column-description",
+            "ds1",
+            "col1",
+            "Known",
+            "unknown_col",
+            "Missing",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "not in schema" in result.output
+    assert "Updated descriptions for 1 column(s)" in result.output
+
+
+# --- ai-describe ---
+
+
+def test_dataset_ai_describe(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "ai-describe", "ds1", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    assert "Customer transactions" in result.output
+
+
+def test_dataset_ai_describe_save(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "ai-describe", "ds1", "--save", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "saved" in result.output.lower()
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.generate_ai_description.assert_called_once_with(
+        language="english", save_description=True
+    )
+
+
+# --- schema with column descriptions ---
+
+
+def test_dataset_schema_shows_descriptions(patch_client):
+    """Schema command shows description column when comments exist."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {
+        "schema": {
+            "columns": [
+                {"name": "col1", "type": "string", "comment": "First name"},
+                {"name": "col2", "type": "int", "comment": ""},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app, ["dataset", "schema", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["description"] == "First name"

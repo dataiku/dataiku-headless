@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, head, build, create, upload, delete, clear, get/set-definition, set-schema."""
+"""dku dataset — list, schema, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions."""
 
 from __future__ import annotations
 
@@ -73,14 +73,27 @@ def schema(
         ds_def = ds.get_definition()
         columns = ds_def.get("schema", {}).get("columns", [])
 
-        data = [
-            {"name": col.get("name", ""), "type": col.get("type", "")}
-            for col in columns
-        ]
+        has_descriptions = any(col.get("comment") for col in columns)
+        if has_descriptions:
+            data = [
+                {
+                    "name": col.get("name", ""),
+                    "type": col.get("type", ""),
+                    "description": col.get("comment", ""),
+                }
+                for col in columns
+            ]
+            keys = ["name", "type", "description"]
+        else:
+            data = [
+                {"name": col.get("name", ""), "type": col.get("type", "")}
+                for col in columns
+            ]
+            keys = ["name", "type"]
 
         render(
             data,
-            ["name", "type"],
+            keys,
             output_format=output,
             title=f"Schema: {dataset_name}",
         )
@@ -519,5 +532,208 @@ def set_schema(
         current_def["schema"] = read_json_input(definition)
         ds.set_definition(current_def)
         success(f"Updated schema for dataset '{dataset_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def rename(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Current dataset name"),
+    new_name: str = typer.Option(..., "--name", help="New dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Rename a dataset."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds.rename(new_name)
+        success(f"Renamed '{dataset_name}' to '{new_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def copy(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Source dataset name"),
+    to_project: str = typer.Option(..., "--to-project", help="Target project key"),
+    name: str | None = typer.Option(
+        None, "--name", help="Name in target project (default: same name)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Copy a dataset to another project."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        new_name = name or dataset_name
+        target_ds = client.get_project(to_project).get_dataset(new_name)
+        ds.copy_to(target_ds)
+        success(f"Copied '{dataset_name}' to {to_project}.{new_name}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def partitions(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List partitions of a dataset."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        parts = ds.list_partitions()
+        data = [{"partition": p} for p in parts]
+        render(
+            data,
+            ["partition"],
+            output_format=output,
+            title=f"Partitions ({dataset_name})",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Dataset description"
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description (shown in dataset list)"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update dataset description, short description, and/or tags.
+
+    Unlike set-definition, this is a targeted update — no JSON needed.
+    Use after creating a dataset to document what it contains.
+    """
+    if description is None and short_desc is None and tags is None:
+        error("Provide --description, --short-desc, and/or --tags to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        meta = ds.get_metadata()
+
+        if description is not None:
+            meta["description"] = description
+        if short_desc is not None:
+            meta["shortDesc"] = short_desc
+        if tags is not None:
+            meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+
+        ds.set_metadata(meta)
+        success(f"Updated metadata for dataset '{dataset_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-column-description")
+def set_column_description(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    columns: list[str] = typer.Argument(
+        help='Column-description pairs: col1 "desc1" col2 "desc2"'
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set descriptions on dataset columns.
+
+    Pass alternating column names and descriptions:
+      dku dataset set-column-description DS col1 "Revenue total" col2 "Customer ID" -P PROJ
+
+    Column descriptions appear in the schema view and help document data meaning.
+    """
+    if len(columns) % 2 != 0:
+        exit_with_error(
+            "Arguments must be column-description pairs (even count).",
+            code="invalid_argument",
+            details=[
+                'Usage: dku dataset set-column-description DS col1 "desc1" col2 "desc2" -P PROJ',
+                f"Got {len(columns)} arguments — must be even (column name, description, column name, description, ...).",
+            ],
+        )
+    pairs = dict(zip(columns[0::2], columns[1::2]))
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds_def = ds.get_definition()
+        schema_cols = ds_def.get("schema", {}).get("columns", [])
+
+        updated = 0
+        for col in schema_cols:
+            if col["name"] in pairs:
+                col["comment"] = pairs[col["name"]]
+                updated += 1
+
+        # Warn on unknown columns
+        known_names = {c["name"] for c in schema_cols}
+        unknown = set(pairs.keys()) - known_names
+        if unknown:
+            warn(f"Column(s) not in schema (skipped): {', '.join(sorted(unknown))}")
+
+        ds.set_definition(ds_def)
+        success(f"Updated descriptions for {updated} column(s) in '{dataset_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("ai-describe")
+def ai_describe(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    language: str = typer.Option(
+        "english",
+        "--language",
+        "-l",
+        help="Language (english, french, german, dutch, portuguese, spanish)",
+    ),
+    save: bool = typer.Option(
+        False, "--save", help="Save generated descriptions to the dataset"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Generate AI-powered descriptions for a dataset and its columns.
+
+    Requires 'Generate Metadata' enabled in DSS AI Services admin settings.
+    Rate-limited: 1000 requests/day, then throttled (~60s per request).
+
+    Without --save, displays suggestions. With --save, persists to the dataset.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        result = ds.generate_ai_description(language=language, save_description=save)
+
+        if save:
+            success(f"AI descriptions saved to dataset '{dataset_name}'")
+        else:
+            info("AI-generated descriptions (not saved — use --save to persist):")
+
+        render_raw(result, output_format=output)
     except Exception as e:
         handle_api_error(e)

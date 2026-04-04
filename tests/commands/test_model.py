@@ -151,3 +151,63 @@ def test_model_delete_version_multiple(patch_client):
     patch_client.get_project("PROJ1").get_saved_model(
         "model1"
     ).delete_versions.assert_called_once_with(["v1", "v2"])
+
+
+# --- delete ---
+
+
+def test_model_delete(patch_client):
+    result = runner.invoke(app, ["model", "delete", "model1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Deleted saved model" in result.output
+    patch_client.get_project("PROJ1").get_saved_model(
+        "model1"
+    ).delete.assert_called_once()
+
+
+# --- usages ---
+
+
+def test_model_usages(patch_client):
+    result = runner.invoke(app, ["model", "usages", "model1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "usedIn" in parsed
+
+
+def test_model_usages_json(patch_client):
+    result = runner.invoke(
+        app, ["model", "usages", "model1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed == {"usedIn": []}
+
+
+# --- set-metadata ---
+
+
+def test_model_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "set-metadata",
+            "model1",
+            "--description",
+            "Churn prediction model",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated metadata" in result.output
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    model.get_settings().save.assert_called()
+
+
+def test_model_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["model", "set-metadata", "model1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
