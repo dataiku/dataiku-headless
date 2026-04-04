@@ -127,6 +127,50 @@ def resolve_knowledge_bank(project, kb_ref: str):
     )
 
 
+def resolve_semantic_model(project, sm_ref: str):
+    """Resolve a semantic model by ID or name.
+
+    Tries get_semantic_model(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing semantic models and matching by name.
+    Returns a DSSSemanticModel handle.
+    """
+    try:
+        sm = project.get_semantic_model(sm_ref)
+        # Verify it exists by fetching definition (get_semantic_model is lazy)
+        sm._get_definition()
+        return sm
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    # Fall back to name lookup
+    models = project.list_semantic_models()
+    for m in models:
+        if m.get("name", "") == sm_ref:
+            return project.get_semantic_model(m.get("id", m["id"]))
+    from dku_cli.errors import exit_with_error
+
+    sm_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
+    exit_with_error(
+        f"Semantic model '{sm_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available semantic models:",
+            *sm_names,
+            "Use the semantic model ID (left column) or exact name.",
+        ]
+        if sm_names
+        else [
+            "No semantic models found in this project.",
+            "Create one with: dku semantic-model create NAME -P PROJECT",
+        ],
+        status=3,
+    )
+
+
 def read_text_input(value: str) -> str:
     """Read text from: raw string, @file.txt path, or stdin if value is '-'.
 

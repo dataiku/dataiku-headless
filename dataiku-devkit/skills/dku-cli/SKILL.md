@@ -83,6 +83,23 @@ dku knowledge build KB_NAME -P PROJ --wait && \
 dku knowledge search KB_NAME --query "test query" -P PROJ
 ```
 
+### After Configuring Semantic Models
+
+```bash
+# Create, configure, index, and verify
+dku semantic-model create "Sales Model" -P PROJ && \
+dku semantic-model get-version SM_ID -P PROJ -o json  # verify entities exist
+dku semantic-model update-index SM_ID --wait -P PROJ   # index distinct values
+```
+
+### After Configuring Agent Hub
+
+```bash
+# List enterprise agents and verify LLM is set
+dku agent-hub list-agents -P PROJ && \
+dku agent-hub config -P PROJ -o json | jq '.default_llm_id'
+```
+
 ### Verification Rules
 
 1. **Always `head` the final output dataset.** This is the #1 verification — if output looks right, the pipeline works.
@@ -503,6 +520,8 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `notebook` | list, get, create, delete, sessions, stop, clear-outputs, history | Yes |
 | `discussion` | list, get, create, reply | Yes |
 | `knowledge` | list, create, get, set-definition, build, search, delete | Yes (accepts name or ID) |
+| `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index | Yes (accepts name or ID) |
+| `agent-hub` | list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop | Yes (auto-detects hub) |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
@@ -514,6 +533,8 @@ Key notes:
 - `dku llm list` defaults to `GENERIC_COMPLETION`. Pass `--purpose TEXT_EMBEDDING_EXTRACTION` for embedding models.
 - `dku llm embeddings` rejects completion-only model IDs — list embedding models first.
 - Prefer `dku ... -o json | jq ...` on success paths. Avoid `2>&1 | jq` — stderr has error payloads, not success objects.
+- `dku semantic-model` — Semantic models enable text-to-SQL via the Semantic Model Query agent tool (DSS 14.4+). Versions are key: only the active version is used by agents. Always `update-index --wait` after changing entities/attributes.
+- `dku agent-hub` — **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first). `--hub` auto-detects when one hub exists; required when multiple exist. Config is shallow-merged, not replaced. Agent IDs use `PROJECT:agent:ID` format.
 
 ## Chaining Patterns
 

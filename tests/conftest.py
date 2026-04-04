@@ -81,6 +81,11 @@ def mock_client():
     # Webapps
     proj1.list_webapps.return_value = [
         {"id": "webapp1", "name": "Dashboard", "type": "STANDARD"},
+        {
+            "id": "hub1",
+            "name": "Agent Hub - Main",
+            "type": "webapp_agent-hub_agent-hub",
+        },
     ]
 
     # LLMs
@@ -489,7 +494,53 @@ def mock_client():
     }
     webapp_settings.save.return_value = None
     webapp_mock.get_settings.return_value = webapp_settings
-    proj1.get_webapp.return_value = webapp_mock
+
+    # Agent Hub webapp mock
+    hub_webapp = MagicMock()
+    hub_settings = MagicMock()
+    hub_settings.get_raw.return_value = {
+        "type": "webapp_agent-hub_agent-hub",
+        "id": "hub1",
+        "projectKey": "PROJ1",
+        "config": {
+            "default_llm_id": "openai:conn:gpt-4o",
+            "globalSystemPrompt": "",
+            "enable_agents_as_tools": True,
+            "projects_keys": ["PROJ1"],
+            "agents_ids": ["PROJ1:agent:a1"],
+            "tool_agent_configurations": [
+                {
+                    "agent_id": "PROJ1:agent:a1",
+                    "tool_agent_display_name": "Sales Agent",
+                    "tool_agent_description": "Handles sales queries",
+                    "agent_system_instructions": "",
+                    "agent_example_queries": ["What are Q4 sales?"],
+                    "enable_stories": False,
+                },
+            ],
+            "augmented_llms_ids": [],
+            "augmented_llms_configurations": [],
+            "enable_quick_agents": True,
+            "LLMs": [{"llm_id": "openai:conn:gpt-4o"}],
+            "embedding_llm": "openai:conn:text-embedding-3-small",
+            "tools": ["tool1"],
+            "visualization_generation_mode": "AUTO",
+            "logLevel": "INFO",
+        },
+    }
+    hub_settings.save.return_value = None
+    hub_webapp.get_settings.return_value = hub_settings
+    hub_webapp.get_state.return_value = MagicMock(running=True)
+    hub_webapp.start_or_restart_backend.return_value = MagicMock()
+    hub_webapp.stop_backend.return_value = None
+
+    # Route get_webapp by ID
+    def _get_webapp(wid):
+        if wid == "hub1":
+            return hub_webapp
+        return webapp_mock
+
+    proj1.get_webapp.side_effect = _get_webapp
 
     # Dashboards
     proj1.list_dashboards.return_value = [
@@ -923,6 +974,63 @@ def mock_client():
     kb_mock.delete.return_value = None
     proj1.get_knowledge_bank.return_value = kb_mock
     proj1.create_knowledge_bank.return_value = kb_mock
+
+    # Semantic models
+    proj1.list_semantic_models.return_value = [
+        {"id": "sm1", "name": "My Semantic Model", "projectKey": "PROJ1", "tags": []},
+    ]
+    sm_mock = MagicMock()
+    sm_mock.id = "sm1"
+    sm_mock.semantic_model_id = "sm1"
+    sm_mock._get_definition.return_value = {
+        "id": "sm1",
+        "name": "My Semantic Model",
+        "activeVersionId": "v1",
+        "versions": [
+            {
+                "id": "v1",
+                "description": "Initial version",
+                "entities": [],
+                "relationships": [],
+            },
+        ],
+    }
+    sm_mock.get_active_version_id.return_value = "v1"
+    sm_mock.list_versions_ids.return_value = ["v1"]
+    sm_mock.delete.return_value = None
+    sm_mock.set_active_version_id.return_value = None
+
+    sm_version_mock = MagicMock()
+    sm_version_settings = MagicMock()
+    sm_version_settings.get_raw.return_value = {
+        "id": "v1",
+        "description": "Initial version",
+        "entities": [],
+        "relationships": [],
+        "goldenQueries": [],
+        "glossaryTerms": [],
+        "glossaryBindings": [],
+        "indexingSettings": {"maxDistinctValuesPerAttribute": 1000},
+        "sqlGenerationConfig": {},
+    }
+    sm_version_mock.get_settings.return_value = sm_version_settings
+    sm_version_mock.get_basic_distinct_values_for_model.return_value = {
+        "entity1": {"attr1": ["val1", "val2"]}
+    }
+    sm_version_mock.get_basic_distinct_values_for_attribute.return_value = {
+        "values": ["val1", "val2"]
+    }
+    sm_version_mock.start_update_distinct_values.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    sm_mock.get_version.return_value = sm_version_mock
+
+    new_version_settings = MagicMock()
+    new_version_settings.save.return_value = None
+    sm_mock.new_version.return_value = new_version_settings
+
+    proj1.get_semantic_model.return_value = sm_mock
+    proj1.create_semantic_model.return_value = sm_mock
 
     # ML task mocks — used by dku ml commands
     mltask_mock = MagicMock()

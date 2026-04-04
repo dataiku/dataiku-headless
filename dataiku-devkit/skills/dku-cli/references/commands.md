@@ -40,6 +40,8 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [notebook](#notebook) — list, get, create, delete, sessions, stop, clear-outputs, history
 - [discussion](#discussion) — list, get, create, reply
 - [knowledge](#knowledge) — list, create, get, set-definition, build, search, delete
+- [semantic-model](#semantic-model) — list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index
+- [agent-hub](#agent-hub) — list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop
 - [bundle](#bundle) — list, export, download, import, activate
 - [api-service](#api-service) — list, create, get, create-package, list-packages
 - [wiki](#wiki) — list, create, get, update, delete
@@ -718,6 +720,61 @@ dku knowledge delete KB_REF [-P PROJECT]
 - `create --vector-store-type` defaults to CHROMA. Options: CHROMA, FAISS, PINECONE, ELASTICSEARCH, AZURE_AI_SEARCH, VERTEX_AI_GCS_BASED, QDRANT_LOCAL, MILVUS_LOCAL, MILVUS_REMOTE
 - `set-definition` merges JSON into current settings (shallow merge). Get current: `dku knowledge get KB -o json`
 - `get` expects JSON from DSS; on getitstarted instances the sleep/wake page can intercept the request and return HTML instead
+
+## semantic-model
+
+Semantic models map business context (entities, attributes, relationships) onto datasets, enabling text-to-SQL via the Semantic Model Query agent tool. DSS 14.4+.
+
+```bash
+dku semantic-model list [-P PROJECT] [-o FORMAT]
+dku semantic-model create NAME [--if-not-exists] [-P PROJECT]
+dku semantic-model get SM_REF [-P PROJECT] [-o FORMAT]
+dku semantic-model delete SM_REF [-P PROJECT]
+dku semantic-model versions SM_REF [-P PROJECT] [-o FORMAT]
+dku semantic-model get-version SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+dku semantic-model create-version SM_REF VERSION_ID [--duplicate-of VID] [-P PROJECT]
+dku semantic-model set-version SM_REF --definition JSON|@file.json|- [--version VID] [-P PROJECT]
+dku semantic-model set-active-version SM_REF VERSION_ID [-P PROJECT]
+dku semantic-model distinct-values SM_REF [--version VID] [--entity E --attribute A] [--max N] [-P PROJECT] [-o FORMAT]
+dku semantic-model update-index SM_REF [--version VID] [--wait] [-P PROJECT]
+```
+
+- All commands accept semantic model ID **or name** — name resolved via list fallback
+- `create` returns auto-generated ID (not name) — capture it
+- `--version` defaults to the active version when omitted
+- `create-version` does NOT persist until the server is called — `new_version().save()` is handled internally
+- `set-version` merges JSON into current version settings (shallow merge). Get current: `dku semantic-model get-version SM -o json`
+- `distinct-values` requires `--entity` AND `--attribute` together, or neither (for all attributes)
+- `update-index` triggers distinct values indexing (async). Use `--wait` to block until complete
+- **Limitation**: `get_semantic_model()` is lazy — the CLI calls `_get_definition()` internally to verify existence
+
+## agent-hub
+
+Manage Agent Hub plugin webapp instances. Agent Hub is Dataiku's multi-agent chat platform (DSS 14.2+).
+
+```bash
+dku agent-hub list [-P PROJECT] [-o FORMAT]
+dku agent-hub config [--hub HUB_ID] [-P PROJECT] [-o FORMAT]
+dku agent-hub set-config --definition JSON|@file.json|- [--hub HUB_ID] [-P PROJECT]
+dku agent-hub list-agents [--hub HUB_ID] [-P PROJECT] [-o FORMAT]
+dku agent-hub add-agent --agent-id PROJECT:agent:ID --name NAME --description DESC [--hub HUB_ID] [-P PROJECT]
+dku agent-hub remove-agent --agent-id PROJECT:agent:ID [--hub HUB_ID] [-P PROJECT]
+dku agent-hub set-agent --agent-id PROJECT:agent:ID [--name NAME] [--description DESC] [--examples JSON_ARRAY] [--hub HUB_ID] [-P PROJECT]
+dku agent-hub set-llm LLM_ID [--hub HUB_ID] [-P PROJECT]
+dku agent-hub start [--hub HUB_ID] [-P PROJECT]
+dku agent-hub stop [--hub HUB_ID] [-P PROJECT]
+```
+
+- **Cannot create Agent Hub via CLI** — it's a plugin webapp, must be created in DSS UI first
+- `--hub` auto-detects if exactly one Agent Hub exists in the project; required when multiple exist
+- `list` filters webapps by type `webapp_agent-hub_agent-hub`
+- `config` shows the full Agent Hub config (LLMs, agents, orchestration mode, My Agents settings, etc.)
+- `set-config` merges JSON into current config (shallow merge). Get current: `dku agent-hub config -o json`
+- `add-agent` manages both `agents_ids` and `tool_agent_configurations` atomically
+- `--agent-id` format is `PROJECT:agent:ID` — find IDs with `dku agent list -P PROJ -o json`
+- `set-agent --examples` accepts a JSON array string, e.g. `'["Q4 sales?", "Revenue by region"]'`
+- `set-llm` sets the orchestrating LLM (must support tool calling for Tools mode)
+- `start`/`stop` control the webapp backend (same as `dku webapp start/stop`)
 
 ## bundle
 
