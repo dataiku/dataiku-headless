@@ -35,7 +35,7 @@ metadata:
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~250 commands** across 40 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~300 commands** across 42 groups.
 
 ## Companion Skill: `dataiku`
 
@@ -498,14 +498,14 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `auth` | login, logout, status, list, switch | No |
 | `config` | set, get, list, path, variables, set-variables | No |
 | `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
-| `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages | No |
+| `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file** | No |
 | `code-env` | list, get, create, delete, update | No |
-| `connection` | list, create, test | No (admin) |
-| `user` | list, create | No (admin) |
+| `connection` | list, **get**, create, **delete**, test | No (admin) |
+| `user` | list, **get**, create, **delete** | No (admin) |
 | `sql` | query | No |
-| `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe** | Yes |
+| `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions** | Yes |
 | `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
-| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
+| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
 | `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
@@ -514,7 +514,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
 | `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |
 | `macro` | list, run | Yes |
-| `flow` | graph, zones, create-zone, **set-zone**, propagate, check, sources, successors | Yes |
+| `flow` | graph, **visualize**, zones, create-zone, **set-zone**, **move**, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir | Yes |
 | `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, **set-metadata** | Yes |
 | `agent-review` | list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results | Yes |
@@ -541,6 +541,7 @@ Key notes:
 - Prefer `dku ... -o json | jq ...` on success paths. Avoid `2>&1 | jq` — stderr has error payloads, not success objects.
 - `dku semantic-model` — Semantic models enable text-to-SQL via the Semantic Model Query agent tool (DSS 14.4+). Versions are key: only the active version is used by agents. Always `update-index --wait` after changing entities/attributes.
 - `dku agent-hub` — **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first). `--hub` auto-detects when one hub exists; required when multiple exist. Config is shallow-merged, not replaced. Agent IDs use `PROJECT:agent:ID` format.
+- `dku scenario list-triggers` / `add-trigger-dataset` — manage scenario automation triggers from CLI. Use `add-trigger-dataset` for dataset-change triggers, `add-trigger` for arbitrary trigger JSON.
 
 ## Chaining Patterns
 
