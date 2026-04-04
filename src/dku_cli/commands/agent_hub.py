@@ -9,7 +9,6 @@ import typer
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
-    info,
     render,
     render_raw,
     resolve_output_format,
