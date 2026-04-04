@@ -482,7 +482,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `sql` | query | No |
 | `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe** | Yes |
 | `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
-| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **set-metadata** | Yes |
+| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
 | `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
@@ -661,6 +661,21 @@ done
 
 # Run scenario and check result
 dku scenario run BUILD_ALL -P PROJ --wait || echo "Scenario failed"
+
+# List triggers on a scenario
+dku scenario list-triggers BUILD_ALL -P PROJ
+
+# Add dataset change trigger (fires when dataset is modified)
+dku scenario add-trigger-dataset BUILD_ALL --dataset raw_data -P PROJ
+
+# Add dataset change trigger with custom intervals
+dku scenario add-trigger-dataset BUILD_ALL --dataset raw_data --delay 600 --grace-delay 60 -P PROJ
+
+# Add time-based trigger via JSON
+dku scenario add-trigger BUILD_ALL --trigger '{"active":true,"type":"temporal","params":{"frequency":"Daily","hour":2,"minute":0,"repeatFrequency":1,"timezone":"SERVER"}}' -P PROJ
+
+# Remove a trigger by index
+dku scenario remove-trigger BUILD_ALL --index 0 -P PROJ
 
 # Build dataset in CI (quiet mode, non-interactive)
 dku --quiet dataset build output_table -P PROJ --wait
@@ -992,8 +1007,9 @@ dku library write python/utils/helpers.py -P MY_PROJ --content @helpers.py && \
 # Project variables
 dku project set-variables -P MY_PROJ --set threshold=0.8 --set env=staging && \
 
-# Scenario
+# Scenario with dataset change trigger
 dku scenario create daily_build --if-not-exists -P MY_PROJ && \
+dku scenario add-trigger-dataset daily_build --dataset raw_data -P MY_PROJ && \
 
 # Wiki (--if-not-exists = safe to re-run)
 dku wiki create "Project Overview" --body "# My Project\nAutomated data pipeline." --if-not-exists -P MY_PROJ && \

@@ -399,6 +399,26 @@ def mock_client():
     }
     scenario_mock.set_definition.return_value = None
 
+    # Scenario settings mock (for trigger commands)
+    # raw_triggers returns a mutable reference, matching dataikuapi behavior
+    scenario_triggers = [
+        {
+            "active": True,
+            "type": "temporal",
+            "params": {
+                "frequency": "Daily",
+                "hour": 2,
+                "minute": 0,
+                "repeatFrequency": 1,
+                "timezone": "SERVER",
+            },
+        },
+    ]
+    scenario_settings_mock = MagicMock()
+    type(scenario_settings_mock).raw_triggers = property(lambda self: scenario_triggers)
+    scenario_settings_mock.save.return_value = None
+    scenario_mock.get_settings.return_value = scenario_settings_mock
+
     # get_last_runs returns DSSScenarioRun objects with properties
     run_mock = MagicMock()
     run_mock.id = "run1"
