@@ -28,6 +28,7 @@ class AgentResult:
     exit_code: int = 0
     raw_output: str = ""
     timed_out: bool = False
+    cost_usd: float = 0.0
 
 
 @dataclass

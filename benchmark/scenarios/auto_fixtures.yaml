@@ -1,0 +1,310 @@
+# Auto-generated from benchmark/fixtures/ — do not edit manually.
+# Regenerate with: python -m benchmark.generate_fixtures
+# Generated 5 scenarios from 5 fixture sets.
+
+tests:
+- id: auto_alteryx_test1
+  tier: 10
+  category: auto-alteryx
+  tags:
+  - auto
+  - fixture
+  - alteryx
+  prompt: 'I''m migrating from Alteryx to Dataiku. Here are the files from an Alteryx workflow:
+
+
+    Files:
+
+    - README.md
+
+    - expected_output.csv
+
+    - input.csv
+
+    - workflow_spec.md
+
+
+    All files are in: {fixture_dir}
+
+
+    Read `{fixture_dir}/workflow_spec.md` first — it describes what this workflow does.
+
+
+    Recreate this workflow in Dataiku project {project}:
+
+    1. Upload the data files as datasets
+
+    2. Read any spec or documentation files to understand what the workflow does
+
+    3. Build the equivalent pipeline using Dataiku visual recipes where possible
+
+    4. Only use Python recipes when there''s no visual recipe equivalent
+
+    5. Build everything and verify the output with `dku dataset head`
+
+
+    Show me the flow when you''re done.'
+  needs_project: true
+  timeout: 600
+  fixtures:
+  - path: alteryx/test1
+    inject_as: filesystem
+  expect:
+    commands:
+    - pattern: dku dataset create
+      required: true
+    - pattern: dku dataset upload
+      required: true
+    - pattern: dku recipe create
+      required: true
+    - pattern: dku recipe create-(join|group|sort|filter|window|pivot)
+      required: false
+    verify:
+    - command: dku recipe list -P {project} -o json
+      expect_status: 0
+    - command: dku flow graph -P {project}
+      expect_status: 0
+  rubric:
+    command_correct: 1.0
+    outcome_verified: 1.0
+    efficiency: 0.2
+- id: auto_excel_test1
+  tier: 10
+  category: auto-excel
+  tags:
+  - auto
+  - fixture
+  - excel
+  prompt: 'I have an Excel workbook that a business analyst maintains manually. We want to automate it in Dataiku.
+
+
+    Files:
+
+    - README.md
+
+    - expected_output.csv
+
+    - raw_data.csv
+
+    - workbook.xlsx
+
+    - workbook_spec.md
+
+
+    All files are in: {fixture_dir}
+
+
+    Read `{fixture_dir}/workbook_spec.md` first — it describes what this workflow does.
+
+
+    Recreate this in Dataiku project {project}:
+
+    1. Upload the raw data
+
+    2. Read any spec files to understand the formulas and calculations
+
+    3. Recreate each calculation as a Dataiku recipe (group, sort, pivot, etc.)
+
+    4. Only use Python for calculations that don''t map to visual recipes
+
+    5. Build and verify the output
+
+
+    The goal is zero Excel dependency — all logic in the DSS flow.'
+  needs_project: true
+  timeout: 600
+  fixtures:
+  - path: excel/test1
+    inject_as: filesystem
+  expect:
+    commands:
+    - pattern: dku dataset create
+      required: true
+    - pattern: dku dataset upload
+      required: true
+    - pattern: dku recipe create
+      required: true
+    - pattern: dku recipe create-(join|group|sort|filter|window|pivot)
+      required: false
+    verify:
+    - command: dku recipe list -P {project} -o json
+      expect_status: 0
+    - command: dku flow graph -P {project}
+      expect_status: 0
+  rubric:
+    command_correct: 1.0
+    outcome_verified: 1.0
+    efficiency: 0.2
+- id: auto_healthcare_test1
+  tier: 10
+  category: auto-healthcare
+  tags:
+  - auto
+  - fixture
+  - healthcare
+  prompt: 'Build a healthcare analytics pipeline in Dataiku project {project} from these files:
+
+
+    Files:
+
+    - README.md
+
+    - diagnoses.csv
+
+    - encounters.csv
+
+    - treatments.csv
+
+
+    All files are in: {fixture_dir}
+
+
+    Read `{fixture_dir}/README.md` first — it describes what this workflow does.
+
+
+    Upload all datasets, join them on common keys, and produce department-level
+
+    summary statistics. Use visual recipes wherever possible.'
+  needs_project: true
+  timeout: 600
+  fixtures:
+  - path: healthcare/test1
+    inject_as: filesystem
+  expect:
+    commands:
+    - pattern: dku dataset create
+      required: true
+    - pattern: dku dataset upload
+      required: true
+    - pattern: dku recipe create
+      required: true
+    - pattern: dku recipe create-(join|group|sort|filter|window|pivot)
+      required: false
+    verify:
+    - command: dku recipe list -P {project} -o json
+      expect_status: 0
+    - command: dku flow graph -P {project}
+      expect_status: 0
+  rubric:
+    command_correct: 1.0
+    outcome_verified: 1.0
+    efficiency: 0.2
+- id: auto_pandas_test1
+  tier: 10
+  category: auto-pandas
+  tags:
+  - auto
+  - fixture
+  - pandas
+  prompt: 'A data scientist has a Python script they run locally. We need to migrate it to Dataiku.
+
+
+    Files:
+
+    - README.md
+
+    - expected_output.csv
+
+    - input.csv
+
+    - script.py
+
+
+    All files are in: {fixture_dir}
+
+
+    Read `{fixture_dir}/README.md` first — it describes what this workflow does.
+
+
+    Recreate this in Dataiku project {project}:
+
+    1. Read the Python script to understand what it does
+
+    2. Upload the input data
+
+    3. Decompose each step into a separate Dataiku recipe
+
+    4. Use visual recipes (join, group, sort, distinct, filter) instead of Python where possible
+
+    5. Only use Python recipes for steps with no visual equivalent
+
+    6. Build the full pipeline and verify output
+
+
+    The point of migration is to maximize visual recipes.'
+  needs_project: true
+  timeout: 600
+  fixtures:
+  - path: pandas/test1
+    inject_as: filesystem
+  expect:
+    commands:
+    - pattern: dku dataset create
+      required: true
+    - pattern: dku dataset upload
+      required: true
+    - pattern: dku recipe create
+      required: true
+    verify:
+    - command: dku recipe list -P {project} -o json
+      expect_status: 0
+    - command: dku flow graph -P {project}
+      expect_status: 0
+  rubric:
+    command_correct: 1.0
+    outcome_verified: 1.0
+    efficiency: 0.2
+- id: auto_sales_test1
+  tier: 10
+  category: auto-sales
+  tags:
+  - auto
+  - fixture
+  - sales
+  prompt: 'Build a data pipeline from these files in Dataiku project {project}:
+
+
+    Files:
+
+    - README.md
+
+    - customers.csv
+
+    - orders.csv
+
+    - products.csv
+
+
+    All files are in: {fixture_dir}
+
+
+    Read `{fixture_dir}/README.md` first — it describes what this workflow does.
+
+
+    Upload the data, join related datasets, aggregate as appropriate, and produce
+
+    useful summary outputs. Use visual recipes (join, group, sort) — not Python.'
+  needs_project: true
+  timeout: 600
+  fixtures:
+  - path: sales/test1
+    inject_as: filesystem
+  expect:
+    commands:
+    - pattern: dku dataset create
+      required: true
+    - pattern: dku dataset upload
+      required: true
+    - pattern: dku recipe create
+      required: true
+    - pattern: dku recipe create-(join|group|sort|filter|window|pivot)
+      required: false
+    verify:
+    - command: dku recipe list -P {project} -o json
+      expect_status: 0
+    - command: dku flow graph -P {project}
+      expect_status: 0
+  rubric:
+    command_correct: 1.0
+    outcome_verified: 1.0
+    efficiency: 0.2

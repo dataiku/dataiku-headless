@@ -1,0 +1,81 @@
+diagnosis_id,encounter_id,icd_code,description,primary_flag
+DX00001,ENC00080,N39.0,Urinary tract infection,True
+DX00002,ENC00034,J45.9,"Asthma, unspecified",True
+DX00003,ENC00030,G43.9,"Migraine, unspecified",True
+DX00004,ENC00087,G43.9,"Migraine, unspecified",True
+DX00005,ENC00029,S62.5,Fracture of thumb,True
+DX00006,ENC00048,M54.5,Low back pain,True
+DX00007,ENC00007,K21.0,Gastro-esophageal reflux disease,True
+DX00008,ENC00022,S82.0,Fracture of patella,True
+DX00009,ENC00014,M79.3,"Panniculitis, unspecified",True
+DX00010,ENC00042,M54.5,Low back pain,True
+DX00011,ENC00057,R50.9,"Fever, unspecified",True
+DX00012,ENC00068,I10,Essential hypertension,True
+DX00013,ENC00094,S62.5,Fracture of thumb,True
+DX00014,ENC00019,K21.0,Gastro-esophageal reflux disease,True
+DX00015,ENC00072,I25.10,Atherosclerotic heart disease,True
+DX00016,ENC00065,M54.5,Low back pain,True
+DX00017,ENC00060,K21.0,Gastro-esophageal reflux disease,True
+DX00018,ENC00076,I25.10,Atherosclerotic heart disease,True
+DX00019,ENC00023,J06.9,Acute upper respiratory infection,True
+DX00020,ENC00035,J06.9,Acute upper respiratory infection,True
+DX00021,ENC00081,S62.5,Fracture of thumb,True
+DX00022,ENC00033,J18.9,"Pneumonia, unspecified",True
+DX00023,ENC00026,E11.9,Type 2 diabetes mellitus,True
+DX00024,ENC00017,R50.9,"Fever, unspecified",True
+DX00025,ENC00015,R50.9,"Fever, unspecified",True
+DX00026,ENC00023,M54.5,Low back pain,True
+DX00027,ENC00100,J45.9,"Asthma, unspecified",True
+DX00028,ENC00028,R50.9,"Fever, unspecified",True
+DX00029,ENC00093,M54.5,Low back pain,True
+DX00030,ENC00002,S62.5,Fracture of thumb,True
+DX00031,ENC00044,R50.9,"Fever, unspecified",True
+DX00032,ENC00025,R50.9,"Fever, unspecified",True
+DX00033,ENC00016,R50.9,"Fever, unspecified",True
+DX00034,ENC00055,I10,Essential hypertension,True
+DX00035,ENC00039,M54.5,Low back pain,True
+DX00036,ENC00033,J45.9,"Asthma, unspecified",True
+DX00037,ENC00071,N39.0,Urinary tract infection,True
+DX00038,ENC00031,I25.10,Atherosclerotic heart disease,True
+DX00039,ENC00057,N39.0,Urinary tract infection,True
+DX00040,ENC00088,N39.0,Urinary tract infection,True
+DX00041,ENC00083,N39.0,Urinary tract infection,True
+DX00042,ENC00077,S62.5,Fracture of thumb,True
+DX00043,ENC00002,N39.0,Urinary tract infection,True
+DX00044,ENC00020,J06.9,Acute upper respiratory infection,True
+DX00045,ENC00063,J06.9,Acute upper respiratory infection,True
+DX00046,ENC00071,R10.9,"Abdominal pain, unspecified",True
+DX00047,ENC00053,E11.9,Type 2 diabetes mellitus,True
+DX00048,ENC00037,M79.3,"Panniculitis, unspecified",True
+DX00049,ENC00052,K21.0,Gastro-esophageal reflux disease,True
+DX00050,ENC00039,J06.9,Acute upper respiratory infection,True
+DX00051,ENC00097,G43.9,"Migraine, unspecified",True
+DX00052,ENC00031,K21.0,Gastro-esophageal reflux disease,True
+DX00053,ENC00003,R50.9,"Fever, unspecified",True
+DX00054,ENC00001,S82.0,Fracture of patella,True
+DX00055,ENC00061,R10.9,"Abdominal pain, unspecified",True
+DX00056,ENC00080,E11.9,Type 2 diabetes mellitus,True
+DX00057,ENC00090,J06.9,Acute upper respiratory infection,True
+DX00058,ENC00012,I25.10,Atherosclerotic heart disease,True
+DX00059,ENC00058,J06.9,Acute upper respiratory infection,True
+DX00060,ENC00018,I25.10,Atherosclerotic heart disease,True
+DX00061,ENC00086,M79.3,"Panniculitis, unspecified",True
+DX00062,ENC00017,E11.9,Type 2 diabetes mellitus,True
+DX00063,ENC00040,E11.9,Type 2 diabetes mellitus,True
+DX00064,ENC00082,M79.3,"Panniculitis, unspecified",True
+DX00065,ENC00046,G43.9,"Migraine, unspecified",True
+DX00066,ENC00001,K21.0,Gastro-esophageal reflux disease,True
+DX00067,ENC00073,J18.9,"Pneumonia, unspecified",True
+DX00068,ENC00066,M54.5,Low back pain,True
+DX00069,ENC00059,I10,Essential hypertension,True
+DX00070,ENC00075,N39.0,Urinary tract infection,True
+DX00071,ENC00051,R10.9,"Abdominal pain, unspecified",False
+DX00072,ENC00045,J45.9,"Asthma, unspecified",False
+DX00073,ENC00079,J18.9,"Pneumonia, unspecified",False
+DX00074,ENC00064,M54.5,Low back pain,False
+DX00075,ENC00004,I10,Essential hypertension,False
+DX00076,ENC00027,S82.0,Fracture of patella,False
+DX00077,ENC00024,J06.9,Acute upper respiratory infection,False
+DX00078,ENC00021,J18.9,"Pneumonia, unspecified",False
+DX00079,ENC00050,J18.9,"Pneumonia, unspecified",False
+DX00080,ENC00009,S62.5,Fracture of thumb,False

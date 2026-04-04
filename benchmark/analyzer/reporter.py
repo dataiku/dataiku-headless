@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from benchmark.agents.base import AgentResult
 from benchmark.analyzer.scorer import Score
+from benchmark.cost import estimate_cost, DEFAULT_INPUT_RATE, DEFAULT_OUTPUT_RATE
 
 
 @dataclass
@@ -26,14 +29,34 @@ class TestResultRecord:
     agent_result: AgentResult
 
 
+def _get_git_sha() -> str:
+    """Get current git short SHA, or empty string if not in a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+
+
 class Reporter:
     """Generate benchmark reports with rich narrative feedback."""
 
-    def __init__(self, run_id: str, output_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        run_id: str,
+        output_dir: Optional[Path] = None,
+        config: Optional[dict] = None,
+    ):
         self.run_id = run_id
         self.output_dir = output_dir or Path("benchmark/reports") / run_id
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.output_dir / "traces").mkdir(exist_ok=True)
+        self.config = config or {}
 
     def generate(self, records: list[TestResultRecord]):
         """Generate all report artifacts."""
@@ -256,10 +279,8 @@ class Reporter:
         passed = [r for r in records if r.score.passed]
         failed = [r for r in records if not r.score.passed]
 
-        lines.append(
-            f"**Results:** {len(passed)}/{len(records)} passed "
-            f"({len(passed) / len(records) * 100:.0f}%)\n"
-        )
+        pct = f"{len(passed) / len(records) * 100:.0f}" if records else "0"
+        lines.append(f"**Results:** {len(passed)}/{len(records)} passed ({pct}%)\n")
 
         # Group failures by category
         if failed:
@@ -374,15 +395,33 @@ class Reporter:
 
         passed = sum(1 for r in records if r.score.passed)
 
+        # Determine agent from records
+        agents_used = sorted({rec.agent for rec in records}) if records else ["claude"]
+        agent_name = agents_used[0] if len(agents_used) == 1 else ",".join(agents_used)
+
+        # Cost rates from config (use first agent's rates)
+        agent_config = self.config.get("agents", {}).get(agents_used[0], {})
+        input_rate = agent_config.get("cost_per_1k_input", DEFAULT_INPUT_RATE)
+        output_rate = agent_config.get("cost_per_1k_output", DEFAULT_OUTPUT_RATE)
+
+        total_input = sum(r.agent_result.input_tokens for r in records)
+        total_output = sum(r.agent_result.output_tokens for r in records)
+        total_cost = estimate_cost(total_input, total_output, input_rate, output_rate)
+
         summary = {
             "run_id": self.run_id,
-            "agent": "claude",
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "agent": agent_name,
+            "agent_model": agent_config.get("model", "opus"),
+            "git_sha": _get_git_sha(),
             "total_tests": len(records),
             "passed": passed,
             "failed": len(records) - passed,
             "pass_rate": round(passed / len(records), 3) if records else 0,
-            "total_output_tokens": sum(r.agent_result.output_tokens for r in records),
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
             "total_duration_ms": sum(r.agent_result.duration_ms for r in records),
+            "estimated_cost_usd": round(total_cost, 4),
             "by_tier": {},
             "by_category": {},
             "tests": [],
@@ -405,6 +444,12 @@ class Reporter:
             }
 
         for rec in records:
+            test_cost = estimate_cost(
+                rec.agent_result.input_tokens,
+                rec.agent_result.output_tokens,
+                input_rate,
+                output_rate,
+            )
             summary["tests"].append(
                 {
                     "test_id": rec.test_id,
@@ -415,7 +460,9 @@ class Reporter:
                     "scores": {k: round(v, 3) for k, v in rec.score.scores.items()},
                     "commands_executed": rec.agent_result.bash_commands[:10],
                     "duration_ms": rec.agent_result.duration_ms,
+                    "input_tokens": rec.agent_result.input_tokens,
                     "output_tokens": rec.agent_result.output_tokens,
+                    "estimated_cost_usd": round(test_cost, 4),
                     "issues": rec.score.details,
                     "meta_feedback": rec.trace_summary.get("meta_feedback"),
                 }

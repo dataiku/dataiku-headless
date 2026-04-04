@@ -2,6 +2,7 @@ tests:
   - id: t1_project_list
     tier: 1
     category: project
+    tags: ["smoke"]
     prompt: "List all projects on this Dataiku DSS instance. Show the output as a table."
     needs_project: false
     expect:
@@ -15,6 +16,7 @@ tests:
   - id: t1_dataset_list
     tier: 1
     category: dataset
+    tags: ["smoke"]
     prompt: "List all datasets in project {project}."
     needs_project: true
     expect:
@@ -29,6 +31,7 @@ tests:
   - id: t1_llm_list
     tier: 1
     category: llm
+    tags: ["smoke"]
     prompt: "What LLMs are configured and available in project {project}? Show me the full list."
     needs_project: true
     expect:
@@ -43,6 +46,7 @@ tests:
   - id: t1_flow_graph
     tier: 1
     category: flow
+    tags: ["smoke"]
     prompt: "Show me the flow graph of project {project}. I want to understand the data pipeline structure."
     needs_project: true
     expect:
@@ -57,6 +61,7 @@ tests:
   - id: t1_plugin_list
     tier: 1
     category: plugin
+    tags: ["smoke"]
     prompt: "List all plugins installed on this DSS instance."
     needs_project: false
     expect:
