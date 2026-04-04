@@ -102,6 +102,69 @@ def mock_client():
         },
     ]
 
+    # Project Git
+    git_mock = MagicMock()
+    git_mock.get_status.return_value = {
+        "currentBranch": "master",
+        "clean": True,
+        "hasUncommittedChanges": False,
+        "added": [],
+        "changed": [],
+        "removed": [],
+        "modified": [],
+        "untracked": [],
+        "conflicting": [],
+    }
+    git_mock.log.return_value = {
+        "entries": [
+            {
+                "commitId": "abc123def456",
+                "message": "Initial commit",
+                "author": "testuser",
+                "date": 1711900800000,
+            }
+        ],
+        "nextCommit": None,
+    }
+    git_mock.diff.return_value = {
+        "addedLines": 10,
+        "removedLines": 5,
+        "changedFiles": 2,
+        "entries": [],
+    }
+    git_mock.commit.return_value = None
+    git_mock.pull.return_value = {
+        "success": True,
+        "logs": [],
+        "output": "Already up to date",
+    }
+    git_mock.push.return_value = {"success": True, "logs": [], "output": "ok"}
+    git_mock.fetch.return_value = {"success": True, "logs": [], "output": "ok"}
+    git_mock.list_branches.return_value = ["master", "feature/test"]
+    git_mock.create_branch.return_value = {
+        "success": True,
+        "output": "Created branch",
+    }
+    git_mock.delete_branch.return_value = None
+    git_mock.switch.return_value = {
+        "success": True,
+        "messages": [],
+        "output": "Switched",
+    }
+    git_mock.list_tags.return_value = [
+        {
+            "name": "refs/tags/v1.0",
+            "shortName": "v1.0",
+            "commit": "abc123def456",
+            "annotations": "",
+            "readOnly": False,
+        }
+    ]
+    git_mock.create_tag.return_value = None
+    git_mock.get_remote.return_value = "https://github.com/example/project.git"
+    git_mock.set_remote.return_value = None
+    proj1.get_project_git.return_value = git_mock
+
     # Library mock — mimics DSSLibrary/DSSLibraryFile/DSSLibraryFolder
     library_mock = MagicMock()
 
@@ -1177,6 +1240,269 @@ def mock_client():
     wiki_mock.get_article.return_value = article_mock
     wiki_mock.create_article.return_value = article_mock
     proj1.get_wiki.return_value = wiki_mock
+
+    # Agent reviews
+    review_item = MagicMock()
+    review_item.id = "review1"
+    review_item.name = "Quality Check"
+    review_item.data = {
+        "id": "review1",
+        "name": "Quality Check",
+        "agentSmartId": "agent1",
+        "owner": "testuser",
+        "helperLLMId": "llm1",
+        "traits": [],
+    }
+    proj1.list_agent_reviews.return_value = [review_item]
+
+    review_mock = MagicMock()
+    review_mock.id = "review1"
+    review_mock.name = "Quality Check"
+    review_mock.agent_id = "agent1"
+    review_mock.helper_llm_id = "llm1"
+    review_mock.data = {
+        "id": "review1",
+        "name": "Quality Check",
+        "agentSmartId": "agent1",
+        "owner": "testuser",
+        "helperLLMId": "llm1",
+        "traits": [],
+    }
+    review_mock.get_raw.return_value = review_mock.data
+    review_mock.save.return_value = review_mock
+    review_mock.delete.return_value = None
+    review_mock.add_trait.return_value = None
+
+    # Review tests
+    review_test_mock = MagicMock()
+    review_test_mock.id = "test1"
+    review_test_mock.query = "What is 2+2?"
+    review_test_mock.reference_answer = "4"
+    review_test_mock.expectations = "Should be numeric"
+    review_mock.list_tests.return_value = [review_test_mock]
+    review_mock.create_test.return_value = review_test_mock
+    review_mock.create_tests_from_dataset.return_value = {
+        "createdTestIds": ["t1", "t2", "t3"],
+        "error": None,
+    }
+    review_mock.export_tests_to_dataset.return_value = {
+        "exportedTestCount": 3,
+        "error": None,
+    }
+
+    # Review runs
+    review_run_mock = MagicMock()
+    review_run_mock.id = "run1"
+    review_run_mock.name = "nightly-eval"
+    review_run_mock.status = "COMPLETED"
+    review_run_mock.agent_id = "agent1"
+    review_mock.list_runs.return_value = [review_run_mock]
+    review_mock.perform_run.return_value = review_run_mock
+    review_mock.get_run.return_value = review_run_mock
+
+    # Review results
+    review_result_mock = MagicMock()
+    review_result_mock.id = "result1"
+    review_result_mock.test_id = "test1"
+    review_result_mock.query = "What is 2+2?"
+    review_result_mock.status = "PASSED"
+    review_run_mock.list_results.return_value = [review_result_mock]
+
+    def _get_agent_review(review_id):
+        if review_id == "review1":
+            return review_mock
+        raise Exception(f"NotFoundException: Agent review {review_id} does not exist")
+
+    proj1.get_agent_review.side_effect = _get_agent_review
+    proj1.create_agent_review.return_value = review_mock
+
+    # Code Studios
+    cs_list_item = MagicMock()
+    cs_list_item.id = "cs1"
+    cs_list_item.name = "My Studio"
+    cs_list_item.owner = "testuser"
+    cs_list_item.template_id = "tpl1"
+    cs_list_item.template_label = "Python Notebook"
+    proj1.list_code_studios.return_value = [cs_list_item]
+
+    cs_mock = MagicMock()
+    cs_settings = MagicMock()
+    cs_settings.get_raw.return_value = {
+        "id": "cs1",
+        "name": "My Studio",
+        "templateId": "tpl1",
+        "owner": "testuser",
+    }
+    cs_settings.id = "cs1"
+    cs_settings.name = "My Studio"
+    cs_settings.template_id = "tpl1"
+    cs_settings.owner = "testuser"
+    cs_mock.get_settings.return_value = cs_settings
+    cs_status = MagicMock()
+    cs_status.state = "STOPPED"
+    cs_status.last_state_change = None
+    cs_status.get_raw.return_value = {"state": "STOPPED"}
+    cs_mock.get_status.return_value = cs_status
+    cs_mock.restart.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    cs_mock.stop.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    cs_mock.delete.return_value = None
+    cs_mock.change_owner.return_value = {"id": "cs1", "owner": "newuser"}
+    cs_mock.id = "cs1"
+    proj1.get_code_studio.return_value = cs_mock
+    proj1.create_code_studio.return_value = cs_mock
+
+    # Code Studio templates (client-level)
+    cs_tpl = MagicMock()
+    cs_tpl.id = "tpl1"
+    cs_tpl.label = "Python Notebook"
+    client.list_code_studio_templates.return_value = [cs_tpl]
+
+    # API Deployer
+    api_deployer_mock = MagicMock()
+    api_deployer_mock.list_infras.return_value = [
+        {"infraBasicInfo": {"id": "infra1", "type": "STATIC"}},
+    ]
+    api_deployer_mock.list_services.return_value = [
+        {"serviceBasicInfo": {"id": "svc1"}},
+    ]
+
+    api_svc_handle = MagicMock()
+    api_svc_settings = MagicMock()
+    api_svc_settings.get_raw.return_value = {"id": "svc1"}
+    api_svc_handle.get_settings.return_value = api_svc_settings
+    api_deployer_mock.get_service.return_value = api_svc_handle
+
+    api_deployer_mock.list_deployments.return_value = [
+        {
+            "deploymentBasicInfo": {
+                "id": "dep1",
+                "serviceId": "svc1",
+                "infraId": "infra1",
+            }
+        },
+    ]
+
+    api_dep_handle = MagicMock()
+    api_dep_settings = MagicMock()
+    api_dep_settings.get_raw.return_value = {
+        "id": "dep1",
+        "serviceId": "svc1",
+        "infraId": "infra1",
+    }
+    api_dep_handle.get_settings.return_value = api_dep_settings
+    api_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    api_dep_handle.start_update.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    api_dep_handle.delete.return_value = None
+    api_deployer_mock.get_deployment.return_value = api_dep_handle
+    api_deployer_mock.create_deployment.return_value = api_dep_handle
+
+    client.get_apideployer.return_value = api_deployer_mock
+
+    # Project Deployer
+    proj_deployer_mock = MagicMock()
+    proj_deployer_mock.list_infras.return_value = [
+        {"infraBasicInfo": {"id": "auto_infra1", "type": "STATIC"}},
+    ]
+    proj_deployer_mock.list_projects.return_value = [
+        {"projectBasicInfo": {"id": "dp1"}},
+    ]
+    proj_deployer_mock.list_deployments.return_value = [
+        {
+            "deploymentBasicInfo": {
+                "id": "pdep1",
+                "projectKey": "dp1",
+                "infraId": "auto_infra1",
+            }
+        },
+    ]
+
+    proj_dep_handle = MagicMock()
+    proj_dep_settings = MagicMock()
+    proj_dep_settings.get_raw.return_value = {
+        "id": "pdep1",
+        "projectId": "dp1",
+        "infraId": "auto_infra1",
+    }
+    proj_dep_handle.get_settings.return_value = proj_dep_settings
+    proj_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    proj_dep_handle.start_update.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    proj_dep_handle.delete.return_value = None
+    proj_deployer_mock.get_deployment.return_value = proj_dep_handle
+    proj_deployer_mock.create_deployment.return_value = proj_dep_handle
+
+    client.get_projectdeployer.return_value = proj_deployer_mock
+
+    # Notebooks
+    jupyter_nb = MagicMock()
+    jupyter_nb.name = "my_notebook"
+    proj1.list_jupyter_notebooks.return_value = [jupyter_nb]
+
+    sql_nb = MagicMock()
+    sql_nb.name = "my_sql_notebook"
+    sql_nb._data = {
+        "id": "sql_nb1",
+        "name": "my_sql_notebook",
+        "connection": "postgres",
+    }
+    proj1.list_sql_notebooks.return_value = [sql_nb]
+
+    nb_mock = MagicMock()
+    nb_content = MagicMock()
+    nb_content.get_raw.return_value = {"cells": [], "metadata": {}}
+    nb_content.save.return_value = None
+    nb_mock.get_content.return_value = nb_content
+    nb_mock.get_sessions.return_value = []
+    nb_mock.unload.return_value = {}
+    nb_mock.delete.return_value = None
+    nb_mock.clear_outputs.return_value = None
+    nb_mock.name = "my_notebook"
+    proj1.get_jupyter_notebook.return_value = nb_mock
+    proj1.create_jupyter_notebook.return_value = nb_mock
+
+    sql_nb_mock = MagicMock()
+    sql_nb_content = MagicMock()
+    sql_nb_content.get_raw.return_value = {"connection": "postgres", "cells": []}
+    sql_nb_mock.get_content.return_value = sql_nb_content
+    sql_history = MagicMock()
+    sql_history.get_raw = MagicMock(return_value={"queries": []})
+    sql_nb_mock.get_history.return_value = sql_history
+    sql_nb_mock.delete.return_value = None
+    proj1.get_sql_notebook.return_value = sql_nb_mock
+
+    proj1.list_running_notebooks.return_value = [
+        {
+            "projectKey": "PROJ1",
+            "name": "my_notebook",
+            "kernelId": "k1",
+            "sessionId": "s1",
+        }
+    ]
+
+    # Discussions (on dataset_mock since it's most common)
+    disc_mock = MagicMock()
+    disc_metadata = {"id": "disc1", "topic": "Data quality issue"}
+    disc_mock.get_metadata.return_value = disc_metadata
+    disc_reply = MagicMock()
+    disc_reply.get_text.return_value = "Fixed in v2"
+    disc_reply.get_author.return_value = "admin"
+    disc_mock.get_replies.return_value = [disc_reply]
+    disc_mock.add_reply.return_value = None
+
+    discussions_mock = MagicMock()
+    discussions_mock.list_discussions.return_value = [disc_mock]
+    discussions_mock.get_discussion.return_value = disc_mock
+    discussions_mock.create_discussion.return_value = disc_mock
+
+    dataset_mock.get_object_discussions.return_value = discussions_mock
+    recipe_mock.get_object_discussions.return_value = discussions_mock
 
     client.get_project.return_value = proj1
 

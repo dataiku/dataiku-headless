@@ -171,6 +171,49 @@ def resolve_semantic_model(project, sm_ref: str):
     )
 
 
+def resolve_agent_review(project, review_ref: str):
+    """Resolve an agent review by ID or name.
+
+    Tries get_agent_review(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing reviews and matching by name.
+    Returns a DSSAgentReview handle.
+    """
+    try:
+        review = project.get_agent_review(review_ref)
+        # get_agent_review returns a fully populated object (not lazy)
+        return review
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    # Fall back to name lookup
+    reviews = project.list_agent_reviews()
+    for r in reviews:
+        if getattr(r, "name", "") == review_ref:
+            return project.get_agent_review(r.id)
+    from dku_cli.errors import exit_with_error
+
+    review_names = [f"  {r.id} ({r.name})" for r in reviews]
+    exit_with_error(
+        f"Agent review '{review_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available agent reviews:",
+            *review_names,
+            "Use the review ID (left column) or exact name.",
+        ]
+        if review_names
+        else [
+            "No agent reviews found in this project.",
+            "Create one with: dku agent-review create NAME -P PROJECT",
+        ],
+        status=3,
+    )
+
+
 def read_text_input(value: str) -> str:
     """Read text from: raw string, @file.txt path, or stdin if value is '-'.
 
