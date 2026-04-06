@@ -24,6 +24,12 @@ from dku_cli.commands import (
     evaluation_store,
     flow,
     folder,
+    govern,
+    govern_artifact,
+    govern_blueprint,
+    govern_custom_page,
+    govern_role,
+    govern_signoff,
     insight,
     job,
     knowledge,
@@ -83,6 +89,12 @@ app.add_typer(user.app, name="user")
 app.add_typer(flow.app, name="flow")
 app.add_typer(wiki.app, name="wiki")
 app.add_typer(sql.app, name="sql")
+app.add_typer(govern.app, name="govern")
+app.add_typer(govern_artifact.app, name="govern-artifact")
+app.add_typer(govern_blueprint.app, name="govern-blueprint")
+app.add_typer(govern_custom_page.app, name="govern-custom-page")
+app.add_typer(govern_role.app, name="govern-role")
+app.add_typer(govern_signoff.app, name="govern-signoff")
 
 
 def _version_callback(value: bool) -> None:
