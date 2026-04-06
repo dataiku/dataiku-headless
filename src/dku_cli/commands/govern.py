@@ -8,7 +8,9 @@ from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx
 from dku_cli.output import render_raw, resolve_output_format
 
-app = typer.Typer(help="Govern instance commands.")
+app = typer.Typer(
+    help="Govern instance commands. See also: govern-artifact, govern-blueprint, govern-signoff, govern-role, govern-custom-page."
+)
 
 
 @app.command()

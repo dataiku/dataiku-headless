@@ -1,4 +1,4 @@
-"""dku govern-signoff — list, get, update-status, add-feedback, add-approval."""
+"""dku govern-signoff — list, get, create, update-status, add-feedback, add-approval."""
 
 from __future__ import annotations
 
@@ -11,6 +11,24 @@ from dku_cli.helpers import get_govern_client_from_ctx
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage Govern artifact sign-offs.")
+
+
+@app.command()
+def create(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID (e.g. ar.5)"),
+    step_id: str = typer.Argument(help="Workflow step ID (e.g. ideation, exploration)"),
+) -> None:
+    """Create a sign-off for a workflow step. Required before updating status."""
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        art.create_signoff(step_id)
+        success(f"Created sign-off for step '{step_id}' on artifact '{artifact_id}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
 
 
 @app.command("list")

@@ -157,3 +157,11 @@ def test_signoff_add_approval_invalid_status(patch_client):
         ],
     )
     assert result.exit_code != 0
+
+
+def test_signoff_create(patch_client):
+    """Test creating a signoff for a workflow step."""
+    result = runner.invoke(app, ["govern-signoff", "create", "ar.5", "exploration"])
+    assert result.exit_code == 0
+    gov = patch_client.get_govern_client()
+    gov.get_artifact.return_value.create_signoff.assert_called_once_with("exploration")

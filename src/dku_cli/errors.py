@@ -74,6 +74,75 @@ def is_connection_required_error(e: Exception) -> bool:
     return "creationInfo" in msg or "Need to create output dataset" in msg
 
 
+def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
+    """Parse Govern ValidationException messages into prescriptive guidance.
+
+    Returns (message, details) or None if not a Govern validation error.
+    """
+    if "ValidationException" not in msg:
+        return None
+
+    import re
+
+    # "Field `X` is a list in artifact: ar.N"
+    m = re.search(r"Field `(\w+)` is a list in artifact", msg)
+    if m:
+        field = m.group(1)
+        return (
+            f"Field '{field}' is a list field — value must be a JSON array.",
+            [
+                f'Use: "{field}": ["value1", "value2"] (array), not "{field}": "value1" (string).',
+                'Even single values must be wrapped: ["value"].',
+                "Run: dku govern-blueprint fields <BLUEPRINT_ID> to see which fields are lists (marked with * in LIST column).",
+            ],
+        )
+
+    # "Invalid type for field value: double" (date field given a number)
+    if "Invalid type for field value: double" in msg:
+        return (
+            "Invalid field value type — DATE fields require ISO 8601 strings, not numbers.",
+            [
+                'Use: "start_date": "2025-01-15T00:00:00.000Z" (ISO 8601 string).',
+                'Do NOT use epoch milliseconds like "start_date": 1704067200000.',
+            ],
+        )
+
+    # "Invalid type for field value: map" (field given a dict instead of a scalar)
+    if "Invalid type for field value: map" in msg:
+        return (
+            "Invalid field value type — field values must be plain strings/numbers, not objects.",
+            [
+                'Use: "field_name": "value" (plain value), not "field_name": {"value": "..."}.',
+                'REFERENCE fields accept artifact IDs: "business_initiative": "ar.123".',
+            ],
+        )
+
+    # "'X' for field ID 'Y' is not a valid category"
+    m = re.search(r"'(.+?)' for field ID '(\w+)' is not a valid category", msg)
+    if m:
+        value, field = m.group(1), m.group(2)
+        return (
+            f"'{value}' is not a valid category for field '{field}'.",
+            [
+                f"Run: dku govern-blueprint fields <BLUEPRINT_ID> to see valid categories for '{field}'.",
+                "Category values are case-sensitive and must match exactly.",
+            ],
+        )
+
+    # "Cannot modify a sign-off on a not active step"
+    if "not active step" in msg:
+        return (
+            "Cannot modify sign-off — the workflow step is not active.",
+            [
+                "Sign-off steps must be configured with feedback groups and approvers in the blueprint",
+                "before they can be activated. Ask a Govern Architect to configure the workflow.",
+                "Run: dku govern-signoff list <ARTIFACT_ID> to see existing sign-offs.",
+            ],
+        )
+
+    return None
+
+
 def handle_api_error(e: Exception) -> None:
     """Convert dataikuapi exceptions to friendly messages and exit."""
     msg = str(e)
@@ -81,6 +150,16 @@ def handle_api_error(e: Exception) -> None:
     status = 1
     code = "api_error"
     details: list[str] = []
+
+    # Govern-specific validation errors — prescriptive guidance
+    govern_result = _handle_govern_validation(msg)
+    if govern_result:
+        exit_with_error(
+            govern_result[0],
+            code="govern_validation",
+            details=govern_result[1],
+            status=1,
+        )
 
     # dataikuapi raises generic Exceptions with HTTP status info
     # Check "not found" before "unauthorized" — DSS wraps NotFoundException in UnauthorizedException

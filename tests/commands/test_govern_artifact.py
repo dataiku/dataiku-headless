@@ -95,3 +95,98 @@ def test_artifact_set_definition(patch_client):
     assert result.exit_code == 0
     gov = patch_client.get_govern_client()
     gov.get_artifact.return_value.get_definition.return_value.save.assert_called_once()
+
+
+def test_artifact_create_ergonomic(patch_client):
+    """Test --blueprint + --name + --field flags (no raw JSON)."""
+    result = runner.invoke(
+        app,
+        [
+            "govern-artifact",
+            "create",
+            "-b",
+            "bp.system.govern_project",
+            "-n",
+            "My Project",
+            "-f",
+            "description=A test project",
+            "-f",
+            "cost_rating=High",
+        ],
+    )
+    assert result.exit_code == 0
+    gov = patch_client.get_govern_client()
+    call_args = gov.create_artifact.call_args[0][0]
+    assert call_args["name"] == "My Project"
+    assert call_args["fields"]["description"] == "A test project"
+    assert call_args["fields"]["cost_rating"] == "High"
+    assert call_args["blueprintVersionId"]["blueprintId"] == "bp.system.govern_project"
+
+
+def test_artifact_create_ergonomic_json_array_field(patch_client):
+    """Test --field with JSON array value for list fields."""
+    result = runner.invoke(
+        app,
+        [
+            "govern-artifact",
+            "create",
+            "-b",
+            "bp.system.govern_project",
+            "-n",
+            "Test",
+            "-f",
+            'countries=["France","Germany"]',
+        ],
+    )
+    assert result.exit_code == 0
+    gov = patch_client.get_govern_client()
+    call_args = gov.create_artifact.call_args[0][0]
+    assert call_args["fields"]["countries"] == ["France", "Germany"]
+
+
+def test_artifact_create_requires_blueprint_or_definition(patch_client):
+    """Test error when neither --blueprint nor --definition provided."""
+    result = runner.invoke(app, ["govern-artifact", "create"])
+    assert result.exit_code != 0
+    output = result.output + (result.stderr or "")
+    assert "blueprint" in output.lower() or "definition" in output.lower()
+
+
+def test_artifact_set_field(patch_client):
+    """Test set-field updates a single field."""
+    result = runner.invoke(
+        app,
+        ["govern-artifact", "set-field", "ar.5", "cost_rating", "High"],
+    )
+    assert result.exit_code == 0
+    gov = patch_client.get_govern_client()
+    defn = gov.get_artifact.return_value.get_definition.return_value
+    assert defn.definition["fields"]["cost_rating"] == "High"
+    defn.save.assert_called()
+
+
+def test_artifact_set_field_json_array(patch_client):
+    """Test set-field with JSON array value."""
+    result = runner.invoke(
+        app,
+        ["govern-artifact", "set-field", "ar.5", "countries", '["France","Germany"]'],
+    )
+    assert result.exit_code == 0
+    gov = patch_client.get_govern_client()
+    defn = gov.get_artifact.return_value.get_definition.return_value
+    assert defn.definition["fields"]["countries"] == ["France", "Germany"]
+
+
+def test_artifact_list_with_name_filter(patch_client):
+    """Test --name filter on list."""
+    result = runner.invoke(app, ["govern-artifact", "list", "--name", "Test"])
+    assert result.exit_code == 0
+    assert "ar.5" in result.output
+
+
+def test_artifact_list_all_pages(patch_client):
+    """Test --all fetches multiple pages."""
+    result = runner.invoke(app, ["govern-artifact", "list", "--all", "-o", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data) == 1  # Only 1 hit before empty page stops iteration

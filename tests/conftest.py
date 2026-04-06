@@ -1191,7 +1191,48 @@ def mock_client():
             "versionId": "bv.system.default",
         },
         "name": "Default",
-        "fieldDefinitions": {},
+        "fieldDefinitions": {
+            "description": {
+                "label": "Description",
+                "fieldType": "TEXT",
+                "sourceType": "STORE",
+                "required": False,
+            },
+            "cost_rating": {
+                "label": "Cost rating",
+                "fieldType": "CATEGORY",
+                "sourceType": "STORE",
+                "required": False,
+                "categories": ["Low", "Medium low", "Medium high", "High"],
+            },
+            "countries": {
+                "label": "Countries",
+                "fieldType": "CATEGORY",
+                "sourceType": "STORE",
+                "required": False,
+                "listConfig": {"cardinalityMin": 0},
+                "categories": ["Global", "France", "Germany"],
+            },
+            "start_date": {
+                "label": "Start date",
+                "fieldType": "DATE",
+                "sourceType": "STORE",
+                "required": False,
+            },
+            "business_initiative": {
+                "label": "Business initiative",
+                "fieldType": "REFERENCE",
+                "sourceType": "STORE",
+                "required": False,
+                "allowedBlueprints": ["bp.system.business_initiative"],
+            },
+            "govern_models": {
+                "label": "Governed models",
+                "fieldType": "REFERENCE",
+                "sourceType": "COMPUTE",
+                "required": False,
+            },
+        },
     }
     bp_ver.get_definition.return_value = bp_ver_def
     bp_obj.get_version.return_value = bp_ver
@@ -1216,7 +1257,10 @@ def mock_client():
         },
     }
     search_resp.get_response_hits.return_value = [search_hit]
-    search_req.fetch_next_batch.return_value = search_resp
+    # Second fetch returns empty to stop --all pagination
+    search_resp_empty = MagicMock()
+    search_resp_empty.get_response_hits.return_value = []
+    search_req.fetch_next_batch.side_effect = [search_resp, search_resp_empty]
     govern_client.new_artifact_search_request.return_value = search_req
 
     # Artifact CRUD
@@ -1257,6 +1301,7 @@ def mock_client():
     signoff_obj.add_feedback.return_value = MagicMock()
     signoff_obj.add_approval.return_value = MagicMock()
     artifact_obj.get_signoff.return_value = signoff_obj
+    artifact_obj.create_signoff.return_value = signoff_obj
 
     govern_client.get_artifact.return_value = artifact_obj
     govern_client.create_artifact.return_value = artifact_obj
