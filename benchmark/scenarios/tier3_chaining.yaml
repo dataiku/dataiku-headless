@@ -2,6 +2,7 @@ tests:
   - id: t3_create_then_verify
     tier: 3
     category: dataset
+    tags: ["smoke"]
     prompt: >
       In project {project}, create a managed dataset called 'bench_test_data'
       and then immediately verify it was created by listing the datasets.

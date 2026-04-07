@@ -9,6 +9,14 @@ import yaml
 from pydantic import BaseModel, Field
 
 
+class FixtureRef(BaseModel):
+    """Reference to a fixture directory for test data injection."""
+
+    path: str  # e.g., "sales/test1"
+    files: list[str] = Field(default_factory=list)  # Specific files, or empty = all
+    inject_as: str = "filesystem"  # "filesystem" = copy to /tmp/bench_fixtures/
+
+
 class ExpectedCommand(BaseModel):
     """An expected dku command in the agent trace."""
 
@@ -24,6 +32,10 @@ class VerifyStep(BaseModel):
     expect_status: int = 0
     expect_contains: Optional[str] = None
     expect_json: Optional[dict] = None
+    expect_min_rows: Optional[int] = None  # Min row count in JSON array output
+    expect_columns: list[str] = Field(
+        default_factory=list
+    )  # Column names that must exist
 
 
 class Expectations(BaseModel):
@@ -37,17 +49,29 @@ class Expectations(BaseModel):
     verify: list[VerifyStep] = Field(default_factory=list)
     text_contains: list[str] = Field(default_factory=list)
     text_excludes: list[str] = Field(default_factory=list)
+    no_python_recipes: bool = (
+        False  # If true, fail if any python/r/shell recipe types found
+    )
 
 
 class Rubric(BaseModel):
-    """Scoring weights for a test."""
+    """Scoring weights for a test.
 
-    command_correct: float = 1.0
-    flags_correct: float = 1.0
-    chaining: float = 1.0
-    skill_routing: float = 1.0
-    outcome_verified: float = 1.0
-    efficiency: float = 0.5
+    Only dimensions with non-None weight are included in the weighted
+    aggregate. Set a weight to include it; omit (None) to exclude.
+    """
+
+    command_correct: Optional[float] = 1.0
+    flags_correct: Optional[float] = 1.0
+    chaining: Optional[float] = 1.0
+    skill_routing: Optional[float] = 1.0
+    outcome_verified: Optional[float] = 1.0
+    efficiency: Optional[float] = 0.5
+    # Opt-in dimensions — only scored when explicitly weighted
+    no_forbidden: Optional[float] = None
+    agent_delegation: Optional[float] = None
+    text_content: Optional[float] = None
+    visual_recipe_ratio: Optional[float] = None  # Ratio of visual vs code recipes
 
 
 class Scenario(BaseModel):
@@ -61,6 +85,11 @@ class Scenario(BaseModel):
     timeout: Optional[int] = None
     expect: Expectations = Field(default_factory=Expectations)
     rubric: Rubric = Field(default_factory=Rubric)
+
+    # Evaluation framework v2 fields (all optional, backwards-compatible)
+    fixtures: list[FixtureRef] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    baseline_score: Optional[float] = None
 
     # Set at runtime
     project_key: Optional[str] = None

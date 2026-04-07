@@ -79,15 +79,20 @@ class Scorer:
             for exp in test.expect.commands:
                 if not exp.flags:
                     continue
+                # Resolve {project} placeholder in expected flags
+                resolved_flags = [
+                    f.replace("{project}", test.project_key) if test.project_key else f
+                    for f in exp.flags
+                ]
                 for cmd in dku_cmds:
                     if re.search(exp.pattern, cmd):
-                        hits = sum(1 for f in exp.flags if f in cmd)
-                        flag_scores.append(hits / len(exp.flags))
+                        hits = sum(1 for f in resolved_flags if f in cmd)
+                        flag_scores.append(hits / len(resolved_flags))
                         break
                 # Also check full bash string
                 if not flag_scores and re.search(exp.pattern, all_bash):
-                    hits = sum(1 for f in exp.flags if f in all_bash)
-                    flag_scores.append(hits / len(exp.flags))
+                    hits = sum(1 for f in resolved_flags if f in all_bash)
+                    flag_scores.append(hits / len(resolved_flags))
             if flag_scores:
                 scores["flags_correct"] = max(flag_scores)
 
@@ -154,12 +159,53 @@ class Scorer:
         call_efficiency = 1.0 if bash_count <= 2 else 0.5 if bash_count <= 4 else 0.2
         scores["efficiency"] = (output_efficiency + call_efficiency) / 2
 
-        # Weighted aggregate
+        # 10. Visual recipe ratio — measures use of visual vs code recipes.
+        # Detected from: recipe create commands in trace + file writes of .py files.
+        # Also checks no_python_recipes verification results if present.
+        if test.rubric.visual_recipe_ratio is not None:
+            visual_cmds = sum(
+                1
+                for cmd in dku_cmds
+                if re.search(
+                    r"dku recipe create-(join|group|stack|distinct|sort|filter|window|split|topn|pivot|sampling|geojoin|fuzzy-join)",
+                    cmd,
+                )
+            )
+            code_cmds = sum(
+                1
+                for cmd in dku_cmds
+                if re.search(r"dku recipe create\b.*-t\s+(python|r|shell|pyspark)", cmd)
+            )
+            # Also count .py file writes as a signal the agent wrote Python code
+            py_writes = sum(1 for f in result.file_writes if f.endswith(".py"))
+            if py_writes > 0 and code_cmds == 0:
+                code_cmds = (
+                    1  # Agent wrote Python but we didn't catch the create command
+                )
+
+            total_recipes = visual_cmds + code_cmds
+            if total_recipes > 0:
+                ratio = visual_cmds / total_recipes
+                scores["visual_recipe_ratio"] = ratio
+                if ratio < 1.0:
+                    details["visual_recipe_ratio"] = (
+                        f"{visual_cmds} visual, {code_cmds} code recipes "
+                        f"({ratio:.0%} visual)"
+                    )
+            else:
+                scores["visual_recipe_ratio"] = 0.0
+                details["visual_recipe_ratio"] = "No recipe create commands found"
+
+        # Weighted aggregate — only include dimensions declared in the rubric
+        # to prevent phantom dimensions (no_forbidden, agent_delegation, etc.)
+        # from distorting scores with a default weight.
         rubric = test.rubric.model_dump()
         weighted = 0.0
         total_weight = 0.0
         for key, value in scores.items():
-            weight = rubric.get(key, 1.0)
+            weight = rubric.get(key)
+            if weight is None:
+                continue
             weighted += value * weight
             total_weight += weight
 
