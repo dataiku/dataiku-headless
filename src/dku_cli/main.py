@@ -14,6 +14,8 @@ from dku_cli.commands import (
     agent_tool,
     analysis,
     api_service,
+    app_cmd,
+    app_designer,
     auth_cmd,
     bundle,
     codeenv,
@@ -59,6 +61,8 @@ app.add_typer(agent_block.app, name="agent-block")
 app.add_typer(agent_hub.app, name="agent-hub")
 app.add_typer(agent_tool.app, name="agent-tool")
 app.add_typer(api_service.app, name="api-service")
+app.add_typer(app_cmd.app, name="app")
+app.add_typer(app_designer.app, name="app-designer")
 app.add_typer(auth_cmd.app, name="auth")
 app.add_typer(bundle.app, name="bundle")
 app.add_typer(dashboard.app, name="dashboard")

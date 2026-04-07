@@ -238,6 +238,7 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
 | **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
+| **App Designer** | Building self-service apps: manifest structure, tile types, param types (DATASET_COLUMN, SEPARATOR, SELECT, visibilityCondition), section design, UX patterns | `references/app-designer.md` |
 
 ## Instructions
 
@@ -293,6 +294,9 @@ Common task combinations that span multiple references:
 - **"Build a dataset connector"** -> `datasets.md` + `plugin-structure.md`
 - **"Build a macro/runnable"** -> `macros.md` + `plugin-structure.md`
 - **"Optimize plugin performance"** -> `best-practices.md` + `webapp-patterns.md` (if webapp)
+- **"Turn a project into an app"** -> `app-designer.md` + `dku-cli` skill (app-designer commands)
+- **"Build an app homepage"** -> `app-designer.md` (tile types, param types, UX patterns)
+- **"Add variable edit forms to an app"** -> `app-designer.md` (PROJECT_VARIABLES_EDIT section)
 
 ## Additional References
 

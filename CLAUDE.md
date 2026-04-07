@@ -175,6 +175,7 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 | `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
 | `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
 | `geospatial.md` | Geospatial data handling, projections, spatial joins |
+| `app-designer.md` | App Designer: manifest, tile types, param types, section design, UX patterns |
 
 ---
 

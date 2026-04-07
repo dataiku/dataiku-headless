@@ -528,6 +528,8 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `knowledge` | list, create, get, set-definition, build, search, delete | Yes (accepts name or ID) |
 | `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index | Yes (accepts name or ID) |
 | `agent-hub` | list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop | Yes (auto-detects hub) |
+| `app-designer` | get, set-definition, list-tiles, add-tile, remove-tile, set-section, enable, disable | Yes |
+| `app` | list, get, list-instances, create-instance | No (except create-instance) |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
@@ -541,6 +543,8 @@ Key notes:
 - Prefer `dku ... -o json | jq ...` on success paths. Avoid `2>&1 | jq` — stderr has error payloads, not success objects.
 - `dku semantic-model` — Semantic models enable text-to-SQL via the Semantic Model Query agent tool (DSS 14.4+). Versions are key: only the active version is used by agents. Always `update-index --wait` after changing entities/attributes.
 - `dku agent-hub` — **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first). `--hub` auto-detects when one hub exists; required when multiple exist. Config is shallow-merged, not replaced. Agent IDs use `PROJECT:agent:ID` format.
+- `dku app-designer` — Turns a project into a self-service app with a homepage of tiles. `enable` first, then `set-section` for titles, `add-tile` for tiles. Bind tiles to specific datasets (`--dataset`), dashboards (`--dashboard`), folders (`--folder`). Use `--definition @tile.json` for complex tiles (e.g., `PROJECT_VARIABLES_EDIT` with params). **READ `dataiku` skill's `references/app-designer.md` for tile types, param types, and UX patterns.**
+- `dku app` — Lists apps and manages instances. App IDs follow `PROJECT_XXXX` format. `create-instance` creates a copy of the template project.
 
 ## Chaining Patterns
 
