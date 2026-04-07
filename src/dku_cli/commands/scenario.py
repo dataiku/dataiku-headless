@@ -1,4 +1,4 @@
-"""dku scenario — list, run, abort, status, create, delete, get/set-definition."""
+"""dku scenario — list, run, abort, status, create, delete, get/set-definition, triggers."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import time
 
 import typer
 
-from dku_cli.errors import handle_api_error, is_already_exists_error
+from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
     error,
@@ -270,5 +270,256 @@ def set_definition(
         new_def = read_json_input(definition)
         scenario.set_definition(new_def)
         success(f"Updated definition for scenario '{scenario_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Trigger helpers
+# ---------------------------------------------------------------------------
+
+
+def _trigger_description(trigger: dict) -> str:
+    """Produce a human-readable description of a trigger for table display."""
+    ttype = trigger.get("type", "")
+    params = trigger.get("params", {})
+
+    if ttype == "temporal":
+        freq = params.get("frequency", "")
+        hour = params.get("hour", 0)
+        minute = params.get("minute", 0)
+        tz = params.get("timezone", "SERVER")
+        repeat = params.get("repeatFrequency", 1)
+        if freq == "Minutely":
+            return f"Every {repeat} min"
+        if freq == "Hourly":
+            return f"Every {repeat}h at :{minute:02d} ({tz})"
+        if freq == "Daily":
+            return f"Daily at {hour:02d}:{minute:02d} ({tz})"
+        if freq == "Weekly":
+            days = params.get("daysOfWeek", [])
+            return f"Weekly {','.join(days)} at {hour:02d}:{minute:02d} ({tz})"
+        if freq == "Monthly":
+            return f"Monthly at {hour:02d}:{minute:02d} ({tz})"
+        return f"Temporal ({freq})"
+
+    if ttype == "ds_modified":
+        watches = params.get("watches", [])
+        names = [w.get("itemId", "?") for w in watches]
+        return f"watches: {', '.join(names)}" if names else "dataset change"
+
+    if ttype == "sql_query":
+        return "SQL query trigger"
+
+    if ttype == "custom_python":
+        return "Custom Python trigger"
+
+    return ttype or "unknown"
+
+
+def _add_trigger(
+    ctx: typer.Context, scenario_id: str, project: str | None, trigger_dict: dict
+) -> None:
+    """Shared logic for all trigger add commands."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        settings.raw_triggers.append(trigger_dict)
+        idx = len(settings.raw_triggers) - 1
+        settings.save()
+        ttype = trigger_dict.get("type", "unknown")
+        success(f"Added {ttype} trigger to scenario '{scenario_id}' at index {idx}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Trigger commands
+# ---------------------------------------------------------------------------
+
+
+@app.command("list-triggers")
+def list_triggers(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List triggers on a scenario."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        triggers = settings.raw_triggers
+
+        if output == "json":
+            render_raw(triggers, output_format="json")
+            return
+
+        if not triggers:
+            info(
+                f"No triggers on scenario '{scenario_id}'. "
+                f"Add one: dku scenario add-trigger-dataset {scenario_id} "
+                f"--dataset DS_NAME -P {project_key}"
+            )
+            return
+
+        rows = []
+        for i, t in enumerate(triggers):
+            rows.append(
+                {
+                    "index": str(i),
+                    "type": t.get("type", ""),
+                    "active": str(t.get("active", False)),
+                    "description": _trigger_description(t),
+                }
+            )
+
+        render(
+            rows,
+            ["index", "type", "active", "description"],
+            output_format=output,
+            title=f"Triggers: {scenario_id}",
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-trigger")
+def add_trigger(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    trigger: str = typer.Option(
+        ...,
+        "--trigger",
+        "-t",
+        help="Trigger JSON (string, @file.json, or '-' for stdin)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a trigger to a scenario from JSON.
+
+    For dataset change triggers, prefer: dku scenario add-trigger-dataset
+
+    Examples:
+        Daily at 2 AM: dku scenario add-trigger SCEN --trigger '{"active":true,"type":"temporal","params":{"frequency":"Daily","hour":2,"minute":0,"repeatFrequency":1,"timezone":"SERVER"}}' -P PROJ
+        Dataset change: dku scenario add-trigger-dataset SCEN --dataset my_dataset -P PROJ
+    """
+    trigger_dict = read_json_input(trigger)
+    if not trigger_dict:
+        exit_with_error(
+            "Trigger JSON cannot be empty.",
+            code="invalid_input",
+        )
+    if "type" not in trigger_dict:
+        exit_with_error(
+            "Trigger JSON must have a 'type' field.",
+            code="invalid_input",
+            details=[
+                "Valid types: temporal, ds_modified, sql_query, custom_python",
+                "Example: dku scenario add-trigger SCEN --trigger "
+                '\'{"active":true,"type":"temporal","params":{"frequency":"Daily","hour":2,"minute":0}}\' -P PROJ',
+            ],
+        )
+    if "active" not in trigger_dict:
+        trigger_dict["active"] = True
+    _add_trigger(ctx, scenario_id, project, trigger_dict)
+
+
+@app.command("add-trigger-dataset")
+def add_trigger_dataset(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    dataset: str = typer.Option(
+        ...,
+        "--dataset",
+        "-d",
+        help="Dataset name to watch for changes",
+    ),
+    delay: int = typer.Option(
+        900,
+        "--delay",
+        help="Check interval in seconds (default: 900 = 15 min)",
+    ),
+    grace_delay: int = typer.Option(
+        120,
+        "--grace-delay",
+        help="Seconds to wait after change before firing (default: 120)",
+    ),
+    check_again: bool = typer.Option(
+        True,
+        "--check-again/--no-check-again",
+        help="Re-check after grace delay (default: True)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a dataset change trigger (fires when dataset data is modified).
+
+    Examples:
+        dku scenario add-trigger-dataset SCEN --dataset my_dataset -P PROJ
+        dku scenario add-trigger-dataset SCEN --dataset my_dataset --delay 600 --grace-delay 60 -P PROJ
+    """
+    trigger_dict = {
+        "active": True,
+        "type": "ds_modified",
+        "delay": delay,
+        "graceDelaySettings": {
+            "delay": grace_delay,
+            "checkAgainAfterGraceDelay": check_again,
+        },
+        "params": {
+            "watches": [{"type": "DATASET", "itemId": dataset}],
+        },
+    }
+    _add_trigger(ctx, scenario_id, project, trigger_dict)
+
+
+@app.command("remove-trigger")
+def remove_trigger(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    index: int = typer.Option(
+        ...,
+        "--index",
+        help="Trigger index to remove (0-based, from list-triggers)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Remove a trigger from a scenario by index."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        triggers = settings.raw_triggers
+
+        if index < 0 or index >= len(triggers):
+            exit_with_error(
+                f"Index {index} out of range (0–{len(triggers) - 1}).",
+                code="invalid_index",
+                details=[
+                    f"Use: dku scenario list-triggers {scenario_id} -P {project_key}",
+                ],
+            )
+
+        removed = triggers.pop(index)
+        settings.save()
+        success(
+            f"Removed {removed.get('type', 'unknown')} trigger "
+            f"at index {index} from scenario '{scenario_id}'"
+        )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
