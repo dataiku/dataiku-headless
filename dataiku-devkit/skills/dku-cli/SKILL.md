@@ -31,6 +31,7 @@ metadata:
 > 10. **Prefer purpose-built prepare processors over GREL.** Need to rename? `add-rename`. Parse dates? `add-step --type DateParser`. Uppercase? `add-step --type StringTransformer`. If/then/else? `add-step --type VisualIfRule`. Use `add-formula` (GREL) ONLY when no dedicated processor exists. **READ `dataiku` skill's `references/prepare-processors.md` before writing any `add-step` command** — it has the exact params and JSON for each processor.
 > 11. **Sample data before transforming.** Before writing prepare steps, creating joins, or configuring group-by: run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
 > 12. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
+> 13. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 
 # dku-cli
 
@@ -398,6 +399,8 @@ dku recipe create-filter keep_first -i ranked --output-ds first_per_group -P PRO
 
 | Mistake | Fix |
 |---------|-----|
+| Cascading joins (A+B → temp, temp+C → out) | One `create-join -i A -i B -i C` with index-prefixed keys |
+| Default INNER join when enriching | Use `--join-type LEFT` to keep all source rows |
 | Python `groupby([col1, col2])` | Repeat `-k`: `-k col1 -k col2` on `create-group` |
 | Python `nlargest(N)` or `sort + head` | Use `create-topn --n N --rank-by col:desc` |
 | Python `groupby().first()` / `last()` | Use `create-topn --n 1 --rank-by col:desc -k group_col` |
@@ -950,6 +953,97 @@ dku job run --target summary -P PROJ \
 - **`--auto-update-schema` on build/run**: Updates schemas during the build. Use when you want to build AND fix schemas in one shot.
 - **`dku recipe check-schema` + `apply-schema`**: Per-recipe schema inspection. Use when debugging a specific recipe's schema issues. Only works for visual recipes (not Python/R code recipes).
 
+## Visual Recipe Design Patterns
+
+### Recipe Type Semantics — When to Use What
+
+Choosing the wrong recipe type wastes tokens debugging. Use this matrix:
+
+| Recipe | Inputs | Semantics | Use when... | NOT for... |
+|--------|--------|-----------|-------------|------------|
+| **Join** | 2-5 datasets | Combine rows by matching key | Enriching a dataset with lookups | Appending rows (use Stack) |
+| **Stack** | 2+ datasets | Append rows (UNION ALL) | Datasets share same schema, different rows | Key-based matching (use Join) |
+| **Group** | 1 dataset | Reduce rows by aggregation | SUM/AVG/COUNT/MIN/MAX per group | Per-row transforms (use Window or Prepare) |
+| **Window** | 1 dataset | Per-row compute within partitions | Running totals, rank, lag/lead, cumulative | Reducing row count (use Group) |
+| **TopN** | 1 dataset | Keep N rows per group | First/last per group, top performers | Global top N without groups (use Sort + head) |
+| **Filter** | 1 dataset | Keep/remove rows by condition | Simple boolean conditions on column values | Complex multi-step logic (use Prepare) |
+| **Distinct** | 1 dataset | Deduplicate rows | Exact duplicate removal | Keep-first/last logic (use TopN with -k) |
+| **Sort** | 1 dataset | Order rows | Explicit ordering for output | Ordering within groups (use Window) |
+| **Split** | 1 dataset → 2+ | Route rows to different outputs | Different downstream paths per condition | Single-output filtering (use Filter) |
+| **Pivot** | 1 dataset | Long→wide (columns from values) | Timeseries to columns, category expansion | Wide→long (use Prepare add-fold) |
+| **Sampling** | 1 dataset | Reduce dataset size | Dev/test subsets, stratified samples | Filtering by condition (use Filter) |
+| **Prepare** | 1 dataset | Row-level transforms, cleaning | Rename, parse dates, GREL formulas, fold | Aggregation (use Group), joins (use Join) |
+
+### Join Design: Multi-Input > Cascading
+
+**Anti-pattern: Cascading joins** — joining A+B → temp1, then temp1+C → temp2, then temp2+D → output. This creates:
+- 3 recipes instead of 1
+- 2 unnecessary intermediate datasets
+- 3x schema propagation
+- Column name explosion (prefixed at every step: `temp1_customers_name`)
+- 3x build time
+
+**Correct: One multi-input join** — join A+B+C+D in a single recipe:
+
+```
+# BAD — cascading joins (3 recipes, 2 intermediate datasets)
+dku recipe create-join join_ab -i A -i B --output-ds temp1 --join-key id -P PROJ && \
+dku recipe create-join join_abc -i temp1 -i C --output-ds temp2 --join-key id -P PROJ && \
+dku recipe create-join join_abcd -i temp2 -i D --output-ds final --join-key id -P PROJ
+
+# GOOD — one multi-input join (1 recipe, 0 intermediate datasets)
+dku recipe create-join enrich_all \
+  -i A -i B -i C -i D \
+  --output-ds final \
+  --join-key id \
+  --join-key 1:id \
+  --join-key 2:id \
+  -P PROJ
+```
+
+**When cascading IS acceptable:** Different join types per step (e.g., LEFT join for A+B, then INNER join for result+C), or when intermediate datasets are reused by other recipes.
+
+### Join Types
+
+| Type | Flag | Keeps | Use when... |
+|------|------|-------|-------------|
+| **LEFT** | `--join-type LEFT` | All left rows, matched right | Enriching — keep all source rows even without match |
+| **INNER** | `--join-type INNER` (default) | Only matched rows | Both sides must have the key |
+| **RIGHT** | `--join-type RIGHT` | All right rows, matched left | Rare — usually restructure as LEFT |
+| **FULL** | `--join-type FULL` | All rows from both sides | Reconciliation, finding mismatches |
+| **CROSS** | `--join-type CROSS` | Cartesian product (every combo) | Row expansion (records × months) |
+
+**Default is INNER.** If your task says "enrich" or "look up", you almost always want **LEFT** — keeps all source rows even when the lookup table has no match.
+
+### Window Functions — Quick Guide
+
+Window recipes compute per-row values within partitions without reducing row count.
+
+| Compute | Syntax (`--compute`) | Use case |
+|---------|---------------------|----------|
+| Row number | `'rowNumber::rn'` | Sequential numbering within group |
+| Rank (gaps) | `'rank::rnk'` | 1,2,2,4 ranking |
+| Dense rank | `'denseRank::drnk'` | 1,2,2,3 ranking (no gaps) |
+| Lag | `'lag:col:1::prev_val'` | Previous row's value |
+| Lead | `'lead:col:1::next_val'` | Next row's value |
+| Running sum | `'sum:amount::running_total'` | Cumulative totals |
+| Running count | `'count:::running_count'` | Cumulative counts |
+| Running avg | `'avg:amount::running_avg'` | Moving averages |
+
+**Pattern — first/last per group:** `create-topn --n 1 --rank-by date:desc -k group_col` is simpler than Window + Filter. Use Window only when you need the rank column for other purposes.
+
+### Common Pipeline Anti-Patterns
+
+| Anti-pattern | Why it's wrong | Do this instead |
+|--------------|---------------|-----------------|
+| Cascading joins (A+B → temp → temp+C) | Extra recipes, intermediate datasets, column prefix explosion | One multi-input join with index-prefixed keys |
+| Python `groupby` when Group recipe works | Slower, harder to maintain, no visual lineage | `create-group -k col --agg "col:sum,avg"` |
+| Filter + Sort + head for top N | 3 recipes for what TopN does in 1 | `create-topn --n N --rank-by col:desc` |
+| Window recipe just for first-per-group | Overkill — need Window + Filter (2 recipes) | `create-topn --n 1 -k group_col` |
+| Python for column rename/type cast | Breaks visual lineage | Prepare recipe: `add-rename`, `add-step --type TypeSetter` |
+| Separate Filter recipes per condition | Bloated flow, redundant scans | One Split recipe with multiple conditions |
+| `pd.concat()` for stacking datasets | No visual lineage, handles schema drift poorly | `create-stack -i ds1 -i ds2` |
+
 ## Agent Evaluation Workflow (1–2 tool calls)
 
 Use `agent-review` to evaluate agent quality with LLM-as-judge traits:
@@ -1338,9 +1432,12 @@ Generate all combinations (e.g., records × future months):
 dku recipe create-join expand -i records -i months --output-ds expanded --join-type CROSS -P PROJ
 ```
 
-### Multi-Input Join (5+ datasets in one recipe)
+### Multi-Input Join (2-5 datasets in one recipe)
+
+**ALWAYS prefer one multi-input join over cascading joins.** See [Join Design: Multi-Input > Cascading](#join-design-multi-input--cascading) for why.
 
 ```bash
+# Join main with 3 lookups — each with different join keys
 dku recipe create-join enrich \
   -i main -i lookup_a -i lookup_b -i lookup_c \
   --output-ds enriched \
@@ -1350,7 +1447,24 @@ dku recipe create-join enrich \
   -P PROJ
 ```
 
-Index prefix (`1:`, `2:`) targets specific join pairs. Unprefixed keys target join 0.
+**Index prefix rules:**
+- Unprefixed `--join-key col` → applies to join 0 (main ↔ first `-i` after main)
+- `1:col` → join 1 (main ↔ second `-i`)
+- `2:col` → join 2 (main ↔ third `-i`)
+- `col=other_col` → left column `col` matches right column `other_col`
+- Same column name on both sides? Just `--join-key col`
+
+```bash
+# Example: enrich sales with customer, product, and region lookups
+dku recipe create-join enrich_sales \
+  -i sales -i customers -i products -i regions \
+  --output-ds enriched_sales \
+  --join-key customer_id \
+  --join-key 1:product_id \
+  --join-key 2:region_code=code \
+  --join-type LEFT \
+  -P PROJ
+```
 
 ### Random Sampling
 
