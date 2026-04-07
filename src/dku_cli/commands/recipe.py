@@ -1432,7 +1432,7 @@ def add_filter_rows(
             ctx,
             recipe_name,
             project,
-            "FilterOnFormula",
+            "FilterOnCustomFormula",
             {
                 "expression": formula,
                 "action": action.upper(),

@@ -3325,7 +3325,7 @@ def test_recipe_add_filter_rows_by_formula(patch_client):
     )
     assert result.exit_code == 0
     step = settings.obj_payload["steps"][0]
-    assert step["type"] == "FilterOnFormula"
+    assert step["type"] == "FilterOnCustomFormula"
     assert step["params"]["expression"] == "price > 100"
     assert step["params"]["action"] == "REMOVE_ROW"
 

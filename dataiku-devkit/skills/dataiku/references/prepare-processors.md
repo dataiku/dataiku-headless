@@ -6,6 +6,21 @@
 
 Purpose-built processors are faster (native Java), produce cleaner step lists, and don't require GREL syntax knowledge. When chaining prepare steps, mix shortcuts and `add-step` freely.
 
+## Critical: Column Names with Spaces
+
+**Columns with spaces in their names (e.g. `Return Reason`, `Order Date`) cannot be referenced by GREL formulas, ColumnCopier, or VisualIfRule in prepare recipes.** GREL variable references replace spaces with underscores (`Return_Reason`), but the column lookup silently returns null — it does NOT match the actual column.
+
+Workarounds (pick one):
+1. **Rename first** — add a `ColumnRenamer` step to remove spaces BEFORE any GREL/VisualIfRule step, then rename back after
+2. **Use a Python recipe** — `df["col with spaces"]` works correctly in pandas
+3. **Use processors that take column names as params** (not GREL variables) — `DateParser`, `DateDifference`, `DateComponentsExtractor`, `StringTransformer`, `FillEmptyWithValue`, `RemoveRowsOnEmpty`, `FindReplace`, `ColumnsSelector` all accept `"columns": ["Return Reason"]` and work correctly with spaces
+
+Processors that **DO** work with spaces (they take column names in `columns[]` params):
+`DateParser`, `DateDifference`, `DateComponentsExtractor`, `StringTransformer`, `FillEmptyWithValue`, `RemoveRowsOnEmpty`, `FindReplace`, `FlagOnValue`, `FilterOnBadType`, `ColumnsSelector`, `ColumnRenamer`, `ColumnsConcat`
+
+Processors that **DO NOT** work with spaces (they use GREL variable references):
+`CreateColumnWithGREL` (`add-formula`), `ColumnCopier`, `VisualIfRule`, `FilterOnCustomFormula`
+
 ## Processor Decision Table
 
 Before writing a GREL formula, check this table:
@@ -214,9 +229,15 @@ Each entry: type ID, when to use, key params, canonical JSON for `add-step --par
 | `keepEmptyChunks` | Yes | `false` = skip empty |
 | `limitOutput` | Yes | `true` = limit to N chunks |
 | `limit` | Yes | Max chunks (0 = unlimited) |
+| `startFrom` | Cond | **Required when `limitOutput: true`.** `"beginning"` or `"end"` (lowercase only — `"BEGINNING"` fails). Set to `null` when `limitOutput: false`. |
 
 ```json
 {"inCol": "full_name", "separator": " ", "outColPrefix": "name_", "target": "COLUMNS", "keepEmptyChunks": false, "limitOutput": false, "limit": 0}
+```
+
+With `limitOutput`:
+```json
+{"inCol": "notes", "separator": " - ", "outColPrefix": "notes_", "target": "COLUMNS", "keepEmptyChunks": false, "limitOutput": true, "limit": 2, "startFrom": "beginning"}
 ```
 
 ---
@@ -315,7 +336,7 @@ Common operators: `== [string]`, `!= [string]`, `>  [number]`, `<  [number]`, `c
 {"expression": "age > 65", "action": "REMOVE_ROW"}
 ```
 
-Note: Our CLI shortcut uses `FilterOnFormula` internally. Both `FilterOnFormula` and `FilterOnCustomFormula` are valid DSS type names — use `FilterOnCustomFormula` with `add-step` for consistency with DSS UI.
+Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` internally. Always use `FilterOnCustomFormula` (not `FilterOnFormula`) — the latter is a plugin type that may not be installed on all DSS instances and will fail with `UnavailableTypeException`.
 
 ---
 
@@ -458,6 +479,8 @@ Note: Our CLI shortcut uses `FilterOnFormula` internally. Both `FilterOnFormula`
 
 **When:** Unpivot wide-to-long. Prefer over `pd.melt()`.
 **CLI shortcut:** `dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ`
+
+> **Compatibility note:** `FoldColumnsByName` is a plugin processor that may not be installed on all DSS instances. If you get `UnavailableTypeException`, fall back to a Python recipe with `pd.melt(id_vars=[...], value_vars=[...], var_name=..., value_name=...)`.
 
 **FoldColumnsByName:**
 

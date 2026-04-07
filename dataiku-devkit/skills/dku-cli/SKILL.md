@@ -306,7 +306,7 @@ Is the task filtering rows?         → create-filter  (NEVER df[condition])
 Is the task window/rank function?   → create-window --compute 'rowNumber::rn'  (NEVER df.groupby().transform)
 Is the task top/bottom N?           → create-topn --n 10 --rank-by col:desc  (NEVER df.nlargest)
 Is the task top N per group?        → create-topn --n 1 --rank-by col:desc -k group_col  (NEVER groupby().first)
-Is the task wide-to-long (unpivot)? → Prepare recipe + add-fold  (NEVER pd.melt)
+Is the task wide-to-long (unpivot)? → Prepare recipe + add-fold  (if UnavailableTypeException → Python pd.melt)
 Is the task long-to-wide (pivot)?   → create-pivot --agg-type SUM  (NEVER df.pivot_table)
 Is the task random sampling?        → create-sampling  (NEVER df.sample)
 Is the task row expansion?          → create-join --join-type CROSS  (NEVER nested loops)
@@ -428,6 +428,9 @@ dku recipe create-filter keep_first -i ranked --output-ds first_per_group -P PRO
 | `set-definition` orphans auto-created output (plugin recipes) | Pre-create output datasets before `recipe create` when using plugin recipes with named roles |
 | Plugin recipe SELECT values wrong case | `selectChoices` values are case-sensitive (`"none"` not `"None"`, `"json"` not `"JSON"`). Check `dku plugin recipes PLUGIN -o json` for exact values |
 | `dku dataset build` fails for folder outputs | Managed folder outputs are NOT buildable via `dataset build`. Use `dku recipe run RECIPE -P PROJ --wait` instead |
+| Prepare recipe `create` fails with "Output dataset does not exist" | Unlike `create-join`/`create-group`, `create --type prepare` does NOT auto-create the output. Pre-create it: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ` |
+| `add-fold` or `add-filter-rows --formula` fails with `UnavailableTypeException` | `FoldColumnsByName` and `FilterOnFormula` are plugin processors unavailable on some DSS instances. For fold: use Python `pd.melt()`. For filter: use `add-step --type FilterOnCustomFormula --params '{"expression":"...","action":"REMOVE_ROW"}'` |
+| GREL formula returns null for columns with spaces | Column names with spaces (e.g. `Return Reason`) can't be referenced via GREL variables (`Return_Reason` returns null). Use a Python recipe, or rename the column first with `add-rename` |
 
 #### Python Recipe (ONLY when visual recipes can't express the logic)
 
@@ -1349,7 +1352,8 @@ Prepare recipes support ~95 processor types for data cleaning, enrichment, and t
 | Command | Purpose |
 |---------|---------|
 | `list-steps RECIPE -P PROJ` | Show all steps (index, type, disabled, target) |
-| `add-step RECIPE --type TYPE --params JSON -P PROJ` | Add any of ~95 processor types |
+| `add-step RECIPE --type TYPE --params JSON -P PROJ` | Add any of ~95 processor types (append) |
+| `add-step RECIPE --type TYPE --params JSON --at N -P PROJ` | Insert step at index N (0-based) |
 | `get-step RECIPE --index N -P PROJ` | Get full step JSON |
 | `remove-step RECIPE --index N -P PROJ` | Remove step(s) by index |
 | `disable-step RECIPE --index N -P PROJ` | Skip step during execution |
@@ -1427,8 +1431,9 @@ dku recipe add-step prep --type RemoveRowsOnEmpty \
 ### Complete Prepare Workflow (chaining multiple processor types)
 
 ```bash
-# Create prepare recipe, add mixed steps (shortcuts + add-step), build
-dku recipe create clean_data --type prepare -i raw_data --output-ds clean_data -c filesystem_managed -P PROJ && \
+# Pre-create output (required for prepare — unlike create-join/create-group, prepare does NOT auto-create)
+dku dataset create clean_data --type Filesystem -c filesystem_managed -P PROJ && \
+dku recipe create clean_data --type prepare -i raw_data --output-ds clean_data -P PROJ && \
 dku recipe add-rename clean_data --from "CustomerName" --to "customer_name" -P PROJ && \
 dku recipe add-rename clean_data --from "OrderDate" --to "order_date" -P PROJ && \
 dku recipe add-step clean_data --type RemoveRowsOnEmpty --params '{"appliesTo":"ALL","columns":[],"keep":false}' -P PROJ && \
