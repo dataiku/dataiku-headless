@@ -373,11 +373,23 @@ def enable(
         None, "--description", help="App short description"
     ),
 ) -> None:
-    """Enable the app homepage (set useAppHomepage=true)."""
+    """Enable the app homepage (set useAppHomepage=true).
+
+    If the project is not yet an app template, converts it first by setting
+    projectAppType to APP_TEMPLATE in the project settings.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
+
+        # Convert to APP_TEMPLATE if needed (REGULAR projects can't have manifests)
+        settings = proj.get_settings()
+        raw_settings = settings.get_raw()
+        if raw_settings.get("projectAppType") != "APP_TEMPLATE":
+            raw_settings["projectAppType"] = "APP_TEMPLATE"
+            settings.save()
+
         manifest = proj.get_app_manifest()
         raw = manifest.get_raw()
         raw["useAppHomepage"] = True

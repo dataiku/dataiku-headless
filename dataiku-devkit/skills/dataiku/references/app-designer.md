@@ -103,6 +103,23 @@ dku app create-instance PROJECT_PROJ --key INST1 --name "Instance 1"
 
 **Tip:** For end-user apps, disable everything except `showFlowNavLink` and `showSwitchToProjectViewButton`.
 
+### Export Manifest (for App Instances)
+
+When tiles reference managed folders, those folders must be listed in `projectExportManifest.includedManagedFolders` so they are copied to app instances:
+
+```json
+{
+  "projectExportManifest": {
+    "exportManagedFolders": true,
+    "includedManagedFolders": [
+      {"id": "AfVCkm5p", "name": "xpt_export"}
+    ]
+  }
+}
+```
+
+Without this, folder tiles in instances will fail with "managed folder does not exist".
+
 ### Instantiation Permissions
 
 | Value | Description |
@@ -130,13 +147,15 @@ Every tile type inherits these fields:
 
 ### Data Input Tiles (8 types)
 
+> **CRITICAL: `datasetName` is required on all dataset tiles.** Without it, DSS opens a blank "New dataset" page instead of showing an error. Always bind to a specific dataset.
+
 #### `UPLOAD_DATASET_SET_FILE`
 
 Upload a file to a dataset.
 
 | Field | Type | Default |
 |-------|------|---------|
-| `datasetName` | string | — (user picks from list) |
+| `datasetName` | string | **Required.** Dataset to upload to |
 | `behavior` | enum | `GO_TO_DATASET` |
 
 **Behaviors:**
@@ -160,11 +179,11 @@ Upload a file to a dataset.
 
 #### `INLINE_DATASET_EDIT`
 
-Edit dataset rows inline (editable/inline datasets).
+Edit dataset rows inline. **Only works on editable datasets (Filesystem, SQL) — NOT UploadedFiles.**
 
 | Field | Type |
 |-------|------|
-| `datasetName` | string |
+| `datasetName` | string (**required**) |
 
 ```json
 {
@@ -181,7 +200,7 @@ Edit dataset connection/format settings.
 
 | Field | Type |
 |-------|------|
-| `datasetName` | string |
+| `datasetName` | string (**required**) |
 
 #### `FILES_BASED_DATASET_BROWSE_AND_PREVIEW`
 
@@ -189,7 +208,7 @@ Browse and preview a file-based dataset.
 
 | Field | Type | Default |
 |-------|------|---------|
-| `datasetName` | string | — |
+| `datasetName` | string (**required**) | — |
 | `behavior` | enum | `GO_TO_DATASET` |
 
 **Behaviors:** `GO_TO_DATASET`, `INLINE_BROWSE_ONLY`, `INLINE_BROWSE_AND_REDETECT`, `INLINE_BROWSE_REDETECT_AND_INFER`, `MODAL_BROWSE_REDETECT_AND_INFER`
@@ -231,7 +250,7 @@ Browse a SQL connection to pick a table and bind it to a dataset.
 
 | Field | Type | Default |
 |-------|------|---------|
-| `datasetName` | string | — |
+| `datasetName` | string (**required**) | — |
 | `behavior` | enum | `GO_TO_DATASET` |
 
 **Behaviors:** `GO_TO_DATASET`, `MODAL_BROWSE`
@@ -306,6 +325,8 @@ See [Parameter Types](#parameter-types-for-project_variables_edit) section for t
 #### `INLINE_PYTHON_RUN`
 
 Run inline Python code and display results.
+
+> **Known issue:** The DSS frontend has a scope-chain bug where `$parent.$index` resolves incorrectly in some tile configurations, causing the backend to receive wrong section/tile indices. The tile works correctly via direct API calls. If you encounter `ClassCastException` or `IndexOutOfBoundsException` errors when clicking the button, try restructuring section/tile order. Test in an **app instance**, not the template.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -433,9 +454,11 @@ Download an R Markdown report.
 
 Auto-ML tile: guess features, train model, deploy to flow.
 
+> **Note:** This tile type is **hidden from the DSS UI tile picker** (commented out in the frontend code). It exists in the backend and can be created via CLI/API, but is not officially supported in the UI.
+
 | Field | Type |
 |-------|------|
-| `modelId` | string |
+| `modelId` | string (**required**) |
 
 ---
 
@@ -485,7 +508,7 @@ Display static text or text with interpolated project variables. Both use the sa
 | `content` | string (HTML) |
 
 - `TEXT_DISPLAY` — renders `content` as-is (static HTML)
-- `VARIABLE_DISPLAY` — interpolates `${variable_name}` references in `content` with project variable values at runtime
+- `VARIABLE_DISPLAY` — interpolates `${variable_name}` references in `content` with project variable values at runtime. Variable names must match actual project variables (standard or local). Fails with "Unknown DSS variable" if the variable doesn't exist.
 
 ```json
 {

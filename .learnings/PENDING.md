@@ -67,3 +67,45 @@ None — built CLI commands wrapping dataikuapi, correct approach.
 3. **Add app-designer reference doc to SKILL.md routing** — `dataiku-devkit/skills/dataiku/SKILL.md` — route agents to `references/app-designer.md` when building apps.
 
 ---
+
+## [2026-04-07] Live testing app-designer tiles against DSS
+**Status:** pending
+**Recurring** (also seen: 2026-04-07 — extends previous app-designer entry)
+
+### TL;DR
+Live testing revealed that `enable` silently fails on fresh projects because `get_app_manifest()` requires `projectAppType=APP_TEMPLATE` in project settings first (fixed). Multiple tile types silently accept missing required fields via CLI but crash in the DSS UI (blank pages or 500 errors). `INLINE_PYTHON_RUN` has a DSS frontend scoping bug. `GUESS_TRAIN_DEPLOY` is commented out of the UI picker.
+
+### CLI Friction (2 issues)
+
+| Issue | What Happened | Suggested Fix |
+|-------|--------------|---------------|
+| `enable` fails on fresh projects | `get_app_manifest()` throws on REGULAR projects — must set `projectAppType=APP_TEMPLATE` first | Fixed: `enable` now auto-sets `projectAppType` |
+| `add-tile` accepts missing required fields | Tiles without `datasetName`/`folderId`/`dashboardId` save OK but crash in UI | Add validation warnings for required fields per tile type |
+
+### Gotchas Hit (5 issues)
+
+1. **`enable` on REGULAR project** — Fixed: auto-sets `projectAppType=APP_TEMPLATE`
+2. **`datasetName` required on all dataset tiles** — Without it, UI opens blank "New dataset" page. No error from CLI or DSS API. Document as **required** in reference doc (done).
+3. **`folderId` required on folder tiles** — UI 500: `Required request parameter 'folderId' is not present`. Document as required (done).
+4. **`INLINE_DATASET_EDIT` on UploadedFiles** — `Dataset is not editable: type UploadedFiles`. Only Filesystem/SQL datasets work. Noted in reference doc.
+5. **`INLINE_PYTHON_RUN` frontend scoping bug** — `$parent.$index` in ng-switch-when resolves to wrong scope. Backend works (confirmed via direct API). No CLI fix possible.
+
+### dataikuapi Discoveries
+
+| Quirk | Details | Add to CLAUDE.md? |
+|-------|---------|-------------------|
+| `projectAppType` must be `APP_TEMPLATE` before `get_app_manifest()` | Set via `project.get_settings().get_raw()["projectAppType"] = "APP_TEMPLATE"` | Yes |
+| `GUESS_TRAIN_DEPLOY` hidden in UI | Commented out at line 73 of apps.js — backend-only | Note in reference doc |
+| `VARIABLE_DISPLAY` uses `${var_name}` | Calls `expandExpr()` at runtime. Fails on missing vars. | Yes |
+| `includedManagedFolders` required for instances | Folder tiles need folder listed in `projectExportManifest.includedManagedFolders` | Yes |
+| `sectionText` processed as markdown | Uses `from-markdown` directive, not raw HTML only | Yes |
+
+### Recommended Changes (ranked by agent impact)
+
+1. **CLI: validate required tile fields** — `app_designer.py` `_build_tile()` — warn on missing `--dataset`/`--folder`/`--dashboard` per tile type
+2. **Reference doc: mark `GUESS_TRAIN_DEPLOY` as UI-hidden** — `app-designer.md`
+3. **Reference doc: add `INLINE_PYTHON_RUN` known issue** — `app-designer.md`
+4. **Reference doc: document `includedManagedFolders` for instances** — `app-designer.md`
+5. **CLAUDE.md: add `projectAppType` quirk** — dataikuapi quirks section
+
+---
