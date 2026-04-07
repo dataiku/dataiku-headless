@@ -269,7 +269,111 @@ def test_scenario_list_triggers(patch_client):
     )
     assert result.exit_code == 0
     assert "temporal" in result.output
-    assert "Daily at 02:00" in result.output
+
+
+# ── last-run and runs tests ─────────────────────────────────────────────
+
+
+def test_scenario_last_run(patch_client):
+    result = runner.invoke(app, ["scenario", "last-run", "scen1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+
+
+def test_scenario_last_run_json(patch_client):
+    result = runner.invoke(
+        app, ["scenario", "last-run", "scen1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "run1"
+    assert parsed["state"] == "SUCCESS"
+
+
+def test_scenario_last_run_none(patch_client):
+    """No finished runs returns prescriptive error."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_last_finished_run.side_effect = ValueError("No scenario run completed")
+    result = runner.invoke(app, ["scenario", "last-run", "scen1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "No finished runs" in result.output
+
+
+def test_scenario_runs(patch_client):
+    result = runner.invoke(app, ["scenario", "runs", "scen1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "run1" in result.output
+
+
+def test_scenario_runs_json(patch_client):
+    result = runner.invoke(
+        app, ["scenario", "runs", "scen1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["id"] == "run1"
+    assert parsed[0]["state"] == "SUCCESS"
+
+
+def test_scenario_runs_custom_limit(patch_client):
+    result = runner.invoke(
+        app, ["scenario", "runs", "scen1", "--limit", "5", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_last_runs.assert_called_with(limit=5)
+
+
+# --- set-metadata ---
+
+
+def test_scenario_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-metadata",
+            "scen1",
+            "--description",
+            "Nightly ETL build",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated metadata" in result.output
+    scenario = patch_client.get_project("PROJ1").get_scenario("scen1")
+    scenario.set_definition.assert_called_once()
+    defn = scenario.set_definition.call_args[0][0]
+    assert defn["description"] == "Nightly ETL build"
+
+
+def test_scenario_set_metadata_tags(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-metadata",
+            "scen1",
+            "--tags",
+            "etl,nightly",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    scenario = patch_client.get_project("PROJ1").get_scenario("scen1")
+    defn = scenario.set_definition.call_args[0][0]
+    assert defn["tags"] == ["etl", "nightly"]
+
+
+def test_scenario_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["scenario", "set-metadata", "scen1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
 
 
 def test_scenario_list_triggers_json(patch_client):

@@ -1,4 +1,4 @@
-"""dku scenario — list, run, abort, status, create, delete, get/set-definition, triggers."""
+"""dku scenario — list, run, abort, status, runs, last-run, set-metadata, create, delete, get/set-definition, triggers."""
 
 from __future__ import annotations
 
@@ -270,6 +270,137 @@ def set_definition(
         new_def = read_json_input(definition)
         scenario.set_definition(new_def)
         success(f"Updated definition for scenario '{scenario_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Run history commands
+# ---------------------------------------------------------------------------
+
+
+@app.command("last-run")
+def last_run(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show the last finished run of a scenario."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        run = scenario.get_last_finished_run()
+        run_data = (
+            run.get_info()
+            if hasattr(run, "get_info")
+            else {"id": run.id, "state": run.outcome}
+        )
+        render_raw(run_data, output_format=output)
+    except ValueError:
+        exit_with_error(
+            "No finished runs found.",
+            details=[
+                f"Run it first: dku scenario run {scenario_id} -P {project_key}",
+            ],
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def runs(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    limit: int = typer.Option(10, "--limit", help="Max number of runs to show"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List recent runs of a scenario."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        run_list = scenario.get_last_runs(limit=limit)
+        data = []
+        for r in run_list:
+            start = ""
+            if hasattr(r, "get_start_time"):
+                try:
+                    start = str(r.get_start_time())
+                except Exception:
+                    pass
+            data.append(
+                {
+                    "id": r.id,
+                    "state": getattr(r, "outcome", ""),
+                    "start": start,
+                }
+            )
+        render(
+            data,
+            ["id", "state", "start"],
+            output_format=output,
+            title=f"Runs ({scenario_id})",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Metadata commands
+# ---------------------------------------------------------------------------
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Scenario description"
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update scenario description, short description, and/or tags.
+
+    No JSON needed — updates metadata fields via get/set-definition.
+    """
+    if description is None and short_desc is None and tags is None:
+        error("Provide --description, --short-desc, and/or --tags to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        defn = scenario.get_definition()
+        if hasattr(defn, "get_raw"):
+            defn = defn.get_raw()
+
+        if description is not None:
+            defn["description"] = description
+        if short_desc is not None:
+            defn["shortDesc"] = short_desc
+        if tags is not None:
+            defn["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+
+        scenario.set_definition(defn)
+        success(f"Updated metadata for scenario '{scenario_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

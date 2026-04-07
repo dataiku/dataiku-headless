@@ -178,3 +178,48 @@ def test_dashboard_set_definition_from_file(tmp_path, patch_client):
     proj = patch_client.get_project("PROJ1")
     dashboard = proj.get_dashboard("dashboard1")
     dashboard.get_settings().save.assert_called_once()
+
+
+# --- set-metadata ---
+
+
+def test_dashboard_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "set-metadata",
+            "dashboard1",
+            "--description",
+            "Sales overview",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated metadata" in result.output
+    dashboard = patch_client.get_project("PROJ1").get_dashboard("dashboard1")
+    dashboard.get_settings().save.assert_called()
+
+
+def test_dashboard_set_metadata_tags(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "set-metadata",
+            "dashboard1",
+            "--tags",
+            "sales,kpi",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
+def test_dashboard_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["dashboard", "set-metadata", "dashboard1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0

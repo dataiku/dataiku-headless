@@ -1,4 +1,4 @@
-"""dku plugin — list, get, push, delete, settings, code-env management, usages."""
+"""dku plugin — list, get, push, delete, settings, code-env management, usages, file operations."""
 
 from __future__ import annotations
 
@@ -566,5 +566,89 @@ def recipes(
         )
     except SystemExit:
         raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("list-files")
+def list_files(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List files in a dev plugin (hierarchical tree)."""
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        tree = plugin.list_files()
+
+        # Flatten the tree into a list of paths
+        data = []
+
+        def _flatten(node, prefix=""):
+            path = node.get("path", prefix + node.get("name", ""))
+            children = node.get("children")
+            if children:
+                for child in children:
+                    _flatten(child, path + "/" if path else "")
+            else:
+                data.append({"path": path, "name": node.get("name", "")})
+
+        if isinstance(tree, list):
+            for item in tree:
+                _flatten(item)
+        elif isinstance(tree, dict):
+            _flatten(tree)
+
+        render(
+            data,
+            ["path"],
+            output_format=output,
+            title=f"Files ({plugin_id})",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-file")
+def get_file(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    path: str = typer.Option(..., "--path", help="File path within plugin"),
+) -> None:
+    """Get the contents of a file in a dev plugin."""
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        with plugin.get_file(path) as fp:
+            content = fp.read()
+        print(content.decode("utf-8") if isinstance(content, bytes) else content)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("put-file")
+def put_file(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID"),
+    path: str = typer.Option(..., "--path", help="File path within plugin"),
+    content: str = typer.Option(
+        ...,
+        "--content",
+        help="File content: literal string, @file.txt, or '-' for stdin",
+    ),
+) -> None:
+    """Write content to a file in a dev plugin."""
+    import io
+
+    from dku_cli.helpers import read_text_input
+
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        text = read_text_input(content)
+        plugin.put_file(path, io.BytesIO(text.encode("utf-8")))
+        success(f"Wrote {len(text)} bytes to {path} in plugin {plugin_id}")
     except Exception as e:
         handle_api_error(e)

@@ -221,9 +221,21 @@ def mock_client():
     zone_mock = MagicMock()
     zone_mock.id = "zone1"
     zone_mock.name = "Default"
+    # Zone settings mock for set-zone command
+    zone_settings_mock = MagicMock()
+    zone_settings_mock.name = "Default"
+    zone_settings_mock.color = "#2ab1ac"
+    zone_settings_mock.save.return_value = None
+    zone_mock.get_settings.return_value = zone_settings_mock
+
     zone2_mock = MagicMock()
     zone2_mock.id = "XjxKvHzB"
     zone2_mock.name = "Processing"
+    zone2_settings_mock = MagicMock()
+    zone2_settings_mock.name = "Processing"
+    zone2_settings_mock.color = "#FF5500"
+    zone2_settings_mock.save.return_value = None
+    zone2_mock.get_settings.return_value = zone2_settings_mock
     flow_mock.list_zones.return_value = [zone_mock, zone2_mock]
     flow_mock.create_zone.return_value = zone_mock
 
@@ -256,6 +268,69 @@ def mock_client():
     flow_mock.start_tool.return_value = flow_tool_mock
 
     proj1.get_flow.return_value = flow_mock
+
+    # Project Git
+    git_mock = MagicMock()
+    git_mock.get_status.return_value = {
+        "currentBranch": "master",
+        "clean": True,
+        "hasUncommittedChanges": False,
+        "added": [],
+        "changed": [],
+        "removed": [],
+        "modified": [],
+        "untracked": [],
+        "conflicting": [],
+    }
+    git_mock.log.return_value = {
+        "entries": [
+            {
+                "commitId": "abc123def456",
+                "message": "Initial commit",
+                "author": "testuser",
+                "date": 1711900800000,
+            }
+        ],
+        "nextCommit": None,
+    }
+    git_mock.diff.return_value = {
+        "addedLines": 10,
+        "removedLines": 5,
+        "changedFiles": 2,
+        "entries": [],
+    }
+    git_mock.commit.return_value = None
+    git_mock.pull.return_value = {
+        "success": True,
+        "logs": [],
+        "output": "Already up to date",
+    }
+    git_mock.push.return_value = {"success": True, "logs": [], "output": "ok"}
+    git_mock.fetch.return_value = {"success": True, "logs": [], "output": "ok"}
+    git_mock.list_branches.return_value = ["master", "feature/test"]
+    git_mock.create_branch.return_value = {
+        "success": True,
+        "output": "Created branch",
+    }
+    git_mock.delete_branch.return_value = None
+    git_mock.switch.return_value = {
+        "success": True,
+        "messages": [],
+        "output": "Switched",
+    }
+    git_mock.list_tags.return_value = [
+        {
+            "name": "refs/tags/v1.0",
+            "shortName": "v1.0",
+            "commit": "abc123def456",
+            "annotations": "",
+            "readOnly": False,
+        }
+    ]
+    git_mock.create_tag.return_value = None
+    git_mock.get_remote.return_value = "https://github.com/example/project.git"
+    git_mock.set_remote.return_value = None
+    proj1.get_project_git.return_value = git_mock
 
     # Recipe mock — settings uses get_recipe_raw_definition() and get_flat_input/output_refs()
     recipe_mock = MagicMock()
@@ -338,6 +413,25 @@ def mock_client():
     dataset_mock.clear.return_value = None
     dataset_mock.set_definition.return_value = None
     dataset_mock.uploaded_add_file.return_value = None
+    dataset_mock.rename.return_value = None
+    dataset_mock.copy_to.return_value = None
+    dataset_mock.list_partitions.return_value = ["2026-01-01", "2026-01-02"]
+
+    # Dataset metadata (description, tags — separate from definition)
+    dataset_mock.get_metadata.return_value = {
+        "label": "ds1",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
+    }
+    dataset_mock.set_metadata.return_value = None
+    dataset_mock.generate_ai_description.return_value = {
+        "dataset": {"description": "Customer transactions dataset"},
+        "columns": [
+            {"name": "col1", "description": "First column identifier"},
+            {"name": "col2", "description": "Numeric value"},
+        ],
+    }
 
     # autodetect_settings returns a DSSDatasetSettings-like object
     autodetect_result = MagicMock()
@@ -463,6 +557,9 @@ def mock_client():
     scenario_mock.get_definition.return_value = {
         "type": "step_based",
         "name": "Build All",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
         "params": {},
     }
     scenario_mock.set_definition.return_value = None
@@ -493,7 +590,13 @@ def mock_client():
     run_mock.start_time = "2025-01-01T00:00:00"
     run_mock.outcome = "SUCCESS"
     run_mock.trigger = {"type": "manual"}
+    run_mock.get_info.return_value = {
+        "id": "run1",
+        "state": "SUCCESS",
+        "start": "2025-01-01T00:00:00",
+    }
     scenario_mock.get_last_runs.return_value = [run_mock]
+    scenario_mock.get_last_finished_run.return_value = run_mock
     proj1.get_scenario.return_value = scenario_mock
 
     # Job mocks
@@ -611,9 +714,12 @@ def mock_client():
     ]
     dashboard_mock = MagicMock()
     dashboard_settings = MagicMock()
-    dashboard_settings.get_raw.return_value = {
+    dashboard_raw = {
         "id": "dashboard1",
         "name": "Sales Dashboard",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
         "pages": [
             {
                 "id": "page1",
@@ -622,7 +728,12 @@ def mock_client():
             }
         ],
     }
+    dashboard_settings.get_raw.return_value = dashboard_raw
     dashboard_settings.save.return_value = None
+    # DSSTaggableObjectSettings properties for set-metadata
+    dashboard_settings.description = dashboard_raw.get("description", "")
+    dashboard_settings.short_description = dashboard_raw.get("shortDesc", "")
+    dashboard_settings.tags = dashboard_raw.get("tags", [])
     dashboard_mock.get_settings.return_value = dashboard_settings
     dashboard_mock.delete.return_value = None
     dashboard_mock.dashboard_id = "dashboard1"
@@ -637,13 +748,21 @@ def mock_client():
     ]
     insight_mock = MagicMock()
     insight_settings = MagicMock()
-    insight_settings.get_raw.return_value = {
+    insight_raw = {
         "id": "insight1",
         "name": "Sales Chart",
         "type": "chart",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
         "params": {},
     }
+    insight_settings.get_raw.return_value = insight_raw
     insight_settings.save.return_value = None
+    # DSSTaggableObjectSettings properties for set-metadata
+    insight_settings.description = insight_raw.get("description", "")
+    insight_settings.short_description = insight_raw.get("shortDesc", "")
+    insight_settings.tags = insight_raw.get("tags", [])
     insight_mock.get_settings.return_value = insight_settings
     insight_mock.delete.return_value = None
     proj1.get_insight.return_value = insight_mock
@@ -653,20 +772,66 @@ def mock_client():
 
     # Managed folder mock
     folder_mock = MagicMock()
-    folder_mock.id = "aBcDeFgH"
+    folder_mock.id = "folder1"
     folder_mock.list_contents.return_value = {
         "items": [
             {"path": "/data.csv", "size": 1024, "lastModified": 1700000000000},
         ]
     }
     folder_mock.put_file.return_value = None
+    folder_mock.delete.return_value = None
+    folder_mock.delete_file.return_value = None
+    folder_mock.rename.return_value = None
+    folder_settings = MagicMock()
+    folder_settings.get_raw.return_value = {
+        "id": "folder1",
+        "name": "Data Folder",
+        "description": "",
+        "tags": [],
+        "projectKey": "PROJ1",
+        "type": "Filesystem",
+        "params": {
+            "connection": "filesystem_folders",
+            "path": "/${projectKey}/${odbId}",
+        },
+    }
+    # Folder definition (separate from settings) for set-metadata
+    folder_mock.get_definition.return_value = {
+        "id": "folder1",
+        "name": "Data Folder",
+        "description": "",
+        "tags": [],
+        "projectKey": "PROJ1",
+        "type": "Filesystem",
+    }
+    folder_mock.set_definition.return_value = None
+    folder_settings.save.return_value = None
+    folder_mock.get_settings.return_value = folder_settings
+    folder_dataset_mock = MagicMock()
+    folder_mock.create_dataset_from_files.return_value = folder_dataset_mock
     proj1.get_managed_folder.return_value = folder_mock
-    proj1.create_managed_folder.return_value = folder_mock
+
+    # Folder creation mock
+    new_folder_mock = MagicMock()
+    new_folder_mock.id = "aBcDeFgH"
+    proj1.create_managed_folder.return_value = new_folder_mock
 
     # Saved model mock — uses get_settings().get_raw() and get_active_version()
     model_mock = MagicMock()
     model_settings = MagicMock()
-    model_settings.get_raw.return_value = {"name": "My Model", "type": "PREDICTION"}
+    model_raw = {
+        "name": "My Model",
+        "type": "PREDICTION",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
+    }
+    model_settings.get_raw.return_value = model_raw
+    model_settings.save.return_value = None
+    # DSSTaggableObjectSettings properties for set-metadata
+    model_settings.description = model_raw.get("description", "")
+    model_settings.short_description = model_raw.get("shortDesc", "")
+    model_settings.tags = model_raw.get("tags", [])
     model_mock.get_settings.return_value = model_settings
     model_mock.get_active_version.return_value = {"id": "v1"}
     model_mock.list_versions.return_value = [
@@ -739,8 +904,11 @@ def mock_client():
             "llm1": llm_mock,
             "embedding1": embedding_llm_mock,
             "azureopenai:Azure_AI_Connection:4o": llm_mock,
+            "agent:agent1": llm_mock,
+            "agent:agent_blocks": llm_mock,
+            "agent:structured_agent": llm_mock,
         }
-        return llms[llm_id]
+        return llms.get(llm_id, llm_mock)
 
     proj1.list_llms.side_effect = _list_llms
     proj1.get_llm.return_value = llm_mock
@@ -817,6 +985,10 @@ def mock_client():
     agent_settings.type = "TOOLS_USING_AGENT"
     agent_settings.get_version_ids.return_value = ["v1"]
     agent_settings.save.return_value = None
+    # DSSTaggableObjectSettings properties for set-metadata
+    agent_settings.description = ""
+    agent_settings.short_description = ""
+    agent_settings.tags = []
 
     # Build a version settings mock that behaves like DSSAgentVersionSettings
     agent_ver_settings = MagicMock()
@@ -846,6 +1018,7 @@ def mock_client():
     agent_mock.wake_up.return_value = None
     agent_mock.shutdown.return_value = None
     agent_mock.id = "agent1"
+    agent_mock.as_llm.return_value = llm_mock
 
     # Agent with BLOCKS_GRAPH mode (for agent-block commands)
     agent_blocks_mock = MagicMock()
@@ -968,10 +1141,35 @@ def mock_client():
     structured_agent_mock.shutdown.return_value = None
     structured_agent_mock.id = "structured_agent"
 
-    # Include structured_agent in list_agents
+    # Structured Agent with NO structuredAgentSettings initialized (newly created)
+    structured_agent_empty_mock = MagicMock()
+    structured_agent_empty_version_data = {"versionId": "v1"}
+    structured_agent_empty_raw = {
+        "projectKey": "PROJ1",
+        "id": "structured_agent_empty",
+        "name": "Empty Structured Agent",
+        "type": "STRUCTURED_AGENT",
+        "activeVersion": "v1",
+        "versions": [structured_agent_empty_version_data],
+    }
+    structured_agent_empty_settings = MagicMock()
+    structured_agent_empty_settings.get_raw.return_value = structured_agent_empty_raw
+    structured_agent_empty_settings.active_version = "v1"
+    structured_agent_empty_settings.type = "STRUCTURED_AGENT"
+    structured_agent_empty_settings.get_version_ids.return_value = ["v1"]
+    structured_agent_empty_settings.save.return_value = None
+    structured_agent_empty_mock.get_settings.return_value = (
+        structured_agent_empty_settings
+    )
+    structured_agent_empty_mock.status.return_value = {"state": "STOPPED"}
+    structured_agent_empty_mock.id = "structured_agent_empty"
+
+    # Include structured_agent and structured_agent_empty in list_agents
     proj1.list_agents.return_value = [
         {"id": "agent1", "name": "My Agent"},
+        {"id": "agent_blocks", "name": "Block Agent"},
         {"id": "structured_agent", "name": "Structured Agent"},
+        {"id": "structured_agent_empty", "name": "Empty Structured Agent"},
     ]
 
     # Route get_agent by agent_id
@@ -982,6 +1180,8 @@ def mock_client():
             return agent_blocks_mock
         if agent_id == "structured_agent":
             return structured_agent_mock
+        if agent_id == "structured_agent_empty":
+            return structured_agent_empty_mock
         raise Exception(f"NotFoundException: Agent {agent_id} does not exist")
 
     proj1.get_agent.side_effect = _get_agent
@@ -1023,6 +1223,269 @@ def mock_client():
     tool_builder.with_knowledge_bank.return_value = tool_builder
     tool_builder.create.return_value = new_tool_mock
     proj1.new_agent_tool.return_value = tool_builder
+
+    # Agent reviews
+    review_item = MagicMock()
+    review_item.id = "review1"
+    review_item.name = "Quality Check"
+    review_item.data = {
+        "id": "review1",
+        "name": "Quality Check",
+        "agentSmartId": "agent1",
+        "owner": "testuser",
+        "helperLLMId": "llm1",
+        "traits": [],
+    }
+    proj1.list_agent_reviews.return_value = [review_item]
+
+    review_mock = MagicMock()
+    review_mock.id = "review1"
+    review_mock.name = "Quality Check"
+    review_mock.agent_id = "agent1"
+    review_mock.helper_llm_id = "llm1"
+    review_mock.data = {
+        "id": "review1",
+        "name": "Quality Check",
+        "agentSmartId": "agent1",
+        "owner": "testuser",
+        "helperLLMId": "llm1",
+        "traits": [],
+    }
+    review_mock.get_raw.return_value = review_mock.data
+    review_mock.save.return_value = review_mock
+    review_mock.delete.return_value = None
+    review_mock.add_trait.return_value = None
+
+    # Review tests
+    review_test_mock = MagicMock()
+    review_test_mock.id = "test1"
+    review_test_mock.query = "What is 2+2?"
+    review_test_mock.reference_answer = "4"
+    review_test_mock.expectations = "Should be numeric"
+    review_mock.list_tests.return_value = [review_test_mock]
+    review_mock.create_test.return_value = review_test_mock
+    review_mock.create_tests_from_dataset.return_value = {
+        "createdTestIds": ["t1", "t2", "t3"],
+        "error": None,
+    }
+    review_mock.export_tests_to_dataset.return_value = {
+        "exportedTestCount": 3,
+        "error": None,
+    }
+
+    # Review runs
+    review_run_mock = MagicMock()
+    review_run_mock.id = "run1"
+    review_run_mock.name = "nightly-eval"
+    review_run_mock.status = "COMPLETED"
+    review_run_mock.agent_id = "agent1"
+    review_mock.list_runs.return_value = [review_run_mock]
+    review_mock.perform_run.return_value = review_run_mock
+    review_mock.get_run.return_value = review_run_mock
+
+    # Review results
+    review_result_mock = MagicMock()
+    review_result_mock.id = "result1"
+    review_result_mock.test_id = "test1"
+    review_result_mock.query = "What is 2+2?"
+    review_result_mock.status = "PASSED"
+    review_run_mock.list_results.return_value = [review_result_mock]
+
+    def _get_agent_review(review_id):
+        if review_id == "review1":
+            return review_mock
+        raise Exception(f"NotFoundException: Agent review {review_id} does not exist")
+
+    proj1.get_agent_review.side_effect = _get_agent_review
+    proj1.create_agent_review.return_value = review_mock
+
+    # Code Studios
+    cs_list_item = MagicMock()
+    cs_list_item.id = "cs1"
+    cs_list_item.name = "My Studio"
+    cs_list_item.owner = "testuser"
+    cs_list_item.template_id = "tpl1"
+    cs_list_item.template_label = "Python Notebook"
+    proj1.list_code_studios.return_value = [cs_list_item]
+
+    cs_mock = MagicMock()
+    cs_settings = MagicMock()
+    cs_settings.get_raw.return_value = {
+        "id": "cs1",
+        "name": "My Studio",
+        "templateId": "tpl1",
+        "owner": "testuser",
+    }
+    cs_settings.id = "cs1"
+    cs_settings.name = "My Studio"
+    cs_settings.template_id = "tpl1"
+    cs_settings.owner = "testuser"
+    cs_mock.get_settings.return_value = cs_settings
+    cs_status = MagicMock()
+    cs_status.state = "STOPPED"
+    cs_status.last_state_change = None
+    cs_status.get_raw.return_value = {"state": "STOPPED"}
+    cs_mock.get_status.return_value = cs_status
+    cs_mock.restart.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    cs_mock.stop.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    cs_mock.delete.return_value = None
+    cs_mock.change_owner.return_value = {"id": "cs1", "owner": "newuser"}
+    cs_mock.id = "cs1"
+    proj1.get_code_studio.return_value = cs_mock
+    proj1.create_code_studio.return_value = cs_mock
+
+    # Code Studio templates (client-level)
+    cs_tpl = MagicMock()
+    cs_tpl.id = "tpl1"
+    cs_tpl.label = "Python Notebook"
+    client.list_code_studio_templates.return_value = [cs_tpl]
+
+    # API Deployer
+    api_deployer_mock = MagicMock()
+    api_deployer_mock.list_infras.return_value = [
+        {"infraBasicInfo": {"id": "infra1", "type": "STATIC"}},
+    ]
+    api_deployer_mock.list_services.return_value = [
+        {"serviceBasicInfo": {"id": "svc1"}},
+    ]
+
+    api_svc_handle = MagicMock()
+    api_svc_settings = MagicMock()
+    api_svc_settings.get_raw.return_value = {"id": "svc1"}
+    api_svc_handle.get_settings.return_value = api_svc_settings
+    api_deployer_mock.get_service.return_value = api_svc_handle
+
+    api_deployer_mock.list_deployments.return_value = [
+        {
+            "deploymentBasicInfo": {
+                "id": "dep1",
+                "serviceId": "svc1",
+                "infraId": "infra1",
+            }
+        },
+    ]
+
+    api_dep_handle = MagicMock()
+    api_dep_settings = MagicMock()
+    api_dep_settings.get_raw.return_value = {
+        "id": "dep1",
+        "serviceId": "svc1",
+        "infraId": "infra1",
+    }
+    api_dep_handle.get_settings.return_value = api_dep_settings
+    api_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    api_dep_handle.start_update.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    api_dep_handle.delete.return_value = None
+    api_deployer_mock.get_deployment.return_value = api_dep_handle
+    api_deployer_mock.create_deployment.return_value = api_dep_handle
+
+    client.get_apideployer.return_value = api_deployer_mock
+
+    # Project Deployer
+    proj_deployer_mock = MagicMock()
+    proj_deployer_mock.list_infras.return_value = [
+        {"infraBasicInfo": {"id": "auto_infra1", "type": "STATIC"}},
+    ]
+    proj_deployer_mock.list_projects.return_value = [
+        {"projectBasicInfo": {"id": "dp1"}},
+    ]
+    proj_deployer_mock.list_deployments.return_value = [
+        {
+            "deploymentBasicInfo": {
+                "id": "pdep1",
+                "projectKey": "dp1",
+                "infraId": "auto_infra1",
+            }
+        },
+    ]
+
+    proj_dep_handle = MagicMock()
+    proj_dep_settings = MagicMock()
+    proj_dep_settings.get_raw.return_value = {
+        "id": "pdep1",
+        "projectId": "dp1",
+        "infraId": "auto_infra1",
+    }
+    proj_dep_handle.get_settings.return_value = proj_dep_settings
+    proj_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    proj_dep_handle.start_update.return_value = MagicMock(
+        wait_for_result=MagicMock(return_value={"success": True})
+    )
+    proj_dep_handle.delete.return_value = None
+    proj_deployer_mock.get_deployment.return_value = proj_dep_handle
+    proj_deployer_mock.create_deployment.return_value = proj_dep_handle
+
+    client.get_projectdeployer.return_value = proj_deployer_mock
+
+    # Notebooks
+    jupyter_nb = MagicMock()
+    jupyter_nb.name = "my_notebook"
+    proj1.list_jupyter_notebooks.return_value = [jupyter_nb]
+
+    sql_nb = MagicMock()
+    sql_nb.name = "my_sql_notebook"
+    sql_nb._data = {
+        "id": "sql_nb1",
+        "name": "my_sql_notebook",
+        "connection": "postgres",
+    }
+    proj1.list_sql_notebooks.return_value = [sql_nb]
+
+    nb_mock = MagicMock()
+    nb_content = MagicMock()
+    nb_content.get_raw.return_value = {"cells": [], "metadata": {}}
+    nb_content.save.return_value = None
+    nb_mock.get_content.return_value = nb_content
+    nb_mock.get_sessions.return_value = []
+    nb_mock.unload.return_value = {}
+    nb_mock.delete.return_value = None
+    nb_mock.clear_outputs.return_value = None
+    nb_mock.name = "my_notebook"
+    proj1.get_jupyter_notebook.return_value = nb_mock
+    proj1.create_jupyter_notebook.return_value = nb_mock
+
+    sql_nb_mock = MagicMock()
+    sql_nb_content = MagicMock()
+    sql_nb_content.get_raw.return_value = {"connection": "postgres", "cells": []}
+    sql_nb_mock.get_content.return_value = sql_nb_content
+    sql_history = MagicMock()
+    sql_history.get_raw = MagicMock(return_value={"queries": []})
+    sql_nb_mock.get_history.return_value = sql_history
+    sql_nb_mock.delete.return_value = None
+    proj1.get_sql_notebook.return_value = sql_nb_mock
+
+    proj1.list_running_notebooks.return_value = [
+        {
+            "projectKey": "PROJ1",
+            "name": "my_notebook",
+            "kernelId": "k1",
+            "sessionId": "s1",
+        }
+    ]
+
+    # Discussions (on dataset_mock since it's most common)
+    disc_mock = MagicMock()
+    disc_metadata = {"id": "disc1", "topic": "Data quality issue"}
+    disc_mock.get_metadata.return_value = disc_metadata
+    disc_reply = MagicMock()
+    disc_reply.get_text.return_value = "Fixed in v2"
+    disc_reply.get_author.return_value = "admin"
+    disc_mock.get_replies.return_value = [disc_reply]
+    disc_mock.add_reply.return_value = None
+
+    discussions_mock = MagicMock()
+    discussions_mock.list_discussions.return_value = [disc_mock]
+    discussions_mock.get_discussion.return_value = disc_mock
+    discussions_mock.create_discussion.return_value = disc_mock
+
+    dataset_mock.get_object_discussions.return_value = discussions_mock
+    recipe_mock.get_object_discussions.return_value = discussions_mock
 
     # Knowledge banks
     proj1.list_knowledge_banks.return_value = [{"id": "kb1", "name": "My KB"}]
@@ -1568,6 +2031,13 @@ def mock_client():
     }
     conn_mock = MagicMock()
     conn_mock.test.return_value = {"ok": True}
+    conn_settings_mock = MagicMock()
+    conn_settings_mock.get_raw.return_value = {
+        "name": "filesystem_managed",
+        "type": "Filesystem",
+    }
+    conn_mock.get_settings.return_value = conn_settings_mock
+    conn_mock.delete.return_value = None
     client.get_connection.return_value = conn_mock
 
     # Users
@@ -1585,6 +2055,47 @@ def mock_client():
             "groups": ["data_team"],
         },
     ]
+
+    # User get/delete mocks
+    user_mock = MagicMock()
+    user_settings_mock = MagicMock()
+    user_settings_mock.get_raw.return_value = {
+        "login": "testuser",
+        "displayName": "Test User",
+        "email": "test@test.com",
+    }
+    user_mock.get_settings.return_value = user_settings_mock
+    user_mock.delete.return_value = None
+    client.get_user.return_value = user_mock
+
+    # Saved model delete/usages (proj1's model_mock already exists above)
+    model_mock.delete.return_value = None
+    model_mock.get_usages.return_value = {"usedIn": []}
+
+    # Plugin file operations — list_files returns tree, get_file returns context manager
+    import io
+
+    plugin_tree = [
+        {
+            "name": "python-lib",
+            "path": "python-lib",
+            "children": [
+                {"name": "mylib.py", "path": "python-lib/mylib.py"},
+            ],
+        },
+        {"name": "plugin.json", "path": "plugin.json"},
+    ]
+
+    plugin_file_cm = MagicMock()
+    plugin_file_cm.__enter__ = MagicMock(
+        return_value=io.BytesIO(b"# plugin file content")
+    )
+    plugin_file_cm.__exit__ = MagicMock(return_value=False)
+
+    plugin_file_mock = client.get_plugin.return_value
+    plugin_file_mock.list_files.return_value = plugin_tree
+    plugin_file_mock.get_file.return_value = plugin_file_cm
+    plugin_file_mock.put_file.return_value = None
 
     return client
 

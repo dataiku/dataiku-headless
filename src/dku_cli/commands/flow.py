@@ -1,12 +1,13 @@
-"""dku flow — graph, zones, move, propagate, check, sources, successors."""
+"""dku flow — graph, zones, create-zone, set-zone, move, propagate, check, sources, successors."""
 
 from __future__ import annotations
 
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import get_client_from_ctx, resolve_folder, resolve_project
 from dku_cli.output import (
+    error,
     render,
     render_dag,
     render_raw,
@@ -109,6 +110,9 @@ def zones(
 def create_zone(
     ctx: typer.Context,
     name: str = typer.Argument(help="Zone name"),
+    color: str | None = typer.Option(
+        None, "--color", "-c", help="Zone color (hex, e.g. #FF5500)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a new flow zone."""
@@ -118,7 +122,44 @@ def create_zone(
         proj = client.get_project(project_key)
         flow = proj.get_flow()
         zone = flow.create_zone(name)
+        if color is not None:
+            settings = zone.get_settings()
+            settings.color = color
+            settings.save()
         success(f"Created zone '{name}' (id: {zone.id})")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-zone")
+def set_zone(
+    ctx: typer.Context,
+    zone_ref: str = typer.Argument(help="Zone name or ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    name: str | None = typer.Option(None, "--name", "-n", help="New zone name"),
+    color: str | None = typer.Option(
+        None, "--color", "-c", help="Zone color (hex, e.g. #FF5500)"
+    ),
+) -> None:
+    """Update a flow zone's name and/or color."""
+    if name is None and color is None:
+        error("Provide --name and/or --color to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        flow = proj.get_flow()
+        zone = _resolve_zone(flow, zone_ref, project_key)
+        settings = zone.get_settings()
+        if name is not None:
+            settings.name = name
+        if color is not None:
+            settings.color = color
+        settings.save()
+        success(f"Updated zone '{zone_ref}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -205,7 +246,10 @@ def move(
         resolved = []
         for name in items:
             try:
-                obj = getattr(proj, resolver_method)(name)
+                if item_type_upper == "MANAGED_FOLDER":
+                    obj = resolve_folder(proj, name)
+                else:
+                    obj = getattr(proj, resolver_method)(name)
                 resolved.append(obj)
             except Exception as e:
                 if is_not_found_error(e):
