@@ -13,24 +13,24 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [auth](#auth) — login, logout, status, list, switch
 - [config](#config) — set, get, list, path, variables, set-variables
 - [project](#project) — list, get, inspect, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
-- [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
+- [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions
 - [recipe](#recipe) — list, get, get-definition, get-settings, set-settings, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
-- [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition
+- [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition, last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger
 - [job](#job) — list, run, status, log, abort, wait
-- [plugin](#plugin) — list, push, settings
+- [plugin](#plugin) — list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages, recipes, list-files, get-file, put-file
 - [code-env](#code-env) — list, get, create, delete, update
-- [connection](#connection) — list, create, test
-- [model](#model) — list, get, versions
-- [folder](#folder) — list, ls, upload, download
+- [connection](#connection) — list, get, create, delete, test
+- [model](#model) — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata
+- [folder](#folder) — list, ls, upload, download, create, delete, delete-file, get, create-dataset, set-metadata
 - [llm](#llm) — list, completion, embeddings
 - [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
-- [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition
-- [insight](#insight) — list, get, create, delete, get-definition, set-definition
+- [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition, set-metadata
+- [insight](#insight) — list, get, create, delete, get-definition, set-definition, validate, set-metadata
 - [macro](#macro) — list, run
-- [user](#user) — list, create
-- [flow](#flow) — graph, zones, create-zone, propagate, check, sources, successors
+- [user](#user) — list, get, create, delete
+- [flow](#flow) — graph, visualize, zones, create-zone, set-zone, move, propagate, check, sources, successors
 - [library](#library) — list, read, write, delete, mkdir
-- [agent](#agent) — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm
+- [agent](#agent) — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, set-metadata
 - [agent-review](#agent-review) — list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results
 - [agent-tool](#agent-tool) — list, get, create, set-definition, run, types, delete
 - [code-studio](#code-studio) — list, create, get, delete, status, start, stop, change-owner, templates
@@ -121,6 +121,12 @@ dku dataset clear DATASET_NAME [-P PROJECT]
 dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
 dku dataset set-definition DATASET_NAME [-P PROJECT] --definition JSON
 dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
+dku dataset set-metadata DATASET_NAME [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
+dku dataset set-column-description DATASET_NAME COL1 "DESC1" COL2 "DESC2" [-P PROJECT]
+dku dataset ai-describe DATASET_NAME [-P PROJECT] [--language LANG] [--save] [-o FORMAT]
+dku dataset rename DATASET_NAME --name NEW_NAME [-P PROJECT]
+dku dataset copy DATASET_NAME --to-project PROJECT_KEY [--name NAME] [-P PROJECT]
+dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 ```
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
@@ -132,6 +138,12 @@ dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
+- `set-metadata` updates description, short description, and/or tags without needing JSON. Provide at least one of `--description`, `--short-desc`, `--tags`
+- `set-column-description` takes alternating column-name description pairs (even count required)
+- `ai-describe` calls DSS AI Services to generate descriptions for the dataset and its columns. Requires 'Generate Metadata' enabled in DSS admin. `--save` persists descriptions to the dataset; without it, only displays suggestions. `--language`: english (default), french, german, dutch, portuguese, spanish
+- `rename` renames the dataset in place
+- `copy --to-project` copies a dataset to another project. `--name` overrides the name in the target (default: same name)
+- `partitions` lists the partitions of a partitioned dataset
 
 ## recipe
 
@@ -276,7 +288,22 @@ dku scenario create NAME [--type step_based] [-P PROJECT] [--definition JSON] [-
 dku scenario delete SCENARIO_ID [-P PROJECT]
 dku scenario get-definition SCENARIO_ID [-P PROJECT] [-o json]
 dku scenario set-definition SCENARIO_ID --definition JSON [-P PROJECT]
+dku scenario last-run SCENARIO_ID [-P PROJECT] [-o FORMAT]
+dku scenario runs SCENARIO_ID [--limit N] [-P PROJECT] [-o FORMAT]
+dku scenario set-metadata SCENARIO_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
+dku scenario list-triggers SCENARIO_ID [-P PROJECT] [-o FORMAT]
+dku scenario add-trigger SCENARIO_ID --trigger JSON [-P PROJECT]
+dku scenario add-trigger-dataset SCENARIO_ID --dataset DS [--delay SECS] [--grace-delay SECS] [-P PROJECT]
+dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 ```
+
+- `last-run` shows the last finished run of a scenario
+- `runs` lists recent runs (default limit: 10). Use `--limit` to change
+- `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
+- `list-triggers` shows all triggers configured on a scenario (type, active status, params)
+- `add-trigger --trigger` accepts raw trigger JSON (inline, `@file.json`, or `-` for stdin). Must include `type`, `active`, and `params` fields
+- `add-trigger-dataset` is a convenience shortcut for dataset-change triggers. `--delay` is the check interval in seconds (default: 120). `--grace-delay` is the stabilization period (default: 0)
+- `remove-trigger --index` removes a trigger by its 0-based index (use `list-triggers` to find the index)
 
 ## job
 
@@ -301,22 +328,32 @@ Instance-level (no project needed).
 ```bash
 dku plugin list [-o FORMAT]
 dku plugin get PLUGIN_ID [-o FORMAT]
-dku plugin push ZIP_PATH [--update/--install]
+dku plugin push ZIP_OR_DIR [--update/--install]
 dku plugin delete PLUGIN_ID [--confirm/--yes/-y] [--force]
 dku plugin settings PLUGIN_ID [-o FORMAT] [--set key=value ...]
 dku plugin create-code-env PLUGIN_ID [--wait/--no-wait] [-o FORMAT]
 dku plugin set-code-env PLUGIN_ID ENV_NAME
 dku plugin update-code-env PLUGIN_ID [--wait/--no-wait]
 dku plugin usages PLUGIN_ID [-P PROJECT] [-o FORMAT]
+dku plugin recipes [PLUGIN_ID] [-o FORMAT]
+dku plugin list-files PLUGIN_ID [-o FORMAT]
+dku plugin get-file PLUGIN_ID --path FILE_PATH
+dku plugin put-file PLUGIN_ID --path FILE_PATH --content CONTENT
 ```
 
 - `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install
+- `push` accepts a directory (containing `plugin.json`) or a `.zip` archive
 - `get` shows plugin details including version, code env, and dev status
 - `create-code-env` creates and waits for the managed code env (use after first install)
 - `set-code-env` assigns a code env to the plugin (use after create-code-env)
 - `update-code-env` rebuilds the code env after dependency changes
 - `usages` shows where plugin components are used; filter by project with `-P`
 - First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
+- `recipes` lists plugin recipe types available for `dku recipe create --type`. Shows the full type string (e.g., `CustomCode_plugin_recipe`). Omit PLUGIN_ID to list from all plugins
+- `list-files` lists files in a dev plugin as a flattened path tree (dev plugins only)
+- `get-file --path` prints the contents of a file in a dev plugin
+- `put-file --path` writes content to a file in a dev plugin. `--content` accepts literal string, `@file.txt`, or `-` for stdin
+- `delete --force` force-deletes even if the plugin is used by recipes, agents, etc. Requires `--confirm`/`--yes`/`-y`
 
 ## code-env
 
@@ -334,9 +371,14 @@ Admin-only. 403 if non-admin.
 
 ```bash
 dku connection list [-o FORMAT]
+dku connection get CONNECTION_NAME [-o FORMAT]
 dku connection create NAME --type TYPE [--definition JSON]
+dku connection delete CONNECTION_NAME [--yes]
 dku connection test CONNECTION_NAME
 ```
+
+- `get` shows connection details including type, params, and usability settings
+- `delete` removes the connection. `--yes` skips confirmation
 
 ## model
 
@@ -344,18 +386,47 @@ dku connection test CONNECTION_NAME
 dku model list [-P PROJECT] [-o FORMAT]
 dku model get MODEL_ID [-P PROJECT] [-o FORMAT]
 dku model versions MODEL_ID [-P PROJECT] [-o FORMAT]
+dku model set-active-version MODEL_ID VERSION_ID [-P PROJECT]
+dku model metrics MODEL_ID [--version VERSION_ID] [-P PROJECT] [-o FORMAT]
+dku model delete-version MODEL_ID --version VERSION_ID [--version VERSION_ID2] [-P PROJECT]
+dku model delete MODEL_ID [-P PROJECT]
+dku model usages MODEL_ID [-P PROJECT] [-o json]
+dku model set-metadata MODEL_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 ```
+
+- `set-active-version` activates a version; downstream prediction recipes and API endpoints use it
+- `metrics` shows performance metrics (AUC, accuracy, RMSE, etc.) for the active version by default. `--version` inspects a specific version
+- `delete-version --version` is repeatable to delete multiple versions at once
+- `delete` removes the entire saved model
+- `usages` shows where the model is used (recipes, endpoints, etc.) as JSON
+- `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
 
 ## folder
 
-Managed folders.
+Managed folders. Commands accept folder ID (8-char hash) or folder name.
 
 ```bash
 dku folder list [-P PROJECT] [-o FORMAT]
-dku folder ls FOLDER_ID [-P PROJECT] [-o FORMAT]
-dku folder upload FOLDER_ID FILE_PATH [-P PROJECT] [--remote-path PATH]
-dku folder download FOLDER_ID REMOTE_PATH [-P PROJECT] [--dest DIR]
+dku folder create NAME [-c CONNECTION] [--type TYPE] [-P PROJECT] [--if-not-exists] [-o FORMAT]
+dku folder delete FOLDER_REF [-P PROJECT] [--yes]
+dku folder get FOLDER_REF [-P PROJECT] [-o FORMAT]
+dku folder ls FOLDER_REF [--prefix PATH] [-P PROJECT] [-o FORMAT]
+dku folder upload FOLDER_REF FILE_PATH [--path REMOTE_PATH] [-P PROJECT]
+dku folder download FOLDER_REF REMOTE_PATH [--dest DIR] [-P PROJECT]
+dku folder delete-file FOLDER_REF PATH [-P PROJECT]
+dku folder create-dataset FOLDER_REF DATASET_NAME [-P PROJECT]
+dku folder set-metadata FOLDER_REF [-P PROJECT] [--description DESC] [--tags TAGS]
 ```
+
+- `create` returns the folder ID (8-char hash) needed by other commands. Default connection: `filesystem_folders`. Use `--connection` for S3/GCS/etc
+- `create --if-not-exists` skips creation silently when a folder with that name already exists (idempotent)
+- `delete` removes the folder from the flow but does NOT delete file contents from underlying storage. `--yes` skips confirmation
+- `get` shows folder settings: name, type, connection, path
+- `ls --prefix` filters listed contents by path prefix (default: `/`)
+- `delete-file` deletes a file within the folder (idempotent -- no error if file doesn't exist)
+- `create-dataset` creates a FilesInFolder dataset from the folder, useful for feeding documents into embed-docs or extract recipes
+- `set-metadata` updates folder description and/or tags. Provide at least one of `--description`, `--tags`
+- Workflow: `create` -> `upload` -> `create-dataset` -> `recipe create-embed-docs`
 
 ## llm
 
@@ -400,8 +471,10 @@ dku dashboard create NAME [-P PROJECT] [--definition JSON] [--if-not-exists]
 dku dashboard delete DASHBOARD_ID [-P PROJECT]
 dku dashboard get-definition DASHBOARD_ID [-P PROJECT] [-o json]
 dku dashboard set-definition DASHBOARD_ID --definition JSON [-P PROJECT]
+dku dashboard set-metadata DASHBOARD_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 ```
 
+- `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
 - No create via API for individual tiles/charts — manage via the raw JSON definition
 - `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
 - Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
@@ -418,8 +491,10 @@ dku insight delete INSIGHT_ID [-P PROJECT]
 dku insight get-definition INSIGHT_ID [-P PROJECT] [-o json]
 dku insight set-definition INSIGHT_ID --definition JSON [-P PROJECT]
 dku insight validate INSIGHT_ID [-P PROJECT]
+dku insight set-metadata INSIGHT_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 ```
 
+- `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `create` defaults to `--type dataset_table`. Common types: `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`, `eda`, `jupyter`
 - `--dataset` / `--ds` binds the insight to a dataset (sets `params.datasetSmartName`). Required for chart/dataset_table types
 - `--definition` overrides/extends creation info (merged with `--type` and name)
@@ -436,8 +511,13 @@ dku macro run MACRO_ID [-P PROJECT]
 
 ```bash
 dku user list [-o FORMAT]
+dku user get LOGIN [-o FORMAT]
 dku user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--groups G1,G2]
+dku user delete LOGIN [--yes]
 ```
+
+- `get` shows user details including display name, email, groups, and admin status
+- `delete` removes the user. `--yes` skips confirmation
 
 ## flow
 
@@ -445,13 +525,19 @@ dku user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--g
 dku flow graph [-P PROJECT] [-o FORMAT]
 dku flow visualize [-P PROJECT]
 dku flow zones [-P PROJECT] [-o FORMAT]
-dku flow create-zone NAME [-P PROJECT]
+dku flow create-zone NAME [--color HEX] [-P PROJECT]
+dku flow set-zone ZONE_REF [--name NAME] [--color HEX] [-P PROJECT]
+dku flow move ITEM [ITEM2 ...] --zone ZONE [-t TYPE] [-P PROJECT]
 dku flow propagate DATASET [-P PROJECT] [--stop-at RECIPE ...] [--mark-ok RECIPE ...] [--no-auto-rebuild] [-o FORMAT]
 dku flow check [-P PROJECT] [-o FORMAT]
 dku flow sources [DATASET] [-P PROJECT] [-o FORMAT]
 dku flow successors NODE [-P PROJECT] [-o FORMAT]
 ```
 
+- `visualize` renders the flow DAG as an ASCII tree
+- `create-zone --color` sets the zone color as hex (e.g., `#FF5500`)
+- `set-zone` updates a zone's name and/or color. Accepts zone name or ID
+- `move` moves items to a flow zone. `--type`/`-t`: DATASET (default), RECIPE, MANAGED_FOLDER, SAVED_MODEL. Accepts multiple items at once
 - `sources` without arguments lists all flow source datasets. With a `DATASET` argument, lists upstream sources for that specific dataset
 - `propagate` requires a dataset name as starting point for schema propagation
 - `propagate --stop-at` stops propagation at the given recipe (repeatable)
@@ -485,10 +571,16 @@ dku agent shutdown AGENT_ID [-P PROJECT]
 dku agent status AGENT_ID [-P PROJECT] [-o FORMAT]
 dku agent add-tool AGENT_ID --tool TOOL_ID [-P PROJECT]
 dku agent set-llm AGENT_ID --llm-id LLM_ID [-P PROJECT]
+dku agent set-prompt AGENT_ID --prompt PROMPT [-P PROJECT]
+dku agent test AGENT_ID QUERY [-P PROJECT] [-o text|json]
+dku agent set-metadata AGENT_REF [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 ```
 
 - `create --type` defaults to TOOLS_USING_AGENT. Options: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT
 - `set-llm` and `add-tool` operate on the active version
+- `set-prompt` sets the system prompt on the active version. `--prompt` accepts literal string, `@file.txt`, or `-` for stdin. Auto-detects agent type: uses `systemPrompt` for simple agents, `systemPromptAppend` for structured agents
+- `test` sends a query to the agent and displays the response. ALWAYS test agents after creation or modification. `-o json` returns agent_id, query, response, and success status
+- `set-metadata` updates description, short description, and/or tags. Accepts agent ID or name. Provide at least one of `--description`, `--short-desc`, `--tags`
 
 ## agent-block
 
@@ -743,6 +835,7 @@ dku semantic-model update-index SM_REF [--version VID] [--wait] [-P PROJECT]
 - `create` returns auto-generated ID (not name) — capture it
 - `--version` defaults to the active version when omitted
 - `create-version` does NOT persist until the server is called — `new_version().save()` is handled internally
+- `create-version --duplicate-of` clones an existing version's configuration
 - `set-version` merges JSON into current version settings (shallow merge). Get current: `dku semantic-model get-version SM -o json`
 - `distinct-values` requires `--entity` AND `--attribute` together, or neither (for all attributes)
 - `update-index` triggers distinct values indexing (async). Use `--wait` to block until complete

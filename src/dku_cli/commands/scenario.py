@@ -1,4 +1,4 @@
-"""dku scenario — list, run, abort, status, runs, last-run, set-metadata, create, delete, get/set-definition, triggers."""
+"""dku scenario — list, run, abort, status, runs, last-run, set-metadata, create, delete, get/set-definition, get/set-code, triggers."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ import time
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    read_text_input,
+    resolve_project,
+)
 from dku_cli.output import (
     error,
     info,
@@ -270,6 +275,49 @@ def set_definition(
         new_def = read_json_input(definition)
         scenario.set_definition(new_def)
         success(f"Updated definition for scenario '{scenario_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-code")
+def get_code(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Get the script/code of a scenario."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        payload = scenario.get_payload()
+        print(payload)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-code")
+def set_code(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    code: str = typer.Option(
+        ...,
+        "--code",
+        "-c",
+        help="Scenario script (literal, @file.py, or - for stdin)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the script/code of a scenario."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        script = read_text_input(code)
+        scenario.set_payload(script)
+        success(f"Updated code for scenario '{scenario_id}'")
     except Exception as e:
         handle_api_error(e)
 

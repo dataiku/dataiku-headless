@@ -1,4 +1,4 @@
-"""dku code-env — list, get, create, delete, update."""
+"""dku code-env — list, get, create, delete, update, set-packages, usages, logs."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import info, render, resolve_output_format, success
+from dku_cli.helpers import get_client_from_ctx, read_text_input
+from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS code environments.")
 
@@ -144,5 +144,111 @@ def update(
         info("Updating packages...")
         env.update_packages()
         success(f"Updated packages for '{name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-packages")
+def set_packages(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Code environment name"),
+    packages: str = typer.Option(
+        ...,
+        "--packages",
+        "-p",
+        help="Package spec (literal, @requirements.txt, or - for stdin). One package per line.",
+    ),
+    lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    rebuild: bool = typer.Option(
+        True, "--rebuild/--no-rebuild", help="Rebuild env after changing packages"
+    ),
+) -> None:
+    """Set the package list for a code environment.
+
+    Replaces the entire package spec list. After setting, triggers a rebuild by default.
+
+    Examples:
+      dku code-env set-packages myenv -p "pandas>=2.0\\nnumpy>=1.22"
+      dku code-env set-packages myenv -p @requirements.txt
+      cat requirements.txt | dku code-env set-packages myenv -p -
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        env = client.get_code_env(lang, name)
+        definition = env.get_definition()
+
+        pkg_text = read_text_input(packages)
+        definition["specPackageList"] = pkg_text
+        env.set_definition(definition)
+        success(f"Updated package list for '{name}'")
+
+        if rebuild:
+            info("Rebuilding environment...")
+            env.update_packages()
+            success(f"Rebuild complete for '{name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def usages(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Code environment name"),
+    lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show what uses a code environment."""
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        env = client.get_code_env(lang, name)
+        usage_list = env.list_usages()
+
+        if output == "json":
+            render_raw(usage_list, output_format="json")
+        else:
+            data = []
+            for u in usage_list:
+                data.append(
+                    {
+                        "type": u.get("envUsageType", u.get("type", "")),
+                        "project": u.get("projectKey", ""),
+                        "object": u.get("objectId", u.get("objectRef", "")),
+                    }
+                )
+            render(
+                data,
+                ["type", "project", "object"],
+                output_format=output,
+                title=f"Usages: {name}",
+            )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def logs(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Code environment name"),
+    lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    log_name: str | None = typer.Option(
+        None, "--log", help="Specific log name (default: list available logs)"
+    ),
+) -> None:
+    """List or read code environment build logs."""
+    try:
+        client = get_client_from_ctx(ctx)
+        env = client.get_code_env(lang, name)
+
+        if log_name:
+            log_content = env.get_log(log_name)
+            print(log_content)
+        else:
+            log_list = env.list_logs()
+            for log_entry in log_list:
+                if isinstance(log_entry, dict):
+                    print(log_entry.get("name", str(log_entry)))
+                else:
+                    print(log_entry)
     except Exception as e:
         handle_api_error(e)

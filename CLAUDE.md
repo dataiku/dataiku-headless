@@ -28,7 +28,7 @@ uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (~244 commands, 32 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool (~300 commands, 42 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
 **NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
@@ -95,7 +95,7 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code. **Every error must tell the agent what to do next.** |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-**31 command groups** — see `skills/dku-cli/references/commands.md` for full reference.
+**42 command groups** — see `skills/dku-cli/references/commands.md` for full reference.
 
 ---
 
@@ -224,6 +224,10 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `create_managed_folder()` returns `DSSManagedFolder` with `.id` (8-char hash)
 - `plugin.list_files()` returns nested dict tree — dev plugins only
 - Plugin recipe types not registered until JVM restart after API install
+- `get_semantic_model()` is lazy — must call `_get_definition()` to verify existence
+- Agent Hub is a plugin webapp, not a first-class object — manage via `get_webapp()` + `get_backend_actions()`
+- `DSSScenario.get_last_finished_run()` returns None when no runs exist (not an error)
+- `folder.list_contents()` returns `{"items": [...]}`, not a flat list
 
 ---
 
