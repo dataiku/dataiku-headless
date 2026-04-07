@@ -30,6 +30,7 @@ from dku_cli.commands import (
     flow,
     folder,
     git_cmd,
+    group,
     insight,
     job,
     knowledge,
@@ -90,6 +91,7 @@ app.add_typer(ml.app, name="ml")
 app.add_typer(model.app, name="model")
 app.add_typer(notebook.app, name="notebook")
 app.add_typer(folder.app, name="folder")
+app.add_typer(group.app, name="group")
 app.add_typer(insight.app, name="insight")
 app.add_typer(knowledge.app, name="knowledge")
 app.add_typer(library.app, name="library")
