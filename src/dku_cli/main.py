@@ -10,6 +10,7 @@ from dku_cli.brand import version_string
 from dku_cli.commands import (
     agent,
     agent_block,
+    agent_hub,
     agent_tool,
     analysis,
     api_service,
@@ -36,6 +37,7 @@ from dku_cli.commands import (
     project,
     recipe,
     scenario,
+    semantic_model,
     sql,
     user,
     webapp,
@@ -54,6 +56,7 @@ app = typer.Typer(
 app.add_typer(analysis.app, name="analysis")
 app.add_typer(agent.app, name="agent")
 app.add_typer(agent_block.app, name="agent-block")
+app.add_typer(agent_hub.app, name="agent-hub")
 app.add_typer(agent_tool.app, name="agent-tool")
 app.add_typer(api_service.app, name="api-service")
 app.add_typer(auth_cmd.app, name="auth")
@@ -64,6 +67,7 @@ app.add_typer(evaluation_store.app, name="evaluation-store")
 app.add_typer(project.app, name="project")
 app.add_typer(dataset.app, name="dataset")
 app.add_typer(scenario.app, name="scenario")
+app.add_typer(semantic_model.app, name="semantic-model")
 app.add_typer(job.app, name="job")
 app.add_typer(plugin.app, name="plugin")
 app.add_typer(config_cmd.app, name="config")
