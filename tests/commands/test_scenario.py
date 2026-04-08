@@ -326,6 +326,167 @@ def test_scenario_runs_custom_limit(patch_client):
     scenario.get_last_runs.assert_called_with(limit=5)
 
 
+# --- last-run --successful ---
+
+
+def test_scenario_last_run_successful(patch_client):
+    """--successful calls get_last_successful_run."""
+    result = runner.invoke(
+        app,
+        ["scenario", "last-run", "scen1", "--successful", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_last_successful_run.assert_called_once()
+
+
+def test_scenario_last_run_successful_none(patch_client):
+    """No successful runs gives prescriptive error."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_last_successful_run.side_effect = ValueError(
+        "No scenario run completed successfully"
+    )
+    result = runner.invoke(
+        app,
+        ["scenario", "last-run", "scen1", "--successful", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "successful" in result.output.lower()
+
+
+# --- runs --from/--to ---
+
+
+def test_scenario_runs_by_date(patch_client):
+    """--from triggers get_runs_by_date."""
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "runs",
+            "scen1",
+            "--from",
+            "2026-04-01",
+            "--to",
+            "2026-04-08",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "run1" in result.output
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_runs_by_date.assert_called_once_with("2026-04-01", "2026-04-08")
+
+
+def test_scenario_runs_by_date_from_only(patch_client):
+    """--from without --to uses from_date as to_date."""
+    result = runner.invoke(
+        app,
+        ["scenario", "runs", "scen1", "--from", "2026-04-01", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_runs_by_date.assert_called_once_with("2026-04-01", "2026-04-01")
+
+
+# --- avg-duration ---
+
+
+def test_scenario_avg_duration(patch_client):
+    """Shows average duration."""
+    result = runner.invoke(
+        app, ["scenario", "avg-duration", "scen1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "42.5" in result.output
+
+
+def test_scenario_avg_duration_json(patch_client):
+    """JSON output returns structured result."""
+    result = runner.invoke(
+        app,
+        ["scenario", "avg-duration", "scen1", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["avg_duration_seconds"] == 42.5
+    assert parsed["limit"] == 3
+
+
+def test_scenario_avg_duration_not_enough_runs(patch_client):
+    """Returns None when not enough runs."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_average_duration.return_value = None
+    result = runner.invoke(
+        app, ["scenario", "avg-duration", "scen1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "not enough" in result.output.lower()
+
+
+def test_scenario_avg_duration_custom_limit(patch_client):
+    """--limit passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        ["scenario", "avg-duration", "scen1", "--limit", "5", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_average_duration.assert_called_once_with(limit=5)
+
+
+# --- run-log ---
+
+
+def test_scenario_run_log(patch_client):
+    """Gets logs for a specific run."""
+    result = runner.invoke(
+        app,
+        ["scenario", "run-log", "scen1", "--run", "run1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Step 1 completed" in result.output
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_run.assert_called_once_with("run1")
+    run = scenario.get_run.return_value
+    run.get_log.assert_called_once_with(step_id=None)
+
+
+def test_scenario_run_log_with_step(patch_client):
+    """--step scopes logs to a single step."""
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "run-log",
+            "scen1",
+            "--run",
+            "run1",
+            "--step",
+            "step1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    run = patch_client.get_project("PROJ1").get_scenario("scen1").get_run.return_value
+    run.get_log.assert_called_once_with(step_id="step1")
+
+
+def test_scenario_run_log_requires_run(patch_client):
+    """--run is required."""
+    result = runner.invoke(app, ["scenario", "run-log", "scen1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+
+
 # --- set-metadata ---
 
 

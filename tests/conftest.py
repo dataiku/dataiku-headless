@@ -693,8 +693,17 @@ def mock_client():
         "state": "SUCCESS",
         "start": "2025-01-01T00:00:00",
     }
+    run_mock.get_start_time.return_value = "2025-01-01T00:00:00"
+    run_mock.get_duration.return_value = 45.2
+    run_mock.get_log.return_value = (
+        "[2025-01-01 00:00:00] Step 1 completed\n[2025-01-01 00:00:45] Done"
+    )
     scenario_mock.get_last_runs.return_value = [run_mock]
     scenario_mock.get_last_finished_run.return_value = run_mock
+    scenario_mock.get_last_successful_run.return_value = run_mock
+    scenario_mock.get_runs_by_date.return_value = [run_mock]
+    scenario_mock.get_average_duration.return_value = 42.5
+    scenario_mock.get_run.return_value = run_mock
     proj1.get_scenario.return_value = scenario_mock
 
     # Job mocks

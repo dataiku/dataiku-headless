@@ -119,12 +119,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added both commands. `rename` catches same-name ValueError with prescriptive error. `status` extracts engine from `get_selected_engine_details()`, severity from `get_status_severity()`, messages from `get_status_messages()`. 8 tests. Live-verified: SQL engine on Prepare recipe, DSS engine on prompt recipe, rename round-trip on AGENTTEST.
 
 ### GAP-011: Scenario run details
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `scenario.get_runs_by_date(from, to)`, `scenario.get_last_successful_run()`, `scenario.get_average_duration()`, `run.get_step_run_report(step_id)`, `run.get_log(step_id)`
-- **CLI today:** Has `runs` and `last-run` but can't filter by date, get last *successful* run, check average duration, or drill into step-level logs.
-- **Next step:** Add `--from`/`--to` date filters on `dku scenario runs`, add `--successful` flag on `dku scenario last-run`, add `dku scenario step-log SCENARIO --run RUN_ID --step STEP_ID -P PROJ`.
+- **dataikuapi:** `scenario.get_runs_by_date(from, to)`, `scenario.get_last_successful_run()`, `scenario.get_average_duration()`, `run.get_log(step_id)`
+- **CLI today:** `runs` now supports `--from`/`--to` date filters and shows duration. `last-run` supports `--successful`. New: `avg-duration` and `run-log` commands.
+- **Resolution:** Enhanced `runs` (date filter + duration column), `last-run` (--successful flag), added `avg-duration` (with human-readable formatting), and `run-log` (full run or step-scoped). 11 tests. Live-verified: runs/avg-duration/last-run on ISCAGENT.WEEKLYRUN (no runs — empty/error cases), all help commands render correctly.
 
 ### GAP-012: LLM advanced features
 - **Status:** `backlog`
@@ -362,6 +362,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-011 | Enhanced `runs` (date filter, duration), `last-run` (--successful), added `avg-duration` and `run-log` — 11 tests |
 | 2026-04-08 | GAP-006 | Added plugin install/update from store and git — 4 commands, 9 tests |
 | 2026-04-08 | GAP-010 | Added `dku recipe rename` and `dku recipe status` — engine/severity/messages, 8 tests |
 | 2026-04-08 | GAP-002 | Added `dku connection schemas` and `dku connection tables` — SQL/Iceberg discovery, 12 tests |
