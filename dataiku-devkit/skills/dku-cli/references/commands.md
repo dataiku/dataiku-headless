@@ -352,6 +352,7 @@ dku plugin recipes [PLUGIN_ID] [-o FORMAT]
 dku plugin list-files PLUGIN_ID [-o FORMAT]
 dku plugin get-file PLUGIN_ID --path FILE_PATH
 dku plugin put-file PLUGIN_ID --path FILE_PATH --content CONTENT
+dku plugin download PLUGIN_ID [--dest PATH]                                    # Download dev plugin as ZIP
 dku plugin install-from-store PLUGIN_ID [--wait/--no-wait]
 dku plugin install-from-git REPO_URL [--checkout BRANCH] [--subpath PATH] [--wait/--no-wait]
 dku plugin update-from-store PLUGIN_ID [--wait/--no-wait]
@@ -365,6 +366,7 @@ dku plugin update-from-git PLUGIN_ID REPO_URL [--checkout BRANCH] [--subpath PAT
 - `set-code-env` assigns a code env to the plugin (use after create-code-env)
 - `update-code-env` rebuilds the code env after dependency changes
 - `usages` shows where plugin components are used; filter by project with `-P`
+- `download` downloads a dev plugin as a ZIP archive. Only works for dev plugins (not store-installed). Default filename is `<plugin_id>.zip`
 - First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
 - `recipes` lists plugin recipe types available for `dku recipe create --type`. Shows the full type string (e.g., `CustomCode_plugin_recipe`). Omit PLUGIN_ID to list from all plugins
 - `list-files` lists files in a dev plugin as a flattened path tree (dev plugins only)

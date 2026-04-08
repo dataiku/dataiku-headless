@@ -1,4 +1,4 @@
-"""dku plugin — list, get, push, delete, settings, code-env management, usages, file operations, install-from-store, install-from-git, update-from-store, update-from-git."""
+"""dku plugin — list, get, push, delete, download, settings, code-env management, usages, file operations, install-from-store, install-from-git, update-from-store, update-from-git."""
 
 from __future__ import annotations
 
@@ -796,5 +796,37 @@ def update_from_git(
             success(f"Updated plugin '{plugin_id}' from {repository_url}")
         else:
             success(f"Update started for plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def download(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID to download"),
+    dest: str = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file path (default: <plugin_id>.zip)",
+    ),
+) -> None:
+    """Download a plugin as a ZIP archive.
+
+    Useful for backup, migration, or local inspection.
+
+    Example:
+      dku plugin download my-plugin
+      dku plugin download my-plugin --dest ./backup/my-plugin-v2.zip
+    """
+    from pathlib import Path
+
+    output_path = dest or f"{plugin_id}.zip"
+    try:
+        client = get_client_from_ctx(ctx)
+        client.download_plugin_to_file(plugin_id, output_path)
+        file_size = Path(output_path).stat().st_size
+        size_kb = file_size / 1024
+        success(f"Downloaded plugin '{plugin_id}' to {output_path} ({size_kb:.1f} KB)")
     except Exception as e:
         handle_api_error(e)

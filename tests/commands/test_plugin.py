@@ -686,3 +686,43 @@ def test_plugin_update_from_git_with_checkout(patch_client):
     plugin.update_from_git.assert_called_once_with(
         "git@github.com:org/repo.git", checkout="v2.1", subpath=None
     )
+
+
+# --- download ---
+
+
+def test_plugin_download(patch_client, tmp_path):
+    """Downloads plugin to default filename."""
+    dest = tmp_path / "my-plugin.zip"
+
+    # Mock download_plugin_to_file to create a real file
+    def _fake_download(pid, path):
+        with open(path, "wb") as f:
+            f.write(b"PK\x03\x04" + b"\x00" * 100)  # fake zip header
+
+    patch_client.download_plugin_to_file.side_effect = _fake_download
+    result = runner.invoke(
+        app, ["plugin", "download", "my-plugin", "--dest", str(dest)]
+    )
+    assert result.exit_code == 0
+    assert "Downloaded" in result.output
+    assert "my-plugin" in result.output
+    assert dest.exists()
+    patch_client.download_plugin_to_file.assert_called_once_with("my-plugin", str(dest))
+
+
+def test_plugin_download_default_name(patch_client, tmp_path, monkeypatch):
+    """Without --dest, uses <plugin_id>.zip."""
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_download(pid, path):
+        with open(path, "wb") as f:
+            f.write(b"PK\x03\x04" + b"\x00" * 50)
+
+    patch_client.download_plugin_to_file.side_effect = _fake_download
+    result = runner.invoke(app, ["plugin", "download", "geocoder"])
+    assert result.exit_code == 0
+    assert "geocoder.zip" in result.output
+    patch_client.download_plugin_to_file.assert_called_once_with(
+        "geocoder", "geocoder.zip"
+    )
