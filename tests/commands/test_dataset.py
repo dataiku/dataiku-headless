@@ -907,3 +907,125 @@ def test_dataset_schema_shows_descriptions(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["description"] == "First name"
+
+
+# --- info ---
+
+
+def test_dataset_info_table(patch_client):
+    result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "15,000" in result.output  # row count formatted
+    assert "UploadedFiles" in result.output  # dataset type
+    assert "csv" in result.output  # format
+
+
+def test_dataset_info_json(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["rows"] == 15000
+    assert parsed["size_bytes"] == 2500000
+    assert parsed["columns"] == 2
+    assert parsed["type"] == "UploadedFiles"
+    assert parsed["metrics_computed"] is True
+
+
+def test_dataset_info_no_metrics(patch_client):
+    """When metrics haven't been computed, shows (not computed) and guidance."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "not computed" in result.output
+    assert "dku dataset build" in result.output  # shows how to compute metrics
+
+
+def test_dataset_info_large_dataset_warning(patch_client):
+    """Large datasets trigger a warning."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    metrics_mock = ds.get_last_metric_values.return_value
+    metrics_mock.get_global_value.side_effect = lambda mid: {
+        "records:COUNT_RECORDS": 50_000_000,
+        "basic:SIZE": 5_000_000_000,
+        "basic:COUNT_FILES": 10,
+    }.get(mid, 0)
+    result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Large dataset" in result.output
+    assert "High row count" in result.output
+
+
+def test_dataset_info_partial_metrics(patch_client):
+    """When some metrics fail (e.g. row count missing), others still show."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    metrics_mock = ds.get_last_metric_values.return_value
+
+    def _partial_metrics(mid):
+        if mid == "records:COUNT_RECORDS":
+            raise Exception("No data found for global partition")
+        return {"basic:SIZE": 1545633, "basic:COUNT_FILES": 1}.get(mid, 0)
+
+    metrics_mock.get_global_value.side_effect = _partial_metrics
+    result = runner.invoke(
+        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["rows"] is None  # row count failed
+    assert parsed["size_bytes"] == 1545633  # size succeeded
+    assert parsed["files"] == 1  # files succeeded
+
+
+# --- exists ---
+
+
+def test_dataset_exists_true(patch_client):
+    """Exit code 0 and success message when dataset exists."""
+    result = runner.invoke(app, ["dataset", "exists", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "exists" in result.output.lower()
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.exists.assert_called_once()
+
+
+def test_dataset_exists_false(patch_client):
+    """Exit code 1 when dataset does not exist."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.exists.return_value = False
+    result = runner.invoke(app, ["dataset", "exists", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_dataset_exists_json_true(patch_client):
+    """JSON output returns {exists: true} with exit code 0."""
+    result = runner.invoke(
+        app, ["dataset", "exists", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["exists"] is True
+    assert parsed["name"] == "ds1"
+    assert parsed["project"] == "PROJ1"
+
+
+def test_dataset_exists_json_false(patch_client):
+    """JSON output returns {exists: false} with exit code 1."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.exists.return_value = False
+    result = runner.invoke(
+        app, ["dataset", "exists", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 1
+    parsed = json.loads(result.output)
+    assert parsed["exists"] is False
+
+
+def test_dataset_exists_with_env_project(patch_client, monkeypatch):
+    """Resolves project from DKU_PROJECT env var."""
+    monkeypatch.setenv("DKU_PROJECT", "PROJ1")
+    result = runner.invoke(app, ["dataset", "exists", "ds1"])
+    assert result.exit_code == 0
