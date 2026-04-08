@@ -29,9 +29,10 @@ metadata:
 > 8. **Charts need `--dataset`.** `dku insight create NAME --type chart --dataset DS -P PROJ`. Validate with `dku insight validate ID -P PROJ`.
 > 9. **Verify everything.** After building, ALWAYS `dku dataset head OUTPUT -P PROJ` to confirm real data exists. Exit code 0 ≠ correct output. Also use the `dataiku` skill for platform knowledge — these two skills are a pair.
 > 10. **Prefer purpose-built prepare processors over GREL.** Need to rename? `add-rename`. Parse dates? `add-step --type DateParser`. Uppercase? `add-step --type StringTransformer`. If/then/else? `add-step --type VisualIfRule`. Use `add-formula` (GREL) ONLY when no dedicated processor exists. **READ `dataiku` skill's `references/prepare-processors.md` before writing any `add-step` command** — it has the exact params and JSON for each processor.
-> 11. **Sample data before transforming.** Before writing prepare steps, creating joins, or configuring group-by: run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
-> 12. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
-> 13. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
+> 11. **Gauge before you grab.** Run `dku dataset info DS -P PROJ` BEFORE `head` or any build. Datasets can be millions of rows / gigabytes. If >1M rows or >1GB, ask the user before triggering builds or LLM recipes. Never blindly `head -n 1000` on a dataset you haven't gauged. For existing projects, follow the exploration protocol in the `dataiku` skill.
+> 12. **Sample data before transforming.** After gauging size, run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
+> 13. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
+> 14. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 
 # dku-cli
 
@@ -498,14 +499,14 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `auth` | login, logout, status, list, switch | No |
 | `config` | set, get, list, path, variables, set-variables | No |
 | `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
-| `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file** | No |
+| `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file, install-from-store, install-from-git, update-from-store, update-from-git** | No |
 | `code-env` | list, get, create, delete, update | No |
-| `connection` | list, **get**, create, **delete**, test | No (admin) |
+| `connection` | list, **get**, create, **delete**, test, **schemas, tables** | No (admin, schemas/tables need `-P`) |
 | `user` | list, **get**, create, **delete** | No (admin) |
 | `sql` | query | No |
-| `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions** | Yes |
-| `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
-| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
+| `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage** | Yes |
+| `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **rename, status**, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
+| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, avg-duration, run-log, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
 | `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
@@ -529,7 +530,8 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index | Yes (accepts name or ID) |
 | `agent-hub` | list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop | Yes (auto-detects hub) |
 | `bundle` | list, export, download, import, activate | Yes |
-| `api-service` | list, create, get, create-package, list-packages | Yes |
+| `api-service` | list, create, get, create-package, list-packages, **add-endpoint, list-endpoints, publish-package, delete-package** | Yes |
+| `rag` | **list, create, get, delete, get-definition, set-definition** | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 
@@ -542,6 +544,16 @@ Key notes:
 - `dku semantic-model` — Semantic models enable text-to-SQL via the Semantic Model Query agent tool (DSS 14.4+). Versions are key: only the active version is used by agents. Always `update-index --wait` after changing entities/attributes.
 - `dku agent-hub` — **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first). `--hub` auto-detects when one hub exists; required when multiple exist. Config is shallow-merged, not replaced. Agent IDs use `PROJECT:agent:ID` format.
 - `dku scenario list-triggers` / `add-trigger-dataset` — manage scenario automation triggers from CLI. Use `add-trigger-dataset` for dataset-change triggers, `add-trigger` for arbitrary trigger JSON.
+- `dku dataset exists DS -P PROJ` — exit code 0 if exists, 1 if not. Use for conditional logic: `dku dataset exists DS -P PROJ && echo "found"`.
+- `dku dataset usages DS -P PROJ` — shows what recipes/analyses reference a dataset. Essential for flow investigation.
+- `dku dataset lineage DS --column COL -P PROJ` — traces column provenance across the flow graph. Shows input→output dataset/column relations.
+- `dku connection schemas CONN -P PROJ` — discover SQL schemas or Iceberg namespaces before importing tables.
+- `dku connection tables CONN --schema SCHEMA -P PROJ` — list importable tables in a connection. Use before `dataset create` to get correct table names.
+- `dku recipe status RECIPE -P PROJ` — check which engine DSS selected and any status messages/warnings.
+- `dku scenario last-run SCEN --successful -P PROJ` — get last successful run (skips FAILED/ABORTED). Use `runs --from YYYY-MM-DD --to YYYY-MM-DD` for date-range queries.
+- `dku rag` — RAG LLM is the final step in the RAG pipeline. Create with `dku rag create NAME --kb KB_ID --llm LLM_ID -P PROJ`. The LLM ID for use elsewhere is `retrieval-augmented-llm:<RAG_ID>`.
+- `dku api-service add-endpoint SVC -e EP -m MODEL -P PROJ` — types: prediction, clustering, forecasting, causal. Always `save()` is called automatically.
+- `dku plugin install-from-store PLUGIN_ID` / `install-from-git REPO_URL` — install plugins without DSS UI. Follow with `create-code-env` if the plugin needs one.
 
 ## Chaining Patterns
 
@@ -653,7 +665,7 @@ dku dataset upload raw_data data.csv -P PROJ && \
 dku dataset build output -P PROJ --wait
 ```
 
-### Investigation Workflow (1-2 tool calls)
+### Investigation Workflow (1-3 tool calls)
 
 **When asked to explore, debug, or understand an existing project:**
 
@@ -662,16 +674,27 @@ dku dataset build output -P PROJ --wait
 dku project inspect MY_PROJ -o json
 ```
 
-Parse the JSON output to understand the project structure. Then drill into specifics:
+Parse the JSON output to understand the project structure. Then **gauge sizes before touching data**:
 
 ```bash
-# Tool call 2 — Drill into details as needed
-dku dataset head specific_ds -P MY_PROJ -n 5 && \
+# Tool call 2 — Gauge key datasets (ALWAYS before head/build)
+dku dataset info source_ds1 -P MY_PROJ && \
+dku dataset info source_ds2 -P MY_PROJ && \
+dku dataset info final_output -P MY_PROJ
+```
+
+Only after gauging sizes, drill into specifics:
+
+```bash
+# Tool call 3 — Sample data and inspect recipes
+dku dataset head specific_ds -P MY_PROJ -n 10 && \
 dku recipe get-settings suspect_recipe -P MY_PROJ && \
 dku job status last_job_id -P MY_PROJ -o json && \
 # When a build fails, inspect the full job log:
 dku job log JOB_ID -P MY_PROJ
 ```
+
+> **Cost rule:** If `info` shows >1M rows or >1GB, don't trigger builds or LLM recipes without asking the user. Escalate with the size info and estimated impact.
 
 ## Composability Patterns
 
@@ -1323,6 +1346,77 @@ dku knowledge search my_kb --query "test query" -P PROJ
 - Using a completion LLM ID instead of an embedding LLM ID (`--purpose TEXT_EMBEDDING_EXTRACTION`)
 - Omitting `--embed-column` (build will fail with "Embedding column missing")
 - Forgetting to `run` the embed recipe after creating it
+
+### Complete RAG Pipeline (KB → Embed → RAG LLM → Agent)
+
+The full RAG pipeline creates a knowledge bank, embeds data, creates the RAG LLM, and attaches it to an agent:
+
+```bash
+# 1. Create KB + embed recipe + build
+dku recipe create-embed embed_docs \
+  --input source_docs \
+  --output-kb my_kb \
+  --embedding-llm "openai:text-embedding-3-small" \
+  --embed-column content \
+  -P PROJ && \
+dku recipe run embed_docs -P PROJ --wait && \
+
+# 2. Get the KB ID (needed for RAG LLM creation)
+KB_ID=$(dku knowledge list -P PROJ -o json | jq -r '.[] | select(.name == "my_kb") | .id') && \
+
+# 3. Create the RAG LLM that ties KB + LLM together
+dku rag create "My RAG" --kb "$KB_ID" --llm "openai:gpt-4o" -P PROJ && \
+
+# 4. Get the RAG LLM ID for agent attachment
+RAG_ID=$(dku rag list -P PROJ -o json | jq -r '.[0].id') && \
+
+# 5. Attach to an agent as an LLM source
+echo "RAG LLM ID for agent: retrieval-augmented-llm:$RAG_ID"
+```
+
+### Model Deployment Pipeline (Train → Service → Endpoint → Package → Deploy)
+
+```bash
+# 1. Create API service
+dku api-service create my_predictor -P PROJ && \
+
+# 2. Add prediction endpoint with a deployed model
+dku api-service add-endpoint my_predictor \
+  -e predict_churn -m saved_model_id -t prediction -P PROJ && \
+
+# 3. Create and publish package
+dku api-service create-package my_predictor -P PROJ && \
+PKG_ID=$(dku api-service list-packages my_predictor -P PROJ -o json | jq -r '.[0].id') && \
+dku api-service publish-package my_predictor --package "$PKG_ID" -P PROJ
+```
+
+### Flow Investigation Pattern
+
+```bash
+# What uses this dataset? (downstream recipes, analyses)
+dku dataset usages my_dataset -P PROJ && \
+
+# Where does this column come from? (upstream lineage)
+dku dataset lineage my_dataset --column revenue -P PROJ && \
+
+# Does this dataset exist before creating it?
+dku dataset exists my_dataset -P PROJ && echo "exists" || echo "creating..." && \
+
+# What tables are available in this connection?
+dku connection schemas my_postgres -P PROJ && \
+dku connection tables my_postgres --schema public -P PROJ
+```
+
+### Plugin Installation Pattern
+
+```bash
+# Install from Dataiku store + create code env
+dku plugin install-from-store timeseries-preparation && \
+dku plugin create-code-env timeseries-preparation && \
+
+# Or install from git with specific branch
+dku plugin install-from-git https://github.com/org/my-plugin.git --checkout v2.0
+```
 
 ## Data Reshaping Patterns
 

@@ -334,11 +334,11 @@ Every gap implementation MUST follow this sequence:
 ## Skill-Only Gaps (no CLI change needed)
 
 ### SKILL-001: Complete RAG pipeline documentation
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `skill`
 - **Effort:** `S`
-- **Gap:** Skills document KB creation and embed recipes separately but don't show the complete pipeline: KB → embed recipe → build → RAG LLM → attach to agent → test. The RAG LLM step is missing because GAP-005 blocks it.
-- **Next step:** Blocked by GAP-005. Once RAG LLM CLI exists, add "Complete RAG Pipeline" pattern to both skills.
+- **Gap:** Skills documented KB creation and embed recipes separately but didn't show the complete pipeline.
+- **Resolution:** Added "Complete RAG Pipeline (KB → Embed → RAG LLM → Agent)" pattern to dku-cli SKILL.md with full chaining example. Also added Model Deployment Pipeline, Flow Investigation Pattern, and Plugin Installation Pattern. Unblocked by GAP-005.
 
 ### SKILL-002: Structured output patterns for LLM completion
 - **Status:** `backlog`
@@ -361,6 +361,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | SKILL-001 | Added Complete RAG Pipeline, Model Deployment, Flow Investigation, Plugin Install patterns to SKILL.md |
 | 2026-04-09 | GAP-007 | Added API service `add-endpoint`, `list-endpoints`, `publish-package`, `delete-package` — 9 tests |
 | 2026-04-09 | GAP-005 | Added `dku rag` command group (list, create, get, delete, get/set-definition) — 11 tests |
 | 2026-04-09 | GAP-011 | Enhanced `runs` (date filter, duration), `last-run` (--successful), added `avg-duration` and `run-log` — 11 tests |

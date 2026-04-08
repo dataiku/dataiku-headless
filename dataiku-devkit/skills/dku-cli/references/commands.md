@@ -112,6 +112,7 @@ All commands require project (`-P KEY` / `DKU_PROJECT` / config default).
 ```bash
 dku dataset list [-P PROJECT] [-o FORMAT]
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
+dku dataset info DATASET_NAME [-P PROJECT] [-o FORMAT]              # Row count, size, type, connection, last build
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-C COLUMNS] [-o FORMAT]
 dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku dataset create DATASET_NAME [--type Filesystem] [-c CONNECTION] [-P PROJECT] [--if-not-exists] [--definition JSON]
@@ -127,6 +128,9 @@ dku dataset ai-describe DATASET_NAME [-P PROJECT] [--language LANG] [--save] [-o
 dku dataset rename DATASET_NAME --name NEW_NAME [-P PROJECT]
 dku dataset copy DATASET_NAME --to-project PROJECT_KEY [--name NAME] [-P PROJECT]
 dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
+dku dataset exists DATASET_NAME [-P PROJECT] [-o FORMAT]           # Exit code 0=exists, 1=not
+dku dataset usages DATASET_NAME [-P PROJECT] [-o FORMAT]           # What recipes/analyses use this dataset
+dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-o FORMAT]  # Column provenance
 ```
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
@@ -144,6 +148,9 @@ dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 - `rename` renames the dataset in place
 - `copy --to-project` copies a dataset to another project. `--name` overrides the name in the target (default: same name)
 - `partitions` lists the partitions of a partitioned dataset
+- `exists` returns exit code 0 if dataset exists, 1 if not. JSON: `{"exists": bool, "name", "project"}`
+- `usages` shows recipes, analyses, and models that reference this dataset
+- `lineage --column COL` traces column provenance across datasets (input→output relations). Use `--max-datasets` to limit scope
 
 ## recipe
 
@@ -247,6 +254,8 @@ dku recipe set-settings RECIPE_NAME --settings JSON [-P PROJECT]
 dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku recipe create RECIPE_NAME --type TYPE --input DS --output-ds DS [-P PROJECT]
 dku recipe delete RECIPE_NAME [-P PROJECT]
+dku recipe rename RECIPE_NAME --name NEW_NAME [-P PROJECT]
+dku recipe status RECIPE_NAME [-P PROJECT] [-o FORMAT]             # Engine, severity, check messages
 dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
 dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME {--definition JSON | --payload JSON} [--deep-merge] [-P PROJECT]
@@ -288,8 +297,10 @@ dku scenario create NAME [--type step_based] [-P PROJECT] [--definition JSON] [-
 dku scenario delete SCENARIO_ID [-P PROJECT]
 dku scenario get-definition SCENARIO_ID [-P PROJECT] [-o json]
 dku scenario set-definition SCENARIO_ID --definition JSON [-P PROJECT]
-dku scenario last-run SCENARIO_ID [-P PROJECT] [-o FORMAT]
-dku scenario runs SCENARIO_ID [--limit N] [-P PROJECT] [-o FORMAT]
+dku scenario last-run SCENARIO_ID [--successful] [-P PROJECT] [-o FORMAT]
+dku scenario runs SCENARIO_ID [--limit N] [--from DATE] [--to DATE] [-P PROJECT] [-o FORMAT]
+dku scenario avg-duration SCENARIO_ID [--limit N] [-P PROJECT] [-o FORMAT]
+dku scenario run-log SCENARIO_ID --run RUN_ID [--step STEP_ID] [-P PROJECT]
 dku scenario set-metadata SCENARIO_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 dku scenario list-triggers SCENARIO_ID [-P PROJECT] [-o FORMAT]
 dku scenario add-trigger SCENARIO_ID --trigger JSON [-P PROJECT]
@@ -339,6 +350,10 @@ dku plugin recipes [PLUGIN_ID] [-o FORMAT]
 dku plugin list-files PLUGIN_ID [-o FORMAT]
 dku plugin get-file PLUGIN_ID --path FILE_PATH
 dku plugin put-file PLUGIN_ID --path FILE_PATH --content CONTENT
+dku plugin install-from-store PLUGIN_ID [--wait/--no-wait]
+dku plugin install-from-git REPO_URL [--checkout BRANCH] [--subpath PATH] [--wait/--no-wait]
+dku plugin update-from-store PLUGIN_ID [--wait/--no-wait]
+dku plugin update-from-git PLUGIN_ID REPO_URL [--checkout BRANCH] [--subpath PATH] [--wait/--no-wait]
 ```
 
 - `push` reads plugin ID from `plugin.json` inside ZIP, auto-detects update vs install
@@ -375,7 +390,12 @@ dku connection get CONNECTION_NAME [-o FORMAT]
 dku connection create NAME --type TYPE [--definition JSON]
 dku connection delete CONNECTION_NAME [--yes]
 dku connection test CONNECTION_NAME
+dku connection schemas CONNECTION_NAME [-P PROJECT] [-o FORMAT]    # SQL schemas / Iceberg namespaces
+dku connection tables CONNECTION_NAME [-P PROJECT] [--schema SCHEMA] [-o FORMAT]  # Importable tables
 ```
+
+- `schemas` lists SQL schemas or Iceberg namespaces. Requires project context (`-P`)
+- `tables` lists tables available for import. Use `--schema` to narrow results. Auto-detects SQL vs Iceberg
 
 - `get` shows connection details including type, params, and usability settings
 - `delete` removes the connection. `--yes` skips confirmation
@@ -889,7 +909,29 @@ dku api-service create SERVICE_ID [-P PROJECT]
 dku api-service get SERVICE_ID [-P PROJECT] [-o FORMAT]
 dku api-service create-package SERVICE_ID [-P PROJECT]
 dku api-service list-packages SERVICE_ID [-P PROJECT] [-o FORMAT]
+dku api-service add-endpoint SERVICE_ID -e ENDPOINT_ID -m MODEL_ID [-t TYPE] [-P PROJECT]
+dku api-service list-endpoints SERVICE_ID [-P PROJECT] [-o FORMAT]
+dku api-service publish-package SERVICE_ID --package PKG_ID [--published-service ID] [-P PROJECT]
+dku api-service delete-package SERVICE_ID --package PKG_ID [-P PROJECT]
 ```
+
+- `add-endpoint` types: prediction (default), clustering, forecasting, causal
+- `publish-package` publishes to API Deployer. `--published-service` overrides the target service ID
+
+## rag
+
+```bash
+dku rag list [-P PROJECT] [-o FORMAT]
+dku rag create NAME --kb KB_ID --llm LLM_ID [-P PROJECT] [-o FORMAT]
+dku rag get RAG_ID [-P PROJECT] [-o FORMAT]
+dku rag delete RAG_ID [-P PROJECT] [--yes]
+dku rag get-definition RAG_ID [-P PROJECT] [-o json]
+dku rag set-definition RAG_ID --definition JSON [-P PROJECT]
+```
+
+- `create` ties a knowledge bank + LLM into a RAG LLM. Use after building an embed recipe
+- The LLM ID for use elsewhere is `retrieval-augmented-llm:<RAG_ID>`
+- Settings are nested: `versions[0].ragllmSettings` contains `llmId` and `kbRef`
 
 ## wiki
 
