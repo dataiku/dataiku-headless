@@ -151,12 +151,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku app` group: list, get, create-instance, list-instances, manifest.
 
 ### GAP-014: Project folder management
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `client.get_root_project_folder()`, `folder.list_child_folders()`, `folder.list_project_keys()`, `folder.create_sub_folder()`, `folder.move_to()`, `project.move_to_folder()`
-- **CLI today:** Zero. Can't organize projects into folders.
-- **Next step:** Add `dku project-folder` group or extend `dku project` with `move-to-folder`, `list-folders`.
+- **dataikuapi:** `client.get_root_project_folder()`, `folder.list_child_folders()`, `folder.list_project_keys()`, `folder.create_sub_folder()`, `project.move_to_folder()`
+- **CLI today:** New `dku project-folder` group: list, create, move-project.
+- **Resolution:** Added command group with recursive tree listing (indented hierarchy), subfolder creation, and project relocation. 5 tests. Live-verified: list shows full folder tree with 6 folders and all projects, JSON output correct.
 
 ### GAP-015: Model comparisons
 - **Status:** `backlog`
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-014 | Added `dku project-folder` group (list, create, move-project) — 5 tests |
 | 2026-04-09 | GAP-018 | Added `dku dataset zone`, `share`, `unshare` — 4 tests |
 | 2026-04-09 | GAP-026 | Added `dku meaning` group (list, get, create, update) — 7 tests |
 | 2026-04-09 | GAP-016 | Added `dku continuous` group (list, start, stop, status) — 7 tests |

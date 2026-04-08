@@ -1115,6 +1115,22 @@ def mock_client():
     # Project CRUD
     client.create_project.return_value = MagicMock()
     proj1.delete.return_value = None
+    proj1.move_to_folder.return_value = None
+
+    # Project folders
+    root_folder_mock = MagicMock()
+    root_folder_mock.id = "ROOT"
+    root_folder_mock.name = None
+    root_folder_mock.list_project_keys.return_value = ["PROJ1", "PROJ2"]
+    child_folder_mock = MagicMock()
+    child_folder_mock.id = "folder1"
+    child_folder_mock.name = "Analytics"
+    child_folder_mock.list_project_keys.return_value = ["PROJ3"]
+    child_folder_mock.list_child_folders.return_value = []
+    root_folder_mock.list_child_folders.return_value = [child_folder_mock]
+    root_folder_mock.create_sub_folder.return_value = child_folder_mock
+    client.get_root_project_folder.return_value = root_folder_mock
+    client.get_project_folder.return_value = root_folder_mock
     proj1.duplicate.return_value = MagicMock()
 
     # Project variables

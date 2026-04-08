@@ -534,6 +534,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `rag` | **list, create, get, delete, get-definition, set-definition** | Yes |
 | `continuous` | **list, start, stop, status** | Yes |
 | `meaning` | **list, get, create, update** | No (admin) |
+| `project-folder` | **list, create, move-project** | No |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

@@ -966,6 +966,18 @@ dku rag set-definition RAG_ID --definition JSON [-P PROJECT]
 - The LLM ID for use elsewhere is `retrieval-augmented-llm:<RAG_ID>`
 - Settings are nested: `versions[0].ragllmSettings` contains `llmId` and `kbRef`
 
+## project-folder
+
+```bash
+dku project-folder list [-o FORMAT]
+dku project-folder create NAME [--parent FOLDER_ID]
+dku project-folder move-project PROJECT_KEY --folder FOLDER_ID
+```
+
+- `list` shows recursive tree from root with indented folder names, IDs, and project keys
+- `create` creates a subfolder under the given parent (default: ROOT)
+- `move-project` moves a project to a different folder. Get folder IDs from `list`
+
 ## meaning
 
 ```bash
