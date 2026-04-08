@@ -12,13 +12,13 @@ runner = CliRunner()
 
 
 def test_signoff_list(patch_client):
-    result = runner.invoke(app, ["govern-signoff", "list", "ar.5"])
+    result = runner.invoke(app, ["govern", "signoff", "list", "ar.5"])
     assert result.exit_code == 0
     assert "exploration" in result.output
 
 
 def test_signoff_list_json(patch_client):
-    result = runner.invoke(app, ["govern-signoff", "list", "ar.5", "-o", "json"])
+    result = runner.invoke(app, ["govern", "signoff", "list", "ar.5", "-o", "json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -26,13 +26,13 @@ def test_signoff_list_json(patch_client):
 
 
 def test_signoff_get(patch_client):
-    result = runner.invoke(app, ["govern-signoff", "get", "ar.5", "exploration"])
+    result = runner.invoke(app, ["govern", "signoff", "get", "ar.5", "exploration"])
     assert result.exit_code == 0
 
 
 def test_signoff_get_json(patch_client):
     result = runner.invoke(
-        app, ["govern-signoff", "get", "ar.5", "exploration", "-o", "json"]
+        app, ["govern", "signoff", "get", "ar.5", "exploration", "-o", "json"]
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -43,7 +43,8 @@ def test_signoff_update_status(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-signoff",
+            "govern",
+            "signoff",
             "update-status",
             "ar.5",
             "exploration",
@@ -59,7 +60,7 @@ def test_signoff_update_status(patch_client):
 def test_signoff_update_status_invalid(patch_client):
     result = runner.invoke(
         app,
-        ["govern-signoff", "update-status", "ar.5", "exploration", "INVALID"],
+        ["govern", "signoff", "update-status", "ar.5", "exploration", "INVALID"],
     )
     assert result.exit_code != 0
     assert "Invalid" in result.output or "Invalid" in (result.stderr or "")
@@ -69,7 +70,8 @@ def test_signoff_add_feedback(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-signoff",
+            "govern",
+            "signoff",
             "add-feedback",
             "ar.5",
             "exploration",
@@ -93,7 +95,8 @@ def test_signoff_add_feedback_invalid_status(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-signoff",
+            "govern",
+            "signoff",
             "add-feedback",
             "ar.5",
             "exploration",
@@ -110,7 +113,8 @@ def test_signoff_add_approval(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-signoff",
+            "govern",
+            "signoff",
             "add-approval",
             "ar.5",
             "exploration",
@@ -130,7 +134,8 @@ def test_signoff_add_approval_rejected(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-signoff",
+            "govern",
+            "signoff",
             "add-approval",
             "ar.5",
             "exploration",
@@ -148,7 +153,8 @@ def test_signoff_add_approval_invalid_status(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-signoff",
+            "govern",
+            "signoff",
             "add-approval",
             "ar.5",
             "exploration",
@@ -161,7 +167,7 @@ def test_signoff_add_approval_invalid_status(patch_client):
 
 def test_signoff_create(patch_client):
     """Test creating a signoff for a workflow step."""
-    result = runner.invoke(app, ["govern-signoff", "create", "ar.5", "exploration"])
+    result = runner.invoke(app, ["govern", "signoff", "create", "ar.5", "exploration"])
     assert result.exit_code == 0
     gov = patch_client.get_govern_client()
     gov.get_artifact.return_value.create_signoff.assert_called_once_with("exploration")

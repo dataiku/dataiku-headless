@@ -11,7 +11,7 @@ def test_list_field_error():
     assert result is not None
     assert "countries" in result[0]
     assert "array" in result[0].lower()
-    assert any("govern-blueprint fields" in d for d in result[1])
+    assert any("govern blueprint fields" in d for d in result[1])
 
 
 def test_double_type_error():
@@ -34,7 +34,7 @@ def test_invalid_category_error():
     assert result is not None
     assert "United States" in result[0]
     assert "countries" in result[0]
-    assert any("govern-blueprint fields" in d for d in result[1])
+    assert any("govern blueprint fields" in d for d in result[1])
 
 
 def test_not_active_step_error():

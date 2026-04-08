@@ -1,4 +1,4 @@
-"""dku govern-artifact — list (search), get, create, delete, set-definition."""
+"""dku govern artifact — list (search), get, create, delete, set-definition."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import error, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(
-    help="Manage Govern artifacts. Use 'govern-blueprint fields' to discover field schemas."
+    help="Manage Govern artifacts. Use 'govern blueprint fields' to discover field schemas."
 )
 
 
@@ -150,16 +150,16 @@ def create(
 
     1) Ergonomic: --blueprint + --name + --field flags (no JSON needed)
 
-       dku govern-artifact create -b bp.system.govern_project -n "My Project" -f description="A project" -f cost_rating=High
+       dku govern artifact create -b bp.system.govern_project -n "My Project" -f description="A project" -f cost_rating=High
 
     2) Raw JSON: --definition for full control
 
-       dku govern-artifact create --definition @artifact.json
+       dku govern artifact create --definition @artifact.json
 
     DATE fields: use ISO 8601 strings ("2025-01-15T00:00:00.000Z").
     REFERENCE fields: use artifact IDs ("ar.123").
     List fields: use JSON arrays ('["val1","val2"]') or repeat --field for the same key.
-    Run 'dku govern-blueprint fields <BLUEPRINT_ID>' to see available fields.
+    Run 'dku govern blueprint fields <BLUEPRINT_ID>' to see available fields.
     """
     import json as json_mod
 
@@ -172,9 +172,9 @@ def create(
             "Either --blueprint or --definition is required.",
             code="missing_argument",
             details=[
-                "Ergonomic: dku govern-artifact create -b bp.system.govern_project -n 'Name' -f key=value",
-                "Raw JSON:  dku govern-artifact create --definition '{...}'",
-                "Run: dku govern-blueprint list to see available blueprints.",
+                "Ergonomic: dku govern artifact create -b bp.system.govern_project -n 'Name' -f key=value",
+                "Raw JSON:  dku govern artifact create --definition '{...}'",
+                "Run: dku govern blueprint list to see available blueprints.",
             ],
         )
 
@@ -266,13 +266,13 @@ def set_field(
     """Set a single field on an artifact without replacing the full definition.
 
     Examples:
-      dku govern-artifact set-field ar.5 description "New description"
-      dku govern-artifact set-field ar.5 cost_rating High
-      dku govern-artifact set-field ar.5 countries '["France","Germany"]'
-      dku govern-artifact set-field ar.5 business_initiative ar.10
+      dku govern artifact set-field ar.5 description "New description"
+      dku govern artifact set-field ar.5 cost_rating High
+      dku govern artifact set-field ar.5 countries '["France","Germany"]'
+      dku govern artifact set-field ar.5 business_initiative ar.10
 
     DATE fields: use ISO 8601 strings ("2025-01-15T00:00:00.000Z").
-    List fields: use JSON arrays. Run 'dku govern-blueprint fields' to check.
+    List fields: use JSON arrays. Run 'dku govern blueprint fields' to check.
     """
     import json as json_mod
 

@@ -1,16 +1,38 @@
-"""dku govern — Govern instance info."""
+"""dku govern — Govern commands: artifact, blueprint, signoff, role, custom-page, user, group, time-series, file."""
 
 from __future__ import annotations
 
 import typer
 
+from dku_cli.commands import (
+    govern_artifact,
+    govern_blueprint,
+    govern_custom_page,
+    govern_file,
+    govern_group,
+    govern_role,
+    govern_signoff,
+    govern_time_series,
+    govern_user,
+)
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx
 from dku_cli.output import render_raw, resolve_output_format
 
 app = typer.Typer(
-    help="Govern instance commands. See also: govern-artifact, govern-blueprint, govern-signoff, govern-role, govern-custom-page."
+    help="Govern commands: artifact, blueprint, signoff, role, custom-page, user, group, time-series, file."
 )
+
+# Register sub-command groups under `dku govern <group> <verb>`
+app.add_typer(govern_artifact.app, name="artifact")
+app.add_typer(govern_blueprint.app, name="blueprint")
+app.add_typer(govern_custom_page.app, name="custom-page")
+app.add_typer(govern_file.app, name="file")
+app.add_typer(govern_group.app, name="group")
+app.add_typer(govern_role.app, name="role")
+app.add_typer(govern_signoff.app, name="signoff")
+app.add_typer(govern_time_series.app, name="time-series")
+app.add_typer(govern_user.app, name="user")
 
 
 @app.command()

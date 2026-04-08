@@ -11,6 +11,7 @@ triggers:
   - dku recipe
   - dku scenario
   - dku agent
+  - govern
 metadata:
   author: dataiku
   version: "1.0.0"

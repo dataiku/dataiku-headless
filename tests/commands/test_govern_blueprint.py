@@ -12,13 +12,13 @@ runner = CliRunner()
 
 
 def test_blueprint_list(patch_client):
-    result = runner.invoke(app, ["govern-blueprint", "list"])
+    result = runner.invoke(app, ["govern", "blueprint", "list"])
     assert result.exit_code == 0
     assert "govern_project" in result.output
 
 
 def test_blueprint_list_json(patch_client):
-    result = runner.invoke(app, ["govern-blueprint", "list", "-o", "json"])
+    result = runner.invoke(app, ["govern", "blueprint", "list", "-o", "json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -26,14 +26,16 @@ def test_blueprint_list_json(patch_client):
 
 
 def test_blueprint_get(patch_client):
-    result = runner.invoke(app, ["govern-blueprint", "get", "bp.system.govern_project"])
+    result = runner.invoke(
+        app, ["govern", "blueprint", "get", "bp.system.govern_project"]
+    )
     assert result.exit_code == 0
     assert "govern_project" in result.output
 
 
 def test_blueprint_get_json(patch_client):
     result = runner.invoke(
-        app, ["govern-blueprint", "get", "bp.system.govern_project", "-o", "json"]
+        app, ["govern", "blueprint", "get", "bp.system.govern_project", "-o", "json"]
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -42,7 +44,7 @@ def test_blueprint_get_json(patch_client):
 
 def test_blueprint_list_versions(patch_client):
     result = runner.invoke(
-        app, ["govern-blueprint", "list-versions", "bp.system.govern_project"]
+        app, ["govern", "blueprint", "list-versions", "bp.system.govern_project"]
     )
     assert result.exit_code == 0
     assert "ACTIVE" in result.output or "Default" in result.output
@@ -51,7 +53,14 @@ def test_blueprint_list_versions(patch_client):
 def test_blueprint_list_versions_json(patch_client):
     result = runner.invoke(
         app,
-        ["govern-blueprint", "list-versions", "bp.system.govern_project", "-o", "json"],
+        [
+            "govern",
+            "blueprint",
+            "list-versions",
+            "bp.system.govern_project",
+            "-o",
+            "json",
+        ],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -63,7 +72,8 @@ def test_blueprint_get_version(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-blueprint",
+            "govern",
+            "blueprint",
             "get-version",
             "bp.system.govern_project",
             "bv.system.default",
@@ -77,7 +87,8 @@ def test_blueprint_get_version_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "govern-blueprint",
+            "govern",
+            "blueprint",
             "get-version",
             "bp.system.govern_project",
             "bv.system.default",
@@ -93,7 +104,7 @@ def test_blueprint_get_version_json(patch_client):
 def test_blueprint_fields(patch_client):
     """Test fields command shows field schema."""
     result = runner.invoke(
-        app, ["govern-blueprint", "fields", "bp.system.govern_project"]
+        app, ["govern", "blueprint", "fields", "bp.system.govern_project"]
     )
     assert result.exit_code == 0
     assert "description" in result.output
@@ -106,7 +117,7 @@ def test_blueprint_fields_json(patch_client):
     """Test fields command in JSON output."""
     result = runner.invoke(
         app,
-        ["govern-blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -121,7 +132,7 @@ def test_blueprint_fields_shows_list_marker(patch_client):
     """Test that list fields are marked with * in the LIST column."""
     result = runner.invoke(
         app,
-        ["govern-blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
     )
     data = json.loads(result.output)
     countries = next(f for f in data if f["field"] == "countries")
@@ -134,7 +145,7 @@ def test_blueprint_fields_shows_categories(patch_client):
     """Test that category values are shown."""
     result = runner.invoke(
         app,
-        ["govern-blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
     )
     data = json.loads(result.output)
     cost = next(f for f in data if f["field"] == "cost_rating")
@@ -146,7 +157,7 @@ def test_blueprint_fields_shows_allowed_refs(patch_client):
     """Test that REFERENCE fields show allowed blueprints."""
     result = runner.invoke(
         app,
-        ["govern-blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
     )
     data = json.loads(result.output)
     bi = next(f for f in data if f["field"] == "business_initiative")

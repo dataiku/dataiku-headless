@@ -1,4 +1,4 @@
-"""dku govern-signoff — list, get, create, update-status, add-feedback, add-approval."""
+"""dku govern signoff — list, get, create, update-status, add-feedback, add-approval, delegate-feedback, delegate-approval, list-feedbacks, get-feedback, get-approval."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_govern_client_from_ctx
+from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage Govern artifact sign-offs.")
@@ -195,6 +195,143 @@ def add_approval(
         success(
             f"Added approval '{status}' for step '{step_id}' on artifact '{artifact_id}'"
         )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("delegate-feedback")
+def delegate_feedback(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    group_id: str = typer.Option(
+        ..., "--group-id", "-g", help="Feedback group ID to delegate from"
+    ),
+    users_container: str = typer.Option(
+        ...,
+        "--users-container",
+        help="Users container JSON (string, @file.json, or - for stdin)",
+    ),
+) -> None:
+    """Delegate feedback to specific users for a sign-off group."""
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        signoff = art.get_signoff(step_id)
+        container = read_json_input(users_container)
+        signoff.delegate_feedback(group_id, container)
+        success(
+            f"Delegated feedback for group '{group_id}' on step '{step_id}' of artifact '{artifact_id}'"
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("delegate-approval")
+def delegate_approval(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    users_container: str = typer.Option(
+        ...,
+        "--users-container",
+        help="Users container JSON (string, @file.json, or - for stdin)",
+    ),
+) -> None:
+    """Delegate approval to specific users for a sign-off."""
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        signoff = art.get_signoff(step_id)
+        container = read_json_input(users_container)
+        signoff.delegate_approval(container)
+        success(f"Delegated approval for step '{step_id}' on artifact '{artifact_id}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("list-feedbacks")
+def list_feedbacks(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List all feedbacks for a sign-off step."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        signoff = art.get_signoff(step_id)
+        feedbacks = signoff.list_feedbacks()
+        data = []
+        for item in feedbacks:
+            raw = item.get_raw()
+            data.append(
+                {
+                    "id": raw.get("id", ""),
+                    "status": raw.get("status", ""),
+                    "group_id": raw.get("groupId", ""),
+                    "user": raw.get("user", ""),
+                }
+            )
+        render(
+            data,
+            ["id", "status", "group_id", "user"],
+            output_format=output,
+            title=f"Feedbacks for {artifact_id} step {step_id}",
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-feedback")
+def get_feedback(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    feedback_id: str = typer.Argument(help="Feedback ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get a specific feedback review from a sign-off."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        signoff = art.get_signoff(step_id)
+        feedback = signoff.get_feedback(feedback_id)
+        defn = feedback.get_definition()
+        render_raw(defn.get_raw(), output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-approval")
+def get_approval(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the current approval for a sign-off step."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        signoff = art.get_signoff(step_id)
+        approval = signoff.get_approval()
+        defn = approval.get_definition()
+        render_raw(defn.get_raw(), output_format=output)
     except SystemExit:
         raise
     except Exception as e:

@@ -1,4 +1,4 @@
-"""dku govern-blueprint — list, get, list-versions, get-version, fields."""
+"""dku govern blueprint — list, get, list-versions, get-version, fields, create, set-definition."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Optional
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_govern_client_from_ctx
-from dku_cli.output import render, render_raw, resolve_output_format
+from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
+from dku_cli.output import error, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(
     help="Manage Govern blueprints. Use 'fields' subcommand to discover field schemas for artifact creation."
@@ -225,6 +225,86 @@ def fields(
                 "values": "CATEGORIES / ALLOWED REFS",
             },
         )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def create(
+    ctx: typer.Context,
+    identifier: str = typer.Argument(
+        help="New blueprint identifier (letters, digits, hyphen, underscore)"
+    ),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="Blueprint definition JSON (string, @file.json, or - for stdin)",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Create a new blueprint (admin/architect). Provide definition as JSON."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp_data = read_json_input(definition)
+        bp = designer.create_blueprint(identifier, bp_data)
+        defn = bp.get_definition()
+        success(f"Created blueprint '{bp.blueprint_id}'")
+        render_raw(defn.get_raw(), output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-definition")
+def set_definition(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="New blueprint definition JSON (string, @file.json, or - for stdin)",
+    ),
+) -> None:
+    """Update a blueprint definition (admin/architect)."""
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        defn = bp.get_definition()
+        new_def = read_json_input(definition)
+        defn.definition = new_def
+        defn.save()
+        success(f"Updated definition for blueprint '{blueprint_id}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def delete(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID (e.g. bp.custom_bp)"),
+    confirm: bool = typer.Option(
+        False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
+    ),
+) -> None:
+    """Delete a blueprint (admin/architect). All versions and artifacts must be deleted first."""
+    if not confirm:
+        error(
+            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
+        )
+        raise typer.Exit(1)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        designer.get_blueprint(blueprint_id).delete()
+        success(f"Deleted blueprint '{blueprint_id}'")
     except SystemExit:
         raise
     except Exception as e:

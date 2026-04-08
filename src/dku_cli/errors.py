@@ -93,7 +93,7 @@ def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
             [
                 f'Use: "{field}": ["value1", "value2"] (array), not "{field}": "value1" (string).',
                 'Even single values must be wrapped: ["value"].',
-                "Run: dku govern-blueprint fields <BLUEPRINT_ID> to see which fields are lists (marked with * in LIST column).",
+                "Run: dku govern blueprint fields <BLUEPRINT_ID> to see which fields are lists (marked with * in LIST column).",
             ],
         )
 
@@ -124,7 +124,7 @@ def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
         return (
             f"'{value}' is not a valid category for field '{field}'.",
             [
-                f"Run: dku govern-blueprint fields <BLUEPRINT_ID> to see valid categories for '{field}'.",
+                f"Run: dku govern blueprint fields <BLUEPRINT_ID> to see valid categories for '{field}'.",
                 "Category values are case-sensitive and must match exactly.",
             ],
         )
@@ -136,7 +136,7 @@ def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
             [
                 "Sign-off steps must be configured with feedback groups and approvers in the blueprint",
                 "before they can be activated. Ask a Govern Architect to configure the workflow.",
-                "Run: dku govern-signoff list <ARTIFACT_ID> to see existing sign-offs.",
+                "Run: dku govern signoff list <ARTIFACT_ID> to see existing sign-offs.",
             ],
         )
 
