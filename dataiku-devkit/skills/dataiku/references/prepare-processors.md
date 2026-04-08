@@ -23,35 +23,72 @@ Processors that **DO NOT** work with spaces (they use GREL variable references):
 
 ## Processor Decision Table
 
-Before writing a GREL formula, check this table:
+Before writing a GREL formula, check this table. All 81 processors below are verified working on stock DSS (no plugins).
 
 | Need to... | Processor | CLI |
 |------------|-----------|-----|
 | Rename columns | `ColumnRenamer` | `add-rename --from old --to new` |
 | Delete/keep columns | `ColumnsSelector` | `add-delete-columns --columns "c1,c2"` |
 | Copy a column | `ColumnCopier` | `add-step --type ColumnCopier` |
-| Fill nulls/blanks | `FillEmptyWithValue` | `add-fill-empty --column col --value "0"` |
+| Reorder columns | `ColumnReorder` | `add-step --type ColumnReorder` |
+| Coalesce (first non-null) | `Coalesce` | `add-step --type Coalesce` |
+| Fill nulls/blanks (fixed value) | `FillEmptyWithValue` | `add-fill-empty --column col --value "0"` |
+| Fill all rows with constant | `FillColumn` | `add-step --type FillColumn` |
+| Fill down/up | `UpDownFiller` | `add-step --type UpDownFiller` |
 | Concatenate columns | `ColumnsConcat` | `add-step --type ColumnsConcat` |
 | Uppercase/lowercase/trim | `StringTransformer` | `add-step --type StringTransformer` |
 | Find & replace text | `FindReplace` | `add-find-replace --column col --find X --replace Y` |
 | Split column by delimiter | `ColumnSplitter` | `add-step --type ColumnSplitter` |
+| Split email into parts | `EmailSplitter` | `add-step --type EmailSplitter` |
+| Split URL into parts | `URLSplitter` | `add-step --type URLSplitter` |
+| Extract with regex | `RegexpExtractor` | `add-step --type RegexpExtractor` |
+| Extract with Grok pattern | `GrokProcessor` | `add-step --type GrokProcessor` |
 | Normalize/stem/stop-words | `TextSimplifierProcessor` | `add-step --type TextSimplifierProcessor` |
-| If/then/else branching | `VisualIfRule` | `add-step --type VisualIfRule` |
+| Tokenize text | `Tokenizer` | `add-step --type Tokenizer` |
+| If/then/else branching | GREL `if()` | `add-formula --expr 'if(cond, "a", "b")'` |
+| Switch/case mapping | `SwitchCase` | `add-step --type SwitchCase` |
 | Filter rows by value | `FlagOnValue` | `add-filter-rows --column col --values "a,b"` |
 | Filter rows by formula | `FilterOnCustomFormula` | `add-filter-rows --formula "price > 100"` |
 | Remove invalid-type rows | `FilterOnBadType` | `add-step --type FilterOnBadType` |
 | Filter by numeric range | `FilterOnNumericalRange` | `add-step --type FilterOnNumericalRange` |
+| Filter by date range | `FilterOnDate` | `add-step --type FilterOnDate` |
 | Remove empty rows | `RemoveRowsOnEmpty` | `add-step --type RemoveRowsOnEmpty` |
+| Flag invalid types | `SplitInvalidCells` | `add-step --type SplitInvalidCells` |
 | Parse date strings | `DateParser` | `add-step --type DateParser` |
 | Extract year/month/day | `DateComponentsExtractor` | `add-step --type DateComponentsExtractor` |
 | Compute date difference | `DateDifference` | `add-step --type DateDifference` |
+| Format dates | `DateFormatter` | `add-step --type DateFormatter` |
+| Increment dates | `DateIncrement` | `add-step --type DateIncrement` |
+| Truncate dates | `DateTruncate` | `add-step --type DateTruncate` |
+| Parse UNIX timestamps | `UNIXTimestampParser` | `add-step --type UNIXTimestampParser` |
+| Detect holidays | `HolidaysComputer` | `add-step --type HolidaysComputer` |
 | Bin/discretize numbers | `BinnerProcessor` | `add-step --type BinnerProcessor` |
 | Clip numeric range | `MinMaxProcessor` | `add-step --type MinMaxProcessor` |
-| Fold wide→long | `FoldColumnsByName` | `add-fold --columns "c1,c2" --key-column k --value-column v` |
+| Round numbers | `RoundProcessor` | `add-step --type RoundProcessor` |
+| Combine numeric columns | `NumericalCombinator` | `add-step --type NumericalCombinator` |
+| Compute mean of columns | `MeanProcessor` | `add-step --type MeanProcessor` |
+| Negate boolean | `BooleanNot` | `add-step --type BooleanNot` |
+| Change column type/meaning | `TypeSetter` | `add-step --type TypeSetter` |
+| Fold wide→long | `MultiColumnFold` | `add-fold --columns "c1,c2" --key-column k --value-column v` |
+| Fold by column prefix | `MultiColumnByPrefixFold` | `add-step --type MultiColumnByPrefixFold` |
+| Split & fold | `SplitFold` | `add-step --type SplitFold` |
+| Unfold (long→wide) | `Unfold` | `add-step --type Unfold` |
+| Split & unfold | `SplitUnfold` | `add-step --type SplitUnfold` |
+| Pivot | `Pivot` | `add-step --type Pivot` |
+| Transpose | `Transpose` | `add-step --type Transpose` |
 | Flatten JSON column | `JSONFlattener` | `add-step --type JSONFlattener` |
-| Extract from JSON array | `ArrayExtractProcessor` | `add-step --type ArrayExtractProcessor` |
+| Extract JSON path | `JSONPathExtractor` | `add-step --type JSONPathExtractor` |
+| Nest columns into JSON | `NestProcessor` | `add-step --type NestProcessor` |
+| Extract from array | `ArrayExtractProcessor` | `add-step --type ArrayExtractProcessor` |
+| Sort array | `ArraySortProcessor` | `add-step --type ArraySortProcessor` |
+| Unfold array | `ArrayUnfold` | `add-step --type ArrayUnfold` |
 | Create geopoint | `GeoPointCreator` | `add-geopoint --lat-column lat --lon-column lon` |
-| Compute geo distance | `GeoDistanceProcessor` | `add-geodistance --from-column A --to-column B` |
+| Compute geo distance | GREL `geoDistance()` | `add-geodistance --from A --to B` |
+| Extract lat/lon from geopoint | `GeoPointExtractor` | `add-step --type GeoPointExtractor` |
+| Group long-tail values | `LongTailGrouper` | `add-step --type LongTailGrouper` |
+| Count pattern matches | `MatchCounter` | `add-step --type MatchCounter` |
+| Pseudonymize column | `ColumnPseudonymization` | `add-step --type ColumnPseudonymization` |
+| Normalize/scale values | `MeasureNormalize` | `add-step --type MeasureNormalize` |
 | Custom expression (LAST RESORT) | `CreateColumnWithGREL` | `add-formula --expr "..." --column col` |
 
 ## Shared Param Patterns
@@ -232,7 +269,7 @@ Each entry: type ID, when to use, key params, canonical JSON for `add-step --par
 | `startFrom` | Cond | **Required when `limitOutput: true`.** `"beginning"` or `"end"` (lowercase only — `"BEGINNING"` fails). Set to `null` when `limitOutput: false`. |
 
 ```json
-{"inCol": "full_name", "separator": " ", "outColPrefix": "name_", "target": "COLUMNS", "keepEmptyChunks": false, "limitOutput": false, "limit": 0}
+{"inCol": "full_name", "separator": " ", "outColPrefix": "name_", "target": "COLUMNS", "keepEmptyChunks": false, "limitOutput": false, "limit": 0, "startFrom": "beginning"}
 ```
 
 With `limitOutput`:
@@ -264,7 +301,7 @@ With `limitOutput`:
 
 ### VisualIfRule
 
-**When:** If/then/else branching logic. Prefer over GREL `if(condition, then, else)` — especially for multiple branches.
+**When:** If/then/else branching logic. For multiple branches, prefer over nested GREL `if()`.
 
 | Param | Required | Description |
 |-------|----------|-------------|
@@ -274,26 +311,59 @@ With `limitOutput`:
 | `visualIfDesc.elseActions` | No | ELSE actions (array) |
 
 Each branch has a `filter` (visual condition) and `actions` (output assignments):
-- **Filter:** `{"uiData": {"mode": "&&", "conditions": [{"input": "col", "operator": ">  [number]", "num": 30}]}, "distinct": true, "enabled": true}`
-- **Action:** `{"outputColumnName": "result", "value": "high", "operator": "ASSIGN_VALUE"}`
+- **Filter:** `{"uiData": {"mode": "&&", "conditions": [...]}, "distinct": true, "enabled": true}`
+- **Condition:** `{"input": "col_name", "col": "col_name", "operator": "...", "string": "", "num": 0.0, "num2": 0.0}`
+- **Action:** `{"outputColumnName": "result", "column": "", "formula": "", "value": "high", "operator": "ASSIGN_VALUE"}`
 
-Common operators: `== [string]`, `!= [string]`, `>  [number]`, `<  [number]`, `contains`, `is empty`, `not empty`.
+#### Condition operators
+
+| Category | Operator string | Value field | Notes |
+|----------|----------------|-------------|-------|
+| Empty/defined | `is empty` | — | |
+| | `not empty` | — | |
+| String | `== [string]` | `string` | |
+| | `!= [string]` | `string` | |
+| | `contains` | `string` | |
+| | `not contains` | `string` | |
+| Number | `== [number]` | `num` | |
+| | `!= [number]` | `num` | |
+| | `>  [number]` | `num` | 2 spaces after `>` |
+| | `<  [number]` | `num` | 2 spaces after `<` |
+| | `>= [number]` | `num` | 1 space after `>=` |
+| | `<= [number]` | `num` | 1 space after `<=` |
+| Column compare | `== [column]` | `string` (other column name) | |
+| Boolean | `true` | — | |
+| | `false` | — | |
+
+**Broken via API** (produce silent `False` — DSS bug): `regex`, `in [string]`, `not in [string]`, date operators, geo operators. Use GREL alternatives:
+- Regex: `add-formula --expr 'if(length(match(col, "(pattern)")) > 0, "YES", "NO")'`
+- Is any of: `add-formula --expr 'switch(col, "a", "MATCH", "b", "MATCH", "NO_MATCH")'`
+
+#### Action operators
+
+| UI label | Operator string | Field used |
+|----------|----------------|------------|
+| = (Value) | `ASSIGN_VALUE` | `value` |
+| = (Column) | `ASSIGN_COLUMN` | `column` |
+| = (Formula) | `ASSIGN_FORMULA` | `formula` (GREL expression) |
+
+#### Full example
 
 ```json
 {
   "legacyPositioning": false,
   "visualIfDesc": {
     "ifThen": {
-      "filter": {"uiData": {"mode": "&&", "conditions": [{"input": "age", "operator": ">  [number]", "num": 65}]}, "distinct": true, "enabled": true},
-      "actions": [{"outputColumnName": "age_group", "value": "senior", "operator": "ASSIGN_VALUE"}]
+      "filter": {"uiData": {"mode": "&&", "conditions": [{"input": "amount", "col": "amount", "string": "", "num": 200.0, "items": [], "operator": ">= [number]", "num2": 0.0}]}, "distinct": true, "enabled": true},
+      "actions": [{"outputColumnName": "tier", "column": "", "formula": "", "value": "HIGH", "operator": "ASSIGN_VALUE"}]
     },
     "elseIfThens": [
       {
-        "filter": {"uiData": {"mode": "&&", "conditions": [{"input": "age", "operator": ">  [number]", "num": 18}]}, "distinct": true, "enabled": true},
-        "actions": [{"outputColumnName": "age_group", "value": "adult", "operator": "ASSIGN_VALUE"}]
+        "filter": {"uiData": {"mode": "&&", "conditions": [{"input": "amount", "col": "amount", "string": "", "num": 100.0, "items": [], "operator": ">  [number]", "num2": 0.0}]}, "distinct": true, "enabled": true},
+        "actions": [{"outputColumnName": "tier", "column": "", "formula": "", "value": "MEDIUM", "operator": "ASSIGN_VALUE"}]
       }
     ],
-    "elseActions": [{"outputColumnName": "age_group", "value": "minor", "operator": "ASSIGN_VALUE"}]
+    "elseActions": [{"outputColumnName": "tier", "column": "", "formula": "", "value": "LOW", "operator": "ASSIGN_VALUE"}]
   }
 }
 ```
@@ -318,6 +388,18 @@ Common operators: `== [string]`, `!= [string]`, `>  [number]`, `<  [number]`, `c
 ```json
 {"appliesTo": "SINGLE_COLUMN", "columns": ["status"], "values": ["active", "pending"], "action": "KEEP_ROW", "matchingMode": "FULL_STRING", "normalizationMode": "EXACT", "booleanMode": "AND"}
 ```
+
+For `FLAG` action, add `"flagColumn": "col_name"` to create a boolean flag column instead of filtering rows:
+
+```json
+{"appliesTo": "SINGLE_COLUMN", "columns": ["status"], "values": ["active"], "action": "FLAG", "flagColumn": "is_active", "matchingMode": "FULL_STRING", "normalizationMode": "EXACT", "booleanMode": "AND", "exclude": false, "processNullOrEmptyValues": false}
+```
+
+**Related Flag processors** (same pattern, different condition types):
+- `FlagOnBadType` — flag by column type: `{"appliesTo": "SINGLE_COLUMN", "columns": ["amount"], "type": "Numeric", "action": "FLAG", "flagColumn": "is_valid", "considerEmptyAsInvalid": true, "booleanMode": "AND"}`
+- `FlagOnCustomFormula` — flag by formula: `{"expression": "val(\"amount\") > 100", "action": "FLAG", "flagColumn": "high_amount"}`
+- `FlagOnDate` — flag by date range: `{"appliesTo": "SINGLE_COLUMN", "columns": ["date"], "filterType": "RANGE", "min": "2024-01-01T00:00:00.000", "max": "2024-12-31T00:00:00.000", "action": "FLAG", "flagColumn": "in_2024", "timezone_id": "UTC", "booleanMode": "AND", "includeEmptyValues": false}`
+- `FlagOnNumericalRange` — flag by numeric range: `{"appliesTo": "SINGLE_COLUMN", "columns": ["amount"], "min": 100.0, "max": 500.0, "action": "FLAG", "flagColumn": "in_range", "booleanMode": "AND", "includeEmptyValues": false}`
 
 ---
 
@@ -475,7 +557,7 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 
 ---
 
-### FoldColumnsByName / FoldColumnsByPattern
+### MultiColumnFold
 
 **When:** Unpivot wide-to-long. Prefer over `pd.melt()`.
 **CLI shortcut:** `dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ`
@@ -487,23 +569,17 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 | Param | Required | Description |
 |-------|----------|-------------|
 | `columns` | Yes | Array of column names to fold |
-| `keyColumn` | Yes | Output column for original column names |
-| `valueColumn` | Yes | Output column for values |
+| `foldNameColumn` | Yes | Output column for original column names |
+| `foldValueColumn` | Yes | Output column for values |
 
 ```json
-{"columns": ["jan", "feb", "mar"], "keyColumn": "month", "valueColumn": "sales"}
+{"columns": ["jan", "feb", "mar"], "foldNameColumn": "month", "foldValueColumn": "sales"}
 ```
 
-**FoldColumnsByPattern** (use `--pattern` flag):
-
-| Param | Required | Description |
-|-------|----------|-------------|
-| `columnNamePattern` | Yes | Regex matching column names |
-| `columnNameColumn` | Yes | Output column for matched names |
-| `columnContentColumn` | Yes | Output column for values |
+Also available: `MultiColumnByPrefixFold` — folds columns matching a prefix pattern:
 
 ```json
-{"columnNamePattern": ".*_2024", "columnNameColumn": "metric", "columnContentColumn": "value"}
+{"columnNamePattern": "score_", "keyColumn": "metric", "valueColumn": "value"}
 ```
 
 ---
@@ -543,6 +619,17 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 
 **Before using this, check:** Could `VisualIfRule`, `StringTransformer`, `DateParser`, `ColumnsConcat`, `BinnerProcessor`, or another processor do this instead?
 
+### GREL Critical Gotchas
+
+| Trap | What happens | Fix |
+|------|-------------|-----|
+| `round(x, 2)` | Silent empty output — `round()` takes exactly 1 arg (nearest integer) | `round(x * 100) / 100` for 2 decimals, `round(x * 10) / 10` for 1 decimal |
+| `asDateOnly()` on STRING column | Silently fails in some recipe contexts | Run `DateParser` step first, then use the parsed column in date functions |
+| `log()` | Returns base-10, not natural log | Use `ln()` for natural log |
+| `numval()` / `val()` | Don't work in formula columns | Use direct arithmetic — GREL auto-casts strings to numbers |
+| Formula column type | New columns default to STRING | Always run `apply-schema` after adding formula steps |
+| VisualIfRule `regex`/`in [string]` | Silent boolean `False` via API (DSS bug) | Use GREL `match()` for regex, `switch()` for is-any-of |
+
 ---
 
 ## Full Processor Catalog (Quick Reference)
@@ -555,7 +642,7 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 |-----------|---------|------------|
 | Reorder columns | `ColumnReorder` | `columns`, `referenceColumn`, `reorderAction` |
 | Fill with prev/next | `UpDownFiller` | `column`, `direction` |
-| Coalesce (first non-null) | `Coalesce` | `columns`, `outputColumn`, `defaultValue` |
+| Coalesce (first non-null) | `Coalesce` | `appliesTo`, `columns`, `outputColumn`, `defaultValue`, `useDefaultValue` |
 
 ### Numeric
 
@@ -563,7 +650,11 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 |-----------|---------|------------|
 | Round numbers | `RoundProcessor` | `column`, `precision`, `mode` |
 | Force range (clip) | `MinMaxProcessor` | `columns`, `min`, `max`, `action` |
-| Convert number format | `NumericalFormatConverter` | `inCol`, `outCol`, `inLocale`, `outLocale` |
+| Convert number format | `NumericalFormatConverter` | `appliesTo`, `columns`, `outCol`, `inFormat`, `outFormat` |
+| Combine columns (add/sub/mul) | `NumericalCombinator` | `columns`, `output`, `operation` |
+| Compute mean of columns | `MeanProcessor` | `appliesTo`, `columns`, `outputColumn` |
+| Compute percentile | `ComputeNTile` | `appliesTo`, `columns`, `outCol`, `n` |
+| Group rare values | `MergeLongTailValues` | `appliesTo`, `columns`, `thresholdMode`, `countThreshold`, `replacementValue` |
 
 ### String/Text
 
@@ -587,7 +678,7 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 | Processor | Type ID | Key Params |
 |-----------|---------|------------|
 | Unfold (long→wide) | `Unfold` | `column` |
-| Split and fold | `SplitAndFold` | `column`, `separator` |
+| Split and fold | `SplitFold` | `column`, `separator`, `foldedColumn` |
 | Pivot (in prepare) | `Pivot` | `indexColumn`, `labelsColumn`, `valuesColumn` |
 | Transpose | `Transpose` | (no params) |
 
@@ -598,10 +689,10 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 | Extract from array | `ArrayExtractProcessor` | `column`, `index` |
 | Fold array to rows | `ArrayFold` | `column` |
 | Sort array | `ArraySortProcessor` | `column`, `order` |
-| JSONPath extract | `JSONPathExtractor` | `column`, `expression`, `outputColumn` |
-| Nest columns to JSON | `NestColumns` | `columns`, `outputColumn`, `outputType` |
-| Zip arrays | `ZipArrays` | `columns`, `outputColumn` |
-| Concat arrays | `ConcatArrays` | `columns`, `outputColumn` |
+| JSONPath extract | `JSONPathExtractor` | `column`, `expression`, `output` |
+| Nest columns to JSON | `NestProcessor` | `columns`, `output` |
+| Zip arrays | `ZipArrays` | `inputColumns`, `outputColumn` |
+| Concat arrays | `ConcatArrays` | `inputColumns`, `outputColumn` |
 
 ### Joins & Enrichment (in Prepare)
 
