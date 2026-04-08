@@ -141,8 +141,17 @@ dataiku-devkit/
 
 ### Skill Quality Standards
 
-When editing `dataiku-devkit/skills/dku-cli/SKILL.md`:
+When editing skills, **progressive disclosure is non-negotiable**:
 
+| Layer | File | What goes here | What does NOT go here |
+|-------|------|----------------|----------------------|
+| 1 | SKILL.md cheat sheet (top 30 lines) | Failure prevention rules, one line each | Command syntax, flag details |
+| 2 | SKILL.md body | Command Groups table (verb names only), chaining patterns for new workflows | Per-command notes, flag descriptions, API details |
+| 3 | `references/commands.md` | Full command syntax, all flags, usage notes, API quirks | — (this is the detail layer) |
+
+**Rules:**
+- **SKILL.md is loaded into every conversation.** Every line costs tokens. Be ruthless about what earns a spot.
+- **Never add per-command documentation to SKILL.md.** That's what `references/commands.md` is for. SKILL.md gets the verb in the Command Groups table + a chaining pattern IF the command enables a new workflow.
 - **Cheat sheet** (top 30 lines): Must prevent the top failure modes. One line per rule. If you add a gotcha to CLAUDE.md, ask: does the cheat sheet need a rule too?
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
