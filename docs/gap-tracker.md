@@ -13,6 +13,20 @@
 
 When closing an issue, add a one-line resolution note and date.
 
+## Implementation & Testing Requirements
+
+Every gap implementation MUST follow this sequence:
+
+1. **Read dataikuapi source** — `.venv/lib/python3.10/site-packages/dataikuapi/`. Never guess API field names.
+2. **Write unit tests** with mocks matching REAL API response shapes (verified from source).
+3. **Run `uv run pytest -v`** — all must pass.
+4. **Test against live DSS (MANDATORY)** — Run every new command with `uv run dku ...` against **ADVISORGPT** or **AGENTTEST** projects. Verify:
+   - Table output shows real data, not blanks (field name mismatches cause this)
+   - JSON field names match what DSS actually returns
+   - Empty results and wrong inputs produce prescriptive error messages
+5. **Fix mismatches before committing** — if live testing reveals issues, fix and re-test.
+6. Document which live commands were run in the commit message.
+
 ---
 
 ## P0 — Agents Hit This Weekly

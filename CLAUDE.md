@@ -55,8 +55,14 @@ When you receive benchmark feedback:
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v`
-6. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
+5. **Run unit tests** — `uv run pytest -v` after ANY CLI code change. Write new tests for new commands. Test error paths too, not just happy paths. Never skip this step.
+6. **Test against live DSS (MANDATORY)** — Unit test mocks are guesses until verified. After unit tests pass, run every new/changed command against the real DSS instance with `uv run dku <command>`. Use projects **ADVISORGPT** (Snowflake datasets, recipes, flow graph) or **AGENTTEST**. Verify:
+   - Table output shows real data, not blank columns (field name mismatches cause this)
+   - JSON output field names match what DSS actually returns
+   - Empty results produce helpful messages (no usages, no schemas, etc.)
+   - Wrong inputs (bad column name, non-SQL connection for schemas) produce prescriptive errors
+   - If live testing reveals mismatches, fix them BEFORE committing
+7. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
 
@@ -305,3 +311,4 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
 | `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |
+| `docs/gap-tracker.md` | CLI & Skill gaps vs dataikuapi — issue tracker with priorities |
