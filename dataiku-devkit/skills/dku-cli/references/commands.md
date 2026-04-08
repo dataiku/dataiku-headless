@@ -412,6 +412,9 @@ dku model delete-version MODEL_ID --version VERSION_ID [--version VERSION_ID2] [
 dku model delete MODEL_ID [-P PROJECT]
 dku model usages MODEL_ID [-P PROJECT] [-o json]
 dku model set-metadata MODEL_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
+dku model create-mlflow NAME [-t PREDICTION_TYPE] [-P PROJECT] [-o FORMAT]
+dku model import-mlflow MODEL_ID -v VERSION_ID --path PATH [--code-env ENV] [--set-active/--no-set-active] [-P PROJECT]
+dku model create-external NAME -t PREDICTION_TYPE --protocol PROTO [--connection CONN] [--region REGION] [--config JSON] [-P PROJECT] [-o FORMAT]
 ```
 
 - `set-active-version` activates a version; downstream prediction recipes and API endpoints use it
@@ -420,6 +423,9 @@ dku model set-metadata MODEL_ID [-P PROJECT] [--description DESC] [--short-desc 
 - `delete` removes the entire saved model
 - `usages` shows where the model is used (recipes, endpoints, etc.) as JSON
 - `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
+- `create-mlflow` creates a saved model for MLflow pyfunc models. Prediction type optional (BINARY_CLASSIFICATION, MULTICLASS, REGRESSION). Follow with `import-mlflow` to import a version
+- `import-mlflow` imports a MLflow model version from a local path. Model must have been created with `create-mlflow`. `--code-env` defaults to active env; set `INHERIT` for project default
+- `create-external` creates a saved model for remote endpoints (SageMaker, Databricks, Azure ML, Vertex AI). `--protocol` is required. Use `--config` for full JSON config override
 
 ## folder
 

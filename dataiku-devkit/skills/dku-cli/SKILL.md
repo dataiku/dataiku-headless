@@ -508,7 +508,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **rename, status**, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
 | `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, avg-duration, run-log, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
-| `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata** | Yes |
+| `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata, create-mlflow, import-mlflow, create-external** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
 | `llm` | list, completion, embeddings | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |

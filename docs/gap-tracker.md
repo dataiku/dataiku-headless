@@ -106,12 +106,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku streaming` group: list, create, get, delete, schema, set-schema. Support `--type kafka --connection CONN --topic TOPIC` and `--type httpsse --url URL`.
 
 ### GAP-009: Model MLflow import & external models
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `saved_model.import_mlflow_version_from_path()`, `...from_managed_folder()`, `...from_databricks()`, `project.create_mlflow_pyfunc_model()`, `project.create_external_model()`, `saved_model.create_external_model_version()`
-- **CLI today:** Can manage saved models but can't import MLflow versions or create external models.
-- **Next step:** Add `dku model import-mlflow MODEL_ID --path /path --version-id v1 -P PROJ` and `dku model create-external NAME --prediction-type BINARY_CLASSIFICATION -P PROJ`.
+- **dataikuapi:** `project.create_mlflow_pyfunc_model()`, `saved_model.import_mlflow_version_from_path()`, `project.create_external_model()`
+- **CLI today:** Three new commands: `create-mlflow`, `import-mlflow`, `create-external`. Supports SageMaker, Databricks, Azure ML, Vertex AI protocols.
+- **Resolution:** Added all three commands. `create-mlflow` creates the model container, `import-mlflow` imports a version from a local path with code-env and set-active options, `create-external` supports all 4 protocols with `--config` JSON override. 10 tests. Live-verified: create-mlflow on AGENTTEST (created + deleted), JSON output, invalid type error.
 
 ### GAP-010: Recipe rename & status
 - **Status:** `done` (2026-04-08)
@@ -365,6 +365,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-009 | Added `dku model create-mlflow`, `import-mlflow`, `create-external` — 10 tests |
 | 2026-04-09 | SKILL-001 | Added Complete RAG Pipeline, Model Deployment, Flow Investigation, Plugin Install patterns to SKILL.md |
 | 2026-04-09 | GAP-007 | Added API service `add-endpoint`, `list-endpoints`, `publish-package`, `delete-package` — 9 tests |
 | 2026-04-09 | GAP-005 | Added `dku rag` command group (list, create, get, delete, get/set-definition) — 11 tests |

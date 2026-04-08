@@ -958,6 +958,12 @@ def mock_client():
     model_mock.get_version_details.return_value = version_details_mock
     proj1.get_saved_model.return_value = model_mock
 
+    # MLflow / external model creation mocks
+    model_mock.sm_id = "model1"
+    model_mock.import_mlflow_version_from_path.return_value = MagicMock()
+    proj1.create_mlflow_pyfunc_model.return_value = model_mock
+    proj1.create_external_model.return_value = model_mock
+
     # LLM mock
     llm_mock = MagicMock()
     completion_mock = MagicMock()
