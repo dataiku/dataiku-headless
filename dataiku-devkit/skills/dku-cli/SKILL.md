@@ -544,16 +544,9 @@ Key notes:
 - `dku semantic-model` — Semantic models enable text-to-SQL via the Semantic Model Query agent tool (DSS 14.4+). Versions are key: only the active version is used by agents. Always `update-index --wait` after changing entities/attributes.
 - `dku agent-hub` — **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first). `--hub` auto-detects when one hub exists; required when multiple exist. Config is shallow-merged, not replaced. Agent IDs use `PROJECT:agent:ID` format.
 - `dku scenario list-triggers` / `add-trigger-dataset` — manage scenario automation triggers from CLI. Use `add-trigger-dataset` for dataset-change triggers, `add-trigger` for arbitrary trigger JSON.
-- `dku dataset exists DS -P PROJ` — exit code 0 if exists, 1 if not. Use for conditional logic: `dku dataset exists DS -P PROJ && echo "found"`.
-- `dku dataset usages DS -P PROJ` — shows what recipes/analyses reference a dataset. Essential for flow investigation.
-- `dku dataset lineage DS --column COL -P PROJ` — traces column provenance across the flow graph. Shows input→output dataset/column relations.
-- `dku connection schemas CONN -P PROJ` — discover SQL schemas or Iceberg namespaces before importing tables.
-- `dku connection tables CONN --schema SCHEMA -P PROJ` — list importable tables in a connection. Use before `dataset create` to get correct table names.
-- `dku recipe status RECIPE -P PROJ` — check which engine DSS selected and any status messages/warnings.
-- `dku scenario last-run SCEN --successful -P PROJ` — get last successful run (skips FAILED/ABORTED). Use `runs --from YYYY-MM-DD --to YYYY-MM-DD` for date-range queries.
-- `dku rag` — RAG LLM is the final step in the RAG pipeline. Create with `dku rag create NAME --kb KB_ID --llm LLM_ID -P PROJ`. The LLM ID for use elsewhere is `retrieval-augmented-llm:<RAG_ID>`.
-- `dku api-service add-endpoint SVC -e EP -m MODEL -P PROJ` — types: prediction, clustering, forecasting, causal. Always `save()` is called automatically.
-- `dku plugin install-from-store PLUGIN_ID` / `install-from-git REPO_URL` — install plugins without DSS UI. Follow with `create-code-env` if the plugin needs one.
+- `dku connection schemas`/`tables` — discover SQL schemas and tables before importing. Always run `schemas` first, then `tables --schema SCHEMA`.
+- `dku rag create NAME --kb KB_ID --llm LLM_ID` — final step in RAG pipeline. LLM ID for agents: `retrieval-augmented-llm:<RAG_ID>`.
+- `dku api-service add-endpoint` + `publish-package` — complete model deployment pipeline. See patterns below.
 
 ## Chaining Patterns
 

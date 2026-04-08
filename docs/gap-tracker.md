@@ -25,7 +25,11 @@ Every gap implementation MUST follow this sequence:
    - JSON field names match what DSS actually returns
    - Empty results and wrong inputs produce prescriptive error messages
 5. **Fix mismatches before committing** — if live testing reveals issues, fix and re-test.
-6. Document which live commands were run in the commit message.
+6. **Update skills (progressive disclosure):**
+   - `references/commands.md` — add new command syntax + notes (layer 3, full detail)
+   - `SKILL.md` Command Groups table — add new verbs (layer 2, scannable)
+   - `SKILL.md` patterns section — add chaining examples ONLY if new commands enable a new workflow. Don't add per-command notes to SKILL.md — that belongs in commands.md.
+7. Document which live commands were run in the commit message.
 
 ---
 
