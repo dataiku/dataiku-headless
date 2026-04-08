@@ -1039,11 +1039,21 @@ def mock_client():
     api_service_mock = MagicMock()
     api_service_settings = MagicMock()
     api_service_settings.get_raw.return_value = {"id": "myservice", "endpoints": []}
+    api_service_settings.endpoints = [
+        {"id": "predict_churn", "type": "STD_PREDICTION", "modelRef": "model1"},
+    ]
+    api_service_settings.add_prediction_endpoint.return_value = None
+    api_service_settings.add_clustering_endpoint.return_value = None
+    api_service_settings.add_forecasting_endpoint.return_value = None
+    api_service_settings.add_causal_prediction_endpoint.return_value = None
+    api_service_settings.save.return_value = None
     api_service_mock.get_settings.return_value = api_service_settings
     api_service_mock.create_package.return_value = None
     api_service_mock.list_packages.return_value = [
         {"id": "pkg1", "createdOn": "2025-01-01"}
     ]
+    api_service_mock.publish_package.return_value = None
+    api_service_mock.delete_package.return_value = None
     proj1.get_api_service.return_value = api_service_mock
     proj1.create_api_service.return_value = api_service_mock
 

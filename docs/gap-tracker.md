@@ -86,12 +86,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** All four commands implemented with DSSFuture handling. `install-from-store` shows code-env creation hint after install. 9 tests cover all commands with wait/no-wait and parameter passing. Live-verified: `update-from-store geocoder --no-wait` on DSS 14.5.
 
 ### GAP-007: API service typed endpoints
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `settings.add_prediction_endpoint(endpoint_id, saved_model_id)`, `add_clustering_endpoint()`, `add_forecasting_endpoint()`, `add_causal_prediction_endpoint()`, `delete_package()`, `download_package_stream()`, `publish_package()`
-- **CLI today:** Can create services and packages, but can't add typed endpoints or publish packages to deployer.
-- **Next step:** Add `dku api-service add-endpoint SERVICE --type prediction --model MODEL_ID -P PROJ` and `dku api-service publish-package SERVICE PACKAGE_ID -P PROJ`.
+- **dataikuapi:** `settings.add_prediction_endpoint()`, `add_clustering_endpoint()`, `add_forecasting_endpoint()`, `add_causal_prediction_endpoint()`, `publish_package()`, `delete_package()`
+- **CLI today:** Four new commands: `add-endpoint` (prediction/clustering/forecasting/causal), `list-endpoints`, `publish-package`, `delete-package`. Completes the deployment pipeline.
+- **Resolution:** Added all four commands. `add-endpoint` validates type against supported set, calls the appropriate dataikuapi method, then saves. `list-endpoints` reads from settings. `publish-package` supports `--published-service` for custom deployer target. 9 tests. Live-verified: create service, list-endpoints (empty + prescriptive hint), JSON empty list, all help commands.
 
 ### GAP-008: Streaming endpoints
 - **Status:** `backlog`
@@ -361,6 +361,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-007 | Added API service `add-endpoint`, `list-endpoints`, `publish-package`, `delete-package` — 9 tests |
 | 2026-04-09 | GAP-005 | Added `dku rag` command group (list, create, get, delete, get/set-definition) — 11 tests |
 | 2026-04-09 | GAP-011 | Enhanced `runs` (date filter, duration), `last-run` (--successful), added `avg-duration` and `run-log` — 11 tests |
 | 2026-04-08 | GAP-006 | Added plugin install/update from store and git — 4 commands, 9 tests |
