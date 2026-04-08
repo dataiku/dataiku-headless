@@ -79,12 +79,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku rag` command group (list, create, get, delete, set-definition). Update both skills with "Complete RAG pipeline" pattern: create KB → embed recipe → build → create RAG LLM → attach to agent.
 
 ### GAP-006: Plugin install from store/git
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-08)
 - **Type:** `cli`
 - **Effort:** `S`
 - **dataikuapi:** `client.install_plugin_from_store(plugin_id)`, `client.install_plugin_from_git(repo_url, checkout, subpath)`, `plugin.update_from_store()`, `plugin.update_from_git(repo_url, checkout, subpath)`
-- **CLI today:** `dku plugin push` handles zip install/update only. Agents can't install plugins from the Dataiku plugin store or from git repos.
-- **Next step:** Add `dku plugin install-from-store PLUGIN_ID` and `dku plugin install-from-git REPO_URL [--checkout BRANCH]`. Also add `dku plugin update-from-store PLUGIN_ID` and `dku plugin update-from-git PLUGIN_ID REPO_URL`.
+- **CLI today:** Four new commands: `install-from-store`, `install-from-git`, `update-from-store`, `update-from-git`. All support `--wait/--no-wait`, git commands support `--checkout` and `--subpath`.
+- **Resolution:** All four commands implemented with DSSFuture handling. `install-from-store` shows code-env creation hint after install. 9 tests cover all commands with wait/no-wait and parameter passing. Live-verified: `update-from-store geocoder --no-wait` on DSS 14.5.
 
 ### GAP-007: API service typed endpoints
 - **Status:** `backlog`
@@ -362,6 +362,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-08 | GAP-006 | Added plugin install/update from store and git — 4 commands, 9 tests |
 | 2026-04-08 | GAP-010 | Added `dku recipe rename` and `dku recipe status` — engine/severity/messages, 8 tests |
 | 2026-04-08 | GAP-002 | Added `dku connection schemas` and `dku connection tables` — SQL/Iceberg discovery, 12 tests |
 | 2026-04-08 | GAP-004 | Added `dku dataset usages` and `dku dataset lineage` — flow investigation commands, 10 tests |

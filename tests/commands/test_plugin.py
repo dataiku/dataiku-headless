@@ -539,3 +539,150 @@ def test_plugin_put_file_from_file(patch_client, tmp_path):
     )
     assert result.exit_code == 0
     assert "Wrote" in result.output
+
+
+# --- install-from-store ---
+
+
+def test_plugin_install_from_store(patch_client):
+    """Install plugin from store waits for completion."""
+    result = runner.invoke(
+        app, ["plugin", "install-from-store", "timeseries-preparation"]
+    )
+    assert result.exit_code == 0
+    assert "Installed" in result.output
+    assert "timeseries-preparation" in result.output
+    patch_client.install_plugin_from_store.assert_called_once_with(
+        "timeseries-preparation"
+    )
+    patch_client.install_plugin_from_store.return_value.wait_for_result.assert_called_once()
+
+
+def test_plugin_install_from_store_no_wait(patch_client):
+    """--no-wait returns immediately."""
+    result = runner.invoke(
+        app, ["plugin", "install-from-store", "my-plugin", "--no-wait"]
+    )
+    assert result.exit_code == 0
+    assert "started" in result.output.lower()
+    patch_client.install_plugin_from_store.return_value.wait_for_result.assert_not_called()
+
+
+# --- install-from-git ---
+
+
+def test_plugin_install_from_git(patch_client):
+    """Install plugin from git with defaults."""
+    result = runner.invoke(
+        app,
+        ["plugin", "install-from-git", "https://github.com/org/repo.git"],
+    )
+    assert result.exit_code == 0
+    assert "Installed" in result.output
+    patch_client.install_plugin_from_git.assert_called_once_with(
+        "https://github.com/org/repo.git", checkout="master", subpath=None
+    )
+
+
+def test_plugin_install_from_git_with_checkout(patch_client):
+    """--checkout passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "install-from-git",
+            "https://github.com/org/repo.git",
+            "--checkout",
+            "v2.0",
+        ],
+    )
+    assert result.exit_code == 0
+    patch_client.install_plugin_from_git.assert_called_once_with(
+        "https://github.com/org/repo.git", checkout="v2.0", subpath=None
+    )
+
+
+def test_plugin_install_from_git_with_subpath(patch_client):
+    """--subpath passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "install-from-git",
+            "https://github.com/org/monorepo.git",
+            "--subpath",
+            "plugins/my-plugin",
+        ],
+    )
+    assert result.exit_code == 0
+    patch_client.install_plugin_from_git.assert_called_once_with(
+        "https://github.com/org/monorepo.git",
+        checkout="master",
+        subpath="plugins/my-plugin",
+    )
+
+
+# --- update-from-store ---
+
+
+def test_plugin_update_from_store(patch_client):
+    """Update plugin from store waits for completion."""
+    result = runner.invoke(
+        app, ["plugin", "update-from-store", "timeseries-preparation"]
+    )
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+    plugin = patch_client.get_plugin("timeseries-preparation")
+    plugin.update_from_store.assert_called_once()
+    plugin.update_from_store.return_value.wait_for_result.assert_called_once()
+
+
+def test_plugin_update_from_store_no_wait(patch_client):
+    """--no-wait returns immediately."""
+    result = runner.invoke(
+        app, ["plugin", "update-from-store", "my-plugin", "--no-wait"]
+    )
+    assert result.exit_code == 0
+    assert "started" in result.output.lower()
+
+
+# --- update-from-git ---
+
+
+def test_plugin_update_from_git(patch_client):
+    """Update plugin from git with defaults."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "update-from-git",
+            "my-plugin",
+            "https://github.com/org/repo.git",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.update_from_git.assert_called_once_with(
+        "https://github.com/org/repo.git", checkout="master", subpath=None
+    )
+
+
+def test_plugin_update_from_git_with_checkout(patch_client):
+    """--checkout passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "update-from-git",
+            "my-plugin",
+            "git@github.com:org/repo.git",
+            "--checkout",
+            "v2.1",
+        ],
+    )
+    assert result.exit_code == 0
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.update_from_git.assert_called_once_with(
+        "git@github.com:org/repo.git", checkout="v2.1", subpath=None
+    )

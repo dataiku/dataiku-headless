@@ -2195,6 +2195,14 @@ def mock_client():
     plugin_file_mock.get_file.return_value = plugin_file_cm
     plugin_file_mock.put_file.return_value = None
 
+    # Plugin install/update futures — all return DSSFuture-like objects
+    install_future = MagicMock()
+    install_future.wait_for_result.return_value = {"pluginId": "test-plugin"}
+    client.install_plugin_from_store.return_value = install_future
+    client.install_plugin_from_git.return_value = install_future
+    plugin_file_mock.update_from_store.return_value = install_future
+    plugin_file_mock.update_from_git.return_value = install_future
+
     return client
 
 
