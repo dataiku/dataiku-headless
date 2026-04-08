@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage."""
+"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect."""
 
 from __future__ import annotations
 
@@ -1104,4 +1104,104 @@ def lineage(
     except typer.Exit:
         raise
     except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def detect(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    save: bool = typer.Option(
+        False, "--save", help="Save detected format and schema to the dataset"
+    ),
+    infer_types: bool = typer.Option(
+        False,
+        "--infer-types",
+        help="Infer storage types (e.g. int vs string) instead of defaulting to string",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Detect format and schema for a dataset.
+
+    Runs DSS auto-detection to discover the format type, format params,
+    and column schema. Works for filesystem, SQL, and Elasticsearch datasets.
+
+    Without --save, shows what was detected. With --save, persists to the dataset.
+
+    Example:
+      dku dataset detect my_data -P PROJ
+      dku dataset detect my_data --save --infer-types -P PROJ
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        detected = ds.autodetect_settings(infer_storage_types=infer_types)
+
+        raw = detected.get_raw()
+        format_type = raw.get("formatType", "")
+        schema_cols = raw.get("schema", {}).get("columns", [])
+
+        if fmt == "json":
+            render_raw(
+                {
+                    "format_type": format_type,
+                    "format_params": raw.get("formatParams", {}),
+                    "columns": schema_cols,
+                },
+                output_format="json",
+            )
+        else:
+            if save:
+                success(
+                    f"Detected and saved: {format_type} format, "
+                    f"{len(schema_cols)} columns for '{dataset_name}'"
+                )
+            else:
+                info(f"Detected format: {format_type} ({len(schema_cols)} columns)")
+                info("Run with --save to persist these settings.")
+
+            if schema_cols:
+                data = [
+                    {"name": c.get("name", ""), "type": c.get("type", "")}
+                    for c in schema_cols
+                ]
+                render(
+                    data,
+                    ["name", "type"],
+                    output_format=fmt,
+                    title=f"Detected Schema: {dataset_name}",
+                )
+
+            string_cols = [c for c in schema_cols if c.get("type") == "string"]
+            if schema_cols and len(string_cols) == len(schema_cols):
+                warn(
+                    "All columns detected as STRING. Use --infer-types to detect "
+                    "numeric/date types, or fix manually with set-schema."
+                )
+    except ValueError as e:
+        exit_with_error(
+            str(e),
+            code="unsupported_type",
+            details=[
+                "Dataset type may not support auto-detection.",
+                f"Check type: dku dataset info {dataset_name} -P {project_key}",
+            ],
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "Format detection failed" in msg or "empty" in msg.lower():
+            exit_with_error(
+                f"Format detection failed for '{dataset_name}'.",
+                code="detection_failed",
+                details=[
+                    "The dataset may be empty or have no data to detect from.",
+                    f"Upload data first: dku dataset upload {dataset_name} FILE -P {project_key}",
+                    f"Or set schema manually: dku dataset set-schema {dataset_name} -d @schema.json -P {project_key}",
+                ],
+            )
         handle_api_error(e)

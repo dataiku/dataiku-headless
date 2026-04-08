@@ -199,12 +199,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku project ai-describe PROJ` and `dku project timeline PROJ`.
 
 ### GAP-020: Schema detection & autodetect
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `dataset.test_and_detect()`, `dataset.autodetect_settings()`
-- **CLI today:** `dku dataset upload` auto-detects on upload. But no standalone `detect` for datasets created via other means.
-- **Next step:** Add `dku dataset detect DS -P PROJ` that runs `test_and_detect()` and shows detected format/schema.
+- **dataikuapi:** `dataset.autodetect_settings(infer_storage_types)` → `DSSDatasetSettings`
+- **CLI today:** `dku dataset detect DS -P PROJ [--save] [--infer-types]` — standalone format/schema detection.
+- **Resolution:** Added `detect` command using `autodetect_settings()`. Shows format type + detected columns. `--save` persists, `--infer-types` infers numeric/date types. Catches empty dataset and managed SQL errors with prescriptive messages. 5 tests. Live-verified: empty filesystem dataset (prescriptive error), managed SQL (ClassCastException caught), help renders correctly.
 
 ### GAP-021: Plugin download
 - **Status:** `backlog`
@@ -365,6 +365,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-020 | Added `dku dataset detect` — format/schema auto-detection, 5 tests |
 | 2026-04-09 | GAP-009 | Added `dku model create-mlflow`, `import-mlflow`, `create-external` — 10 tests |
 | 2026-04-09 | SKILL-001 | Added Complete RAG Pipeline, Model Deployment, Flow Investigation, Plugin Install patterns to SKILL.md |
 | 2026-04-09 | GAP-007 | Added API service `add-endpoint`, `list-endpoints`, `publish-package`, `delete-package` — 9 tests |

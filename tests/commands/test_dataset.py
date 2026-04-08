@@ -1161,3 +1161,68 @@ def test_dataset_lineage_requires_column(patch_client):
     """--column is required."""
     result = runner.invoke(app, ["dataset", "lineage", "ds1", "--project", "PROJ1"])
     assert result.exit_code != 0
+
+
+# --- detect ---
+
+
+def test_dataset_detect_table(patch_client):
+    """Detect shows format and schema without saving."""
+    result = runner.invoke(app, ["dataset", "detect", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "csv" in result.output.lower()
+    assert "col1" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.autodetect_settings.assert_called_once_with(infer_storage_types=False)
+    ds.autodetect_settings.return_value.save.assert_not_called()
+
+
+def test_dataset_detect_save(patch_client):
+    """--save persists detected settings and shows success message."""
+    result = runner.invoke(
+        app, ["dataset", "detect", "ds1", "--save", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "saved" in result.output.lower()
+    assert "csv" in result.output.lower()
+
+
+def test_dataset_detect_infer_types(patch_client):
+    """--infer-types passes through to autodetect_settings."""
+    result = runner.invoke(
+        app,
+        ["dataset", "detect", "ds1", "--infer-types", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.autodetect_settings.assert_called_once_with(infer_storage_types=True)
+
+
+def test_dataset_detect_json(patch_client):
+    """JSON output returns format_type, format_params, columns."""
+    result = runner.invoke(
+        app, ["dataset", "detect", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["format_type"] == "csv"
+    assert len(parsed["columns"]) == 2
+    assert parsed["columns"][0]["name"] == "col1"
+
+
+def test_dataset_detect_all_string_warning(patch_client):
+    """Warns when all columns detected as STRING."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.autodetect_settings.return_value.get_raw.return_value = {
+        "formatType": "csv",
+        "formatParams": {},
+        "schema": {
+            "columns": [
+                {"name": "col1", "type": "string"},
+                {"name": "col2", "type": "string"},
+            ]
+        },
+    }
+    result = runner.invoke(app, ["dataset", "detect", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "--infer-types" in result.output
