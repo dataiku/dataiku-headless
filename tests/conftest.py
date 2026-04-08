@@ -347,6 +347,40 @@ def mock_client():
     recipe_job.get_status.return_value = {"baseStatus": {"state": "DONE"}}
     recipe_mock.run.return_value = recipe_job
     recipe_mock.delete.return_value = None
+    recipe_mock.rename.return_value = None
+
+    # Recipe status mock — get_status() returns DSSRecipeStatus-like object
+    recipe_status_mock = MagicMock()
+    recipe_status_mock.data = {
+        "selectedEngine": {"type": "DSS"},
+        "engines": [{"type": "DSS"}, {"type": "SPARK"}],
+        "allMessagesForFrontend": {
+            "maxSeverity": "SUCCESS",
+            "messages": [
+                {
+                    "severity": "SUCCESS",
+                    "isFatal": False,
+                    "code": "recipe-check-ok",
+                    "title": "Recipe is valid",
+                    "message": "All checks passed",
+                    "details": "",
+                },
+            ],
+        },
+    }
+    recipe_status_mock.get_selected_engine_details.return_value = {"type": "DSS"}
+    recipe_status_mock.get_status_severity.return_value = "SUCCESS"
+    recipe_status_mock.get_status_messages.return_value = [
+        {
+            "severity": "SUCCESS",
+            "isFatal": False,
+            "code": "recipe-check-ok",
+            "title": "Recipe is valid",
+            "message": "All checks passed",
+            "details": "",
+        },
+    ]
+    recipe_mock.get_status.return_value = recipe_status_mock
     recipe_settings.set_payload.return_value = None
     recipe_settings.get_payload.return_value = "# Python code\nimport dataiku"
     recipe_settings.save.return_value = None

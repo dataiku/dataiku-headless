@@ -111,12 +111,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku model import-mlflow MODEL_ID --path /path --version-id v1 -P PROJ` and `dku model create-external NAME --prediction-type BINARY_CLASSIFICATION -P PROJ`.
 
 ### GAP-010: Recipe rename & status
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-08)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `recipe.rename(new_name)`, `recipe.get_status()` (engines, messages, severity)
-- **CLI today:** Must delete and recreate to rename. Can't check which engine a recipe will use.
-- **Next step:** Add `dku recipe rename OLD NEW -P PROJ` and `dku recipe status RECIPE -P PROJ`.
+- **dataikuapi:** `recipe.rename(new_name)`, `recipe.get_status()` → `DSSRecipeStatus` (engines, messages, severity)
+- **CLI today:** `dku recipe rename RECIPE --name NEW -P PROJ` renames a recipe. `dku recipe status RECIPE -P PROJ` shows engine, severity, and check messages.
+- **Resolution:** Added both commands. `rename` catches same-name ValueError with prescriptive error. `status` extracts engine from `get_selected_engine_details()`, severity from `get_status_severity()`, messages from `get_status_messages()`. 8 tests. Live-verified: SQL engine on Prepare recipe, DSS engine on prompt recipe, rename round-trip on AGENTTEST.
 
 ### GAP-011: Scenario run details
 - **Status:** `backlog`
@@ -362,6 +362,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-08 | GAP-010 | Added `dku recipe rename` and `dku recipe status` — engine/severity/messages, 8 tests |
 | 2026-04-08 | GAP-002 | Added `dku connection schemas` and `dku connection tables` — SQL/Iceberg discovery, 12 tests |
 | 2026-04-08 | GAP-004 | Added `dku dataset usages` and `dku dataset lineage` — flow investigation commands, 10 tests |
 | 2026-04-08 | GAP-003 | Added `dku dataset exists DS -P PROJ` — exit code 0/1, JSON support, 5 tests |
