@@ -28,13 +28,12 @@ When closing an issue, add a one-line resolution note and date.
 - **Next step:** Add `dku dataset compute-metrics DS -P PROJ` and `dku dataset check DS -P PROJ`. Consider `dku dataset metrics DS -P PROJ` to show all available metric values without the info wrapper.
 
 ### GAP-002: Table/schema discovery for imports
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-08)
 - **Type:** `cli`
 - **Effort:** `M`
 - **dataikuapi:** `project.list_sql_schemas(connection)`, `project.list_sql_tables(connection, schema)`, `project.list_iceberg_namespaces(connection)`, `project.list_iceberg_tables(connection, namespace)`, `project.list_hive_databases()`, `project.list_hive_tables(db)`, `project.list_elasticsearch_indices_or_aliases(connection)`
-- **CLI today:** Zero. Agents must guess table names or ask users.
-- **Why P0:** When agents need to import data from SQL/Iceberg connections, they have no way to discover what tables exist. This causes failed `dataset create` attempts with wrong table names.
-- **Next step:** Add `dku connection schemas CONNECTION` and `dku connection tables CONNECTION --schema SCHEMA`. Keep it on `connection` group (it's about what's *in* a connection, not project-specific). Also consider `dku connection discover CONNECTION` as a one-shot "list schemas + sample tables" combo.
+- **CLI today:** `dku connection schemas CONNECTION -P PROJ` lists schemas/namespaces. `dku connection tables CONNECTION -P PROJ [--schema SCHEMA]` lists importable tables. Both auto-detect SQL vs Iceberg connection type.
+- **Resolution:** Added both commands on `connection` group (requires `--project` since these are project-level APIs). SQL schemas tried first, falls back to Iceberg namespaces. Same pattern for tables. Empty results show prescriptive hints. 12 tests cover SQL, Iceberg fallback, empty, JSON, schema filter, env project.
 
 ### GAP-003: Dataset existence check
 - **Status:** `done` (2026-04-08)
@@ -349,6 +348,7 @@ When closing an issue, add a one-line resolution note and date.
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-08 | GAP-002 | Added `dku connection schemas` and `dku connection tables` — SQL/Iceberg discovery, 12 tests |
 | 2026-04-08 | GAP-004 | Added `dku dataset usages` and `dku dataset lineage` — flow investigation commands, 10 tests |
 | 2026-04-08 | GAP-003 | Added `dku dataset exists DS -P PROJ` — exit code 0/1, JSON support, 5 tests |
 | 2026-04-08 | — | Initial audit: 37 CLI gaps + 3 skill gaps identified against dataikuapi |

@@ -588,6 +588,19 @@ def mock_client():
     managed_dataset_builder.create.return_value = dataset_mock
     proj1.new_managed_dataset.return_value = managed_dataset_builder
 
+    # Connection schema/table discovery mocks (project-level)
+    proj1.list_sql_schemas.return_value = ["public", "analytics", "staging"]
+    proj1.list_iceberg_namespaces.return_value = ["default", "production"]
+    proj1.list_sql_tables.return_value = [
+        {"schema": "public", "table": "customers"},
+        {"schema": "public", "table": "orders"},
+        {"schema": "analytics", "table": "revenue_daily"},
+    ]
+    proj1.list_iceberg_tables.return_value = [
+        {"namespace": "default", "table": "events"},
+        {"namespace": "default", "table": "sessions"},
+    ]
+
     # Scenario create mock
     new_scenario_mock = MagicMock()
     new_scenario_mock.id = "new_scen"
