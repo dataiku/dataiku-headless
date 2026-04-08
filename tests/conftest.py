@@ -47,6 +47,29 @@ def mock_client():
         "label": "Project One",
         "shortDesc": "First project",
     }
+    proj1.generate_ai_description.return_value = {
+        "msg": "This project manages customer data pipelines for analytics."
+    }
+    proj1.get_timeline.return_value = {
+        "createdBy": {"login": "admin"},
+        "createdOn": 1700000000000,
+        "lastModifiedBy": {"login": "dataiku"},
+        "lastModifiedOn": 1700100000000,
+        "allContributors": [
+            {"login": "admin"},
+            {"login": "dataiku"},
+        ],
+        "items": [
+            {
+                "time": 1700100000000,
+                "user": "dataiku",
+                "action": "DATASET_MODIFIED",
+                "objectType": "DATASET",
+                "objectId": "ds1",
+                "projectKey": "PROJ1",
+            },
+        ],
+    }
     proj1.list_datasets.return_value = [
         {
             "name": "ds1",

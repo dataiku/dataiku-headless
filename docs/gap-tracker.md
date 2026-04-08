@@ -191,12 +191,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Check if `dku flow move` covers the main use case. If so, this is lower priority. If not, add `--share`/`--unshare` flags.
 
 ### GAP-019: Project AI description & timeline
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `project.generate_ai_description()`, `project.get_timeline()`
-- **CLI today:** `dku dataset ai-describe` exists but no equivalent for projects. No timeline access.
-- **Next step:** Add `dku project ai-describe PROJ` and `dku project timeline PROJ`.
+- **dataikuapi:** `project.generate_ai_description(language, purpose, length, save_description)`, `project.get_timeline(item_count)`
+- **CLI today:** `dku project ai-describe` with --purpose, --length, --language, --save. `dku project timeline` with --limit.
+- **Resolution:** Added both commands. `ai-describe` supports 4 purposes and 3 lengths. `timeline` formats timestamps from millis, shows contributors + modification history. Live testing revealed timeline items use `time/user/action/objectId` fields (not `when/who/what/on`). 7 tests. Live-verified: ai-describe on ADVISORGPT (detailed multi-zone description), timeline showing real modification history.
 
 ### GAP-020: Schema detection & autodetect
 - **Status:** `done` (2026-04-09)
@@ -365,6 +365,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-019 | Added `dku project ai-describe` and `timeline` — 7 tests |
 | 2026-04-09 | GAP-021 | Added `dku plugin download` — dev plugin ZIP export, 2 tests |
 | 2026-04-09 | GAP-020 | Added `dku dataset detect` — format/schema auto-detection, 5 tests |
 | 2026-04-09 | GAP-009 | Added `dku model create-mlflow`, `import-mlflow`, `create-external` — 10 tests |

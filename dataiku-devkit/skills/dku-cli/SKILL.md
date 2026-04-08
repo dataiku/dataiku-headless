@@ -498,7 +498,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 |---|---|---|
 | `auth` | login, logout, status, list, switch | No |
 | `config` | set, get, list, path, variables, set-variables | No |
-| `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
+| `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags, **ai-describe, timeline** | No |
 | `plugin` | list, get, push, delete, **download**, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file, install-from-store, install-from-git, update-from-store, update-from-git** | No |
 | `code-env` | list, get, create, delete, update | No |
 | `connection` | list, **get**, create, **delete**, test, **schemas, tables** | No (admin, schemas/tables need `-P`) |

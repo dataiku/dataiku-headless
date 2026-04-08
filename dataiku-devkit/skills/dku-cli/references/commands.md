@@ -97,6 +97,8 @@ dku project set-variables [-P PROJECT] --definition JSON
 dku project permissions [-P PROJECT] [-o FORMAT]
 dku project set-permissions [-P PROJECT] --definition JSON
 dku project tags [-P PROJECT] [-o FORMAT]
+dku project ai-describe [-P PROJECT] [--language LANG] [--purpose PURPOSE] [--length LENGTH] [--save] [-o FORMAT]
+dku project timeline [-P PROJECT] [--limit N] [-o FORMAT]
 ```
 
 - `delete` requires `--confirm`, `--yes`, or `-y` flag (safety guard)
@@ -104,6 +106,8 @@ dku project tags [-P PROJECT] [-o FORMAT]
 - `set-metadata` updates project display name and/or description after creation
 - `set-variables --set` modifies individual standard vars; `--definition` replaces all
 - `inspect` gives a one-shot project summary: datasets, recipes, scenarios, flow sources, jobs, wiki, variables. Use `-o json` for machine-readable nested output
+- `ai-describe` generates AI description for the project. `--purpose`: generic (default), technical, business_oriented, executive. `--length`: low, medium, high. `--save` persists to the project
+- `timeline` shows project history: creation, contributors, recent modifications. Items have `time`, `user`, `action`, `objectId` fields. Timestamps are millis in JSON, formatted in table output
 
 ## dataset
 
