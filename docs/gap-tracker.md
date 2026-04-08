@@ -183,12 +183,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku plugin rename-file`, `dku plugin move-file`. Consider `dku plugin presets` subgroup.
 
 ### GAP-018: Dataset zone operations
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `dataset.get_zone()`, `dataset.move_to_zone()`, `dataset.share_to_zone()`, `dataset.unshare_from_zone()`. Same on recipes, saved models, streaming endpoints, managed folders.
-- **CLI today:** `dku flow move` handles zone moves. But no per-object zone query, share, or unshare.
-- **Next step:** Check if `dku flow move` covers the main use case. If so, this is lower priority. If not, add `--share`/`--unshare` flags.
+- **dataikuapi:** `dataset.get_zone()`, `dataset.share_to_zone()`, `dataset.unshare_from_zone()`
+- **CLI today:** `dku dataset zone DS -P PROJ` queries zone. `dku dataset share DS --zone ZONE -P PROJ` shares. `dku dataset unshare DS --zone ZONE -P PROJ` unshares. `dku flow move` still handles full relocations.
+- **Resolution:** Added 3 commands to dataset group. `zone` returns zone name+ID. `share` uses `share_to_zone()`. `unshare` uses `unshare_from_zone()`. 4 tests. Live-verified: zone on ADVISORGPT datasets (Default zone, scoring zone), JSON output correct.
 
 ### GAP-019: Project AI description & timeline
 - **Status:** `done` (2026-04-09)
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-018 | Added `dku dataset zone`, `share`, `unshare` — 4 tests |
 | 2026-04-09 | GAP-026 | Added `dku meaning` group (list, get, create, update) — 7 tests |
 | 2026-04-09 | GAP-016 | Added `dku continuous` group (list, start, stop, status) — 7 tests |
 | 2026-04-09 | GAP-019 | Added `dku project ai-describe` and `timeline` — 7 tests |

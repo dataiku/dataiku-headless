@@ -133,6 +133,9 @@ dku dataset rename DATASET_NAME --name NEW_NAME [-P PROJECT]
 dku dataset copy DATASET_NAME --to-project PROJECT_KEY [--name NAME] [-P PROJECT]
 dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 dku dataset detect DATASET_NAME [-P PROJECT] [--save] [--infer-types] [-o FORMAT]  # Auto-detect format + schema
+dku dataset zone DATASET_NAME [-P PROJECT] [-o FORMAT]                            # Show flow zone
+dku dataset share DATASET_NAME --zone ZONE [-P PROJECT]                           # Share to zone
+dku dataset unshare DATASET_NAME --zone ZONE [-P PROJECT]                         # Unshare from zone
 dku dataset exists DATASET_NAME [-P PROJECT] [-o FORMAT]           # Exit code 0=exists, 1=not
 dku dataset usages DATASET_NAME [-P PROJECT] [-o FORMAT]           # What recipes/analyses use this dataset
 dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-o FORMAT]  # Column provenance
@@ -154,6 +157,9 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 - `copy --to-project` copies a dataset to another project. `--name` overrides the name in the target (default: same name)
 - `partitions` lists the partitions of a partitioned dataset
 - `detect` runs DSS auto-detection on filesystem/SQL/Elasticsearch datasets. Without `--save`, shows detected format + schema. With `--save`, persists them. Use `--infer-types` to detect numeric/date types instead of all-STRING. Managed SQL datasets already have schemas from the database — autodetect is primarily for filesystem/uploaded datasets
+- `zone` shows which flow zone a dataset belongs to. JSON: `{zone_id, zone_name, dataset}`
+- `share --zone ZONE` makes a dataset visible in another zone without moving it. Use `dku flow move` to fully relocate
+- `unshare --zone ZONE` removes a shared dataset from a zone
 - `exists` returns exit code 0 if dataset exists, 1 if not. JSON: `{"exists": bool, "name", "project"}`
 - `usages` shows recipes, analyses, and models that reference this dataset
 - `lineage --column COL` traces column provenance across datasets (input→output relations). Use `--max-datasets` to limit scope

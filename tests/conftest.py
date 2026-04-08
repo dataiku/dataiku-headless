@@ -488,6 +488,14 @@ def mock_client():
     }
     dataset_mock.set_metadata.return_value = None
     dataset_mock.exists.return_value = True
+
+    # Zone operations
+    zone_mock = MagicMock()
+    zone_mock.id = "zone1"
+    zone_mock.name = "Processing"
+    dataset_mock.get_zone.return_value = zone_mock
+    dataset_mock.share_to_zone.return_value = None
+    dataset_mock.unshare_from_zone.return_value = None
     dataset_mock.get_usages.return_value = [
         {
             "type": "RECIPE_INPUT",

@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect."""
+"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect, zone, share, unshare."""
 
 from __future__ import annotations
 
@@ -1204,4 +1204,90 @@ def detect(
                     f"Or set schema manually: dku dataset set-schema {dataset_name} -d @schema.json -P {project_key}",
                 ],
             )
+        handle_api_error(e)
+
+
+@app.command()
+def zone(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show which flow zone a dataset belongs to.
+
+    Example:
+      dku dataset zone my_data -P PROJ
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        z = ds.get_zone()
+
+        if fmt == "json":
+            render_raw(
+                {"zone_id": z.id, "zone_name": z.name, "dataset": dataset_name},
+                output_format="json",
+            )
+        else:
+            success(f"Dataset '{dataset_name}' is in zone '{z.name}' (ID: {z.id})")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def share(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    zone_id: str = typer.Option(
+        ..., "--zone", "-z", help="Zone name or ID to share to"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Share a dataset to another flow zone.
+
+    Sharing makes the dataset visible in the target zone without moving it.
+
+    Example:
+      dku dataset share my_data --zone Analytics -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds.share_to_zone(zone_id)
+        success(f"Shared dataset '{dataset_name}' to zone '{zone_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def unshare(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    zone_id: str = typer.Option(
+        ..., "--zone", "-z", help="Zone name or ID to unshare from"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Unshare a dataset from a flow zone.
+
+    Example:
+      dku dataset unshare my_data --zone Analytics -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds.unshare_from_zone(zone_id)
+        success(f"Unshared dataset '{dataset_name}' from zone '{zone_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
         handle_api_error(e)

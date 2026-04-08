@@ -1226,3 +1226,52 @@ def test_dataset_detect_all_string_warning(patch_client):
     result = runner.invoke(app, ["dataset", "detect", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "--infer-types" in result.output
+
+
+# --- zone ---
+
+
+def test_dataset_zone(patch_client):
+    """Shows which zone a dataset belongs to."""
+    result = runner.invoke(app, ["dataset", "zone", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Processing" in result.output
+    assert "zone1" in result.output
+
+
+def test_dataset_zone_json(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "zone", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["zone_id"] == "zone1"
+    assert parsed["zone_name"] == "Processing"
+
+
+# --- share ---
+
+
+def test_dataset_share(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "share", "ds1", "--zone", "Analytics", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Shared" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.share_to_zone.assert_called_once_with("Analytics")
+
+
+# --- unshare ---
+
+
+def test_dataset_unshare(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "unshare", "ds1", "--zone", "Analytics", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Unshared" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.unshare_from_zone.assert_called_once_with("Analytics")

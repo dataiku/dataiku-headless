@@ -504,7 +504,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `connection` | list, **get**, create, **delete**, test, **schemas, tables** | No (admin, schemas/tables need `-P`) |
 | `user` | list, **get**, create, **delete** | No (admin) |
 | `sql` | query | No |
-| `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect** | Yes |
+| `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect, zone, share, unshare** | Yes |
 | `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **rename, status**, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
 | `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, avg-duration, run-log, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
