@@ -544,9 +544,6 @@ Key notes:
 - `dku semantic-model` — Semantic models enable text-to-SQL via the Semantic Model Query agent tool (DSS 14.4+). Versions are key: only the active version is used by agents. Always `update-index --wait` after changing entities/attributes.
 - `dku agent-hub` — **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first). `--hub` auto-detects when one hub exists; required when multiple exist. Config is shallow-merged, not replaced. Agent IDs use `PROJECT:agent:ID` format.
 - `dku scenario list-triggers` / `add-trigger-dataset` — manage scenario automation triggers from CLI. Use `add-trigger-dataset` for dataset-change triggers, `add-trigger` for arbitrary trigger JSON.
-- `dku connection schemas`/`tables` — discover SQL schemas and tables before importing. Always run `schemas` first, then `tables --schema SCHEMA`.
-- `dku rag create NAME --kb KB_ID --llm LLM_ID` — final step in RAG pipeline. LLM ID for agents: `retrieval-augmented-llm:<RAG_ID>`.
-- `dku api-service add-endpoint` + `publish-package` — complete model deployment pipeline. See patterns below.
 
 ## Chaining Patterns
 
