@@ -1052,7 +1052,7 @@ def test_dataset_usages_json(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
-    assert parsed[0]["type"] == "RECIPE"
+    assert parsed[0]["type"] == "RECIPE_INPUT"
     assert parsed[0]["objectId"] == "compute_output"
 
 
@@ -1120,8 +1120,8 @@ def test_dataset_lineage_json(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
-    assert parsed[0]["sourceDataset"] == "raw_input"
-    assert parsed[0]["sourceColumn"] == "revenue_raw"
+    assert parsed[0]["inputDataset"] == "PROJ1.raw_input"
+    assert parsed[0]["inputColumn"] == "revenue_raw"
 
 
 def test_dataset_lineage_empty(patch_client):

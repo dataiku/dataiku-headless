@@ -1005,7 +1005,9 @@ def usages(
                     {
                         "type": u.get("type", u.get("objectType", "")),
                         "id": u.get("objectId", u.get("id", "")),
-                        "project": u.get("projectKey", project_key),
+                        "project": u.get(
+                            "objectProjectKey", u.get("projectKey", project_key)
+                        ),
                     }
                 )
 
@@ -1064,19 +1066,21 @@ def lineage(
 
             data = []
             for rel in relations:
+                # Real API returns inputDataset/inputColumn/outputDataset/outputColumn
                 data.append(
                     {
-                        "source_dataset": rel.get("sourceDataset", rel.get("src", "")),
+                        "source_dataset": rel.get(
+                            "inputDataset", rel.get("sourceDataset", "")
+                        ),
                         "source_column": rel.get(
-                            "sourceColumn", rel.get("srcColumn", "")
+                            "inputColumn", rel.get("sourceColumn", "")
                         ),
                         "target_dataset": rel.get(
-                            "targetDataset", rel.get("dst", dataset_name)
+                            "outputDataset", rel.get("targetDataset", "")
                         ),
                         "target_column": rel.get(
-                            "targetColumn", rel.get("dstColumn", column)
+                            "outputColumn", rel.get("targetColumn", "")
                         ),
-                        "type": rel.get("type", ""),
                     }
                 )
 
@@ -1087,7 +1091,6 @@ def lineage(
                     "source_column",
                     "target_dataset",
                     "target_column",
-                    "type",
                 ],
                 output_format=fmt,
                 title=f"Column Lineage: {dataset_name}.{column}",
@@ -1096,7 +1099,6 @@ def lineage(
                     "source_column": "SOURCE COL",
                     "target_dataset": "TARGET DS",
                     "target_column": "TARGET COL",
-                    "type": "TYPE",
                 },
             )
     except typer.Exit:

@@ -432,16 +432,19 @@ def mock_client():
     dataset_mock.set_metadata.return_value = None
     dataset_mock.exists.return_value = True
     dataset_mock.get_usages.return_value = [
-        {"type": "RECIPE", "objectId": "compute_output", "projectKey": "PROJ1"},
-        {"type": "ANALYSIS", "objectId": "analysis_1", "projectKey": "PROJ1"},
+        {
+            "type": "RECIPE_INPUT",
+            "objectId": "compute_output",
+            "objectProjectKey": "PROJ1",
+        },
+        {"type": "ANALYSIS", "objectId": "analysis_1", "objectProjectKey": "PROJ1"},
     ]
     dataset_mock.get_column_lineage.return_value = [
         {
-            "sourceDataset": "raw_input",
-            "sourceColumn": "revenue_raw",
-            "targetDataset": "ds1",
-            "targetColumn": "revenue",
-            "type": "auto",
+            "inputDataset": "PROJ1.raw_input",
+            "inputColumn": "revenue_raw",
+            "outputDataset": "PROJ1.ds1",
+            "outputColumn": "revenue",
         },
     ]
     dataset_mock.generate_ai_description.return_value = {
