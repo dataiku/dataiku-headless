@@ -70,13 +70,12 @@ Every gap implementation MUST follow this sequence:
 ## P1 — Agents Hit This Monthly
 
 ### GAP-005: RAG LLM (Retrieval Augmented LLM)
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `both`
 - **Effort:** `M`
 - **dataikuapi:** `project.list_retrieval_augmented_llms()`, `project.create_retrieval_augmented_llm(name, kb_ref, llm_id)`, `project.get_retrieval_augmented_llm(id)`, `rag.get_settings()`, `rag.delete()`, `rag.as_llm()`
-- **CLI today:** Can create knowledge banks and embed recipes, but can't create the RAG LLM that ties them together. The pipeline is incomplete.
-- **Skill today:** No mention of RAG LLM as a concept. KB creation is documented but not the full RAG pipeline.
-- **Next step:** Add `dku rag` command group (list, create, get, delete, set-definition). Update both skills with "Complete RAG pipeline" pattern: create KB → embed recipe → build → create RAG LLM → attach to agent.
+- **CLI today:** New `dku rag` command group: list, create, get, delete, get-definition, set-definition. Completes the RAG pipeline: KB → embed → build → RAG LLM → attach to agent.
+- **Resolution:** Added full command group. Live testing on AGENTKBBUILT revealed: (1) `name` field missing from list API response — handled with graceful fallback; (2) `llmId` and `kbRef` nested under `versions[0].ragllmSettings`, not top-level — `get` extracts from correct location. 11 tests. Live-verified: list (4 RAGs on AGENTKBBUILT), get (shows LLM ID, KB Ref, active version), JSON output.
 
 ### GAP-006: Plugin install from store/git
 - **Status:** `done` (2026-04-08)
@@ -362,6 +361,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-005 | Added `dku rag` command group (list, create, get, delete, get/set-definition) — 11 tests |
 | 2026-04-09 | GAP-011 | Enhanced `runs` (date filter, duration), `last-run` (--successful), added `avg-duration` and `run-log` — 11 tests |
 | 2026-04-08 | GAP-006 | Added plugin install/update from store and git — 4 commands, 9 tests |
 | 2026-04-08 | GAP-010 | Added `dku recipe rename` and `dku recipe status` — engine/severity/messages, 8 tests |

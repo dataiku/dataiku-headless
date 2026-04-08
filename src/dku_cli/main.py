@@ -43,6 +43,7 @@ from dku_cli.commands import (
     plugin,
     project,
     project_deployer,
+    rag,
     recipe,
     scenario,
     semantic_model,
@@ -84,6 +85,7 @@ app.add_typer(semantic_model.app, name="semantic-model")
 app.add_typer(job.app, name="job")
 app.add_typer(plugin.app, name="plugin")
 app.add_typer(config_cmd.app, name="config")
+app.add_typer(rag.app, name="rag")
 app.add_typer(recipe.app, name="recipe")
 app.add_typer(codeenv.app, name="code-env")
 app.add_typer(connection.app, name="connection")

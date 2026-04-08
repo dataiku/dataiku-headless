@@ -1608,6 +1608,37 @@ def mock_client():
     proj1.get_knowledge_bank.return_value = kb_mock
     proj1.create_knowledge_bank.return_value = kb_mock
 
+    # RAG LLMs
+    rag_list_item = MagicMock()
+    rag_list_item.id = "rag1"
+    rag_list_item.name = "Customer Support RAG"
+    proj1.list_retrieval_augmented_llms.return_value = [rag_list_item]
+
+    rag_mock = MagicMock()
+    rag_mock.id = "rag1"
+    rag_settings = MagicMock()
+    rag_settings.get_raw.return_value = {
+        "id": "rag1",
+        "projectKey": "PROJ1",
+        "name": "Customer Support RAG",
+        "activeVersion": "v1",
+        "versions": [
+            {
+                "versionId": "v1",
+                "ragllmSettings": {
+                    "kbRef": "kb1",
+                    "llmId": "openai:gpt-4o",
+                },
+            }
+        ],
+    }
+    rag_settings._settings = rag_settings.get_raw.return_value.copy()
+    rag_settings.save.return_value = None
+    rag_mock.get_settings.return_value = rag_settings
+    rag_mock.delete.return_value = None
+    proj1.get_retrieval_augmented_llm.return_value = rag_mock
+    proj1.create_retrieval_augmented_llm.return_value = rag_mock
+
     # Semantic models
     proj1.list_semantic_models.return_value = [
         {"id": "sm1", "name": "My Semantic Model", "projectKey": "PROJ1", "tags": []},
