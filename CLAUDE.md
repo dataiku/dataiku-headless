@@ -31,7 +31,7 @@ We ship two components:
 1. **`dku` CLI** — a `kubectl`-style tool (~300 commands, 42 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
-**NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
+**Private repo — NOT on PyPI.** Install from a local clone — see [Distribution](#distribution).
 
 ---
 
@@ -125,11 +125,12 @@ dataiku-devkit/
 │   └── dku-cli/               # CLI operations and composability patterns
 │       ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
 │       └── references/        # CLI command reference
-└── agents/                    # Subagents for complex tasks
-    ├── plugin-reviewer.md
-    ├── dss-explorer.md
-    └── tool-designer.md
-.claude-plugin/            # Plugin manifest for Claude Code marketplace
+├── agents/                    # Subagents for complex tasks
+│   ├── plugin-reviewer.md
+│   ├── dss-explorer.md
+│   └── tool-designer.md
+└── scripts/
+    └── install-devkit.sh  # Symlink skills + agents to ~/.claude/
 ```
 
 ### Skill Quality Standards
@@ -279,19 +280,21 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 
 ## Distribution
 
-**CLI (Python package) — NOT on PyPI. Install from GitHub source:**
+**Private repo — NOT on PyPI or any public registry.** Install from a local clone.
+
+**CLI (Python package):**
 
 | Channel | Command |
 |---------|---------|
-| **Direct** | `uv tool install git+https://github.com/dataiku/dataiku-cli.git` |
-| **Local dev** | `uv tool install --from . dku-cli` |
+| **Install** | `uv tool install --from /path/to/dku-cli dku-cli` |
+| **Update** (after `git pull`) | `uv tool install --from /path/to/dku-cli dku-cli --force --reinstall` |
 
-**Dataiku DevKit (AI agent skills):**
+**Dataiku DevKit (skills + agents for Claude Code):**
 
 | Channel | Command |
 |---------|---------|
-| **Claude Code Plugin** | `/plugin marketplace add dataiku/dataiku-cli` |
-| **skills.sh (40+ agents)** | `npx skills add dataiku/dataiku-cli --all` |
+| **Automated** | `./scripts/install-devkit.sh` (symlinks to `~/.claude/skills/` and `~/.claude/agents/`) |
+| **Other agents** | Copy `dataiku-devkit/skills/` into agent's skill directory |
 
 ---
 
