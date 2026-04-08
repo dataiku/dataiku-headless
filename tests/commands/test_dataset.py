@@ -1029,3 +1029,135 @@ def test_dataset_exists_with_env_project(patch_client, monkeypatch):
     monkeypatch.setenv("DKU_PROJECT", "PROJ1")
     result = runner.invoke(app, ["dataset", "exists", "ds1"])
     assert result.exit_code == 0
+
+
+# --- usages ---
+
+
+def test_dataset_usages_table(patch_client):
+    """Usages command shows recipes/analyses in table format."""
+    result = runner.invoke(app, ["dataset", "usages", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "compute_output" in result.output
+    assert "analysis_1" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.assert_called_once()
+
+
+def test_dataset_usages_json(patch_client):
+    """Usages JSON output returns raw list from dataikuapi."""
+    result = runner.invoke(
+        app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    assert parsed[0]["type"] == "RECIPE"
+    assert parsed[0]["objectId"] == "compute_output"
+
+
+def test_dataset_usages_empty(patch_client):
+    """Empty usages shows informational message."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []
+    result = runner.invoke(app, ["dataset", "usages", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "no usages" in result.output.lower()
+
+
+def test_dataset_usages_empty_json(patch_client):
+    """Empty usages in JSON returns empty list."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []
+    result = runner.invoke(
+        app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed == []
+
+
+def test_dataset_usages_env_project(patch_client, monkeypatch):
+    """Resolves project from DKU_PROJECT env var."""
+    monkeypatch.setenv("DKU_PROJECT", "PROJ1")
+    result = runner.invoke(app, ["dataset", "usages", "ds1"])
+    assert result.exit_code == 0
+    assert "compute_output" in result.output
+
+
+# --- lineage ---
+
+
+def test_dataset_lineage_table(patch_client):
+    """Lineage command shows column relations in table format."""
+    result = runner.invoke(
+        app,
+        ["dataset", "lineage", "ds1", "--column", "revenue", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "raw_input" in result.output
+    assert "revenue_raw" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_column_lineage.assert_called_once_with("revenue", max_dataset_count=None)
+
+
+def test_dataset_lineage_json(patch_client):
+    """Lineage JSON output returns raw list from dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "lineage",
+            "ds1",
+            "--column",
+            "revenue",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["sourceDataset"] == "raw_input"
+    assert parsed[0]["sourceColumn"] == "revenue_raw"
+
+
+def test_dataset_lineage_empty(patch_client):
+    """No lineage shows informational message."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_column_lineage.return_value = []
+    result = runner.invoke(
+        app,
+        ["dataset", "lineage", "ds1", "--column", "id", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "no lineage" in result.output.lower()
+
+
+def test_dataset_lineage_with_max_datasets(patch_client):
+    """--max-datasets passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "lineage",
+            "ds1",
+            "--column",
+            "revenue",
+            "--max-datasets",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_column_lineage.assert_called_once_with("revenue", max_dataset_count=5)
+
+
+def test_dataset_lineage_requires_column(patch_client):
+    """--column is required."""
+    result = runner.invoke(app, ["dataset", "lineage", "ds1", "--project", "PROJ1"])
+    assert result.exit_code != 0

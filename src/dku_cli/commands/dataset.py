@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists."""
+"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage."""
 
 from __future__ import annotations
 
@@ -960,6 +960,145 @@ def exists(
                 info(f"Dataset '{dataset_name}' does not exist in {project_key}")
 
         raise typer.Exit(0 if found else 1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def usages(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show what recipes, analyses, or models use this dataset.
+
+    Use to investigate the flow graph: which downstream recipes consume
+    this dataset, and which upstream recipes produce it.
+
+    Example:
+      dku dataset usages my_data -P PROJ
+      dku dataset usages my_data -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        usage_list = ds.get_usages()
+
+        if fmt == "json":
+            render_raw(usage_list, output_format="json")
+        else:
+            if not usage_list:
+                info(
+                    f"No usages found for dataset '{dataset_name}' in {project_key}. "
+                    "This dataset is not referenced by any recipe or analysis."
+                )
+                return
+
+            data = []
+            for u in usage_list:
+                data.append(
+                    {
+                        "type": u.get("type", u.get("objectType", "")),
+                        "id": u.get("objectId", u.get("id", "")),
+                        "project": u.get("projectKey", project_key),
+                    }
+                )
+
+            render(
+                data,
+                ["type", "id", "project"],
+                output_format=fmt,
+                title=f"Usages of {dataset_name}",
+                headers={"type": "TYPE", "id": "ID", "project": "PROJECT"},
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def lineage(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    column: str = typer.Option(..., "--column", "-c", help="Column name to trace"),
+    max_datasets: int | None = typer.Option(
+        None,
+        "--max-datasets",
+        help="Maximum number of datasets to query for lineage (default: DSS hard limit)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Trace a column's provenance across the flow graph.
+
+    Shows which upstream datasets and columns feed into the specified
+    column, including cross-project lineage.
+
+    Example:
+      dku dataset lineage my_data --column revenue -P PROJ
+      dku dataset lineage my_data -c customer_id -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        relations = ds.get_column_lineage(column, max_dataset_count=max_datasets)
+
+        if fmt == "json":
+            render_raw(relations, output_format="json")
+        else:
+            if not relations:
+                info(
+                    f"No lineage found for column '{column}' in {dataset_name}. "
+                    "The column may be a source column with no upstream provenance, "
+                    "or lineage has not been computed yet."
+                )
+                return
+
+            data = []
+            for rel in relations:
+                data.append(
+                    {
+                        "source_dataset": rel.get("sourceDataset", rel.get("src", "")),
+                        "source_column": rel.get(
+                            "sourceColumn", rel.get("srcColumn", "")
+                        ),
+                        "target_dataset": rel.get(
+                            "targetDataset", rel.get("dst", dataset_name)
+                        ),
+                        "target_column": rel.get(
+                            "targetColumn", rel.get("dstColumn", column)
+                        ),
+                        "type": rel.get("type", ""),
+                    }
+                )
+
+            render(
+                data,
+                [
+                    "source_dataset",
+                    "source_column",
+                    "target_dataset",
+                    "target_column",
+                    "type",
+                ],
+                output_format=fmt,
+                title=f"Column Lineage: {dataset_name}.{column}",
+                headers={
+                    "source_dataset": "SOURCE DS",
+                    "source_column": "SOURCE COL",
+                    "target_dataset": "TARGET DS",
+                    "target_column": "TARGET COL",
+                    "type": "TYPE",
+                },
+            )
     except typer.Exit:
         raise
     except Exception as e:

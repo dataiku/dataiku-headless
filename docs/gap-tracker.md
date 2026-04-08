@@ -45,13 +45,12 @@ When closing an issue, add a one-line resolution note and date.
 - **Resolution:** Added `dku dataset exists` command. Uses `dataikuapi`'s `dataset.exists()` (which calls `get_metadata()` internally). Supports table and JSON output. 5 tests cover true/false, JSON, and env-based project resolution.
 
 ### GAP-004: Dataset usages & column lineage
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-08)
 - **Type:** `cli`
 - **Effort:** `M`
 - **dataikuapi:** `dataset.get_usages()` (what recipes/models use this dataset), `dataset.get_column_lineage(column)` (trace a column's provenance)
-- **CLI today:** Zero. Agents investigating a flow can't answer "what uses this dataset?" or "where does this column come from?"
-- **Why P0:** Flow investigation is a top agent task. Without usages/lineage, agents must manually trace the flow graph.
-- **Next step:** Add `dku dataset usages DS -P PROJ` and `dku dataset lineage DS --column COL -P PROJ`.
+- **CLI today:** `dku dataset usages DS -P PROJ` shows recipes/analyses referencing a dataset. `dku dataset lineage DS --column COL -P PROJ` traces column provenance across the flow graph.
+- **Resolution:** Added both commands. `usages` renders type/id/project table or raw JSON. `lineage` renders source→target column relations with --max-datasets option. Both handle empty results with informational messages. 10 tests cover table/JSON, empty, env project, and edge cases.
 
 ---
 
@@ -350,5 +349,6 @@ When closing an issue, add a one-line resolution note and date.
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-08 | GAP-004 | Added `dku dataset usages` and `dku dataset lineage` — flow investigation commands, 10 tests |
 | 2026-04-08 | GAP-003 | Added `dku dataset exists DS -P PROJ` — exit code 0/1, JSON support, 5 tests |
 | 2026-04-08 | — | Initial audit: 37 CLI gaps + 3 skill gaps identified against dataikuapi |
