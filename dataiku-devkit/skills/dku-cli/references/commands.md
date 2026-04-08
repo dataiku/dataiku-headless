@@ -960,6 +960,20 @@ dku rag set-definition RAG_ID --definition JSON [-P PROJECT]
 - The LLM ID for use elsewhere is `retrieval-augmented-llm:<RAG_ID>`
 - Settings are nested: `versions[0].ragllmSettings` contains `llmId` and `kbRef`
 
+## meaning
+
+```bash
+dku meaning list [-o FORMAT]
+dku meaning get MEANING_ID [-o json]
+dku meaning create MEANING_ID --label LABEL [--type TYPE] [--description DESC]
+dku meaning update MEANING_ID --definition JSON
+```
+
+- Instance-level (no project context needed), admin-only for create/update
+- Types: DECLARATIVE, VALUES_LIST, VALUES_MAPPING, PATTERN
+- `get` returns full definition including entries/mappings/pattern
+- `update` requires the full definition dict (get → modify → update)
+
 ## wiki
 
 ```bash

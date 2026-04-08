@@ -38,6 +38,7 @@ from dku_cli.commands import (
     library,
     llm,
     macro,
+    meaning,
     ml,
     model,
     notebook,
@@ -102,6 +103,7 @@ app.add_typer(library.app, name="library")
 app.add_typer(llm.app, name="llm")
 app.add_typer(webapp.app, name="webapp")
 app.add_typer(macro.app, name="macro")
+app.add_typer(meaning.app, name="meaning")
 app.add_typer(user.app, name="user")
 app.add_typer(flow.app, name="flow")
 app.add_typer(git_cmd.app, name="git")

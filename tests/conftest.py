@@ -2235,6 +2235,27 @@ def mock_client():
     conn_mock.delete.return_value = None
     client.get_connection.return_value = conn_mock
 
+    # Meanings
+    client.list_meanings.return_value = [
+        {
+            "id": "country_code",
+            "label": "Country Code",
+            "type": "VALUES_LIST",
+            "description": "ISO 3166-1 alpha-2 country codes",
+        },
+    ]
+    meaning_mock = MagicMock()
+    meaning_mock.get_definition.return_value = {
+        "id": "country_code",
+        "label": "Country Code",
+        "type": "VALUES_LIST",
+        "description": "ISO 3166-1 alpha-2 country codes",
+        "entries": [{"value": "US"}, {"value": "FR"}, {"value": "DE"}],
+    }
+    meaning_mock.set_definition.return_value = None
+    client.get_meaning.return_value = meaning_mock
+    client.create_meaning.return_value = meaning_mock
+
     # Users
     client.list_users.return_value = [
         {

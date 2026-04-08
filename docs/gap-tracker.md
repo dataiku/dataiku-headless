@@ -249,11 +249,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku api-key` group: list, create, delete, get.
 
 ### GAP-026: Meanings (data dictionary)
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
 - **dataikuapi:** `client.list_meanings()`, `client.get_meaning()`, `client.create_meaning()`, `meaning.set_definition()`
-- **Next step:** Add `dku meaning` group: list, get, create, update.
+- **CLI today:** New `dku meaning` group: list, get, create, update.
+- **Resolution:** Added full command group. Instance-level (no project context). 4 types supported. 7 tests. Live-verified: list shows 2 PATTERN meanings (SSN, US post code), get returns full definition with regex pattern, JSON output correct.
 
 ### GAP-027: Messaging channels
 - **Status:** `backlog`
@@ -365,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-026 | Added `dku meaning` group (list, get, create, update) — 7 tests |
 | 2026-04-09 | GAP-016 | Added `dku continuous` group (list, start, stop, status) — 7 tests |
 | 2026-04-09 | GAP-019 | Added `dku project ai-describe` and `timeline` — 7 tests |
 | 2026-04-09 | GAP-021 | Added `dku plugin download` — dev plugin ZIP export, 2 tests |
