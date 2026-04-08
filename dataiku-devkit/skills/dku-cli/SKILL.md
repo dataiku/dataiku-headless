@@ -532,6 +532,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages, **add-endpoint, list-endpoints, publish-package, delete-package** | Yes |
 | `rag` | **list, create, get, delete, get-definition, set-definition** | Yes |
+| `continuous` | **list, start, stop, status** | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

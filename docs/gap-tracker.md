@@ -167,12 +167,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku model-comparison` group: list, create, get, add-model, remove-model, delete.
 
 ### GAP-016: Continuous activities
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
 - **dataikuapi:** `project.list_continuous_activities()`, `activity.start()`, `activity.stop()`, `activity.get_status()`
-- **CLI today:** Zero. Can't manage continuous recipes.
-- **Next step:** Add `dku continuous` group: list, start, stop, status.
+- **CLI today:** New `dku continuous` group: list, start, stop, status.
+- **Resolution:** Added full command group. `list` uses `as_objects=False` for raw dict access. `status` shows desiredState and mainLoopState.state. 7 tests. Live-verified: list on ADVISORGPT/AGENTTEST (empty state), JSON empty list, help renders correctly.
 
 ### GAP-017: Plugin file ops & parameter sets
 - **Status:** `backlog`
@@ -365,6 +365,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-016 | Added `dku continuous` group (list, start, stop, status) — 7 tests |
 | 2026-04-09 | GAP-019 | Added `dku project ai-describe` and `timeline` — 7 tests |
 | 2026-04-09 | GAP-021 | Added `dku plugin download` — dev plugin ZIP export, 2 tests |
 | 2026-04-09 | GAP-020 | Added `dku dataset detect` — format/schema auto-detection, 5 tests |

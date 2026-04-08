@@ -22,6 +22,7 @@ from dku_cli.commands import (
     codestudio,
     config_cmd,
     connection,
+    continuous,
     dashboard,
     dataset,
     discussion,
@@ -89,6 +90,7 @@ app.add_typer(rag.app, name="rag")
 app.add_typer(recipe.app, name="recipe")
 app.add_typer(codeenv.app, name="code-env")
 app.add_typer(connection.app, name="connection")
+app.add_typer(continuous.app, name="continuous")
 app.add_typer(ml.app, name="ml")
 app.add_typer(model.app, name="model")
 app.add_typer(notebook.app, name="notebook")

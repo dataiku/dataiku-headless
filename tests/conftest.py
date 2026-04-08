@@ -729,6 +729,24 @@ def mock_client():
     scenario_mock.get_run.return_value = run_mock
     proj1.get_scenario.return_value = scenario_mock
 
+    # Continuous activities
+    proj1.list_continuous_activities.return_value = [
+        {
+            "projectKey": "PROJ1",
+            "recipeId": "stream_events",
+            "desiredState": "STARTED",
+            "mainLoopState": {"state": "RUNNING"},
+        },
+    ]
+    continuous_mock = MagicMock()
+    continuous_mock.start.return_value = {}
+    continuous_mock.stop.return_value = None
+    continuous_mock.get_status.return_value = {
+        "desiredState": "STARTED",
+        "mainLoopState": {"state": "RUNNING"},
+    }
+    proj1.get_continuous_activity.return_value = continuous_mock
+
     # Job mocks
     # list_jobs() returns top-level fields (NOT nested under baseStatus).
     # baseStatus wrapper is only from get_status() on a single job.

@@ -915,6 +915,19 @@ dku bundle activate BUNDLE_ID [-P PROJECT]
 
 - `activate` calls `preload_bundle` then `activate_bundle`
 
+## continuous
+
+```bash
+dku continuous list [-P PROJECT] [-o FORMAT]
+dku continuous start RECIPE_ID [-P PROJECT]
+dku continuous stop RECIPE_ID [-P PROJECT]
+dku continuous status RECIPE_ID [-P PROJECT] [-o FORMAT]
+```
+
+- Manages continuous recipe activities (streaming recipes that run indefinitely)
+- `list` shows recipe ID, desired state, and current state
+- `status` returns `desiredState` (STARTED/STOPPED) and `mainLoopState.state` (RUNNING/etc.)
+
 ## api-service
 
 ```bash
