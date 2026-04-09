@@ -36,7 +36,7 @@ metadata:
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~300 commands** across 42 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~470 commands** across 53 groups.
 
 ## Companion Skill: `dataiku`
 
@@ -498,19 +498,19 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 |---|---|---|
 | `auth` | login, logout, status, list, switch | No |
 | `config` | set, get, list, path, variables, set-variables | No |
-| `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags | No |
-| `plugin` | list, get, push, delete, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file** | No |
+| `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags, **ai-describe, timeline** | No |
+| `plugin` | list, get, push, delete, **download**, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file, rename-file, move-file, install-from-store, install-from-git, update-from-store, update-from-git** | No |
 | `code-env` | list, get, create, delete, update | No |
-| `connection` | list, **get**, create, **delete**, test | No (admin) |
-| `user` | list, **get**, create, **delete** | No (admin) |
+| `connection` | list, **get**, create, **delete**, test, **schemas, tables, sync-acls** | No (admin, schemas/tables need `-P`) |
+| `user` | list, **get**, create, **delete, activity, add-secret** | No (admin) |
 | `sql` | query | No |
-| `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions** | Yes |
-| `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
-| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
+| `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect, zone, share, unshare** | Yes |
+| `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **rename, status**, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
+| `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, avg-duration, run-log, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
-| `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata** | Yes |
+| `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata, create-mlflow, import-mlflow, create-external** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
-| `llm` | list, completion, embeddings | Yes |
+| `llm` | list, completion, embeddings, **generate-image, rerank** | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
 | `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |
@@ -530,7 +530,18 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index | Yes (accepts name or ID) |
 | `agent-hub` | list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop | Yes (auto-detects hub) |
 | `bundle` | list, export, download, import, activate | Yes |
-| `api-service` | list, create, get, create-package, list-packages | Yes |
+| `api-service` | list, create, get, create-package, list-packages, **add-endpoint, list-endpoints, publish-package, delete-package** | Yes |
+| `rag` | **list, create, get, delete, get-definition, set-definition** | Yes |
+| `continuous` | **list, start, stop, status** | Yes |
+| `meaning` | **list, get, create, update** | No (admin) |
+| `project-folder` | **list, create, move-project** | No |
+| `model-comparison` | **list, create, get, add-model, remove-model, delete** | Yes |
+| `workspace` | **list, create, get, list-objects, delete** | No |
+| `app` | **list, get, list-instances, create-instance** | No |
+| `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
+| `admin` | **logs, get-log, usage, instance-info, sanity-check** | No (admin) |
+| `api-key` | **list, get, create, delete** | No (admin) |
+| `cluster` | **list, get, create, start, stop, status, delete** | No (admin) |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 
@@ -1335,6 +1346,77 @@ dku knowledge search my_kb --query "test query" -P PROJ
 - Using a completion LLM ID instead of an embedding LLM ID (`--purpose TEXT_EMBEDDING_EXTRACTION`)
 - Omitting `--embed-column` (build will fail with "Embedding column missing")
 - Forgetting to `run` the embed recipe after creating it
+
+### Complete RAG Pipeline (KB → Embed → RAG LLM → Agent)
+
+The full RAG pipeline creates a knowledge bank, embeds data, creates the RAG LLM, and attaches it to an agent:
+
+```bash
+# 1. Create KB + embed recipe + build
+dku recipe create-embed embed_docs \
+  --input source_docs \
+  --output-kb my_kb \
+  --embedding-llm "openai:text-embedding-3-small" \
+  --embed-column content \
+  -P PROJ && \
+dku recipe run embed_docs -P PROJ --wait && \
+
+# 2. Get the KB ID (needed for RAG LLM creation)
+KB_ID=$(dku knowledge list -P PROJ -o json | jq -r '.[] | select(.name == "my_kb") | .id') && \
+
+# 3. Create the RAG LLM that ties KB + LLM together
+dku rag create "My RAG" --kb "$KB_ID" --llm "openai:gpt-4o" -P PROJ && \
+
+# 4. Get the RAG LLM ID for agent attachment
+RAG_ID=$(dku rag list -P PROJ -o json | jq -r '.[0].id') && \
+
+# 5. Attach to an agent as an LLM source
+echo "RAG LLM ID for agent: retrieval-augmented-llm:$RAG_ID"
+```
+
+### Model Deployment Pipeline (Train → Service → Endpoint → Package → Deploy)
+
+```bash
+# 1. Create API service
+dku api-service create my_predictor -P PROJ && \
+
+# 2. Add prediction endpoint with a deployed model
+dku api-service add-endpoint my_predictor \
+  -e predict_churn -m saved_model_id -t prediction -P PROJ && \
+
+# 3. Create and publish package
+dku api-service create-package my_predictor -P PROJ && \
+PKG_ID=$(dku api-service list-packages my_predictor -P PROJ -o json | jq -r '.[0].id') && \
+dku api-service publish-package my_predictor --package "$PKG_ID" -P PROJ
+```
+
+### Flow Investigation Pattern
+
+```bash
+# What uses this dataset? (downstream recipes, analyses)
+dku dataset usages my_dataset -P PROJ && \
+
+# Where does this column come from? (upstream lineage)
+dku dataset lineage my_dataset --column revenue -P PROJ && \
+
+# Does this dataset exist before creating it?
+dku dataset exists my_dataset -P PROJ && echo "exists" || echo "creating..." && \
+
+# What tables are available in this connection?
+dku connection schemas my_postgres -P PROJ && \
+dku connection tables my_postgres --schema public -P PROJ
+```
+
+### Plugin Installation Pattern
+
+```bash
+# Install from Dataiku store + create code env
+dku plugin install-from-store timeseries-preparation && \
+dku plugin create-code-env timeseries-preparation && \
+
+# Or install from git with specific branch
+dku plugin install-from-git https://github.com/org/my-plugin.git --checkout v2.0
+```
 
 ## Data Reshaping Patterns
 

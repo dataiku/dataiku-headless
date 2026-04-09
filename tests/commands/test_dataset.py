@@ -977,3 +977,301 @@ def test_dataset_info_partial_metrics(patch_client):
     assert parsed["rows"] is None  # row count failed
     assert parsed["size_bytes"] == 1545633  # size succeeded
     assert parsed["files"] == 1  # files succeeded
+
+
+# --- exists ---
+
+
+def test_dataset_exists_true(patch_client):
+    """Exit code 0 and success message when dataset exists."""
+    result = runner.invoke(app, ["dataset", "exists", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "exists" in result.output.lower()
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.exists.assert_called_once()
+
+
+def test_dataset_exists_false(patch_client):
+    """Exit code 1 when dataset does not exist."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.exists.return_value = False
+    result = runner.invoke(app, ["dataset", "exists", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_dataset_exists_json_true(patch_client):
+    """JSON output returns {exists: true} with exit code 0."""
+    result = runner.invoke(
+        app, ["dataset", "exists", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["exists"] is True
+    assert parsed["name"] == "ds1"
+    assert parsed["project"] == "PROJ1"
+
+
+def test_dataset_exists_json_false(patch_client):
+    """JSON output returns {exists: false} with exit code 1."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.exists.return_value = False
+    result = runner.invoke(
+        app, ["dataset", "exists", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 1
+    parsed = json.loads(result.output)
+    assert parsed["exists"] is False
+
+
+def test_dataset_exists_with_env_project(patch_client, monkeypatch):
+    """Resolves project from DKU_PROJECT env var."""
+    monkeypatch.setenv("DKU_PROJECT", "PROJ1")
+    result = runner.invoke(app, ["dataset", "exists", "ds1"])
+    assert result.exit_code == 0
+
+
+# --- usages ---
+
+
+def test_dataset_usages_table(patch_client):
+    """Usages command shows recipes/analyses in table format."""
+    result = runner.invoke(app, ["dataset", "usages", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "compute_output" in result.output
+    assert "analysis_1" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.assert_called_once()
+
+
+def test_dataset_usages_json(patch_client):
+    """Usages JSON output returns raw list from dataikuapi."""
+    result = runner.invoke(
+        app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    assert parsed[0]["type"] == "RECIPE_INPUT"
+    assert parsed[0]["objectId"] == "compute_output"
+
+
+def test_dataset_usages_empty(patch_client):
+    """Empty usages shows informational message."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []
+    result = runner.invoke(app, ["dataset", "usages", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "no usages" in result.output.lower()
+
+
+def test_dataset_usages_empty_json(patch_client):
+    """Empty usages in JSON returns empty list."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []
+    result = runner.invoke(
+        app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed == []
+
+
+def test_dataset_usages_env_project(patch_client, monkeypatch):
+    """Resolves project from DKU_PROJECT env var."""
+    monkeypatch.setenv("DKU_PROJECT", "PROJ1")
+    result = runner.invoke(app, ["dataset", "usages", "ds1"])
+    assert result.exit_code == 0
+    assert "compute_output" in result.output
+
+
+# --- lineage ---
+
+
+def test_dataset_lineage_table(patch_client):
+    """Lineage command shows column relations in table format."""
+    result = runner.invoke(
+        app,
+        ["dataset", "lineage", "ds1", "--column", "revenue", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "raw_input" in result.output
+    assert "revenue_raw" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_column_lineage.assert_called_once_with("revenue", max_dataset_count=None)
+
+
+def test_dataset_lineage_json(patch_client):
+    """Lineage JSON output returns raw list from dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "lineage",
+            "ds1",
+            "--column",
+            "revenue",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["inputDataset"] == "PROJ1.raw_input"
+    assert parsed[0]["inputColumn"] == "revenue_raw"
+
+
+def test_dataset_lineage_empty(patch_client):
+    """No lineage shows informational message."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_column_lineage.return_value = []
+    result = runner.invoke(
+        app,
+        ["dataset", "lineage", "ds1", "--column", "id", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "no lineage" in result.output.lower()
+
+
+def test_dataset_lineage_with_max_datasets(patch_client):
+    """--max-datasets passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "lineage",
+            "ds1",
+            "--column",
+            "revenue",
+            "--max-datasets",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_column_lineage.assert_called_once_with("revenue", max_dataset_count=5)
+
+
+def test_dataset_lineage_requires_column(patch_client):
+    """--column is required."""
+    result = runner.invoke(app, ["dataset", "lineage", "ds1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+
+
+# --- detect ---
+
+
+def test_dataset_detect_table(patch_client):
+    """Detect shows format and schema without saving."""
+    result = runner.invoke(app, ["dataset", "detect", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "csv" in result.output.lower()
+    assert "col1" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.autodetect_settings.assert_called_once_with(infer_storage_types=False)
+    ds.autodetect_settings.return_value.save.assert_not_called()
+
+
+def test_dataset_detect_save(patch_client):
+    """--save persists detected settings and shows success message."""
+    result = runner.invoke(
+        app, ["dataset", "detect", "ds1", "--save", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "saved" in result.output.lower()
+    assert "csv" in result.output.lower()
+
+
+def test_dataset_detect_infer_types(patch_client):
+    """--infer-types passes through to autodetect_settings."""
+    result = runner.invoke(
+        app,
+        ["dataset", "detect", "ds1", "--infer-types", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.autodetect_settings.assert_called_once_with(infer_storage_types=True)
+
+
+def test_dataset_detect_json(patch_client):
+    """JSON output returns format_type, format_params, columns."""
+    result = runner.invoke(
+        app, ["dataset", "detect", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["format_type"] == "csv"
+    assert len(parsed["columns"]) == 2
+    assert parsed["columns"][0]["name"] == "col1"
+
+
+def test_dataset_detect_all_string_warning(patch_client):
+    """Warns when all columns detected as STRING."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.autodetect_settings.return_value.get_raw.return_value = {
+        "formatType": "csv",
+        "formatParams": {},
+        "schema": {
+            "columns": [
+                {"name": "col1", "type": "string"},
+                {"name": "col2", "type": "string"},
+            ]
+        },
+    }
+    result = runner.invoke(app, ["dataset", "detect", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "--infer-types" in result.output
+
+
+# --- zone ---
+
+
+def test_dataset_zone(patch_client):
+    """Shows which zone a dataset belongs to."""
+    result = runner.invoke(app, ["dataset", "zone", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Processing" in result.output
+    assert "zone1" in result.output
+
+
+def test_dataset_zone_json(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "zone", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["zone_id"] == "zone1"
+    assert parsed["zone_name"] == "Processing"
+
+
+# --- share ---
+
+
+def test_dataset_share(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "share", "ds1", "--zone", "Analytics", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Shared" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.share_to_zone.assert_called_once_with("Analytics")
+
+
+# --- unshare ---
+
+
+def test_dataset_unshare(patch_client):
+    result = runner.invoke(
+        app,
+        ["dataset", "unshare", "ds1", "--zone", "Analytics", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Unshared" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.unshare_from_zone.assert_called_once_with("Analytics")

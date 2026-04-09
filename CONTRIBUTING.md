@@ -6,22 +6,27 @@ Thanks for your interest in contributing!
 
 ```bash
 git clone https://github.com/dataiku/dataiku-cli
-cd dku-cli
+cd dataiku-cli
 uv sync
 uv run dku --help
 uv run pytest -v
+
+# Install CLI + DevKit locally
+uv tool install --from . dku-cli
+./scripts/install-devkit.sh
 ```
 
 ## Development
 
 - Python 3.10+ required, [uv](https://docs.astral.sh/uv/) recommended
+- Private repo — not on PyPI. Install from local clone only.
 - Tests mock `DSSClient` — no real DSS instance needed
 - All formatting goes through `output.py` — command modules never import `rich` directly
 - One file per noun in `commands/`
 
 ## Workflow
 
-1. Fork and clone the repo
+1. Clone the repo (requires access)
 2. Create a feature branch: `git checkout -b feat/my-feature`
 3. Make your changes
 4. Run tests: `uv run pytest -v`

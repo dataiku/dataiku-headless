@@ -539,3 +539,236 @@ def test_plugin_put_file_from_file(patch_client, tmp_path):
     )
     assert result.exit_code == 0
     assert "Wrote" in result.output
+
+
+# --- install-from-store ---
+
+
+def test_plugin_install_from_store(patch_client):
+    """Install plugin from store waits for completion."""
+    result = runner.invoke(
+        app, ["plugin", "install-from-store", "timeseries-preparation"]
+    )
+    assert result.exit_code == 0
+    assert "Installed" in result.output
+    assert "timeseries-preparation" in result.output
+    patch_client.install_plugin_from_store.assert_called_once_with(
+        "timeseries-preparation"
+    )
+    patch_client.install_plugin_from_store.return_value.wait_for_result.assert_called_once()
+
+
+def test_plugin_install_from_store_no_wait(patch_client):
+    """--no-wait returns immediately."""
+    result = runner.invoke(
+        app, ["plugin", "install-from-store", "my-plugin", "--no-wait"]
+    )
+    assert result.exit_code == 0
+    assert "started" in result.output.lower()
+    patch_client.install_plugin_from_store.return_value.wait_for_result.assert_not_called()
+
+
+# --- install-from-git ---
+
+
+def test_plugin_install_from_git(patch_client):
+    """Install plugin from git with defaults."""
+    result = runner.invoke(
+        app,
+        ["plugin", "install-from-git", "https://github.com/org/repo.git"],
+    )
+    assert result.exit_code == 0
+    assert "Installed" in result.output
+    patch_client.install_plugin_from_git.assert_called_once_with(
+        "https://github.com/org/repo.git", checkout="master", subpath=None
+    )
+
+
+def test_plugin_install_from_git_with_checkout(patch_client):
+    """--checkout passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "install-from-git",
+            "https://github.com/org/repo.git",
+            "--checkout",
+            "v2.0",
+        ],
+    )
+    assert result.exit_code == 0
+    patch_client.install_plugin_from_git.assert_called_once_with(
+        "https://github.com/org/repo.git", checkout="v2.0", subpath=None
+    )
+
+
+def test_plugin_install_from_git_with_subpath(patch_client):
+    """--subpath passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "install-from-git",
+            "https://github.com/org/monorepo.git",
+            "--subpath",
+            "plugins/my-plugin",
+        ],
+    )
+    assert result.exit_code == 0
+    patch_client.install_plugin_from_git.assert_called_once_with(
+        "https://github.com/org/monorepo.git",
+        checkout="master",
+        subpath="plugins/my-plugin",
+    )
+
+
+# --- update-from-store ---
+
+
+def test_plugin_update_from_store(patch_client):
+    """Update plugin from store waits for completion."""
+    result = runner.invoke(
+        app, ["plugin", "update-from-store", "timeseries-preparation"]
+    )
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+    plugin = patch_client.get_plugin("timeseries-preparation")
+    plugin.update_from_store.assert_called_once()
+    plugin.update_from_store.return_value.wait_for_result.assert_called_once()
+
+
+def test_plugin_update_from_store_no_wait(patch_client):
+    """--no-wait returns immediately."""
+    result = runner.invoke(
+        app, ["plugin", "update-from-store", "my-plugin", "--no-wait"]
+    )
+    assert result.exit_code == 0
+    assert "started" in result.output.lower()
+
+
+# --- update-from-git ---
+
+
+def test_plugin_update_from_git(patch_client):
+    """Update plugin from git with defaults."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "update-from-git",
+            "my-plugin",
+            "https://github.com/org/repo.git",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.update_from_git.assert_called_once_with(
+        "https://github.com/org/repo.git", checkout="master", subpath=None
+    )
+
+
+def test_plugin_update_from_git_with_checkout(patch_client):
+    """--checkout passes through to dataikuapi."""
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "update-from-git",
+            "my-plugin",
+            "git@github.com:org/repo.git",
+            "--checkout",
+            "v2.1",
+        ],
+    )
+    assert result.exit_code == 0
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.update_from_git.assert_called_once_with(
+        "git@github.com:org/repo.git", checkout="v2.1", subpath=None
+    )
+
+
+# --- rename-file ---
+
+
+def test_plugin_rename_file(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "rename-file",
+            "my-plugin",
+            "--path",
+            "python-lib/old.py",
+            "--name",
+            "new.py",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Renamed" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.rename_file.assert_called_once_with("python-lib/old.py", "new.py")
+
+
+# --- move-file ---
+
+
+def test_plugin_move_file(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "move-file",
+            "my-plugin",
+            "--path",
+            "python-lib/utils.py",
+            "--to",
+            "python-lib/helpers/utils.py",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.move_file.assert_called_once_with(
+        "python-lib/utils.py", "python-lib/helpers/utils.py"
+    )
+
+
+# --- download ---
+
+
+def test_plugin_download(patch_client, tmp_path):
+    """Downloads plugin to default filename."""
+    dest = tmp_path / "my-plugin.zip"
+
+    # Mock download_plugin_to_file to create a real file
+    def _fake_download(pid, path):
+        with open(path, "wb") as f:
+            f.write(b"PK\x03\x04" + b"\x00" * 100)  # fake zip header
+
+    patch_client.download_plugin_to_file.side_effect = _fake_download
+    result = runner.invoke(
+        app, ["plugin", "download", "my-plugin", "--dest", str(dest)]
+    )
+    assert result.exit_code == 0
+    assert "Downloaded" in result.output
+    assert "my-plugin" in result.output
+    assert dest.exists()
+    patch_client.download_plugin_to_file.assert_called_once_with("my-plugin", str(dest))
+
+
+def test_plugin_download_default_name(patch_client, tmp_path, monkeypatch):
+    """Without --dest, uses <plugin_id>.zip."""
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_download(pid, path):
+        with open(path, "wb") as f:
+            f.write(b"PK\x03\x04" + b"\x00" * 50)
+
+    patch_client.download_plugin_to_file.side_effect = _fake_download
+    result = runner.invoke(app, ["plugin", "download", "geocoder"])
+    assert result.exit_code == 0
+    assert "geocoder.zip" in result.output
+    patch_client.download_plugin_to_file.assert_called_once_with(
+        "geocoder", "geocoder.zip"
+    )

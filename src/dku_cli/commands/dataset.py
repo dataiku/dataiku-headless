@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions."""
+"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect, zone, share, unshare."""
 
 from __future__ import annotations
 
@@ -921,5 +921,373 @@ def ai_describe(
             info("AI-generated descriptions (not saved — use --save to persist):")
 
         render_raw(result, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def exists(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Check whether a dataset exists (exit code 0 = yes, 1 = no).
+
+    Use before creating datasets to avoid duplicates, or in scripts to
+    branch on dataset existence.
+
+    Example:
+      dku dataset exists my_data -P PROJ && echo "found"
+      dku dataset exists my_data -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        found = ds.exists()
+
+        if fmt == "json":
+            render_raw(
+                {"exists": found, "name": dataset_name, "project": project_key},
+                output_format="json",
+            )
+        else:
+            if found:
+                success(f"Dataset '{dataset_name}' exists in {project_key}")
+            else:
+                info(f"Dataset '{dataset_name}' does not exist in {project_key}")
+
+        raise typer.Exit(0 if found else 1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def usages(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show what recipes, analyses, or models use this dataset.
+
+    Use to investigate the flow graph: which downstream recipes consume
+    this dataset, and which upstream recipes produce it.
+
+    Example:
+      dku dataset usages my_data -P PROJ
+      dku dataset usages my_data -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        usage_list = ds.get_usages()
+
+        if fmt == "json":
+            render_raw(usage_list, output_format="json")
+        else:
+            if not usage_list:
+                info(
+                    f"No usages found for dataset '{dataset_name}' in {project_key}. "
+                    "This dataset is not referenced by any recipe or analysis."
+                )
+                return
+
+            data = []
+            for u in usage_list:
+                data.append(
+                    {
+                        "type": u.get("type", u.get("objectType", "")),
+                        "id": u.get("objectId", u.get("id", "")),
+                        "project": u.get(
+                            "objectProjectKey", u.get("projectKey", project_key)
+                        ),
+                    }
+                )
+
+            render(
+                data,
+                ["type", "id", "project"],
+                output_format=fmt,
+                title=f"Usages of {dataset_name}",
+                headers={"type": "TYPE", "id": "ID", "project": "PROJECT"},
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def lineage(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    column: str = typer.Option(..., "--column", "-c", help="Column name to trace"),
+    max_datasets: int | None = typer.Option(
+        None,
+        "--max-datasets",
+        help="Maximum number of datasets to query for lineage (default: DSS hard limit)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Trace a column's provenance across the flow graph.
+
+    Shows which upstream datasets and columns feed into the specified
+    column, including cross-project lineage.
+
+    Example:
+      dku dataset lineage my_data --column revenue -P PROJ
+      dku dataset lineage my_data -c customer_id -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        relations = ds.get_column_lineage(column, max_dataset_count=max_datasets)
+
+        if fmt == "json":
+            render_raw(relations, output_format="json")
+        else:
+            if not relations:
+                info(
+                    f"No lineage found for column '{column}' in {dataset_name}. "
+                    "The column may be a source column with no upstream provenance, "
+                    "or lineage has not been computed yet."
+                )
+                return
+
+            data = []
+            for rel in relations:
+                # Real API returns inputDataset/inputColumn/outputDataset/outputColumn
+                data.append(
+                    {
+                        "source_dataset": rel.get(
+                            "inputDataset", rel.get("sourceDataset", "")
+                        ),
+                        "source_column": rel.get(
+                            "inputColumn", rel.get("sourceColumn", "")
+                        ),
+                        "target_dataset": rel.get(
+                            "outputDataset", rel.get("targetDataset", "")
+                        ),
+                        "target_column": rel.get(
+                            "outputColumn", rel.get("targetColumn", "")
+                        ),
+                    }
+                )
+
+            render(
+                data,
+                [
+                    "source_dataset",
+                    "source_column",
+                    "target_dataset",
+                    "target_column",
+                ],
+                output_format=fmt,
+                title=f"Column Lineage: {dataset_name}.{column}",
+                headers={
+                    "source_dataset": "SOURCE DS",
+                    "source_column": "SOURCE COL",
+                    "target_dataset": "TARGET DS",
+                    "target_column": "TARGET COL",
+                },
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def detect(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    save: bool = typer.Option(
+        False, "--save", help="Save detected format and schema to the dataset"
+    ),
+    infer_types: bool = typer.Option(
+        False,
+        "--infer-types",
+        help="Infer storage types (e.g. int vs string) instead of defaulting to string",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Detect format and schema for a dataset.
+
+    Runs DSS auto-detection to discover the format type, format params,
+    and column schema. Works for filesystem, SQL, and Elasticsearch datasets.
+
+    Without --save, shows what was detected. With --save, persists to the dataset.
+
+    Example:
+      dku dataset detect my_data -P PROJ
+      dku dataset detect my_data --save --infer-types -P PROJ
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        detected = ds.autodetect_settings(infer_storage_types=infer_types)
+
+        raw = detected.get_raw()
+        format_type = raw.get("formatType", "")
+        schema_cols = raw.get("schema", {}).get("columns", [])
+
+        if fmt == "json":
+            render_raw(
+                {
+                    "format_type": format_type,
+                    "format_params": raw.get("formatParams", {}),
+                    "columns": schema_cols,
+                },
+                output_format="json",
+            )
+        else:
+            if save:
+                success(
+                    f"Detected and saved: {format_type} format, "
+                    f"{len(schema_cols)} columns for '{dataset_name}'"
+                )
+            else:
+                info(f"Detected format: {format_type} ({len(schema_cols)} columns)")
+                info("Run with --save to persist these settings.")
+
+            if schema_cols:
+                data = [
+                    {"name": c.get("name", ""), "type": c.get("type", "")}
+                    for c in schema_cols
+                ]
+                render(
+                    data,
+                    ["name", "type"],
+                    output_format=fmt,
+                    title=f"Detected Schema: {dataset_name}",
+                )
+
+            string_cols = [c for c in schema_cols if c.get("type") == "string"]
+            if schema_cols and len(string_cols) == len(schema_cols):
+                warn(
+                    "All columns detected as STRING. Use --infer-types to detect "
+                    "numeric/date types, or fix manually with set-schema."
+                )
+    except ValueError as e:
+        exit_with_error(
+            str(e),
+            code="unsupported_type",
+            details=[
+                "Dataset type may not support auto-detection.",
+                f"Check type: dku dataset info {dataset_name} -P {project_key}",
+            ],
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "Format detection failed" in msg or "empty" in msg.lower():
+            exit_with_error(
+                f"Format detection failed for '{dataset_name}'.",
+                code="detection_failed",
+                details=[
+                    "The dataset may be empty or have no data to detect from.",
+                    f"Upload data first: dku dataset upload {dataset_name} FILE -P {project_key}",
+                    f"Or set schema manually: dku dataset set-schema {dataset_name} -d @schema.json -P {project_key}",
+                ],
+            )
+        handle_api_error(e)
+
+
+@app.command()
+def zone(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show which flow zone a dataset belongs to.
+
+    Example:
+      dku dataset zone my_data -P PROJ
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        z = ds.get_zone()
+
+        if fmt == "json":
+            render_raw(
+                {"zone_id": z.id, "zone_name": z.name, "dataset": dataset_name},
+                output_format="json",
+            )
+        else:
+            success(f"Dataset '{dataset_name}' is in zone '{z.name}' (ID: {z.id})")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def share(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    zone_id: str = typer.Option(
+        ..., "--zone", "-z", help="Zone name or ID to share to"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Share a dataset to another flow zone.
+
+    Sharing makes the dataset visible in the target zone without moving it.
+
+    Example:
+      dku dataset share my_data --zone Analytics -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds.share_to_zone(zone_id)
+        success(f"Shared dataset '{dataset_name}' to zone '{zone_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def unshare(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    zone_id: str = typer.Option(
+        ..., "--zone", "-z", help="Zone name or ID to unshare from"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Unshare a dataset from a flow zone.
+
+    Example:
+      dku dataset unshare my_data --zone Analytics -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds.unshare_from_zone(zone_id)
+        success(f"Unshared dataset '{dataset_name}' from zone '{zone_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

@@ -28,10 +28,10 @@ uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (~300 commands, 42 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool (~470 commands, 53 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
-**NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
+**Private repo — NOT on PyPI.** Install from a local clone — see [Distribution](#distribution).
 
 ---
 
@@ -56,7 +56,12 @@ When you receive benchmark feedback:
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
 5. **Run tests — ALWAYS, no exceptions** — `uv run pytest -v` after ANY CLI code change. Write new tests for new commands. Test error paths too, not just happy paths. Never skip this step.
-6. **Test against live DSS** — After unit tests pass, run `uv run dku <new-command>` against the real DSS instance to catch real-world issues (partial data, missing metrics, API quirks). Unit test mocks can't replicate DSS behavior perfectly.
+6. **Test against live DSS (MANDATORY)** — Unit test mocks are guesses until verified. After unit tests pass, run every new/changed command against the real DSS instance with `uv run dku <command>`. Use projects **ADVISORGPT** (Snowflake datasets, recipes, flow graph) or **AGENTTEST**. Verify:
+   - Table output shows real data, not blank columns (field name mismatches cause this)
+   - JSON output field names match what DSS actually returns
+   - Empty results produce helpful messages (no usages, no schemas, etc.)
+   - Wrong inputs (bad column name, non-SQL connection for schemas) produce prescriptive errors
+   - If live testing reveals mismatches, fix them BEFORE committing
 7. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
@@ -126,17 +131,27 @@ dataiku-devkit/
 │   └── dku-cli/               # CLI operations and composability patterns
 │       ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
 │       └── references/        # CLI command reference
-└── agents/                    # Subagents for complex tasks
-    ├── plugin-reviewer.md
-    ├── dss-explorer.md
-    └── tool-designer.md
-.claude-plugin/            # Plugin manifest for Claude Code marketplace
+├── agents/                    # Subagents for complex tasks
+│   ├── plugin-reviewer.md
+│   ├── dss-explorer.md
+│   └── tool-designer.md
+└── scripts/
+    └── install-devkit.sh  # Symlink skills + agents to ~/.claude/
 ```
 
 ### Skill Quality Standards
 
-When editing `dataiku-devkit/skills/dku-cli/SKILL.md`:
+When editing skills, **progressive disclosure is non-negotiable**:
 
+| Layer | File | What goes here | What does NOT go here |
+|-------|------|----------------|----------------------|
+| 1 | SKILL.md cheat sheet (top 30 lines) | Failure prevention rules, one line each | Command syntax, flag details |
+| 2 | SKILL.md body | Command Groups table (verb names only), chaining patterns for new workflows | Per-command notes, flag descriptions, API details |
+| 3 | `references/commands.md` | Full command syntax, all flags, usage notes, API quirks | — (this is the detail layer) |
+
+**Rules:**
+- **SKILL.md is loaded into every conversation.** Every line costs tokens. Be ruthless about what earns a spot.
+- **Never add per-command documentation to SKILL.md.** That's what `references/commands.md` is for. SKILL.md gets the verb in the Command Groups table + a chaining pattern IF the command enables a new workflow.
 - **Cheat sheet** (top 30 lines): Must prevent the top failure modes. One line per rule. If you add a gotcha to CLAUDE.md, ask: does the cheat sheet need a rule too?
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
@@ -280,19 +295,21 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 
 ## Distribution
 
-**CLI (Python package) — NOT on PyPI. Install from GitHub source:**
+**Private repo — NOT on PyPI or any public registry.** Install from a local clone.
+
+**CLI (Python package):**
 
 | Channel | Command |
 |---------|---------|
-| **Direct** | `uv tool install git+https://github.com/dataiku/dataiku-cli.git` |
-| **Local dev** | `uv tool install --from . dku-cli` |
+| **Install** | `uv tool install --from /path/to/dku-cli dku-cli` |
+| **Update** (after `git pull`) | `uv tool install --from /path/to/dku-cli dku-cli --force --reinstall` |
 
-**Dataiku DevKit (AI agent skills):**
+**Dataiku DevKit (skills + agents for Claude Code):**
 
 | Channel | Command |
 |---------|---------|
-| **Claude Code Plugin** | `/plugin marketplace add dataiku/dataiku-cli` |
-| **skills.sh (40+ agents)** | `npx skills add dataiku/dataiku-cli --all` |
+| **Automated** | `./scripts/install-devkit.sh` (symlinks to `~/.claude/skills/` and `~/.claude/agents/`) |
+| **Other agents** | Copy `dataiku-devkit/skills/` into agent's skill directory |
 
 ---
 
@@ -303,3 +320,4 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
 | `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |
+| `docs/gap-tracker.md` | CLI & Skill gaps vs dataikuapi — issue tracker with priorities |
