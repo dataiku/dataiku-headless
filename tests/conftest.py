@@ -2336,6 +2336,8 @@ def mock_client():
     plugin_file_mock.list_files.return_value = plugin_tree
     plugin_file_mock.get_file.return_value = plugin_file_cm
     plugin_file_mock.put_file.return_value = None
+    plugin_file_mock.rename_file.return_value = None
+    plugin_file_mock.move_file.return_value = None
 
     # Plugin install/update futures — all return DSSFuture-like objects
     install_future = MagicMock()

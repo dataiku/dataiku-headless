@@ -175,12 +175,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added full command group. `list` uses `as_objects=False` for raw dict access. `status` shows desiredState and mainLoopState.state. 7 tests. Live-verified: list on ADVISORGPT/AGENTTEST (empty state), JSON empty list, help renders correctly.
 
 ### GAP-017: Plugin file ops & parameter sets
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09, partial — file ops only, presets deferred)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `plugin.rename_file()`, `plugin.move_file()`, `settings.list_parameter_sets()`, `param_set.list_presets()`, `param_set.create_preset()`, `param_set.delete_preset()`
-- **CLI today:** Has get-file/put-file/list-files but no rename/move. No preset management.
-- **Next step:** Add `dku plugin rename-file`, `dku plugin move-file`. Consider `dku plugin presets` subgroup.
+- **dataikuapi:** `plugin.rename_file()`, `plugin.move_file()` — file ops done. `settings.list_parameter_sets()`, `param_set.list_presets()`, `param_set.create_preset()`, `param_set.delete_preset()` — presets deferred (complex get→modify→save flow).
+- **CLI today:** `dku plugin rename-file` and `dku plugin move-file` added. Dev plugins only.
+- **Resolution:** Added rename-file and move-file commands. Preset management deferred — it requires DSSPluginSettings get→modify→save flow which is more complex. 2 tests. Live-verified: help renders, non-dev plugin gives clear error, dev plugin file listing works.
 
 ### GAP-018: Dataset zone operations
 - **Status:** `done` (2026-04-09)
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-017 | Added `dku plugin rename-file` and `move-file` — 2 tests (presets deferred) |
 | 2026-04-09 | GAP-014 | Added `dku project-folder` group (list, create, move-project) — 5 tests |
 | 2026-04-09 | GAP-018 | Added `dku dataset zone`, `share`, `unshare` — 4 tests |
 | 2026-04-09 | GAP-026 | Added `dku meaning` group (list, get, create, update) — 7 tests |

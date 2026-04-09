@@ -1,4 +1,4 @@
-"""dku plugin — list, get, push, delete, download, settings, code-env management, usages, file operations, install-from-store, install-from-git, update-from-store, update-from-git."""
+"""dku plugin — list, get, push, delete, download, settings, code-env management, usages, file operations (get/put/list/rename/move), install-from-store, install-from-git, update-from-store, update-from-git."""
 
 from __future__ import annotations
 
@@ -650,6 +650,52 @@ def put_file(
         text = read_text_input(content)
         plugin.put_file(path, io.BytesIO(text.encode("utf-8")))
         success(f"Wrote {len(text)} bytes to {path} in plugin {plugin_id}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("rename-file")
+def rename_file(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID (dev plugins only)"),
+    path: str = typer.Option(
+        ..., "--path", help="Current file/folder path within plugin"
+    ),
+    name: str = typer.Option(..., "--name", help="New name for the file/folder"),
+) -> None:
+    """Rename a file or folder in a dev plugin.
+
+    Example:
+      dku plugin rename-file my-plugin --path python-lib/old.py --name new.py
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        plugin.rename_file(path, name)
+        success(f"Renamed '{path}' to '{name}' in plugin {plugin_id}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("move-file")
+def move_file(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID (dev plugins only)"),
+    path: str = typer.Option(
+        ..., "--path", help="Current file/folder path within plugin"
+    ),
+    new_path: str = typer.Option(..., "--to", help="New path within plugin"),
+) -> None:
+    """Move a file or folder within a dev plugin.
+
+    Example:
+      dku plugin move-file my-plugin --path python-lib/utils.py --to python-lib/helpers/utils.py
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        plugin.move_file(path, new_path)
+        success(f"Moved '{path}' to '{new_path}' in plugin {plugin_id}")
     except Exception as e:
         handle_api_error(e)
 

@@ -688,6 +688,52 @@ def test_plugin_update_from_git_with_checkout(patch_client):
     )
 
 
+# --- rename-file ---
+
+
+def test_plugin_rename_file(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "rename-file",
+            "my-plugin",
+            "--path",
+            "python-lib/old.py",
+            "--name",
+            "new.py",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Renamed" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.rename_file.assert_called_once_with("python-lib/old.py", "new.py")
+
+
+# --- move-file ---
+
+
+def test_plugin_move_file(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "move-file",
+            "my-plugin",
+            "--path",
+            "python-lib/utils.py",
+            "--to",
+            "python-lib/helpers/utils.py",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.move_file.assert_called_once_with(
+        "python-lib/utils.py", "python-lib/helpers/utils.py"
+    )
+
+
 # --- download ---
 
 

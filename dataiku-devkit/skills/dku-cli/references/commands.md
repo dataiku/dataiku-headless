@@ -363,6 +363,8 @@ dku plugin list-files PLUGIN_ID [-o FORMAT]
 dku plugin get-file PLUGIN_ID --path FILE_PATH
 dku plugin put-file PLUGIN_ID --path FILE_PATH --content CONTENT
 dku plugin download PLUGIN_ID [--dest PATH]                                    # Download dev plugin as ZIP
+dku plugin rename-file PLUGIN_ID --path PATH --name NEW_NAME                   # Rename file/folder (dev only)
+dku plugin move-file PLUGIN_ID --path PATH --to NEW_PATH                       # Move file/folder (dev only)
 dku plugin install-from-store PLUGIN_ID [--wait/--no-wait]
 dku plugin install-from-git REPO_URL [--checkout BRANCH] [--subpath PATH] [--wait/--no-wait]
 dku plugin update-from-store PLUGIN_ID [--wait/--no-wait]
@@ -377,6 +379,8 @@ dku plugin update-from-git PLUGIN_ID REPO_URL [--checkout BRANCH] [--subpath PAT
 - `update-code-env` rebuilds the code env after dependency changes
 - `usages` shows where plugin components are used; filter by project with `-P`
 - `download` downloads a dev plugin as a ZIP archive. Only works for dev plugins (not store-installed). Default filename is `<plugin_id>.zip`
+- `rename-file` renames a file or folder within a dev plugin. `--path` is the current path, `--name` is just the new filename (not full path)
+- `move-file` moves a file or folder to a new location within the plugin. Both `--path` and `--to` are relative to plugin root
 - First install flow: `push --install && create-code-env PLUGIN && set-code-env PLUGIN ENV`
 - `recipes` lists plugin recipe types available for `dku recipe create --type`. Shows the full type string (e.g., `CustomCode_plugin_recipe`). Omit PLUGIN_ID to list from all plugins
 - `list-files` lists files in a dev plugin as a flattened path tree (dev plugins only)
