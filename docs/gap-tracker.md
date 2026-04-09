@@ -159,12 +159,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added command group with recursive tree listing (indented hierarchy), subfolder creation, and project relocation. 5 tests. Live-verified: list shows full folder tree with 6 folders and all projects, JSON output correct.
 
 ### GAP-015: Model comparisons
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `project.list_model_comparisons()`, `project.create_model_comparison()`, `comparison.get_settings()`, `settings.add_compared_item()`, `settings.remove_compared_item()`
-- **CLI today:** Zero.
-- **Next step:** Add `dku model-comparison` group: list, create, get, add-model, remove-model, delete.
+- **dataikuapi:** `project.list_model_comparisons()`, `project.create_model_comparison()`, `comparison.get_settings()`, `settings.add_compared_item()`, `settings.remove_compared_item()`, `comparison.delete()`
+- **CLI today:** New `dku model-comparison` group: list, create, get, add-model, remove-model, delete.
+- **Resolution:** Added full command group. List fetches settings for each comparison to show name + type. Add/remove model auto-saves. 9 tests. Live-verified: list empty on ADVISORGPT/AGENTTEST, JSON empty list, create help renders correctly.
 
 ### GAP-016: Continuous activities
 - **Status:** `done` (2026-04-09)
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-015 | Added `dku model-comparison` group (list, create, get, add/remove-model, delete) — 9 tests |
 | 2026-04-09 | GAP-017 | Added `dku plugin rename-file` and `move-file` — 2 tests (presets deferred) |
 | 2026-04-09 | GAP-014 | Added `dku project-folder` group (list, create, move-project) — 5 tests |
 | 2026-04-09 | GAP-018 | Added `dku dataset zone`, `share`, `unshare` — 4 tests |

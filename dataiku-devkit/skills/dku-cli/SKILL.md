@@ -535,6 +535,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `continuous` | **list, start, stop, status** | Yes |
 | `meaning` | **list, get, create, update** | No (admin) |
 | `project-folder` | **list, create, move-project** | No |
+| `model-comparison` | **list, create, get, add-model, remove-model, delete** | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

@@ -970,6 +970,21 @@ dku rag set-definition RAG_ID --definition JSON [-P PROJECT]
 - The LLM ID for use elsewhere is `retrieval-augmented-llm:<RAG_ID>`
 - Settings are nested: `versions[0].ragllmSettings` contains `llmId` and `kbRef`
 
+## model-comparison
+
+```bash
+dku model-comparison list [-P PROJECT] [-o FORMAT]
+dku model-comparison create NAME --type PREDICTION_TYPE [-P PROJECT] [-o FORMAT]
+dku model-comparison get COMPARISON_ID [-P PROJECT] [-o json]
+dku model-comparison add-model COMPARISON_ID --model FULL_MODEL_ID [-P PROJECT]
+dku model-comparison remove-model COMPARISON_ID --model FULL_MODEL_ID [-P PROJECT]
+dku model-comparison delete COMPARISON_ID [--yes] [-P PROJECT]
+```
+
+- Types: BINARY_CLASSIFICATION, REGRESSION, MULTICLASS, TIMESERIES_FORECAST, CAUSAL_BINARY_CLASSIFICATION, CAUSAL_REGRESSION
+- Full model IDs: `S-PROJ-modelId-versionId` (saved model), `A-PROJ-analysisId-taskId-...` (lab model), `ME-PROJ-storeId-evalId` (model evaluation)
+- `add-model`/`remove-model` modify the comparison then save automatically
+
 ## project-folder
 
 ```bash

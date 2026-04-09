@@ -41,6 +41,7 @@ from dku_cli.commands import (
     meaning,
     ml,
     model,
+    model_comparison,
     notebook,
     plugin,
     project,
@@ -96,6 +97,7 @@ app.add_typer(connection.app, name="connection")
 app.add_typer(continuous.app, name="continuous")
 app.add_typer(ml.app, name="ml")
 app.add_typer(model.app, name="model")
+app.add_typer(model_comparison.app, name="model-comparison")
 app.add_typer(notebook.app, name="notebook")
 app.add_typer(folder.app, name="folder")
 app.add_typer(group.app, name="group")

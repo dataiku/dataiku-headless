@@ -1013,6 +1013,26 @@ def mock_client():
     proj1.create_mlflow_pyfunc_model.return_value = model_mock
     proj1.create_external_model.return_value = model_mock
 
+    # Model comparisons
+    mc_mock = MagicMock()
+    mc_mock.comparison_id = "mec1"
+    mc_mock.id = "mec1"
+    mc_settings = MagicMock()
+    mc_settings.get_raw.return_value = {
+        "id": "mec1",
+        "displayName": "Churn Models",
+        "modelTaskType": "BINARY_CLASSIFICATION",
+        "comparedModels": [{"refId": "S-PROJ1-model1-v1"}],
+    }
+    mc_settings.add_compared_item.return_value = None
+    mc_settings.remove_compared_item.return_value = None
+    mc_settings.save.return_value = None
+    mc_mock.get_settings.return_value = mc_settings
+    mc_mock.delete.return_value = None
+    proj1.list_model_comparisons.return_value = [mc_mock]
+    proj1.get_model_comparison.return_value = mc_mock
+    proj1.create_model_comparison.return_value = mc_mock
+
     # LLM mock
     llm_mock = MagicMock()
     completion_mock = MagicMock()
