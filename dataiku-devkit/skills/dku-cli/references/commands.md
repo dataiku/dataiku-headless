@@ -1011,6 +1011,21 @@ dku meaning update MEANING_ID --definition JSON
 - `get` returns full definition including entries/mappings/pattern
 - `update` requires the full definition dict (get → modify → update)
 
+## streaming
+
+```bash
+dku streaming list [-P PROJECT] [-o FORMAT]
+dku streaming create NAME --type TYPE [--connection CONN] [--topic TOPIC] [--url URL] [-P PROJECT]
+dku streaming get NAME [-P PROJECT] [-o json]
+dku streaming delete NAME [--yes] [-P PROJECT]
+dku streaming schema NAME [-P PROJECT] [-o FORMAT]
+dku streaming set-schema NAME --definition JSON [-P PROJECT]
+```
+
+- Types: kafka, httpsse, SQS, KDBPlus
+- `create` for Kafka: use `--connection` + `--topic`. For HTTP SSE: use `--url`
+- `schema`/`set-schema` manage the column schema independently of the endpoint settings
+
 ## app
 
 ```bash

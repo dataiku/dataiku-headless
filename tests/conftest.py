@@ -1110,6 +1110,30 @@ def mock_client():
     proj1.preload_bundle.return_value = None
 
     # API Services
+    # Streaming endpoints
+    se_list_item = MagicMock()
+    se_list_item.id = "events_stream"
+    se_list_item.type = "kafka"
+    proj1.list_streaming_endpoints.return_value = [se_list_item]
+    se_mock = MagicMock()
+    se_settings_mock = MagicMock()
+    se_settings_mock.get_raw.return_value = {
+        "id": "events_stream",
+        "type": "kafka",
+        "params": {"connection": "kafka_conn", "topic": "events"},
+    }
+    se_mock.get_settings.return_value = se_settings_mock
+    se_mock.get_schema.return_value = {
+        "columns": [
+            {"name": "event_id", "type": "string"},
+            {"name": "timestamp", "type": "bigint"},
+        ]
+    }
+    se_mock.set_schema.return_value = None
+    se_mock.delete.return_value = None
+    proj1.get_streaming_endpoint.return_value = se_mock
+    proj1.create_streaming_endpoint.return_value = se_mock
+
     proj1.list_api_services.return_value = [{"id": "myservice", "name": "My Service"}]
     api_service_mock = MagicMock()
     api_service_settings = MagicMock()

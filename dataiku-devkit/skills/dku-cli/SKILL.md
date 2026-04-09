@@ -538,6 +538,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `model-comparison` | **list, create, get, add-model, remove-model, delete** | Yes |
 | `workspace` | **list, create, get, list-objects, delete** | No |
 | `app` | **list, get, list-instances, create-instance** | No |
+| `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

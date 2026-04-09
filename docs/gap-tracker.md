@@ -98,12 +98,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added all four commands. `add-endpoint` validates type against supported set, calls the appropriate dataikuapi method, then saves. `list-endpoints` reads from settings. `publish-package` supports `--published-service` for custom deployer target. 9 tests. Live-verified: create service, list-endpoints (empty + prescriptive hint), JSON empty list, all help commands.
 
 ### GAP-008: Streaming endpoints
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `L`
-- **dataikuapi:** Full CRUD on `DSSStreamingEndpoint`, Kafka/HTTP SSE creators, schema management, zone ops
-- **CLI today:** Zero. No `dku streaming` group. Recipe type "streaming" is recognized but no endpoint management.
-- **Next step:** Add `dku streaming` group: list, create, get, delete, schema, set-schema. Support `--type kafka --connection CONN --topic TOPIC` and `--type httpsse --url URL`.
+- **dataikuapi:** `project.list_streaming_endpoints()`, `project.create_streaming_endpoint()`, `project.get_streaming_endpoint()`, `endpoint.get_settings()`, `endpoint.get_schema()`, `endpoint.set_schema()`, `endpoint.delete()`
+- **CLI today:** New `dku streaming` group: list, create, get, delete, schema, set-schema. Supports Kafka (--connection, --topic) and HTTP SSE (--url).
+- **Resolution:** Added full command group. 9 tests. Live-verified: list empty on ADVISORGPT/AGENTTEST, JSON empty, create help with Kafka and HTTP SSE examples.
 
 ### GAP-009: Model MLflow import & external models
 - **Status:** `done` (2026-04-09)
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-008 | Added `dku streaming` group (list, create, get, delete, schema, set-schema) — 9 tests |
 | 2026-04-09 | GAP-013 | Added `dku app` group (list, get, list-instances, create-instance) — 8 tests |
 | 2026-04-09 | GAP-022 | Added `dku workspace` group (list, create, get, list-objects, delete) — 10 tests |
 | 2026-04-09 | GAP-015 | Added `dku model-comparison` group (list, create, get, add/remove-model, delete) — 9 tests |

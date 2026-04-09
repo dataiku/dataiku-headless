@@ -53,6 +53,7 @@ from dku_cli.commands import (
     scenario,
     semantic_model,
     sql,
+    streaming,
     user,
     webapp,
     wiki,
@@ -117,6 +118,7 @@ app.add_typer(git_cmd.app, name="git")
 app.add_typer(wiki.app, name="wiki")
 app.add_typer(workspace.app, name="workspace")
 app.add_typer(sql.app, name="sql")
+app.add_typer(streaming.app, name="streaming")
 
 
 def _version_callback(value: bool) -> None:
