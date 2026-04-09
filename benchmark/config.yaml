@@ -6,32 +6,25 @@ agents:
   claude:
     command: "claude"
     model: "opus"
-    flags:
-      - "-p"
-      - "--output-format"
-      - "json"
-      - "--dangerously-skip-permissions"
-      - "--model"
-      - "opus"
-      - "--max-turns"
-      - "15"
+    cost_per_1k_input: 0.015
+    cost_per_1k_output: 0.075
+    # Actual invocation flags are hardcoded in agents/claude.py:
+    #   claude -p PROMPT --output-format stream-json --verbose
+    #   --dangerously-skip-permissions --model opus --max-turns 15
   codex:
     command: "codex"
     model: "gpt-5.4"
-    flags:
-      - "exec"
-      - "--json"
-      - "-m"
-      - "gpt-5.4"
-      - "-c"
-      - 'model_reasoning_effort="xhigh"'
-      - "--dangerously-bypass-approvals-and-sandbox"
+    cost_per_1k_input: 0.012
+    cost_per_1k_output: 0.060
+    # Actual invocation flags are hardcoded in agents/codex.py
 
 runner:
   parallel: 2
   timeout: 300
   agents:
     - claude
+  fixture_dir: benchmark/fixtures
+  baseline_threshold: 0.1
 
 scoring:
   pass_threshold: 0.7

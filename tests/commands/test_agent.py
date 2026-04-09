@@ -290,3 +290,89 @@ def test_agent_add_tool_structured_agent(patch_client):
     ver_raw = settings.get_version_settings("v1").get_raw()
     tools = ver_raw["structuredAgentSettings"]["tools"]
     assert any(t.get("toolRef") == "new_tool_2" for t in tools)
+
+
+def test_agent_test(patch_client):
+    """Test sending a query to an agent."""
+    result = runner.invoke(
+        app,
+        ["agent", "test", "agent1", "What is the refund policy?", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Hello from LLM" in result.output
+
+
+def test_agent_test_json(patch_client):
+    """Test sending a query with JSON output."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "test",
+            "agent1",
+            "What is the refund policy?",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["agent_id"] == "agent1"
+    assert parsed["query"] == "What is the refund policy?"
+    assert parsed["response"] == "Hello from LLM"
+    assert parsed["success"] is True
+
+
+def test_agent_test_by_name(patch_client):
+    """Test resolving agent by name for test command."""
+    result = runner.invoke(
+        app,
+        ["agent", "test", "My Agent", "Hello", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Hello from LLM" in result.output
+
+
+# --- set-metadata ---
+
+
+def test_agent_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-metadata",
+            "agent1",
+            "--description",
+            "Customer support agent",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated metadata" in result.output
+
+
+def test_agent_set_metadata_by_name(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-metadata",
+            "My Agent",
+            "--description",
+            "Help desk bot",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
+def test_agent_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["agent", "set-metadata", "agent1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0

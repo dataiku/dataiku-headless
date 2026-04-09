@@ -71,6 +71,69 @@ if response.json().get("new_data_available"):
     t.fire()
 ```
 
+### Trigger JSON Structures
+
+Use these with `dku scenario add-trigger --trigger '<JSON>'` or `dku scenario set-definition`.
+
+**Dataset change (`ds_modified`)**  — fires when dataset data is modified:
+```json
+{
+  "active": true,
+  "type": "ds_modified",
+  "delay": 900,
+  "graceDelaySettings": {
+    "delay": 120,
+    "checkAgainAfterGraceDelay": true
+  },
+  "params": {
+    "watches": [{"type": "DATASET", "itemId": "DATASET_NAME"}]
+  }
+}
+```
+- `delay`: check interval in seconds (900 = 15 min) — **root level, NOT inside params**
+- `graceDelaySettings`: **root level** — seconds to wait after change detected before firing
+- `watches`: inside `params` — list of items to watch (`DATASET`, `MANAGED_FOLDER`, `SAVED_MODEL`)
+- Shortcut: `dku scenario add-trigger-dataset SCEN --dataset DATASET_NAME -P PROJ`
+
+**Temporal (daily)** — time-based schedule:
+```json
+{
+  "active": true,
+  "type": "temporal",
+  "params": {
+    "frequency": "Daily",
+    "hour": 2,
+    "minute": 0,
+    "repeatFrequency": 1,
+    "timezone": "SERVER"
+  }
+}
+```
+- `frequency`: `Minutely`, `Hourly`, `Daily`, `Weekly`, `Monthly`
+- `Weekly` adds `"daysOfWeek": ["Monday", "Wednesday", "Friday"]`
+- `Monthly` adds `"monthlyRunOn": "ON_THE_DAY"` (or `LAST_DAY_OF_THE_MONTH`, `FIRST_WEEK`, etc.)
+
+**SQL query (`sql_query`)** — fires when query returns results:
+```json
+{
+  "active": true,
+  "type": "sql_query",
+  "params": {
+    "connection": "CONNECTION_NAME",
+    "query": "SELECT 1 WHERE EXISTS (SELECT * FROM table WHERE processed = false)"
+  }
+}
+```
+
+**Custom Python (`custom_python`)** — fires from Python script using `Trigger().fire()`:
+```json
+{
+  "active": true,
+  "type": "custom_python",
+  "params": {}
+}
+```
+
 ## Steps
 
 ### Build Dataset Step

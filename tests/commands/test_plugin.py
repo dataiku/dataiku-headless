@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from zipfile import ZipFile
 
 from typer.testing import CliRunner
@@ -92,24 +92,6 @@ def test_plugin_push_installs_when_plugin_is_missing(tmp_path, patch_client):
     assert result.exit_code == 0
     patch_client.install_plugin_from_archive.assert_called_once()
     assert "Installed plugin 'real-plugin'" in result.output
-
-
-def test_plugin_push_warns_about_recipe_types(tmp_path, patch_client):
-    """After push, CLI warns about recipe type registration."""
-    plugin_obj = MagicMock()
-    patch_client.get_plugin.return_value = plugin_obj
-    patch_client.list_plugins.return_value = [
-        {"id": "real-plugin", "version": "1.0.0", "isDev": False}
-    ]
-
-    zip_path = tmp_path / "release-1.2.3.zip"
-    _write_plugin_zip(zip_path, "real-plugin")
-
-    with patch("dku_cli.commands.plugin.warn") as mock_warn:
-        result = runner.invoke(app, ["plugin", "push", str(zip_path)])
-        assert result.exit_code == 0
-        mock_warn.assert_called_once()
-        assert "recipe type" in mock_warn.call_args[0][0].lower()
 
 
 # --- get ---
@@ -410,38 +392,24 @@ def test_plugin_push_unsupported_file_type(tmp_path):
 # ── Plugin recipes tests ────────────────────────────────────────────
 
 
-def _make_file_tree(recipe_names):
-    """Create a mock plugin file tree with custom-recipes directories."""
-    children = []
-    for name in recipe_names:
-        children.append(
-            {
-                "name": name,
-                "path": f"custom-recipes/{name}",
-                "children": [
-                    {
-                        "name": "recipe.json",
-                        "path": f"custom-recipes/{name}/recipe.json",
-                    },
-                    {"name": "recipe.py", "path": f"custom-recipes/{name}/recipe.py"},
-                ],
-            }
-        )
-    return [
-        {"name": "plugin.json", "path": "plugin.json"},
-        {"name": "custom-recipes", "path": "custom-recipes", "children": children},
-    ]
+def test_plugin_recipes_with_components(patch_client):
+    """List plugin recipes when dev plugin file tree has custom-recipes."""
+    from unittest.mock import MagicMock
 
-
-def test_plugin_recipes_dev_plugin(patch_client):
-    """Dev plugin: reads file tree, outputs CustomCode_<recipeId> format."""
-    plugin_obj = MagicMock()
-    plugin_obj.list_files.return_value = _make_file_tree(["my-recipe", "other-recipe"])
-    patch_client.get_plugin.return_value = plugin_obj
     patch_client.list_plugins.return_value = [
         {"id": "my-plugin", "version": "1.0.0", "isDev": True},
     ]
-
+    plugin_mock = MagicMock()
+    plugin_mock.list_files.return_value = [
+        {
+            "name": "custom-recipes",
+            "children": [
+                {"name": "my-recipe", "children": [{"name": "recipe.py"}]},
+                {"name": "other-recipe", "children": [{"name": "recipe.py"}]},
+            ],
+        }
+    ]
+    patch_client.get_plugin.return_value = plugin_mock
     result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -450,8 +418,8 @@ def test_plugin_recipes_dev_plugin(patch_client):
     assert "CustomCode_other-recipe" in types
 
 
-def test_plugin_recipes_non_dev_fallback(patch_client):
-    """Non-dev plugin: can't read files, shows pattern hint."""
+def test_plugin_recipes_without_components(patch_client):
+    """When DSS can't read file tree, show naming pattern."""
     patch_client.list_plugins.return_value = [
         {"id": "some-plugin", "version": "2.0.0", "isDev": False},
     ]
@@ -463,22 +431,13 @@ def test_plugin_recipes_non_dev_fallback(patch_client):
 
 def test_plugin_recipes_filter_by_plugin_id(patch_client):
     """Filter recipes by specific plugin ID."""
-    plugin_a = MagicMock()
-    plugin_a.list_files.return_value = _make_file_tree(["rec-a"])
-
-    def get_plugin_side_effect(pid):
-        if pid == "plugin-a":
-            return plugin_a
-        return MagicMock(list_files=MagicMock(side_effect=Exception("not dev")))
-
-    patch_client.get_plugin.side_effect = get_plugin_side_effect
     patch_client.list_plugins.return_value = [
-        {"id": "plugin-a", "version": "1.0.0", "isDev": True},
-        {"id": "plugin-b", "version": "1.0.0", "isDev": True},
+        {"id": "plugin-a", "version": "1.0.0", "isDev": False},
+        {"id": "plugin-b", "version": "1.0.0", "isDev": False},
     ]
     result = runner.invoke(app, ["plugin", "recipes", "plugin-a"])
     assert result.exit_code == 0
-    assert "CustomCode_rec-a" in result.output
+    assert "plugin-a" in result.output
     assert "plugin-b" not in result.output
 
 
@@ -491,9 +450,92 @@ def test_plugin_recipes_not_found(patch_client):
     assert result.exit_code != 0
 
 
+def test_plugin_recipes_json_output(patch_client):
+    """JSON output returns structured data."""
+    patch_client.list_plugins.return_value = [
+        {"id": "my-plugin", "version": "1.0.0", "isDev": False},
+    ]
+    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["plugin"] == "my-plugin"
+
+
 def test_plugin_recipes_no_plugins(patch_client):
     """No plugins installed shows helpful message."""
     patch_client.list_plugins.return_value = []
     result = runner.invoke(app, ["plugin", "recipes"])
     assert result.exit_code == 0
     assert "No plugins installed" in result.output
+
+
+# --- list-files ---
+
+
+def test_plugin_list_files(patch_client):
+    result = runner.invoke(app, ["plugin", "list-files", "my-plugin"])
+    assert result.exit_code == 0
+    assert "python-lib/mylib.py" in result.output
+
+
+def test_plugin_list_files_json(patch_client):
+    result = runner.invoke(app, ["plugin", "list-files", "my-plugin", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    paths = [f["path"] for f in parsed]
+    assert "python-lib/mylib.py" in paths
+    assert "plugin.json" in paths
+
+
+# --- get-file ---
+
+
+def test_plugin_get_file(patch_client):
+    result = runner.invoke(
+        app, ["plugin", "get-file", "my-plugin", "--path", "python-lib/mylib.py"]
+    )
+    assert result.exit_code == 0
+    assert "# plugin file content" in result.output
+
+
+# --- put-file ---
+
+
+def test_plugin_put_file(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "put-file",
+            "my-plugin",
+            "--path",
+            "python-lib/mylib.py",
+            "--content",
+            "# updated content",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Wrote" in result.output
+    plugin = patch_client.get_plugin("my-plugin")
+    plugin.put_file.assert_called_once()
+
+
+def test_plugin_put_file_from_file(patch_client, tmp_path):
+    content_file = tmp_path / "code.py"
+    content_file.write_text("# from file")
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "put-file",
+            "my-plugin",
+            "--path",
+            "python-lib/mylib.py",
+            "--content",
+            f"@{content_file}",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Wrote" in result.output

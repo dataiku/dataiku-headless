@@ -8,12 +8,14 @@ Usage:
     python -m benchmark.runner --test t1_project_list     # Single test
     python -m benchmark.runner --agent claude --tier 1,2  # Claude, tiers 1+2
     python -m benchmark.runner --parallel 8               # 8 concurrent runs
+    python -m benchmark.runner --tag smoke                # Run smoke-tagged tests only
     python -m benchmark.runner --dry-run                  # Show what would run
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import time
@@ -34,6 +36,7 @@ from benchmark.analyzer.recommender import Recommender  # noqa: E402
 from benchmark.analyzer.reporter import Reporter, TestResultRecord  # noqa: E402
 from benchmark.analyzer.scorer import Scorer  # noqa: E402
 from benchmark.analyzer.trace_parser import summarize_trace  # noqa: E402
+from benchmark.cost import estimate_cost_from_config  # noqa: E402
 from benchmark.scenarios.schema import Scenario, load_scenarios  # noqa: E402
 
 
@@ -42,78 +45,27 @@ AGENT_CLASSES: dict[str, type[BaseAgent]] = {
     "codex": CodexAgent,
 }
 
+FIXTURE_BASE = Path("/tmp/bench_fixtures")
+
 # System prompt injected into every test run.
-# Includes compact CLI reference so both Claude and Codex know the commands.
+# Points the agent to the skill files — tests the real agent experience.
 SYSTEM_CONTEXT = """You have access to a Dataiku DSS instance via the `dku` CLI.
 The CLI is already authenticated — you can run dku commands directly.
-Be efficient: chain related dku commands with && in a single shell call.
-Use -o json when you need structured output for further processing.
 
-## dku CLI Reference (kubectl-style: dku <noun> <verb>)
+## IMPORTANT: Read the skill docs FIRST
 
-Command groups and their verbs:
-- auth: login, logout, status, list, switch
-- config: set, get, list, path, variables, set-variables
-- project: list, get, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
-- dataset: list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema
-- recipe: list, get, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
-- scenario: list, run, abort, status, create, delete, get-definition, set-definition
-- job: list, run, status, log, abort, wait
-- plugin: list, push, settings
-- code-env: list, get, create, delete, update
-- connection: list, create, test
-- model: list, get, versions
-- folder: list, ls, upload, download
-- llm: list, completion, embeddings
-- webapp: list, start, stop, status
-- macro: list, run
-- user: list, create
-- flow: graph, zones, create-zone, propagate, check, sources, successors
-- library: list, read, write, delete, mkdir
-- agent: list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm
-- agent-tool: list, get, run, delete
-- knowledge: list, create, get, build, search, delete
-- bundle: list, export, download, import, activate
-- api-service: list, create, get, create-package, list-packages
-- wiki: list, create, get, update, delete
-- sql: query
-- (root): whoami
+Before starting, read these skill files — they are your guide:
+1. `skills/dku-cli/SKILL.md` — CLI commands, patterns, gotchas, and examples
+2. `skills/dataiku/SKILL.md` — Platform knowledge (when to use visual recipes vs Python, etc.)
 
-## Recipe Type Selection (IMPORTANT — prefer visual recipes over Python)
+Use `--help` on any command you're unsure about: `dku <noun> <verb> --help`
 
-ALWAYS use visual recipes when possible. Python/SQL are last resort.
-
-| Task | Recipe command | NOT Python |
-|------|--------------|------------|
-| Join datasets | `dku recipe create-join NAME -i ds1 -i ds2 --output-ds out` | NOT `pd.merge()` |
-| Aggregate/group by | `dku recipe create-group NAME -i ds --output-ds out -k col` | NOT `df.groupby()` |
-| Stack/union | `dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out` | NOT `pd.concat()` |
-| Deduplicate | `dku recipe create-distinct NAME -i ds --output-ds out` | NOT `df.drop_duplicates()` |
-| Sort | `dku recipe create-sort NAME -i ds --output-ds out` | NOT `df.sort_values()` |
-| Filter rows | `dku recipe create-filter NAME -i ds --output-ds out` | NOT `df[df.x > y]` |
-| Window functions | `dku recipe create-window NAME -i ds --output-ds out` | NOT `df.groupby().transform()` |
-| Top N rows | `dku recipe create-topn NAME -i ds --output-ds out` | NOT `df.nlargest()` |
-| Split by condition | `dku recipe create-split NAME -i ds --output-ds out` | NOT manual filtering |
-| Custom logic only | `dku recipe create NAME -t python -i ds --output-ds out` | Only when no visual recipe fits |
-
-Common flags: --project/-P PROJECT_KEY, --output/-o json|csv|table, --quiet, --yes
-Datasets: use --type UploadedFiles for datasets you'll upload to. Default Filesystem is for recipe outputs.
-Embedding models: `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION` (default only shows completion models).
-
-## Visual Recipe Flags (key options for common recipes)
-
-| Recipe | Key flags |
-|--------|-----------|
-| create-group | `-k col` (repeatable for multi-column), `--agg 'col:sum,avg'` |
-| create-topn | `--n 10`, `--rank-by col:desc` (repeatable), `-k partition_col` |
-| create-window | `-k partition_col`, `--order-key col:desc`, `--compute 'TYPE:col:output'` |
-| create-pivot | `--row-key col` (repeatable), `--column-key col`, `--value-column col`, `--agg-type SUM` |
-| create-sampling | `--method RANDOM_FIXED_NB`, `--size 1000`, `--ratio 0.1` |
-| create-join | `-i ds1 -i ds2`, `--join-key col`, `--join-type LEFT/INNER/CROSS` |
-| set-definition | `--definition JSON` (recipe-level) or `--payload JSON` (visual recipe config) |
-
-Window --compute types: rowNumber, rank, denseRank, lag, lead, sum, avg, min, max, count, first, last.
-Format: `--compute 'TYPE:source_col:output_col'` or `--compute 'rowNumber::rn'` (no source for rank types).
+## Key rules (read the skills for full details)
+- Prefer visual recipes (join, group, sort, filter, window, etc.) over Python
+- Use `--type UploadedFiles` for datasets you'll upload to
+- Chain related commands with `&&` in a single shell call
+- Use `-o json` when you need structured output for further processing
+- Always verify your work with `dku dataset head`
 
 ## After completing the task: META-FEEDBACK (REQUIRED)
 
@@ -122,7 +74,7 @@ This helps us improve the CLI and skill documentation. Use this EXACT format:
 
 ```
 META-FEEDBACK:
-skill_helpful: [yes/no/partial] — Did the CLI reference above help you pick the right commands?
+skill_helpful: [yes/no/partial] — Did the skill docs help you pick the right commands?
 commands_worked: [list of dku commands that worked as expected]
 commands_failed: [list of dku commands that failed or had unexpected behavior, with brief error description]
 commands_missing: [operations you wanted to do but couldn't find a dku command for]
@@ -184,11 +136,55 @@ def create_project(project_key: str, name: str) -> bool:
     return True
 
 
-def resolve_prompt(test: Scenario, run_id: str) -> str:
+def get_fixture_target(test_id: str) -> Path:
+    """Return a per-test fixture directory to avoid race conditions."""
+    return FIXTURE_BASE / test_id
+
+
+def inject_fixtures(test: Scenario, config: dict) -> Path:
+    """Copy fixture files to a per-test temp dir for the agent to use.
+
+    Returns the fixture target path for this test.
+    """
+    target = get_fixture_target(test.id)
+    if not test.fixtures:
+        return target
+    fixture_base = Path(config["runner"].get("fixture_dir", "benchmark/fixtures"))
+    target.mkdir(parents=True, exist_ok=True)
+    for ref in test.fixtures:
+        src_dir = fixture_base / ref.path
+        if not src_dir.is_dir():
+            print(f"  Warning: fixture dir not found: {src_dir}")
+            continue
+        # Determine which files to copy
+        if ref.files:
+            files = [src_dir / f for f in ref.files]
+        else:
+            files = [
+                f
+                for f in src_dir.iterdir()
+                if f.is_file() and f.suffix in (".csv", ".xlsx", ".py", ".md", ".json")
+            ]
+        for f in files:
+            if f.exists():
+                shutil.copy2(f, target / f.name)
+    return target
+
+
+def cleanup_fixtures() -> None:
+    """Remove all temporary fixture directories."""
+    shutil.rmtree(FIXTURE_BASE, ignore_errors=True)
+
+
+def resolve_prompt(
+    test: Scenario, run_id: str, fixture_target: Path | None = None
+) -> str:
     """Resolve placeholders in the test prompt."""
     prompt = test.prompt
     if test.project_key:
         prompt = prompt.replace("{project}", test.project_key)
+    target = fixture_target or get_fixture_target(test.id)
+    prompt = prompt.replace("{fixture_dir}", str(target))
     # Prepend system context
     return f"{SYSTEM_CONTEXT}\n\nTask: {prompt}"
 
@@ -200,7 +196,10 @@ def run_single_test(
     run_id: str,
 ) -> TestResultRecord:
     """Run a single test with one agent."""
-    prompt = resolve_prompt(test, run_id)
+    # Inject fixtures into a per-test directory (thread-safe)
+    fixture_target = inject_fixtures(test, config)
+
+    prompt = resolve_prompt(test, run_id, fixture_target)
     cwd = str(PROJECT_ROOT)
     timeout = test.timeout or config["runner"].get("timeout", 180)
 
@@ -211,6 +210,12 @@ def run_single_test(
     # If duration wasn't set by the agent parser, use wall time
     if not agent_result.duration_ms:
         agent_result.duration_ms = wall_ms
+
+    # Compute cost estimate
+    agent_config = config.get("agents", {}).get(agent.name, {})
+    agent_result.cost_usd = estimate_cost_from_config(
+        agent_result.input_tokens, agent_result.output_tokens, agent_config
+    )
 
     # Run verification steps against real DSS
     verification = run_verification(test) if test.expect.verify else None
@@ -235,6 +240,8 @@ def run_single_test(
 
 def run_verification(test: Scenario) -> VerificationResult:
     """Run verification commands against real DSS."""
+    import json as _json
+
     checks = []
     for step in test.expect.verify:
         cmd = step.command
@@ -250,16 +257,64 @@ def run_verification(test: Scenario) -> VerificationResult:
                 timeout=30,
             )
             passed = result.returncode == (step.expect_status or 0)
+            error_parts = []
 
             if passed and step.expect_contains:
-                passed = step.expect_contains in result.stdout
+                if step.expect_contains not in result.stdout:
+                    passed = False
+                    error_parts.append(
+                        f"Expected '{step.expect_contains}' not found in output"
+                    )
+
+            # Row count check — parse JSON array output
+            if passed and step.expect_min_rows is not None:
+                try:
+                    data = _json.loads(result.stdout)
+                    rows = (
+                        data
+                        if isinstance(data, list)
+                        else data.get("rows", data.get("data", []))
+                    )
+                    if len(rows) < step.expect_min_rows:
+                        passed = False
+                        error_parts.append(
+                            f"Expected >= {step.expect_min_rows} rows, got {len(rows)}"
+                        )
+                except (_json.JSONDecodeError, TypeError):
+                    passed = False
+                    error_parts.append(
+                        "Could not parse JSON output for row count check"
+                    )
+
+            # Column name check — parse JSON output for column names
+            if passed and step.expect_columns:
+                try:
+                    data = _json.loads(result.stdout)
+                    if isinstance(data, list) and data:
+                        actual_cols = set(data[0].keys())
+                    elif isinstance(data, dict) and "columns" in data:
+                        actual_cols = {
+                            c.get("name", c) if isinstance(c, dict) else c
+                            for c in data["columns"]
+                        }
+                    else:
+                        actual_cols = set()
+                    missing = set(step.expect_columns) - actual_cols
+                    if missing:
+                        passed = False
+                        error_parts.append(f"Missing columns: {sorted(missing)}")
+                except (_json.JSONDecodeError, TypeError):
+                    passed = False
+                    error_parts.append("Could not parse JSON output for column check")
 
             checks.append(
                 VerificationCheck(
                     command=cmd,
                     passed=passed,
                     output=result.stdout[:500],
-                    error=result.stderr[:500] if not passed else "",
+                    error="; ".join(error_parts)
+                    if error_parts
+                    else (result.stderr[:500] if not passed else ""),
                 )
             )
         except subprocess.TimeoutExpired:
@@ -271,7 +326,82 @@ def run_verification(test: Scenario) -> VerificationResult:
                 )
             )
 
+    # Check no_python_recipes if requested
+    if test.expect.no_python_recipes and test.project_key:
+        checks.extend(_check_no_python_recipes(test.project_key))
+
     return VerificationResult(checks=checks)
+
+
+def _check_no_python_recipes(project_key: str) -> list[VerificationCheck]:
+    """Verify no python/r/shell recipe types exist in the project."""
+    import json as _json
+
+    cmd = f"dku recipe list -P {project_key} -o json"
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            return [
+                VerificationCheck(
+                    command=cmd, passed=False, error=f"Failed: {result.stderr[:200]}"
+                )
+            ]
+
+        recipes = _json.loads(result.stdout)
+        code_types = {"python", "r", "shell", "pyspark", "sparkr", "spark_scala"}
+        code_recipes = [r for r in recipes if r.get("type", "").lower() in code_types]
+
+        if code_recipes:
+            names = [r.get("name", "?") for r in code_recipes]
+            return [
+                VerificationCheck(
+                    command="no_python_recipes check",
+                    passed=False,
+                    error=f"Found {len(code_recipes)} code recipe(s): {', '.join(names)}. Expected visual recipes only.",
+                )
+            ]
+        return [
+            VerificationCheck(
+                command="no_python_recipes check",
+                passed=True,
+                output="All recipes are visual",
+            )
+        ]
+    except Exception as e:
+        return [
+            VerificationCheck(
+                command="no_python_recipes check", passed=False, error=str(e)
+            )
+        ]
+
+
+def check_regressions(run_id: str, config: dict) -> None:
+    """Compare current run against baselines and print warnings."""
+    try:
+        from benchmark.store.baselines import load_baselines
+        from benchmark.store.query import get_regressions
+    except ImportError:
+        return
+
+    baselines = load_baselines()
+    if not baselines.get("scores"):
+        return
+
+    threshold = config["runner"].get("baseline_threshold", 0.1)
+    regressions = get_regressions(run_id, threshold=threshold)
+
+    if regressions:
+        print(
+            f"\n  WARNING: {len(regressions)} regression(s) vs baseline ({baselines.get('baseline_run_id', '?')}):"
+        )
+        for r in regressions:
+            print(
+                f"    {r['test_id']:30s} {r['baseline_score']:.2f} -> {r['current_score']:.2f} ({r['delta']:+.2f})"
+            )
+    else:
+        print("  No regressions vs baseline.")
 
 
 def main():
@@ -281,6 +411,11 @@ def main():
     )
     parser.add_argument("--tier", type=str, help="Tier(s) to run (e.g., 1 or 1,2,3)")
     parser.add_argument("--test", type=str, help="Single test ID to run")
+    parser.add_argument(
+        "--tag",
+        type=str,
+        help="Run scenarios matching a tag (e.g., smoke, ci, migration)",
+    )
     parser.add_argument(
         "--parallel", type=int, default=None, help="Max parallel workers"
     )
@@ -316,19 +451,29 @@ def main():
     elif args.tier:
         tiers = {int(t) for t in args.tier.split(",")}
         scenarios = [s for s in all_scenarios if s.tier in tiers]
+    elif args.tag:
+        scenarios = [s for s in all_scenarios if args.tag in s.tags]
     else:
         scenarios = all_scenarios
 
     print(f"  Scenarios: {len(scenarios)} tests")
+    if args.tag:
+        print(f"  Tag filter: {args.tag}")
     total_runs = len(scenarios) * len(agents)
     print(f"  Total runs: {total_runs} ({len(scenarios)} tests x {len(agents)} agents)")
 
     if args.dry_run:
         print("\n  Dry run — tests that would execute:")
         for s in scenarios:
+            fixtures_str = (
+                f" fixtures={','.join(f.path for f in s.fixtures)}"
+                if s.fixtures
+                else ""
+            )
+            tags_str = f" tags={s.tags}" if s.tags else ""
             for a in agents:
                 print(
-                    f"    [{a.name:6s}] {s.id:25s} (tier {s.tier}, project={'yes' if s.needs_project else 'no'})"
+                    f"    [{a.name:6s}] {s.id:30s} (tier {s.tier}, project={'yes' if s.needs_project else 'no'}{fixtures_str}{tags_str})"
                 )
         return
 
@@ -370,9 +515,10 @@ def main():
                 status = "PASS" if record.score.passed else "FAIL"
                 score = record.score.overall
                 duration = record.agent_result.duration_ms
+                cost = record.agent_result.cost_usd
                 print(
                     f"  [{completed:3d}/{total_runs}] {status} {agent_name:6s} {test_id:25s} "
-                    f"score={score:.2f} {duration}ms"
+                    f"score={score:.2f} {duration}ms ${cost:.3f}"
                 )
             except Exception as e:
                 completed += 1
@@ -382,13 +528,19 @@ def main():
 
     # Generate reports
     print("\n  Generating reports...")
-    reporter = Reporter(run_id)
+    reporter = Reporter(run_id, config=config)
     reporter.generate(results)
 
     recommender = Recommender(run_id)
     recommender.generate(results)
 
-    print(f"  Done. Reports at: benchmark/reports/{run_id}/")
+    # Check for regressions vs baseline
+    check_regressions(run_id, config)
+
+    # Cleanup
+    cleanup_fixtures()
+
+    print(f"\n  Done. Reports at: benchmark/reports/{run_id}/")
 
 
 if __name__ == "__main__":

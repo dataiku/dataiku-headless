@@ -1,4 +1,4 @@
-"""dku insight — list, get, create, delete, validate, get/set-definition."""
+"""dku insight — list, get, create, delete, validate, get/set-definition, set-metadata."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ import difflib
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    resolve_project,
+    update_taggable_metadata,
+)
 from dku_cli.output import (
     error,
     info,
@@ -295,6 +300,42 @@ def validate(
                 f"All {len(chart_columns)} column reference(s) valid against dataset '{ds_name}'"
             )
     except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Insight description"
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update insight description, short description, and/or tags.
+
+    No JSON needed — updates metadata fields directly.
+    """
+    if description is None and short_desc is None and tags is None:
+        error("Provide --description, --short-desc, and/or --tags to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        settings = insight.get_settings()
+        update_taggable_metadata(settings, description, short_desc, tags)
+        success(f"Updated metadata for insight '{insight_id}'")
+    except typer.Exit:
         raise
     except Exception as e:
         handle_api_error(e)

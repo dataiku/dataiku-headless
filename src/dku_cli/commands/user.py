@@ -1,4 +1,4 @@
-"""dku user — list, create."""
+"""dku user — list, create, get, delete."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import render, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS users.")
 
@@ -69,5 +69,37 @@ def create(
         client.create_user(login, password, display_name, email, groups=group_list)
 
         success(f"Created user '{login}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def get(
+    ctx: typer.Context,
+    login: str = typer.Argument(help="User login"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get user details."""
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        user = client.get_user(login)
+        settings = user.get_settings()
+        render_raw(settings.get_raw(), output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def delete(
+    ctx: typer.Context,
+    login: str = typer.Argument(help="User login"),
+) -> None:
+    """Delete a DSS user."""
+    try:
+        client = get_client_from_ctx(ctx)
+        user = client.get_user(login)
+        user.delete()
+        success(f"Deleted user '{login}'")
     except Exception as e:
         handle_api_error(e)

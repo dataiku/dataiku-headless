@@ -72,3 +72,32 @@ def test_user_create_with_groups(patch_client):
         "new@test.com",
         groups=["admin", "data_team"],
     )
+
+
+# --- user get ---
+
+
+def test_user_get(patch_client):
+    result = runner.invoke(app, ["user", "get", "testuser"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["login"] == "testuser"
+    assert parsed["displayName"] == "Test User"
+
+
+def test_user_get_json(patch_client):
+    result = runner.invoke(app, ["user", "get", "testuser", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["email"] == "test@test.com"
+
+
+# --- user delete ---
+
+
+def test_user_delete(patch_client):
+    result = runner.invoke(app, ["user", "delete", "testuser"])
+    assert result.exit_code == 0
+    assert "Deleted user" in result.output
+    user = patch_client.get_user("testuser")
+    user.delete.assert_called_once()

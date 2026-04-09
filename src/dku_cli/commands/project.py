@@ -280,6 +280,13 @@ def create(
     description: str = typer.Option(
         "", "--description", "-d", help="Short description"
     ),
+    owner: Optional[str] = typer.Option(
+        None, "--owner", help="Project owner login (default: current user)"
+    ),
+    folder_id: Optional[str] = typer.Option(
+        None, "--folder", help="Project folder ID to create in"
+    ),
+    tags: Optional[str] = typer.Option(None, "--tags", help="Comma-separated tags"),
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if project already exists"
     ),
@@ -289,13 +296,20 @@ def create(
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        owner = client.get_auth_info()["authIdentifier"]
-        client.create_project(project_key, name, owner, description=description)
+        project_owner = owner or client.get_auth_info()["authIdentifier"]
+        kwargs: dict = {}
+        if folder_id:
+            kwargs["project_folder_id"] = folder_id
+        if tags:
+            kwargs["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+        client.create_project(
+            project_key, name, project_owner, description=description, **kwargs
+        )
 
         data = [
             {"field": "Key", "value": project_key},
             {"field": "Name", "value": name},
-            {"field": "Owner", "value": owner},
+            {"field": "Owner", "value": project_owner},
             {"field": "Description", "value": description},
         ]
 

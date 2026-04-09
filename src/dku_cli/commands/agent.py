@@ -1,6 +1,8 @@
-"""dku agent — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm."""
+"""dku agent — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-metadata, test."""
 
 from __future__ import annotations
+
+import json
 
 import typer
 
@@ -10,8 +12,9 @@ from dku_cli.helpers import (
     read_text_input,
     resolve_agent,
     resolve_project,
+    update_taggable_metadata,
 )
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import error, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS agents.")
 
@@ -324,5 +327,88 @@ def set_llm(
                 ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
         settings.save()
         success(f"Set LLM '{llm_id}' on agent '{agent_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def test(
+    ctx: typer.Context,
+    agent_id: str = typer.Argument(help="Agent ID or name"),
+    query: str = typer.Argument(help="Test query to send to the agent"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(
+        None, "-o", "--output", help="Output format (text or json)"
+    ),
+) -> None:
+    """Send a test query to an agent and display the response.
+
+    ALWAYS test agents after creation or modification. Send at least one
+    representative query to verify the agent works end-to-end before
+    considering it complete.
+
+    Examples:
+      dku agent test my_agent "What is the refund policy?" -P PROJ
+      dku agent test my_agent "Summarize the latest report" -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("text", "json"), default="text")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        agent = resolve_agent(proj, agent_id)
+
+        # agent.as_llm() returns a DSSLLM handle via get_llm("agent:<id>")
+        llm_handle = agent.as_llm()
+        completion = llm_handle.new_completion()
+        completion.with_message(query)
+        result = completion.execute()
+
+        if output == "json":
+            detail = {
+                "agent_id": agent.id,
+                "query": query,
+                "response": result.text,
+                "success": result.success,
+            }
+            print(json.dumps(detail, indent=2, default=str))
+        else:
+            print(result.text)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    agent_ref: str = typer.Argument(help="Agent ID or name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Agent description"
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update agent description, short description, and/or tags.
+
+    Accepts agent ID or name. No JSON needed — updates metadata fields directly.
+    """
+    if description is None and short_desc is None and tags is None:
+        error("Provide --description, --short-desc, and/or --tags to update.")
+        raise typer.Exit(1)
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        agent = resolve_agent(proj, agent_ref)
+        settings = agent.get_settings()
+        update_taggable_metadata(settings, description, short_desc, tags)
+        success(f"Updated metadata for agent '{agent_ref}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

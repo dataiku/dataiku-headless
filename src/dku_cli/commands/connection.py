@@ -1,4 +1,4 @@
-"""dku connection — list, test, create."""
+"""dku connection — list, test, create, get, delete."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input
-from dku_cli.output import render, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS connections.")
 
@@ -94,5 +94,37 @@ def test(
 
             msg = result.get("errorMessage", "Unknown error")
             error(f"Connection '{connection_name}' test failed: {msg}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def get(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Connection name"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get connection details as JSON (admin only)."""
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        conn = client.get_connection(name)
+        settings = conn.get_settings()
+        render_raw(settings.get_raw(), output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def delete(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Connection name"),
+) -> None:
+    """Delete a connection (admin only)."""
+    try:
+        client = get_client_from_ctx(ctx)
+        conn = client.get_connection(name)
+        conn.delete()
+        success(f"Deleted connection '{name}'")
     except Exception as e:
         handle_api_error(e)

@@ -19,6 +19,14 @@ dku recipe set-definition RECIPE --payload '{"nested": {"field": true}}' --deep-
 
 **Use `--deep-merge`** when patching nested objects (filters, individual aggregations) to avoid losing sibling fields. Use default shallow merge for replacing top-level keys.
 
+**Important:** `dku recipe get-settings` returns the full recipe object. The visual recipe config (joins, keys, values, filters) is inside the `payload` key — NOT at the top level. When reading settings for JSON manipulation:
+```python
+settings = json.load(...)        # full recipe object
+payload = settings['payload']    # ← visual recipe config lives here
+joins = payload['joins']         # e.g. for join recipes
+```
+When writing back with `set-definition --payload`, pass the payload contents directly (not wrapped in another `payload` key).
+
 ---
 
 ## Join Recipe
