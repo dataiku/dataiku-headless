@@ -29,9 +29,10 @@ metadata:
 > 8. **Charts need `--dataset`.** `dku insight create NAME --type chart --dataset DS -P PROJ`. Validate with `dku insight validate ID -P PROJ`.
 > 9. **Verify everything.** After building, ALWAYS `dku dataset head OUTPUT -P PROJ` to confirm real data exists. Exit code 0 ≠ correct output. Also use the `dataiku` skill for platform knowledge — these two skills are a pair.
 > 10. **Prefer purpose-built prepare processors over GREL.** Need to rename? `add-rename`. Parse dates? `add-step --type DateParser`. Uppercase? `add-step --type StringTransformer`. If/then/else? `add-step --type VisualIfRule`. Use `add-formula` (GREL) ONLY when no dedicated processor exists. **READ `dataiku` skill's `references/prepare-processors.md` before writing any `add-step` command** — it has the exact params and JSON for each processor.
-> 11. **Sample data before transforming.** Before writing prepare steps, creating joins, or configuring group-by: run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
-> 12. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
-> 13. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
+> 11. **Gauge before you grab.** Run `dku dataset info DS -P PROJ` BEFORE `head` or any build. Datasets can be millions of rows / gigabytes. If >1M rows or >1GB, ask the user before triggering builds or LLM recipes. Never blindly `head -n 1000` on a dataset you haven't gauged. For existing projects, follow the exploration protocol in the `dataiku` skill.
+> 12. **Sample data before transforming.** After gauging size, run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
+> 13. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
+> 14. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 
 # dku-cli
 
@@ -503,7 +504,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `connection` | list, **get**, create, **delete**, test | No (admin) |
 | `user` | list, **get**, create, **delete** | No (admin) |
 | `sql` | query | No |
-| `dataset` | list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions** | Yes |
+| `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions** | Yes |
 | `recipe` | list, get, **get-definition**, run, create, delete, set-code, get-code, set-definition, **get-settings, set-settings**, add-input, add-output, check-schema, apply-schema, **create-join, create-group, create-stack, create-distinct, create-sort, create-filter, create-window, create-split, create-topn, create-pivot, create-sampling**, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval, **list-steps, add-step, get-step, remove-step, disable-step, enable-step, add-formula, add-rename, add-filter-rows, add-fill-empty, add-delete-columns, add-find-replace, add-fold, add-geopoint, add-geodistance** | Yes |
 | `scenario` | list, run, abort, status, create, delete, get-definition, set-definition, **last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger** | Yes |
 | `job` | list, run, status, log, abort, wait | Yes |
@@ -653,7 +654,7 @@ dku dataset upload raw_data data.csv -P PROJ && \
 dku dataset build output -P PROJ --wait
 ```
 
-### Investigation Workflow (1-2 tool calls)
+### Investigation Workflow (1-3 tool calls)
 
 **When asked to explore, debug, or understand an existing project:**
 
@@ -662,16 +663,27 @@ dku dataset build output -P PROJ --wait
 dku project inspect MY_PROJ -o json
 ```
 
-Parse the JSON output to understand the project structure. Then drill into specifics:
+Parse the JSON output to understand the project structure. Then **gauge sizes before touching data**:
 
 ```bash
-# Tool call 2 — Drill into details as needed
-dku dataset head specific_ds -P MY_PROJ -n 5 && \
+# Tool call 2 — Gauge key datasets (ALWAYS before head/build)
+dku dataset info source_ds1 -P MY_PROJ && \
+dku dataset info source_ds2 -P MY_PROJ && \
+dku dataset info final_output -P MY_PROJ
+```
+
+Only after gauging sizes, drill into specifics:
+
+```bash
+# Tool call 3 — Sample data and inspect recipes
+dku dataset head specific_ds -P MY_PROJ -n 10 && \
 dku recipe get-settings suspect_recipe -P MY_PROJ && \
 dku job status last_job_id -P MY_PROJ -o json && \
 # When a build fails, inspect the full job log:
 dku job log JOB_ID -P MY_PROJ
 ```
+
+> **Cost rule:** If `info` shows >1M rows or >1GB, don't trigger builds or LLM recipes without asking the user. Escalate with the size info and estimated impact.
 
 ## Composability Patterns
 

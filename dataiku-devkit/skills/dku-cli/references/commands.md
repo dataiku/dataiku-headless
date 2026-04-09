@@ -112,6 +112,7 @@ All commands require project (`-P KEY` / `DKU_PROJECT` / config default).
 ```bash
 dku dataset list [-P PROJECT] [-o FORMAT]
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
+dku dataset info DATASET_NAME [-P PROJECT] [-o FORMAT]              # Row count, size, type, connection, last build
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-C COLUMNS] [-o FORMAT]
 dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku dataset create DATASET_NAME [--type Filesystem] [-c CONNECTION] [-P PROJECT] [--if-not-exists] [--definition JSON]

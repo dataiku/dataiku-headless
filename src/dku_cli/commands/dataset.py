@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions."""
+"""dku dataset — list, schema, info, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions."""
 
 from __future__ import annotations
 
@@ -97,6 +97,192 @@ def schema(
             output_format=output,
             title=f"Schema: {dataset_name}",
         )
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _format_bytes(size_bytes: int | float) -> str:
+    """Format bytes into human-readable string."""
+    if size_bytes < 0:
+        return "unknown"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(size_bytes) < 1024:
+            return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{int(size_bytes)} B"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} PB"
+
+
+def _format_count(n: int | float) -> str:
+    """Format large numbers with commas."""
+    try:
+        return f"{int(n):,}"
+    except (ValueError, TypeError):
+        return str(n)
+
+
+_SIZE_WARNING_BYTES = 1_000_000_000  # 1 GB
+_ROW_WARNING_COUNT = 10_000_000  # 10M rows
+
+
+@app.command("info")
+def info_cmd(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show dataset metadata: size, row count, type, connection, last build.
+
+    Use this BEFORE pulling data to understand how large a dataset is.
+    Warns when datasets are large (>1GB or >10M rows) to prevent
+    accidental expensive operations.
+
+    Example:
+      dku dataset info my_data -P PROJ
+      dku dataset info my_data -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+
+        # --- Definition: type, connection, format, columns ---
+        ds_def = ds.get_definition()
+        ds_type = ds_def.get("type", "unknown")
+        params = ds_def.get("params", {})
+        connection_name = params.get("connection", params.get("uploadConnection", ""))
+        format_type = ds_def.get("formatType", "")
+        columns = ds_def.get("schema", {}).get("columns", [])
+        managed = ds_def.get("managed", False)
+        tags = ds_def.get("tags", [])
+
+        # --- Build info (from get_info) ---
+        last_build_time = None
+        build_success = None
+        try:
+            ds_info = ds.get_info()
+            raw_info = ds_info.get_raw()
+            last_build = raw_info.get("lastBuild", {})
+            if last_build.get("buildEndTime"):
+                from datetime import datetime, timezone
+
+                ts = last_build["buildEndTime"] / 1000
+                last_build_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M UTC"
+                )
+            build_success = last_build.get("buildSuccess")
+        except Exception:
+            pass  # get_info may not be available on all dataset types
+
+        # --- Metrics: row count, data size, file count ---
+        row_count = None
+        data_size_bytes = None
+        file_count = None
+        metrics_stale = True
+
+        try:
+            metrics = ds.get_last_metric_values()
+            available_ids = metrics.get_all_ids()
+
+            # Each metric can independently fail (ID exists but no computed
+            # value for the global partition), so wrap each individually.
+            if "records:COUNT_RECORDS" in available_ids:
+                try:
+                    row_count = metrics.get_global_value("records:COUNT_RECORDS")
+                    metrics_stale = False
+                except Exception:
+                    pass
+            if "basic:SIZE" in available_ids:
+                try:
+                    data_size_bytes = metrics.get_global_value("basic:SIZE")
+                    metrics_stale = False
+                except Exception:
+                    pass
+            if "basic:COUNT_FILES" in available_ids:
+                try:
+                    file_count = metrics.get_global_value("basic:COUNT_FILES")
+                    metrics_stale = False
+                except Exception:
+                    pass
+        except Exception:
+            pass  # Metrics may not be computed yet
+
+        # --- Build result ---
+        result = {
+            "name": dataset_name,
+            "type": ds_type,
+            "managed": managed,
+            "connection": connection_name or "(none)",
+            "format": format_type or "(none)",
+            "columns": len(columns),
+            "rows": _format_count(row_count)
+            if row_count is not None
+            else "(not computed)",
+            "size": _format_bytes(data_size_bytes)
+            if data_size_bytes is not None
+            else "(not computed)",
+            "files": _format_count(file_count) if file_count is not None else "(n/a)",
+            "last_build": last_build_time or "(never built)",
+            "build_ok": str(build_success)
+            if build_success is not None
+            else "(unknown)",
+            "tags": ", ".join(tags) if tags else "(none)",
+        }
+
+        if fmt == "json":
+            # JSON output uses raw numeric values for programmatic use
+            json_result = {
+                "name": dataset_name,
+                "type": ds_type,
+                "managed": managed,
+                "connection": connection_name or None,
+                "format": format_type or None,
+                "columns": len(columns),
+                "rows": int(row_count) if row_count is not None else None,
+                "size_bytes": int(data_size_bytes)
+                if data_size_bytes is not None
+                else None,
+                "size_human": _format_bytes(data_size_bytes)
+                if data_size_bytes is not None
+                else None,
+                "files": int(file_count) if file_count is not None else None,
+                "last_build": last_build_time,
+                "build_success": build_success,
+                "tags": tags,
+                "metrics_computed": not metrics_stale,
+            }
+            render_raw(json_result, output_format="json")
+        else:
+            data = [{"field": k, "value": v} for k, v in result.items()]
+            render(
+                data,
+                ["field", "value"],
+                output_format=fmt,
+                title=f"Dataset Info: {dataset_name}",
+            )
+
+        # --- Warnings for large datasets ---
+        if data_size_bytes is not None and data_size_bytes > _SIZE_WARNING_BYTES:
+            warn(
+                f"Large dataset: {_format_bytes(data_size_bytes)}. "
+                "Use --rows/-n with 'head' to limit data pulled. "
+                "Building downstream recipes may incur significant compute cost."
+            )
+        if row_count is not None and row_count > _ROW_WARNING_COUNT:
+            warn(
+                f"High row count: {_format_count(row_count)} rows. "
+                "Consider sampling before transforming. "
+                "Use 'dku recipe create-sampling' to create a sample dataset."
+            )
+        if metrics_stale:
+            info(
+                "Metrics not yet computed. Run: "
+                f"dku dataset build {dataset_name} -P {project_key} --wait "
+                "to compute metrics, or use the DSS UI."
+            )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

@@ -392,6 +392,11 @@ def mock_client():
     # Dataset mocks — iter_rows returns lists (not dicts)
     dataset_mock = MagicMock()
     dataset_mock.get_definition.return_value = {
+        "type": "UploadedFiles",
+        "managed": True,
+        "params": {"uploadConnection": "filesystem_managed"},
+        "formatType": "csv",
+        "tags": ["test"],
         "schema": {
             "columns": [
                 {"name": "col1", "type": "string"},
@@ -447,6 +452,35 @@ def mock_client():
     }
     autodetect_result.save.return_value = None
     dataset_mock.autodetect_settings.return_value = autodetect_result
+
+    # Dataset info mock (get_info returns DSSDatasetInfo-like object)
+    ds_info_mock = MagicMock()
+    ds_info_mock.get_raw.return_value = {
+        "lastBuild": {
+            "buildEndTime": 1712000000000,
+            "buildStartTime": 1711999900000,
+            "buildSuccess": True,
+        }
+    }
+    dataset_mock.get_info.return_value = ds_info_mock
+
+    # Dataset metrics mock (get_last_metric_values returns ComputedMetrics-like)
+    ds_metrics_mock = MagicMock()
+    ds_metrics_mock.get_all_ids.return_value = [
+        "records:COUNT_RECORDS",
+        "basic:SIZE",
+        "basic:COUNT_FILES",
+    ]
+
+    def _get_metric_value(metric_id):
+        return {
+            "records:COUNT_RECORDS": 15000,
+            "basic:SIZE": 2500000,
+            "basic:COUNT_FILES": 3,
+        }.get(metric_id, 0)
+
+    ds_metrics_mock.get_global_value.side_effect = _get_metric_value
+    dataset_mock.get_last_metric_values.return_value = ds_metrics_mock
 
     # Data Quality mocks
     dq_ruleset = MagicMock()

@@ -55,8 +55,9 @@ When you receive benchmark feedback:
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v`
-6. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
+5. **Run tests — ALWAYS, no exceptions** — `uv run pytest -v` after ANY CLI code change. Write new tests for new commands. Test error paths too, not just happy paths. Never skip this step.
+6. **Test against live DSS** — After unit tests pass, run `uv run dku <new-command>` against the real DSS instance to catch real-world issues (partial data, missing metrics, API quirks). Unit test mocks can't replicate DSS behavior perfectly.
+7. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
 
