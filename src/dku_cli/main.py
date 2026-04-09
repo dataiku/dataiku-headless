@@ -13,6 +13,7 @@ from dku_cli.commands import (
     agent_hub,
     agent_review,
     agent_tool,
+    admin,
     analysis,
     app_cmd,
     api_deployer,
@@ -69,6 +70,7 @@ app = typer.Typer(
 )
 
 # Register sub-commands
+app.add_typer(admin.app, name="admin")
 app.add_typer(analysis.app, name="analysis")
 app.add_typer(app_cmd.app, name="app")
 app.add_typer(agent.app, name="agent")

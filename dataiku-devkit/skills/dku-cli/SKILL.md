@@ -539,6 +539,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `workspace` | **list, create, get, list-objects, delete** | No |
 | `app` | **list, get, list-instances, create-instance** | No |
 | `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
+| `admin` | **logs, get-log, usage, instance-info, sanity-check** | No (admin) |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

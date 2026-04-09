@@ -2352,6 +2352,29 @@ def mock_client():
     client.get_connection.return_value = conn_mock
 
     # Meanings
+    # Admin
+    client.list_logs.return_value = [
+        {"name": "backend.log", "totalSize": 1024000},
+        {"name": "nginx.log", "totalSize": 512000},
+    ]
+    client.get_log.return_value = "[2026-04-09 00:00:00] DSS started"
+    usage_mock = MagicMock()
+    usage_mock.raw = {"projects": 10, "datasets": 50, "recipes": 30, "users": 5}
+    client.get_global_usage_summary.return_value = usage_mock
+    instance_info_mock = MagicMock()
+    instance_info_mock.raw = {
+        "nodeId": "default",
+        "nodeName": "DSS",
+        "nodeType": "DESIGN",
+        "dssVersion": "14.5.0",
+    }
+    client.get_instance_info.return_value = instance_info_mock
+    sanity_result = MagicMock()
+    sanity_result.messages = [
+        {"severity": "WARNING", "code": "CHECK_001", "message": "Minor config issue"},
+    ]
+    client.perform_instance_sanity_check.return_value = sanity_result
+
     client.list_meanings.return_value = [
         {
             "id": "country_code",

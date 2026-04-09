@@ -1016,6 +1016,22 @@ dku meaning update MEANING_ID --definition JSON
 - `get` returns full definition including entries/mappings/pattern
 - `update` requires the full definition dict (get → modify → update)
 
+## admin
+
+```bash
+dku admin logs [-o FORMAT]
+dku admin get-log LOG_NAME
+dku admin usage [--per-project] [-o FORMAT]
+dku admin instance-info [-o FORMAT]
+dku admin sanity-check [--wait/--no-wait] [-o FORMAT]
+```
+
+- All commands require admin API key
+- `logs` lists files with name + size. `get-log` outputs the content
+- `usage` shows project/dataset/recipe/user counts. `--per-project` adds breakdown
+- `instance-info` shows node type, version, hostname, Java/Python versions
+- `sanity-check` runs DSS health checks and reports issues by severity
+
 ## streaming
 
 ```bash

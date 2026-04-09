@@ -263,11 +263,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku messaging` group if notification automation is needed.
 
 ### GAP-028: Instance logs & admin
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `client.list_logs()`, `client.get_log()`, `client.get_global_usage_summary()`, `client.get_general_settings()`, `client.get_instance_info()`, `client.perform_instance_sanity_check()`
-- **Next step:** Add `dku admin` group: logs, usage, settings, sanity-check, instance-info.
+- **dataikuapi:** `client.list_logs()`, `client.get_log()`, `client.get_global_usage_summary()`, `client.get_instance_info()`, `client.perform_instance_sanity_check()`
+- **CLI today:** New `dku admin` group: logs, get-log, usage, instance-info, sanity-check.
+- **Resolution:** Added full admin command group. Live testing revealed `list_logs()` returns dicts with `name`+`totalSize` (not strings). 8 tests. Live-verified: instance-info shows DSS 14.5.0-beta3 on AlmaLinux, usage shows 250 projects, logs lists with sizes.
 
 ### GAP-029: Unified monitoring
 - **Status:** `backlog`
@@ -365,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-028 | Added `dku admin` group (logs, get-log, usage, instance-info, sanity-check) — 8 tests |
 | 2026-04-09 | GAP-012 | Enhanced `completion` (--json-schema), added `generate-image` and `rerank` — 5 tests |
 | 2026-04-09 | GAP-008 | Added `dku streaming` group (list, create, get, delete, schema, set-schema) — 9 tests |
 | 2026-04-09 | GAP-013 | Added `dku app` group (list, get, list-instances, create-instance) — 8 tests |
