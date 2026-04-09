@@ -1,0 +1,181 @@
+# GenAI Recipes & RAG Pipelines
+
+GenAI recipe types, embedding models, RAG pipelines, model deployment, and flow investigation patterns.
+
+## Finding Embedding Models (REQUIRED for GenAI workflows)
+
+Most GenAI recipes need an embedding LLM ID. The default `dku llm list` only shows **completion** models — embedding models are hidden unless you specify `--purpose`:
+
+```bash
+# Find embedding models (REQUIRED before create-embed, knowledge create, etc.)
+dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ
+
+# Get just the IDs
+dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ -o json | jq -r '.[].id'
+```
+
+Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recipe create-embed-docs`, `recipe create-llm-eval`, `recipe create-agent-eval`, and `knowledge create`.
+
+## API-Supported Recipe Types (full CLI creation)
+
+| Command | dataikuapi Type | Purpose |
+|---|---|---|
+| `create-embed` | `nlp_llm_rag_embedding` | Embed text columns -> Knowledge Bank |
+| `create-embed-docs` | `embed_documents` | Extract + embed documents -> Knowledge Bank |
+| `create-extract` | `extract_content` | Extract structured content from docs (VLM) |
+| `create-llm-eval` | `nlp_llm_evaluation` | Evaluate LLM outputs (RAG, QA, summarization) |
+| `create-agent-eval` | `nlp_agent_evaluation` | Evaluate agent tool-calling accuracy |
+
+`create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS.
+
+## UI-Only Recipe Types (NOT available via API)
+
+These recipe types have **no dataikuapi builder classes** — create them in the DSS UI, then manage via `dku recipe get/set-definition/run`:
+
+- **Prompt Recipe** (Prompt, Classify, Summarize, Extract, Simplify, Translate)
+- **RAG Query Recipe**
+
+Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_def.json` to capture the definition, and `dku recipe set-definition RECIPE -P PROJ --definition @recipe_def.json` to modify.
+
+## RAG Evaluation Flow (1 tool call)
+
+```bash
+# End-to-end: embed data -> create eval -> configure -> run
+dku recipe create-embed embed_step \
+  --input qa_documents \
+  --output-kb qa_kb \
+  --embedding-llm "openai:text-embedding-3-small" \
+  --text-column content \
+  -P PROJ && \
+dku recipe run embed_step -P PROJ --wait && \
+dku dataset create eval_scored --type Filesystem -P PROJ && \
+dku dataset create eval_metrics --type Filesystem -P PROJ && \
+dku recipe create-llm-eval rag_eval \
+  --input rag_responses \
+  --eval-store my_eval_store \
+  --output-ds eval_scored \
+  --output-metrics eval_metrics \
+  --task-type QUESTION_ANSWERING \
+  --metrics "answerRelevancy,faithfulness,contextRelevancy" \
+  --input-col question \
+  --output-col answer \
+  --ground-truth-col expected \
+  --context-col context \
+  --completion-llm "openai:gpt-4o" \
+  --embedding-llm "openai:text-embedding-3-small" \
+  -P PROJ && \
+dku recipe run rag_eval -P PROJ --wait
+```
+
+## LLM Evaluation Metrics
+
+| Metric Name | Task Type | Description |
+|---|---|---|
+| `answerRelevancy` | QA | Answer relevance to the question |
+| `faithfulness` | QA | Answer grounded in provided context |
+| `contextRelevancy` | QA | Retrieved context relevant to question |
+| `toolCallExactMatch` | Agent | Exact match on tool calls |
+| `toolCallPartialMatch` | Agent | Partial match on tool calls |
+| `toolCallPrecisionRecallF1` | Agent | Precision/Recall/F1 for tool calls |
+| `agentGoalAccuracyWithoutReference` | Agent | Goal accuracy without ground truth |
+
+## LLM Evaluation Task Types
+
+`QUESTION_ANSWERING`, `SUMMARIZATION`, `CLASSIFICATION`, and others. Use `--task-type` to set.
+
+## Knowledge Bank + Embed Pipeline (create -> configure -> build)
+
+**CRITICAL: Vector store defaults to CHROMA.** FAISS can fail silently on some DSS installations.
+
+```bash
+# Step 1: Find an embedding model (REQUIRED)
+EMBED_LLM=$(dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ -o json | jq -r '.[0].id') && \
+
+# Step 2: Create embed recipe with column specified
+dku recipe create-embed embed_my_data \
+  --input source_dataset \
+  --output-kb my_kb \
+  --embedding-llm "$EMBED_LLM" \
+  --embed-column text_content \
+  -P PROJ && \
+
+# Step 3: Run to populate the KB
+dku recipe run embed_my_data -P PROJ --wait && \
+
+# Step 4: Verify
+dku knowledge search my_kb --query "test query" -P PROJ
+```
+
+**Common mistakes:**
+- Using a completion LLM ID instead of an embedding LLM ID (`--purpose TEXT_EMBEDDING_EXTRACTION`)
+- Omitting `--embed-column` (build will fail with "Embedding column missing")
+- Forgetting to `run` the embed recipe after creating it
+
+## Complete RAG Pipeline (KB -> Embed -> RAG LLM -> Agent)
+
+```bash
+# 1. Create KB + embed recipe + build
+dku recipe create-embed embed_docs \
+  --input source_docs \
+  --output-kb my_kb \
+  --embedding-llm "openai:text-embedding-3-small" \
+  --embed-column content \
+  -P PROJ && \
+dku recipe run embed_docs -P PROJ --wait && \
+
+# 2. Get the KB ID (needed for RAG LLM creation)
+KB_ID=$(dku knowledge list -P PROJ -o json | jq -r '.[] | select(.name == "my_kb") | .id') && \
+
+# 3. Create the RAG LLM that ties KB + LLM together
+dku rag create "My RAG" --kb "$KB_ID" --llm "openai:gpt-4o" -P PROJ && \
+
+# 4. Get the RAG LLM ID for agent attachment
+RAG_ID=$(dku rag list -P PROJ -o json | jq -r '.[0].id') && \
+
+# 5. Attach to an agent as an LLM source
+echo "RAG LLM ID for agent: retrieval-augmented-llm:$RAG_ID"
+```
+
+## Model Deployment Pipeline (Train -> Service -> Endpoint -> Package -> Deploy)
+
+```bash
+# 1. Create API service
+dku api-service create my_predictor -P PROJ && \
+
+# 2. Add prediction endpoint with a deployed model
+dku api-service add-endpoint my_predictor \
+  -e predict_churn -m saved_model_id -t prediction -P PROJ && \
+
+# 3. Create and publish package
+dku api-service create-package my_predictor -P PROJ && \
+PKG_ID=$(dku api-service list-packages my_predictor -P PROJ -o json | jq -r '.[0].id') && \
+dku api-service publish-package my_predictor --package "$PKG_ID" -P PROJ
+```
+
+## Flow Investigation Patterns
+
+```bash
+# What uses this dataset? (downstream recipes, analyses)
+dku dataset usages my_dataset -P PROJ && \
+
+# Where does this column come from? (upstream lineage)
+dku dataset lineage my_dataset --column revenue -P PROJ && \
+
+# Does this dataset exist before creating it?
+dku dataset exists my_dataset -P PROJ && echo "exists" || echo "creating..." && \
+
+# What tables are available in this connection?
+dku connection schemas my_postgres -P PROJ && \
+dku connection tables my_postgres --schema public -P PROJ
+```
+
+## Plugin Installation Pattern
+
+```bash
+# Install from Dataiku store + create code env
+dku plugin install-from-store timeseries-preparation && \
+dku plugin create-code-env timeseries-preparation && \
+
+# Or install from git with specific branch
+dku plugin install-from-git https://github.com/org/my-plugin.git --checkout v2.0
+```
