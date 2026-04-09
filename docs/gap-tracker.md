@@ -341,11 +341,11 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added "Complete RAG Pipeline (KB → Embed → RAG LLM → Agent)" pattern to dku-cli SKILL.md with full chaining example. Also added Model Deployment Pipeline, Flow Investigation Pattern, and Plugin Installation Pattern. Unblocked by GAP-005.
 
 ### SKILL-002: Structured output patterns for LLM completion
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `skill`
 - **Effort:** `S`
-- **Gap:** `dku llm completion` exists but skills don't show JSON mode, multi-turn patterns, or when to use completion vs. prompt recipes.
-- **Next step:** Add "LLM Completion Patterns" section to dku-cli SKILL.md. Blocked partially by GAP-012 for structured output.
+- **Gap:** Skills didn't show when to use completion vs prompt recipes, JSON mode, or structured output patterns.
+- **Resolution:** Added "LLM Completion Patterns" section to commands.md with: completion vs prompt recipe decision table, freeform JSON, schema-enforced structured output, system message, and cost-monitoring patterns. Follows progressive disclosure — in commands.md (layer 3), not SKILL.md.
 
 ### SKILL-003: Cost estimation reference
 - **Status:** `done` (2026-04-08)
@@ -361,6 +361,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | SKILL-002 | Added LLM Completion Patterns section to commands.md (completion vs prompt, JSON, structured output) |
 | 2026-04-09 | GAP-024 | Added `dku cluster` group (list, get, create, start, stop, status, delete) — 10 tests |
 | 2026-04-09 | GAP-032 | Added `dku user activity` and `add-secret` — 3 tests. Marked GAP-027/029/030/035 as wont-do |
 | 2026-04-09 | GAP-025 | Added `dku api-key` group (list, get, create, delete) — 6 tests |

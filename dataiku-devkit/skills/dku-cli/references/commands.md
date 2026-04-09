@@ -497,6 +497,44 @@ dku llm rerank LLM_ID --query TEXT --doc TEXT [--doc TEXT ...] [-P PROJECT] [-o 
 - `generate-image` requires an IMAGE_GENERATION LLM. `--dest` saves to file, otherwise prints base64 preview. Use `--negative-prompt` to exclude elements
 - `rerank` requires a RERANKING LLM. Pass multiple `--doc` flags. Results sorted by relevance score descending
 
+### LLM Completion Patterns
+
+**When to use `dku llm completion` vs a Prompt recipe:**
+
+| Use case | Use `dku llm completion` | Use Prompt recipe (DSS UI) |
+|----------|-------------------------|---------------------------|
+| One-off query during automation | Yes | No |
+| Repeatable pipeline step | No | Yes — becomes a flow node |
+| Needs dataset input/output | No | Yes |
+| Quick test/validation | Yes | No |
+| Prompt engineering iteration | No | Yes — has prompt studio |
+
+**Freeform JSON output:**
+```bash
+# Ask the LLM to respond in JSON (adds prompt instruction)
+dku llm completion LLM_ID "List 3 colors" --json-output -P PROJ -o json
+```
+
+**Structured output with schema enforcement:**
+```bash
+# Schema-enforced JSON — the LLM MUST conform to the schema
+dku llm completion LLM_ID "Extract the person's name and age" \
+  --json-schema '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}' \
+  -P PROJ -o json
+```
+
+**With system message for role/context:**
+```bash
+dku llm completion LLM_ID "Summarize this data" \
+  --system "You are a data analyst. Be concise." \
+  -P PROJ
+```
+
+**Cost-conscious pattern:** Use `-o json` to see token usage:
+```bash
+dku llm completion LLM_ID "test" -P PROJ -o json | jq '.total_usage'
+```
+
 ## webapp
 
 No create via API (DSS UI only). But you can read/edit existing webapp code via get-definition/set-definition.
