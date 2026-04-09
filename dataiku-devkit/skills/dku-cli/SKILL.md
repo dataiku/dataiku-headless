@@ -661,7 +661,7 @@ There are ~95 purpose-built processors. If you're about to write `add-formula` w
 
 | Task | Command |
 |------|---------|
-| Computed column (GREL) | `add-formula RECIPE --expr "upper(city)" --column city_upper -P PROJ` |
+| Computed column (GREL) | `add-formula RECIPE --expr "toUppercase(city)" --column city_upper -P PROJ` |
 | Rename columns | `add-rename RECIPE --from old --to new -P PROJ` |
 | Filter/flag rows | `add-filter-rows RECIPE --column status --values "active" --action KEEP_ROW -P PROJ` |
 | Filter by formula | `add-filter-rows RECIPE --formula "price > 100" --action REMOVE_ROW -P PROJ` |

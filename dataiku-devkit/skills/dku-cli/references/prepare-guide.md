@@ -21,7 +21,7 @@ Before reaching for `add-formula` (GREL), check if a purpose-built processor exi
 | Need to... | Use this instead of GREL |
 |------------|--------------------------|
 | Rename columns | `add-rename` (not GREL concat workarounds) |
-| Uppercase/lowercase | `add-step --type StringTransformer` (not GREL `upper()`) |
+| Uppercase/lowercase | `add-step --type StringTransformer` (not GREL `toUppercase()`) |
 | Concatenate columns | `add-step --type ColumnsConcat` (not GREL `col1 + " " + col2`) |
 | If/then/else logic | `add-step --type VisualIfRule` (not GREL `if()` chains) |
 | Parse dates | `add-step --type DateParser` (not GREL `toDate()`) |
@@ -58,6 +58,8 @@ dku recipe add-step prep --type DateComponentsExtractor \
 dku recipe add-step prep --type StringTransformer \
   --params '{"mode":"UPPERCASE","appliesTo":"SINGLE_COLUMN","columns":["city"]}' -P PROJ
 ```
+
+> **Fallback:** If `StringTransformer` fails at runtime (some DSS versions have deserialization issues with the `mode` param), use GREL instead: `add-formula RECIPE --expr "toUppercase(city)" --column city_upper -P PROJ`. Note: the GREL function is `toUppercase()`, not `upper()`.
 
 ### ColumnsConcat — Concatenate first + last name
 
