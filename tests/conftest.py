@@ -2349,7 +2349,12 @@ def mock_client():
     }
     conn_mock.get_settings.return_value = conn_settings_mock
     conn_mock.delete.return_value = None
+    sync_future_mock = MagicMock()
+    sync_future_mock.wait_for_result.return_value = None
+    conn_mock.sync_root_acls.return_value = sync_future_mock
+    conn_mock.sync_datasets_acls.return_value = sync_future_mock
     client.get_connection.return_value = conn_mock
+    client.list_connections_names.return_value = ["Dataiku-Internal-Snowflake"]
 
     # Meanings
     # Admin

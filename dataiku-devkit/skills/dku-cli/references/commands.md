@@ -403,17 +403,20 @@ dku code-env update ENV_NAME [--lang PYTHON]
 Admin-only. 403 if non-admin.
 
 ```bash
-dku connection list [-o FORMAT]
+dku connection list [--type TYPE] [-o FORMAT]
 dku connection get CONNECTION_NAME [-o FORMAT]
 dku connection create NAME --type TYPE [--definition JSON]
 dku connection delete CONNECTION_NAME [--yes]
 dku connection test CONNECTION_NAME
 dku connection schemas CONNECTION_NAME [-P PROJECT] [-o FORMAT]    # SQL schemas / Iceberg namespaces
 dku connection tables CONNECTION_NAME [-P PROJECT] [--schema SCHEMA] [-o FORMAT]  # Importable tables
+dku connection sync-acls CONNECTION_NAME [--root/--datasets] [--wait/--no-wait]
 ```
 
+- `list --type` filters by connection type (Snowflake, PostgreSQL, EC2, etc.) using fast `list_connections_names` endpoint
 - `schemas` lists SQL schemas or Iceberg namespaces. Requires project context (`-P`)
 - `tables` lists tables available for import. Use `--schema` to narrow results. Auto-detects SQL vs Iceberg
+- `sync-acls` syncs HDFS ACLs (only useful with User Isolation + DSS-managed HDFS ACL). `--datasets` syncs dataset ACLs instead of root
 
 - `get` shows connection details including type, params, and usability settings
 - `delete` removes the connection. `--yes` skips confirmation

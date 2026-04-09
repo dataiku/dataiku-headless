@@ -501,7 +501,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `project` | list, get, **inspect**, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags, **ai-describe, timeline** | No |
 | `plugin` | list, get, push, delete, **download**, settings, create-code-env, set-code-env, update-code-env, usages, **recipes, list-files, get-file, put-file, rename-file, move-file, install-from-store, install-from-git, update-from-store, update-from-git** | No |
 | `code-env` | list, get, create, delete, update | No |
-| `connection` | list, **get**, create, **delete**, test, **schemas, tables** | No (admin, schemas/tables need `-P`) |
+| `connection` | list, **get**, create, **delete**, test, **schemas, tables, sync-acls** | No (admin, schemas/tables need `-P`) |
 | `user` | list, **get**, create, **delete** | No (admin) |
 | `sql` | query | No |
 | `dataset` | list, schema, **info**, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, **set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect, zone, share, unshare** | Yes |

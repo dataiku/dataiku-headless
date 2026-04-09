@@ -299,11 +299,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Extend `dku user` with `activity`, `impersonate`, `secrets`. Add batch ops if needed.
 
 ### GAP-033: Connection advanced ops
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `connection.get_location_info()`, `connection.sync_root_acls()`, `connection.sync_datasets_acls()`, `client.list_connections_names(type)`
-- **Next step:** Add `--type` filter to `dku connection list`. Add `dku connection sync-acls CONN`.
+- **dataikuapi:** `client.list_connections_names(type)`, `connection.sync_root_acls()`, `connection.sync_datasets_acls()`
+- **CLI today:** `list --type TYPE` filter, `sync-acls` command with `--root/--datasets` toggle.
+- **Resolution:** Enhanced list with --type filter using fast `list_connections_names` endpoint. Added `sync-acls` for HDFS ACL sync. `get_location_info` not in our dataikuapi version. 3 tests. Live-verified: `list --type Snowflake` → 1 result, `list --type EC2` → 3 S3 connections.
 
 ### GAP-034: Feature store
 - **Status:** `backlog`
@@ -366,6 +367,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-033 | Enhanced `connection list --type`, added `sync-acls` — 3 tests |
 | 2026-04-09 | GAP-028 | Added `dku admin` group (logs, get-log, usage, instance-info, sanity-check) — 8 tests |
 | 2026-04-09 | GAP-012 | Enhanced `completion` (--json-schema), added `generate-image` and `rerank` — 5 tests |
 | 2026-04-09 | GAP-008 | Added `dku streaming` group (list, create, get, delete, schema, set-schema) — 9 tests |

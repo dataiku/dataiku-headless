@@ -252,3 +252,33 @@ def test_connection_tables_env_project(patch_client, monkeypatch):
     result = runner.invoke(app, ["connection", "tables", "my_postgres"])
     assert result.exit_code == 0
     assert "customers" in result.output
+
+
+# --- list --type filter ---
+
+
+def test_connection_list_with_type_filter(patch_client):
+    """--type uses list_connections_names for fast filtering."""
+    result = runner.invoke(app, ["connection", "list", "--type", "Snowflake"])
+    assert result.exit_code == 0
+    assert "Dataiku-Internal-Snowflake" in result.output
+    patch_client.list_connections_names.assert_called_once_with("Snowflake")
+
+
+# --- sync-acls ---
+
+
+def test_connection_sync_acls_root(patch_client):
+    result = runner.invoke(app, ["connection", "sync-acls", "hdfs_conn"])
+    assert result.exit_code == 0
+    assert "Synced" in result.output
+    conn = patch_client.get_connection("hdfs_conn")
+    conn.sync_root_acls.assert_called_once()
+
+
+def test_connection_sync_acls_datasets(patch_client):
+    result = runner.invoke(app, ["connection", "sync-acls", "hdfs_conn", "--datasets"])
+    assert result.exit_code == 0
+    assert "datasets" in result.output.lower()
+    conn = patch_client.get_connection("hdfs_conn")
+    conn.sync_datasets_acls.assert_called_once()
