@@ -222,12 +222,10 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added workspace command group. Instance-level (no project). `list-objects` shows datasets/dashboards/articles. 10 tests. Live-verified: list shows 3 workspaces with colors, list-objects shows datasets/dashboards/articles from multiple projects, get returns full settings with permissions, JSON correct.
 
 ### GAP-023: MLflow extension
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `L`
-- **dataikuapi:** `DSSMLflowExtension` — list experiments, list models, deploy run models, import analyses, experiment tracking datasets
-- **CLI today:** Zero. Can't manage MLflow experiments from CLI.
-- **Next step:** Add `dku mlflow` group if MLflow adoption is significant.
+- **dataikuapi:** `DSSMLflowExtension` not available in our dataikuapi version. MLflow import/export covered by GAP-009 (`create-mlflow`, `import-mlflow`).
 
 ---
 
