@@ -537,6 +537,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `project-folder` | **list, create, move-project** | No |
 | `model-comparison` | **list, create, get, add-model, remove-model, delete** | Yes |
 | `workspace` | **list, create, get, list-objects, delete** | No |
+| `app` | **list, get, list-instances, create-instance** | No |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

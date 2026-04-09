@@ -2230,6 +2230,28 @@ def mock_client():
     }
     client.set_variables.return_value = None
 
+    # Apps
+    app_list_item = MagicMock()
+    app_list_item._data = {"appId": "PROJECT_MYAPP", "label": "My App"}
+    client.list_apps.return_value = [app_list_item]
+    app_mock = MagicMock()
+    app_mock.app_id = "PROJECT_MYAPP"
+    app_manifest_mock = MagicMock()
+    app_manifest_mock.get_raw.return_value = {
+        "appId": "PROJECT_MYAPP",
+        "label": "My App",
+        "homepageSections": [],
+        "instantiationPermission": "EVERYBODY",
+    }
+    app_mock.get_manifest.return_value = app_manifest_mock
+    app_mock.list_instances.return_value = [
+        {"projectKey": "MYAPP_INST1", "name": "Production"},
+    ]
+    app_instance_mock = MagicMock()
+    app_instance_mock.project_key = "MYAPP_NEW"
+    app_mock.create_instance.return_value = app_instance_mock
+    client.get_app.return_value = app_mock
+
     # Plugins — dataikuapi quirk: returns dicts
     client.list_plugins.return_value = [
         {"id": "my-plugin", "version": "1.0.0", "isDev": True},

@@ -1011,6 +1011,20 @@ dku meaning update MEANING_ID --definition JSON
 - `get` returns full definition including entries/mappings/pattern
 - `update` requires the full definition dict (get → modify → update)
 
+## app
+
+```bash
+dku app list [-o FORMAT]
+dku app get APP_ID [-o json]
+dku app list-instances APP_ID [-o FORMAT]
+dku app create-instance APP_ID --key INSTANCE_KEY --name NAME [--wait/--no-wait]
+```
+
+- App ID format: `PROJECT_<project_key>` for project-based apps, `PLUGIN_<plugin>_<component>` for plugin apps
+- `list` shows all app templates on the instance
+- `list-instances` shows existing instances of a specific app
+- `create-instance` creates a new project from the app template. `--key` must be globally unique
+
 ## workspace
 
 ```bash

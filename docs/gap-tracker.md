@@ -143,12 +143,12 @@ Every gap implementation MUST follow this sequence:
 ## P2 — Nice-to-Have
 
 ### GAP-013: Apps & Business Apps
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09, apps only — business apps deferred)
 - **Type:** `cli`
 - **Effort:** `L`
-- **dataikuapi:** `client.list_apps()`, `client.get_app()`, `app.create_instance()`, `app.list_instances()`, `app.get_manifest()`, `client.list_business_apps()`, `business_app.create_instance()`, `business_app.get_settings()`
-- **CLI today:** Zero. No `dku app` group.
-- **Next step:** Add `dku app` group: list, get, create-instance, list-instances, manifest.
+- **dataikuapi:** `client.list_apps()`, `client.get_app()`, `app.create_instance()`, `app.list_instances()`, `app.get_manifest()`
+- **CLI today:** New `dku app` group: list, get, list-instances, create-instance.
+- **Resolution:** Added app command group. List shows app ID + label. Get returns full manifest JSON. `create-instance` supports `--wait/--no-wait`. Business apps deferred. 8 tests. Live-verified: list shows 21 apps, list-instances on PROJECT_APPLICATIONSDEMO (empty), get returns manifest with instantiationPermission.
 
 ### GAP-014: Project folder management
 - **Status:** `done` (2026-04-09)
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-013 | Added `dku app` group (list, get, list-instances, create-instance) — 8 tests |
 | 2026-04-09 | GAP-022 | Added `dku workspace` group (list, create, get, list-objects, delete) — 10 tests |
 | 2026-04-09 | GAP-015 | Added `dku model-comparison` group (list, create, get, add/remove-model, delete) — 9 tests |
 | 2026-04-09 | GAP-017 | Added `dku plugin rename-file` and `move-file` — 2 tests (presets deferred) |
