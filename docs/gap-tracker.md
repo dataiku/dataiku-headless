@@ -241,11 +241,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku cluster` group if K8s management via CLI is needed.
 
 ### GAP-025: Global/Personal API keys
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09, global keys only — personal keys deferred)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** Full CRUD on global and personal API keys
-- **Next step:** Add `dku api-key` group: list, create, delete, get.
+- **dataikuapi:** `client.list_global_api_keys()`, `client.create_global_api_key()`, `client.get_global_api_key_by_id()`, `key.get_definition()`, `key.delete()`
+- **CLI today:** New `dku api-key` group: list, get, create, delete. Admin-only.
+- **Resolution:** Added full CRUD for global API keys. Secret key shown only at creation. 6 tests. Live-verified: list shows 7 keys with IDs/labels/creators.
 
 ### GAP-026: Meanings (data dictionary)
 - **Status:** `done` (2026-04-09)
@@ -307,11 +308,10 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Enhanced list with --type filter using fast `list_connections_names` endpoint. Added `sync-acls` for HDFS ACL sync. `get_location_info` not in our dataikuapi version. 3 tests. Live-verified: `list --type Snowflake` → 1 result, `list --type EC2` → 3 S3 connections.
 
 ### GAP-034: Feature store
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `client.get_feature_store()`, `feature_store.list_feature_groups()`
-- **Next step:** Tiny API. Add `dku feature-store list` if feature store usage grows.
+- **dataikuapi:** APIs not available in our dataikuapi version (14.5 beta3). Feature store may be a newer DSS feature or require a different package.
 
 ### GAP-035: Statistics worksheets
 - **Status:** `backlog`
@@ -321,11 +321,10 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku statistics` group if statistical analysis via CLI is needed.
 
 ### GAP-036: Enterprise asset library
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `S`
-- **dataikuapi:** `client.get_enterprise_asset_library()`, `library.list_collections()`, `library.list_prompts()`
-- **Next step:** Add `dku assets` group: list-collections, list-prompts.
+- **dataikuapi:** APIs not available in our dataikuapi version (14.5 beta3). Enterprise asset library may be a newer DSS feature.
 
 ### GAP-037: External clients (API Node, Fleet, Govern, Launchpad)
 - **Status:** `backlog`
@@ -367,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-025 | Added `dku api-key` group (list, get, create, delete) — 6 tests |
 | 2026-04-09 | GAP-033 | Enhanced `connection list --type`, added `sync-acls` — 3 tests |
 | 2026-04-09 | GAP-028 | Added `dku admin` group (logs, get-log, usage, instance-info, sanity-check) — 8 tests |
 | 2026-04-09 | GAP-012 | Enhanced `completion` (--json-schema), added `generate-image` and `rerank` — 5 tests |

@@ -540,6 +540,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `app` | **list, get, list-instances, create-instance** | No |
 | `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
 | `admin` | **logs, get-log, usage, instance-info, sanity-check** | No (admin) |
+| `api-key` | **list, get, create, delete** | No (admin) |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

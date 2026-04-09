@@ -2380,6 +2380,30 @@ def mock_client():
     ]
     client.perform_instance_sanity_check.return_value = sanity_result
 
+    # Global API keys
+    api_key_list_item = MagicMock()
+    api_key_list_item.get.side_effect = lambda k, d="": {
+        "id": "ak1",
+        "label": "CI Key",
+        "key": "secret123",
+        "createdBy": "admin",
+    }.get(k, d)
+    api_key_list_item.__getitem__ = lambda self, k: {
+        "id": "ak1",
+        "label": "CI Key",
+        "key": "secret123",
+        "createdBy": "admin",
+    }[k]
+    client.list_global_api_keys.return_value = [api_key_list_item]
+    api_key_mock = MagicMock()
+    api_key_mock.id_ = "ak1"
+    api_key_mock.key = "secret123"
+    api_key_def = {"id": "ak1", "label": "CI Key", "key": "secret123", "admin": False}
+    api_key_mock.get_definition.return_value = api_key_def
+    api_key_mock.delete.return_value = None
+    client.get_global_api_key_by_id.return_value = api_key_mock
+    client.create_global_api_key.return_value = api_key_mock
+
     client.list_meanings.return_value = [
         {
             "id": "country_code",

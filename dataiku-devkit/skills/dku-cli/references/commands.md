@@ -1019,6 +1019,19 @@ dku meaning update MEANING_ID --definition JSON
 - `get` returns full definition including entries/mappings/pattern
 - `update` requires the full definition dict (get → modify → update)
 
+## api-key
+
+```bash
+dku api-key list [-o FORMAT]
+dku api-key get KEY_ID [-o json]
+dku api-key create --label LABEL [--description DESC] [--admin] [-o FORMAT]
+dku api-key delete KEY_ID [--yes]
+```
+
+- Admin-only. Secret key shown only at creation time
+- `create --admin` grants full admin rights. Without `--admin`, key has no permissions (add groups via `get` → modify → `set_definition`)
+- The `key` field in JSON output is the secret — store it securely
+
 ## admin
 
 ```bash
