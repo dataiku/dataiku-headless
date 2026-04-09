@@ -257,11 +257,10 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added full command group. Instance-level (no project context). 4 types supported. 7 tests. Live-verified: list shows 2 PATTERN meanings (SSN, US post code), get returns full definition with regex pattern, JSON output correct.
 
 ### GAP-027: Messaging channels
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** CRUD + `mail_channel.send()`, SMTP/mail creators
-- **Next step:** Add `dku messaging` group if notification automation is needed.
+- **dataikuapi:** APIs not available in our dataikuapi version.
 
 ### GAP-028: Instance logs & admin
 - **Status:** `done` (2026-04-09)
@@ -272,18 +271,16 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added full admin command group. Live testing revealed `list_logs()` returns dicts with `name`+`totalSize` (not strings). 8 tests. Live-verified: instance-info shows DSS 14.5.0-beta3 on AlmaLinux, usage shows 250 projects, logs lists with sizes.
 
 ### GAP-029: Unified monitoring
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `DSSUnifiedMonitoring` — monitored project deployments, API endpoints, activity metrics
-- **Next step:** Add `dku monitoring` group if deployment monitoring via CLI is needed.
+- **dataikuapi:** APIs not available in our dataikuapi version.
 
 ### GAP-030: Project standards
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `DSSProjectStandardsCheck`, `DSSProjectStandardsScope` — quality checks, scopes
-- **Next step:** Add `dku standards` group if governance automation is needed.
+- **dataikuapi:** APIs not available in our dataikuapi version.
 
 ### GAP-031: Document extractor
 - **Status:** `backlog`
@@ -293,11 +290,12 @@ Every gap implementation MUST follow this sequence:
 - **Next step:** Add `dku document` group if document processing pipelines need CLI automation.
 
 ### GAP-032: User advanced ops
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09, partial — impersonation and batch ops deferred)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `user.get_activity()`, `user.get_client_as()` (impersonation), `user_settings.add_secret()`, batch `create_users()`/`edit_users()`, `client.get_authorization_matrix()`
-- **Next step:** Extend `dku user` with `activity`, `impersonate`, `secrets`. Add batch ops if needed.
+- **dataikuapi:** `user.get_activity()`, `user_settings.add_secret()`
+- **CLI today:** `dku user activity LOGIN` shows login/session timestamps. `dku user add-secret LOGIN --name N --value V` manages user secrets. Impersonation (`get_client_as`) doesn't translate to CLI; batch ops deferred.
+- **Resolution:** Added activity and add-secret commands. 3 tests. Live-verified: activity for admin shows real timestamps.
 
 ### GAP-033: Connection advanced ops
 - **Status:** `done` (2026-04-09)
@@ -314,11 +312,10 @@ Every gap implementation MUST follow this sequence:
 - **dataikuapi:** APIs not available in our dataikuapi version (14.5 beta3). Feature store may be a newer DSS feature or require a different package.
 
 ### GAP-035: Statistics worksheets
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** `dataset.list_statistics_worksheets()`, `dataset.create_statistics_worksheet()`, `worksheet.run_worksheet()`, `worksheet.run_card()`
-- **Next step:** Add `dku statistics` group if statistical analysis via CLI is needed.
+- **dataikuapi:** APIs not available in our dataikuapi version.
 
 ### GAP-036: Enterprise asset library
 - **Status:** `wont-do`
@@ -366,6 +363,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-032 | Added `dku user activity` and `add-secret` — 3 tests. Marked GAP-027/029/030/035 as wont-do |
 | 2026-04-09 | GAP-025 | Added `dku api-key` group (list, get, create, delete) — 6 tests |
 | 2026-04-09 | GAP-033 | Enhanced `connection list --type`, added `sync-acls` — 3 tests |
 | 2026-04-09 | GAP-028 | Added `dku admin` group (logs, get-log, usage, instance-info, sanity-check) — 8 tests |

@@ -2482,6 +2482,16 @@ def mock_client():
     }
     user_mock.get_settings.return_value = user_settings_mock
     user_mock.delete.return_value = None
+    activity_mock = MagicMock()
+    activity_mock.get_raw.return_value = {
+        "login": "admin",
+        "lastSuccessfulLogin": 1700000000000,
+        "lastFailedLogin": 0,
+        "lastSessionActivity": 1700100000000,
+    }
+    user_mock.get_activity.return_value = activity_mock
+    user_settings_mock.add_secret.return_value = None
+    user_settings_mock.save.return_value = None
     client.get_user.return_value = user_mock
 
     # Saved model delete/usages (proj1's model_mock already exists above)

@@ -566,6 +566,8 @@ dku user list [-o FORMAT]
 dku user get LOGIN [-o FORMAT]
 dku user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--groups G1,G2]
 dku user delete LOGIN [--yes]
+dku user activity LOGIN [-o FORMAT]                        # Last login, session activity timestamps
+dku user add-secret LOGIN --name NAME --value VALUE        # Add/replace a user secret
 ```
 
 - `get` shows user details including display name, email, groups, and admin status
