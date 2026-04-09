@@ -498,8 +498,8 @@ Only after gauging sizes, drill into specifics:
 dku dataset head specific_ds -P MY_PROJ -n 10 && \
 dku recipe get-settings suspect_recipe -P MY_PROJ && \
 dku job status last_job_id -P MY_PROJ -o json && \
-# When a build fails, inspect the full job log:
-dku job log JOB_ID -P MY_PROJ
+# When a build fails, start with focused log inspection:
+dku job log JOB_ID -P MY_PROJ --errors-only --tail 80
 ```
 
 > **Cost rule:** If `info` shows >1M rows or >1GB, don't trigger builds or LLM recipes without asking the user. Escalate with the size info and estimated impact.

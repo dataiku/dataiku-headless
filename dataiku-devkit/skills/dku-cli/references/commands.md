@@ -312,7 +312,7 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 dku job list [-P PROJECT] [-o FORMAT]
 dku job run --target NAME [--target NAME2] [-P PROJECT] [--type BUILD_TYPE] [--auto-update-schema] [--wait] [--timeout SECS] [--refresh-metastore]
 dku job status JOB_ID [-P PROJECT] [-o FORMAT]
-dku job log JOB_ID [-P PROJECT]
+dku job log JOB_ID [-P PROJECT] [--tail N] [--errors-only]
 dku job abort JOB_ID [-P PROJECT]
 dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 ```
@@ -321,6 +321,8 @@ dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 - `run --type` defaults to `NON_RECURSIVE_FORCED_BUILD`; use `RECURSIVE_BUILD` to build upstream deps
 - `run --auto-update-schema` auto-updates output schemas before each recipe run — eliminates manual schema propagation
 - `run --wait` blocks until completion; combine with `--timeout` for bounded waits
+- `log --tail N` keeps only the last N lines for shorter inspection
+- `log --errors-only` heuristically filters to error-like lines plus nearby context; if nothing matches, it falls back to the full log with a warning
 
 ## plugin
 
