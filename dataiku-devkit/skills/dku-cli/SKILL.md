@@ -510,7 +510,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `job` | list, run, status, log, abort, wait | Yes |
 | `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata, create-mlflow, import-mlflow, create-external** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
-| `llm` | list, completion, embeddings | Yes |
+| `llm` | list, completion, embeddings, **generate-image, rerank** | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
 | `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |

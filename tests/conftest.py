@@ -1038,12 +1038,38 @@ def mock_client():
     completion_mock = MagicMock()
     completion_mock.with_message.return_value = completion_mock
     completion_mock.with_system_message.return_value = completion_mock
+    completion_mock.with_json_output.return_value = completion_mock
     llm_response = MagicMock()
     llm_response.text = "Hello from LLM"
     llm_response.success = True
     llm_response.total_usage = {"totalTokens": 10}
     completion_mock.execute.return_value = llm_response
     llm_mock.new_completion.return_value = completion_mock
+
+    # LLM image generation
+    img_gen_mock = MagicMock()
+    img_gen_mock.with_prompt.return_value = img_gen_mock
+    img_gen_mock.with_negative_prompt.return_value = img_gen_mock
+    img_gen_response = MagicMock()
+    img_gen_response.success = True
+    img_gen_response.first_image.return_value = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    img_gen_mock.execute.return_value = img_gen_response
+    llm_mock.new_images_generation.return_value = img_gen_mock
+
+    # LLM reranking
+    rerank_mock = MagicMock()
+    rerank_mock.with_query.return_value = rerank_mock
+    rerank_mock.with_document.return_value = rerank_mock
+    ranked_doc1 = MagicMock()
+    ranked_doc1.index = 1
+    ranked_doc1.relevance_score = 0.95
+    ranked_doc0 = MagicMock()
+    ranked_doc0.index = 0
+    ranked_doc0.relevance_score = 0.42
+    rerank_response = MagicMock()
+    rerank_response.documents = [ranked_doc1, ranked_doc0]
+    rerank_mock.execute.return_value = rerank_response
+    llm_mock.new_reranking.return_value = rerank_mock
 
     # LLM embeddings
     embeddings_mock = MagicMock()

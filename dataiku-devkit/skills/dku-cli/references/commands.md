@@ -476,8 +476,10 @@ dku folder set-metadata FOLDER_REF [-P PROJECT] [--description DESC] [--tags TAG
 
 ```bash
 dku llm list [-P PROJECT] [--purpose PURPOSE] [-o FORMAT]
-dku llm completion LLM_ID MESSAGE [-P PROJECT] [--system MSG] [--json-output] [-o text|json]
+dku llm completion LLM_ID MESSAGE [-P PROJECT] [--system MSG] [--json-output] [--json-schema JSON] [-o text|json]
 dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
+dku llm generate-image LLM_ID --prompt TEXT [--negative-prompt TEXT] [--dest FILE] [-P PROJECT]
+dku llm rerank LLM_ID --query TEXT --doc TEXT [--doc TEXT ...] [-P PROJECT] [-o FORMAT]
 ```
 
 - LLM IDs follow `provider:connection:model` pattern (e.g., `openai:MyConnection:gpt-4o-mini`)
@@ -487,7 +489,10 @@ dku llm embeddings LLM_ID --text TEXT [-P PROJECT]
   dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJECT
   ```
   Valid `--purpose` values: `GENERIC_COMPLETION`, `TEXT_EMBEDDING_EXTRACTION`, `IMAGE_EMBEDDING_EXTRACTION`, `RERANKING`, `IMAGE_GENERATION`
+- `completion --json-schema` uses `with_json_output(schema=...)` for structured output. The LLM must support JSON mode with schema
 - `embeddings` rejects LLM IDs that are not available for `TEXT_EMBEDDING_EXTRACTION` in the target project
+- `generate-image` requires an IMAGE_GENERATION LLM. `--dest` saves to file, otherwise prints base64 preview. Use `--negative-prompt` to exclude elements
+- `rerank` requires a RERANKING LLM. Pass multiple `--doc` flags. Results sorted by relevance score descending
 
 ## webapp
 

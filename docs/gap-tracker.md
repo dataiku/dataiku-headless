@@ -130,13 +130,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Enhanced `runs` (date filter + duration column), `last-run` (--successful flag), added `avg-duration` (with human-readable formatting), and `run-log` (full run or step-scoped). 11 tests. Live-verified: runs/avg-duration/last-run on ISCAGENT.WEEKLYRUN (no runs — empty/error cases), all help commands render correctly.
 
 ### GAP-012: LLM advanced features
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09, partial — tool calls and streaming deferred)
 - **Type:** `both`
 - **Effort:** `L`
-- **dataikuapi:** `completion.with_json_output(schema)`, `completion.with_structured_output(model_type)`, `completion.with_tool_calls()`, `completion.execute_streamed()`, `llm.new_images_generation()`, `llm.new_reranking()`
-- **CLI today:** `dku llm completion` does basic text completion only. No structured output, tool calls, image generation, or reranking.
-- **Skill today:** No guidance on structured output patterns or cost-optimal LLM usage in DSS.
-- **Next step:** Add `--json-schema` flag to `dku llm completion`. Add `dku llm generate-image` and `dku llm rerank`. Update skill with structured output examples.
+- **dataikuapi:** `completion.with_json_output(schema)`, `llm.new_images_generation()`, `llm.new_reranking()`
+- **CLI today:** `completion --json-schema` for structured JSON output. New `generate-image` and `rerank` commands. Tool calls and `execute_streamed` deferred.
+- **Resolution:** Enhanced completion with `--json-schema` flag using `with_json_output(schema=...)`. Added `generate-image` (prompt, negative-prompt, dest file) and `rerank` (query + multiple docs, ranked output). 5 tests. Live-verified: structured output with gpt-5 returned `{"answer":4}`, help renders correctly for both new commands.
 
 ---
 
@@ -366,6 +365,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-012 | Enhanced `completion` (--json-schema), added `generate-image` and `rerank` — 5 tests |
 | 2026-04-09 | GAP-008 | Added `dku streaming` group (list, create, get, delete, schema, set-schema) — 9 tests |
 | 2026-04-09 | GAP-013 | Added `dku app` group (list, get, list-instances, create-instance) — 8 tests |
 | 2026-04-09 | GAP-022 | Added `dku workspace` group (list, create, get, list-objects, delete) — 10 tests |
