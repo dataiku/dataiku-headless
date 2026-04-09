@@ -246,7 +246,7 @@ dku recipe get-settings RECIPE_NAME [-P PROJECT] [-o json]
 dku recipe set-settings RECIPE_NAME --settings JSON [-P PROJECT]
 dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku recipe create RECIPE_NAME --type TYPE --input DS --output-ds DS [-P PROJECT]
-dku recipe delete RECIPE_NAME [-P PROJECT]
+dku recipe delete RECIPE_NAME [-P PROJECT] [--yes]
 dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
 dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME {--definition JSON | --payload JSON} [--deep-merge] [-P PROJECT]
@@ -258,6 +258,7 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 
 - `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
+- `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
 - `get-settings` returns full recipe settings as JSON including the visual recipe payload (sort orders, join keys, filter conditions, etc.). Unlike `get`, this includes the payload
 - `set-settings` sets full recipe settings from JSON. Root-level keys update the definition; the `payload` key updates the visual recipe config (shallow merge). Use `get-settings` first to read, modify, then `set-settings` to update
