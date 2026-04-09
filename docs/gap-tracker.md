@@ -215,12 +215,12 @@ Every gap implementation MUST follow this sequence:
 - **Resolution:** Added `download` command using `download_plugin_to_file()`. Shows file size after download. Only works for dev plugins (store plugins throw "not a dev plugin" error). 2 tests. Live-verified: `download dq-centralise --dest /tmp/dq-centralise.zip` → 23.7 KB, `download geocoder` → prescriptive "not a dev plugin" error.
 
 ### GAP-022: Workspaces & data collections
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09, workspaces only — data collections deferred)
 - **Type:** `cli`
 - **Effort:** `M`
-- **dataikuapi:** Full CRUD on `DSSWorkspace` and `DSSDataCollection`
-- **CLI today:** Zero.
-- **Next step:** Low priority unless agents need to organize content. Consider `dku workspace` group.
+- **dataikuapi:** `client.list_workspaces()`, `client.create_workspace()`, `client.get_workspace()`, `workspace.list_objects()`, `workspace.delete()`
+- **CLI today:** New `dku workspace` group: list, create, get, list-objects, delete. Data collections deferred.
+- **Resolution:** Added workspace command group. Instance-level (no project). `list-objects` shows datasets/dashboards/articles. 10 tests. Live-verified: list shows 3 workspaces with colors, list-objects shows datasets/dashboards/articles from multiple projects, get returns full settings with permissions, JSON correct.
 
 ### GAP-023: MLflow extension
 - **Status:** `backlog`
@@ -366,6 +366,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-022 | Added `dku workspace` group (list, create, get, list-objects, delete) — 10 tests |
 | 2026-04-09 | GAP-015 | Added `dku model-comparison` group (list, create, get, add/remove-model, delete) — 9 tests |
 | 2026-04-09 | GAP-017 | Added `dku plugin rename-file` and `move-file` — 2 tests (presets deferred) |
 | 2026-04-09 | GAP-014 | Added `dku project-folder` group (list, create, move-project) — 5 tests |

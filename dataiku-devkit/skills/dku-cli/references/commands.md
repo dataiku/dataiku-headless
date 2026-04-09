@@ -1011,6 +1011,20 @@ dku meaning update MEANING_ID --definition JSON
 - `get` returns full definition including entries/mappings/pattern
 - `update` requires the full definition dict (get → modify → update)
 
+## workspace
+
+```bash
+dku workspace list [-o FORMAT]
+dku workspace create KEY --name NAME [--description DESC] [--color #HEX] [-o FORMAT]
+dku workspace get KEY [-o json]
+dku workspace list-objects KEY [-o FORMAT]
+dku workspace delete KEY [--yes]
+```
+
+- Instance-level (no project context). Admin rights needed for create/delete
+- `list-objects` shows datasets, dashboards, articles, apps in the workspace. Some objects (stories/HTML links) may not have a `reference` field
+- Use workspaces to organize content across projects for end-user consumption
+
 ## wiki
 
 ```bash

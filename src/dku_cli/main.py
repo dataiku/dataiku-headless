@@ -55,6 +55,7 @@ from dku_cli.commands import (
     user,
     webapp,
     wiki,
+    workspace,
 )
 
 app = typer.Typer(
@@ -112,6 +113,7 @@ app.add_typer(user.app, name="user")
 app.add_typer(flow.app, name="flow")
 app.add_typer(git_cmd.app, name="git")
 app.add_typer(wiki.app, name="wiki")
+app.add_typer(workspace.app, name="workspace")
 app.add_typer(sql.app, name="sql")
 
 

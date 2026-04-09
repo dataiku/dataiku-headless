@@ -2300,6 +2300,38 @@ def mock_client():
     client.get_meaning.return_value = meaning_mock
     client.create_meaning.return_value = meaning_mock
 
+    # Workspaces
+    client.list_workspaces.return_value = [
+        {
+            "workspaceKey": "ANALYTICS",
+            "displayName": "Analytics Hub",
+            "color": "#4CAF50",
+        },
+    ]
+    ws_mock = MagicMock()
+    ws_settings_mock = MagicMock()
+    ws_settings_mock.get_raw.return_value = {
+        "workspaceKey": "ANALYTICS",
+        "displayName": "Analytics Hub",
+        "color": "#4CAF50",
+        "description": "Shared analytics workspace",
+    }
+    ws_mock.get_settings.return_value = ws_settings_mock
+    ws_obj_mock = MagicMock()
+    ws_obj_mock.get_raw.return_value = {
+        "id": "obj1",
+        "reference": {
+            "type": "DATASET",
+            "id": "sales_data",
+            "projectKey": "PROJ1",
+            "workspaceKey": "ANALYTICS",
+        },
+    }
+    ws_mock.list_objects.return_value = [ws_obj_mock]
+    ws_mock.delete.return_value = None
+    client.get_workspace.return_value = ws_mock
+    client.create_workspace.return_value = ws_mock
+
     # Users
     client.list_users.return_value = [
         {
