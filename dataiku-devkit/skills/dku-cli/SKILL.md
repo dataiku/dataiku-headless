@@ -541,6 +541,7 @@ For flag details on any command, run `dku <noun> <verb> --help`.
 | `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
 | `admin` | **logs, get-log, usage, instance-info, sanity-check** | No (admin) |
 | `api-key` | **list, get, create, delete** | No (admin) |
+| `cluster` | **list, get, create, start, stop, status, delete** | No (admin) |
 | `wiki` | list, create, get, update, delete | Yes |
 | (root) | whoami | No |
 

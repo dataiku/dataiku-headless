@@ -234,11 +234,12 @@ Every gap implementation MUST follow this sequence:
 ## P3 — Specialized / Admin
 
 ### GAP-024: Cluster management
-- **Status:** `backlog`
+- **Status:** `done` (2026-04-09)
 - **Type:** `cli`
 - **Effort:** `L`
-- **dataikuapi:** `client.list_clusters()`, `cluster.start()`, `cluster.stop()`, `cluster.run_kubectl()`, `cluster.delete_finished_pods()`, `client.create_cluster()`
-- **Next step:** Add `dku cluster` group if K8s management via CLI is needed.
+- **dataikuapi:** `client.list_clusters()`, `client.create_cluster()`, `client.get_cluster()`, `cluster.start()`, `cluster.stop()`, `cluster.get_status()`, `cluster.delete()`
+- **CLI today:** New `dku cluster` group: list, get, create, start, stop, status, delete. kubectl and delete_finished_pods deferred.
+- **Resolution:** Added full cluster management group. 10 tests. Live-verified: list shows 8 K8s clusters with types/states.
 
 ### GAP-025: Global/Personal API keys
 - **Status:** `done` (2026-04-09, global keys only — personal keys deferred)
@@ -283,11 +284,10 @@ Every gap implementation MUST follow this sequence:
 - **dataikuapi:** APIs not available in our dataikuapi version.
 
 ### GAP-031: Document extractor
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `L`
-- **dataikuapi:** `DocumentExtractor` — VLM extract, structured extract, text extract, PDF conversion, screenshots
-- **Next step:** Add `dku document` group if document processing pipelines need CLI automation.
+- **dataikuapi:** APIs not available in our dataikuapi version.
 
 ### GAP-032: User advanced ops
 - **Status:** `done` (2026-04-09, partial — impersonation and batch ops deferred)
@@ -324,12 +324,10 @@ Every gap implementation MUST follow this sequence:
 - **dataikuapi:** APIs not available in our dataikuapi version (14.5 beta3). Enterprise asset library may be a newer DSS feature.
 
 ### GAP-037: External clients (API Node, Fleet, Govern, Launchpad)
-- **Status:** `backlog`
+- **Status:** `wont-do`
 - **Type:** `cli`
 - **Effort:** `L` (each)
-- **dataikuapi:** `APINodeClient` (predict, lookup), `APINodeAdminClient` (service management), `FMClient` (cloud instances), `GovernClient` (governance), `LaunchpadClient` (invites)
-- **These are separate clients connecting to separate services**, not the main DSS instance. They'd need their own auth flow.
-- **Next step:** Only pursue if there's specific demand. API Node testing (`dku apinode predict`) could be valuable for deployment validation.
+- **dataikuapi:** These are separate client classes connecting to separate services, not the main DSS instance. They'd need their own auth flow and are out of scope for the `dku` CLI which targets the design node.
 
 ---
 
@@ -363,6 +361,7 @@ Every gap implementation MUST follow this sequence:
 |------|-------|--------|
 | 2026-04-08 | GAP-001 | Shipped `dku dataset info` (row count, size, type, connection, build status). Partial — `compute_metrics()` and `run_checks()` still missing. |
 | 2026-04-08 | SKILL-003 | Added cost consciousness and exploration protocol to dataiku SKILL.md |
+| 2026-04-09 | GAP-024 | Added `dku cluster` group (list, get, create, start, stop, status, delete) — 10 tests |
 | 2026-04-09 | GAP-032 | Added `dku user activity` and `add-secret` — 3 tests. Marked GAP-027/029/030/035 as wont-do |
 | 2026-04-09 | GAP-025 | Added `dku api-key` group (list, get, create, delete) — 6 tests |
 | 2026-04-09 | GAP-033 | Enhanced `connection list --type`, added `sync-acls` — 3 tests |

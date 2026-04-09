@@ -2358,6 +2358,32 @@ def mock_client():
 
     # Meanings
     # Admin
+    # Clusters
+    client.list_clusters.return_value = [
+        {
+            "name": "k8s-prod",
+            "type": "manual",
+            "state": "RUNNING",
+            "architecture": "KUBERNETES",
+        },
+    ]
+    cluster_mock = MagicMock()
+    cluster_settings_mock = MagicMock()
+    cluster_settings_mock.get_raw.return_value = {
+        "name": "k8s-prod",
+        "type": "manual",
+        "architecture": "KUBERNETES",
+    }
+    cluster_mock.get_settings.return_value = cluster_settings_mock
+    cluster_status_mock = MagicMock()
+    cluster_status_mock.get_raw.return_value = {"state": "RUNNING", "usages": []}
+    cluster_mock.get_status.return_value = cluster_status_mock
+    cluster_mock.start.return_value = {}
+    cluster_mock.stop.return_value = {}
+    cluster_mock.delete.return_value = None
+    client.get_cluster.return_value = cluster_mock
+    client.create_cluster.return_value = cluster_mock
+
     client.list_logs.return_value = [
         {"name": "backend.log", "totalSize": 1024000},
         {"name": "nginx.log", "totalSize": 512000},

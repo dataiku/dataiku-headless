@@ -21,6 +21,7 @@ from dku_cli.commands import (
     api_service,
     auth_cmd,
     bundle,
+    cluster,
     codeenv,
     codestudio,
     config_cmd,
@@ -101,6 +102,7 @@ app.add_typer(config_cmd.app, name="config")
 app.add_typer(rag.app, name="rag")
 app.add_typer(recipe.app, name="recipe")
 app.add_typer(codeenv.app, name="code-env")
+app.add_typer(cluster.app, name="cluster")
 app.add_typer(connection.app, name="connection")
 app.add_typer(continuous.app, name="continuous")
 app.add_typer(ml.app, name="ml")

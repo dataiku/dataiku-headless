@@ -1021,6 +1021,23 @@ dku meaning update MEANING_ID --definition JSON
 - `get` returns full definition including entries/mappings/pattern
 - `update` requires the full definition dict (get → modify → update)
 
+## cluster
+
+```bash
+dku cluster list [-o FORMAT]
+dku cluster get CLUSTER_ID [-o json]
+dku cluster create NAME [--type TYPE] [--arch HADOOP|KUBERNETES]
+dku cluster start CLUSTER_ID
+dku cluster stop CLUSTER_ID [--terminate/--no-terminate]
+dku cluster status CLUSTER_ID [-o FORMAT]
+dku cluster delete CLUSTER_ID [--yes]
+```
+
+- Admin-only. Manages Hadoop and Kubernetes clusters
+- `start`/`stop` only work for managed clusters (not manual)
+- `stop --no-terminate` detaches without deleting the underlying infra
+- `delete` does NOT stop the cluster first — stop it first if it's running
+
 ## api-key
 
 ```bash
