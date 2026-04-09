@@ -33,10 +33,7 @@ def mock_client():
     general_settings.get_raw.return_value = {"dssVersion": "14.0.2"}
     client.get_general_settings.return_value = general_settings
 
-    # Instance info (correct way to get DSS version)
-    instance_info = MagicMock()
-    instance_info.raw = {"dssVersion": "14.0.2"}
-    client.get_instance_info.return_value = instance_info
+    # Instance info set below in Admin section (with full fields)
     client.host = "https://dss.example.com"
 
     # Projects

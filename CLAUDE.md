@@ -28,7 +28,7 @@ uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (~300 commands, 42 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool (~470 commands, 53 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
 **Private repo — NOT on PyPI.** Install from a local clone — see [Distribution](#distribution).

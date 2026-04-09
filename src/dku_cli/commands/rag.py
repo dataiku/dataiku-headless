@@ -48,6 +48,9 @@ def list_rags(
         if fmt == "json":
             render_raw(data, output_format="json")
         else:
+            if not data:
+                info(f"No RAG LLMs in {project_key}.")
+                return
             render(
                 data,
                 ["id", "name"],

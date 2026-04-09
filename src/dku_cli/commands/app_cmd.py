@@ -25,6 +25,8 @@ def list_apps(
         data = []
         for item in items:
             try:
+                # dataikuapi DSSAppListItem stores raw data in _data
+                # (no public accessor for appId/label on list items)
                 app_id = item._data.get("appId", "")
                 label = item._data.get("label", "")
             except AttributeError:
@@ -143,9 +145,7 @@ def create_instance(
                 f"(project: {instance.project_key}) from '{app_id}'"
             )
         else:
-            application.create_instance(
-                instance_key, instance_name, wait=False
-            )
+            application.create_instance(instance_key, instance_name, wait=False)
             success(
                 f"Instance creation started for '{instance_name}' (project: {instance_key})"
             )
