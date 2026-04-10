@@ -131,12 +131,11 @@ dataiku-devkit/
 │   └── dku-cli/               # CLI operations and composability patterns
 │       ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
 │       └── references/        # CLI command reference
-├── agents/                    # Subagents for complex tasks
-│   ├── plugin-reviewer.md
-│   ├── dss-explorer.md
-│   └── tool-designer.md
-└── scripts/
-    └── install-devkit.sh  # Symlink skills + agents to ~/.claude/
+└── agents/                    # Subagents for complex tasks
+    ├── plugin-reviewer.md
+    ├── dss-explorer.md
+    └── tool-designer.md
+.claude-plugin/            # Plugin manifest for Claude Code marketplace
 ```
 
 ### Skill Quality Standards
@@ -295,21 +294,19 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 
 ## Distribution
 
-**Private repo — NOT on PyPI or any public registry.** Install from a local clone.
-
-**CLI (Python package):**
+**CLI (Python package) — NOT on PyPI. Install from GitHub source:**
 
 | Channel | Command |
 |---------|---------|
-| **Install** | `uv tool install --from /path/to/dku-cli dku-cli` |
-| **Update** (after `git pull`) | `uv tool install --from /path/to/dku-cli dku-cli --force --reinstall` |
+| **Direct** | `uv tool install git+https://github.com/dataiku/dataiku-cli.git` |
+| **Local dev** | `uv tool install --from . dku-cli` |
 
-**Dataiku DevKit (skills + agents for Claude Code):**
+**Dataiku DevKit (AI agent skills):**
 
 | Channel | Command |
 |---------|---------|
-| **Automated** | `./scripts/install-devkit.sh` (symlinks to `~/.claude/skills/` and `~/.claude/agents/`) |
-| **Other agents** | Copy `dataiku-devkit/skills/` into agent's skill directory |
+| **Claude Code Plugin** | `/plugin marketplace add dataiku/dataiku-cli` |
+| **skills.sh (40+ agents)** | `npx skills add dataiku/dataiku-cli --all` |
 
 ---
 
@@ -320,4 +317,3 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
 | `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |
-| `docs/gap-tracker.md` | CLI & Skill gaps vs dataikuapi — issue tracker with priorities |

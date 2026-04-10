@@ -1,0 +1,21 @@
+{
+  "name": "dataiku-marketplace",
+  "owner": {
+    "name": "Dataiku"
+  },
+  "metadata": {
+    "description": "Dataiku DSS development toolkit",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "dataiku-devkit",
+      "source": {
+        "source": "git-subdir",
+        "url": "dataiku/dataiku-cli",
+        "path": "dataiku-devkit"
+      },
+      "description": "Platform knowledge, CLI skill, plugin scaffolding, and exploration agents"
+    }
+  ]
+}
