@@ -1,0 +1,148 @@
+# Benchmark Fixtures Catalog
+# Index of all fixture sets used for evaluating AI agent performance on Dataiku DSS tasks.
+#
+# Each fixture set contains realistic synthetic data, specifications, and expected outputs.
+# Benchmark scenarios in ../scenarios/ reference these fixtures by path.
+
+fixtures:
+
+  sales/test1:
+    name: Sales Pipeline
+    description: >
+      Standard sales data with orders, customers, and products.
+      Tests join, group-by, sort, and filter operations across three related tables.
+    files:
+      - orders.csv      # 50 rows: order_id, product_id, customer_id, region, amount, quantity, order_date
+      - customers.csv    # 20 rows: customer_id, name, email, region, segment, signup_date
+      - products.csv     # 10 rows: product_id, name, category, unit_price
+    schemas:
+      orders:
+        columns: [order_id, product_id, customer_id, region, amount, quantity, order_date]
+        types: {order_id: string, product_id: string, customer_id: string, region: string, amount: float, quantity: int, order_date: date}
+        row_count: 50
+      customers:
+        columns: [customer_id, name, email, region, segment, signup_date]
+        types: {customer_id: string, name: string, email: string, region: string, segment: string, signup_date: date}
+        row_count: 20
+      products:
+        columns: [product_id, name, category, unit_price]
+        types: {product_id: string, name: string, category: string, unit_price: float}
+        row_count: 10
+    join_keys:
+      - orders.product_id -> products.product_id
+      - orders.customer_id -> customers.customer_id
+      - orders.region -> customers.region  # denormalized, present in both
+    scenarios:
+      - Join orders with customers and products
+      - Group by region/segment for revenue summary
+      - Sort by amount, filter by date range
+      - Window functions for running totals
+
+  alteryx/test1:
+    name: Alteryx Customer Segmentation Migration
+    description: >
+      Mimics an Alteryx workflow that computes RFM scores and customer segments.
+      Tests the agent's ability to translate a non-Dataiku workflow spec into
+      Dataiku visual recipes (filter, prepare, group, sort).
+    files:
+      - input.csv            # 100 rows: customer metrics and demographics
+      - workflow_spec.md      # Natural-language Alteryx workflow description
+      - expected_output.csv   # 90 rows: computed RFM scores, segments, LTV, risk flags
+    schemas:
+      input:
+        columns: [customer_id, name, total_spend_12mo, order_count_12mo, avg_order_value, days_since_last_order, region, channel, signup_date]
+        types: {customer_id: string, name: string, total_spend_12mo: float, order_count_12mo: int, avg_order_value: float, days_since_last_order: int, region: string, channel: string, signup_date: date}
+        row_count: 100
+      expected_output:
+        columns: [customer_id, name, rfm_score, segment, lifetime_value, at_risk]
+        types: {customer_id: string, name: string, rfm_score: int, segment: string, lifetime_value: float, at_risk: boolean}
+        row_count: 90
+    scenarios:
+      - Translate Alteryx workflow to Dataiku visual recipes
+      - Validate output matches expected_output.csv
+
+  excel/test1:
+    name: Quarterly Financial Report
+    description: >
+      Excel workbook with raw transactions, summary formulas, and monthly pivot.
+      Tests the agent's ability to replicate Excel-based reporting in Dataiku
+      using visual recipes instead of spreadsheet formulas.
+    files:
+      - workbook.xlsx         # 3 sheets: Raw Data (80 rows), Summary (formulas), Monthly (pivot)
+      - raw_data.csv          # CSV backup of the Raw Data sheet
+      - workbook_spec.md      # Description of each sheet, formulas, and intended Dataiku replication
+      - expected_output.csv   # Summary output: department x category aggregation
+    schemas:
+      raw_data:
+        columns: [date, department, category, amount, vendor]
+        types: {date: date, department: string, category: string, amount: float, vendor: string}
+        row_count: 80
+      expected_output:
+        columns: [department, category, total_amount, avg_amount, transaction_count]
+        types: {department: string, category: string, total_amount: float, avg_amount: float, transaction_count: int}
+        row_count: 28
+    scenarios:
+      - Import Excel data into Dataiku
+      - Replicate Summary sheet with group-by recipe
+      - Replicate Monthly sheet with pivot recipe
+      - Validate totals match expected_output.csv
+
+  pandas/test1:
+    name: Pandas ETL Migration
+    description: >
+      Python pandas script performing load, clean, transform, aggregate, sort.
+      Tests the agent's ability to migrate procedural Python into Dataiku visual
+      recipes (filter, prepare, group, sort) instead of writing a Python recipe.
+    files:
+      - input.csv             # 200 rows: transactions with nulls and mixed statuses
+      - script.py             # The pandas script to migrate
+      - expected_output.csv   # Aggregated output from running the script
+    schemas:
+      input:
+        columns: [tx_id, user_id, amount, category, timestamp, status, region]
+        types: {tx_id: string, user_id: string, amount: float_nullable, category: string, timestamp: datetime, status: string, region: string}
+        row_count: 200
+      expected_output:
+        columns: [category, region, total_amount, avg_amount, tx_count]
+        types: {category: string, region: string, total_amount: float, avg_amount: float, tx_count: int}
+        row_count: 25
+    scenarios:
+      - Migrate pandas script to Dataiku visual recipes
+      - Handle null amounts with prepare recipe (filter rows)
+      - Filter to completed status only
+      - Group by category + region with sum/mean/count
+      - Sort by total_amount descending
+      - Validate output matches expected_output.csv
+
+  healthcare/test1:
+    name: Healthcare Encounters Pipeline
+    description: >
+      Multi-table healthcare data with encounters, diagnoses, and treatments.
+      Tests join operations across three tables, aggregation by department,
+      and cost analysis by diagnosis category.
+    files:
+      - encounters.csv    # 100 rows: encounter_id, patient_id, department, dates, provider
+      - diagnoses.csv     # 80 rows: diagnosis_id, encounter_id, icd_code, description, primary_flag
+      - treatments.csv    # 60 rows: treatment_id, encounter_id, procedure_code, description, cost
+    schemas:
+      encounters:
+        columns: [encounter_id, patient_id, department, admit_date, discharge_date, provider_id]
+        types: {encounter_id: string, patient_id: string, department: string, admit_date: date, discharge_date: date, provider_id: string}
+        row_count: 100
+      diagnoses:
+        columns: [diagnosis_id, encounter_id, icd_code, description, primary_flag]
+        types: {diagnosis_id: string, encounter_id: string, icd_code: string, description: string, primary_flag: boolean}
+        row_count: 80
+      treatments:
+        columns: [treatment_id, encounter_id, procedure_code, description, cost]
+        types: {treatment_id: string, encounter_id: string, procedure_code: string, description: string, cost: float}
+        row_count: 60
+    join_keys:
+      - encounters.encounter_id -> diagnoses.encounter_id
+      - encounters.encounter_id -> treatments.encounter_id
+    scenarios:
+      - Join encounters with diagnoses and treatments
+      - Aggregate treatment costs by department
+      - Count diagnoses per department
+      - Calculate average length of stay by department
+      - Identify high-cost encounters

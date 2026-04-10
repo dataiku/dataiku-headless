@@ -1418,7 +1418,7 @@ def add_filter_rows(
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add a filter/flag step to remove or keep rows matching conditions.
+    """Add a filter step to remove or keep rows matching conditions.
 
     Use --column + --values for value-based, or --formula for expression-based.
     Use instead of df[df.col > x] in Python.
@@ -1432,7 +1432,7 @@ def add_filter_rows(
             ctx,
             recipe_name,
             project,
-            "FilterOnFormula",
+            "FilterOnCustomFormula",
             {
                 "expression": formula,
                 "action": action.upper(),
@@ -1443,7 +1443,7 @@ def add_filter_rows(
             ctx,
             recipe_name,
             project,
-            "FlagOnValue",
+            "FilterOnValue",
             {
                 "appliesTo": "SINGLE_COLUMN",
                 "columns": [column],

@@ -127,6 +127,163 @@ def resolve_knowledge_bank(project, kb_ref: str):
     )
 
 
+def resolve_semantic_model(project, sm_ref: str):
+    """Resolve a semantic model by ID or name.
+
+    Tries get_semantic_model(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing semantic models and matching by name.
+    Returns a DSSSemanticModel handle.
+    """
+    try:
+        sm = project.get_semantic_model(sm_ref)
+        # Verify it exists by fetching definition (get_semantic_model is lazy)
+        sm._get_definition()
+        return sm
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    # Fall back to name lookup
+    models = project.list_semantic_models()
+    for m in models:
+        if m.get("name", "") == sm_ref:
+            return project.get_semantic_model(m.get("id", m["id"]))
+    from dku_cli.errors import exit_with_error
+
+    sm_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
+    exit_with_error(
+        f"Semantic model '{sm_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available semantic models:",
+            *sm_names,
+            "Use the semantic model ID (left column) or exact name.",
+        ]
+        if sm_names
+        else [
+            "No semantic models found in this project.",
+            "Create one with: dku semantic-model create NAME -P PROJECT",
+        ],
+        status=3,
+    )
+
+
+def resolve_agent_review(project, review_ref: str):
+    """Resolve an agent review by ID or name.
+
+    Tries get_agent_review(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing reviews and matching by name.
+    Returns a DSSAgentReview handle.
+    """
+    try:
+        review = project.get_agent_review(review_ref)
+        # get_agent_review returns a fully populated object (not lazy)
+        return review
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    # Fall back to name lookup
+    reviews = project.list_agent_reviews()
+    for r in reviews:
+        if getattr(r, "name", "") == review_ref:
+            return project.get_agent_review(r.id)
+    from dku_cli.errors import exit_with_error
+
+    review_names = [f"  {r.id} ({r.name})" for r in reviews]
+    exit_with_error(
+        f"Agent review '{review_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available agent reviews:",
+            *review_names,
+            "Use the review ID (left column) or exact name.",
+        ]
+        if review_names
+        else [
+            "No agent reviews found in this project.",
+            "Create one with: dku agent-review create NAME -P PROJECT",
+        ],
+        status=3,
+    )
+
+
+def resolve_folder(project, folder_ref: str):
+    """Resolve a managed folder by ID or name.
+
+    Tries get_managed_folder(ref) first (by ID). If that raises NotFoundException,
+    falls back to listing managed folders and matching by name.
+    Returns a DSSManagedFolder handle.
+    """
+    try:
+        folder = project.get_managed_folder(folder_ref)
+        # Verify it exists by fetching settings (get_managed_folder is lazy)
+        folder.get_settings()
+        return folder
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    # Fall back to name lookup
+    folders = project.list_managed_folders()
+    for f in folders:
+        if f.get("name", "") == folder_ref:
+            return project.get_managed_folder(f.get("id"))
+    from dku_cli.errors import exit_with_error
+
+    folder_names = [f"  {f.get('id', '')} ({f.get('name', '')})" for f in folders]
+    exit_with_error(
+        f"Managed folder '{folder_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available managed folders:",
+            *folder_names,
+            "Use the folder ID (left column) or exact name.",
+        ]
+        if folder_names
+        else [
+            "No managed folders found in this project.",
+            "Create one with: dku folder create NAME -P PROJECT",
+        ],
+        status=3,
+    )
+
+
+def update_taggable_metadata(
+    settings,
+    description: str | None = None,
+    short_desc: str | None = None,
+    tags: str | None = None,
+) -> None:
+    """Update description/short_desc/tags on a DSSTaggableObjectSettings and save.
+
+    Works with Dashboard, Insight, SavedModel, and Agent settings objects
+    that extend DSSTaggableObjectSettings.
+
+    Args:
+        settings: A DSSTaggableObjectSettings-based settings object with save().
+        description: Long description text, or None to leave unchanged.
+        short_desc: Short description text, or None to leave unchanged.
+        tags: Comma-separated tag string, or None to leave unchanged.
+    """
+    if description is not None:
+        settings.description = description
+    if short_desc is not None:
+        settings.short_description = short_desc
+    if tags is not None:
+        settings.tags = [t.strip() for t in tags.split(",") if t.strip()]
+    settings.save()
+
+
 def read_text_input(value: str) -> str:
     """Read text from: raw string, @file.txt path, or stdin if value is '-'.
 

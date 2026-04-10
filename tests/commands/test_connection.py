@@ -59,3 +59,34 @@ def test_connection_create_with_definition(patch_client):
     patch_client.create_connection.assert_called_once_with(
         "new_conn", "PostgreSQL", {"host": "db.example.com", "port": 5432}
     )
+
+
+# --- connection get ---
+
+
+def test_connection_get(patch_client):
+    result = runner.invoke(app, ["connection", "get", "filesystem_managed"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["name"] == "filesystem_managed"
+    assert parsed["type"] == "Filesystem"
+
+
+def test_connection_get_json(patch_client):
+    result = runner.invoke(
+        app, ["connection", "get", "filesystem_managed", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["name"] == "filesystem_managed"
+
+
+# --- connection delete ---
+
+
+def test_connection_delete(patch_client):
+    result = runner.invoke(app, ["connection", "delete", "filesystem_managed"])
+    assert result.exit_code == 0
+    assert "Deleted connection" in result.output
+    conn = patch_client.get_connection("filesystem_managed")
+    conn.delete.assert_called_once()

@@ -1,0 +1,54 @@
+tests:
+  # ══════════════════════════════════════════════════════════
+  #  TIER 10: EXCEL MIGRATION SCENARIOS
+  #  Agent must read a workbook spec and recreate the
+  #  formulas/pivots as Dataiku recipes.
+  # ══════════════════════════════════════════════════════════
+
+  - id: m_xls1_quarterly_report
+    tier: 10
+    category: migration-excel
+    tags: ["migration", "fixture", "excel"]
+    prompt: |
+      A business analyst maintains a quarterly financial report in Excel.
+      We want to recreate this entire workflow in Dataiku so it can be
+      automated and version-controlled.
+
+      The workbook spec is at: {fixture_dir}/workbook_spec.md
+      The raw transaction data is at: {fixture_dir}/raw_data.csv
+
+      Read the workbook spec, then build project {project}:
+      1. Upload the raw transaction data
+      2. Recreate each formula/calculation as a Dataiku recipe:
+         - Department totals -> Group recipe
+         - Category breakdown -> Group recipe
+         - Monthly summary -> Group recipe (group by month + department)
+         - Sorting -> Sort recipe
+      3. Only use Python for calculations that don't map to a visual recipe
+
+      The goal is zero Excel dependency — all logic lives in the DSS flow.
+      Verify the flow and check the output data.
+    needs_project: true
+    timeout: 600
+    fixtures:
+      - path: excel/test1
+        inject_as: filesystem
+    expect:
+      commands:
+        - pattern: "dku dataset create.*UploadedFiles"
+          required: true
+        - pattern: "dku dataset upload"
+          required: true
+        - pattern: "dku recipe create-(group|sort)"
+          required: true
+      verify:
+        - command: "dku recipe list -P {project} -o json"
+          expect_status: 0
+          expect_min_rows: 2
+        - command: "dku flow graph -P {project}"
+          expect_status: 0
+    rubric:
+      command_correct: 1.0
+      outcome_verified: 1.0
+      efficiency: 0.2
+      visual_recipe_ratio: 0.8

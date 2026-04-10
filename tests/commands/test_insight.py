@@ -317,3 +317,32 @@ def test_insight_validate_non_chart_type(patch_client):
     )
     assert result.exit_code != 0
     assert "dataset_table" in result.output
+
+
+# --- set-metadata ---
+
+
+def test_insight_set_metadata_description(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "set-metadata",
+            "insight1",
+            "--description",
+            "Monthly revenue chart",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated metadata" in result.output
+    insight = patch_client.get_project("PROJ1").get_insight("insight1")
+    insight.get_settings().save.assert_called()
+
+
+def test_insight_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["insight", "set-metadata", "insight1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0

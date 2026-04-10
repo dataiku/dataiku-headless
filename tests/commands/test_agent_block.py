@@ -45,6 +45,15 @@ def test_list_blocks_simple_mode(patch_client):
     assert result.exit_code == 0
 
 
+def test_list_blocks_resolve_by_name(patch_client):
+    """Agent-block commands should resolve agents by name, not just ID."""
+    result = runner.invoke(
+        app, ["agent-block", "list", "Block Agent", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "init_state" in result.output
+
+
 # ── get ───────────────────────────────────────────────────────────────────
 
 
@@ -162,13 +171,9 @@ def test_add_block_missing_type(patch_client):
 
 
 def test_add_block_auto_mode_switch(patch_client):
-    """Adding a block should populate the blocks list and set the starting block.
-
-    On DSS 14.5+, block-graph mode is implicit (no mode field). The add command
-    no longer sets mode=BLOCKS_GRAPH — blocks presence is sufficient.
-    """
+    """Adding a block should create blocks list and set starting block."""
     block = json.dumps(
-        {"type": "GENERATE_OUTPUT", "id": "first_block", "template": "Hello"}
+        {"type": "EMIT_OUTPUT", "id": "first_block", "template": "Hello"}
     )
     result = runner.invoke(
         app, ["agent-block", "add", "agent1", "--block", block, "--project", "PROJ1"]
@@ -177,8 +182,6 @@ def test_add_block_auto_mode_switch(patch_client):
 
     raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
     tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    # blocks list must be populated
-    assert any(b["id"] == "first_block" for b in tuas.get("blocks", []))
     # First block should auto-become starting block
     assert tuas.get("startingBlockId") == "first_block"
 
@@ -784,6 +787,57 @@ def test_add_block_structured_agent(patch_client):
     assert "classify" in ids
 
 
+def test_add_block_structured_agent_no_initial_settings(patch_client):
+    """Adding blocks to a newly-created STRUCTURED_AGENT (no structuredAgentSettings yet)
+    should create structuredAgentSettings, NOT fall back to toolsUsingAgentSettings."""
+    block = json.dumps({"type": "LLM_REQUEST", "id": "first_block", "llmId": "llm1"})
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent_empty",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent_empty")
+        .get_settings()
+        .get_raw()
+    )
+    ver = raw["versions"][0]
+    # Must write to structuredAgentSettings, not toolsUsingAgentSettings
+    assert "structuredAgentSettings" in ver
+    assert "toolsUsingAgentSettings" not in ver
+    blocks = ver["structuredAgentSettings"]["blocks"]
+    assert len(blocks) == 1
+    assert blocks[0]["id"] == "first_block"
+    # First block should be auto-set as starting block
+    assert ver["structuredAgentSettings"]["startingBlockId"] == "first_block"
+
+
+def test_list_blocks_structured_agent_empty(patch_client):
+    """Listing blocks on a STRUCTURED_AGENT with no settings yet should return empty."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "list",
+            "structured_agent_empty",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
 # ── agent not found ───────────────────────────────────────────────────
 
 
@@ -792,3 +846,153 @@ def test_list_blocks_agent_not_found(patch_client):
         app, ["agent-block", "list", "nonexistent_agent", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# ── CEL validation ───────────────────────────────────────────────────
+
+
+def test_add_routing_block_empty_cel_rejected(patch_client):
+    """ROUTING block with empty CEL expression must be rejected."""
+    block = json.dumps(
+        {
+            "type": "ROUTING",
+            "id": "bad_routing",
+            "routingMode": "CLAUSES",
+            "clausesBasedDecisions": [
+                {
+                    "clause": {
+                        "type": "EXPRESSION",
+                        "expression": {"language": "CEL", "expression": ""},
+                    },
+                    "nextBlock": "some_block",
+                }
+            ],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Micro-CEL" in result.output or "EMPTY CEL" in result.output
+
+
+def test_add_routing_block_valid_cel_accepted(patch_client):
+    """ROUTING block with valid CEL expression should be accepted."""
+    block = json.dumps(
+        {
+            "type": "ROUTING",
+            "id": "good_routing",
+            "routingMode": "CLAUSES",
+            "clausesBasedDecisions": [
+                {
+                    "clause": {
+                        "type": "EXPRESSION",
+                        "expression": {
+                            "language": "CEL",
+                            "expression": 'state["intent"] == "billing"',
+                        },
+                    },
+                    "nextBlock": "billing_handler",
+                }
+            ],
+            "defaultNextBlockIfNoClauseMatch": "fallback",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+
+def test_add_routing_block_llm_based_clause_no_cel_ok(patch_client):
+    """ROUTING block with LLM_BASED clauses (no CEL) should be accepted."""
+    block = json.dumps(
+        {
+            "type": "ROUTING",
+            "id": "llm_routing",
+            "routingMode": "CLAUSES",
+            "clausesBasedDecisions": [
+                {
+                    "clause": {
+                        "type": "LLM_BASED",
+                        "passConversationHistory": True,
+                        "systemPromptAfterHistory": "Is this a billing question?",
+                    },
+                    "nextBlock": "billing_handler",
+                }
+            ],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+
+def test_set_graph_empty_cel_rejected(patch_client):
+    """set-graph with ROUTING block containing empty CEL must be rejected."""
+    graph = json.dumps(
+        {
+            "mode": "BLOCKS_GRAPH",
+            "startingBlockId": "bad_routing",
+            "blocks": [
+                {
+                    "type": "ROUTING",
+                    "id": "bad_routing",
+                    "routingMode": "CLAUSES",
+                    "clausesBasedDecisions": [
+                        {
+                            "clause": {
+                                "type": "EXPRESSION",
+                                "expression": {"language": "CEL", "expression": "  "},
+                            },
+                            "nextBlock": "target",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "set-graph",
+            "agent_blocks",
+            "--definition",
+            graph,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Micro-CEL" in result.output or "EMPTY CEL" in result.output

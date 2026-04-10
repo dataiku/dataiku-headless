@@ -1,0 +1,11 @@
+product_id,name,category,unit_price
+PROD001,Laptop Pro 15,Electronics,999.99
+PROD002,Wireless Mouse,Electronics,29.99
+PROD003,USB-C Hub,Hardware,49.99
+PROD004,Monitor Stand,Hardware,79.99
+PROD005,Cloud License,Software,199.99
+PROD006,IDE Pro License,Software,149.99
+PROD007,Consulting Hour,Services,250.0
+PROD008,Training Pack,Services,450.0
+PROD009,Keyboard Mech,Electronics,89.99
+PROD010,Docking Station,Hardware,179.99
