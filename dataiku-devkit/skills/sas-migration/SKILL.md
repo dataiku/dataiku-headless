@@ -30,6 +30,7 @@ metadata:
 > 8. **Always rename aggregation outputs.** Group recipe auto-names as `{col}_{func}` (`amount_sum`), not the SAS alias (`total_revenue`). Add a `ColumnRenamer` step to restore SAS-style names.
 > 9. **Keep date columns as STRING at ingest.** `dku dataset set-schema` with `type: date` on a CSV with ISO dates silently nulls every row. ISO strings compare and aggregate chronologically correctly anyway.
 > 10. **Never trust `dku dataset head -o json | wc -l` for row counts.** Use `dku dataset count --recompute`.
+> 11. **`PROC UNIVARIATE` → Python recipe, not Group.** Group recipe aggregations are `sum/avg/min/max/count/stddev` only — no median, no quantiles. For stats migrations, use `numpy.percentile(x, p, method="averaged_inverted_cdf")` (matches SAS `QNTLDEF=5`) and `numpy.std(x, ddof=1)` (sample std — numpy default is population). pandas `quantile()` default is the wrong type.
 >
 > Also use the `dku-cli` skill for CLI specifics and the `dataiku` skill for platform knowledge.
 
