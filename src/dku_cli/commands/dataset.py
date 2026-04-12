@@ -383,8 +383,20 @@ def upload(
     no_autodetect: bool = typer.Option(
         False, "--no-autodetect", help="Skip format/schema auto-detection after upload"
     ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        "--force",
+        "-f",
+        help="Clear any existing files from the dataset before uploading. Required for idempotent upload scripts — dku's default behavior is to fail on duplicate filenames.",
+    ),
 ) -> None:
-    """Upload a file to an UploadedFiles dataset and auto-detect format/schema."""
+    """Upload a file to an UploadedFiles dataset and auto-detect format/schema.
+
+    By default, uploading a file with the same name as an existing upload
+    fails with 'File already exists and would be overwritten'. Pass
+    --overwrite to clear the dataset first, making the upload idempotent.
+    """
     project_key = resolve_project(project)
 
     if not local_path.exists():
@@ -396,6 +408,12 @@ def upload(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
+
+        if overwrite:
+            # ds.clear() removes all uploaded files from an UploadedFiles
+            # dataset. Verified on DSS 14+ — the uploaded file list is empty
+            # afterwards and a subsequent uploaded_add_file() succeeds.
+            ds.clear()
 
         with local_path.open("rb") as f:
             ds.uploaded_add_file(f, local_path.name)

@@ -115,7 +115,7 @@ dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-C COLUMNS] [-o FORMAT]
 dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku dataset create DATASET_NAME [--type Filesystem] [-c CONNECTION] [-P PROJECT] [--if-not-exists] [--definition JSON]
-dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect]
+dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect] [--overwrite]
 dku dataset delete DATASET_NAME [-P PROJECT] [--yes]
 dku dataset clear DATASET_NAME [-P PROJECT]
 dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
@@ -131,6 +131,7 @@ dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 ```
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
+- `upload --overwrite` clears the dataset's existing uploaded files first, making the upload idempotent. Use in re-runnable scripts where the same filename would otherwise fail with `File already exists and would be overwritten`
 - `upload --no-autodetect` skips detection (if you'll set format manually)
 - `head` defaults to 10 rows, override with `-n`. Use `--columns "col1,col2"` / `-C` to inspect specific columns before transforming
 - `build --wait` blocks until job completes

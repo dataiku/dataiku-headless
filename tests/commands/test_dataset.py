@@ -620,6 +620,29 @@ def test_dataset_upload_no_autodetect(patch_client, tmp_path):
     ds.autodetect_settings.assert_not_called()
 
 
+def test_dataset_upload_overwrite_clears_first(patch_client, tmp_path):
+    """--overwrite calls ds.clear() before uploading to enable idempotent re-uploads."""
+    csv_file = tmp_path / "data.csv"
+    csv_file.write_text("col1,col2\na,1")
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "upload",
+            "raw_data",
+            str(csv_file),
+            "--project",
+            "PROJ1",
+            "--overwrite",
+            "--no-autodetect",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("raw_data")
+    ds.clear.assert_called_once()
+    ds.uploaded_add_file.assert_called_once()
+
+
 def test_dataset_upload_file_not_found(patch_client):
     result = runner.invoke(
         app,
