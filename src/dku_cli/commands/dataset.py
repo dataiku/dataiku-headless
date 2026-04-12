@@ -756,12 +756,18 @@ def count(
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    recompute: bool = typer.Option(
+        False,
+        "--recompute",
+        "--fresh",
+        help="Force recompute — ignore any cached COUNT_RECORDS metric. Use after a build to avoid stale row counts.",
+    ),
 ) -> None:
     """Get the row count of a dataset.
 
     Reads the last computed COUNT_RECORDS metric. If metrics haven't been
-    computed yet, computes them first. Use after recipe runs to verify row
-    counts.
+    computed yet, computes them first. Use --recompute after a recipe run
+    to guarantee a fresh value (DSS does not auto-recompute metrics on build).
     """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
@@ -769,17 +775,21 @@ def count(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
 
-        # Try cached metric first
         row_count = None
-        try:
-            metrics = ds.get_last_metric_values()
-            row_count = metrics.get_global_value("records:COUNT_RECORDS")
-        except Exception:
-            pass
+        if not recompute:
+            # Try cached metric first
+            try:
+                metrics = ds.get_last_metric_values()
+                row_count = metrics.get_global_value("records:COUNT_RECORDS")
+            except Exception:
+                pass
 
-        # If no cached value, compute it
+        # Compute when missing or explicitly requested
         if row_count is None:
-            info("Computing row count (no cached metrics)...")
+            if recompute:
+                info("Recomputing row count...")
+            else:
+                info("Computing row count (no cached metrics)...")
             ds.compute_metrics(metric_ids=["records:COUNT_RECORDS"])
             metrics = ds.get_last_metric_values()
             row_count = metrics.get_global_value("records:COUNT_RECORDS")

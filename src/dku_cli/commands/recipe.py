@@ -2220,12 +2220,21 @@ def create_group(
         "--agg",
         help="Aggregation: 'col:func1,func2'. Functions: sum, avg, min, max, count, count_distinct, concat, stddev. Repeatable.",
     ),
+    no_global_count: bool = typer.Option(
+        False,
+        "--no-global-count",
+        help="Suppress the per-group 'count' column that DSS adds by default.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Group (aggregate) recipe. NEVER use Python for aggregations — use this instead.
 
     Use --agg to configure aggregation functions: --agg 'amount:sum,avg' --agg 'id:count'.
     Without --agg, defaults to COUNT per group. Use -k for group keys (repeatable: -k col1 -k col2).
+
+    By default DSS adds a 'count' column (rows per group). Pass --no-global-count
+    to suppress it — useful when migrating from SAS/SQL where PROC SQL / GROUP BY
+    only produces columns the user explicitly aggregated.
     """
     project_key = resolve_project(project)
     # Validate --agg format early (before any API calls)
@@ -2259,8 +2268,8 @@ def create_group(
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Post-build: add extra group keys and/or aggregation config
-        needs_settings = (group_key and len(group_key) > 1) or agg
+        # Post-build: add extra group keys, aggregation config, and/or disable global count
+        needs_settings = (group_key and len(group_key) > 1) or agg or no_global_count
         if needs_settings:
             recipe_obj = proj.get_recipe(recipe_name)
             group_settings = recipe_obj.get_settings()
@@ -2280,6 +2289,9 @@ def create_group(
                     )
                     cs["avg"] = "avg" in funcs
                 info(f"Aggregations: {', '.join(agg)}")
+            if no_global_count:
+                group_settings.set_global_count_enabled(False)
+                info("Global 'count' column disabled.")
             group_settings.save()
 
         _auto_apply_schema(proj, recipe_name)
@@ -2444,39 +2456,60 @@ def create_filter(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
     filter_formula: str = typer.Option(
-        None,
+        ...,
         "--filter-formula",
         "--filter",
         "-f",
         help="DSS formula filter expression (e.g. 'age > 30')",
     ),
+    action: str = typer.Option(
+        "KEEP_ROW",
+        "--action",
+        help="KEEP_ROW (keep matching) or REMOVE_ROW (drop matching)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a Sample/Filter recipe. Filters rows by condition.
+    """Create a filter recipe (rows matching the formula).
 
-    Use this instead of df[df.col > X] in Python. Pass --filter-formula to
-    configure the filter expression inline, or configure in the DSS UI / via
-    set-definition.
+    Builds a Prepare recipe with a single FilterOnCustomFormula step.
+    Prefer this over the Sampling recipe type, whose filter schema is unstable
+    and which silently drops the filter expression on many DSS versions.
+
+    Use instead of df[df.col > X] in Python.
     """
     project_key = resolve_project(project)
+    action = action.upper()
+    if action not in {"KEEP_ROW", "REMOVE_ROW"}:
+        exit_with_error(
+            f"Invalid --action '{action}'. Must be KEEP_ROW or REMOVE_ROW.",
+            code="invalid_argument",
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         _ensure_output_dataset(client, proj, output_ds, project_key)
-        builder = proj.new_recipe("sampling", recipe_name)
+        builder = proj.new_recipe("shaker", recipe_name)
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
-        if filter_formula:
-            recipe_obj = proj.get_recipe(recipe_name)
-            filter_settings = recipe_obj.get_settings()
-            payload = _get_recipe_payload(filter_settings)
-            payload["filterExpression"] = filter_formula
-            payload["samplingMethod"] = "FULL"
-            filter_settings.save()
-            info(f"Filter: {filter_formula}")
+
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        steps = _ensure_steps_array(settings)
+        steps.append(
+            {
+                "metaType": "PROCESSOR",
+                "type": "FilterOnCustomFormula",
+                "params": {"expression": filter_formula, "action": action},
+            }
+        )
+        settings.save()
+        info(f"Filter: {filter_formula} ({action})")
+
         _auto_apply_schema(proj, recipe_name)
         success(f"Created filter recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

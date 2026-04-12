@@ -2486,6 +2486,36 @@ def test_recipe_create_group(patch_client):
     builder.with_group_key.assert_called_once_with("region")
 
 
+def test_recipe_create_group_no_global_count(patch_client):
+    """--no-global-count disables the DSS default per-group count column."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "tight_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum",
+            "--no-global-count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.set_global_count_enabled.assert_called_once_with(False)
+    settings.save.assert_called()
+
+
 def test_recipe_create_group_with_agg(patch_client):
     """--agg configures column aggregations after build."""
     proj = patch_client.get_project("PROJ1")
@@ -3826,10 +3856,8 @@ def test_recipe_set_settings_updates_payload(patch_client):
 
 
 def test_recipe_create_filter_with_formula(patch_client):
-    """--filter-formula configures filter expression."""
-    proj = patch_client.get_project("PROJ1")
-    recipe_mock = proj.get_recipe.return_value
-    settings = recipe_mock.get_settings.return_value
+    """create-filter builds a Prepare recipe with a FilterOnCustomFormula step."""
+    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
 
     result = runner.invoke(
         app,
@@ -3847,11 +3875,44 @@ def test_recipe_create_filter_with_formula(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "Created filter recipe" in result.output
-    assert settings.obj_payload["filterExpression"] == "age > 30"
-    assert settings.obj_payload["samplingMethod"] == "FULL"
+    # Expect a prepare/shaker recipe with a single FilterOnCustomFormula step
+    proj.new_recipe.assert_called_with("shaker", "my_filter")
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["type"] == "FilterOnCustomFormula"
+    assert step["params"]["expression"] == "age > 30"
+    assert step["params"]["action"] == "KEEP_ROW"
     settings.save.assert_called()
+
+
+def test_recipe_create_filter_remove_row(patch_client):
+    """--action REMOVE_ROW drops matching rows instead of keeping them."""
+    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-filter",
+            "drop_bad",
+            "-i",
+            "data",
+            "--output-ds",
+            "cleaned",
+            "-f",
+            "status == 'ERROR'",
+            "--action",
+            "REMOVE_ROW",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert steps[0]["params"]["action"] == "REMOVE_ROW"
 
 
 def test_recipe_create_window_with_partition_col(patch_client):

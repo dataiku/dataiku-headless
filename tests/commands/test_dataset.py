@@ -986,3 +986,23 @@ def test_dataset_count_computes_when_no_cache(patch_client):
     assert result.exit_code == 0
     assert "100" in result.output
     ds.compute_metrics.assert_called_once()
+
+
+def test_dataset_count_recompute_skips_cache(patch_client):
+    """--recompute forces a fresh metric computation even when a cached value exists."""
+    from unittest.mock import MagicMock
+
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    # The cached metric would say 10, but --recompute should ignore it and recompute to 25
+    fresh_metrics = MagicMock()
+    fresh_metrics.get_global_value.return_value = 25
+    ds.get_last_metric_values.return_value = fresh_metrics
+    ds.compute_metrics.return_value = None
+
+    result = runner.invoke(
+        app, ["dataset", "count", "ds1", "--project", "PROJ1", "--recompute"]
+    )
+    assert result.exit_code == 0
+    assert "25" in result.output
+    # compute_metrics must have been called — we bypassed the cache path
+    ds.compute_metrics.assert_called_once_with(metric_ids=["records:COUNT_RECORDS"])

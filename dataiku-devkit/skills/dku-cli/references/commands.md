@@ -120,7 +120,7 @@ dku dataset delete DATASET_NAME [-P PROJECT] [--yes]
 dku dataset clear DATASET_NAME [-P PROJECT]
 dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
 dku dataset set-definition DATASET_NAME [-P PROJECT] --definition JSON
-dku dataset count DATASET_NAME [-P PROJECT] [-o FORMAT]
+dku dataset count DATASET_NAME [-P PROJECT] [-o FORMAT] [--recompute]
 dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 dku dataset set-metadata DATASET_NAME [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 dku dataset set-column-description DATASET_NAME COL1 "DESC1" COL2 "DESC2" [-P PROJECT]
@@ -139,7 +139,7 @@ dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
-- `count` returns the row count from cached metrics. Computes metrics if no cache exists. Use after recipe runs to verify output
+- `count` returns the row count from cached metrics. Computes metrics if no cache exists. **DSS does not auto-recompute metrics on build** — pass `--recompute` (alias `--fresh`) after a recipe run to avoid stale counts
 - `set-schema` accepts both `{"columns": [...]}` (full object) and `[{name, type}, ...]` (plain array — auto-wrapped). Round-trips with `schema -o json`
 - `set-metadata` updates description, short description, and/or tags without needing JSON. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `set-column-description` takes alternating column-name description pairs (even count required)
@@ -154,11 +154,11 @@ dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 
 ```bash
 dku recipe create-join NAME -i DS1 -i DS2 --output-ds OUT [--join-type LEFT] [-P PROJECT]  # Join
-dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [-P PROJECT]  # Group/aggregate
+dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [--no-global-count] [-P PROJECT]  # Group/aggregate
 dku recipe create-stack NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]    # Stack/union
 dku recipe create-distinct NAME -i DS --output-ds OUT [-P PROJECT]         # Deduplicate
 dku recipe create-sort NAME -i DS --output-ds OUT [--sort-col COL] [-P PROJECT]  # Sort
-dku recipe create-filter NAME -i DS --output-ds OUT [--filter-formula EXPR] [-P PROJECT]  # Filter/sample
+dku recipe create-filter NAME -i DS --output-ds OUT --filter-formula EXPR [--action KEEP_ROW|REMOVE_ROW] [-P PROJECT]  # Filter rows
 dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL] [-P PROJECT]  # Window functions
 dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
 dku recipe create-topn NAME -i DS --output-ds OUT [--sort-col COL] [--n N] [-P PROJECT]  # Top/bottom N rows
@@ -168,13 +168,13 @@ dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL
 ```
 
 - `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`
-- `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group
+- `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group. DSS adds a per-group `count` column by default — pass `--no-global-count` to suppress it (needed for SQL/SAS migrations where only the explicit aggregates should appear in the output)
 - `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional
 - `create-sampling` takes a sample. `--method`: RANDOM_FIXED_NB (default), RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED. `--size N` or `--ratio 0.1`
 - `add-fold` unpivots columns into rows (wide→long). Use `--columns` for explicit list or `--pattern` for regex match
 - `create-sort --sort-col COL` sets sort columns at creation (repeatable). Use `COL` for ascending or `COL:desc` for descending
 - `create-topn --sort-col COL` and `--n N` set the sort column(s) and row limit at creation
-- `create-filter --filter-formula EXPR` (aliases: `--filter EXPR`, `-f EXPR`) sets the filter expression at creation using Dataiku formula syntax
+- `create-filter` builds a **Prepare recipe** with a single `FilterOnCustomFormula` step (not a Sampling recipe — whose filter schema is unstable across DSS versions). `--filter-formula` is required (aliases `--filter`, `-f`). `--action KEEP_ROW` (default) keeps matching rows, `--action REMOVE_ROW` drops them
 - `create-window --partition-col COL` and `--order-col COL` set the window partition and ordering columns at creation
 - `create-embed --embed-column COL` specifies the column to embed (alias for `--text-column`)
 - Visual recipes auto-apply schema updates after creation. For manual control: `apply-schema RECIPE -P PROJ`
