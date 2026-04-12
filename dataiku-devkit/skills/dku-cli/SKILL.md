@@ -23,11 +23,11 @@ metadata:
 > 2. **Use `dku ml` for ML — not Python.** `dku ml create-prediction` + `dku ml train` + `dku ml deploy` covers prediction, clustering, timeseries, and causal. Python ONLY for custom model architectures.
 > 3. **Visual recipes auto-apply schema.** `create-join`/`create-group`/etc. auto-propagate output schemas. For manual control: `dku recipe apply-schema RECIPE -P PROJ`, or `--auto-update-schema` on build.
 > 4. **Upload = UploadedFiles.** `dku dataset create NAME --type UploadedFiles -P PROJ`. Never Filesystem for uploads.
-> 5. **Recipe create auto-creates output.** Visual recipe commands auto-create the output dataset. Do NOT pre-create it.
+> 5. **Recipe create auto-creates output for code recipes, but projects without a default managed connection still need `--connection`.** If `dku recipe create -t python|sql` fails on output creation, retry with `--connection NAME`. Visual recipe shortcuts (`create-join`, `create-group`, etc.) auto-create outputs and apply schema.
 > 6. **Investigate with `inspect`.** `dku project inspect PROJ -o json` returns datasets, recipes, scenarios, flow, jobs, wiki, variables in ONE call. Start every investigation here.
 > 7. **Chain everything.** All related commands in ONE `&&`-chained Bash call. Never separate tool calls.
 > 8. **Charts need `--dataset`.** `dku insight create NAME --type chart --dataset DS -P PROJ`. Validate with `dku insight validate ID -P PROJ`.
-> 9. **Verify everything.** After building, ALWAYS `dku dataset head OUTPUT -P PROJ` to confirm real data exists. Exit code 0 ≠ correct output. Also use the `dataiku` skill for platform knowledge — these two skills are a pair.
+> 9. **Verify everything.** After building, ALWAYS `dku dataset head OUTPUT -P PROJ` to confirm real data exists. `dku dataset head OUTPUT -o json` returning `[]` means 0 rows, not success. Exit code 0 ≠ correct output. Also use the `dataiku` skill for platform knowledge — these two skills are a pair.
 > 10. **Prefer purpose-built prepare processors over GREL.** Need to rename? `add-rename`. Parse dates? `add-step --type DateParser`. Uppercase? `add-step --type StringTransformer`. If/then/else? `add-step --type VisualIfRule`. Use `add-formula` (GREL) ONLY when no dedicated processor exists. **READ `dataiku` skill's `references/prepare-processors.md` before writing any `add-step` command** — it has the exact params and JSON for each processor.
 > 11. **Gauge before you grab.** Run `dku dataset info DS -P PROJ` BEFORE `head` or any build. Datasets can be millions of rows / gigabytes. If >1M rows or >1GB, ask the user before triggering builds or LLM recipes. Never blindly `head -n 1000` on a dataset you haven't gauged. For existing projects, follow the exploration protocol in the `dataiku` skill.
 > 12. **Sample data before transforming.** After gauging size, run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, column names, or value patterns — verify first. For joins, check both datasets have the join key.
@@ -305,7 +305,86 @@ dku recipe create compute_risk_score -t python -i customer_features --output-ds 
 dku recipe set-code compute_risk_score -P PROJ --code @score.py
 ```
 
-> **Filesystem datasets require `--connection`:** `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ`. Without `-c`, it errors. Run `dku connection list` to find available connections.
+**Flags for `dku recipe create` (Python/SQL):**
+- `--type python` / `-t python` — recipe type
+- `--input NAME` / `-i NAME` / `--input-ds NAME` — input dataset (MUST already exist)
+- `--output-ds NAME` — output dataset (auto-created for code recipes)
+- `--connection NAME` / `-c NAME` — required when the DSS project has no default managed connection (common in Snowflake-backed projects)
+- `-P PROJECT` — project key
+
+If you need the output connection name and `dku connection list` is unavailable, inspect an existing managed dataset:
+
+```bash
+dku dataset get-definition ANY_DATASET -P PROJ -o json | jq -r '.params.connection'
+```
+
+#### Cross-Project Inputs
+
+Recipes can read datasets from another project by referencing them as `PROJECT_KEY.DATASET_NAME` in recipe inputs:
+
+```bash
+dku recipe create compute_metrics -t python \
+  -i EDP_GOLD_DATASETS.account_base \
+  --output-ds account_metrics \
+  --connection filesystem_managed \
+  -P PROJ
+```
+
+This cross-project reference works in recipe inputs even when `dku dataset head PROJECT_KEY.DATASET_NAME` does not.
+
+#### Python ID Casting Pattern
+
+When ID columns can contain nulls or non-numeric strings, coerce before casting:
+
+```python
+df["ACCOUNT_SK"] = pd.to_numeric(df["ACCOUNT_SK"], errors="coerce")
+df = df.dropna(subset=["ACCOUNT_SK"])
+df["ACCOUNT_SK"] = df["ACCOUNT_SK"].astype("int64")
+```
+
+Direct `.astype("int64")` on dirty data fails with `IntCastingNaNError`.
+
+**Adding extra inputs** after creation:
+
+```bash
+dku recipe add-input RECIPE_NAME DATASET_NAME -P PROJ
+```
+
+#### Plugin Source Recipes (No Input)
+
+Some plugin recipes (e.g. `generate-rows`) are source recipes with no input role. Omit `-i` — the CLI skips input wiring:
+
+```bash
+dku recipe create gen_data -t CustomCode_my-plugin_generate-rows \
+  --output-ds generated -P PROJ
+```
+
+#### Plugin Recipes with Named Roles
+
+When using `set-definition` with plugin recipes that have named roles (not `main`), **pre-create the output dataset** before `recipe create`. The `--output-ds` auto-create wires to `main` role; `set-definition` rewires to plugin role names, orphaning the dataset:
+
+```bash
+# RIGHT — pre-create, then wire to named role
+dku dataset create output_ds --type Filesystem -c filesystem_managed -P PROJ && \
+dku recipe create my_step -t CustomCode_plugin_recipe -i input --output-ds output_ds --output-role output_role_name -P PROJ
+```
+
+> **Note on Filesystem datasets:** If you need to manually create a Filesystem dataset (rare — usually recipe create does this), you MUST specify `--connection`: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ`. Without `-c`, it errors. Run `dku connection list` to find available connections.
+
+### Deleting Datasets, Recipes, and Projects
+
+`dku dataset delete` and `dku recipe delete` prompt by default and support `--yes` / `-y` to skip confirmation. `dku project delete` requires `--confirm`, `--yes`, or `-y`.
+
+```bash
+# Dataset delete (prompts without --yes)
+dku dataset delete my_data -P MY_PROJ --yes
+
+# Recipe delete (prompts without --yes)
+dku recipe delete my_recipe -P MY_PROJ --yes
+
+# Project delete (requires --confirm, --yes, or -y)
+dku project delete MY_PROJ --yes
+```
 
 ---
 
@@ -419,8 +498,8 @@ Only after gauging sizes, drill into specifics:
 dku dataset head specific_ds -P MY_PROJ -n 10 && \
 dku recipe get-settings suspect_recipe -P MY_PROJ && \
 dku job status last_job_id -P MY_PROJ -o json && \
-# When a build fails, inspect the full job log:
-dku job log JOB_ID -P MY_PROJ
+# When a build fails, start with focused log inspection:
+dku job log JOB_ID -P MY_PROJ --errors-only --tail 80
 ```
 
 > **Cost rule:** If `info` shows >1M rows or >1GB, don't trigger builds or LLM recipes without asking the user. Escalate with the size info and estimated impact.

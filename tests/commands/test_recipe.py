@@ -503,11 +503,32 @@ def test_recipe_create_visual_type_connection_error_suggests_pre_create(patch_cl
 
 
 def test_recipe_delete(patch_client):
-    result = runner.invoke(app, ["recipe", "delete", "recipe1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted recipe" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     recipe.delete.assert_called_once()
+
+
+def test_recipe_delete_prompts_without_yes(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="y\n"
+    )
+    assert result.exit_code == 0
+    assert "Delete recipe 'recipe1' from PROJ1?" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.delete.assert_called_once()
+
+
+def test_recipe_delete_aborts_on_no(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="n\n"
+    )
+    assert result.exit_code != 0
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.delete.assert_not_called()
 
 
 def test_recipe_set_code_inline(patch_client):
@@ -1255,9 +1276,7 @@ def test_recipe_create_agent_eval_full(patch_client):
 
 
 def test_recipe_get_json_error_payload(patch_client):
-    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception(
-        "NotFoundException: recipe does not exist"
-    )
+    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("'recipe'")
     result = runner.invoke(
         app,
         ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
@@ -1267,7 +1286,14 @@ def test_recipe_get_json_error_payload(patch_client):
     parsed = json.loads(result.stderr)
     assert parsed["error"]["code"] == "not_found"
     assert parsed["error"]["exit_code"] == 3
-    assert "recipe does not exist" in parsed["error"]["message"]
+    assert (
+        parsed["error"]["message"]
+        == "Recipe 'missing_recipe' not found in project 'PROJ1'."
+    )
+    assert parsed["error"]["details"] == [
+        "List recipes: dku recipe list -P PROJ1",
+        "Inspect the project flow: dku project inspect PROJ1 -o json",
+    ]
 
 
 # ── Schema inspection commands ───────────────────────────────────────
