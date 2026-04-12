@@ -85,7 +85,7 @@ dku job run --target FINAL_OUTPUT -P PROJ \
 dku dataset head FINAL_OUTPUT -P PROJ -n 5 && \
 
 # 3. VERIFY — check row count is reasonable
-dku dataset head FINAL_OUTPUT -P PROJ -o json | jq 'length'
+dku dataset count FINAL_OUTPUT -P PROJ
 ```
 
 ### Verification Rules

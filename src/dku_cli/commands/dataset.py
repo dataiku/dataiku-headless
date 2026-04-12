@@ -1,4 +1,4 @@
-"""dku dataset — list, schema, head, build, create, upload, delete, clear, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions."""
+"""dku dataset — list, schema, head, build, create, upload, delete, clear, count, get/set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions."""
 
 from __future__ import annotations
 
@@ -523,13 +523,24 @@ def set_schema(
         help="Schema JSON (string, @file.json, or '-' for stdin)",
     ),
 ) -> None:
-    """Set the schema of a dataset from JSON."""
+    """Set the schema of a dataset from JSON.
+
+    Accepts either format:
+      - {"columns": [{name, type}, ...]}   (full schema object)
+      - [{name, type}, ...]                (columns array — auto-wrapped)
+
+    The second form lets you round-trip with 'dku dataset schema -o json'.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         current_def = ds.get_definition()
-        current_def["schema"] = read_json_input(definition)
+        schema_input = read_json_input(definition)
+        # Accept both [columns] array and {"columns": [columns]} object
+        if isinstance(schema_input, list):
+            schema_input = {"columns": schema_input}
+        current_def["schema"] = schema_input
         ds.set_definition(current_def)
         success(f"Updated schema for dataset '{dataset_name}'")
     except Exception as e:
@@ -735,5 +746,59 @@ def ai_describe(
             info("AI-generated descriptions (not saved — use --save to persist):")
 
         render_raw(result, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def count(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the row count of a dataset.
+
+    Reads the last computed COUNT_RECORDS metric. If metrics haven't been
+    computed yet, computes them first. Use after recipe runs to verify row
+    counts.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+
+        # Try cached metric first
+        row_count = None
+        try:
+            metrics = ds.get_last_metric_values()
+            row_count = metrics.get_global_value("records:COUNT_RECORDS")
+        except Exception:
+            pass
+
+        # If no cached value, compute it
+        if row_count is None:
+            info("Computing row count (no cached metrics)...")
+            ds.compute_metrics(metric_ids=["records:COUNT_RECORDS"])
+            metrics = ds.get_last_metric_values()
+            row_count = metrics.get_global_value("records:COUNT_RECORDS")
+
+        if row_count is None:
+            exit_with_error(
+                f"Could not determine row count for '{dataset_name}'.",
+                details=[
+                    "The dataset may be empty or metrics computation failed.",
+                    f"Try building first: dku dataset build {dataset_name} -P {project_key}",
+                ],
+            )
+
+        if output == "json":
+            render_raw(
+                {"dataset": dataset_name, "rows": int(row_count)},
+                output_format=output,
+            )
+        else:
+            success(f"{dataset_name}: {int(row_count):,} rows")
     except Exception as e:
         handle_api_error(e)

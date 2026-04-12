@@ -667,6 +667,30 @@ def test_dataset_set_schema_from_file(patch_client, tmp_path):
     assert call_arg["schema"]["columns"][0]["name"] == "file_col"
 
 
+def test_dataset_set_schema_plain_array(patch_client):
+    """set-schema accepts a plain columns array and auto-wraps it."""
+    schema = json.dumps([{"name": "arr_col", "type": "double"}])
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            schema,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated schema" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    call_arg = ds.set_definition.call_args[0][0]
+    # Array should be auto-wrapped into {"columns": [...]}
+    assert call_arg["schema"]["columns"][0]["name"] == "arr_col"
+    assert call_arg["schema"]["columns"][0]["type"] == "double"
+
+
 # --- rename ---
 
 
@@ -907,3 +931,58 @@ def test_dataset_schema_shows_descriptions(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["description"] == "First name"
+
+
+# --- count ---
+
+
+def test_dataset_count(patch_client):
+    """count returns the row count from cached metrics."""
+    from unittest.mock import MagicMock
+
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    metrics_mock = MagicMock()
+    metrics_mock.get_global_value.return_value = 5960
+    ds.get_last_metric_values.return_value = metrics_mock
+
+    result = runner.invoke(app, ["dataset", "count", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "5,960" in result.output or "5960" in result.output
+
+
+def test_dataset_count_json(patch_client):
+    """count -o json returns structured output."""
+    from unittest.mock import MagicMock
+
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    metrics_mock = MagicMock()
+    metrics_mock.get_global_value.return_value = 42
+    ds.get_last_metric_values.return_value = metrics_mock
+
+    result = runner.invoke(
+        app, ["dataset", "count", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["rows"] == 42
+    assert parsed["dataset"] == "ds1"
+
+
+def test_dataset_count_computes_when_no_cache(patch_client):
+    """count computes metrics if cached value is missing."""
+    from unittest.mock import MagicMock
+
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+
+    # First call raises (no cached metrics), second call works
+    no_metrics = MagicMock()
+    no_metrics.get_global_value.side_effect = Exception("no data")
+    has_metrics = MagicMock()
+    has_metrics.get_global_value.return_value = 100
+    ds.get_last_metric_values.side_effect = [no_metrics, has_metrics]
+    ds.compute_metrics.return_value = None
+
+    result = runner.invoke(app, ["dataset", "count", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "100" in result.output
+    ds.compute_metrics.assert_called_once()

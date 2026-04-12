@@ -13,7 +13,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [auth](#auth) — login, logout, status, list, switch
 - [config](#config) — set, get, list, path, variables, set-variables
 - [project](#project) — list, get, inspect, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
-- [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions
+- [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, count, get-definition, set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions
 - [recipe](#recipe) — list, get, get-definition, get-settings, set-settings, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition, last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger
 - [job](#job) — list, run, status, log, abort, wait
@@ -120,6 +120,7 @@ dku dataset delete DATASET_NAME [-P PROJECT] [--yes]
 dku dataset clear DATASET_NAME [-P PROJECT]
 dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
 dku dataset set-definition DATASET_NAME [-P PROJECT] --definition JSON
+dku dataset count DATASET_NAME [-P PROJECT] [-o FORMAT]
 dku dataset set-schema DATASET_NAME [-P PROJECT] --definition JSON
 dku dataset set-metadata DATASET_NAME [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
 dku dataset set-column-description DATASET_NAME COL1 "DESC1" COL2 "DESC2" [-P PROJECT]
@@ -138,6 +139,8 @@ dku dataset partitions DATASET_NAME [-P PROJECT] [-o FORMAT]
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
+- `count` returns the row count from cached metrics. Computes metrics if no cache exists. Use after recipe runs to verify output
+- `set-schema` accepts both `{"columns": [...]}` (full object) and `[{name, type}, ...]` (plain array — auto-wrapped). Round-trips with `schema -o json`
 - `set-metadata` updates description, short description, and/or tags without needing JSON. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `set-column-description` takes alternating column-name description pairs (even count required)
 - `ai-describe` calls DSS AI Services to generate descriptions for the dataset and its columns. Requires 'Generate Metadata' enabled in DSS admin. `--save` persists descriptions to the dataset; without it, only displays suggestions. `--language`: english (default), french, german, dutch, portuguese, spanish
