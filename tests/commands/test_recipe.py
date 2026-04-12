@@ -64,6 +64,70 @@ def test_recipe_get_definition_table(patch_client):
     assert "Payload" in result.output
 
 
+def test_recipe_get_definition_sql_query_raw_payload(patch_client):
+    """SQL query recipes have raw text payloads — obj_payload raises JSONDecodeError.
+    get-definition must not crash and should show a text preview of the SQL.
+    """
+    from unittest.mock import PropertyMock
+    import json as _json
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "extract_base_plan",
+    }
+    settings._str_payload = (
+        "SELECT * FROM ${projectKey}_src WHERE reporting_date > '2024-12-31'"
+    )
+    # obj_payload should NOT be consulted for sql_query recipes; simulate the
+    # real dataikuapi behavior where it raises on invalid JSON.
+    type(settings).obj_payload = PropertyMock(
+        side_effect=_json.JSONDecodeError("Expecting value", "", 0)
+    )
+    settings.get_flat_input_refs.return_value = ["src", "dim_a", "dim_b"]
+    settings.get_flat_output_refs.return_value = ["extract_base_plan"]
+
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "extract_base_plan", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "sql_query" in result.output
+    assert "src" in result.output
+    assert "extract_base_plan" in result.output
+    # The SQL preview should appear (truncated is OK)
+    assert "SELECT" in result.output or "reporting_date" in result.output
+
+
+def test_recipe_get_definition_sql_query_json_output(patch_client):
+    """In JSON mode, SQL recipe payload must serialize as a string, not crash."""
+    from unittest.mock import PropertyMock
+    import json as _json
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "my_sql",
+    }
+    settings._str_payload = "SELECT count(*) FROM ${projectKey}_dim_a"
+    type(settings).obj_payload = PropertyMock(
+        side_effect=_json.JSONDecodeError("Expecting value", "", 0)
+    )
+    settings.get_flat_input_refs.return_value = ["dim_a"]
+    settings.get_flat_output_refs.return_value = ["my_sql_out"]
+
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "my_sql", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = _json.loads(result.output)
+    assert parsed["definition"]["type"] == "sql_query"
+    assert parsed["payload"] == "SELECT count(*) FROM ${projectKey}_dim_a"
+
+
 def test_recipe_run(patch_client):
     result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0

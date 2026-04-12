@@ -166,13 +166,58 @@ def _create_eval_recipe_raw(
     return proj.get_recipe(response["name"])
 
 
+# Recipe types whose payload is raw source text (Python / SQL / R / shell),
+# not a JSON object. For these, `obj_payload` raises a JSON decode error.
+_TEXT_PAYLOAD_RECIPE_TYPES = frozenset(
+    {
+        "python",
+        "r",
+        "shell",
+        "sql_query",
+        "sql_script",
+        "spark_sql_query",
+        "pyspark",
+        "sparkr",
+        "spark_scala",
+        "cpython",
+    }
+)
+
+
+def _is_text_payload_recipe(settings) -> bool:
+    """True if the recipe's payload is raw code text, not a JSON object."""
+    try:
+        rtype = settings.get_recipe_raw_definition().get("type", "")
+    except Exception:
+        return False
+    return rtype in _TEXT_PAYLOAD_RECIPE_TYPES
+
+
+def _get_text_payload(settings) -> str:
+    """Read the raw string payload of a code recipe (sql_query, python, etc.)."""
+    # dataikuapi stores the string payload in _str_payload; obj_payload getter
+    # tries to json.loads it, which crashes on SQL / code recipes.
+    if getattr(settings, "_str_payload", None) is not None:
+        return settings._str_payload
+    # Fallback: the data dict may hold it under "payload"
+    data = getattr(settings, "data", None)
+    if isinstance(data, dict) and isinstance(data.get("payload"), str):
+        return data["payload"]
+    return ""
+
+
 def _get_recipe_payload(settings) -> dict:
-    """Get or init the recipe payload, handling read-only obj_payload property."""
+    """Get or init the recipe payload, handling read-only obj_payload property.
+
+    For code recipes (sql_query, python, etc.), the payload is raw source text,
+    not a dict — callers should use `_get_text_payload` instead. This helper
+    is only for visual recipes whose payload is JSON.
+    """
     try:
         payload = settings.obj_payload
         if payload is not None:
             return payload
-    except (AttributeError, TypeError, KeyError):
+    except (AttributeError, TypeError, KeyError, json.JSONDecodeError, ValueError):
         pass
 
     # obj_payload is read-only in real dataikuapi — write to raw_params directly
@@ -357,7 +402,16 @@ def get_definition(
         recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
-        payload = settings.obj_payload
+
+        # Code recipes (sql_query, python, etc.) store raw source text; visual
+        # recipes store a JSON config. obj_payload crashes for code recipes.
+        if _is_text_payload_recipe(settings):
+            payload = _get_text_payload(settings)
+        else:
+            try:
+                payload = settings.obj_payload
+            except (json.JSONDecodeError, ValueError):
+                payload = _get_text_payload(settings)
 
         if output == "json":
             result = {"definition": raw_def, "payload": payload}
@@ -365,6 +419,14 @@ def get_definition(
         else:
             input_refs = settings.get_flat_input_refs()
             output_refs = settings.get_flat_output_refs()
+            # For code recipes display a short preview of the text, not the whole body
+            if isinstance(payload, str):
+                preview = payload[:200] + ("..." if len(payload) > 200 else "")
+                payload_display = preview if preview else "(none)"
+            else:
+                payload_display = (
+                    json.dumps(payload, default=str) if payload else "(none)"
+                )
             data = [
                 {"field": "Name", "value": recipe_name},
                 {"field": "Type", "value": raw_def.get("type", "")},
@@ -372,7 +434,7 @@ def get_definition(
                 {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
                 {
                     "field": "Payload",
-                    "value": json.dumps(payload, default=str) if payload else "(none)",
+                    "value": payload_display,
                 },
             ]
             render(

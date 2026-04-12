@@ -31,6 +31,7 @@ metadata:
 > 9. **Keep date columns as STRING at ingest.** `dku dataset set-schema` with `type: date` on a CSV with ISO dates silently nulls every row. ISO strings compare and aggregate chronologically correctly anyway.
 > 10. **Never trust `dku dataset head -o json | wc -l` for row counts.** Use `dku dataset count --recompute`.
 > 11. **`PROC UNIVARIATE` → Python recipe, not Group.** Group recipe aggregations are `sum/avg/min/max/count/stddev` only — no median, no quantiles. For stats migrations, use `numpy.percentile(x, p, method="averaged_inverted_cdf")` (matches SAS `QNTLDEF=5`) and `numpy.std(x, ddof=1)` (sample std — numpy default is population). pandas `quantile()` default is the wrong type.
+> 12. **`connect to odbc as remote(...)` → SQL recipe, NOT skip.** The SQL inside the `from connection to remote(SELECT ...)` body is real transformation code. Register each source table as a Dataiku dataset on a SQL connection (`postgresql-local`, `duckdb_local`, or a real cloud DW), then `dku recipe create -t sql_query` with all sources as inputs and the translated SELECT as the code. 100% parity achieved this way on a 14-join production passthrough. Details in `references/enterprise-patterns.md`.
 >
 > Also use the `dku-cli` skill for CLI specifics and the `dataiku` skill for platform knowledge.
 
@@ -186,7 +187,7 @@ Full verified behavior catalog in **`references/sas-semantics.md`**.
 | `references/sas-semantics.md` | Any time you need to understand *why* a SAS program produces a given value — PDV, MERGE semantics, missing value rules, macro scoping |
 | `references/function-mapping.md` | Translating SAS functions (`PUT`, `INPUT`, `SCAN`, `INTCK`, ...) to GREL or SQL; PROC FORMAT ranges; SAS formats → Prepare processors |
 | `references/gotchas.md` | Full 3-table catalog: Dataiku/CLI, SAS parsing, SAS behavior |
-| `references/enterprise-patterns.md` | When the SAS program is a driver script / DB-native orchestration (T-MSIS style) — SQL passthrough, job control, when to stop and ask the user |
+| `references/enterprise-patterns.md` | When the SAS program uses ODBC passthrough (`connect to odbc as remote(...)`) or is a DB-native driver script (T-MSIS style) — migrate each passthrough as a **SQL recipe** on a Dataiku SQL connection. Passthrough is NOT a skip — it's a data source |
 
 
 ## Error Recovery
