@@ -242,7 +242,7 @@ dataiku-cli/
 │   ├── config.py                   # TOML config read/write via platformdirs
 │   ├── output.py                   # All rendering: table/json/csv, quiet mode
 │   ├── errors.py                   # dataikuapi exception → user-friendly message + exit code
-│   └── commands/                   # one file per noun (31 command groups)
+│   └── commands/                   # one file per noun
 ├── dataiku-devkit/                 # AI agent DevKit
 │   ├── skills/
 │   │   ├── dataiku/
