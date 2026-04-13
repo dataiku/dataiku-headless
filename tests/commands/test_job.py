@@ -56,6 +56,54 @@ def test_job_log(patch_client):
     assert "Log line" in result.output
 
 
+def test_job_log_tail(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "line1\nline2\nline3\nline4"
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--tail", "2"]
+    )
+    assert result.exit_code == 0
+    assert "line1" not in result.output
+    assert "line2" not in result.output
+    assert "line3" in result.output
+    assert "line4" in result.output
+
+
+def test_job_log_errors_only(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "\n".join(
+        [
+            "INFO start",
+            "INFO preparing recipe",
+            "ERROR recipe failed",
+            'ValueError: bad column "MONTH_DATE"',
+            "Traceback (most recent call last):",
+            'KeyError: "MONTH_DATE"',
+            "INFO cleanup",
+        ]
+    )
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--errors-only"]
+    )
+    assert result.exit_code == 0
+    assert "ERROR recipe failed" in result.output
+    assert 'KeyError: "MONTH_DATE"' in result.output
+    assert "INFO preparing recipe" in result.output
+    assert "INFO start" not in result.output
+
+
+def test_job_log_errors_only_falls_back_when_no_matches(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "INFO build started\nINFO build finished"
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--errors-only"]
+    )
+    assert result.exit_code == 0
+    assert "No error-like lines found" in result.output
+    assert "INFO build started" in result.output
+    assert "INFO build finished" in result.output
+
+
 def test_job_abort(patch_client):
     result = runner.invoke(app, ["job", "abort", "job1", "--project", "PROJ1"])
     assert result.exit_code == 0

@@ -20,6 +20,54 @@ from dku_cli.output import (
 
 app = typer.Typer(help="Manage DSS jobs.")
 
+_ERROR_MARKERS = (
+    "error",
+    "exception",
+    "traceback",
+    "failed",
+)
+
+
+def _tail_lines(text: str, count: int) -> str:
+    """Return the last *count* lines from *text*."""
+    if count <= 0:
+        return ""
+    lines = text.splitlines()
+    return "\n".join(lines[-count:])
+
+
+def _filter_error_lines(text: str, context: int = 1) -> str:
+    """Return error-like lines with a small amount of surrounding context.
+
+    DSS job logs are plain text and not strongly structured, so this is
+    intentionally heuristic: keep lines containing common failure markers plus a
+    few surrounding lines to preserve traceback readability.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return ""
+
+    selected: set[int] = set()
+    for idx, line in enumerate(lines):
+        lowered = line.lower()
+        if any(marker in lowered for marker in _ERROR_MARKERS):
+            start = max(0, idx - context)
+            end = min(len(lines), idx + context + 1)
+            selected.update(range(start, end))
+
+    if not selected:
+        return ""
+
+    ordered = sorted(selected)
+    chunks: list[str] = []
+    previous: int | None = None
+    for idx in ordered:
+        if previous is not None and idx != previous + 1:
+            chunks.append("...")
+        chunks.append(lines[idx])
+        previous = idx
+    return "\n".join(chunks)
+
 
 @app.command("list")
 def list_jobs(
@@ -95,6 +143,14 @@ def log(
     ctx: typer.Context,
     job_id: str = typer.Argument(help="Job ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    tail: int | None = typer.Option(
+        None, "--tail", help="Show only the last N log lines"
+    ),
+    errors_only: bool = typer.Option(
+        False,
+        "--errors-only",
+        help="Show only error-like log lines plus nearby context",
+    ),
 ) -> None:
     """Show job log output."""
     project_key = resolve_project(project)
@@ -103,6 +159,16 @@ def log(
         proj = client.get_project(project_key)
         job = proj.get_job(job_id)
         log_text = job.get_log()
+        if errors_only:
+            filtered = _filter_error_lines(log_text)
+            if filtered:
+                log_text = filtered
+            else:
+                warn(
+                    "No error-like lines found in the job log. Showing the original log."
+                )
+        if tail is not None:
+            log_text = _tail_lines(log_text, tail)
         console.print(log_text)
     except Exception as e:
         handle_api_error(e)
