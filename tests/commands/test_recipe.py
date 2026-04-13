@@ -476,8 +476,19 @@ def test_recipe_create_with_connection(patch_client):
     builder.build.assert_called_once()
 
 
-def test_recipe_create_connection_ignored_for_visual(patch_client):
-    """--connection is ignored (with warning) for visual recipes that use with_existing_output."""
+def test_recipe_create_visual_with_connection_auto_creates_output(patch_client):
+    """Visual recipes with --connection auto-create the output via with_new_output().
+
+    Visual recipe builders (JoinRecipeCreator, GroupingRecipeCreator, ...)
+    inherit with_new_output(name, connection) from SingleOutputRecipeCreator
+    via VirtualInputsSingleOutputRecipeCreator. The CLI routes --connection
+    through that path so visual recipes can create their output on the target
+    connection in one call (no need to pre-create the output dataset).
+    """
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Visual builders have with_new_output but NOT with_new_output_dataset
+    del builder.with_new_output_dataset
     result = runner.invoke(
         app,
         [
@@ -491,7 +502,31 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
             "--output-ds",
             "output_ds",
             "--connection",
-            "filesystem_managed",
+            "sql_managed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created recipe" in result.output
+    builder.with_new_output.assert_called_once_with("output_ds", "sql_managed")
+    builder.with_existing_output.assert_not_called()
+
+
+def test_recipe_create_visual_without_connection_uses_existing_output(patch_client):
+    """Visual recipes without --connection still require a pre-existing output."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "visual_recipe",
+            "--type",
+            "join",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
             "--project",
             "PROJ1",
         ],
@@ -500,7 +535,7 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
     assert "Created recipe" in result.output
     builder = patch_client.get_project("PROJ1").new_recipe.return_value
     builder.with_existing_output.assert_called_once_with("output_ds")
-    builder.with_new_output_dataset.assert_not_called()
+    builder.with_new_output.assert_not_called()
 
 
 def test_recipe_create_sync_with_connection(patch_client):

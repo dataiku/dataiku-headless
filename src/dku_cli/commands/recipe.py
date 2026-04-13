@@ -690,27 +690,24 @@ def create(
                 )
             if input_ds is not None:
                 builder.with_input(input_ds)
-            # Output wiring by recipe family:
-            # - Visual recipes (join, group, shaker, ...): with_existing_output()
-            # - Code recipes (python, r, shell, ...): with_new_output_dataset(name, connection)
-            # - sync / sql_query: with_new_output(name, connection)
+            # Output wiring:
+            # - Code recipes use CodeRecipeCreator.with_new_output_dataset(name, connection)
+            # - Everything else with --connection uses
+            #   SingleOutputRecipeCreator.with_new_output(name, connection) — this
+            #   covers sync, sql_query, AND visual recipes (join, group, sort, distinct,
+            #   prepare, window, pivot, sampling, stack, fuzzyjoin, geojoin) which all
+            #   inherit it from VirtualInputsSingleOutputRecipeCreator / SingleOutputRecipeCreator.
+            # - Visual recipes without --connection fall back to with_existing_output().
+            # - Recipe types that subclass DSSRecipeCreator directly (topn) have no
+            #   auto-create method and fall through to with_output().
             type_lower = type_name.lower()
             is_visual = type_lower in _VISUAL_RECIPE_TYPES
-            if is_visual:
-                if connection:
-                    warn(
-                        "--connection is ignored for visual recipes (output must already exist)."
-                    )
+            if connection and hasattr(builder, "with_new_output_dataset"):
+                builder.with_new_output_dataset(output_ds, connection)
+            elif connection and hasattr(builder, "with_new_output"):
+                builder.with_new_output(output_ds, connection)
+            elif is_visual and hasattr(builder, "with_existing_output"):
                 builder.with_existing_output(output_ds)
-            elif connection:
-                if hasattr(builder, "with_new_output_dataset"):
-                    # CodeRecipeCreator path (python, r, shell, sql, ...)
-                    builder.with_new_output_dataset(output_ds, connection)
-                elif hasattr(builder, "with_new_output"):
-                    # SingleOutputRecipeCreator path (sync, sql_query, ...)
-                    builder.with_new_output(output_ds, connection)
-                else:
-                    builder.with_output(output_ds)
             else:
                 builder.with_output(output_ds)
             builder.build()
