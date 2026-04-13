@@ -198,10 +198,16 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 ### Dataset Create + Upload
 `dku dataset create` defaults to Filesystem, which does NOT support `dku dataset upload`. Use `--type UploadedFiles` for anything being uploaded via CLI.
 
-`dku dataset delete` / `dku project delete` have no `--yes` flag. For non-interactive deletion: `echo y | dku dataset delete NAME -P PROJ`.
+`dku dataset delete` and `dku recipe delete` prompt by default but support `--yes` / `-y` for non-interactive deletion. `dku project delete` requires `--confirm`, `--yes`, or `-y`.
 
 ### Code Recipe Create + Connection
-`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c`. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). Visual recipes don't need `--connection`.
+`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c` when creating Python/SQL recipes in projects without a default managed connection. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). If `connection list` is unavailable, inspect an existing dataset with `dku dataset get-definition DS -P PROJ -o json | jq -r '.params.connection'`. Cross-project recipe inputs use `PROJECT_KEY.DATASET_NAME`. Visual recipe shortcuts auto-create outputs and don't need `--connection`.
+
+### Dataset Verification + Schema Reality
+`dku dataset head -o json` returning `[]` means the dataset has 0 rows, not an error. Always verify built outputs with `dku dataset head OUTPUT -P PROJ -n 5` and inspect actual columns with `dku dataset schema OUTPUT -P PROJ` before assuming a recipe worked. Wiki plans and schema docs can lag the real dataset.
+
+### Python Recipe Numeric IDs
+ID columns from external datasets may contain nulls or non-numeric values. Never cast directly with `.astype("int64")`; use `pd.to_numeric(..., errors="coerce")`, `dropna`, then cast, or the recipe will fail with `IntCastingNaNError`.
 
 ### Plugin Webapp Backend
 DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app = Flask(__name__)` — it breaks `/__ping`. Import from `dataiku.customwebapp`, not `dataiku.webapp`. Folder is `webapps/`, not `custom-webapps/`. `webapp.json` needs `hasBackend: true`, `noJSSecurity: true`.

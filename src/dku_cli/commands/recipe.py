@@ -100,6 +100,24 @@ def _require_existing_dataset(
         handle_api_error(e)
 
 
+def _get_recipe_or_exit(proj, recipe_name: str, project_key: str):
+    """Return a recipe object or exit with prescriptive guidance when missing."""
+    try:
+        return proj.get_recipe(recipe_name)
+    except Exception as e:
+        if is_not_found_error(e) or str(e).strip("'") == "recipe":
+            exit_with_error(
+                f"Recipe '{recipe_name}' not found in project '{project_key}'.",
+                code="not_found",
+                status=3,
+                details=[
+                    f"List recipes: dku recipe list -P {project_key}",
+                    f"Inspect the project flow: dku project inspect {project_key} -o json",
+                ],
+            )
+        raise
+
+
 def _create_eval_recipe_raw(
     client,
     proj,
@@ -287,7 +305,7 @@ def get(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        recipe = proj.get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
 
@@ -336,7 +354,7 @@ def get_definition(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        recipe = proj.get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
         payload = settings.obj_payload
@@ -394,7 +412,7 @@ def run(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        recipe = proj.get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
 
         if job_type or auto_update_schema:
             # Get recipe outputs to build via job builder
@@ -673,12 +691,19 @@ def delete(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete a recipe."""
     project_key = resolve_project(project)
+    if not yes:
+        confirm = typer.confirm(f"Delete recipe '{recipe_name}' from {project_key}?")
+        if not confirm:
+            raise typer.Abort()
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         recipe.delete()
         success(f"Deleted recipe '{recipe_name}' from {project_key}")
     except Exception as e:
@@ -808,7 +833,9 @@ def set_code(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
 
         if code == "-":
             code_text = sys.stdin.read()
@@ -837,7 +864,9 @@ def get_code(
     output = resolve_output_format(output, allowed=("text", "json"), default="text")
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         payload = settings.get_payload()
         if output == "json":

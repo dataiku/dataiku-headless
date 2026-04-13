@@ -265,7 +265,7 @@ dku recipe get-settings RECIPE_NAME [-P PROJECT] [-o json]
 dku recipe set-settings RECIPE_NAME --settings JSON [-P PROJECT]
 dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku recipe create RECIPE_NAME --type TYPE --input DS --output-ds DS [-P PROJECT]
-dku recipe delete RECIPE_NAME [-P PROJECT]
+dku recipe delete RECIPE_NAME [-P PROJECT] [--yes]
 dku recipe rename RECIPE_NAME --name NEW_NAME [-P PROJECT]
 dku recipe status RECIPE_NAME [-P PROJECT] [-o FORMAT]             # Engine, severity, check messages
 dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
@@ -279,6 +279,7 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 
 - `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
+- `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
 - `get-settings` returns full recipe settings as JSON including the visual recipe payload (sort orders, join keys, filter conditions, etc.). Unlike `get`, this includes the payload
 - `set-settings` sets full recipe settings from JSON. Root-level keys update the definition; the `payload` key updates the visual recipe config (shallow merge). Use `get-settings` first to read, modify, then `set-settings` to update
@@ -334,7 +335,7 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 dku job list [-P PROJECT] [-o FORMAT]
 dku job run --target NAME [--target NAME2] [-P PROJECT] [--type BUILD_TYPE] [--auto-update-schema] [--wait] [--timeout SECS] [--refresh-metastore]
 dku job status JOB_ID [-P PROJECT] [-o FORMAT]
-dku job log JOB_ID [-P PROJECT]
+dku job log JOB_ID [-P PROJECT] [--tail N] [--errors-only]
 dku job abort JOB_ID [-P PROJECT]
 dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 ```
@@ -343,6 +344,8 @@ dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 - `run --type` defaults to `NON_RECURSIVE_FORCED_BUILD`; use `RECURSIVE_BUILD` to build upstream deps
 - `run --auto-update-schema` auto-updates output schemas before each recipe run — eliminates manual schema propagation
 - `run --wait` blocks until completion; combine with `--timeout` for bounded waits
+- `log --tail N` keeps only the last N lines for shorter inspection
+- `log --errors-only` heuristically filters to error-like lines plus nearby context; if nothing matches, it falls back to the full log with a warning
 
 ## plugin
 
