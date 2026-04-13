@@ -64,6 +64,70 @@ def test_recipe_get_definition_table(patch_client):
     assert "Payload" in result.output
 
 
+def test_recipe_get_definition_sql_query_raw_payload(patch_client):
+    """SQL query recipes have raw text payloads — obj_payload raises JSONDecodeError.
+    get-definition must not crash and should show a text preview of the SQL.
+    """
+    from unittest.mock import PropertyMock
+    import json as _json
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "extract_base_plan",
+    }
+    settings._str_payload = (
+        "SELECT * FROM ${projectKey}_src WHERE reporting_date > '2024-12-31'"
+    )
+    # obj_payload should NOT be consulted for sql_query recipes; simulate the
+    # real dataikuapi behavior where it raises on invalid JSON.
+    type(settings).obj_payload = PropertyMock(
+        side_effect=_json.JSONDecodeError("Expecting value", "", 0)
+    )
+    settings.get_flat_input_refs.return_value = ["src", "dim_a", "dim_b"]
+    settings.get_flat_output_refs.return_value = ["extract_base_plan"]
+
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "extract_base_plan", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "sql_query" in result.output
+    assert "src" in result.output
+    assert "extract_base_plan" in result.output
+    # The SQL preview should appear (truncated is OK)
+    assert "SELECT" in result.output or "reporting_date" in result.output
+
+
+def test_recipe_get_definition_sql_query_json_output(patch_client):
+    """In JSON mode, SQL recipe payload must serialize as a string, not crash."""
+    from unittest.mock import PropertyMock
+    import json as _json
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "my_sql",
+    }
+    settings._str_payload = "SELECT count(*) FROM ${projectKey}_dim_a"
+    type(settings).obj_payload = PropertyMock(
+        side_effect=_json.JSONDecodeError("Expecting value", "", 0)
+    )
+    settings.get_flat_input_refs.return_value = ["dim_a"]
+    settings.get_flat_output_refs.return_value = ["my_sql_out"]
+
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "my_sql", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = _json.loads(result.output)
+    assert parsed["definition"]["type"] == "sql_query"
+    assert parsed["payload"] == "SELECT count(*) FROM ${projectKey}_dim_a"
+
+
 def test_recipe_run(patch_client):
     result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -143,8 +207,8 @@ def test_recipe_create(patch_client):
     proj.new_recipe.assert_called_once_with("python", "new_recipe")
     builder = proj.new_recipe.return_value
     builder.with_input.assert_called_once_with("input_ds")
-    # MagicMock has all attrs, so hasattr picks with_existing_output
-    builder.with_existing_output.assert_called_once_with("output_ds")
+    # Python is a code recipe — no --connection means with_output() (project default)
+    builder.with_output.assert_called_once_with("output_ds")
     builder.build.assert_called_once()
 
 
@@ -350,7 +414,8 @@ def test_recipe_create_output_dataset_alias(patch_client):
     assert "Created recipe" in result.output
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
-    builder.with_existing_output.assert_called_once_with("output_ds")
+    # Python is a code recipe — no --connection means with_output() (project default)
+    builder.with_output.assert_called_once_with("output_ds")
 
 
 def test_recipe_create_output_ds_already_exists(patch_client):
@@ -438,6 +503,69 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
     builder.with_new_output_dataset.assert_not_called()
 
 
+def test_recipe_create_sync_with_connection(patch_client):
+    """-t sync --connection X routes to with_new_output() (SingleOutputRecipeCreator path).
+
+    This is the canonical CSV → Postgres landing pattern. Before this fix, `sync`
+    was mis-classified as visual and forced users to pre-create the output dataset
+    (which defaults to unwritable `query` mode for SQL connections).
+    """
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # SingleOutputRecipeCreator has with_new_output but NOT with_new_output_dataset
+    del builder.with_new_output_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "sync_csv_to_pg",
+            "--type",
+            "sync",
+            "--input",
+            "my_csv",
+            "--output-ds",
+            "my_pg_table",
+            "--connection",
+            "postgresql-local",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created recipe" in result.output
+    proj.new_recipe.assert_called_once_with("sync", "sync_csv_to_pg")
+    builder.with_new_output.assert_called_once_with("my_pg_table", "postgresql-local")
+    builder.with_existing_output.assert_not_called()
+
+
+def test_recipe_create_sql_query_with_connection(patch_client):
+    """-t sql_query --connection X routes to with_new_output()."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    del builder.with_new_output_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_sql_step",
+            "--type",
+            "sql_query",
+            "--input",
+            "src_table",
+            "--output-ds",
+            "derived_table",
+            "--connection",
+            "postgresql-local",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    builder.with_new_output.assert_called_once_with("derived_table", "postgresql-local")
+
+
 def test_recipe_create_connection_required_error(patch_client):
     """Missing managed connection gives actionable error suggesting --connection."""
     proj = patch_client.get_project("PROJ1")
@@ -503,11 +631,32 @@ def test_recipe_create_visual_type_connection_error_suggests_pre_create(patch_cl
 
 
 def test_recipe_delete(patch_client):
-    result = runner.invoke(app, ["recipe", "delete", "recipe1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted recipe" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     recipe.delete.assert_called_once()
+
+
+def test_recipe_delete_prompts_without_yes(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="y\n"
+    )
+    assert result.exit_code == 0
+    assert "Delete recipe 'recipe1' from PROJ1?" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.delete.assert_called_once()
+
+
+def test_recipe_delete_aborts_on_no(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="n\n"
+    )
+    assert result.exit_code != 0
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.delete.assert_not_called()
 
 
 def test_recipe_set_code_inline(patch_client):
@@ -1255,9 +1404,7 @@ def test_recipe_create_agent_eval_full(patch_client):
 
 
 def test_recipe_get_json_error_payload(patch_client):
-    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception(
-        "NotFoundException: recipe does not exist"
-    )
+    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("'recipe'")
     result = runner.invoke(
         app,
         ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
@@ -1267,7 +1414,14 @@ def test_recipe_get_json_error_payload(patch_client):
     parsed = json.loads(result.stderr)
     assert parsed["error"]["code"] == "not_found"
     assert parsed["error"]["exit_code"] == 3
-    assert "recipe does not exist" in parsed["error"]["message"]
+    assert (
+        parsed["error"]["message"]
+        == "Recipe 'missing_recipe' not found in project 'PROJ1'."
+    )
+    assert parsed["error"]["details"] == [
+        "List recipes: dku recipe list -P PROJ1",
+        "Inspect the project flow: dku project inspect PROJ1 -o json",
+    ]
 
 
 # ── Schema inspection commands ───────────────────────────────────────
@@ -1709,6 +1863,55 @@ def test_recipe_create_join_multi_input_indexed_keys(patch_client):
     # Join 1 should have region=region_name condition
     assert len(mock_joins[1]["on"]) >= 1
     assert mock_joins[1]["on"][0]["column1"]["name"] == "region"
+
+
+def test_recipe_create_join_five_inputs_creates_four_join_pairs(patch_client):
+    """With 5 inputs, the CLI extends raw_joins to 4 pairs (DSS's builder
+    pre-creates only 1 pair, so we must fill the rest)."""
+    # Simulate DSS's builder pre-creating a single default join pair for 2+ inputs.
+    _proj, _settings, mock_joins = _setup_join_mock(patch_client, num_joins=1)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "five_way",
+            "-i",
+            "main",
+            "-i",
+            "dim_a",
+            "-i",
+            "dim_b",
+            "-i",
+            "dim_c",
+            "-i",
+            "dim_d",
+            "--output-ds",
+            "fully_enriched",
+            "--join-key",
+            "k0=a_key",
+            "--join-key",
+            "1:k1=b_key",
+            "--join-key",
+            "2:k2=c_key",
+            "--join-key",
+            "3:k3=d_key",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # 5 inputs → 4 join pairs
+    assert len(mock_joins) == 4
+    # Each pair fans out from table 0 to tables 1..4
+    for i, j in enumerate(mock_joins):
+        assert j["table1"] == 0
+        assert j["table2"] == i + 1
+    # All four keys should be wired (not just the first)
+    assert mock_joins[0]["on"][0]["column1"]["name"] == "k0"
+    assert mock_joins[1]["on"][0]["column1"]["name"] == "k1"
+    assert mock_joins[2]["on"][0]["column1"]["name"] == "k2"
+    assert mock_joins[3]["on"][0]["column1"]["name"] == "k3"
 
 
 # ── Visual recipe: create-pivot ────────────────────────────────────────
@@ -2460,6 +2663,36 @@ def test_recipe_create_group(patch_client):
     builder.with_group_key.assert_called_once_with("region")
 
 
+def test_recipe_create_group_no_global_count(patch_client):
+    """--no-global-count disables the DSS default per-group count column."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "tight_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum",
+            "--no-global-count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.set_global_count_enabled.assert_called_once_with(False)
+    settings.save.assert_called()
+
+
 def test_recipe_create_group_with_agg(patch_client):
     """--agg configures column aggregations after build."""
     proj = patch_client.get_project("PROJ1")
@@ -2745,6 +2978,81 @@ def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
     )
     assert result.exit_code == 0
     assert "Created distinct recipe" in result.output
+
+
+def test_recipe_create_distinct_defaults_to_all_input_columns(patch_client):
+    """Without --on, create-distinct populates keys with every input column.
+
+    Prevents the silent bug where DSS defaults to keys=[first_col] +
+    selectAllColumns=false, which projects the output to a single column.
+    """
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [
+            {"name": "customer_id", "type": "string"},
+            {"name": "order_date", "type": "date"},
+            {"name": "amount", "type": "double"},
+        ]
+    }
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "orders",
+            "--output-ds",
+            "unique_orders",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == [
+        {"column": "customer_id"},
+        {"column": "order_date"},
+        {"column": "amount"},
+    ]
+    assert settings.obj_payload["selectAllColumns"] is True
+    settings.save.assert_called()
+
+
+def test_recipe_create_distinct_with_explicit_on_flag(patch_client):
+    """--on col1 --on col2 sets only the specified keys (skips schema lookup)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "orders",
+            "--output-ds",
+            "unique_per_customer",
+            "--on",
+            "customer_id",
+            "--on",
+            "order_date",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == [
+        {"column": "customer_id"},
+        {"column": "order_date"},
+    ]
+    assert settings.obj_payload["selectAllColumns"] is True
 
 
 # ── Dynamic connection discovery ──────────────────────────────────────
@@ -3375,6 +3683,7 @@ def test_recipe_add_delete_columns(patch_client):
 
 
 def test_recipe_add_find_replace(patch_client):
+    """Default --matching is SUBSTRING (mirrors Python str.replace / SAS tranwrd)."""
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
@@ -3397,6 +3706,32 @@ def test_recipe_add_find_replace(patch_client):
     assert step["type"] == "FindReplace"
     assert step["params"]["columns"] == ["category"]
     assert step["params"]["mapping"] == [{"from": "Electronics", "to": "Tech"}]
+    assert step["params"]["matching"] == "SUBSTRING"
+
+
+def test_recipe_add_find_replace_full_string_opt_in(patch_client):
+    """Exact-match mode is opt-in via --matching FULL_STRING."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-find-replace",
+            "prep1",
+            "--column",
+            "status",
+            "--find",
+            "ACTIVE",
+            "--replace",
+            "active",
+            "--matching",
+            "FULL_STRING",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
     assert step["params"]["matching"] == "FULL_STRING"
 
 
@@ -3426,7 +3761,13 @@ def test_recipe_create_window_basic(patch_client):
 
 
 def test_recipe_create_window_with_partition_key(patch_client):
-    """--partition-key sets partitioningColumns in payload."""
+    """--partition-key sets partitioningColumns in payload.
+
+    Writes both to top-level (for backwards compat) AND nested under
+    windows[0] with enablePartitioning=true (DSS's canonical location).
+    Writing only to top-level causes the Window recipe to silently ignore
+    partitioning and produce global aggregations.
+    """
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
@@ -3448,8 +3789,45 @@ def test_recipe_create_window_with_partition_key(patch_client):
         ],
     )
     assert result.exit_code == 0
+    # Top-level (backwards compat)
     assert settings.obj_payload["partitioningColumns"] == [{"column": "customer_id"}]
+    # Nested windows[0] (canonical) — enable flag MUST be true
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enablePartitioning"] is True
+    assert win0["partitioningColumns"] == ["customer_id"]
     settings.save.assert_called()
+
+
+def test_recipe_create_window_partition_and_order_sets_enable_flags(patch_client):
+    """Partition + order both set their enable flags inside windows[0]."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--partition-key",
+            "customer_id",
+            "--order-key",
+            "last_update_date:desc",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enablePartitioning"] is True
+    assert win0["partitioningColumns"] == ["customer_id"]
+    assert win0["enableOrdering"] is True
+    assert win0["orders"] == [{"column": "last_update_date", "desc": True}]
 
 
 def test_recipe_create_window_with_order_key(patch_client):
@@ -3800,10 +4178,8 @@ def test_recipe_set_settings_updates_payload(patch_client):
 
 
 def test_recipe_create_filter_with_formula(patch_client):
-    """--filter-formula configures filter expression."""
-    proj = patch_client.get_project("PROJ1")
-    recipe_mock = proj.get_recipe.return_value
-    settings = recipe_mock.get_settings.return_value
+    """create-filter builds a Prepare recipe with a FilterOnCustomFormula step."""
+    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
 
     result = runner.invoke(
         app,
@@ -3821,11 +4197,44 @@ def test_recipe_create_filter_with_formula(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "Created filter recipe" in result.output
-    assert settings.obj_payload["filterExpression"] == "age > 30"
-    assert settings.obj_payload["samplingMethod"] == "FULL"
+    # Expect a prepare/shaker recipe with a single FilterOnCustomFormula step
+    proj.new_recipe.assert_called_with("shaker", "my_filter")
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["type"] == "FilterOnCustomFormula"
+    assert step["params"]["expression"] == "age > 30"
+    assert step["params"]["action"] == "KEEP_ROW"
     settings.save.assert_called()
+
+
+def test_recipe_create_filter_remove_row(patch_client):
+    """--action REMOVE_ROW drops matching rows instead of keeping them."""
+    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-filter",
+            "drop_bad",
+            "-i",
+            "data",
+            "--output-ds",
+            "cleaned",
+            "-f",
+            "status == 'ERROR'",
+            "--action",
+            "REMOVE_ROW",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert steps[0]["params"]["action"] == "REMOVE_ROW"
 
 
 def test_recipe_create_window_with_partition_col(patch_client):

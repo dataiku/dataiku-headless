@@ -186,3 +186,46 @@ def test_sql_query_api_error(patch_client):
     patch_client.sql_query.side_effect = Exception("connection refused")
     result = runner.invoke(app, ["sql", "query", "SELECT 1", "-c", "badconn"])
     assert result.exit_code != 0
+
+
+def test_sql_query_ddl_no_result_set(patch_client):
+    """DDL statements (DROP, CREATE, TRUNCATE, ALTER) return no result set.
+
+    get_schema() raises on such results. The CLI must treat this as success
+    and emit a confirmation, not a 'schema' error.
+    """
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = KeyError("schema")
+    patch_client.sql_query.return_value = result_mock
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            'DROP TABLE IF EXISTS "stale_table"',
+            "-c",
+            "postgresql-local",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Statement executed" in result.output
+    assert "postgresql-local" in result.output
+
+
+def test_sql_query_insert_no_result_set(patch_client):
+    """DML statements like INSERT also return no result set."""
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = Exception("no schema for DML")
+    patch_client.sql_query.return_value = result_mock
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            "INSERT INTO logs (msg) VALUES ('hi')",
+            "-c",
+            "myconn",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Statement executed" in result.output
