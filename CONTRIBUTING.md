@@ -5,15 +5,11 @@ Thanks for your interest in contributing!
 ## Quick Start
 
 ```bash
-git clone https://github.com/dataiku/dataiku-cli
+git clone https://github.com/dataiku/dataiku-cli.git
 cd dataiku-cli
 uv sync
 uv run dku --help
 uv run pytest -v
-
-# Install CLI + DevKit locally
-uv tool install --from . dku-cli
-./scripts/install-devkit.sh
 ```
 
 ## Development

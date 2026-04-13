@@ -20,21 +20,20 @@
 **Dataiku DevKit** — enables any AI coding agent to do anything in Dataiku DSS.
 
 Ships two components:
-- **`dku` CLI** — 300+ commands across 42 groups. A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
+- **`dku` CLI** — A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
 - **Dataiku DevKit** — 2 skills, reference docs, and 3 subagents that teach AI coding agents how to build plugins, manage projects, and operate DSS.
 
 > **Private repo** — not on PyPI or any public registry. Install from a local clone.
 
 ```bash
-# 1. Clone the repo (requires access)
+# Clone and install
 git clone https://github.com/dataiku/dataiku-cli.git
 cd dataiku-cli
 
-# 2. Install the CLI globally
+# Install CLI globally
 uv tool install --from . dku-cli
 
-# 3. Install the DevKit (skills + agents) for Claude Code
-./scripts/install-devkit.sh
+# Install DevKit (skills + agents) — see DevKit Installation section below
 ```
 
 ---
@@ -136,17 +135,6 @@ Credentials resolve in order: CLI flags → `DKU_URL`/`DKU_API_KEY` env vars →
 
 Since this is a private repo, install the DevKit by symlinking from your local clone. This means `git pull` automatically updates the skills everywhere.
 
-#### Automated (recommended)
-
-```bash
-# From the repo root
-./scripts/install-devkit.sh
-```
-
-This creates symlinks from `~/.claude/skills/` and `~/.claude/agents/` to the repo source.
-
-#### Manual
-
 ```bash
 # Skills (2 skill directories)
 ln -sf /path/to/dataiku-cli/dataiku-devkit/skills/dataiku ~/.claude/skills/dataiku
@@ -167,7 +155,7 @@ Copy `dataiku-devkit/skills/` into your agent's skill directory. No symlink equi
 | Component | Type | Description |
 |-----------|------|-------------|
 | `dataiku` | Skill | Platform knowledge — reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
-| `dku-cli` | Skill | CLI operations — 300+ commands, chaining patterns, composability |
+| `dku-cli` | Skill | CLI operations — chaining patterns, composability |
 | `plugin-reviewer` | Agent | Deep code review against a structured checklist |
 | `dss-explorer` | Agent | Explore a DSS project via CLI and produce a structured report |
 | `tool-designer` | Agent | Design agent tool schemas and implementation plans |
@@ -268,8 +256,6 @@ dataiku-cli/
 │       ├── plugin-reviewer.md      # Deep plugin code review
 │       ├── dss-explorer.md         # Explore DSS projects via CLI
 │       └── tool-designer.md        # Design agent tool schemas
-├── scripts/
-│   └── install-devkit.sh           # Symlink skills + agents to ~/.claude/
 ├── benchmark/                      # 9-tier agent performance benchmark (192 scenarios)
 ├── tests/                          # CLI unit tests
 └── pyproject.toml
@@ -280,15 +266,14 @@ dataiku-cli/
 ## Development
 
 ```bash
-git clone https://github.com/dataiku/dataiku-cli
+git clone https://github.com/dataiku/dataiku-cli.git
 cd dataiku-cli
 uv sync
 uv run pre-commit install
 uv run pytest -v
 
-# Install CLI + DevKit for local use
+# Install CLI globally
 uv tool install --from . dku-cli
-./scripts/install-devkit.sh
 ```
 
 **Skills** (available anywhere the DevKit is installed):
