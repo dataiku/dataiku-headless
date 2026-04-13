@@ -79,11 +79,10 @@ _INPUT_OPTIONAL_TYPES = frozenset(
     {"python", "r", "shell", "pyspark", "cpython", "sparkr"}
 )
 
-# Visual recipe types whose output MUST already exist (no auto-create).
-# `sync` and `sql_query` are intentionally NOT in this set — they inherit
-# SingleOutputRecipeCreator.with_new_output(name, connection, ...) which
-# auto-creates the output on the target connection. This is the canonical
-# "CSV → SQL table" landing path (no Python passthrough recipe needed).
+# Visual recipe types routed via `with_existing_output()` in the generic
+# `dku recipe create` path. sync and sql_query inherit
+# SingleOutputRecipeCreator.with_new_output(name, connection, ...) and
+# auto-create the output on the target connection, so they're excluded.
 _VISUAL_RECIPE_TYPES = frozenset(
     {
         "join",
@@ -445,7 +444,6 @@ def get_definition(
         else:
             input_refs = settings.get_flat_input_refs()
             output_refs = settings.get_flat_output_refs()
-            # For code recipes display a short preview of the text, not the whole body
             if isinstance(payload, str):
                 preview = payload[:200] + ("..." if len(payload) > 200 else "")
                 payload_display = preview if preview else "(none)"
@@ -574,7 +572,7 @@ def create(
         None,
         "--connection",
         "-c",
-        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) AND sync recipes. For `sync` + `--connection <sql_conn>`, landing a file dataset into a managed SQL table becomes a one-liner (no Python passthrough needed). Run 'dku connection list' to see available connections.",
+        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) and for sync recipes. Run 'dku connection list' to see available connections.",
     ),
     input_role: str = typer.Option(
         "main",
@@ -692,13 +690,10 @@ def create(
                 )
             if input_ds is not None:
                 builder.with_input(input_ds)
-            # Recipe output creation paths:
-            # - Visual recipes (join, group, shaker, ...) MUST have an existing output.
-            # - Code recipes (python, r, shell, ...) use CodeRecipeCreator.with_new_output_dataset().
-            # - sync and sql_query inherit SingleOutputRecipeCreator, which offers
-            #   with_new_output(name, connection, ...) for auto-creation on a target connection.
-            #   This is how cross-connection landing (file -> managed SQL table, etc.)
-            #   works without writing a Python passthrough recipe.
+            # Output wiring by recipe family:
+            # - Visual recipes (join, group, shaker, ...): with_existing_output()
+            # - Code recipes (python, r, shell, ...): with_new_output_dataset(name, connection)
+            # - sync / sql_query: with_new_output(name, connection)
             type_lower = type_name.lower()
             is_visual = type_lower in _VISUAL_RECIPE_TYPES
             if is_visual:

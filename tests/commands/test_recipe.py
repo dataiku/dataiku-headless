@@ -3684,7 +3684,7 @@ def test_recipe_add_delete_columns(patch_client):
 
 
 def test_recipe_add_find_replace(patch_client):
-    """Default --matching is SUBSTRING (mirrors Python str.replace / SAS tranwrd)."""
+    """Default --matching is SUBSTRING."""
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
