@@ -156,7 +156,8 @@ def info_cmd(
         ds = client.get_project(project_key).get_dataset(dataset_name)
 
         if recompute:
-            info("Recomputing metrics...")
+            if fmt != "json":
+                info("Recomputing metrics...")
             try:
                 ds.compute_metrics(
                     metric_ids=[
@@ -166,7 +167,8 @@ def info_cmd(
                     ]
                 )
             except Exception as exc:
-                warn(f"Metric recompute failed: {exc}")
+                if fmt != "json":
+                    warn(f"Metric recompute failed: {exc}")
 
         # --- Definition: type, connection, format, columns ---
         ds_def = ds.get_definition()
