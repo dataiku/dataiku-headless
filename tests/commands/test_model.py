@@ -211,3 +211,219 @@ def test_model_set_metadata_no_args(patch_client):
         app, ["model", "set-metadata", "model1", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# --- create-mlflow ---
+
+
+def test_model_create_mlflow(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "create-mlflow",
+            "Churn Model",
+            "-t",
+            "BINARY_CLASSIFICATION",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created" in result.output
+    assert "model1" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.create_mlflow_pyfunc_model.assert_called_once_with(
+        "Churn Model", prediction_type="BINARY_CLASSIFICATION"
+    )
+
+
+def test_model_create_mlflow_no_type(patch_client):
+    """Prediction type is optional."""
+    result = runner.invoke(
+        app, ["model", "create-mlflow", "Generic Model", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.create_mlflow_pyfunc_model.assert_called_once_with(
+        "Generic Model", prediction_type=None
+    )
+
+
+def test_model_create_mlflow_json(patch_client):
+    result = runner.invoke(
+        app,
+        ["model", "create-mlflow", "Test", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "model1"
+    assert parsed["name"] == "Test"
+
+
+def test_model_create_mlflow_invalid_type(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "create-mlflow",
+            "Bad",
+            "-t",
+            "INVALID",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "BINARY_CLASSIFICATION" in result.output
+
+
+# --- import-mlflow ---
+
+
+def test_model_import_mlflow(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "import-mlflow",
+            "model1",
+            "-v",
+            "v1",
+            "--path",
+            "/tmp/mlflow_model",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Imported" in result.output
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    model.import_mlflow_version_from_path.assert_called_once_with(
+        "v1", "/tmp/mlflow_model", code_env_name="LOCAL-CODE-ENV", set_active=True
+    )
+
+
+def test_model_import_mlflow_no_set_active(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "import-mlflow",
+            "model1",
+            "-v",
+            "v2",
+            "--path",
+            "/tmp/model",
+            "--no-set-active",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    model.import_mlflow_version_from_path.assert_called_once_with(
+        "v2", "/tmp/model", code_env_name="LOCAL-CODE-ENV", set_active=False
+    )
+
+
+# --- create-external ---
+
+
+def test_model_create_external(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "create-external",
+            "SageMaker Model",
+            "-t",
+            "BINARY_CLASSIFICATION",
+            "--protocol",
+            "sagemaker",
+            "--region",
+            "eu-west-1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.create_external_model.assert_called_once_with(
+        "SageMaker Model",
+        "BINARY_CLASSIFICATION",
+        {"protocol": "sagemaker", "region": "eu-west-1"},
+    )
+
+
+def test_model_create_external_with_connection(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "create-external",
+            "Vertex Model",
+            "-t",
+            "REGRESSION",
+            "--protocol",
+            "vertex-ai",
+            "--region",
+            "europe-west1",
+            "--connection",
+            "vertex_conn",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.create_external_model.assert_called_once_with(
+        "Vertex Model",
+        "REGRESSION",
+        {
+            "protocol": "vertex-ai",
+            "region": "europe-west1",
+            "connection": "vertex_conn",
+        },
+    )
+
+
+def test_model_create_external_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "create-external",
+            "Test",
+            "-t",
+            "MULTICLASS",
+            "--protocol",
+            "databricks",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "model1"
+
+
+def test_model_create_external_invalid_type(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "create-external",
+            "Bad",
+            "-t",
+            "INVALID",
+            "--protocol",
+            "sagemaker",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0

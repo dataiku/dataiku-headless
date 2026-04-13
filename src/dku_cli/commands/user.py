@@ -1,4 +1,4 @@
-"""dku user — list, create, get, delete."""
+"""dku user — list, create, get, delete, activity, add-secret."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS users.")
 
@@ -101,5 +101,75 @@ def delete(
         user = client.get_user(login)
         user.delete()
         success(f"Deleted user '{login}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def activity(
+    ctx: typer.Context,
+    login: str = typer.Argument(help="User login"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show user activity (last login, last session, etc).
+
+    Example:
+      dku user activity admin
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        user = client.get_user(login)
+        act = user.get_activity()
+        raw = act.get_raw()
+
+        if fmt == "json":
+            render_raw(raw, output_format="json")
+        else:
+
+            def _fmt_ts(ts):
+                if not ts or ts <= 0:
+                    return "(never)"
+                try:
+                    from datetime import datetime, timezone
+
+                    return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M UTC"
+                    )
+                except Exception:
+                    return str(ts)
+
+            info(f"User: {login}")
+            info(f"Last successful login: {_fmt_ts(raw.get('lastSuccessfulLogin'))}")
+            info(f"Last failed login: {_fmt_ts(raw.get('lastFailedLogin'))}")
+            info(f"Last session activity: {_fmt_ts(raw.get('lastSessionActivity'))}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-secret")
+def add_secret(
+    ctx: typer.Context,
+    login: str = typer.Argument(help="User login"),
+    name: str = typer.Option(..., "--name", "-n", help="Secret name"),
+    value: str = typer.Option(..., "--value", "-v", help="Secret value"),
+) -> None:
+    """Add or replace a user secret.
+
+    User secrets are accessible in code via dataiku.get_custom_variables()
+    and are scoped to the user.
+
+    Example:
+      dku user add-secret admin --name MY_TOKEN --value "abc123"
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        user = client.get_user(login)
+        settings = user.get_settings()
+        settings.add_secret(name, value)
+        settings.save()
+        success(f"Added secret '{name}' for user '{login}'")
     except Exception as e:
         handle_api_error(e)

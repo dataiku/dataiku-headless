@@ -165,3 +165,117 @@ def test_llm_embeddings_json_error_payload_is_single_document(patch_client):
     assert parsed["error"]["details"] == [
         "Requested LLM ID: azureopenai:Azure_AI_Connection:4o"
     ]
+
+
+# --- completion --json-schema ---
+
+
+def test_llm_completion_json_schema(patch_client):
+    """--json-schema calls with_json_output on the completion."""
+    schema = json.dumps({"type": "object", "properties": {"name": {"type": "string"}}})
+    result = runner.invoke(
+        app,
+        [
+            "llm",
+            "completion",
+            "llm1",
+            "Extract name",
+            "--json-schema",
+            schema,
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
+# --- generate-image ---
+
+
+def test_llm_generate_image(patch_client):
+    result = runner.invoke(
+        app,
+        ["llm", "generate-image", "llm1", "--prompt", "A cat", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "success" in result.output
+
+
+def test_llm_generate_image_to_file(patch_client, tmp_path):
+    dest = tmp_path / "test.png"
+    # Make first_image return bytes for bytes mode
+    img_response = (
+        patch_client.get_project("PROJ1")
+        .get_llm("llm1")
+        .new_images_generation()
+        .execute.return_value
+    )
+    img_response.first_image.side_effect = lambda as_type="bytes": (
+        b"\x89PNG\r\n" if as_type == "bytes" else "iVBOR..."
+    )
+    result = runner.invoke(
+        app,
+        [
+            "llm",
+            "generate-image",
+            "llm1",
+            "--prompt",
+            "A sunset",
+            "--dest",
+            str(dest),
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert dest.exists()
+
+
+# --- rerank ---
+
+
+def test_llm_rerank_table(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "llm",
+            "rerank",
+            "llm1",
+            "-q",
+            "best food",
+            "--doc",
+            "Pizza place",
+            "--doc",
+            "Sushi bar",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Sushi bar" in result.output  # index 1 ranked first
+    assert "0.9500" in result.output
+
+
+def test_llm_rerank_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "llm",
+            "rerank",
+            "llm1",
+            "-q",
+            "best food",
+            "--doc",
+            "Pizza",
+            "--doc",
+            "Sushi",
+            "-P",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    assert parsed[0]["score"] == 0.95

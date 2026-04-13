@@ -512,6 +512,91 @@ def test_recipe_delete(patch_client):
     recipe.delete.assert_called_once()
 
 
+def test_recipe_rename(patch_client):
+    result = runner.invoke(
+        app,
+        ["recipe", "rename", "recipe1", "--name", "recipe1_new", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Renamed" in result.output
+    assert "recipe1_new" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.rename.assert_called_once_with("recipe1_new")
+
+
+def test_recipe_rename_same_name_error(patch_client):
+    """Renaming to the same name gives prescriptive error."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.rename.side_effect = ValueError("Recipe name is already recipe1")
+    result = runner.invoke(
+        app,
+        ["recipe", "rename", "recipe1", "--name", "recipe1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "already" in result.output.lower()
+
+
+def test_recipe_rename_requires_name(patch_client):
+    """--name is required."""
+    result = runner.invoke(app, ["recipe", "rename", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+
+
+# --- status ---
+
+
+def test_recipe_status_table(patch_client):
+    """Status shows engine, severity, and messages."""
+    result = runner.invoke(app, ["recipe", "status", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "DSS" in result.output  # engine
+    assert "SUCCESS" in result.output  # severity
+    assert "Recipe is valid" in result.output  # message title
+
+
+def test_recipe_status_json(patch_client):
+    """JSON output returns structured status."""
+    result = runner.invoke(
+        app, ["recipe", "status", "recipe1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["engine"] == "DSS"
+    assert parsed["severity"] == "SUCCESS"
+    assert len(parsed["messages"]) == 1
+    assert parsed["messages"][0]["severity"] == "SUCCESS"
+
+
+def test_recipe_status_no_engine(patch_client):
+    """Recipes without engine concept show (none)."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    status_mock = recipe.get_status.return_value
+    status_mock.get_selected_engine_details.side_effect = ValueError(
+        "This recipe doesn't have a selected engine"
+    )
+    result = runner.invoke(app, ["recipe", "status", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "(none)" in result.output
+
+
+def test_recipe_status_no_messages(patch_client):
+    """Recipes with no messages show informational text."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    status_mock = recipe.get_status.return_value
+    status_mock.get_status_messages.return_value = []
+    status_mock.get_status_severity.return_value = None
+    result = runner.invoke(app, ["recipe", "status", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "no status messages" in result.output.lower()
+
+
+def test_recipe_status_env_project(patch_client, monkeypatch):
+    """Resolves project from DKU_PROJECT env var."""
+    monkeypatch.setenv("DKU_PROJECT", "PROJ1")
+    result = runner.invoke(app, ["recipe", "status", "recipe1"])
+    assert result.exit_code == 0
+
+
 def test_recipe_delete_prompts_without_yes(patch_client):
     result = runner.invoke(
         app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="y\n"
