@@ -1636,21 +1636,11 @@ def add_find_replace(
     matching: str = typer.Option(
         "SUBSTRING",
         "--matching",
-        help=(
-            "Match mode. SUBSTRING (default — like Python str.replace / SAS tranwrd), "
-            "FULL_STRING (exact cell match), or PATTERN (regex)."
-        ),
+        help="Match mode: SUBSTRING (default), FULL_STRING (exact cell match), or PATTERN (regex).",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add a find-and-replace step on a column.
-
-    Use instead of df[col].str.replace() in Python.
-
-    Defaults to SUBSTRING matching so it behaves like Python's str.replace and
-    SAS's tranwrd. Use --matching FULL_STRING to match the whole cell value
-    exactly, or --matching PATTERN to treat --find as a regex.
-    """
+    """Add a find-and-replace step on a column."""
     _add_prepare_step(
         ctx,
         recipe_name,
@@ -2335,8 +2325,7 @@ def create_group(
     Without --agg, defaults to COUNT per group. Use -k for group keys (repeatable: -k col1 -k col2).
 
     By default DSS adds a 'count' column (rows per group). Pass --no-global-count
-    to suppress it — useful when migrating from SAS/SQL where PROC SQL / GROUP BY
-    only produces columns the user explicitly aggregated.
+    to suppress it when only the explicit aggregates should appear in the output.
     """
     project_key = resolve_project(project)
     # Validate --agg format early (before any API calls)
