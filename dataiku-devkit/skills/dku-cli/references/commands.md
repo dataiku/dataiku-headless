@@ -168,17 +168,33 @@ dku recipe create-sampling NAME -i DS --output-ds OUT [--method METHOD] [--size 
 dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL [-P PROJECT]       # Fold (wide→long)
 ```
 
-- `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`
+- `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`, `--join-key 2:col`. With N inputs the CLI creates N-1 join pairs (main ↔ input 1, main ↔ input 2, …)
 - `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group. DSS adds a per-group `count` column by default — pass `--no-global-count` to suppress it (needed for SQL/SAS migrations where only the explicit aggregates should appear in the output)
+- `create-distinct` deduplicates on **all input columns by default** (matching `df.drop_duplicates()` semantics). Use `--on col1 --on col2` to dedup on a subset. Passing no `--on` flag reads the input schema and wires every column as a key
 - `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional
 - `create-sampling` takes a sample. `--method`: RANDOM_FIXED_NB (default), RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED. `--size N` or `--ratio 0.1`
 - `add-fold` unpivots columns into rows (wide→long). Use `--columns` for explicit list or `--pattern` for regex match
 - `create-sort --sort-col COL` sets sort columns at creation (repeatable). Use `COL` for ascending or `COL:desc` for descending
 - `create-topn --sort-col COL` and `--n N` set the sort column(s) and row limit at creation
 - `create-filter` builds a **Prepare recipe** with a single `FilterOnCustomFormula` step (not a Sampling recipe — whose filter schema is unstable across DSS versions). `--filter-formula` is required (aliases `--filter`, `-f`). `--action KEEP_ROW` (default) keeps matching rows, `--action REMOVE_ROW` drops them
-- `create-window --partition-col COL` and `--order-col COL` set the window partition and ordering columns at creation
+- `create-window --partition-key COL` and `--order-key COL` set the window partition and ordering columns. The CLI writes both to `windows[0]` with `enablePartitioning=true` / `enableOrdering=true` so aggregations/ranks are computed per-partition (not globally)
 - `create-embed --embed-column COL` specifies the column to embed (alias for `--text-column`)
 - Visual recipes auto-apply schema updates after creation. For manual control: `apply-schema RECIPE -P PROJ`
+
+### Sync recipe: landing data across connections
+
+`sync` moves data from one dataset to another — typically across connections (CSV → Postgres, filesystem → Snowflake, etc.). Unlike visual recipes (which require the output to pre-exist), **`-t sync --connection X`** auto-creates the output as a managed dataset on the target connection:
+
+```bash
+# Upload CSV, then land it in Postgres with ONE recipe call (no Python passthrough)
+dku dataset create src_events --type UploadedFiles -P PROJ && \
+dku dataset upload src_events events.csv -P PROJ && \
+dku recipe create sync_events -t sync -i src_events --output-ds pg_events \
+  --connection postgresql-local -P PROJ && \
+dku dataset build pg_events -P PROJ --wait
+```
+
+The same pattern works for `-t sql_query --connection X` when the source is another SQL-connection dataset and you want a custom SELECT landed as a new managed table.
 
 ### Prepare recipe step commands
 

@@ -79,6 +79,32 @@ _INPUT_OPTIONAL_TYPES = frozenset(
     {"python", "r", "shell", "pyspark", "cpython", "sparkr"}
 )
 
+# Visual recipe types whose output MUST already exist (no auto-create).
+# `sync` and `sql_query` are intentionally NOT in this set — they inherit
+# SingleOutputRecipeCreator.with_new_output(name, connection, ...) which
+# auto-creates the output on the target connection. This is the canonical
+# "CSV → SQL table" landing path (no Python passthrough recipe needed).
+_VISUAL_RECIPE_TYPES = frozenset(
+    {
+        "join",
+        "group",
+        "sort",
+        "distinct",
+        "topn",
+        "window",
+        "stack",
+        "split",
+        "shaker",
+        "prepare",
+        "filter",
+        "pivot",
+        "sampling",
+        "sample",
+        "geojoin",
+        "fuzzyjoin",
+    }
+)
+
 
 def _is_plugin_recipe_type(type_name: str) -> bool:
     """Plugin recipe types follow the pattern CustomCode_<recipeComponentId>."""
@@ -548,7 +574,7 @@ def create(
         None,
         "--connection",
         "-c",
-        help="Connection for output dataset (code recipes). Use when project has no default managed connection. Run 'dku connection list' to see available connections.",
+        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) AND sync recipes. For `sync` + `--connection <pg>`, landing a CSV into Postgres becomes a one-liner (no Python passthrough needed). Run 'dku connection list' to see available connections.",
     ),
     input_role: str = typer.Option(
         "main",
@@ -666,11 +692,14 @@ def create(
                 )
             if input_ds is not None:
                 builder.with_input(input_ds)
-            # Visual recipe creators have with_existing_output() — output must already exist.
-            # Code recipe creators (CodeRecipeCreator) use:
-            #   - with_new_output_dataset(name, connection) when --connection is provided
-            #   - with_output(name) when no connection (requires existing dataset or project default)
-            is_visual = hasattr(builder, "with_existing_output")
+            # Recipe output creation paths:
+            # - Visual recipes (join, group, shaker, ...) MUST have an existing output.
+            # - Code recipes (python, r, shell, ...) use CodeRecipeCreator.with_new_output_dataset().
+            # - sync and sql_query inherit SingleOutputRecipeCreator, which offers
+            #   with_new_output(name, connection, ...) for auto-creation on a target connection.
+            #   This is how "CSV → Postgres" lands without writing a Python passthrough recipe.
+            type_lower = type_name.lower()
+            is_visual = type_lower in _VISUAL_RECIPE_TYPES
             if is_visual:
                 if connection:
                     warn(
@@ -678,7 +707,14 @@ def create(
                     )
                 builder.with_existing_output(output_ds)
             elif connection:
-                builder.with_new_output_dataset(output_ds, connection)
+                if hasattr(builder, "with_new_output_dataset"):
+                    # CodeRecipeCreator path (python, r, shell, sql, ...)
+                    builder.with_new_output_dataset(output_ds, connection)
+                elif hasattr(builder, "with_new_output"):
+                    # SingleOutputRecipeCreator path (sync, sql_query, ...)
+                    builder.with_new_output(output_ds, connection)
+                else:
+                    builder.with_output(output_ds)
             else:
                 builder.with_output(output_ds)
             builder.build()
@@ -695,25 +731,9 @@ def create(
                 ],
             )
         if is_connection_required_error(e):
-            # Visual recipes (prepare, sync, etc.) need the output to pre-exist.
-            # Code recipes need a --connection for auto-creation.
-            visual_types = {
-                "prepare",
-                "shaker",
-                "sync",
-                "join",
-                "group",
-                "sort",
-                "distinct",
-                "topn",
-                "window",
-                "stack",
-                "split",
-                "filter",
-                "pivot",
-                "sample",
-            }
-            if type_name in visual_types:
+            # Visual recipes (prepare, shaker, join, group, ...) need the output to pre-exist.
+            # Code recipes (python, r, shell) and sync/sql_query need a --connection for auto-creation.
+            if type_name.lower() in _VISUAL_RECIPE_TYPES:
                 exit_with_error(
                     f"Output dataset '{output_ds}' does not exist. Visual recipes require the output dataset to be created first.",
                     code="output_not_found",
@@ -1618,13 +1638,22 @@ def add_find_replace(
     find: str = typer.Option(..., "--find", help="Value to find"),
     replace: str = typer.Option(..., "--replace", help="Replacement value"),
     matching: str = typer.Option(
-        "FULL_STRING", "--matching", help="FULL_STRING, SUBSTRING, or PATTERN (regex)"
+        "SUBSTRING",
+        "--matching",
+        help=(
+            "Match mode. SUBSTRING (default — like Python str.replace / SAS tranwrd), "
+            "FULL_STRING (exact cell match), or PATTERN (regex)."
+        ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Add a find-and-replace step on a column.
 
     Use instead of df[col].str.replace() in Python.
+
+    Defaults to SUBSTRING matching so it behaves like Python's str.replace and
+    SAS's tranwrd. Use --matching FULL_STRING to match the whole cell value
+    exactly, or --matching PATTERN to treat --find as a regex.
     """
     _add_prepare_step(
         ctx,
@@ -1911,11 +1940,26 @@ def create_join(
         join_settings = recipe_obj.get_settings()
         joins = join_settings.raw_joins
 
-        # Newly created join recipes may have an empty joins list.
-        # Create the default join structure(s) matching DSS's expected format.
-        if not joins:
-            for i in range(len(inputs) - 1):
-                joins.append({"table1": 0, "table2": i + 1, "type": jt, "on": []})
+        # DSS's builder may pre-create a single default join pair when there are
+        # 2+ inputs, leaving `joins` at length 1 regardless of input count.
+        # Extend to exactly N-1 join pairs so --join-key 1:col, 2:col, ... all
+        # resolve to a valid target. Each join fans out from table 0 (the main
+        # table) to table i+1 (each subsequent input).
+        # Only extend when raw_joins is a real list (not a test MagicMock).
+        if isinstance(joins, list):
+            target_pairs = max(0, len(inputs) - 1)
+            existing_pairs = len(joins)
+            for i in range(existing_pairs, target_pairs):
+                joins.append(
+                    {
+                        "table1": 0,
+                        "table2": i + 1,
+                        "conditionsMode": "AND",
+                        "type": jt,
+                        "outerJoinOnTheLeft": True,
+                        "on": [],
+                    }
+                )
 
         # Set join type on all existing join pairs
         for j in joins:
@@ -2420,11 +2464,25 @@ def create_distinct(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    on: list[str] | None = typer.Option(
+        None,
+        "--on",
+        help=(
+            "Column(s) defining uniqueness. Repeatable. Default: ALL input columns "
+            "(matching Python df.drop_duplicates() semantics). Specify --on col1 "
+            "--on col2 to dedup only on a subset of columns."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Distinct recipe. Deduplicates rows.
 
-    Use this instead of df.drop_duplicates() in Python.
+    Use this instead of df.drop_duplicates() in Python. By default, deduplicates
+    on ALL columns of the input dataset (so two rows collapse only when every
+    column value matches). Use --on to dedup on a subset.
+
+    Example: dku recipe create-distinct dedup -i rows --output-ds unique -P PROJ
+    Example: dku recipe create-distinct dedup -i rows --output-ds unique --on customer_id --on order_date -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -2435,6 +2493,40 @@ def create_distinct(
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
+
+        # Configure distinct keys. Default behavior is "distinct on ALL columns"
+        # to match df.drop_duplicates() semantics. Without this, DSS defaults to
+        # keys=[first_col] + selectAllColumns=false, which silently produces a
+        # single-column output (the first column) — an anti-pattern that looks
+        # like distinct but is actually a projection.
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(settings)
+
+        if on:
+            key_cols = list(on)
+        else:
+            # Resolve all columns from the input dataset schema.
+            try:
+                input_schema = (
+                    proj.get_dataset(input_ds).get_schema().get("columns", [])
+                )
+                key_cols = [c["name"] for c in input_schema]
+            except Exception:
+                # If we can't read the schema (e.g. input not yet built),
+                # fall back to DSS defaults — better than crashing.
+                key_cols = []
+
+        if key_cols:
+            payload["keys"] = [{"column": c} for c in key_cols]
+            payload["selectAllColumns"] = True
+            info(
+                "Distinct on: "
+                + ", ".join(key_cols[:5])
+                + (f" (+{len(key_cols) - 5} more)" if len(key_cols) > 5 else "")
+            )
+        settings.save()
+
         _auto_apply_schema(proj, recipe_name)
         success(f"Created distinct recipe '{recipe_name}' in {project_key}")
     except Exception as e:
@@ -2747,18 +2839,42 @@ def create_window(
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Configure partition/order keys and computations (WindowRecipeSettings has no helpers)
+        # Configure partition/order keys and computations (WindowRecipeSettings has no helpers).
+        # DSS reads partitioning and ordering from payload.windows[0] and requires the
+        # enablePartitioning / enableOrdering boolean flags. Writing to the top-level
+        # partitioningColumns / orders fields (without the enable flags inside windows[0])
+        # silently produces GLOBAL aggregations instead of per-partition ones.
         if partition_key or order_key or parsed_computations:
             recipe_obj = proj.get_recipe(recipe_name)
             win_settings = recipe_obj.get_settings()
             payload = _get_recipe_payload(win_settings)
+
+            # Ensure windows[0] exists — DSS's builder creates it by default, but
+            # guard against an empty list just in case.
+            windows = payload.setdefault("windows", [])
+            if isinstance(windows, list):
+                if not windows:
+                    windows.append({})
+                win0 = windows[0]
+            else:
+                win0 = None
+
             if partition_key:
+                if isinstance(win0, dict):
+                    win0["enablePartitioning"] = True
+                    win0["partitioningColumns"] = list(partition_key)
+                # Keep the top-level field for forward compat with DSS versions
+                # that inspect it alongside windows[0].
                 payload["partitioningColumns"] = [
                     {"column": col} for col in partition_key
                 ]
                 info(f"Partition by: {', '.join(partition_key)}")
             if order_key:
-                payload["orders"] = _parse_order_specs(order_key)
+                parsed_orders = _parse_order_specs(order_key)
+                if isinstance(win0, dict):
+                    win0["enableOrdering"] = True
+                    win0["orders"] = parsed_orders
+                payload["orders"] = parsed_orders
                 info(f"Order by: {', '.join(order_key)}")
             if parsed_computations:
                 _apply_window_computations(payload, parsed_computations)

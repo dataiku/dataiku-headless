@@ -207,8 +207,8 @@ def test_recipe_create(patch_client):
     proj.new_recipe.assert_called_once_with("python", "new_recipe")
     builder = proj.new_recipe.return_value
     builder.with_input.assert_called_once_with("input_ds")
-    # MagicMock has all attrs, so hasattr picks with_existing_output
-    builder.with_existing_output.assert_called_once_with("output_ds")
+    # Python is a code recipe — no --connection means with_output() (project default)
+    builder.with_output.assert_called_once_with("output_ds")
     builder.build.assert_called_once()
 
 
@@ -414,7 +414,8 @@ def test_recipe_create_output_dataset_alias(patch_client):
     assert "Created recipe" in result.output
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
-    builder.with_existing_output.assert_called_once_with("output_ds")
+    # Python is a code recipe — no --connection means with_output() (project default)
+    builder.with_output.assert_called_once_with("output_ds")
 
 
 def test_recipe_create_output_ds_already_exists(patch_client):
@@ -500,6 +501,69 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
     builder = patch_client.get_project("PROJ1").new_recipe.return_value
     builder.with_existing_output.assert_called_once_with("output_ds")
     builder.with_new_output_dataset.assert_not_called()
+
+
+def test_recipe_create_sync_with_connection(patch_client):
+    """-t sync --connection X routes to with_new_output() (SingleOutputRecipeCreator path).
+
+    This is the canonical CSV → Postgres landing pattern. Before this fix, `sync`
+    was mis-classified as visual and forced users to pre-create the output dataset
+    (which defaults to unwritable `query` mode for SQL connections).
+    """
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # SingleOutputRecipeCreator has with_new_output but NOT with_new_output_dataset
+    del builder.with_new_output_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "sync_csv_to_pg",
+            "--type",
+            "sync",
+            "--input",
+            "my_csv",
+            "--output-ds",
+            "my_pg_table",
+            "--connection",
+            "postgresql-local",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created recipe" in result.output
+    proj.new_recipe.assert_called_once_with("sync", "sync_csv_to_pg")
+    builder.with_new_output.assert_called_once_with("my_pg_table", "postgresql-local")
+    builder.with_existing_output.assert_not_called()
+
+
+def test_recipe_create_sql_query_with_connection(patch_client):
+    """-t sql_query --connection X routes to with_new_output()."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    del builder.with_new_output_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_sql_step",
+            "--type",
+            "sql_query",
+            "--input",
+            "src_table",
+            "--output-ds",
+            "derived_table",
+            "--connection",
+            "postgresql-local",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    builder.with_new_output.assert_called_once_with("derived_table", "postgresql-local")
 
 
 def test_recipe_create_connection_required_error(patch_client):
@@ -1801,6 +1865,55 @@ def test_recipe_create_join_multi_input_indexed_keys(patch_client):
     assert mock_joins[1]["on"][0]["column1"]["name"] == "region"
 
 
+def test_recipe_create_join_five_inputs_creates_four_join_pairs(patch_client):
+    """With 5 inputs, the CLI extends raw_joins to 4 pairs (DSS's builder
+    pre-creates only 1 pair, so we must fill the rest)."""
+    # Simulate DSS's builder pre-creating a single default join pair for 2+ inputs.
+    _proj, _settings, mock_joins = _setup_join_mock(patch_client, num_joins=1)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "five_way",
+            "-i",
+            "main",
+            "-i",
+            "dim_a",
+            "-i",
+            "dim_b",
+            "-i",
+            "dim_c",
+            "-i",
+            "dim_d",
+            "--output-ds",
+            "fully_enriched",
+            "--join-key",
+            "k0=a_key",
+            "--join-key",
+            "1:k1=b_key",
+            "--join-key",
+            "2:k2=c_key",
+            "--join-key",
+            "3:k3=d_key",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # 5 inputs → 4 join pairs
+    assert len(mock_joins) == 4
+    # Each pair fans out from table 0 to tables 1..4
+    for i, j in enumerate(mock_joins):
+        assert j["table1"] == 0
+        assert j["table2"] == i + 1
+    # All four keys should be wired (not just the first)
+    assert mock_joins[0]["on"][0]["column1"]["name"] == "k0"
+    assert mock_joins[1]["on"][0]["column1"]["name"] == "k1"
+    assert mock_joins[2]["on"][0]["column1"]["name"] == "k2"
+    assert mock_joins[3]["on"][0]["column1"]["name"] == "k3"
+
+
 # ── Visual recipe: create-pivot ────────────────────────────────────────
 
 
@@ -2867,6 +2980,81 @@ def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
     assert "Created distinct recipe" in result.output
 
 
+def test_recipe_create_distinct_defaults_to_all_input_columns(patch_client):
+    """Without --on, create-distinct populates keys with every input column.
+
+    Prevents the silent bug where DSS defaults to keys=[first_col] +
+    selectAllColumns=false, which projects the output to a single column.
+    """
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [
+            {"name": "customer_id", "type": "string"},
+            {"name": "order_date", "type": "date"},
+            {"name": "amount", "type": "double"},
+        ]
+    }
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "orders",
+            "--output-ds",
+            "unique_orders",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == [
+        {"column": "customer_id"},
+        {"column": "order_date"},
+        {"column": "amount"},
+    ]
+    assert settings.obj_payload["selectAllColumns"] is True
+    settings.save.assert_called()
+
+
+def test_recipe_create_distinct_with_explicit_on_flag(patch_client):
+    """--on col1 --on col2 sets only the specified keys (skips schema lookup)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "orders",
+            "--output-ds",
+            "unique_per_customer",
+            "--on",
+            "customer_id",
+            "--on",
+            "order_date",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == [
+        {"column": "customer_id"},
+        {"column": "order_date"},
+    ]
+    assert settings.obj_payload["selectAllColumns"] is True
+
+
 # ── Dynamic connection discovery ──────────────────────────────────────
 
 
@@ -3495,6 +3683,7 @@ def test_recipe_add_delete_columns(patch_client):
 
 
 def test_recipe_add_find_replace(patch_client):
+    """Default --matching is SUBSTRING (mirrors Python str.replace / SAS tranwrd)."""
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
@@ -3517,6 +3706,32 @@ def test_recipe_add_find_replace(patch_client):
     assert step["type"] == "FindReplace"
     assert step["params"]["columns"] == ["category"]
     assert step["params"]["mapping"] == [{"from": "Electronics", "to": "Tech"}]
+    assert step["params"]["matching"] == "SUBSTRING"
+
+
+def test_recipe_add_find_replace_full_string_opt_in(patch_client):
+    """Exact-match mode is opt-in via --matching FULL_STRING."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-find-replace",
+            "prep1",
+            "--column",
+            "status",
+            "--find",
+            "ACTIVE",
+            "--replace",
+            "active",
+            "--matching",
+            "FULL_STRING",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
     assert step["params"]["matching"] == "FULL_STRING"
 
 
@@ -3546,7 +3761,13 @@ def test_recipe_create_window_basic(patch_client):
 
 
 def test_recipe_create_window_with_partition_key(patch_client):
-    """--partition-key sets partitioningColumns in payload."""
+    """--partition-key sets partitioningColumns in payload.
+
+    Writes both to top-level (for backwards compat) AND nested under
+    windows[0] with enablePartitioning=true (DSS's canonical location).
+    Writing only to top-level causes the Window recipe to silently ignore
+    partitioning and produce global aggregations.
+    """
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
@@ -3568,8 +3789,45 @@ def test_recipe_create_window_with_partition_key(patch_client):
         ],
     )
     assert result.exit_code == 0
+    # Top-level (backwards compat)
     assert settings.obj_payload["partitioningColumns"] == [{"column": "customer_id"}]
+    # Nested windows[0] (canonical) — enable flag MUST be true
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enablePartitioning"] is True
+    assert win0["partitioningColumns"] == ["customer_id"]
     settings.save.assert_called()
+
+
+def test_recipe_create_window_partition_and_order_sets_enable_flags(patch_client):
+    """Partition + order both set their enable flags inside windows[0]."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--partition-key",
+            "customer_id",
+            "--order-key",
+            "last_update_date:desc",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enablePartitioning"] is True
+    assert win0["partitioningColumns"] == ["customer_id"]
+    assert win0["enableOrdering"] is True
+    assert win0["orders"] == [{"column": "last_update_date", "desc": True}]
 
 
 def test_recipe_create_window_with_order_key(patch_client):
