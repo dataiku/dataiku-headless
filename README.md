@@ -20,13 +20,20 @@
 **Dataiku DevKit** — enables any AI coding agent to do anything in Dataiku DSS.
 
 Ships two components:
-- **`dku` CLI** — 200+ commands across 31 groups. A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
+- **`dku` CLI** — A `kubectl`-style tool for terminal use, CI/CD pipelines, and agent shell commands.
 - **Dataiku DevKit** — 2 skills, reference docs, and 3 subagents that teach AI coding agents how to build plugins, manage projects, and operate DSS.
 
+> **Private repo** — not on PyPI or any public registry. Install from a local clone.
+
 ```bash
-uv tool install git+https://github.com/dataiku/dataiku-cli.git          # CLI
-/plugin marketplace add dataiku/dataiku-cli                              # DevKit (skills+agents) — Claude Code
-npx skills add dataiku/dataiku-cli -g -a codex                           # DevKit (skills) — Codex
+# Clone and install
+git clone https://github.com/dataiku/dataiku-cli.git
+cd dataiku-cli
+
+# Install CLI globally
+uv tool install --from . dku-cli
+
+# Install DevKit (skills + agents) — see DevKit Installation section below
 ```
 
 ---
@@ -83,17 +90,18 @@ The `dku-cli` skill reduces cost 30–50% by documenting exact commands upfront,
 
 ### Installation
 
-Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/). Install from a local clone (private repo — not on PyPI).
 
 ```bash
-uv tool install git+https://github.com/dataiku/dataiku-cli.git
+git clone https://github.com/dataiku/dataiku-cli.git
+cd dataiku-cli
+uv tool install --from . dku-cli
 
-# Update
-uv tool install --reinstall git+https://github.com/dataiku/dataiku-cli.git
-
-# Local dev (from cloned repo)
-uv tool install .
+# Update (after git pull)
+uv tool install --from . dku-cli --force --reinstall
 ```
+
+> **`--force` alone is not enough** — it reuses the cached wheel. You need both `--force --reinstall` to rebuild from source after pulling changes.
 
 ### Quick Start
 
@@ -125,31 +133,29 @@ Credentials resolve in order: CLI flags → `DKU_URL`/`DKU_API_KEY` env vars →
 
 ### Installation
 
-#### Claude Code
+Since this is a private repo, install the DevKit by symlinking from your local clone. This means `git pull` automatically updates the skills everywhere.
 
 ```bash
-/plugin marketplace add dataiku/dataiku-cli
+# Skills (2 skill directories)
+ln -sf /path/to/dataiku-cli/dataiku-devkit/skills/dataiku ~/.claude/skills/dataiku
+ln -sf /path/to/dataiku-cli/dataiku-devkit/skills/dku-cli ~/.claude/skills/dku-cli
+
+# Agents (3 agent definitions)
+ln -sf /path/to/dataiku-cli/dataiku-devkit/agents/dss-explorer.md ~/.claude/agents/dss-explorer.md
+ln -sf /path/to/dataiku-cli/dataiku-devkit/agents/plugin-reviewer.md ~/.claude/agents/plugin-reviewer.md
+ln -sf /path/to/dataiku-cli/dataiku-devkit/agents/tool-designer.md ~/.claude/agents/tool-designer.md
 ```
 
-Update later with `/plugin marketplace update`.
+#### Other agents (Codex, Cursor, etc.)
 
-#### Codex, Cursor, Copilot, and other agents
-
-```bash
-npx skills add dataiku/dataiku-cli -g -a codex    # OpenAI Codex
-npx skills add dataiku/dataiku-cli -g -a cursor   # Cursor
-```
-
-#### Manual
-
-Copy `dataiku-devkit/skills/` and `dataiku-devkit/agents/` into your agent's directories (e.g., `~/.claude/skills/`, `~/.claude/agents/`).
+Copy `dataiku-devkit/skills/` into your agent's skill directory. No symlink equivalent exists for most agents — you'll need to re-copy after updates.
 
 ### Components
 
 | Component | Type | Description |
 |-----------|------|-------------|
 | `dataiku` | Skill | Platform knowledge — reference docs covering plugins, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, scaffolding, and deployment |
-| `dku-cli` | Skill | CLI operations — 200+ commands, chaining patterns, composability |
+| `dku-cli` | Skill | CLI operations — chaining patterns, composability |
 | `plugin-reviewer` | Agent | Deep code review against a structured checklist |
 | `dss-explorer` | Agent | Explore a DSS project via CLI and produce a structured report |
 | `tool-designer` | Agent | Design agent tool schemas and implementation plans |
@@ -236,10 +242,8 @@ dataiku-cli/
 │   ├── config.py                   # TOML config read/write via platformdirs
 │   ├── output.py                   # All rendering: table/json/csv, quiet mode
 │   ├── errors.py                   # dataikuapi exception → user-friendly message + exit code
-│   └── commands/                   # one file per noun (31 command groups)
+│   └── commands/                   # one file per noun
 ├── dataiku-devkit/                 # AI agent DevKit
-│   ├── .claude-plugin/
-│   │   └── plugin.json             # Plugin manifest (Claude Code marketplace)
 │   ├── skills/
 │   │   ├── dataiku/
 │   │   │   ├── SKILL.md            # Platform knowledge router
@@ -262,11 +266,14 @@ dataiku-cli/
 ## Development
 
 ```bash
-git clone https://github.com/dataiku/dataiku-cli
+git clone https://github.com/dataiku/dataiku-cli.git
 cd dataiku-cli
 uv sync
 uv run pre-commit install
 uv run pytest -v
+
+# Install CLI globally
+uv tool install --from . dku-cli
 ```
 
 **Skills** (available anywhere the DevKit is installed):

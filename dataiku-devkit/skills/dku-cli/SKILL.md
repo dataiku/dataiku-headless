@@ -38,7 +38,7 @@ metadata:
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~470 commands** across 53 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands.
 
 ## Think Dataiku-First (CRITICAL — read before every task)
 
@@ -85,8 +85,8 @@ dku job run --target FINAL_OUTPUT -P PROJ \
 # 2. VERIFY — check the final output has real data
 dku dataset head FINAL_OUTPUT -P PROJ -n 5 && \
 
-# 3. VERIFY — check row count is reasonable
-dku dataset count FINAL_OUTPUT -P PROJ
+# 3. VERIFY — check row count, size, and last build
+dku dataset info FINAL_OUTPUT -P PROJ --recompute
 ```
 
 ### Verification Rules

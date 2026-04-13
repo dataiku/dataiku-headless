@@ -33,10 +33,7 @@ def mock_client():
     general_settings.get_raw.return_value = {"dssVersion": "14.0.2"}
     client.get_general_settings.return_value = general_settings
 
-    # Instance info (correct way to get DSS version)
-    instance_info = MagicMock()
-    instance_info.raw = {"dssVersion": "14.0.2"}
-    client.get_instance_info.return_value = instance_info
+    # Instance info set below in Admin section (with full fields)
     client.host = "https://dss.example.com"
 
     # Projects
@@ -46,6 +43,29 @@ def mock_client():
     proj1.get_metadata.return_value = {
         "label": "Project One",
         "shortDesc": "First project",
+    }
+    proj1.generate_ai_description.return_value = {
+        "msg": "This project manages customer data pipelines for analytics."
+    }
+    proj1.get_timeline.return_value = {
+        "createdBy": {"login": "admin"},
+        "createdOn": 1700000000000,
+        "lastModifiedBy": {"login": "dataiku"},
+        "lastModifiedOn": 1700100000000,
+        "allContributors": [
+            {"login": "admin"},
+            {"login": "dataiku"},
+        ],
+        "items": [
+            {
+                "time": 1700100000000,
+                "user": "dataiku",
+                "action": "DATASET_MODIFIED",
+                "objectType": "DATASET",
+                "objectId": "ds1",
+                "projectKey": "PROJ1",
+            },
+        ],
     }
     proj1.list_datasets.return_value = [
         {
@@ -347,6 +367,40 @@ def mock_client():
     recipe_job.get_status.return_value = {"baseStatus": {"state": "DONE"}}
     recipe_mock.run.return_value = recipe_job
     recipe_mock.delete.return_value = None
+    recipe_mock.rename.return_value = None
+
+    # Recipe status mock — get_status() returns DSSRecipeStatus-like object
+    recipe_status_mock = MagicMock()
+    recipe_status_mock.data = {
+        "selectedEngine": {"type": "DSS"},
+        "engines": [{"type": "DSS"}, {"type": "SPARK"}],
+        "allMessagesForFrontend": {
+            "maxSeverity": "SUCCESS",
+            "messages": [
+                {
+                    "severity": "SUCCESS",
+                    "isFatal": False,
+                    "code": "recipe-check-ok",
+                    "title": "Recipe is valid",
+                    "message": "All checks passed",
+                    "details": "",
+                },
+            ],
+        },
+    }
+    recipe_status_mock.get_selected_engine_details.return_value = {"type": "DSS"}
+    recipe_status_mock.get_status_severity.return_value = "SUCCESS"
+    recipe_status_mock.get_status_messages.return_value = [
+        {
+            "severity": "SUCCESS",
+            "isFatal": False,
+            "code": "recipe-check-ok",
+            "title": "Recipe is valid",
+            "message": "All checks passed",
+            "details": "",
+        },
+    ]
+    recipe_mock.get_status.return_value = recipe_status_mock
     recipe_settings.set_payload.return_value = None
     recipe_settings.get_payload.return_value = "# Python code\nimport dataiku"
     recipe_settings.save.return_value = None
@@ -392,6 +446,11 @@ def mock_client():
     # Dataset mocks — iter_rows returns lists (not dicts)
     dataset_mock = MagicMock()
     dataset_mock.get_definition.return_value = {
+        "type": "UploadedFiles",
+        "managed": True,
+        "params": {"uploadConnection": "filesystem_managed"},
+        "formatType": "csv",
+        "tags": ["test"],
         "schema": {
             "columns": [
                 {"name": "col1", "type": "string"},
@@ -425,6 +484,31 @@ def mock_client():
         "tags": [],
     }
     dataset_mock.set_metadata.return_value = None
+    dataset_mock.exists.return_value = True
+
+    # Zone operations
+    zone_mock = MagicMock()
+    zone_mock.id = "zone1"
+    zone_mock.name = "Processing"
+    dataset_mock.get_zone.return_value = zone_mock
+    dataset_mock.share_to_zone.return_value = None
+    dataset_mock.unshare_from_zone.return_value = None
+    dataset_mock.get_usages.return_value = [
+        {
+            "type": "RECIPE_INPUT",
+            "objectId": "compute_output",
+            "objectProjectKey": "PROJ1",
+        },
+        {"type": "ANALYSIS", "objectId": "analysis_1", "objectProjectKey": "PROJ1"},
+    ]
+    dataset_mock.get_column_lineage.return_value = [
+        {
+            "inputDataset": "PROJ1.raw_input",
+            "inputColumn": "revenue_raw",
+            "outputDataset": "PROJ1.ds1",
+            "outputColumn": "revenue",
+        },
+    ]
     dataset_mock.generate_ai_description.return_value = {
         "dataset": {"description": "Customer transactions dataset"},
         "columns": [
@@ -447,6 +531,35 @@ def mock_client():
     }
     autodetect_result.save.return_value = None
     dataset_mock.autodetect_settings.return_value = autodetect_result
+
+    # Dataset info mock (get_info returns DSSDatasetInfo-like object)
+    ds_info_mock = MagicMock()
+    ds_info_mock.get_raw.return_value = {
+        "lastBuild": {
+            "buildEndTime": 1712000000000,
+            "buildStartTime": 1711999900000,
+            "buildSuccess": True,
+        }
+    }
+    dataset_mock.get_info.return_value = ds_info_mock
+
+    # Dataset metrics mock (get_last_metric_values returns ComputedMetrics-like)
+    ds_metrics_mock = MagicMock()
+    ds_metrics_mock.get_all_ids.return_value = [
+        "records:COUNT_RECORDS",
+        "basic:SIZE",
+        "basic:COUNT_FILES",
+    ]
+
+    def _get_metric_value(metric_id):
+        return {
+            "records:COUNT_RECORDS": 15000,
+            "basic:SIZE": 2500000,
+            "basic:COUNT_FILES": 3,
+        }.get(metric_id, 0)
+
+    ds_metrics_mock.get_global_value.side_effect = _get_metric_value
+    dataset_mock.get_last_metric_values.return_value = ds_metrics_mock
 
     # Data Quality mocks
     dq_ruleset = MagicMock()
@@ -540,6 +653,19 @@ def mock_client():
     managed_dataset_builder.create.return_value = dataset_mock
     proj1.new_managed_dataset.return_value = managed_dataset_builder
 
+    # Connection schema/table discovery mocks (project-level)
+    proj1.list_sql_schemas.return_value = ["public", "analytics", "staging"]
+    proj1.list_iceberg_namespaces.return_value = ["default", "production"]
+    proj1.list_sql_tables.return_value = [
+        {"schema": "public", "table": "customers"},
+        {"schema": "public", "table": "orders"},
+        {"schema": "analytics", "table": "revenue_daily"},
+    ]
+    proj1.list_iceberg_tables.return_value = [
+        {"namespace": "default", "table": "events"},
+        {"namespace": "default", "table": "sessions"},
+    ]
+
     # Scenario create mock
     new_scenario_mock = MagicMock()
     new_scenario_mock.id = "new_scen"
@@ -595,9 +721,36 @@ def mock_client():
         "state": "SUCCESS",
         "start": "2025-01-01T00:00:00",
     }
+    run_mock.get_start_time.return_value = "2025-01-01T00:00:00"
+    run_mock.get_duration.return_value = 45.2
+    run_mock.get_log.return_value = (
+        "[2025-01-01 00:00:00] Step 1 completed\n[2025-01-01 00:00:45] Done"
+    )
     scenario_mock.get_last_runs.return_value = [run_mock]
     scenario_mock.get_last_finished_run.return_value = run_mock
+    scenario_mock.get_last_successful_run.return_value = run_mock
+    scenario_mock.get_runs_by_date.return_value = [run_mock]
+    scenario_mock.get_average_duration.return_value = 42.5
+    scenario_mock.get_run.return_value = run_mock
     proj1.get_scenario.return_value = scenario_mock
+
+    # Continuous activities
+    proj1.list_continuous_activities.return_value = [
+        {
+            "projectKey": "PROJ1",
+            "recipeId": "stream_events",
+            "desiredState": "STARTED",
+            "mainLoopState": {"state": "RUNNING"},
+        },
+    ]
+    continuous_mock = MagicMock()
+    continuous_mock.start.return_value = {}
+    continuous_mock.stop.return_value = None
+    continuous_mock.get_status.return_value = {
+        "desiredState": "STARTED",
+        "mainLoopState": {"state": "RUNNING"},
+    }
+    proj1.get_continuous_activity.return_value = continuous_mock
 
     # Job mocks
     # list_jobs() returns top-level fields (NOT nested under baseStatus).
@@ -851,17 +1004,69 @@ def mock_client():
     model_mock.get_version_details.return_value = version_details_mock
     proj1.get_saved_model.return_value = model_mock
 
+    # MLflow / external model creation mocks
+    model_mock.sm_id = "model1"
+    model_mock.import_mlflow_version_from_path.return_value = MagicMock()
+    proj1.create_mlflow_pyfunc_model.return_value = model_mock
+    proj1.create_external_model.return_value = model_mock
+
+    # Model comparisons
+    mc_mock = MagicMock()
+    mc_mock.comparison_id = "mec1"
+    mc_mock.id = "mec1"
+    mc_settings = MagicMock()
+    mc_settings.get_raw.return_value = {
+        "id": "mec1",
+        "displayName": "Churn Models",
+        "modelTaskType": "BINARY_CLASSIFICATION",
+        "comparedModels": [{"refId": "S-PROJ1-model1-v1"}],
+    }
+    mc_settings.add_compared_item.return_value = None
+    mc_settings.remove_compared_item.return_value = None
+    mc_settings.save.return_value = None
+    mc_mock.get_settings.return_value = mc_settings
+    mc_mock.delete.return_value = None
+    proj1.list_model_comparisons.return_value = [mc_mock]
+    proj1.get_model_comparison.return_value = mc_mock
+    proj1.create_model_comparison.return_value = mc_mock
+
     # LLM mock
     llm_mock = MagicMock()
     completion_mock = MagicMock()
     completion_mock.with_message.return_value = completion_mock
     completion_mock.with_system_message.return_value = completion_mock
+    completion_mock.with_json_output.return_value = completion_mock
     llm_response = MagicMock()
     llm_response.text = "Hello from LLM"
     llm_response.success = True
     llm_response.total_usage = {"totalTokens": 10}
     completion_mock.execute.return_value = llm_response
     llm_mock.new_completion.return_value = completion_mock
+
+    # LLM image generation
+    img_gen_mock = MagicMock()
+    img_gen_mock.with_prompt.return_value = img_gen_mock
+    img_gen_mock.with_negative_prompt.return_value = img_gen_mock
+    img_gen_response = MagicMock()
+    img_gen_response.success = True
+    img_gen_response.first_image.return_value = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    img_gen_mock.execute.return_value = img_gen_response
+    llm_mock.new_images_generation.return_value = img_gen_mock
+
+    # LLM reranking
+    rerank_mock = MagicMock()
+    rerank_mock.with_query.return_value = rerank_mock
+    rerank_mock.with_document.return_value = rerank_mock
+    ranked_doc1 = MagicMock()
+    ranked_doc1.index = 1
+    ranked_doc1.relevance_score = 0.95
+    ranked_doc0 = MagicMock()
+    ranked_doc0.index = 0
+    ranked_doc0.relevance_score = 0.42
+    rerank_response = MagicMock()
+    rerank_response.documents = [ranked_doc1, ranked_doc0]
+    rerank_mock.execute.return_value = rerank_response
+    llm_mock.new_reranking.return_value = rerank_mock
 
     # LLM embeddings
     embeddings_mock = MagicMock()
@@ -928,21 +1133,71 @@ def mock_client():
     proj1.preload_bundle.return_value = None
 
     # API Services
+    # Streaming endpoints
+    se_list_item = MagicMock()
+    se_list_item.id = "events_stream"
+    se_list_item.type = "kafka"
+    proj1.list_streaming_endpoints.return_value = [se_list_item]
+    se_mock = MagicMock()
+    se_settings_mock = MagicMock()
+    se_settings_mock.get_raw.return_value = {
+        "id": "events_stream",
+        "type": "kafka",
+        "params": {"connection": "kafka_conn", "topic": "events"},
+    }
+    se_mock.get_settings.return_value = se_settings_mock
+    se_mock.get_schema.return_value = {
+        "columns": [
+            {"name": "event_id", "type": "string"},
+            {"name": "timestamp", "type": "bigint"},
+        ]
+    }
+    se_mock.set_schema.return_value = None
+    se_mock.delete.return_value = None
+    proj1.get_streaming_endpoint.return_value = se_mock
+    proj1.create_streaming_endpoint.return_value = se_mock
+
     proj1.list_api_services.return_value = [{"id": "myservice", "name": "My Service"}]
     api_service_mock = MagicMock()
     api_service_settings = MagicMock()
     api_service_settings.get_raw.return_value = {"id": "myservice", "endpoints": []}
+    api_service_settings.endpoints = [
+        {"id": "predict_churn", "type": "STD_PREDICTION", "modelRef": "model1"},
+    ]
+    api_service_settings.add_prediction_endpoint.return_value = None
+    api_service_settings.add_clustering_endpoint.return_value = None
+    api_service_settings.add_forecasting_endpoint.return_value = None
+    api_service_settings.add_causal_prediction_endpoint.return_value = None
+    api_service_settings.save.return_value = None
     api_service_mock.get_settings.return_value = api_service_settings
     api_service_mock.create_package.return_value = None
     api_service_mock.list_packages.return_value = [
         {"id": "pkg1", "createdOn": "2025-01-01"}
     ]
+    api_service_mock.publish_package.return_value = None
+    api_service_mock.delete_package.return_value = None
     proj1.get_api_service.return_value = api_service_mock
     proj1.create_api_service.return_value = api_service_mock
 
     # Project CRUD
     client.create_project.return_value = MagicMock()
     proj1.delete.return_value = None
+    proj1.move_to_folder.return_value = None
+
+    # Project folders
+    root_folder_mock = MagicMock()
+    root_folder_mock.id = "ROOT"
+    root_folder_mock.name = None
+    root_folder_mock.list_project_keys.return_value = ["PROJ1", "PROJ2"]
+    child_folder_mock = MagicMock()
+    child_folder_mock.id = "folder1"
+    child_folder_mock.name = "Analytics"
+    child_folder_mock.list_project_keys.return_value = ["PROJ3"]
+    child_folder_mock.list_child_folders.return_value = []
+    root_folder_mock.list_child_folders.return_value = [child_folder_mock]
+    root_folder_mock.create_sub_folder.return_value = child_folder_mock
+    client.get_root_project_folder.return_value = root_folder_mock
+    client.get_project_folder.return_value = root_folder_mock
     proj1.duplicate.return_value = MagicMock()
 
     # Project variables
@@ -1501,6 +1756,37 @@ def mock_client():
     proj1.get_knowledge_bank.return_value = kb_mock
     proj1.create_knowledge_bank.return_value = kb_mock
 
+    # RAG LLMs
+    rag_list_item = MagicMock()
+    rag_list_item.id = "rag1"
+    rag_list_item.name = "Customer Support RAG"
+    proj1.list_retrieval_augmented_llms.return_value = [rag_list_item]
+
+    rag_mock = MagicMock()
+    rag_mock.id = "rag1"
+    rag_settings = MagicMock()
+    rag_settings.get_raw.return_value = {
+        "id": "rag1",
+        "projectKey": "PROJ1",
+        "name": "Customer Support RAG",
+        "activeVersion": "v1",
+        "versions": [
+            {
+                "versionId": "v1",
+                "ragllmSettings": {
+                    "kbRef": "kb1",
+                    "llmId": "openai:gpt-4o",
+                },
+            }
+        ],
+    }
+    rag_settings._settings = rag_settings.get_raw.return_value.copy()
+    rag_settings.save.return_value = None
+    rag_mock.get_settings.return_value = rag_settings
+    rag_mock.delete.return_value = None
+    proj1.get_retrieval_augmented_llm.return_value = rag_mock
+    proj1.create_retrieval_augmented_llm.return_value = rag_mock
+
     # Semantic models
     proj1.list_semantic_models.return_value = [
         {"id": "sm1", "name": "My Semantic Model", "projectKey": "PROJ1", "tags": []},
@@ -1991,6 +2277,28 @@ def mock_client():
     }
     client.set_variables.return_value = None
 
+    # Apps
+    app_list_item = MagicMock()
+    app_list_item._data = {"appId": "PROJECT_MYAPP", "label": "My App"}
+    client.list_apps.return_value = [app_list_item]
+    app_mock = MagicMock()
+    app_mock.app_id = "PROJECT_MYAPP"
+    app_manifest_mock = MagicMock()
+    app_manifest_mock.get_raw.return_value = {
+        "appId": "PROJECT_MYAPP",
+        "label": "My App",
+        "homepageSections": [],
+        "instantiationPermission": "EVERYBODY",
+    }
+    app_mock.get_manifest.return_value = app_manifest_mock
+    app_mock.list_instances.return_value = [
+        {"projectKey": "MYAPP_INST1", "name": "Production"},
+    ]
+    app_instance_mock = MagicMock()
+    app_instance_mock.project_key = "MYAPP_NEW"
+    app_mock.create_instance.return_value = app_instance_mock
+    client.get_app.return_value = app_mock
+
     # Plugins — dataikuapi quirk: returns dicts
     client.list_plugins.return_value = [
         {"id": "my-plugin", "version": "1.0.0", "isDev": True},
@@ -2038,7 +2346,138 @@ def mock_client():
     }
     conn_mock.get_settings.return_value = conn_settings_mock
     conn_mock.delete.return_value = None
+    sync_future_mock = MagicMock()
+    sync_future_mock.wait_for_result.return_value = None
+    conn_mock.sync_root_acls.return_value = sync_future_mock
+    conn_mock.sync_datasets_acls.return_value = sync_future_mock
     client.get_connection.return_value = conn_mock
+    client.list_connections_names.return_value = ["Dataiku-Internal-Snowflake"]
+
+    # Meanings
+    # Admin
+    # Clusters
+    client.list_clusters.return_value = [
+        {
+            "name": "k8s-prod",
+            "type": "manual",
+            "state": "RUNNING",
+            "architecture": "KUBERNETES",
+        },
+    ]
+    cluster_mock = MagicMock()
+    cluster_settings_mock = MagicMock()
+    cluster_settings_mock.get_raw.return_value = {
+        "name": "k8s-prod",
+        "type": "manual",
+        "architecture": "KUBERNETES",
+    }
+    cluster_mock.get_settings.return_value = cluster_settings_mock
+    cluster_status_mock = MagicMock()
+    cluster_status_mock.get_raw.return_value = {"state": "RUNNING", "usages": []}
+    cluster_mock.get_status.return_value = cluster_status_mock
+    cluster_mock.start.return_value = {}
+    cluster_mock.stop.return_value = {}
+    cluster_mock.delete.return_value = None
+    client.get_cluster.return_value = cluster_mock
+    client.create_cluster.return_value = cluster_mock
+
+    client.list_logs.return_value = [
+        {"name": "backend.log", "totalSize": 1024000},
+        {"name": "nginx.log", "totalSize": 512000},
+    ]
+    client.get_log.return_value = "[2026-04-09 00:00:00] DSS started"
+    usage_mock = MagicMock()
+    usage_mock.raw = {"projects": 10, "datasets": 50, "recipes": 30, "users": 5}
+    client.get_global_usage_summary.return_value = usage_mock
+    instance_info_mock = MagicMock()
+    instance_info_mock.raw = {
+        "nodeId": "default",
+        "nodeName": "DSS",
+        "nodeType": "DESIGN",
+        "dssVersion": "14.5.0",
+    }
+    client.get_instance_info.return_value = instance_info_mock
+    sanity_result = MagicMock()
+    sanity_result.messages = [
+        {"severity": "WARNING", "code": "CHECK_001", "message": "Minor config issue"},
+    ]
+    client.perform_instance_sanity_check.return_value = sanity_result
+
+    # Global API keys
+    api_key_list_item = MagicMock()
+    api_key_list_item.get.side_effect = lambda k, d="": {
+        "id": "ak1",
+        "label": "CI Key",
+        "key": "secret123",
+        "createdBy": "admin",
+    }.get(k, d)
+    api_key_list_item.__getitem__ = lambda self, k: {
+        "id": "ak1",
+        "label": "CI Key",
+        "key": "secret123",
+        "createdBy": "admin",
+    }[k]
+    client.list_global_api_keys.return_value = [api_key_list_item]
+    api_key_mock = MagicMock()
+    api_key_mock.id_ = "ak1"
+    api_key_mock.key = "secret123"
+    api_key_def = {"id": "ak1", "label": "CI Key", "key": "secret123", "admin": False}
+    api_key_mock.get_definition.return_value = api_key_def
+    api_key_mock.delete.return_value = None
+    client.get_global_api_key_by_id.return_value = api_key_mock
+    client.create_global_api_key.return_value = api_key_mock
+
+    client.list_meanings.return_value = [
+        {
+            "id": "country_code",
+            "label": "Country Code",
+            "type": "VALUES_LIST",
+            "description": "ISO 3166-1 alpha-2 country codes",
+        },
+    ]
+    meaning_mock = MagicMock()
+    meaning_mock.get_definition.return_value = {
+        "id": "country_code",
+        "label": "Country Code",
+        "type": "VALUES_LIST",
+        "description": "ISO 3166-1 alpha-2 country codes",
+        "entries": [{"value": "US"}, {"value": "FR"}, {"value": "DE"}],
+    }
+    meaning_mock.set_definition.return_value = None
+    client.get_meaning.return_value = meaning_mock
+    client.create_meaning.return_value = meaning_mock
+
+    # Workspaces
+    client.list_workspaces.return_value = [
+        {
+            "workspaceKey": "ANALYTICS",
+            "displayName": "Analytics Hub",
+            "color": "#4CAF50",
+        },
+    ]
+    ws_mock = MagicMock()
+    ws_settings_mock = MagicMock()
+    ws_settings_mock.get_raw.return_value = {
+        "workspaceKey": "ANALYTICS",
+        "displayName": "Analytics Hub",
+        "color": "#4CAF50",
+        "description": "Shared analytics workspace",
+    }
+    ws_mock.get_settings.return_value = ws_settings_mock
+    ws_obj_mock = MagicMock()
+    ws_obj_mock.get_raw.return_value = {
+        "id": "obj1",
+        "reference": {
+            "type": "DATASET",
+            "id": "sales_data",
+            "projectKey": "PROJ1",
+            "workspaceKey": "ANALYTICS",
+        },
+    }
+    ws_mock.list_objects.return_value = [ws_obj_mock]
+    ws_mock.delete.return_value = None
+    client.get_workspace.return_value = ws_mock
+    client.create_workspace.return_value = ws_mock
 
     # Users
     client.list_users.return_value = [
@@ -2066,6 +2505,16 @@ def mock_client():
     }
     user_mock.get_settings.return_value = user_settings_mock
     user_mock.delete.return_value = None
+    activity_mock = MagicMock()
+    activity_mock.get_raw.return_value = {
+        "login": "admin",
+        "lastSuccessfulLogin": 1700000000000,
+        "lastFailedLogin": 0,
+        "lastSessionActivity": 1700100000000,
+    }
+    user_mock.get_activity.return_value = activity_mock
+    user_settings_mock.add_secret.return_value = None
+    user_settings_mock.save.return_value = None
     client.get_user.return_value = user_mock
 
     # Saved model delete/usages (proj1's model_mock already exists above)
@@ -2096,6 +2545,16 @@ def mock_client():
     plugin_file_mock.list_files.return_value = plugin_tree
     plugin_file_mock.get_file.return_value = plugin_file_cm
     plugin_file_mock.put_file.return_value = None
+    plugin_file_mock.rename_file.return_value = None
+    plugin_file_mock.move_file.return_value = None
+
+    # Plugin install/update futures — all return DSSFuture-like objects
+    install_future = MagicMock()
+    install_future.wait_for_result.return_value = {"pluginId": "test-plugin"}
+    client.install_plugin_from_store.return_value = install_future
+    client.install_plugin_from_git.return_value = install_future
+    plugin_file_mock.update_from_store.return_value = install_future
+    plugin_file_mock.update_from_git.return_value = install_future
 
     return client
 
