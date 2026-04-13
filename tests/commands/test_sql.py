@@ -204,12 +204,12 @@ def test_sql_query_ddl_no_result_set(patch_client):
             "query",
             'DROP TABLE IF EXISTS "stale_table"',
             "-c",
-            "postgresql-local",
+            "sql_managed",
         ],
     )
     assert result.exit_code == 0, result.output
     assert "Statement executed" in result.output
-    assert "postgresql-local" in result.output
+    assert "sql_managed" in result.output
 
 
 def test_sql_query_insert_no_result_set(patch_client):

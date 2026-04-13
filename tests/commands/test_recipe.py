@@ -506,9 +506,10 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
 def test_recipe_create_sync_with_connection(patch_client):
     """-t sync --connection X routes to with_new_output() (SingleOutputRecipeCreator path).
 
-    This is the canonical CSV → Postgres landing pattern. Before this fix, `sync`
-    was mis-classified as visual and forced users to pre-create the output dataset
-    (which defaults to unwritable `query` mode for SQL connections).
+    Canonical cross-connection landing pattern (file -> managed SQL table, etc.).
+    Before this fix, `sync` was mis-classified as visual and forced users to
+    pre-create the output dataset (which defaults to unwritable `query` mode on
+    SQL connections).
     """
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
@@ -519,23 +520,23 @@ def test_recipe_create_sync_with_connection(patch_client):
         [
             "recipe",
             "create",
-            "sync_csv_to_pg",
+            "sync_csv_to_sql",
             "--type",
             "sync",
             "--input",
             "my_csv",
             "--output-ds",
-            "my_pg_table",
+            "my_sql_table",
             "--connection",
-            "postgresql-local",
+            "sql_managed",
             "--project",
             "PROJ1",
         ],
     )
     assert result.exit_code == 0, result.output
     assert "Created recipe" in result.output
-    proj.new_recipe.assert_called_once_with("sync", "sync_csv_to_pg")
-    builder.with_new_output.assert_called_once_with("my_pg_table", "postgresql-local")
+    proj.new_recipe.assert_called_once_with("sync", "sync_csv_to_sql")
+    builder.with_new_output.assert_called_once_with("my_sql_table", "sql_managed")
     builder.with_existing_output.assert_not_called()
 
 
@@ -557,13 +558,13 @@ def test_recipe_create_sql_query_with_connection(patch_client):
             "--output-ds",
             "derived_table",
             "--connection",
-            "postgresql-local",
+            "sql_managed",
             "--project",
             "PROJ1",
         ],
     )
     assert result.exit_code == 0, result.output
-    builder.with_new_output.assert_called_once_with("derived_table", "postgresql-local")
+    builder.with_new_output.assert_called_once_with("derived_table", "sql_managed")
 
 
 def test_recipe_create_connection_required_error(patch_client):

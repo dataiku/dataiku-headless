@@ -219,30 +219,6 @@ htmlAttr(e, "href")                      // attribute value
 10. **Date parsing:** Always specify format when input isn't ISO-8601.
 11. **forEach returns array:** Use `join()` if you need a string result.
 
-## GREL → SQL push-down gotchas
-
-When a Prepare recipe has BOTH a SQL-connection input AND a SQL-connection output, DSS compiles the Shaker script to SQL and pushes it down to the database engine. Several common GREL idioms compile to **broken** or **silently wrong** SQL. Tested on PostgreSQL; most also apply to Snowflake, BigQuery, Redshift.
-
-| GREL | Compiles to (SQL) | Fails because | Use instead |
-|---|---|---|---|
-| `toString(col)` | `"col"` (wrapper stripped) | result stays in the column's original type — a bigint in the ELSE branch of a CASE will reject the THEN string literal | `concat("", col)` |
-| `"" + col` where col is numeric | `'' + "col"` | SQL `+` is numeric addition in every engine, not string concat; `'' + bigint` errors | `concat("", col)` |
-| `strval(col)` (no default) | varies by DSS version | inconsistent — sometimes identity, sometimes `strval(col, "")` | `concat("", col)` for reliability, or `strval(col, "")` with explicit empty default |
-| `round(x * 10) / 10` on a DOUBLE column | banker's rounding (half-to-even) on Postgres DOUBLE | `1.25 → 1.2` instead of `1.3`; differs from SAS/Excel half-away-from-zero | `floor(x * 10 + 0.5) / 10` |
-| `concat(numeric1, numeric2)` | varies | two numeric args may compile to addition on some engines | wrap at least one in `""`: `concat("", a, b)` |
-
-**Rule of thumb for int → string casts that need to survive push-down:** use `concat("", col)`. It compiles to `'' || CAST(col AS VARCHAR)` or equivalent on every major SQL engine. `toString()` is a Java/shaker-only function and gets stripped when DSS translates the expression to SQL.
-
-### Diagnosing a push-down compilation bug
-
-If a Prepare recipe fails at build time with a PG/Snowflake error like `invalid input syntax for type bigint: "..."`, look at the job log:
-
-```bash
-dku job log "$(dku job list -P PROJ -o json | jq -r '.[0].id')" -P PROJ | grep -B 50 "Position:"
-```
-
-The log dumps the generated SQL around the failure — you'll see your GREL expression compiled into a CASE/CAST that chose the wrong type. The fix is almost always one of the replacements above.
-
 ## Examples
 
 **User:** "Combine first and last name with a space"

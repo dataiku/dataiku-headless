@@ -183,18 +183,9 @@ dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL
 
 ### Sync recipe: landing data across connections
 
-`sync` moves data from one dataset to another — typically across connections (CSV → Postgres, filesystem → Snowflake, etc.). Unlike visual recipes (which require the output to pre-exist), **`-t sync --connection X`** auto-creates the output as a managed dataset on the target connection:
+`sync` moves data from one dataset to another. Unlike most visual recipes (which require the output to pre-exist), **`-t sync --connection X`** auto-creates the output as a managed dataset on the target connection — no Python passthrough needed. The same pattern works for `-t sql_query --connection X` when you want a custom SELECT landed as a new managed table.
 
-```bash
-# Upload CSV, then land it in Postgres with ONE recipe call (no Python passthrough)
-dku dataset create src_events --type UploadedFiles -P PROJ && \
-dku dataset upload src_events events.csv -P PROJ && \
-dku recipe create sync_events -t sync -i src_events --output-ds pg_events \
-  --connection postgresql-local -P PROJ && \
-dku dataset build pg_events -P PROJ --wait
-```
-
-The same pattern works for `-t sql_query --connection X` when the source is another SQL-connection dataset and you want a custom SELECT landed as a new managed table.
+For engine-specific examples, push-down gotchas, and recovery snippets, see `references/sql-engines.md`.
 
 ### Prepare recipe step commands
 

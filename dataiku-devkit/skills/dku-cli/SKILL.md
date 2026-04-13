@@ -34,8 +34,7 @@ metadata:
 > 13. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
 > 14. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. When you need syntax, examples, or patterns for a specific task, **read the relevant reference file first** — don't try to figure it out from `--help` alone or by trial and error. The reference index at the bottom tells you which file covers what.
-> 16. **For CSV → SQL landing, use `-t sync --connection X`.** `dku recipe create sync_foo -t sync -i csv_ds --output-ds pg_table --connection postgresql-local -P PROJ` auto-creates a managed Postgres table and wires the sync. Do NOT write a Python passthrough recipe. This also works for `-t sql_query --connection X` when you need a custom SELECT as the source of a managed SQL dataset.
-> 17. **GREL → SQL gotcha: for int→string casts in Prepare recipes that push down to SQL, use `concat("", col)`.** `toString(col)` compiles to identity (wrapper stripped), `"" + col` compiles to SQL `+` (numeric addition), and both fail when the output lands in a string column. Only `concat("", col)` compiles to `'' || CAST(col AS VARCHAR)` cleanly. See `dataiku` skill's `references/formulas.md` § GREL → SQL push-down gotchas.
+> 16. **Cross-connection landing is a first-class feature.** To move data between connections (CSV → SQL, fs → warehouse, etc.) use `dku recipe create -t sync --connection X` / `-t sql_query --connection X` — auto-creates a managed output on the target connection. Never write a Python passthrough for this. Engine-specific idioms and push-down gotchas live in `references/sql-engines.md` — read it before writing any Prepare formula that targets a SQL-connection output.
 
 # dku-cli
 
@@ -299,10 +298,7 @@ Visual recipe commands auto-create the output dataset. For advanced configuratio
 | Prepare recipe `create` fails with "Output dataset does not exist" | Unlike visual recipes, `create --type prepare` does NOT auto-create the output. Pre-create it first |
 | `add-fold` or `add-filter-rows --formula` fails with `UnavailableTypeException` | Plugin processors unavailable on some instances. For fold: use Python `pd.melt()`. For filter: use `add-step --type FilterOnCustomFormula` |
 | GREL formula returns null for columns with spaces | Columns with spaces can't be referenced via GREL. Use `add-rename` first, or a Python recipe |
-| Python passthrough recipe just to land a CSV in Postgres | Use `dku recipe create sync_X -t sync -i csv --output-ds pg_table --connection postgresql-local -P PROJ` — auto-creates the managed table |
-| `toString(col)` in a Prepare recipe fails on Postgres-output | GREL `toString()` compiles to SQL identity. Use `concat("", col)` for int→string casts that push down cleanly. See `dataiku` skill's formulas.md |
-| `"" + col` concat fails with PG "invalid input syntax" | GREL `+` compiles to SQL numeric addition. Use `concat("", col)` instead |
-| Stale Postgres table blocks a Prepare rebuild after column type change | The physical PG table keeps the old column type. `dku dataset set-schema` updates the logical schema but not the physical table. Drop it via a one-shot Python recipe: `SQLExecutor2(connection='pg').query_to_df('DROP TABLE IF EXISTS "PROJECT_name"')` then rebuild |
+| SQL-engine push-down / cross-connection landing | See `references/sql-engines.md` for sync+connection, GREL→SQL compilation gotchas, and stale-table recovery |
 
 ### Python Recipe (ONLY when visual recipes can't express the logic)
 
@@ -775,6 +771,7 @@ There are ~95 purpose-built processors. If you're about to write `add-formula` w
 | `references/genai-recipes.md` | Embedding, RAG pipelines, knowledge banks, LLM eval, model deployment |
 | `references/prepare-guide.md` | Adding prepare steps with `add-step`, processor JSON params, step management |
 | `references/dashboard-patterns.md` | Charts, dashboards, tiles, chart JSON anatomy |
+| `references/sql-engines.md` | SQL-connection landing (`-t sync --connection`), GREL → SQL push-down gotchas, stale-table recovery |
 
 Also use the companion `dataiku` skill's references for platform knowledge:
 - `references/visual-recipe-payloads.md` — JSON payloads for join/group/window/filter recipes

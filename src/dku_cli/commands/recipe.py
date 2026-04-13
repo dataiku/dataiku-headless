@@ -574,7 +574,7 @@ def create(
         None,
         "--connection",
         "-c",
-        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) AND sync recipes. For `sync` + `--connection <pg>`, landing a CSV into Postgres becomes a one-liner (no Python passthrough needed). Run 'dku connection list' to see available connections.",
+        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) AND sync recipes. For `sync` + `--connection <sql_conn>`, landing a file dataset into a managed SQL table becomes a one-liner (no Python passthrough needed). Run 'dku connection list' to see available connections.",
     ),
     input_role: str = typer.Option(
         "main",
@@ -697,7 +697,8 @@ def create(
             # - Code recipes (python, r, shell, ...) use CodeRecipeCreator.with_new_output_dataset().
             # - sync and sql_query inherit SingleOutputRecipeCreator, which offers
             #   with_new_output(name, connection, ...) for auto-creation on a target connection.
-            #   This is how "CSV → Postgres" lands without writing a Python passthrough recipe.
+            #   This is how cross-connection landing (file -> managed SQL table, etc.)
+            #   works without writing a Python passthrough recipe.
             type_lower = type_name.lower()
             is_visual = type_lower in _VISUAL_RECIPE_TYPES
             if is_visual:
