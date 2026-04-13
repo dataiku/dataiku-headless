@@ -37,7 +37,7 @@ metadata:
 
 # dku-cli
 
-`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands. **~470 commands** across 53 groups.
+`dku` is a kubectl-style CLI for Dataiku DSS. It wraps `dataikuapi` with auth management, output formatting, and composable shell commands.
 
 ## Think Dataiku-First (CRITICAL — read before every task)
 
