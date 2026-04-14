@@ -600,9 +600,12 @@ LLM_REQUEST (parse regulation)
 **Wrong:** `json.loads(scratchpad["value"])` without try/except.
 **Fix:** Always handle parse errors with a fallback value.
 
-### 6. passConversationHistory on Analysis Blocks
-**Wrong:** `passConversationHistory: true` on blocks that only need state/scratchpad data.
-**Fix:** Set to `false` for pure analysis blocks — faster, cheaper, and avoids context pollution.
+### 6. passConversationHistory — Correct Direction Matters
+**Wrong (wasteful):** `passConversationHistory: true` on blocks that only need state/scratchpad data.
+**Fix:** Set to `false` for pure analysis blocks — faster, cheaper, avoids context pollution.
+
+**Wrong (broken):** `passConversationHistory: false` on entry-point CORE_LOOP/STANDARD_REACT blocks that need the user's original query.
+**Fix:** Set `passConversationHistory: true` on the first block if it must see the user's message. Without it, the LLM responds "Please provide..." because it cannot see the original query.
 
 ### 7. No Fallback on Routing
 **Wrong:** ROUTING block with clauses but no `defaultNextBlockIfNoClauseMatch`.
