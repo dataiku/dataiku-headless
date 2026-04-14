@@ -1,6 +1,6 @@
 # SQL Engines: CLI mechanics when the connection is a SQL database
 
-Use this reference when the task involves a SQL-connection dataset (Postgres, Snowflake, BigQuery, Redshift, …) on either side of a recipe. This file covers the **CLI mechanics** only — cross-connection landing, `dku sql query` transaction behavior, post-build metric refresh, and stale-table recovery. For GREL → SQL compilation gotchas (what `toString(col)` becomes, banker's rounding on DOUBLE, etc.), see the `dataiku` skill's `references/formulas.md` § GREL → SQL push-down.
+Use this reference when the task involves a SQL-connection dataset (Postgres, Snowflake, BigQuery, Redshift, …) on either side of a recipe. This file covers the **CLI mechanics** only — cross-connection landing, `dku sql query` transaction behavior, post-build metric refresh, and stale-table recovery. For GREL → SQL compilation gotchas (`toString`, `"" + col`, `strval` engine fallback, rounding semantics), see the `dataiku` skill's `references/formulas.md` § GREL → SQL push-down.
 
 ---
 

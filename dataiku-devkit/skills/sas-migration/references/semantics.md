@@ -48,7 +48,7 @@ Changes missing display to "0". Downstream logic may treat missing as zero. Chec
 ## Numeric precision
 
 - `0.1 + 0.2 = 0.3` is FALSE in both SAS and Dataiku. If SAS code compares floats without `round()`, results may already be wrong.
-- `round(2.5) = 3` — SAS rounds away from zero. Most SQL engines match; Python/pandas/PG DOUBLE use banker's (half-to-even). See `translation.md` § Rounding.
+- `round(2.5) = 3`, `round(-2.5) = -3` — SAS rounds half-away-from-zero for any sign. Most SQL engines match (Oracle, SQL Server, Snowflake, BigQuery, Redshift, PG NUMERIC). Python / numpy / pandas / PG DOUBLE use banker's (half-to-even). DSS Prepare in-memory `round()` is Java `Math.round` (round half up), which matches SAS for positives but NOT for negatives. See `translation.md` § Rounding parity.
 - GREL `round()` takes **one argument only**. `round(x, 2)` silently returns the first value. Use `round(n * 100) / 100`.
 
 ## DATA step execution model (PDV)

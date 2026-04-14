@@ -224,12 +224,32 @@ When a Prepare recipe has BOTH a SQL-connection input AND a SQL-connection outpu
 | GREL | Compiles to (SQL) | Problem | Use instead |
 |---|---|---|---|
 | `"" + col` where col is numeric | `'' + "col"` | SQL `+` is numeric addition, not string concat. PG fails with `invalid input syntax for type bigint: ""` | `concat("", col)` |
-| `strval(col)` (single arg) | does not push down | DSS **falls back to the in-memory engine** and the output column ends up empty | `concat("", col)`, or `strval(col, "")` with an explicit default |
-| `round(x * 10) / 10` on a DOUBLE column | `round(...) / 10` on `double precision` | PG's `round(double)` uses banker's rounding (half-to-even): `1.25 → 1.2`, `8.25 → 8.2` | `floor(x * 10 + 0.5) / 10` — pushes down cleanly and matches half-away-from-zero |
+| `strval(col)` and `strval(col, "")` on a numeric column | does not push down | DSS **falls back to the in-memory engine** AND the output column ends up empty (both forms tested) | `concat("", col)` or `toString(col)` |
+| `round(x * 10) / 10` on a DOUBLE column | `round(...) / 10` on `double precision` | PG's 1-arg `round(double)` uses banker's rounding (half-to-even): `1.25 → 1.2`, `8.25 → 8.2`, `-1.25 → -1.2`, `-8.25 → -8.2` | See "Rounding to 0.1 with half-away-from-zero semantics" below |
 
-**`toString(col)` works on DSS 14.4+.** It compiles to `CAST("col" AS VARCHAR(100))` and works correctly inside a `CASE WHEN` with a string literal. Older docs said it was "stripped" — not the case on the verified DSS 14.4 instance. `concat("", col)` is still the more portable form.
+**`toString(col)` works on DSS 14.4+.** It compiles to `CAST("col" AS VARCHAR(100))` and works correctly inside a `CASE WHEN` with a string literal. `concat("", col)` is still the more portable form across DSS versions.
 
-**`concat(numeric, numeric)` on DSS 14.4 + PG compiles to `CONCAT("a", "b")` and produces a correct string concatenation** — PG's `CONCAT()` auto-coerces numeric args to text. No "compiles to addition" behavior observed.
+**`concat(numeric, numeric)` on DSS 14.4 + PG** compiles to `CONCAT("a", "b")` and produces a correct string concatenation — PG's `CONCAT()` auto-coerces numeric args to text.
+
+### Rounding to 0.1 with half-away-from-zero semantics
+
+SAS `round(x, 0.1)` is half-away-from-zero for any sign. Matching it in Dataiku is subtle because **neither** the DSS in-memory engine nor PG's `round(double)` produces half-away-from-zero for negatives:
+
+| Path | 1.25 | 8.25 | -1.25 | -8.25 | Matches SAS? |
+|---|---|---|---|---|---|
+| SAS `round(x, 0.1)` | 1.3 | 8.3 | -1.3 | -8.3 | ✓ (reference) |
+| GREL `round(x * 10) / 10` on DSS in-memory (Java `Math.round`, round-half-up) | 1.3 | 8.3 | **-1.2** | **-8.2** | ✗ for negatives |
+| GREL `round(x * 10) / 10` pushed to PG `double precision` (banker's) | 1.2 | 8.2 | -1.2 | -8.2 | ✗ |
+| GREL `floor(x * 10 + 0.5) / 10` (either engine) | 1.3 | 8.3 | **-1.2** | **-8.2** | ✗ for negatives |
+| GREL `if(x >= 0, floor(x * 10 + 0.5) / 10, 0 - floor(0 - x * 10 + 0.5) / 10)` | 1.3 | 8.3 | -1.3 | -8.3 | ✓ (both engines, pushes down) |
+| PG SQL recipe `ROUND(x::numeric, 1)` | 1.3 | 8.3 | -1.3 | -8.3 | ✓ |
+
+Verified on DSS 14.4 + PostgreSQL with inputs `[1.25, -1.25, 8.25, -8.25, 2.5, -2.5, 3.0, 0.0]`.
+
+**Rule of thumb:**
+- If all values are non-negative (counts, amounts known to be ≥ 0), `floor(x * 10 + 0.5) / 10` is fine.
+- If values can be negative (net positions, deltas, refunds), use the two-branch `if()` formula above, OR drop into a SQL recipe with `ROUND(x::numeric, 1)`.
+- GREL `round(x * 10) / 10` is correct only for the in-memory engine with non-negative inputs, and is wrong on PG DOUBLE regardless of sign.
 
 ### Diagnosing a push-down compilation bug
 

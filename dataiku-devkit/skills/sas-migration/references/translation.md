@@ -406,7 +406,7 @@ GREL function names are **case-sensitive**. See the `dataiku` skill's `reference
 | `PUT(n, BEST12.)` | `toString(n)` | ~~`str(n)`~~ |
 | `INPUT(s, BEST.)` | `toNumber(s)` | ~~`int(s)`~~ |
 | `SUBSTR(s, pos, len)` | `substring(s, pos-1, pos-1+len)` | GREL is 0-based; `to` is exclusive index, NOT length |
-| `ROUND(n, .01)` | `round(n * 100) / 100` | ~~`round(n, 2)`~~ — GREL `round()` takes 1 arg |
+| `ROUND(n, .01)` | `round(n * 100) / 100` for non-negative `n`; for any sign see § Rounding parity | ~~`round(n, 2)`~~ — GREL `round()` takes 1 arg. The short form rounds negatives differently from SAS |
 | `INTCK('day', d1, d2)` | `diff(d1, d2, 'days')` | ~~`dateDiff()`~~ — doesn't exist |
 | `INTCK('month', d1, d2)` | `diff(d1, d2, 'months')` | SAS counts boundary crossings, not elapsed |
 | `LOG(n)` | `ln(n)` | SAS `LOG` = natural log; GREL `log` = base-10 |
@@ -528,29 +528,38 @@ dku recipe add-step RECIPE -t DateDifference --params '{"input1":"start", "compa
 
 ## Rounding parity
 
-SAS `ROUND(x, step)` uses **half-away-from-zero**. Not every target does, and the mismatch produces silent off-by-step parity breaks on `.5` boundaries.
+SAS `ROUND(x, step)` is **half-away-from-zero** for any sign. Not every target matches, and the mismatch produces silent off-by-step parity breaks on `.5` boundaries. All four combinations (positive/negative × integer-multiple/double) matter.
 
-| Engine / function | Mode | Matches SAS? |
+| Path | Mode | Matches SAS? |
 |---|---|---|
 | SAS `ROUND(x, step)` | half-away-from-zero | ✓ (reference) |
 | Oracle / SQL Server / Snowflake / BigQuery / Redshift `ROUND` | half-away-from-zero | ✓ |
 | PostgreSQL `ROUND(numeric, int)` | half-away-from-zero | ✓ |
-| PostgreSQL `ROUND(double precision)` | banker's | ✗ |
+| PostgreSQL `ROUND(double precision)` (1-arg) | banker's (half-to-even) | ✗ |
 | DuckDB `ROUND(numeric)` / `ROUND(double)` (v0.8+) | half-away-from-zero | ✓ |
 | Python `round()` / `numpy.round` / `pandas.Series.round()` | banker's | ✗ |
+| **Dataiku Prepare recipe `round(x)` (in-memory, Java `Math.round`)** | **round half up (toward +∞)** | ✓ for positives, ✗ for negatives |
 
 Sample mismatches on `round(x, 1)`:
 
-| x | half-away (SAS) | banker's |
-|---|---|---|
-| `1.25` | `1.3` | `1.2` |
-| `2.5` | `3` | `2` |
-| `8.25` | `8.3` | `8.2` |
-| `-1.25` | `-1.3` | `-1.2` |
+| x | SAS (half-away) | PG DOUBLE / Python (banker's) | DSS in-memory GREL `round(x*10)/10` |
+|---|---|---|---|
+| `1.25` | `1.3` | `1.2` | `1.3` |
+| `8.25` | `8.3` | `8.2` | `8.3` |
+| `-1.25` | `-1.3` | `-1.2` | **`-1.2`** |
+| `-8.25` | `-8.3` | `-8.2` | **`-8.2`** |
 
-**SQL recipe rule**: most engines match SAS by default — just write `ROUND(col, 1)`. On PostgreSQL with `DOUBLE PRECISION` columns, cast to `NUMERIC` before rounding: `ROUND(val::numeric, 1)`.
+**Key point**: the common advice "use GREL `round(x * 10) / 10` for 0.1 rounding" matches SAS only for non-negative inputs. Negative inputs diverge on every `.5` boundary. If the column can take negative values, pick one of the workarounds below.
 
-**Verification probe**: run `SELECT ROUND(1.25, 1), ROUND(2.5, 0), ROUND(8.25, 1)` on your target. If the results are `1.3, 3, 8.3` you're SAS-compatible.
+**SQL recipe rule**: most engines match SAS for any sign — just write `ROUND(col, 1)`. On PostgreSQL with `DOUBLE PRECISION` columns, cast to `NUMERIC` first: `ROUND(val::numeric, 1)`.
+
+**GREL workaround for any sign** (works on both in-memory and SQL push-down, verified on DSS 14.4 + PG):
+```
+if(x >= 0, floor(x * 10 + 0.5) / 10, 0 - floor(0 - x * 10 + 0.5) / 10)
+```
+The two-branch form handles the negative side correctly. The shorter `floor(x * 10 + 0.5) / 10` is only correct for non-negatives.
+
+**Verification probe**: run `SELECT ROUND(1.25, 1), ROUND(-1.25, 1), ROUND(2.5, 0), ROUND(-8.25, 1)` on your target. SAS-compatible engines return `1.3, -1.3, 3, -8.3`. Anything else needs a cast or the two-branch workaround.
 
 **Python (last resort)**:
 ```python
@@ -560,10 +569,11 @@ def sas_round(x, step):
     scaled = x / step
     return np.floor(np.abs(scaled) + 0.5) * np.sign(scaled) * step
 
-sas_round(1.25, 0.1)   # 1.3 ✓
+sas_round(1.25, 0.1)    # 1.3 ✓
+sas_round(-1.25, 0.1)   # -1.3 ✓
 ```
 
-Symptoms of a rounding-mode mismatch in a parity check: 1-cell-per-customer mismatches in rounded columns, always off by exactly one step, always on values ending in exactly `.5`.
+Symptom of a rounding-mode mismatch in a parity check: off-by-step mismatches in rounded columns, always on values ending in exactly `.5`, often concentrated on rows with negative values when GREL `round(x*10)/10` was used blindly.
 
 ---
 

@@ -217,4 +217,4 @@ SAS language gotchas (missing values, MERGE semantics, `<>` operator, LAG traps,
 | `output dataset does not exist` | `dku dataset create DS --type Filesystem -c CONNECTION -P PROJ` |
 | Recipe run fails | Run `apply-schema` first; then check connection / schema |
 | Row count mismatch with SAS | Check filters, null handling, schema types (STRING vs numeric affects filter evaluation) |
-| Value mismatch on `.5` boundaries | Rounding mode — SAS is half-away-from-zero; Python/pandas/PG DOUBLE are banker's. See `references/translation.md` § Rounding |
+| Value mismatch on `.5` boundaries | Rounding mode — SAS is half-away-from-zero for any sign; Python/pandas/PG DOUBLE are banker's; DSS in-memory `round()` is Java round-half-up (matches SAS for positives, not for negatives). See `references/translation.md` § Rounding parity |
