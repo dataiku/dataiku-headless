@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import render, resolve_output_format
+from dku_cli.output import render, resolve_output_format, success
 
 app = typer.Typer(help="Run SQL queries on DSS connections.")
 
@@ -30,14 +30,27 @@ def query(
     connection: str = typer.Option(..., "--connection", "-c", help="Connection name"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Execute a SQL query on a DSS connection."""
+    """Execute a SQL query on a DSS connection.
+
+    Supports both SELECT (returns rows) and DDL/DML statements
+    (DROP/CREATE/TRUNCATE/ALTER/INSERT/UPDATE/DELETE). For statements that
+    do not return a result set, prints a confirmation instead of an empty table.
+    """
     output = resolve_output_format(output)
     query_text = _read_query(sql)
     try:
         client = get_client_from_ctx(ctx)
         result = client.sql_query(query_text, connection=connection)
 
-        schema = result.get_schema()
+        # DDL / DML queries (DROP/CREATE/TRUNCATE/ALTER/INSERT/UPDATE/DELETE)
+        # return no result set. Calling get_schema() / iter_rows() on such a
+        # result raises an error — treat that as success, not failure.
+        try:
+            schema = result.get_schema()
+        except Exception:
+            success(f"Statement executed on {connection}")
+            return
+
         columns = [col["name"] for col in schema]
         rows = list(result.iter_rows())
 

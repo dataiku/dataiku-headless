@@ -13,7 +13,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [auth](#auth) — login, logout, status, list, switch
 - [config](#config) — set, get, list, path, variables, set-variables
 - [project](#project) — list, get, inspect, export, create, delete, duplicate, set-metadata, variables, set-variables, permissions, set-permissions, tags
-- [dataset](#dataset) — list, schema, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions
+- [dataset](#dataset) — list, schema, info, head, build, create, upload, delete, clear, get-definition, set-definition, set-schema, set-metadata, set-column-description, ai-describe, rename, copy, partitions, exists, usages, lineage, detect, zone, share, unshare
 - [recipe](#recipe) — list, get, get-definition, get-settings, set-settings, run, create, delete, set-code, get-code, set-definition, add-input, add-output, check-schema, apply-schema, create-embed, create-embed-docs, create-extract, create-llm-eval, create-agent-eval
 - [scenario](#scenario) — list, run, abort, status, create, delete, get-definition, set-definition, last-run, runs, set-metadata, list-triggers, add-trigger, add-trigger-dataset, remove-trigger
 - [job](#job) — list, run, status, log, abort, wait
@@ -116,11 +116,11 @@ All commands require project (`-P KEY` / `DKU_PROJECT` / config default).
 ```bash
 dku dataset list [-P PROJECT] [-o FORMAT]
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
-dku dataset info DATASET_NAME [-P PROJECT] [-o FORMAT]              # Row count, size, type, connection, last build
+dku dataset info DATASET_NAME [-P PROJECT] [-o FORMAT] [--recompute]  # Row count, size, type, connection, last build
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-C COLUMNS] [-o FORMAT]
 dku dataset build DATASET_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
 dku dataset create DATASET_NAME [--type Filesystem] [-c CONNECTION] [-P PROJECT] [--if-not-exists] [--definition JSON]
-dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect]
+dku dataset upload DATASET_NAME FILE [-P PROJECT] [--no-autodetect] [--overwrite]
 dku dataset delete DATASET_NAME [-P PROJECT] [--yes]
 dku dataset clear DATASET_NAME [-P PROJECT]
 dku dataset get-definition DATASET_NAME [-P PROJECT] [-o json]
@@ -142,6 +142,7 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 ```
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
+- `upload --overwrite` clears the dataset's existing uploaded files first
 - `upload --no-autodetect` skips detection (if you'll set format manually)
 - `head` defaults to 10 rows, override with `-n`. Use `--columns "col1,col2"` / `-C` to inspect specific columns before transforming
 - `build --wait` blocks until job completes
@@ -150,6 +151,8 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
+- `info --recompute` (alias `--fresh`) recomputes the row count, size, and file count metrics before reading them. Use after a recipe run to avoid stale numbers in the cache
+- `set-schema` accepts both `{"columns": [...]}` (full object) and `[{name, type}, ...]` (plain array — auto-wrapped). Round-trips with `schema -o json`
 - `set-metadata` updates description, short description, and/or tags without needing JSON. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `set-column-description` takes alternating column-name description pairs (even count required)
 - `ai-describe` calls DSS AI Services to generate descriptions for the dataset and its columns. Requires 'Generate Metadata' enabled in DSS admin. `--save` persists descriptions to the dataset; without it, only displays suggestions. `--language`: english (default), french, german, dutch, portuguese, spanish
@@ -170,11 +173,11 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 
 ```bash
 dku recipe create-join NAME -i DS1 -i DS2 --output-ds OUT [--join-type LEFT] [-P PROJECT]  # Join
-dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [-P PROJECT]  # Group/aggregate
+dku recipe create-group NAME -i DS --output-ds OUT [-k GROUP_COL] [--no-global-count] [-P PROJECT]  # Group/aggregate
 dku recipe create-stack NAME -i DS1 -i DS2 --output-ds OUT [-P PROJECT]    # Stack/union
 dku recipe create-distinct NAME -i DS --output-ds OUT [-P PROJECT]         # Deduplicate
 dku recipe create-sort NAME -i DS --output-ds OUT [--sort-col COL] [-P PROJECT]  # Sort
-dku recipe create-filter NAME -i DS --output-ds OUT [--filter-formula EXPR] [-P PROJECT]  # Filter/sample
+dku recipe create-filter NAME -i DS --output-ds OUT --filter-formula EXPR [--action KEEP_ROW|REMOVE_ROW] [-P PROJECT]  # Filter rows
 dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL] [-P PROJECT]  # Window functions
 dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
 dku recipe create-topn NAME -i DS --output-ds OUT [--sort-col COL] [--n N] [-P PROJECT]  # Top/bottom N rows
@@ -183,17 +186,24 @@ dku recipe create-sampling NAME -i DS --output-ds OUT [--method METHOD] [--size 
 dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL [-P PROJECT]       # Fold (wide→long)
 ```
 
-- `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`
-- `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group
+- `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`, `--join-key 2:col`. With N inputs the CLI creates N-1 join pairs (main ↔ input 1, main ↔ input 2, …)
+- `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group. DSS adds a per-group `count` column by default — pass `--no-global-count` to suppress it when you want only the explicit aggregates in the output
+- `create-distinct` deduplicates on **all input columns by default** (matching `df.drop_duplicates()` semantics). Use `--on col1 --on col2` to dedup on a subset. Passing no `--on` flag reads the input schema and wires every column as a key
 - `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional
 - `create-sampling` takes a sample. `--method`: RANDOM_FIXED_NB (default), RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED. `--size N` or `--ratio 0.1`
 - `add-fold` unpivots columns into rows (wide→long). Use `--columns` for explicit list or `--pattern` for regex match
 - `create-sort --sort-col COL` sets sort columns at creation (repeatable). Use `COL` for ascending or `COL:desc` for descending
 - `create-topn --sort-col COL` and `--n N` set the sort column(s) and row limit at creation
-- `create-filter --filter-formula EXPR` (aliases: `--filter EXPR`, `-f EXPR`) sets the filter expression at creation using Dataiku formula syntax
-- `create-window --partition-col COL` and `--order-col COL` set the window partition and ordering columns at creation
+- `create-filter` builds a **Prepare recipe** with a single `FilterOnCustomFormula` step (not a Sampling recipe — whose filter schema is unstable across DSS versions). `--filter-formula` is required (aliases `--filter`, `-f`). `--action KEEP_ROW` (default) keeps matching rows, `--action REMOVE_ROW` drops them
+- `create-window --partition-key COL` and `--order-key COL` set the window partition and ordering columns. The CLI writes both to `windows[0]` with `enablePartitioning=true` / `enableOrdering=true` so aggregations/ranks are computed per-partition (not globally)
 - `create-embed --embed-column COL` specifies the column to embed (alias for `--text-column`)
 - Visual recipes auto-apply schema updates after creation. For manual control: `apply-schema RECIPE -P PROJ`
+
+### Sync recipe: landing data across connections
+
+`sync` moves data from one dataset to another. Unlike most visual recipes (which require the output to pre-exist), **`-t sync --connection X`** auto-creates the output as a managed dataset on the target connection — no Python passthrough needed. The same pattern works for `-t sql_query --connection X` when you want a custom SELECT landed as a new managed table.
+
+For engine-specific examples, push-down gotchas, and recovery snippets, see `references/sql-engines.md`.
 
 ### Prepare recipe step commands
 

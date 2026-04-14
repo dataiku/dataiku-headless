@@ -130,22 +130,45 @@ def info_cmd(
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    recompute: bool = typer.Option(
+        False,
+        "--recompute",
+        "--fresh",
+        help="Recompute metrics (row count, size, file count) instead of reading the cached values. Use after a recipe run to avoid stale numbers — DSS does not auto-recompute metrics on build.",
+    ),
 ) -> None:
     """Show dataset metadata: size, row count, type, connection, last build.
 
     Use this BEFORE pulling data to understand how large a dataset is.
     Warns when datasets are large (>1GB or >10M rows) to prevent
-    accidental expensive operations.
+    accidental expensive operations. Pass --recompute after a build to
+    refresh row count, size, and file count metrics.
 
     Example:
       dku dataset info my_data -P PROJ
       dku dataset info my_data -P PROJ -o json
+      dku dataset info my_data -P PROJ --recompute
     """
     project_key = resolve_project(project)
     fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
+
+        if recompute:
+            if fmt != "json":
+                info("Recomputing metrics...")
+            try:
+                ds.compute_metrics(
+                    metric_ids=[
+                        "records:COUNT_RECORDS",
+                        "basic:SIZE",
+                        "basic:COUNT_FILES",
+                    ]
+                )
+            except Exception as exc:
+                if fmt != "json":
+                    warn(f"Metric recompute failed: {exc}")
 
         # --- Definition: type, connection, format, columns ---
         ds_def = ds.get_definition()
@@ -569,8 +592,19 @@ def upload(
     no_autodetect: bool = typer.Option(
         False, "--no-autodetect", help="Skip format/schema auto-detection after upload"
     ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        "--force",
+        "-f",
+        help="Clear existing files from the dataset before uploading.",
+    ),
 ) -> None:
-    """Upload a file to an UploadedFiles dataset and auto-detect format/schema."""
+    """Upload a file to an UploadedFiles dataset and auto-detect format/schema.
+
+    By default, uploading a file with the same name as an existing upload
+    fails. Pass --overwrite to clear the dataset first.
+    """
     project_key = resolve_project(project)
 
     if not local_path.exists():
@@ -582,6 +616,9 @@ def upload(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
+
+        if overwrite:
+            ds.clear()
 
         with local_path.open("rb") as f:
             ds.uploaded_add_file(f, local_path.name)
@@ -709,13 +746,21 @@ def set_schema(
         help="Schema JSON (string, @file.json, or '-' for stdin)",
     ),
 ) -> None:
-    """Set the schema of a dataset from JSON."""
+    """Set the schema of a dataset from JSON.
+
+    Accepts either {"columns": [{name, type}, ...]} or a plain
+    [{name, type}, ...] array (auto-wrapped). The array form lets you
+    round-trip with 'dku dataset schema -o json'.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         current_def = ds.get_definition()
-        current_def["schema"] = read_json_input(definition)
+        schema_input = read_json_input(definition)
+        if isinstance(schema_input, list):
+            schema_input = {"columns": schema_input}
+        current_def["schema"] = schema_input
         ds.set_definition(current_def)
         success(f"Updated schema for dataset '{dataset_name}'")
     except Exception as e:
