@@ -109,7 +109,9 @@ def preflight_check():
             sys.exit(1)
         print(f"  Connected: {result.stdout.strip()[:100]}")
     except FileNotFoundError:
-        print("  ERROR: dku CLI not found. Install with: pip install dku-cli")
+        print(
+            "  ERROR: dku CLI not found. Install with: uv tool install --from /path/to/dku-cli dku-cli"
+        )
         sys.exit(1)
     except subprocess.TimeoutExpired:
         print("  ERROR: dku whoami timed out. Check DSS connectivity.")

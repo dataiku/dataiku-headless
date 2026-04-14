@@ -28,10 +28,10 @@ uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (~300 commands, 42 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
-**NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
+**Private repo — NOT on PyPI.** Install from a local clone — see [Distribution](#distribution).
 
 ---
 
@@ -55,8 +55,14 @@ When you receive benchmark feedback:
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v`
-6. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
+5. **Run tests — ALWAYS, no exceptions** — `uv run pytest -v` after ANY CLI code change. Write new tests for new commands. Test error paths too, not just happy paths. Never skip this step.
+6. **Test against live DSS (MANDATORY)** — Unit test mocks are guesses until verified. After unit tests pass, run every new/changed command against the real DSS instance with `uv run dku <command>`. Use projects **ADVISORGPT** (Snowflake datasets, recipes, flow graph) or **AGENTTEST**. Verify:
+   - Table output shows real data, not blank columns (field name mismatches cause this)
+   - JSON output field names match what DSS actually returns
+   - Empty results produce helpful messages (no usages, no schemas, etc.)
+   - Wrong inputs (bad column name, non-SQL connection for schemas) produce prescriptive errors
+   - If live testing reveals mismatches, fix them BEFORE committing
+7. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
 
@@ -95,8 +101,6 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code. **Every error must tell the agent what to do next.** |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-**42 command groups** — see `skills/dku-cli/references/commands.md` for full reference.
-
 ---
 
 ## Development Conventions
@@ -134,8 +138,17 @@ dataiku-devkit/
 
 ### Skill Quality Standards
 
-When editing `dataiku-devkit/skills/dku-cli/SKILL.md`:
+When editing skills, **progressive disclosure is non-negotiable**:
 
+| Layer | File | What goes here | What does NOT go here |
+|-------|------|----------------|----------------------|
+| 1 | SKILL.md cheat sheet (top 30 lines) | Failure prevention rules, one line each | Command syntax, flag details |
+| 2 | SKILL.md body | Command Groups table (verb names only), chaining patterns for new workflows | Per-command notes, flag descriptions, API details |
+| 3 | `references/commands.md` | Full command syntax, all flags, usage notes, API quirks | — (this is the detail layer) |
+
+**Rules:**
+- **SKILL.md is loaded into every conversation.** Every line costs tokens. Be ruthless about what earns a spot.
+- **Never add per-command documentation to SKILL.md.** That's what `references/commands.md` is for. SKILL.md gets the verb in the Command Groups table + a chaining pattern IF the command enables a new workflow.
 - **Cheat sheet** (top 30 lines): Must prevent the top failure modes. One line per rule. If you add a gotcha to CLAUDE.md, ask: does the cheat sheet need a rule too?
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
@@ -175,6 +188,10 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 | `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
 | `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
 | `geospatial.md` | Geospatial data handling, projections, spatial joins |
+| `sas-migration/plan.md` | Migrating SAS (`.sas`/`.egp`/`.flw`) to Dataiku: 5-phase workflow, inventory, top gotchas |
+| `sas-migration/semantics.md` | SAS language rules that silently change values: missing, PDV, MERGE, LAG, PROC UNIVARIATE |
+| `sas-migration/translation.md` | DATA/PROC → recipe mapping, function translations, rounding, enterprise passthrough workflow |
+
 
 ---
 

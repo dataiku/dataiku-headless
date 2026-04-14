@@ -1,4 +1,4 @@
-"""dku recipe — list, get, get-definition, run, create, delete, set-code, get-code, set-definition, add-input, add-output, plus GenAI recipe creation."""
+"""dku recipe — list, get, get-definition, run, create, delete, set-code, get-code, set-definition, add-input, add-output, rename, status, plus GenAI recipe creation."""
 
 from __future__ import annotations
 
@@ -79,11 +79,10 @@ _INPUT_OPTIONAL_TYPES = frozenset(
     {"python", "r", "shell", "pyspark", "cpython", "sparkr"}
 )
 
-# Visual recipe types whose output MUST already exist (no auto-create).
-# `sync` and `sql_query` are intentionally NOT in this set — they inherit
-# SingleOutputRecipeCreator.with_new_output(name, connection, ...) which
-# auto-creates the output on the target connection. This is the canonical
-# "CSV → SQL table" landing path (no Python passthrough recipe needed).
+# Visual recipe types routed via `with_existing_output()` in the generic
+# `dku recipe create` path. sync and sql_query inherit
+# SingleOutputRecipeCreator.with_new_output(name, connection, ...) and
+# auto-create the output on the target connection, so they're excluded.
 _VISUAL_RECIPE_TYPES = frozenset(
     {
         "join",
@@ -445,7 +444,6 @@ def get_definition(
         else:
             input_refs = settings.get_flat_input_refs()
             output_refs = settings.get_flat_output_refs()
-            # For code recipes display a short preview of the text, not the whole body
             if isinstance(payload, str):
                 preview = payload[:200] + ("..." if len(payload) > 200 else "")
                 payload_display = preview if preview else "(none)"
@@ -574,7 +572,7 @@ def create(
         None,
         "--connection",
         "-c",
-        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) AND sync recipes. For `sync` + `--connection <pg>`, landing a CSV into Postgres becomes a one-liner (no Python passthrough needed). Run 'dku connection list' to see available connections.",
+        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) and for sync recipes. Run 'dku connection list' to see available connections.",
     ),
     input_role: str = typer.Option(
         "main",
@@ -692,29 +690,24 @@ def create(
                 )
             if input_ds is not None:
                 builder.with_input(input_ds)
-            # Recipe output creation paths:
-            # - Visual recipes (join, group, shaker, ...) MUST have an existing output.
-            # - Code recipes (python, r, shell, ...) use CodeRecipeCreator.with_new_output_dataset().
-            # - sync and sql_query inherit SingleOutputRecipeCreator, which offers
-            #   with_new_output(name, connection, ...) for auto-creation on a target connection.
-            #   This is how "CSV → Postgres" lands without writing a Python passthrough recipe.
+            # Output wiring:
+            # - Code recipes use CodeRecipeCreator.with_new_output_dataset(name, connection)
+            # - Everything else with --connection uses
+            #   SingleOutputRecipeCreator.with_new_output(name, connection) — this
+            #   covers sync, sql_query, AND visual recipes (join, group, sort, distinct,
+            #   prepare, window, pivot, sampling, stack, fuzzyjoin, geojoin) which all
+            #   inherit it from VirtualInputsSingleOutputRecipeCreator / SingleOutputRecipeCreator.
+            # - Visual recipes without --connection fall back to with_existing_output().
+            # - Recipe types that subclass DSSRecipeCreator directly (topn) have no
+            #   auto-create method and fall through to with_output().
             type_lower = type_name.lower()
             is_visual = type_lower in _VISUAL_RECIPE_TYPES
-            if is_visual:
-                if connection:
-                    warn(
-                        "--connection is ignored for visual recipes (output must already exist)."
-                    )
+            if connection and hasattr(builder, "with_new_output_dataset"):
+                builder.with_new_output_dataset(output_ds, connection)
+            elif connection and hasattr(builder, "with_new_output"):
+                builder.with_new_output(output_ds, connection)
+            elif is_visual and hasattr(builder, "with_existing_output"):
                 builder.with_existing_output(output_ds)
-            elif connection:
-                if hasattr(builder, "with_new_output_dataset"):
-                    # CodeRecipeCreator path (python, r, shell, sql, ...)
-                    builder.with_new_output_dataset(output_ds, connection)
-                elif hasattr(builder, "with_new_output"):
-                    # SingleOutputRecipeCreator path (sync, sql_query, ...)
-                    builder.with_new_output(output_ds, connection)
-                else:
-                    builder.with_output(output_ds)
             else:
                 builder.with_output(output_ds)
             builder.build()
@@ -788,6 +781,116 @@ def delete(
         )
         recipe.delete()
         success(f"Deleted recipe '{recipe_name}' from {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def rename(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Current recipe name"),
+    new_name: str = typer.Option(..., "--name", help="New recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Rename a recipe.
+
+    Example:
+      dku recipe rename compute_old --name compute_new -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe.rename(new_name)
+        success(f"Renamed recipe '{recipe_name}' to '{new_name}' in {project_key}")
+    except ValueError as e:
+        # dataikuapi raises ValueError if new_name == old name
+        exit_with_error(
+            str(e),
+            code="invalid_argument",
+            details=[
+                f"The recipe is already named '{recipe_name}'.",
+                "Provide a different name with --name.",
+            ],
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def status(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show recipe status: engine, severity, and check messages.
+
+    Reports which engine DSS selected for the recipe, the overall
+    status severity, and any warnings or errors from recipe checks.
+
+    Example:
+      dku recipe status compute_data -P PROJ
+      dku recipe status compute_data -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe_status = recipe.get_status()
+
+        # Extract engine info
+        engine = None
+        try:
+            engine_details = recipe_status.get_selected_engine_details()
+            engine = engine_details.get("type", "unknown")
+        except (ValueError, KeyError):
+            pass  # Some recipe types have no engine concept
+
+        severity = recipe_status.get_status_severity()
+        messages = recipe_status.get_status_messages()
+
+        if fmt == "json":
+            result = {
+                "recipe": recipe_name,
+                "project": project_key,
+                "engine": engine,
+                "severity": severity,
+                "messages": messages,
+            }
+            render_raw(result, output_format="json")
+        else:
+            # Summary line
+            info(f"Recipe: {recipe_name}")
+            info(f"Engine: {engine or '(none)'}")
+            info(f"Severity: {severity or '(no checks)'}")
+
+            if messages:
+                data = []
+                for msg in messages:
+                    data.append(
+                        {
+                            "severity": msg.get("severity", ""),
+                            "title": msg.get("title", ""),
+                            "message": msg.get("message", ""),
+                        }
+                    )
+                render(
+                    data,
+                    ["severity", "title", "message"],
+                    output_format=fmt,
+                    title="Status Messages",
+                    headers={
+                        "severity": "SEVERITY",
+                        "title": "TITLE",
+                        "message": "MESSAGE",
+                    },
+                )
+            else:
+                info("No status messages.")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1640,21 +1743,11 @@ def add_find_replace(
     matching: str = typer.Option(
         "SUBSTRING",
         "--matching",
-        help=(
-            "Match mode. SUBSTRING (default — like Python str.replace / SAS tranwrd), "
-            "FULL_STRING (exact cell match), or PATTERN (regex)."
-        ),
+        help="Match mode: SUBSTRING (default), FULL_STRING (exact cell match), or PATTERN (regex).",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add a find-and-replace step on a column.
-
-    Use instead of df[col].str.replace() in Python.
-
-    Defaults to SUBSTRING matching so it behaves like Python's str.replace and
-    SAS's tranwrd. Use --matching FULL_STRING to match the whole cell value
-    exactly, or --matching PATTERN to treat --find as a regex.
-    """
+    """Add a find-and-replace step on a column."""
     _add_prepare_step(
         ctx,
         recipe_name,
@@ -2339,8 +2432,7 @@ def create_group(
     Without --agg, defaults to COUNT per group. Use -k for group keys (repeatable: -k col1 -k col2).
 
     By default DSS adds a 'count' column (rows per group). Pass --no-global-count
-    to suppress it — useful when migrating from SAS/SQL where PROC SQL / GROUP BY
-    only produces columns the user explicitly aggregated.
+    to suppress it when only the explicit aggregates should appear in the output.
     """
     project_key = resolve_project(project)
     # Validate --agg format early (before any API calls)

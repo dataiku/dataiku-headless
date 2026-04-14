@@ -1,4 +1,4 @@
-"""dku model — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata."""
+"""dku model — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata, create-mlflow, import-mlflow, create-external."""
 
 from __future__ import annotations
 
@@ -10,10 +10,18 @@ import typer
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    read_json_input,
     resolve_project,
     update_taggable_metadata,
 )
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    error,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS saved models.")
 
@@ -357,6 +365,185 @@ def set_metadata(
         settings = model.get_settings()
         update_taggable_metadata(settings, description, short_desc, tags)
         success(f"Updated metadata for model '{model_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+_PREDICTION_TYPES = frozenset({"BINARY_CLASSIFICATION", "MULTICLASS", "REGRESSION"})
+
+
+@app.command("create-mlflow")
+def create_mlflow(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Name for the MLflow saved model"),
+    prediction_type: str | None = typer.Option(
+        None,
+        "--prediction-type",
+        "-t",
+        help="BINARY_CLASSIFICATION, MULTICLASS, or REGRESSION (optional)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Create a saved model for storing MLflow pyfunc models.
+
+    After creation, import a model version with 'dku model import-mlflow'.
+
+    Example:
+      dku model create-mlflow "Churn Model" -t BINARY_CLASSIFICATION -P PROJ
+      dku model create-mlflow "Custom Model" -P PROJ
+    """
+    project_key = resolve_project(project)
+    if prediction_type and prediction_type not in _PREDICTION_TYPES:
+        exit_with_error(
+            f"Invalid prediction type: '{prediction_type}'",
+            code="invalid_argument",
+            details=[
+                f"Supported types: {', '.join(sorted(_PREDICTION_TYPES))}",
+                "Omit --prediction-type for non-standard prediction types.",
+            ],
+        )
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.create_mlflow_pyfunc_model(name, prediction_type=prediction_type)
+
+        if fmt == "json":
+            render_raw(
+                {"id": model.sm_id, "name": name, "project": project_key},
+                output_format="json",
+            )
+        else:
+            success(
+                f"Created MLflow model '{name}' (ID: {model.sm_id}) in {project_key}"
+            )
+            info(
+                f"Import a version: dku model import-mlflow {model.sm_id} "
+                f"--version-id v1 --path /path/to/mlflow/model -P {project_key}"
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("import-mlflow")
+def import_mlflow(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    version_id: str = typer.Option(
+        ..., "--version-id", "-v", help="Version identifier for the import"
+    ),
+    path: str = typer.Option(..., "--path", help="Local path to MLflow model folder"),
+    code_env: str = typer.Option(
+        "LOCAL-CODE-ENV",
+        "--code-env",
+        help="Code env name (default: active env, or 'INHERIT' for project default)",
+    ),
+    set_active: bool = typer.Option(
+        True, "--set-active/--no-set-active", help="Set as active version"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Import a MLflow model version from a local path.
+
+    The saved model must have been created with 'dku model create-mlflow'.
+    The path must contain a valid MLflow model (MLmodel file + artifacts).
+
+    Example:
+      dku model import-mlflow MODEL_ID -v v1 --path ./mlflow_model -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        model.import_mlflow_version_from_path(
+            version_id,
+            path,
+            code_env_name=code_env,
+            set_active=set_active,
+        )
+        success(f"Imported MLflow version '{version_id}' into model '{model_id}'")
+        if set_active:
+            info(f"Version '{version_id}' set as active")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-external")
+def create_external(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Name for the external model"),
+    prediction_type: str = typer.Option(
+        ...,
+        "--prediction-type",
+        "-t",
+        help="BINARY_CLASSIFICATION, MULTICLASS, or REGRESSION",
+    ),
+    protocol: str = typer.Option(
+        ...,
+        "--protocol",
+        help="Provider protocol: sagemaker, databricks, azure-ml, vertex-ai",
+    ),
+    connection: str | None = typer.Option(
+        None, "--connection", "-c", help="DSS connection for authentication"
+    ),
+    region: str | None = typer.Option(
+        None, "--region", help="Cloud region (required for sagemaker, vertex-ai)"
+    ),
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        help="Full configuration JSON (overrides --protocol/--connection/--region)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Create a saved model for external remote endpoints (SageMaker, Databricks, etc).
+
+    Example:
+      dku model create-external "SageMaker Model" -t BINARY_CLASSIFICATION \\
+        --protocol sagemaker --region eu-west-1 -P PROJ
+      dku model create-external "Vertex Model" -t REGRESSION \\
+        --protocol vertex-ai --region europe-west1 --connection vertex_conn -P PROJ
+    """
+    project_key = resolve_project(project)
+    if prediction_type not in _PREDICTION_TYPES:
+        exit_with_error(
+            f"Invalid prediction type: '{prediction_type}'",
+            code="invalid_argument",
+            details=[f"Supported types: {', '.join(sorted(_PREDICTION_TYPES))}"],
+        )
+    fmt = resolve_output_format(output)
+    try:
+        if config:
+            configuration = read_json_input(config)
+        else:
+            configuration = {"protocol": protocol}
+            if connection:
+                configuration["connection"] = connection
+            if region:
+                configuration["region"] = region
+
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.create_external_model(name, prediction_type, configuration)
+
+        if fmt == "json":
+            render_raw(
+                {"id": model.sm_id, "name": name, "project": project_key},
+                output_format="json",
+            )
+        else:
+            success(
+                f"Created external model '{name}' (ID: {model.sm_id}) in {project_key}"
+            )
     except typer.Exit:
         raise
     except Exception as e:

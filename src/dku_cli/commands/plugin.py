@@ -1,4 +1,4 @@
-"""dku plugin — list, get, push, delete, settings, code-env management, usages, file operations."""
+"""dku plugin — list, get, push, delete, download, settings, code-env management, usages, file operations (get/put/list/rename/move), install-from-store, install-from-git, update-from-store, update-from-git."""
 
 from __future__ import annotations
 
@@ -650,5 +650,229 @@ def put_file(
         text = read_text_input(content)
         plugin.put_file(path, io.BytesIO(text.encode("utf-8")))
         success(f"Wrote {len(text)} bytes to {path} in plugin {plugin_id}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("rename-file")
+def rename_file(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID (dev plugins only)"),
+    path: str = typer.Option(
+        ..., "--path", help="Current file/folder path within plugin"
+    ),
+    name: str = typer.Option(..., "--name", help="New name for the file/folder"),
+) -> None:
+    """Rename a file or folder in a dev plugin.
+
+    Example:
+      dku plugin rename-file my-plugin --path python-lib/old.py --name new.py
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        plugin.rename_file(path, name)
+        success(f"Renamed '{path}' to '{name}' in plugin {plugin_id}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("move-file")
+def move_file(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID (dev plugins only)"),
+    path: str = typer.Option(
+        ..., "--path", help="Current file/folder path within plugin"
+    ),
+    new_path: str = typer.Option(..., "--to", help="New path within plugin"),
+) -> None:
+    """Move a file or folder within a dev plugin.
+
+    Example:
+      dku plugin move-file my-plugin --path python-lib/utils.py --to python-lib/helpers/utils.py
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        plugin.move_file(path, new_path)
+        success(f"Moved '{path}' to '{new_path}' in plugin {plugin_id}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("install-from-store")
+def install_from_store(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID from the Dataiku plugin store"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for installation to complete"
+    ),
+) -> None:
+    """Install a plugin from the Dataiku plugin store.
+
+    After install, create a code environment if needed:
+      dku plugin install-from-store my-plugin
+      dku plugin create-code-env my-plugin
+
+    Example:
+      dku plugin install-from-store timeseries-preparation
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        info(f"Installing plugin '{plugin_id}' from store...")
+        future = client.install_plugin_from_store(plugin_id)
+
+        if wait:
+            future.wait_for_result()
+            success(f"Installed plugin '{plugin_id}' from store")
+            info(f"Create code env if needed: dku plugin create-code-env {plugin_id}")
+        else:
+            success(f"Installation started for plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("install-from-git")
+def install_from_git(
+    ctx: typer.Context,
+    repository_url: str = typer.Argument(help="Git repository URL"),
+    checkout: str = typer.Option(
+        "master", "--checkout", "-b", help="Branch, tag, or SHA1 to checkout"
+    ),
+    subpath: str | None = typer.Option(
+        None,
+        "--subpath",
+        help="Path within the repo to use as plugin root (must contain plugin.json)",
+    ),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for installation to complete"
+    ),
+) -> None:
+    """Install a plugin from a Git repository.
+
+    DSS must be configured to allow access to the repository.
+
+    Example:
+      dku plugin install-from-git https://github.com/dataiku/dss-plugin-example.git
+      dku plugin install-from-git git@github.com:org/repo.git --checkout v2.0
+      dku plugin install-from-git https://github.com/org/monorepo.git --subpath plugins/my-plugin
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        info(f"Installing plugin from {repository_url} (checkout: {checkout})...")
+        future = client.install_plugin_from_git(
+            repository_url, checkout=checkout, subpath=subpath
+        )
+
+        if wait:
+            future.wait_for_result()
+            success(f"Installed plugin from {repository_url}")
+            info("Check plugin ID: dku plugin list")
+        else:
+            success(f"Installation started from {repository_url}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("update-from-store")
+def update_from_store(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID to update"),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for update to complete"
+    ),
+) -> None:
+    """Update an installed plugin from the Dataiku plugin store.
+
+    The plugin must have been originally installed from the store.
+
+    Example:
+      dku plugin update-from-store timeseries-preparation
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        info(f"Updating plugin '{plugin_id}' from store...")
+        future = plugin.update_from_store()
+
+        if wait:
+            future.wait_for_result()
+            success(f"Updated plugin '{plugin_id}' from store")
+        else:
+            success(f"Update started for plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("update-from-git")
+def update_from_git(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID to update"),
+    repository_url: str = typer.Argument(help="Git repository URL"),
+    checkout: str = typer.Option(
+        "master", "--checkout", "-b", help="Branch, tag, or SHA1 to checkout"
+    ),
+    subpath: str | None = typer.Option(
+        None,
+        "--subpath",
+        help="Path within the repo to use as plugin root (must contain plugin.json)",
+    ),
+    wait: bool = typer.Option(
+        True, "--wait/--no-wait", help="Wait for update to complete"
+    ),
+) -> None:
+    """Update an installed plugin from a Git repository.
+
+    Example:
+      dku plugin update-from-git my-plugin https://github.com/org/repo.git
+      dku plugin update-from-git my-plugin git@github.com:org/repo.git --checkout v2.1
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        plugin = client.get_plugin(plugin_id)
+        info(
+            f"Updating plugin '{plugin_id}' from {repository_url} (checkout: {checkout})..."
+        )
+        future = plugin.update_from_git(
+            repository_url, checkout=checkout, subpath=subpath
+        )
+
+        if wait:
+            future.wait_for_result()
+            success(f"Updated plugin '{plugin_id}' from {repository_url}")
+        else:
+            success(f"Update started for plugin '{plugin_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def download(
+    ctx: typer.Context,
+    plugin_id: str = typer.Argument(help="Plugin ID to download"),
+    dest: str = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file path (default: <plugin_id>.zip)",
+    ),
+) -> None:
+    """Download a plugin as a ZIP archive.
+
+    Useful for backup, migration, or local inspection.
+
+    Example:
+      dku plugin download my-plugin
+      dku plugin download my-plugin --dest ./backup/my-plugin-v2.zip
+    """
+    from pathlib import Path
+
+    output_path = dest or f"{plugin_id}.zip"
+    try:
+        client = get_client_from_ctx(ctx)
+        client.download_plugin_to_file(plugin_id, output_path)
+        file_size = Path(output_path).stat().st_size
+        size_kb = file_size / 1024
+        success(f"Downloaded plugin '{plugin_id}' to {output_path} ({size_kb:.1f} KB)")
     except Exception as e:
         handle_api_error(e)

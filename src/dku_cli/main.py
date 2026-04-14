@@ -13,15 +13,20 @@ from dku_cli.commands import (
     agent_hub,
     agent_review,
     agent_tool,
+    admin,
     analysis,
+    api_key,
+    app_cmd,
     api_deployer,
     api_service,
     auth_cmd,
     bundle,
+    cluster,
     codeenv,
     codestudio,
     config_cmd,
     connection,
+    continuous,
     dashboard,
     dataset,
     discussion,
@@ -37,19 +42,25 @@ from dku_cli.commands import (
     library,
     llm,
     macro,
+    meaning,
     ml,
     model,
+    model_comparison,
     notebook,
     plugin,
     project,
     project_deployer,
+    project_folder,
+    rag,
     recipe,
     scenario,
     semantic_model,
     sql,
+    streaming,
     user,
     webapp,
     wiki,
+    workspace,
 )
 
 app = typer.Typer(
@@ -61,7 +72,10 @@ app = typer.Typer(
 )
 
 # Register sub-commands
+app.add_typer(admin.app, name="admin")
 app.add_typer(analysis.app, name="analysis")
+app.add_typer(api_key.app, name="api-key")
+app.add_typer(app_cmd.app, name="app")
 app.add_typer(agent.app, name="agent")
 app.add_typer(agent_block.app, name="agent-block")
 app.add_typer(agent_hub.app, name="agent-hub")
@@ -78,17 +92,22 @@ app.add_typer(dq.app, name="dq")
 app.add_typer(evaluation_store.app, name="evaluation-store")
 app.add_typer(project.app, name="project")
 app.add_typer(project_deployer.app, name="project-deployer")
+app.add_typer(project_folder.app, name="project-folder")
 app.add_typer(dataset.app, name="dataset")
 app.add_typer(scenario.app, name="scenario")
 app.add_typer(semantic_model.app, name="semantic-model")
 app.add_typer(job.app, name="job")
 app.add_typer(plugin.app, name="plugin")
 app.add_typer(config_cmd.app, name="config")
+app.add_typer(rag.app, name="rag")
 app.add_typer(recipe.app, name="recipe")
 app.add_typer(codeenv.app, name="code-env")
+app.add_typer(cluster.app, name="cluster")
 app.add_typer(connection.app, name="connection")
+app.add_typer(continuous.app, name="continuous")
 app.add_typer(ml.app, name="ml")
 app.add_typer(model.app, name="model")
+app.add_typer(model_comparison.app, name="model-comparison")
 app.add_typer(notebook.app, name="notebook")
 app.add_typer(folder.app, name="folder")
 app.add_typer(group.app, name="group")
@@ -98,11 +117,14 @@ app.add_typer(library.app, name="library")
 app.add_typer(llm.app, name="llm")
 app.add_typer(webapp.app, name="webapp")
 app.add_typer(macro.app, name="macro")
+app.add_typer(meaning.app, name="meaning")
 app.add_typer(user.app, name="user")
 app.add_typer(flow.app, name="flow")
 app.add_typer(git_cmd.app, name="git")
 app.add_typer(wiki.app, name="wiki")
+app.add_typer(workspace.app, name="workspace")
 app.add_typer(sql.app, name="sql")
+app.add_typer(streaming.app, name="streaming")
 
 
 def _version_callback(value: bool) -> None:

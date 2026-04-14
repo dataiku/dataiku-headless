@@ -425,3 +425,92 @@ def test_project_tags_with_tags(patch_client):
     parsed = json.loads(result.output)
     assert "production" in parsed
     assert "ml" in parsed
+
+
+# --- ai-describe ---
+
+
+def test_project_ai_describe(patch_client):
+    result = runner.invoke(app, ["project", "ai-describe", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "customer data pipelines" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.generate_ai_description.assert_called_once_with(
+        language="english", purpose="generic", length="medium", save_description=False
+    )
+
+
+def test_project_ai_describe_save(patch_client):
+    result = runner.invoke(
+        app, ["project", "ai-describe", "--save", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "saved" in result.output.lower()
+    proj = patch_client.get_project("PROJ1")
+    proj.generate_ai_description.assert_called_once_with(
+        language="english", purpose="generic", length="medium", save_description=True
+    )
+
+
+def test_project_ai_describe_json(patch_client):
+    result = runner.invoke(
+        app, ["project", "ai-describe", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "msg" in parsed
+    assert "customer data pipelines" in parsed["msg"]
+
+
+def test_project_ai_describe_custom_options(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "ai-describe",
+            "--language",
+            "french",
+            "--purpose",
+            "technical",
+            "--length",
+            "high",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.generate_ai_description.assert_called_once_with(
+        language="french", purpose="technical", length="high", save_description=False
+    )
+
+
+# --- timeline ---
+
+
+def test_project_timeline_table(patch_client):
+    result = runner.invoke(app, ["project", "timeline", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "admin" in result.output
+    assert "dataiku" in result.output
+
+
+def test_project_timeline_json(patch_client):
+    result = runner.invoke(
+        app, ["project", "timeline", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["createdBy"]["login"] == "admin"
+    assert len(parsed["allContributors"]) == 2
+    assert len(parsed["items"]) == 1
+
+
+def test_project_timeline_custom_limit(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "timeline", "--limit", "5", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.get_timeline.assert_called_once_with(item_count=5)
