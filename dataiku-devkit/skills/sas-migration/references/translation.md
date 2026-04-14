@@ -1,6 +1,6 @@
 # SAS → Dataiku Translation
 
-Recipe mapping, function/PROC translations, and the enterprise passthrough workflow. Read `plan.md` first for the migration phases; read `semantics.md` before translating any DATA step or MERGE that may silently change values.
+Recipe mapping, function/PROC translations, and the enterprise passthrough workflow. Read the `sas-migration` SKILL.md first for the migration phases; read `semantics.md` before translating any DATA step or MERGE that may silently change values.
 
 Priority is always **Visual → SQL → Python**. Python is the last resort, not the default.
 
@@ -328,7 +328,7 @@ Translate the passthrough body character-for-character. Adaptations:
 
 ### Step 3 — Downstream flow, one recipe at a time
 
-Use Phase 3 protocol from `plan.md`. For visual recipes:
+Use Phase 3 protocol from the SKILL.md. For visual recipes:
 ```bash
 dku recipe create-<type> RECIPE -i INPUT --output-ds OUTPUT [opts] -P PROJ
 dku recipe apply-schema RECIPE -P PROJ
@@ -394,7 +394,7 @@ Do NOT translate passthrough SQL or downstream DATA steps to Python recipes just
 
 ## Function mapping (SAS → GREL / SQL / processor)
 
-GREL function names are **case-sensitive**. See `formulas.md` for the full GREL reference, `prepare-processors.md` for the processor catalog.
+GREL function names are **case-sensitive**. See the `dataiku` skill's `references/formulas.md` for the full GREL reference and `references/prepare-processors.md` for the processor catalog.
 
 ### Core
 
