@@ -126,9 +126,12 @@ dataiku-devkit/
 │   ├── dataiku/               # Platform knowledge router
 │   │   ├── SKILL.md           # Routes to correct reference doc based on task
 │   │   └── references/*.md    # Deep platform knowledge (progressive disclosure layer 3)
-│   └── dku-cli/               # CLI operations and composability patterns
-│       ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
-│       └── references/        # CLI command reference
+│   ├── dku-cli/               # CLI operations and composability patterns
+│   │   ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
+│   │   └── references/        # CLI command reference
+│   └── sas-migration/         # SAS (.sas/.egp/.flw) → Dataiku migration domain
+│       ├── SKILL.md           # 5-phase plan, cheat sheet, inventory parsing, top gotchas
+│       └── references/        # semantics.md (language rules), translation.md (recipe mapping)
 └── agents/                    # Subagents for complex tasks
     ├── plugin-reviewer.md
     ├── dss-explorer.md
@@ -188,10 +191,6 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 | `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
 | `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
 | `geospatial.md` | Geospatial data handling, projections, spatial joins |
-| `sas-migration/plan.md` | Migrating SAS (`.sas`/`.egp`/`.flw`) to Dataiku: 5-phase workflow, inventory, top gotchas |
-| `sas-migration/semantics.md` | SAS language rules that silently change values: missing, PDV, MERGE, LAG, PROC UNIVARIATE |
-| `sas-migration/translation.md` | DATA/PROC → recipe mapping, function translations, rounding, enterprise passthrough workflow |
-
 
 ---
 

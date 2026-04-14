@@ -45,16 +45,6 @@ triggers:
   - prepare recipe
   - computed column
   - dataiku formula
-  - sas migration
-  - migrate sas
-  - convert sas
-  - translate sas
-  - .sas file
-  - .egp file
-  - .flw file
-  - proc sql
-  - data step
-  - proc format
 globs:
   - "**/plugin.json"
   - "**/tool.json"
@@ -314,15 +304,6 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
 | **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
 
-### SAS Migration
-
-| Topic | When to use | Reference |
-|-------|-------------|-----------|
-| **SAS Migration — Plan** | Starting a SAS → Dataiku migration. 5-phase workflow, inventory extraction from `.sas`/`.egp`/`.flw`, non-migratable patterns, top gotchas | `references/sas-migration/plan.md` |
-| **SAS Semantics** | Translating any DATA step, MERGE, RETAIN, or macro. SAS language rules that silently change values (missing, PDV, MERGE many-to-many, LAG trap, PROC UNIVARIATE defaults) | `references/sas-migration/semantics.md` |
-| **SAS → Dataiku Translation** | Mapping DATA steps / PROCs / functions to Dataiku recipes. Canonical Join+Prepare patterns, PROC FORMAT, rounding parity, enterprise passthrough workflow, SAS→Postgres translations | `references/sas-migration/translation.md` |
-
-
 ## Instructions
 
 1. Identify which topic(s) the user's task involves
@@ -378,8 +359,6 @@ Common task combinations that span multiple references:
 - **"Build a dataset connector"** -> `datasets.md` + `plugin-structure.md`
 - **"Build a macro/runnable"** -> `macros.md` + `plugin-structure.md`
 - **"Optimize plugin performance"** -> `best-practices.md` + `webapp-patterns.md` (if webapp)
-- **"Migrate a SAS program / `.sas` / `.egp` / `.flw` to Dataiku"** -> `sas-migration/plan.md` (5-phase workflow) + `sas-migration/semantics.md` (before translating any DATA step) + `sas-migration/translation.md` (recipe / function / PROC mapping) + `dku-cli` skill's `references/sql-engines.md` (when target is a SQL connection)
-- **"Translate a SAS `DATA` step / `MERGE` / `RETAIN` / `PROC SQL`"** -> `sas-migration/translation.md` + `sas-migration/semantics.md` (for value-changing rules)
 
 ## Additional References
 

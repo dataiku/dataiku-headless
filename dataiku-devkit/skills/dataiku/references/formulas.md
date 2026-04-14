@@ -221,17 +221,17 @@ htmlAttr(e, "href")                      // attribute value
 
 ## GREL → SQL push-down gotchas
 
-When a Prepare recipe has BOTH a SQL-connection input AND a SQL-connection output, DSS compiles the Shaker script to SQL and pushes it down to the database engine. Several common GREL idioms compile to **broken** or **silently wrong** SQL. Tested on PostgreSQL; most also apply to Snowflake, BigQuery, Redshift.
+When a Prepare recipe has BOTH a SQL-connection input AND a SQL-connection output, DSS compiles the Shaker script to SQL and pushes it down to the database engine. A few GREL idioms compile to broken SQL or cause DSS to fall back to the in-memory engine. Verified against DSS 14.4 + PostgreSQL.
 
-| GREL | Compiles to (SQL) | Fails because | Use instead |
+| GREL | Compiles to (SQL) | Problem | Use instead |
 |---|---|---|---|
-| `toString(col)` | `"col"` (wrapper stripped) | result stays in the column's original type — a bigint in the ELSE branch of a CASE will reject the THEN string literal | `concat("", col)` |
-| `"" + col` where col is numeric | `'' + "col"` | SQL `+` is numeric addition in every engine, not string concat; `'' + bigint` errors | `concat("", col)` |
-| `strval(col)` (no default) | varies by DSS version | inconsistent — sometimes identity, sometimes `strval(col, "")` | `concat("", col)` for reliability, or `strval(col, "")` with explicit empty default |
-| `round(x * 10) / 10` on a DOUBLE column | banker's rounding (half-to-even) on Postgres DOUBLE | `1.25 → 1.2` instead of `1.3`; differs from SAS/Excel half-away-from-zero | `floor(x * 10 + 0.5) / 10` |
-| `concat(numeric1, numeric2)` | varies | two numeric args may compile to addition on some engines | wrap at least one in `""`: `concat("", a, b)` |
+| `"" + col` where col is numeric | `'' + "col"` | SQL `+` is numeric addition, not string concat. PG fails with `invalid input syntax for type bigint: ""` | `concat("", col)` |
+| `strval(col)` (single arg) | does not push down | DSS **falls back to the in-memory engine** and the output column ends up empty | `concat("", col)`, or `strval(col, "")` with an explicit default |
+| `round(x * 10) / 10` on a DOUBLE column | `round(...) / 10` on `double precision` | PG's `round(double)` uses banker's rounding (half-to-even): `1.25 → 1.2`, `8.25 → 8.2` | `floor(x * 10 + 0.5) / 10` — pushes down cleanly and matches half-away-from-zero |
 
-**Rule of thumb for int → string casts that need to survive push-down:** use `concat("", col)`. It compiles to `'' || CAST(col AS VARCHAR)` or equivalent on every major SQL engine. `toString()` is a Java/shaker-only function and gets stripped when DSS translates the expression to SQL.
+**`toString(col)` works on DSS 14.4+.** It compiles to `CAST("col" AS VARCHAR(100))` and works correctly inside a `CASE WHEN` with a string literal. Older docs said it was "stripped" — not the case on the verified DSS 14.4 instance. `concat("", col)` is still the more portable form.
+
+**`concat(numeric, numeric)` on DSS 14.4 + PG compiles to `CONCAT("a", "b")` and produces a correct string concatenation** — PG's `CONCAT()` auto-coerces numeric args to text. No "compiles to addition" behavior observed.
 
 ### Diagnosing a push-down compilation bug
 
@@ -241,7 +241,17 @@ If a Prepare recipe fails at build time with a PG/Snowflake error like `invalid 
 dku job log "$(dku job list -P PROJ -o json | jq -r '.[0].id')" -P PROJ | grep -B 50 "Position:"
 ```
 
-The log dumps the generated SQL around the failure — you'll see your GREL expression compiled into a CASE/CAST that chose the wrong type. The fix is almost always one of the replacements above.
+The log dumps the generated SQL around the failure — you'll see your GREL expression compiled into a CASE/CAST that chose the wrong type. The fix is usually one of the replacements above.
+
+### Checking the selected engine
+
+DSS logs the selected engine twice — once pre-run and once post-reselection:
+
+```bash
+dku job log <JOB_ID> -P PROJ 2>&1 | grep -i "selected engine\|engines ok"
+```
+
+If `After reselection, selectedEngine is DSS` appears on a recipe that should push down, a formula in the recipe is not translatable (e.g., `strval(col)` single-arg) and DSS fell back to in-memory execution.
 
 ## Examples
 

@@ -1,8 +1,6 @@
-# SQL Engines: landing, push-down, and recovery
+# SQL Engines: CLI mechanics when the connection is a SQL database
 
-Use this reference when the task involves a SQL-connection dataset (Postgres, Snowflake, BigQuery, Redshift, …) on either side of a recipe — landing CSV/filesystem data, Prepare recipes that push down to SQL, or recovering from a stale physical table.
-
-The `dku` CLI itself is engine-agnostic. This file collects the engine-specific idioms, gotchas, and recovery snippets that tend to bite agents on the first try.
+Use this reference when the task involves a SQL-connection dataset (Postgres, Snowflake, BigQuery, Redshift, …) on either side of a recipe. This file covers the **CLI mechanics** only — cross-connection landing, `dku sql query` transaction behavior, post-build metric refresh, and stale-table recovery. For GREL → SQL compilation gotchas (what `toString(col)` becomes, banker's rounding on DOUBLE, etc.), see the `dataiku` skill's `references/formulas.md` § GREL → SQL push-down.
 
 ---
 
@@ -33,91 +31,74 @@ dku recipe create extract_active -t sql_query -i pg_source_table \
 
 ---
 
-## GREL → SQL push-down gotchas
+## `dku sql query` transaction behavior
 
-When a Prepare recipe has BOTH a SQL-connection input AND a SQL-connection output, DSS compiles the Shaker script to SQL and pushes it down to the database engine. Several common GREL idioms compile to **broken** or **silently wrong** SQL. Tested on PostgreSQL; most also apply to Snowflake, BigQuery, Redshift.
+`dku sql query` runs every statement inside a short-lived DSS streaming session. SELECTs work as expected. For DDL/DML (CREATE / DROP / ALTER / INSERT / UPDATE / DELETE), the CLI reports `◆ Statement executed on <connection>` and exits 0 — **but the change is silently rolled back unless you add an explicit `COMMIT`**.
 
-| GREL | Compiles to (SQL) | Fails because | Use instead |
-|---|---|---|---|
-| `toString(col)` | `"col"` (wrapper stripped) | result stays in the column's original type — a bigint in the ELSE branch of a CASE will reject the THEN string literal | `concat("", col)` |
-| `"" + col` where col is numeric | `'' + "col"` | SQL `+` is numeric addition in every engine, not string concat; `'' + bigint` errors | `concat("", col)` |
-| `strval(col)` (no default) | varies by DSS version | inconsistent — sometimes identity, sometimes `strval(col, "")` | `concat("", col)` for reliability, or `strval(col, "")` with explicit empty default |
-| `round(x * 10) / 10` on a DOUBLE column | banker's rounding (half-to-even) on Postgres DOUBLE | `1.25 → 1.2` instead of `1.3` (some engines use half-away-from-zero, others half-to-even) | `floor(x * 10 + 0.5) / 10` |
-| `concat(numeric1, numeric2)` | varies | two numeric args may compile to addition on some engines | wrap at least one in `""`: `concat("", a, b)` |
-
-**Rule of thumb for int → string casts that need to survive push-down:** use `concat("", col)`. It compiles to `'' || CAST(col AS VARCHAR)` or equivalent on every major SQL engine. `toString()` is a Java/shaker-only function and gets stripped when DSS translates the expression to SQL.
-
-### Diagnosing a push-down compilation bug
-
-If a Prepare recipe fails at build time with a PG/Snowflake error like `invalid input syntax for type bigint: "..."`, look at the job log:
+Verified on DSS 14.4 + PostgreSQL:
 
 ```bash
-dku job log "$(dku job list -P PROJ -o json | jq -r '.[0].id')" -P PROJ | grep -B 50 "Position:"
+# Silently rolled back — "Statement executed" is a lie
+dku sql query --connection rds 'CREATE TABLE public.t (id int)'
+dku sql query --connection rds "SELECT tablename FROM pg_tables WHERE tablename='t'"
+# → empty result, table was not created
+
+# This persists:
+dku sql query --connection rds 'CREATE TABLE public.t (id int); COMMIT'
+dku sql query --connection rds "SELECT tablename FROM pg_tables WHERE tablename='t'"
+# → 't'
 ```
 
-The log dumps the generated SQL around the failure — you'll see your GREL expression compiled into a CASE/CAST that chose the wrong type. The fix is almost always one of the replacements in the table above.
+**Always append `; COMMIT`** (or wrap in `BEGIN; … ; COMMIT`) when using `dku sql query` to create tables, drop tables, insert rows, or perform any other DDL/DML. The CLI does not warn you when a statement has been rolled back.
 
----
-
-## Common engine-specific recipe mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Python passthrough recipe just to land a CSV in a SQL connection | `dku recipe create sync_X -t sync -i csv --output-ds sql_table --connection <sql_conn> -P PROJ` — auto-creates the managed table |
-| `toString(col)` in a Prepare recipe fails on SQL-output | GREL `toString()` compiles to SQL identity. Use `concat("", col)` for int→string casts that push down cleanly |
-| `"" + col` concat fails with PG `invalid input syntax` | GREL `+` compiles to SQL numeric addition. Use `concat("", col)` instead |
-| Stale physical table blocks a Prepare rebuild after column type change | `dku dataset set-schema` updates the logical schema but not the physical table on the DB side. Drop it via a one-shot Python recipe: `SQLExecutor2(connection='<sql_conn>').query_to_df('DROP TABLE IF EXISTS "PROJECT_name"')` then rebuild |
-
-### Stale physical table — recovery snippet
-
-When you change a column's type on a Prepare recipe that writes to a SQL connection, DSS updates the *logical* schema in the DSS metadata but does NOT recreate the *physical* table on the database side. The next build then fails with a type-mismatch error from the engine.
+For cleanup scripts, prefer a one-shot Python recipe over `dku sql query` — `SQLExecutor2(connection=...).query_to_df(...)` runs in a normal autocommit session and does not need an explicit commit:
 
 ```python
-# One-shot Python recipe (no inputs, no outputs) to drop the stale table
 from dataiku.core.sql import SQLExecutor2
-SQLExecutor2(connection="postgresql-local").query_to_df(
-    'DROP TABLE IF EXISTS "PROJECT_name"'
+SQLExecutor2(connection="rds").query_to_df(
+    'DROP TABLE IF EXISTS "PROJECT_dataset_name"'
 )
 ```
 
-Then re-run the Prepare recipe — DSS will recreate the physical table from the updated schema. The table name in DSS convention is `"<PROJECTKEY>_<dataset_name>"` (quoted, case-sensitive on Postgres).
+---
 
-`dku sql query` does not run DDL. `DROP` / `CREATE TABLE` statements fail with `DSS API error: 'schema'` and the statement does not execute. Use a one-shot Python recipe (snippet above) for cleanup.
+## `dataset info --recompute` after a build
 
-### Schema drift after a column type change
-
-When a Prepare recipe changes a column's type (e.g. a `delete` + `rename` pair that flips bigint → string), DSS updates the logical schema but the physical table keeps the old type — because `noDropOnSchemaMismatch: true` is the default on SQL-managed datasets. Symptom on the next build:
-
-```
-ERROR: invalid input syntax for type bigint: ""
-```
-
-Force the refresh with three steps — all required:
+DSS caches `records:COUNT_RECORDS`, `basic:SIZE`, and `basic:COUNT_FILES` and does NOT recompute them automatically after a recipe build. `dku dataset info DS -P PROJ` will return stale numbers (or `(not computed)` if the dataset has never been probed) until you pass `--recompute`.
 
 ```bash
-dku dataset set-schema NAME -P PROJ -d '[{"name":"col","type":"string"}, ...]'
-# then drop the physical table via the one-shot Python recipe above
-dku dataset build NAME -P PROJ --wait --auto-update-schema
+dku dataset build OUT -P PROJ --wait
+dku dataset info OUT -P PROJ --recompute   # forces fresh row count / size / file count
 ```
 
-To avoid the drift entirely, prefer `add-formula` into a new column + `add-delete-columns` + `add-rename` over in-place type overwrites.
+Use `--recompute` as the canonical post-build verification step. Without it, an agent's verification can trust pre-build numbers.
 
 ---
 
-## GREL `round()` on floating-point SQL columns uses banker's rounding
+## Stale physical tables and schema drift
 
-Dataiku's in-memory engine uses half-away-from-zero. When compiled to SQL, `round()` inherits the engine's behavior, which depends on the column type:
+DSS 14.4 handles most column-type drift automatically: `dku recipe apply-schema` + rebuild of the writing recipe propagates the Prepare recipe's output schema to the physical SQL table, even when `noDropOnSchemaMismatch: true` is set on the output dataset. Verified on PG with a bigint → text column type change.
 
-- **Postgres `NUMERIC`, Oracle, SQL Server, Snowflake, BigQuery, Redshift, DuckDB**: half-away-from-zero
-- **Postgres `DOUBLE PRECISION`, Python `round`, numpy/pandas default**: banker's rounding (half-to-even)
+You only need manual intervention when the physical table was created with the wrong types out of band (e.g., pre-created via `dataset create --type PostgreSQL` with an explicit schema that doesn't match what the recipe now produces). In that case, drop the physical table via a one-shot Python recipe before rebuilding:
 
-For the GREL idiom `round(x * 10) / 10` on a DOUBLE column, `1.25` rounds to `1.2` instead of `1.3`. If you need half-away-from-zero semantics regardless of engine, use `floor(x * 10 + 0.5) / 10` — it translates cleanly on both in-memory and SQL.
+```python
+# Drop_stale.py — in a disposable Python recipe
+from dataiku.core.sql import SQLExecutor2
+SQLExecutor2(connection="rds").query_to_df(
+    'DROP TABLE IF EXISTS "PROJECT_dataset_name"'
+)
+```
+
+Then `dku recipe apply-schema RECIPE -P PROJ && dku recipe run RECIPE -P PROJ --wait` recreates the physical table from the updated schema. The table name convention is `"<PROJECT_KEY>_<dataset_name>"` (double-quoted, case-sensitive on Postgres).
+
+**Do NOT use `dku sql query 'DROP TABLE …'`** for this — see the transaction section above. The drop will silently roll back without a `COMMIT`.
 
 ---
 
 ## When to read this file
 
 - Before running `dku recipe create -t sync` or `-t sql_query` with `--connection`
-- Before writing any GREL expression in a Prepare recipe whose input AND output are on a SQL connection
-- When a Prepare recipe fails on build with a SQL type-mismatch error from the database engine
-- When a rebuild after a column-type change fails with the old type still reported by the engine
+- Before using `dku sql query` for anything other than SELECT
+- When verifying row counts post-build (`--recompute`)
+- When a physical SQL table was pre-created with the wrong schema and needs to be dropped
+- For GREL → SQL compilation gotchas, read the `dataiku` skill's `references/formulas.md` § GREL → SQL push-down

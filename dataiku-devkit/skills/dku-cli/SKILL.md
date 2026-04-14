@@ -34,7 +34,7 @@ metadata:
 > 13. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
 > 14. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. When you need syntax, examples, or patterns for a specific task, **read the relevant reference file first** — don't try to figure it out from `--help` alone or by trial and error. The reference index at the bottom tells you which file covers what.
-> 16. **Cross-connection landing is a first-class feature.** To move data between connections (CSV → SQL, fs → warehouse, etc.) use `dku recipe create -t sync --connection X` / `-t sql_query --connection X` — auto-creates a managed output on the target connection. Never write a Python passthrough for this. Engine-specific idioms and push-down gotchas live in `references/sql-engines.md` — read it before writing any Prepare formula that targets a SQL-connection output.
+> 16. **Cross-connection landing is a first-class feature.** To move data between connections (CSV → SQL, fs → warehouse, etc.) use `dku recipe create -t sync --connection X` / `-t sql_query --connection X` — auto-creates a managed output on the target connection. Never write a Python passthrough for this. CLI mechanics (sync, `sql query` transaction semantics, `dataset info --recompute`) live in `references/sql-engines.md`. For GREL → SQL push-down gotchas (`toString`, `"" + col`, banker's rounding on DOUBLE), read the `dataiku` skill's `references/formulas.md`.
 
 # dku-cli
 
@@ -298,7 +298,8 @@ Visual recipe commands auto-create the output dataset. For advanced configuratio
 | Prepare recipe `create` fails with "Output dataset does not exist" | Unlike visual recipes, `create --type prepare` does NOT auto-create the output. Pre-create it first |
 | `add-fold` or `add-filter-rows --formula` fails with `UnavailableTypeException` | Plugin processors unavailable on some instances. For fold: use Python `pd.melt()`. For filter: use `add-step --type FilterOnCustomFormula` |
 | GREL formula returns null for columns with spaces | Columns with spaces can't be referenced via GREL. Use `add-rename` first, or a Python recipe |
-| SQL-engine push-down / cross-connection landing | See `references/sql-engines.md` for sync+connection, GREL→SQL compilation gotchas, and stale-table recovery |
+| SQL-engine CLI mechanics (sync+connection, `sql query` transactions, `info --recompute`) | See `references/sql-engines.md` |
+| GREL → SQL push-down gotchas (`toString`, `"" + col`, banker's rounding) | See `dataiku` skill's `references/formulas.md` § GREL → SQL push-down |
 
 ### Python Recipe (ONLY when visual recipes can't express the logic)
 
@@ -771,7 +772,7 @@ There are ~95 purpose-built processors. If you're about to write `add-formula` w
 | `references/genai-recipes.md` | Embedding, RAG pipelines, knowledge banks, LLM eval, model deployment |
 | `references/prepare-guide.md` | Adding prepare steps with `add-step`, processor JSON params, step management |
 | `references/dashboard-patterns.md` | Charts, dashboards, tiles, chart JSON anatomy |
-| `references/sql-engines.md` | SQL-connection landing (`-t sync --connection`), GREL → SQL push-down gotchas, stale-table recovery |
+| `references/sql-engines.md` | SQL-connection CLI mechanics: `-t sync --connection` landing, `dku sql query` transaction behavior (needs explicit `COMMIT` for DDL/DML), `dataset info --recompute` post-build, stale-table recovery |
 
 Also use the companion `dataiku` skill's references for platform knowledge:
 - `references/visual-recipe-payloads.md` — JSON payloads for join/group/window/filter recipes
