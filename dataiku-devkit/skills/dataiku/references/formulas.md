@@ -1,6 +1,6 @@
 # Dataiku Formula Language (GREL)
 
-Expression syntax used in Prepare recipes, computed columns, and formula-based processors. All functions below are **verified on a live DSS instance** (136/138 pass).
+Expression syntax used in Prepare recipes, computed columns, and formula-based processors.
 
 ## What can be done
 
@@ -109,8 +109,6 @@ even(n), odd(n)                  // round up to nearest even/odd integer
 rand()                           // random double [0,1) or long
 PI()                             // π constant
 ```
-
-**Does NOT work in Prepare formulas:** `count(column)` — only available in Group recipe aggregation context, not GREL.
 
 ### Date operations
 

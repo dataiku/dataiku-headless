@@ -142,7 +142,7 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 ```
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
-- `upload --overwrite` clears the dataset's existing uploaded files first, making the upload idempotent. Use in re-runnable scripts where the same filename would otherwise fail with `File already exists and would be overwritten`
+- `upload --overwrite` clears the dataset's existing uploaded files first, making the upload idempotent
 - `upload --no-autodetect` skips detection (if you'll set format manually)
 - `head` defaults to 10 rows, override with `-n`. Use `--columns "col1,col2"` / `-C` to inspect specific columns before transforming
 - `build --wait` blocks until job completes
