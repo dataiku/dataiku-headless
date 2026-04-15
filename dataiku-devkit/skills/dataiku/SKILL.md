@@ -25,7 +25,6 @@ triggers:
   - dataiku formula
   - dataiku macro
   - dataset connector
-  - dataiku styling
   - plugin review
   - new plugin
   - scaffold plugin
@@ -302,7 +301,7 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **Scenarios** | Automation, triggers, steps, reporters, metrics/checks, pipeline orchestration | `references/scenarios.md` |
 | **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
-| **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
+| **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `dataiku-internal-branding` skill |
 
 ## Instructions
 
@@ -334,7 +333,7 @@ Common task combinations that span multiple references:
 - **"Deploy a plugin to DSS"** -> `scaffolding.md` (Section 3)
 - **"Review a plugin"** -> `scaffolding.md` (Section 4) + `plugin-review-checklist.md`, or spawn `plugin-reviewer` agent
 - **"Build a Dataiku plugin"** -> `plugin-structure.md` + `code-environments.md` + `best-practices.md`
-- **"Build a plugin webapp"** -> `plugin-architecture.md` (pick tier) + `webapps.md` + `webapp-pitfalls.md` + `styling.md`
+- **"Build a plugin webapp"** -> `plugin-architecture.md` (pick tier) + `webapps.md` + `webapp-pitfalls.md` + `dataiku-internal-branding` skill
 - **"Build a production analytics dashboard"** -> `plugin-architecture.md` (Tier 3) + `webapp-patterns.md` + `webapp-pitfalls.md`
 - **"Create a plugin with an LLM agent tool"** -> `plugin-architecture.md` (Tier 2) + `llm-tools.md` + `agent-tool-patterns.md`
 - **"Build a subprocess agent tool"** -> `agent-tool-patterns.md` + `llm-tools.md`
@@ -348,7 +347,7 @@ Common task combinations that span multiple references:
 - **"Add a formula processor"** -> `prepare-processors.md` (check if a purpose-built processor exists first) + `formulas.md` (only if GREL is truly needed)
 - **"Configure visual recipe beyond CLI flags"** -> `visual-recipe-payloads.md` (payload schemas) + `visual-conditions.md` (filter/condition JSON)
 - **"Add filter/condition to a recipe"** -> `visual-conditions.md` (uiData operator catalog) + `visual-recipe-payloads.md` (where filters go in each recipe type)
-- **"Style a Dataiku dashboard"** -> `styling.md` + `webapps.md`
+- **"Style a Dataiku dashboard"** -> `dataiku-internal-branding` skill + `webapps.md`
 - **"Automate model retraining"** -> `scenarios.md` + `mlops.md`
 - **"Read data and write to a folder"** -> `python-api.md`
 - **"Deploy a model to production"** -> `mlops.md` + `scenarios.md`

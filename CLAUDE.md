@@ -178,7 +178,7 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 | `scenarios.md` | Automation, triggers, steps, reporters |
 | `mlops.md` | Model lifecycle, drift detection, API Node |
 | `guardrails.md` | LLM guardrails: blocking, filtering, PII, LLM judge, trace API |
-| `styling.md` | Dataiku brand colors, typography, components |
+| `dataiku-internal-branding` skill | Dataiku brand colors, typography, Tailwind config, logo assets, component patterns |
 | `plugin-architecture.md` | Plugin tiers (1-5), patterns/anti-patterns, official docs gaps |
 | `visual-agent-blocks.md` | BlockHandler, block.json, dual-mode components, agent connectors |
 | `webapp-patterns.md` | Advanced: multi-tab dashboards, filters, caching, React+Vite, Chart.js |

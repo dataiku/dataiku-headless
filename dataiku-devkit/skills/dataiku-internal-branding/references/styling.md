@@ -4,7 +4,7 @@ Reference guide for Dataiku's brand styling guidelines and design system impleme
 
 Dataiku follows a **warm neutral** design philosophy with a deep teal signature palette, clean typography, and a modern enterprise look.
 
-> **Source:** [Dataiku Brand Guidelines](https://zeroheight.com/473670a97/v/latest/p/359e68-index)
+> **Source:** [Dataiku Brand Guidelines](https://zeroheight.com/473670a97/v/latest/p/359e68-index) (updated 2026-02)
 
 ---
 
@@ -35,7 +35,7 @@ Dataiku follows a **warm neutral** design philosophy with a deep teal signature 
 | Blue | `dkBlue` | `#7092F2` | Charts, graphs, data visualization |
 | Orange | `dkOrange` | `#EDAB4F` | Charts, warnings, data differentiation |
 
-> Complementary colors are for data visualization and functional needs only — not for brand expression. Lighter shades (10-30%) may be used as subtle background fills.
+> Complementary colors are for data visualization and functional needs only — not for brand expression. Lighter shades (10–30%) may be used as subtle background fills.
 
 ### Neutral Colors (data viz support)
 
@@ -74,7 +74,7 @@ These are the approved combinations for most Dataiku use cases:
 |---|---|---|
 | Headlines | **Signifier** | Hero titles, major section headings |
 | Subheads & Body | **Untitled Sans** | Subheadings, body copy, UI text |
-| Microtext & Data | **Sohne Mono** | Labels, code, data tables, metadata |
+| Microtext & Data | **Söhne Mono** | Labels, code, data tables, metadata |
 
 ### Web / Google Fonts Substitutions
 
@@ -84,7 +84,7 @@ Use these when brand fonts are unavailable (Google Slides, web without licensed 
 |---|---|---|
 | Signifier | **Spectral** | `family=Spectral:wght@400;600;700` |
 | Untitled Sans | **Roboto** | `family=Roboto:wght@400;500;700` |
-| Sohne Mono | **DM Mono** | `family=DM+Mono:wght@400;500` |
+| Söhne Mono | **DM Mono** | `family=DM+Mono:wght@400;500` |
 
 ### Font Loading (web substitutes)
 
@@ -107,7 +107,7 @@ font-family: "DM Mono", "Courier New", monospace;                       /* code/
 
 - **400 (Regular):** Body text, descriptions
 - **500 (Medium):** Labels, UI emphasis
-- **600-700 (Semi-bold/Bold):** Headings, titles, strong emphasis
+- **600–700 (Semi-bold/Bold):** Headings, titles, strong emphasis
 
 ### Text Sizing Scale
 
