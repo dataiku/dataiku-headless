@@ -968,6 +968,62 @@ def test_recipe_add_input_custom_role(patch_client):
     settings.add_input.assert_called_once_with("lookup", "lookup_ds")
 
 
+def test_recipe_add_input_syncs_visual_recipe_virtual_inputs(patch_client):
+    """For visual recipes (join/stack/pivot/...), add-input must append to
+    payload.virtualInputs[] so the new input is visible to the payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Simulate a 2-input visual join before add-input
+    settings.obj_payload = {
+        "virtualInputs": [
+            {"index": 0},
+            {"index": 1},
+        ]
+    }
+    # After add_input is called, the main items should grow to 3
+    settings.get_recipe_raw_definition.return_value = {
+        "inputs": {
+            "main": {
+                "items": [
+                    {"ref": "src1"},
+                    {"ref": "src2"},
+                    {"ref": "src3"},
+                ]
+            }
+        }
+    }
+
+    result = runner.invoke(
+        app,
+        ["recipe", "add-input", "jrec", "src3", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    # virtualInputs should now have 3 entries with indices 0, 1, 2
+    vi = settings.obj_payload["virtualInputs"]
+    assert len(vi) == 3
+    assert {v["index"] for v in vi} == {0, 1, 2}
+
+
+def test_recipe_add_input_code_recipe_leaves_payload_alone(patch_client):
+    """For code recipes (python/sql/r/shell), add-input must NOT touch
+    the payload — they don't use virtualInputs."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Python recipes have no virtualInputs field at all
+    settings.obj_payload = {"some_other_key": "unchanged"}
+
+    result = runner.invoke(
+        app,
+        ["recipe", "add-input", "py_rec", "extra_ds", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    # Payload should be untouched — no virtualInputs key added
+    assert "virtualInputs" not in settings.obj_payload
+    assert settings.obj_payload["some_other_key"] == "unchanged"
+
+
 # --- GenAI recipe creation ---
 
 
@@ -2348,6 +2404,41 @@ def test_recipe_create_pivot_with_agg_type(patch_client):
     assert settings.obj_payload["explicitIdentifiers"] == ["product"]
 
 
+def test_recipe_create_pivot_no_global_count(patch_client):
+    """--no-global-count should flip pivots[0].globalCount to False."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Start the mocked payload as a dict so the CLI's .setdefault() works
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--no-global-count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["pivots"][0]["globalCount"] is False
+
+
 def test_recipe_create_pivot_invalid_agg_type(patch_client):
     """--agg-type with unknown type gives error."""
     result = runner.invoke(
@@ -2374,7 +2465,8 @@ def test_recipe_create_pivot_invalid_agg_type(patch_client):
 
 
 def test_recipe_create_window_with_compute_rank(patch_client):
-    """--compute rowNumber::rn sets top-level boolean in payload."""
+    """--compute rowNumber::rn sets top-level boolean in payload AND warns that
+    the custom output name won't be honored (DSS has no payload field for it)."""
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
@@ -2402,6 +2494,37 @@ def test_recipe_create_window_with_compute_rank(patch_client):
     assert result.exit_code == 0
     # rowNumber is a top-level boolean in DSS Window payload
     assert settings.obj_payload["rowNumber"] is True
+    # User asked for `rn` but DSS will name it `rownumber` — warn loudly
+    assert "does not support custom output column names" in result.output
+    assert "→ column 'rownumber'" in result.output
+
+
+def test_recipe_create_window_no_warning_when_name_matches_dss(patch_client):
+    """When the user's custom name matches what DSS will produce, no warning."""
+    # patch_client fixture seeds the recipe mock; we only need to invoke the CLI.
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w2",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--partition-key",
+            "cat",
+            "--order-key",
+            "id",
+            # Explicit name that matches DSS's generated name
+            "--compute",
+            "rowNumber::rownumber",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "does not support custom output column names" not in result.output
 
 
 def test_recipe_create_window_with_compute_lag(patch_client):
@@ -4257,6 +4380,62 @@ def test_recipe_get_settings_json(patch_client):
     parsed = json.loads(result.output)
     assert "type" in parsed  # From raw definition
     assert "name" in parsed
+
+
+def test_recipe_get_settings_python_recipe_with_code(patch_client):
+    """get-settings on a Python recipe must NOT crash on obj_payload JSON
+    parsing — it must read the string payload directly, same as get-definition."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Simulate a Python recipe with code set
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "python",
+        "name": "my_py",
+    }
+    settings._str_payload = "import dataiku\nprint('hello')"
+    # obj_payload would blow up on this — our code must not call it
+    type(settings).obj_payload = property(
+        lambda self: (_ for _ in ()).throw(ValueError("JSON decode"))
+    )
+
+    result = runner.invoke(
+        app,
+        ["recipe", "get-settings", "my_py", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["type"] == "python"
+    assert parsed["payload"] == "import dataiku\nprint('hello')"
+
+    # Restore the mock for subsequent tests
+    del type(settings).obj_payload
+
+
+def test_recipe_get_settings_sql_query_recipe_with_code(patch_client):
+    """Same fix must apply to sql_query / r / shell / spark_sql_query / etc."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "extract",
+    }
+    settings._str_payload = "SELECT id, name FROM t WHERE active = 1"
+    type(settings).obj_payload = property(
+        lambda self: (_ for _ in ()).throw(ValueError("JSON decode"))
+    )
+
+    result = runner.invoke(
+        app,
+        ["recipe", "get-settings", "extract", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["type"] == "sql_query"
+    assert parsed["payload"] == "SELECT id, name FROM t WHERE active = 1"
+
+    del type(settings).obj_payload
 
 
 def test_recipe_set_settings_updates_definition(patch_client):
