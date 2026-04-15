@@ -116,6 +116,18 @@ def _find_block(agent_cfg: dict, block_id: str) -> dict | None:
     return None
 
 
+def _display_next_block(b: dict) -> str:
+    """Get display value for next block, with defaultNextBlock fallback."""
+    nb = b.get("nextBlock")
+    if nb:
+        return nb
+    if b.get("type") in _DEFAULT_NEXT_BLOCK_TYPES:
+        dnb = b.get("defaultNextBlock")
+        if dnb:
+            return f"{dnb} (default)"
+    return ""
+
+
 def _find_dangling_refs(blocks: list[dict], removed_id: str) -> list[tuple[str, str]]:
     """Return [(block_id, field_name)] for blocks referencing removed_id."""
     refs = []
@@ -234,7 +246,7 @@ def list_blocks(
                 {
                     "id": bid,
                     "type": b.get("type", ""),
-                    "next_block": b.get("nextBlock", ""),
+                    "next_block": _display_next_block(b),
                     "start": "*" if bid == starting else "",
                 }
             )
@@ -329,6 +341,19 @@ def add_block(
         settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
+
+        # Block addition to non-STRUCTURED agents — blocks silently vanish
+        agent_type = raw.get("type", "")
+        if agent_type != "STRUCTURED_AGENT":
+            exit_with_error(
+                f"Agent '{agent_id}' is type '{agent_type}', not STRUCTURED_AGENT. "
+                "Block graphs require STRUCTURED_AGENT — blocks silently vanish on other types.",
+                code="wrong_agent_type",
+                details=[
+                    "Fix: dku agent create NAME --type STRUCTURED_AGENT -P PROJ",
+                    "Then add blocks to the new agent instead.",
+                ],
+            )
 
         # Ensure blocks list exists (on DSS 14.5+ mode is implicit, not a field)
         if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:

@@ -250,6 +250,9 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - Agent Hub is a plugin webapp, not a first-class object — manage via `get_webapp()` + `get_backend_actions()`
 - `DSSScenario.get_last_finished_run()` returns None when no runs exist (not an error)
 - `folder.list_contents()` returns `{"items": [...]}`, not a flat list
+- `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
+- `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
+- Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
 
 ---
 

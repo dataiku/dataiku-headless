@@ -341,3 +341,45 @@ def test_agent_tool_set_definition_from_file(patch_client, tmp_path):
     assert result.exit_code == 0
     tool = patch_client.get_project("PROJ1").get_agent_tool("tool1")
     tool.get_settings.return_value.save.assert_called_once()
+
+
+# ── plugin tool error handling ───────────────────────────────────────────
+
+
+def test_agent_tool_run_plugin_tool_failure(patch_client):
+    """Plugin tools that fail should get a prescriptive error about agent context."""
+    from unittest.mock import MagicMock
+
+    plugin_tool = MagicMock()
+    plugin_tool.run.side_effect = Exception("KeyError: 'apiKey'")
+    patch_client.get_project("PROJ1").get_agent_tool.return_value = plugin_tool
+
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "run",
+            "Custom_agent_tool_my_plugin_my_tool",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Plugin tool" in result.output
+    assert "agent execution" in result.output
+
+
+def test_agent_tool_run_regular_tool_failure_no_plugin_warning(patch_client):
+    """Non-plugin tools should NOT get the plugin-specific error message."""
+    from unittest.mock import MagicMock
+
+    tool = MagicMock()
+    tool.run.side_effect = Exception("Some other error")
+    patch_client.get_project("PROJ1").get_agent_tool.return_value = tool
+
+    result = runner.invoke(
+        app,
+        ["agent-tool", "run", "tool1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "Plugin tool" not in result.output

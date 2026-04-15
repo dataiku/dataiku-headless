@@ -109,6 +109,69 @@ def list_jobs(
 
 
 @app.command()
+def last(
+    ctx: typer.Context,
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(
+        None,
+        "-o",
+        "--output",
+        help="Output format: plain id (default), 'table', or 'json'",
+    ),
+) -> None:
+    """Show the most recent job id (shortcut for 'dku job list | .[0]').
+
+    Default output is the plain job id on stdout — designed for shell
+    capture: ``dku job log $(dku job last -P PROJ) -P PROJ``.
+
+    Pass ``-o json`` to get the full job record (id, state, initiator,
+    start time) or ``-o table`` for a single-row table.
+    """
+    project_key = resolve_project(project)
+    # Do NOT call resolve_output_format here — we want the unset default
+    # to be "plain id on stdout", not the configured "table" fallback.
+    fmt = output.lower() if output else "plain"
+    if fmt not in ("plain", "table", "json"):
+        raise typer.BadParameter("Output format must be one of: plain, table, json")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        jobs = proj.list_jobs()
+        if not jobs:
+            error(
+                f"No jobs found in project {project_key}. "
+                f"Run a recipe first: dku recipe run RECIPE -P {project_key} --wait"
+            )
+            raise typer.Exit(1)
+        j = jobs[0]
+        job_def = j.get("def", {})
+        record = {
+            "id": job_def.get("id", ""),
+            "state": j.get("state", ""),
+            "initiator": job_def.get("initiator", ""),
+            "start": j.get("startTime", ""),
+        }
+        if fmt == "json":
+            from dku_cli.output import render_raw
+
+            render_raw(record, output_format="json")
+        elif fmt == "table":
+            render(
+                [record],
+                ["id", "state", "initiator", "start"],
+                output_format="table",
+                title=f"Most recent job ({project_key})",
+            )
+        else:
+            # Plain id on stdout — composable with $(dku job last -P PROJ)
+            console.print(record["id"], highlight=False)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
 def status(
     ctx: typer.Context,
     job_id: str = typer.Argument(help="Job ID"),
