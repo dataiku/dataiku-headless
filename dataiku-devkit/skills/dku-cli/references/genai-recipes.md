@@ -37,6 +37,19 @@ These recipe types have **no dataikuapi builder classes** — create them in the
 
 Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_def.json` to capture the definition, and `dku recipe set-definition RECIPE -P PROJ --definition @recipe_def.json` to modify.
 
+### Batch Agent Processing via Prompt Recipe
+
+Run an agent over every row in a dataset using a Prompt recipe:
+
+1. Create agent: `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`
+2. Configure block graph, tools, and prompts via CLI
+3. **Create Prompt recipe in DSS UI** (no CLI creation — see above)
+4. Set the Prompt recipe's LLM to `agent:AGENT_ID` (calls agent via LLM Mesh)
+5. Run: `dku recipe run PROMPT_RECIPE -P PROJ --wait`
+6. Verify: `dku dataset head OUTPUT -P PROJ -n 5`
+
+Key: `DSSAgent.as_llm()` is the programmatic interface — Prompt recipes accept `agent:AGENT_ID` as the LLM. There is no `run_conversation()` method.
+
 ## RAG Evaluation Flow (1 tool call)
 
 ```bash

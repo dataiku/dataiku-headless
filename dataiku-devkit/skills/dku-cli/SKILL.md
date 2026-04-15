@@ -35,6 +35,7 @@ metadata:
 > 14. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. When you need syntax, examples, or patterns for a specific task, **read the relevant reference file first** — don't try to figure it out from `--help` alone or by trial and error. The reference index at the bottom tells you which file covers what.
 > 16. **Cross-connection landing is a first-class feature.** To move data between connections (CSV → SQL, fs → warehouse, etc.) use `dku recipe create -t sync --connection X` / `-t sql_query --connection X` — auto-creates a managed output on the target connection. Never write a Python passthrough for this. Engine-specific idioms and push-down gotchas live in `references/sql-engines.md` — read it before writing any Prepare formula that targets a SQL-connection output.
+> 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). For batch processing, use a Prompt recipe (UI-only) calling `agent:AGENT_ID` — see `references/genai-recipes.md`.
 
 # dku-cli
 

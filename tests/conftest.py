@@ -1279,7 +1279,7 @@ def mock_client():
     agent_blocks_mock = MagicMock()
     agent_blocks_version_data = {
         "versionId": "v1",
-        "toolsUsingAgentSettings": {
+        "structuredAgentSettings": {
             "mode": "BLOCKS_GRAPH",
             "startingBlockId": "init_state",
             "blocks": [
@@ -1314,14 +1314,14 @@ def mock_client():
         "projectKey": "PROJ1",
         "id": "agent_blocks",
         "name": "Block Agent",
-        "type": "TOOLS_USING_AGENT",
+        "type": "STRUCTURED_AGENT",
         "activeVersion": "v1",
         "versions": [agent_blocks_version_data],
     }
     agent_blocks_settings = MagicMock()
     agent_blocks_settings.get_raw.return_value = agent_blocks_raw
     agent_blocks_settings.active_version = "v1"
-    agent_blocks_settings.type = "TOOLS_USING_AGENT"
+    agent_blocks_settings.type = "STRUCTURED_AGENT"
     agent_blocks_settings.get_version_ids.return_value = ["v1"]
     agent_blocks_settings.save.return_value = None
     agent_blocks_mock.get_settings.return_value = agent_blocks_settings

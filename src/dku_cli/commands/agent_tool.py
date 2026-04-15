@@ -265,6 +265,16 @@ def run(
                         + project_key,
                     ],
                 )
+            if tool_id.startswith("Custom_agent_tool_"):
+                exit_with_error(
+                    f"Plugin tool '{tool_id}' failed: {e}",
+                    code="plugin_tool_error",
+                    details=[
+                        "Plugin tools may fail when tested directly — presets and "
+                        "connections are only resolved inside agent execution context.",
+                        f"Test via the agent instead: dku agent test AGENT_ID -P {project_key}",
+                    ],
+                )
             raise
 
         render_raw(result, output_format=output)
