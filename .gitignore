@@ -41,6 +41,12 @@ tmp/
 demo/
 work/
 
+# macOS junk
+.DS_Store
+
+# Local POC webapps (not shipped)
+webapps/
+
 # AI coding tool configs (benchmark artifacts)
 .adal/
 .augment/
