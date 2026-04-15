@@ -1060,14 +1060,21 @@ def get_settings_cmd(
         raw_def = settings.get_recipe_raw_definition()
         # Build complete settings dict: definition + parsed payload
         full = dict(raw_def)
-        try:
-            payload = settings.obj_payload
-            if payload is not None:
-                full["payload"] = payload
-        except (AttributeError, TypeError):
-            pass
-        if "payload" not in full and hasattr(settings, "raw_params"):
-            full["payload"] = settings.raw_params.get("payload")
+        # Text-payload recipes (python / r / sql_query / ...) store the recipe
+        # body as a raw string — `settings.obj_payload` tries `json.loads` on
+        # it and raises ValueError. Detect those and read `_str_payload`
+        # directly, same pattern as `recipe get-definition`.
+        if _is_text_payload_recipe(settings):
+            full["payload"] = _get_text_payload(settings)
+        else:
+            try:
+                payload = settings.obj_payload
+                if payload is not None:
+                    full["payload"] = payload
+            except (AttributeError, TypeError, ValueError):
+                pass
+            if "payload" not in full and hasattr(settings, "raw_params"):
+                full["payload"] = settings.raw_params.get("payload")
         render_raw(full, output_format=output)
     except Exception as e:
         handle_api_error(e)
@@ -1127,13 +1134,43 @@ def add_input(
     role: str = typer.Option("main", "--role", help="Input role"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add an input dataset to a recipe."""
+    """Add an input dataset to a recipe.
+
+    For visual recipes that use payload.virtualInputs[] (join, stack, pivot,
+    window, distinct, ...), this also appends a matching virtualInputs entry
+    so the new input is visible to the payload. Without the sync, the recipe
+    errors 'Input index: N out of range' when any downstream payload edit
+    references the new input.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         recipe = client.get_project(project_key).get_recipe(recipe_name)
         settings = recipe.get_settings()
         settings.add_input(role, ref)
+
+        # Visual recipes store a parallel view of inputs in payload.virtualInputs.
+        # settings.add_input() only touches the top-level inputs dict, so we
+        # need to patch the payload explicitly when the recipe is visual.
+        if role == "main":
+            try:
+                payload = settings.obj_payload
+            except (AttributeError, TypeError, ValueError):
+                payload = None
+            if isinstance(payload, dict) and "virtualInputs" in payload:
+                vi = payload.setdefault("virtualInputs", [])
+                existing_indices = {v.get("index") for v in vi}
+                # Compute new index = len(inputs.main.items) - 1 after add_input
+                main_items = (
+                    settings.get_recipe_raw_definition()
+                    .get("inputs", {})
+                    .get("main", {})
+                    .get("items", [])
+                )
+                new_index = len(main_items) - 1
+                if new_index not in existing_indices:
+                    vi.append({"index": new_index})
+
         settings.save()
         success(f"Added input '{ref}' to recipe '{recipe_name}'")
     except Exception as e:
@@ -2845,23 +2882,38 @@ def _parse_compute_specs(specs: list[str]) -> list[dict]:
     return parsed
 
 
-def _apply_window_computations(payload: dict, computations: list[dict]) -> None:
+def _apply_window_computations(
+    payload: dict, computations: list[dict], recipe_name: str = ""
+) -> None:
     """Apply parsed --compute specs to a Window recipe obj_payload.
 
     DSS Window recipes use two mechanisms:
     - Top-level booleans: rowNumber, rank, denseRank (global, not per-column)
     - values[] array: per-column flags like lag, lead, sum, avg, etc.
+
+    **DSS does not support custom output column names for window computations.**
+    Top-level computations produce fixed names (`rownumber`, `rank`, `denserank`).
+    Per-column computations produce `${col}_${func}`. If the user provided a
+    third colon segment (e.g. `rowNumber::my_rn`), we warn and point at the
+    post-recipe rename workaround.
     """
     values = payload.setdefault("values", [])
+    custom_names: list[tuple[str, str, str]] = []  # (type, source, requested_name)
 
     for comp in computations:
         comp_type = comp["type"]
+        output_col = comp.get("outputColumn") or ""
+        source_col = comp.get("column") or ""
+
+        # Work out what DSS is going to name this column given the payload.
         if comp_type in _TOP_LEVEL_WINDOW_TYPES:
-            # Enable top-level flag (e.g., payload["rowNumber"] = True)
+            dss_name = comp_type.lower()
+            # Enable the top-level flag
             payload[comp_type] = True
         else:
+            # Per-column flag — DSS generates `${col}_${func}`
+            dss_name = f"{source_col}_{comp_type.lower()}"
             # Find or create the column entry in values[]
-            source_col = comp["column"]
             col_entry = None
             for v in values:
                 if v.get("column") == source_col:
@@ -2870,8 +2922,34 @@ def _apply_window_computations(payload: dict, computations: list[dict]) -> None:
             if col_entry is None:
                 col_entry = {"column": source_col, "value": False}
                 values.append(col_entry)
-            # Enable the computation type flag
             col_entry[comp_type] = True
+
+        # If the user asked for a custom name that doesn't match what DSS
+        # will produce, queue a warning.
+        if output_col and output_col != dss_name:
+            custom_names.append((comp_type, source_col, output_col))
+
+    if custom_names:
+        target = recipe_name or "<recipe>"
+        warn(
+            "DSS does not support custom output column names for window "
+            "computations — the column will be named by the computation type, "
+            "not by your third --compute segment."
+        )
+        for comp_type, source_col, requested in custom_names:
+            actual = (
+                comp_type.lower()
+                if comp_type in _TOP_LEVEL_WINDOW_TYPES
+                else f"{source_col}_{comp_type.lower()}"
+            )
+            info(
+                f"  --compute '{comp_type}:{source_col}:{requested}' → column '{actual}'"
+            )
+        info(
+            "To rename after build, chain a Prepare recipe: "
+            f"dku recipe create rename_{target} -t prepare -i OUTPUT_DS --output-ds OUTPUT_DS_renamed -P PROJ "
+            "&& dku recipe add-rename rename_<recipe> --from <actual> --to <desired> -P PROJ"
+        )
 
 
 @app.command("create-window")
@@ -2969,7 +3047,9 @@ def create_window(
                 payload["orders"] = parsed_orders
                 info(f"Order by: {', '.join(order_key)}")
             if parsed_computations:
-                _apply_window_computations(payload, parsed_computations)
+                _apply_window_computations(
+                    payload, parsed_computations, recipe_name=recipe_name
+                )
                 info(
                     f"Computations: {', '.join(c['type'] for c in parsed_computations)}"
                 )
@@ -3126,12 +3206,21 @@ def create_pivot(
         "--agg-type",
         help="Aggregation type for pivot cells: SUM, AVG, MIN, MAX, COUNT, COUNT_DISTINCT, CONCAT, STDDEV.",
     ),
+    no_global_count: bool = typer.Option(
+        False,
+        "--no-global-count",
+        help="Suppress the per-modality 'count' column that DSS adds to every pivot by default. Mirrors the create-group flag.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Pivot recipe (long→wide). NEVER use df.pivot_table() in Python.
 
     Transposes rows into columns: each unique value in --column-key becomes
     a new column, filled with aggregated --value-column values.
+
+    By default DSS adds a count column per pivoted modality regardless of
+    --agg-type. Pass --no-global-count to suppress it when you only want the
+    explicit aggregate in the output.
 
     Example: dku recipe create-pivot piv -i sales --output-ds sales_wide --row-key product --column-key month --value-column revenue --agg-type SUM -P PROJ
     """
@@ -3157,7 +3246,7 @@ def create_pivot(
         # Configure pivot dimensions and aggregation.
         # DSS stores pivot config in payload.explicitIdentifiers (row keys) and
         # payload.pivots[0] (column key, value columns, aggregation functions).
-        if row_key or column_key or value_column or agg_type:
+        if row_key or column_key or value_column or agg_type or no_global_count:
             recipe_obj = proj.get_recipe(recipe_name)
             settings = recipe_obj.get_settings()
             payload = _get_recipe_payload(settings)
@@ -3177,6 +3266,8 @@ def create_pivot(
                 # agg_type without value_column — set on existing valueColumns
                 for vc in pivot.get("valueColumns", []):
                     vc["function"] = agg_type.upper()
+            if no_global_count:
+                pivot["globalCount"] = False
             settings.save()
             info(
                 f"Pivot config: row={row_key}, column={column_key}, value={value_column}, agg={agg_type}"
