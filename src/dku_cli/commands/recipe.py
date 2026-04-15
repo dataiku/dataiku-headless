@@ -1,4 +1,4 @@
-"""dku recipe — list, get, get-definition, run, create, delete, set-code, get-code, set-definition, add-input, add-output, plus GenAI recipe creation."""
+"""dku recipe — list, get, get-definition, run, create, delete, set-code, get-code, set-definition, add-input, add-output, rename, status, plus GenAI recipe creation."""
 
 from __future__ import annotations
 
@@ -79,6 +79,31 @@ _INPUT_OPTIONAL_TYPES = frozenset(
     {"python", "r", "shell", "pyspark", "cpython", "sparkr"}
 )
 
+# Visual recipe types routed via `with_existing_output()` in the generic
+# `dku recipe create` path. sync and sql_query inherit
+# SingleOutputRecipeCreator.with_new_output(name, connection, ...) and
+# auto-create the output on the target connection, so they're excluded.
+_VISUAL_RECIPE_TYPES = frozenset(
+    {
+        "join",
+        "group",
+        "sort",
+        "distinct",
+        "topn",
+        "window",
+        "stack",
+        "split",
+        "shaker",
+        "prepare",
+        "filter",
+        "pivot",
+        "sampling",
+        "sample",
+        "geojoin",
+        "fuzzyjoin",
+    }
+)
+
 
 def _is_plugin_recipe_type(type_name: str) -> bool:
     """Plugin recipe types follow the pattern CustomCode_<recipeComponentId>."""
@@ -98,6 +123,24 @@ def _require_existing_dataset(
                 code="missing_dataset",
             )
         handle_api_error(e)
+
+
+def _get_recipe_or_exit(proj, recipe_name: str, project_key: str):
+    """Return a recipe object or exit with prescriptive guidance when missing."""
+    try:
+        return proj.get_recipe(recipe_name)
+    except Exception as e:
+        if is_not_found_error(e) or str(e).strip("'") == "recipe":
+            exit_with_error(
+                f"Recipe '{recipe_name}' not found in project '{project_key}'.",
+                code="not_found",
+                status=3,
+                details=[
+                    f"List recipes: dku recipe list -P {project_key}",
+                    f"Inspect the project flow: dku project inspect {project_key} -o json",
+                ],
+            )
+        raise
 
 
 def _create_eval_recipe_raw(
@@ -148,13 +191,58 @@ def _create_eval_recipe_raw(
     return proj.get_recipe(response["name"])
 
 
+# Recipe types whose payload is raw source text (Python / SQL / R / shell),
+# not a JSON object. For these, `obj_payload` raises a JSON decode error.
+_TEXT_PAYLOAD_RECIPE_TYPES = frozenset(
+    {
+        "python",
+        "r",
+        "shell",
+        "sql_query",
+        "sql_script",
+        "spark_sql_query",
+        "pyspark",
+        "sparkr",
+        "spark_scala",
+        "cpython",
+    }
+)
+
+
+def _is_text_payload_recipe(settings) -> bool:
+    """True if the recipe's payload is raw code text, not a JSON object."""
+    try:
+        rtype = settings.get_recipe_raw_definition().get("type", "")
+    except Exception:
+        return False
+    return rtype in _TEXT_PAYLOAD_RECIPE_TYPES
+
+
+def _get_text_payload(settings) -> str:
+    """Read the raw string payload of a code recipe (sql_query, python, etc.)."""
+    # dataikuapi stores the string payload in _str_payload; obj_payload getter
+    # tries to json.loads it, which crashes on SQL / code recipes.
+    if getattr(settings, "_str_payload", None) is not None:
+        return settings._str_payload
+    # Fallback: the data dict may hold it under "payload"
+    data = getattr(settings, "data", None)
+    if isinstance(data, dict) and isinstance(data.get("payload"), str):
+        return data["payload"]
+    return ""
+
+
 def _get_recipe_payload(settings) -> dict:
-    """Get or init the recipe payload, handling read-only obj_payload property."""
+    """Get or init the recipe payload, handling read-only obj_payload property.
+
+    For code recipes (sql_query, python, etc.), the payload is raw source text,
+    not a dict — callers should use `_get_text_payload` instead. This helper
+    is only for visual recipes whose payload is JSON.
+    """
     try:
         payload = settings.obj_payload
         if payload is not None:
             return payload
-    except (AttributeError, TypeError, KeyError):
+    except (AttributeError, TypeError, KeyError, json.JSONDecodeError, ValueError):
         pass
 
     # obj_payload is read-only in real dataikuapi — write to raw_params directly
@@ -287,7 +375,7 @@ def get(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        recipe = proj.get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
 
@@ -336,10 +424,19 @@ def get_definition(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        recipe = proj.get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
-        payload = settings.obj_payload
+
+        # Code recipes (sql_query, python, etc.) store raw source text; visual
+        # recipes store a JSON config. obj_payload crashes for code recipes.
+        if _is_text_payload_recipe(settings):
+            payload = _get_text_payload(settings)
+        else:
+            try:
+                payload = settings.obj_payload
+            except (json.JSONDecodeError, ValueError):
+                payload = _get_text_payload(settings)
 
         if output == "json":
             result = {"definition": raw_def, "payload": payload}
@@ -347,6 +444,13 @@ def get_definition(
         else:
             input_refs = settings.get_flat_input_refs()
             output_refs = settings.get_flat_output_refs()
+            if isinstance(payload, str):
+                preview = payload[:200] + ("..." if len(payload) > 200 else "")
+                payload_display = preview if preview else "(none)"
+            else:
+                payload_display = (
+                    json.dumps(payload, default=str) if payload else "(none)"
+                )
             data = [
                 {"field": "Name", "value": recipe_name},
                 {"field": "Type", "value": raw_def.get("type", "")},
@@ -354,7 +458,7 @@ def get_definition(
                 {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
                 {
                     "field": "Payload",
-                    "value": json.dumps(payload, default=str) if payload else "(none)",
+                    "value": payload_display,
                 },
             ]
             render(
@@ -394,7 +498,7 @@ def run(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        recipe = proj.get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
 
         if job_type or auto_update_schema:
             # Get recipe outputs to build via job builder
@@ -468,7 +572,7 @@ def create(
         None,
         "--connection",
         "-c",
-        help="Connection for output dataset (code recipes). Use when project has no default managed connection. Run 'dku connection list' to see available connections.",
+        help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) and for sync recipes. Run 'dku connection list' to see available connections.",
     ),
     input_role: str = typer.Option(
         "main",
@@ -586,19 +690,24 @@ def create(
                 )
             if input_ds is not None:
                 builder.with_input(input_ds)
-            # Visual recipe creators have with_existing_output() — output must already exist.
-            # Code recipe creators (CodeRecipeCreator) use:
-            #   - with_new_output_dataset(name, connection) when --connection is provided
-            #   - with_output(name) when no connection (requires existing dataset or project default)
-            is_visual = hasattr(builder, "with_existing_output")
-            if is_visual:
-                if connection:
-                    warn(
-                        "--connection is ignored for visual recipes (output must already exist)."
-                    )
-                builder.with_existing_output(output_ds)
-            elif connection:
+            # Output wiring:
+            # - Code recipes use CodeRecipeCreator.with_new_output_dataset(name, connection)
+            # - Everything else with --connection uses
+            #   SingleOutputRecipeCreator.with_new_output(name, connection) — this
+            #   covers sync, sql_query, AND visual recipes (join, group, sort, distinct,
+            #   prepare, window, pivot, sampling, stack, fuzzyjoin, geojoin) which all
+            #   inherit it from VirtualInputsSingleOutputRecipeCreator / SingleOutputRecipeCreator.
+            # - Visual recipes without --connection fall back to with_existing_output().
+            # - Recipe types that subclass DSSRecipeCreator directly (topn) have no
+            #   auto-create method and fall through to with_output().
+            type_lower = type_name.lower()
+            is_visual = type_lower in _VISUAL_RECIPE_TYPES
+            if connection and hasattr(builder, "with_new_output_dataset"):
                 builder.with_new_output_dataset(output_ds, connection)
+            elif connection and hasattr(builder, "with_new_output"):
+                builder.with_new_output(output_ds, connection)
+            elif is_visual and hasattr(builder, "with_existing_output"):
+                builder.with_existing_output(output_ds)
             else:
                 builder.with_output(output_ds)
             builder.build()
@@ -615,25 +724,9 @@ def create(
                 ],
             )
         if is_connection_required_error(e):
-            # Visual recipes (prepare, sync, etc.) need the output to pre-exist.
-            # Code recipes need a --connection for auto-creation.
-            visual_types = {
-                "prepare",
-                "shaker",
-                "sync",
-                "join",
-                "group",
-                "sort",
-                "distinct",
-                "topn",
-                "window",
-                "stack",
-                "split",
-                "filter",
-                "pivot",
-                "sample",
-            }
-            if type_name in visual_types:
+            # Visual recipes (prepare, shaker, join, group, ...) need the output to pre-exist.
+            # Code recipes (python, r, shell) and sync/sql_query need a --connection for auto-creation.
+            if type_name.lower() in _VISUAL_RECIPE_TYPES:
                 exit_with_error(
                     f"Output dataset '{output_ds}' does not exist. Visual recipes require the output dataset to be created first.",
                     code="output_not_found",
@@ -673,14 +766,131 @@ def delete(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete a recipe."""
+    project_key = resolve_project(project)
+    if not yes:
+        confirm = typer.confirm(f"Delete recipe '{recipe_name}' from {project_key}?")
+        if not confirm:
+            raise typer.Abort()
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
+        recipe.delete()
+        success(f"Deleted recipe '{recipe_name}' from {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def rename(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Current recipe name"),
+    new_name: str = typer.Option(..., "--name", help="New recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Rename a recipe.
+
+    Example:
+      dku recipe rename compute_old --name compute_new -P PROJ
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         recipe = client.get_project(project_key).get_recipe(recipe_name)
-        recipe.delete()
-        success(f"Deleted recipe '{recipe_name}' from {project_key}")
+        recipe.rename(new_name)
+        success(f"Renamed recipe '{recipe_name}' to '{new_name}' in {project_key}")
+    except ValueError as e:
+        # dataikuapi raises ValueError if new_name == old name
+        exit_with_error(
+            str(e),
+            code="invalid_argument",
+            details=[
+                f"The recipe is already named '{recipe_name}'.",
+                "Provide a different name with --name.",
+            ],
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def status(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show recipe status: engine, severity, and check messages.
+
+    Reports which engine DSS selected for the recipe, the overall
+    status severity, and any warnings or errors from recipe checks.
+
+    Example:
+      dku recipe status compute_data -P PROJ
+      dku recipe status compute_data -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe_status = recipe.get_status()
+
+        # Extract engine info
+        engine = None
+        try:
+            engine_details = recipe_status.get_selected_engine_details()
+            engine = engine_details.get("type", "unknown")
+        except (ValueError, KeyError):
+            pass  # Some recipe types have no engine concept
+
+        severity = recipe_status.get_status_severity()
+        messages = recipe_status.get_status_messages()
+
+        if fmt == "json":
+            result = {
+                "recipe": recipe_name,
+                "project": project_key,
+                "engine": engine,
+                "severity": severity,
+                "messages": messages,
+            }
+            render_raw(result, output_format="json")
+        else:
+            # Summary line
+            info(f"Recipe: {recipe_name}")
+            info(f"Engine: {engine or '(none)'}")
+            info(f"Severity: {severity or '(no checks)'}")
+
+            if messages:
+                data = []
+                for msg in messages:
+                    data.append(
+                        {
+                            "severity": msg.get("severity", ""),
+                            "title": msg.get("title", ""),
+                            "message": msg.get("message", ""),
+                        }
+                    )
+                render(
+                    data,
+                    ["severity", "title", "message"],
+                    output_format=fmt,
+                    title="Status Messages",
+                    headers={
+                        "severity": "SEVERITY",
+                        "title": "TITLE",
+                        "message": "MESSAGE",
+                    },
+                )
+            else:
+                info("No status messages.")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -698,7 +908,9 @@ def set_code(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
 
         if code == "-":
             code_text = sys.stdin.read()
@@ -727,7 +939,9 @@ def get_code(
     output = resolve_output_format(output, allowed=("text", "json"), default="text")
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         payload = settings.get_payload()
         if output == "json":
@@ -1527,14 +1741,13 @@ def add_find_replace(
     find: str = typer.Option(..., "--find", help="Value to find"),
     replace: str = typer.Option(..., "--replace", help="Replacement value"),
     matching: str = typer.Option(
-        "FULL_STRING", "--matching", help="FULL_STRING, SUBSTRING, or PATTERN (regex)"
+        "SUBSTRING",
+        "--matching",
+        help="Match mode: SUBSTRING (default), FULL_STRING (exact cell match), or PATTERN (regex).",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add a find-and-replace step on a column.
-
-    Use instead of df[col].str.replace() in Python.
-    """
+    """Add a find-and-replace step on a column."""
     _add_prepare_step(
         ctx,
         recipe_name,
@@ -1820,11 +2033,26 @@ def create_join(
         join_settings = recipe_obj.get_settings()
         joins = join_settings.raw_joins
 
-        # Newly created join recipes may have an empty joins list.
-        # Create the default join structure(s) matching DSS's expected format.
-        if not joins:
-            for i in range(len(inputs) - 1):
-                joins.append({"table1": 0, "table2": i + 1, "type": jt, "on": []})
+        # DSS's builder may pre-create a single default join pair when there are
+        # 2+ inputs, leaving `joins` at length 1 regardless of input count.
+        # Extend to exactly N-1 join pairs so --join-key 1:col, 2:col, ... all
+        # resolve to a valid target. Each join fans out from table 0 (the main
+        # table) to table i+1 (each subsequent input).
+        # Only extend when raw_joins is a real list (not a test MagicMock).
+        if isinstance(joins, list):
+            target_pairs = max(0, len(inputs) - 1)
+            existing_pairs = len(joins)
+            for i in range(existing_pairs, target_pairs):
+                joins.append(
+                    {
+                        "table1": 0,
+                        "table2": i + 1,
+                        "conditionsMode": "AND",
+                        "type": jt,
+                        "outerJoinOnTheLeft": True,
+                        "on": [],
+                    }
+                )
 
         # Set join type on all existing join pairs
         for j in joins:
@@ -2191,12 +2419,20 @@ def create_group(
         "--agg",
         help="Aggregation: 'col:func1,func2'. Functions: sum, avg, min, max, count, count_distinct, concat, stddev. Repeatable.",
     ),
+    no_global_count: bool = typer.Option(
+        False,
+        "--no-global-count",
+        help="Suppress the per-group 'count' column that DSS adds by default.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Group (aggregate) recipe. NEVER use Python for aggregations — use this instead.
 
     Use --agg to configure aggregation functions: --agg 'amount:sum,avg' --agg 'id:count'.
     Without --agg, defaults to COUNT per group. Use -k for group keys (repeatable: -k col1 -k col2).
+
+    By default DSS adds a 'count' column (rows per group). Pass --no-global-count
+    to suppress it when only the explicit aggregates should appear in the output.
     """
     project_key = resolve_project(project)
     # Validate --agg format early (before any API calls)
@@ -2230,8 +2466,8 @@ def create_group(
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Post-build: add extra group keys and/or aggregation config
-        needs_settings = (group_key and len(group_key) > 1) or agg
+        # Post-build: add extra group keys, aggregation config, and/or disable global count
+        needs_settings = (group_key and len(group_key) > 1) or agg or no_global_count
         if needs_settings:
             recipe_obj = proj.get_recipe(recipe_name)
             group_settings = recipe_obj.get_settings()
@@ -2251,6 +2487,9 @@ def create_group(
                     )
                     cs["avg"] = "avg" in funcs
                 info(f"Aggregations: {', '.join(agg)}")
+            if no_global_count:
+                group_settings.set_global_count_enabled(False)
+                info("Global 'count' column disabled.")
             group_settings.save()
 
         _auto_apply_schema(proj, recipe_name)
@@ -2317,11 +2556,25 @@ def create_distinct(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    on: list[str] | None = typer.Option(
+        None,
+        "--on",
+        help=(
+            "Column(s) defining uniqueness. Repeatable. Default: ALL input columns "
+            "(matching Python df.drop_duplicates() semantics). Specify --on col1 "
+            "--on col2 to dedup only on a subset of columns."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Distinct recipe. Deduplicates rows.
 
-    Use this instead of df.drop_duplicates() in Python.
+    Use this instead of df.drop_duplicates() in Python. By default, deduplicates
+    on ALL columns of the input dataset (so two rows collapse only when every
+    column value matches). Use --on to dedup on a subset.
+
+    Example: dku recipe create-distinct dedup -i rows --output-ds unique -P PROJ
+    Example: dku recipe create-distinct dedup -i rows --output-ds unique --on customer_id --on order_date -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -2332,6 +2585,40 @@ def create_distinct(
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
+
+        # Configure distinct keys. Default behavior is "distinct on ALL columns"
+        # to match df.drop_duplicates() semantics. Without this, DSS defaults to
+        # keys=[first_col] + selectAllColumns=false, which silently produces a
+        # single-column output (the first column) — an anti-pattern that looks
+        # like distinct but is actually a projection.
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(settings)
+
+        if on:
+            key_cols = list(on)
+        else:
+            # Resolve all columns from the input dataset schema.
+            try:
+                input_schema = (
+                    proj.get_dataset(input_ds).get_schema().get("columns", [])
+                )
+                key_cols = [c["name"] for c in input_schema]
+            except Exception:
+                # If we can't read the schema (e.g. input not yet built),
+                # fall back to DSS defaults — better than crashing.
+                key_cols = []
+
+        if key_cols:
+            payload["keys"] = [{"column": c} for c in key_cols]
+            payload["selectAllColumns"] = True
+            info(
+                "Distinct on: "
+                + ", ".join(key_cols[:5])
+                + (f" (+{len(key_cols) - 5} more)" if len(key_cols) > 5 else "")
+            )
+        settings.save()
+
         _auto_apply_schema(proj, recipe_name)
         success(f"Created distinct recipe '{recipe_name}' in {project_key}")
     except Exception as e:
@@ -2415,39 +2702,60 @@ def create_filter(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
     filter_formula: str = typer.Option(
-        None,
+        ...,
         "--filter-formula",
         "--filter",
         "-f",
         help="DSS formula filter expression (e.g. 'age > 30')",
     ),
+    action: str = typer.Option(
+        "KEEP_ROW",
+        "--action",
+        help="KEEP_ROW (keep matching) or REMOVE_ROW (drop matching)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a Sample/Filter recipe. Filters rows by condition.
+    """Create a filter recipe (rows matching the formula).
 
-    Use this instead of df[df.col > X] in Python. Pass --filter-formula to
-    configure the filter expression inline, or configure in the DSS UI / via
-    set-definition.
+    Builds a Prepare recipe with a single FilterOnCustomFormula step.
+    Prefer this over the Sampling recipe type, whose filter schema is unstable
+    and which silently drops the filter expression on many DSS versions.
+
+    Use instead of df[df.col > X] in Python.
     """
     project_key = resolve_project(project)
+    action = action.upper()
+    if action not in {"KEEP_ROW", "REMOVE_ROW"}:
+        exit_with_error(
+            f"Invalid --action '{action}'. Must be KEEP_ROW or REMOVE_ROW.",
+            code="invalid_argument",
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         _ensure_output_dataset(client, proj, output_ds, project_key)
-        builder = proj.new_recipe("sampling", recipe_name)
+        builder = proj.new_recipe("shaker", recipe_name)
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
-        if filter_formula:
-            recipe_obj = proj.get_recipe(recipe_name)
-            filter_settings = recipe_obj.get_settings()
-            payload = _get_recipe_payload(filter_settings)
-            payload["filterExpression"] = filter_formula
-            payload["samplingMethod"] = "FULL"
-            filter_settings.save()
-            info(f"Filter: {filter_formula}")
+
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        steps = _ensure_steps_array(settings)
+        steps.append(
+            {
+                "metaType": "PROCESSOR",
+                "type": "FilterOnCustomFormula",
+                "params": {"expression": filter_formula, "action": action},
+            }
+        )
+        settings.save()
+        info(f"Filter: {filter_formula} ({action})")
+
         _auto_apply_schema(proj, recipe_name)
         success(f"Created filter recipe '{recipe_name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -2623,18 +2931,42 @@ def create_window(
         builder.with_existing_output(output_ds)
         builder.build()
 
-        # Configure partition/order keys and computations (WindowRecipeSettings has no helpers)
+        # Configure partition/order keys and computations (WindowRecipeSettings has no helpers).
+        # DSS reads partitioning and ordering from payload.windows[0] and requires the
+        # enablePartitioning / enableOrdering boolean flags. Writing to the top-level
+        # partitioningColumns / orders fields (without the enable flags inside windows[0])
+        # silently produces GLOBAL aggregations instead of per-partition ones.
         if partition_key or order_key or parsed_computations:
             recipe_obj = proj.get_recipe(recipe_name)
             win_settings = recipe_obj.get_settings()
             payload = _get_recipe_payload(win_settings)
+
+            # Ensure windows[0] exists — DSS's builder creates it by default, but
+            # guard against an empty list just in case.
+            windows = payload.setdefault("windows", [])
+            if isinstance(windows, list):
+                if not windows:
+                    windows.append({})
+                win0 = windows[0]
+            else:
+                win0 = None
+
             if partition_key:
+                if isinstance(win0, dict):
+                    win0["enablePartitioning"] = True
+                    win0["partitioningColumns"] = list(partition_key)
+                # Keep the top-level field for forward compat with DSS versions
+                # that inspect it alongside windows[0].
                 payload["partitioningColumns"] = [
                     {"column": col} for col in partition_key
                 ]
                 info(f"Partition by: {', '.join(partition_key)}")
             if order_key:
-                payload["orders"] = _parse_order_specs(order_key)
+                parsed_orders = _parse_order_specs(order_key)
+                if isinstance(win0, dict):
+                    win0["enableOrdering"] = True
+                    win0["orders"] = parsed_orders
+                payload["orders"] = parsed_orders
                 info(f"Order by: {', '.join(order_key)}")
             if parsed_computations:
                 _apply_window_computations(payload, parsed_computations)

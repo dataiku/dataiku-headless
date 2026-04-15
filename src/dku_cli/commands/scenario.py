@@ -1,4 +1,4 @@
-"""dku scenario — list, run, abort, status, runs, last-run, set-metadata, create, delete, get/set-definition, get/set-code, triggers."""
+"""dku scenario — list, run, abort, status, runs, last-run, avg-duration, run-log, set-metadata, create, delete, get/set-definition, get/set-code, triggers."""
 
 from __future__ import annotations
 
@@ -331,17 +331,33 @@ def set_code(
 def last_run(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
+    successful: bool = typer.Option(
+        False,
+        "--successful",
+        help="Show only the last *successful* run (SUCCESS or WARNING)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show the last finished run of a scenario."""
+    """Show the last finished run of a scenario.
+
+    Use --successful to get the last run that completed with SUCCESS or
+    WARNING status, skipping FAILED and ABORTED runs.
+
+    Example:
+      dku scenario last-run BUILD_ALL -P PROJ
+      dku scenario last-run BUILD_ALL --successful -P PROJ
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        run = scenario.get_last_finished_run()
+        if successful:
+            run = scenario.get_last_successful_run()
+        else:
+            run = scenario.get_last_finished_run()
         run_data = (
             run.get_info()
             if hasattr(run, "get_info")
@@ -349,8 +365,9 @@ def last_run(
         )
         render_raw(run_data, output_format=output)
     except ValueError:
+        msg = "No successful runs found." if successful else "No finished runs found."
         exit_with_error(
-            "No finished runs found.",
+            msg,
             details=[
                 f"Run it first: dku scenario run {scenario_id} -P {project_key}",
             ],
@@ -366,17 +383,35 @@ def runs(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     limit: int = typer.Option(10, "--limit", help="Max number of runs to show"),
+    from_date: str | None = typer.Option(
+        None, "--from", help="Start date (YYYY-MM-DD), inclusive"
+    ),
+    to_date: str | None = typer.Option(
+        None, "--to", help="End date (YYYY-MM-DD), exclusive"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List recent runs of a scenario."""
+    """List recent runs of a scenario.
+
+    Use --from/--to to filter by date range instead of --limit.
+
+    Example:
+      dku scenario runs BUILD_ALL -P PROJ
+      dku scenario runs BUILD_ALL --from 2026-04-01 --to 2026-04-08 -P PROJ
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        run_list = scenario.get_last_runs(limit=limit)
+
+        if from_date:
+            run_list = scenario.get_runs_by_date(from_date, to_date or from_date)
+        else:
+            run_list = scenario.get_last_runs(limit=limit)
+
         data = []
         for r in run_list:
             start = ""
@@ -385,19 +420,119 @@ def runs(
                     start = str(r.get_start_time())
                 except Exception:
                     pass
+            duration = ""
+            try:
+                dur_secs = r.get_duration()
+                if dur_secs is not None:
+                    duration = f"{dur_secs:.1f}s"
+            except Exception:
+                pass
             data.append(
                 {
                     "id": r.id,
-                    "state": getattr(r, "outcome", ""),
+                    "state": getattr(r, "outcome", "RUNNING"),
                     "start": start,
+                    "duration": duration,
                 }
             )
         render(
             data,
-            ["id", "state", "start"],
+            ["id", "state", "start", "duration"],
             output_format=output,
             title=f"Runs ({scenario_id})",
         )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("avg-duration")
+def avg_duration(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    limit: int = typer.Option(
+        3, "--limit", help="Number of recent successful runs to average"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show average duration of recent successful scenario runs.
+
+    Computes the average over the last N successful runs (SUCCESS or
+    WARNING). Returns None if fewer than N successful runs exist.
+
+    Example:
+      dku scenario avg-duration BUILD_ALL -P PROJ
+      dku scenario avg-duration BUILD_ALL --limit 5 -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        avg = scenario.get_average_duration(limit=limit)
+
+        if fmt == "json":
+            render_raw(
+                {
+                    "scenario": scenario_id,
+                    "project": project_key,
+                    "avg_duration_seconds": avg,
+                    "limit": limit,
+                },
+                output_format="json",
+            )
+        else:
+            if avg is not None:
+                minutes = avg / 60
+                if minutes >= 1:
+                    info(
+                        f"Average duration: {minutes:.1f} min ({avg:.0f}s) over last {limit} successful runs"
+                    )
+                else:
+                    info(
+                        f"Average duration: {avg:.1f}s over last {limit} successful runs"
+                    )
+            else:
+                info(
+                    f"Not enough successful runs to compute average (need {limit}). "
+                    f"Run: dku scenario run {scenario_id} -P {project_key}"
+                )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("run-log")
+def run_log(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    run_id: str = typer.Option(..., "--run", help="Run ID"),
+    step_id: str | None = typer.Option(
+        None, "--step", help="Step ID to scope logs to (optional)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Get logs from a specific scenario run.
+
+    Use --step to get logs for a single step instead of the full run.
+    Find run IDs with 'dku scenario runs' and step IDs from run details.
+
+    Example:
+      dku scenario run-log BUILD_ALL --run sc_2026-04-08T10 -P PROJ
+      dku scenario run-log BUILD_ALL --run sc_2026-04-08T10 --step step1 -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        run = scenario.get_run(run_id)
+        log_text = run.get_log(step_id=step_id)
+        print(log_text)
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

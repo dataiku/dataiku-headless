@@ -114,6 +114,71 @@ After creating and building any pipeline, agent, or plugin:
 
 ---
 
+## Working with Existing Projects
+
+When dropped into an established project, **understand before you act.** Existing projects may have large datasets (millions of rows, gigabytes of data), expensive compute connections (Spark, BigQuery, Snowflake), and LLM recipes that cost real money per run. Reckless builds can rack up significant bills.
+
+### Exploration Protocol (always follow this order)
+
+```bash
+# Step 1: Understand structure — one call, no data movement
+dku project inspect PROJ -o json
+
+# Step 2: Gauge dataset sizes — check BEFORE pulling any data
+dku dataset info SOURCE_DS1 -P PROJ && \
+dku dataset info SOURCE_DS2 -P PROJ
+
+# Step 3: Understand schemas
+dku dataset schema KEY_DS -P PROJ
+
+# Step 4: Sample actual data (small — never more than 20 rows initially)
+dku dataset head KEY_DS -P PROJ -n 10
+
+# Step 5: Understand the flow
+dku flow visualize -P PROJ
+```
+
+**Rules for existing projects:**
+- **Always `info` before `head`.** Know how big a dataset is before pulling rows. A 50GB SQL table looks the same as a 50KB CSV in `list`.
+- **Never `head` with more than 20 rows initially.** Increase only after confirming the dataset is reasonably sized. For large datasets, use `--columns` to limit width too.
+- **Never trigger a full recursive build without asking the user.** `RECURSIVE_BUILD` on a project with 50 datasets and Spark recipes can cost hundreds of dollars.
+- **Check connection types.** SQL/Spark/BigQuery connections mean server-side compute that may be metered. `dku connection list` shows available connections; `dku dataset info DS -P PROJ` shows which connection a dataset uses.
+- **Don't modify existing recipes without understanding them.** Run `dku recipe get-definition RECIPE -P PROJ -o json` before changing anything.
+
+### Cost Consciousness — Be the User's Financial Guardian
+
+You are the user's Dataiku companion. Act like a responsible colleague who thinks about cost implications before clicking "Run".
+
+**Compute cost awareness:**
+
+| Action | Cost risk | What to check first |
+|--------|-----------|-------------------|
+| `RECURSIVE_BUILD` on large flow | **High** — rebuilds everything upstream | `dku flow visualize` to see scope; ask user |
+| Python recipe on large dataset | **Medium** — loads data into memory | `dku dataset info` for row count; suggest sampling |
+| LLM recipe (prompt, classify, embed) | **High** — API cost per row | `dku dataset info` for row count; calculate: rows x tokens x $/token |
+| Building a knowledge bank | **Medium** — embedding cost per chunk | Check source dataset size; estimate chunk count |
+| Visual recipe (join, group, sort) | **Low** — DSS-optimized, uses engines | Usually safe; check if Spark connection |
+| Agent test query | **Low** — single LLM call | Safe for testing |
+| Training ML model (AutoML) | **Medium** — CPU/GPU time | Check dataset size and number of algorithms enabled |
+
+**LLM cost optimization:**
+- **Prefer visual recipes over LLM recipes.** A join recipe costs zero LLM tokens; a "use AI to combine datasets" costs tokens per row.
+- **Sample before LLM processing.** If an LLM recipe must process 100K rows, first create a sampling recipe with 100 rows to validate the output format and quality. Only then run on full data — and tell the user the estimated cost.
+- **Choose the right LLM.** Not every task needs GPT-4 / Claude Opus. Use `dku llm list -P PROJ` to see available models. Classification and extraction tasks often work fine with smaller, cheaper models.
+- **Batch over streaming.** One `dku llm completion` call with a batch prompt is cheaper than N individual calls.
+
+**When to escalate to the user:**
+- Dataset has >1M rows and you're about to create an LLM recipe targeting it
+- Recursive build touches >10 datasets or includes Spark/BigQuery recipes
+- Knowledge bank source has >10K documents
+- Any operation where you can estimate cost >$10
+- You're unsure about the billing model of a connection type
+
+**Template for cost escalation:**
+> "This dataset has [X rows / Y GB]. The [operation] will [estimated impact]. Want me to proceed, or should I sample first / use a cheaper approach?"
+
+---
+
 ## Why Visual Matters — Dataiku's Core Value
 
 Dataiku exists to **democratize data science and AI**. Its power is that business analysts, data engineers, and data scientists all work in the same visual environment — no code required for most tasks. Every decision you make should reinforce this principle:
@@ -255,8 +320,9 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 10. **When unsure about a pattern**, check the "Official Plugin Repos" section in `references/plugin-architecture.md` — it lists 40+ public repos at `github.com/dataiku` organized by component type. Browse the closest match to see real production code.
 11. **Verify every outcome.** After building anything, run it and check the output. See [Verification Protocol](#verification-protocol--trust-nothing-verify-everything) above. Your job is done when you've proven the output is correct, not when commands exit 0.
 12. **Prepare recipes: ALWAYS prefer purpose-built processors over GREL.** Before writing any prepare step, READ `references/prepare-processors.md` for the processor decision table and exact params. Use `CreateColumnWithGREL` / `add-formula` ONLY when no dedicated processor exists. There are ~95 processor types — date parsing, string transforms, if/then/else, filtering, binning, JSON flattening, and more all have dedicated processors that are faster and cleaner than GREL.
-13. **Sample data before transforming.** Before creating or configuring ANY recipe, inspect the input dataset with `dku dataset head INPUT -P PROJ -n 5` to verify column names, data formats, and value patterns. Don't assume date formats (`yyyy-MM-dd` vs `MM/dd/yyyy`), column cardinality, or value ranges from schema alone. For joins, verify both datasets have matching key column values.
-14. **Visual recipe payloads.** When CLI flags don't cover your configuration need (custom join conditions, additional aggregations, post-filters), READ `references/visual-recipe-payloads.md` for payload schemas and `references/visual-conditions.md` for filter/condition JSON. Use `dku recipe get-settings` → edit → `dku recipe set-definition --payload`.
+13. **Gauge before you touch.** Before pulling data or building anything, run `dku dataset info DS -P PROJ` to check row count and data size. Datasets can be millions of rows and gigabytes — a blind `head -n 1000` on a 50GB SQL table is fine, but building a Python recipe that `df.iterrows()` over 100M rows will fail or cost a fortune. **Ask the user before triggering expensive operations** (full builds on large datasets, LLM recipes on high-cardinality data, recursive builds touching many datasets).
+14. **Sample data before transforming.** Before creating or configuring ANY recipe, inspect the input dataset with `dku dataset head INPUT -P PROJ -n 5` to verify column names, data formats, and value patterns. Don't assume date formats (`yyyy-MM-dd` vs `MM/dd/yyyy`), column cardinality, or value ranges from schema alone. For joins, verify both datasets have matching key column values.
+15. **Visual recipe payloads.** When CLI flags don't cover your configuration need (custom join conditions, additional aggregations, post-filters), READ `references/visual-recipe-payloads.md` for payload schemas and `references/visual-conditions.md` for filter/condition JSON. Use `dku recipe get-settings` → edit → `dku recipe set-definition --payload`.
 
 ## Cross-Cutting Patterns
 

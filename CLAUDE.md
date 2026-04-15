@@ -28,10 +28,10 @@ uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (~300 commands, 42 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
-**NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
+**Private repo — NOT on PyPI.** Install from a local clone — see [Distribution](#distribution).
 
 ---
 
@@ -55,8 +55,14 @@ When you receive benchmark feedback:
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v`
-6. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
+5. **Run tests — ALWAYS, no exceptions** — `uv run pytest -v` after ANY CLI code change. Write new tests for new commands. Test error paths too, not just happy paths. Never skip this step.
+6. **Test against live DSS (MANDATORY)** — Unit test mocks are guesses until verified. After unit tests pass, run every new/changed command against the real DSS instance with `uv run dku <command>`. Use projects **ADVISORGPT** (Snowflake datasets, recipes, flow graph) or **AGENTTEST**. Verify:
+   - Table output shows real data, not blank columns (field name mismatches cause this)
+   - JSON output field names match what DSS actually returns
+   - Empty results produce helpful messages (no usages, no schemas, etc.)
+   - Wrong inputs (bad column name, non-SQL connection for schemas) produce prescriptive errors
+   - If live testing reveals mismatches, fix them BEFORE committing
+7. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
 
@@ -95,8 +101,6 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code. **Every error must tell the agent what to do next.** |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-**42 command groups** — see `skills/dku-cli/references/commands.md` for full reference.
-
 ---
 
 ## Development Conventions
@@ -134,8 +138,17 @@ dataiku-devkit/
 
 ### Skill Quality Standards
 
-When editing `dataiku-devkit/skills/dku-cli/SKILL.md`:
+When editing skills, **progressive disclosure is non-negotiable**:
 
+| Layer | File | What goes here | What does NOT go here |
+|-------|------|----------------|----------------------|
+| 1 | SKILL.md cheat sheet (top 30 lines) | Failure prevention rules, one line each | Command syntax, flag details |
+| 2 | SKILL.md body | Command Groups table (verb names only), chaining patterns for new workflows | Per-command notes, flag descriptions, API details |
+| 3 | `references/commands.md` | Full command syntax, all flags, usage notes, API quirks | — (this is the detail layer) |
+
+**Rules:**
+- **SKILL.md is loaded into every conversation.** Every line costs tokens. Be ruthless about what earns a spot.
+- **Never add per-command documentation to SKILL.md.** That's what `references/commands.md` is for. SKILL.md gets the verb in the Command Groups table + a chaining pattern IF the command enables a new workflow.
 - **Cheat sheet** (top 30 lines): Must prevent the top failure modes. One line per rule. If you add a gotcha to CLAUDE.md, ask: does the cheat sheet need a rule too?
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
@@ -188,10 +201,16 @@ A dedicated **`govern-blueprint-designer`** skill (`dataiku-devkit/skills/govern
 ### Dataset Create + Upload
 `dku dataset create` defaults to Filesystem, which does NOT support `dku dataset upload`. Use `--type UploadedFiles` for anything being uploaded via CLI.
 
-`dku dataset delete` / `dku project delete` have no `--yes` flag. For non-interactive deletion: `echo y | dku dataset delete NAME -P PROJ`.
+`dku dataset delete` and `dku recipe delete` prompt by default but support `--yes` / `-y` for non-interactive deletion. `dku project delete` requires `--confirm`, `--yes`, or `-y`.
 
 ### Code Recipe Create + Connection
-`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c`. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). Visual recipes don't need `--connection`.
+`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c` when creating Python/SQL recipes in projects without a default managed connection. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). If `connection list` is unavailable, inspect an existing dataset with `dku dataset get-definition DS -P PROJ -o json | jq -r '.params.connection'`. Cross-project recipe inputs use `PROJECT_KEY.DATASET_NAME`. Visual recipe shortcuts auto-create outputs and don't need `--connection`.
+
+### Dataset Verification + Schema Reality
+`dku dataset head -o json` returning `[]` means the dataset has 0 rows, not an error. Always verify built outputs with `dku dataset head OUTPUT -P PROJ -n 5` and inspect actual columns with `dku dataset schema OUTPUT -P PROJ` before assuming a recipe worked. Wiki plans and schema docs can lag the real dataset.
+
+### Python Recipe Numeric IDs
+ID columns from external datasets may contain nulls or non-numeric values. Never cast directly with `.astype("int64")`; use `pd.to_numeric(..., errors="coerce")`, `dropna`, then cast, or the recipe will fail with `IntCastingNaNError`.
 
 ### Plugin Webapp Backend
 DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app = Flask(__name__)` — it breaks `/__ping`. Import from `dataiku.customwebapp`, not `dataiku.webapp`. Folder is `webapps/`, not `custom-webapps/`. `webapp.json` needs `hasBackend: true`, `noJSSecurity: true`.
