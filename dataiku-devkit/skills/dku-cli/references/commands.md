@@ -88,7 +88,7 @@ dku project get PROJECT_KEY [-o FORMAT]
 dku project inspect [PROJECT_KEY] [-P PROJECT] [-o FORMAT]
 dku project export PROJECT_KEY [--dest DIR]
 dku project create PROJECT_KEY --name NAME [--description DESC] [--if-not-exists] [-o FORMAT]
-dku project delete PROJECT_KEY --yes
+dku project delete PROJECT_KEY --yes [--drop-data]
 dku project duplicate PROJECT_KEY --target-key KEY --target-name NAME [-o FORMAT]
 dku project set-metadata PROJECT_KEY [--name NAME] [--description DESC]
 dku project variables [-P PROJECT] [-o FORMAT]
@@ -101,7 +101,7 @@ dku project ai-describe [-P PROJECT] [--language LANG] [--purpose PURPOSE] [--le
 dku project timeline [-P PROJECT] [--limit N] [-o FORMAT]
 ```
 
-- `delete` requires `--confirm`, `--yes`, or `-y` flag (safety guard)
+- `delete` requires `--confirm`, `--yes`, or `-y` flag (safety guard). By default, backing storage of managed datasets (physical SQL tables, managed folder contents) is NOT dropped — they stay orphaned on the target connection. Pass `--drop-data` (alias `--clear-managed`) to also clear them. Without `--drop-data`, the command prints a reminder after deletion.
 - `create --if-not-exists` skips creation silently when the project already exists (idempotent)
 - `set-metadata` updates project display name and/or description after creation
 - `set-variables --set` modifies individual standard vars; `--definition` replaces all
@@ -151,7 +151,7 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
-- `info --recompute` (alias `--fresh`) recomputes the row count, size, and file count metrics before reading them. Use after a recipe run to avoid stale numbers in the cache
+- `info --recompute` (alias `--fresh`) recomputes the row count, size, and file count metrics before reading them. Use after a recipe run to avoid stale numbers in the cache. Without `--recompute`, `info` on a built dataset with cached metrics prints a hint pointing at the flag (skipped in `-o json` mode)
 - `set-schema` accepts both `{"columns": [...]}` (full object) and `[{name, type}, ...]` (plain array — auto-wrapped). Round-trips with `schema -o json`
 - `set-metadata` updates description, short description, and/or tags without needing JSON. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `set-column-description` takes alternating column-name description pairs (even count required)
@@ -343,6 +343,7 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 
 ```bash
 dku job list [-P PROJECT] [-o FORMAT]
+dku job last [-P PROJECT] [-o plain|table|json]
 dku job run --target NAME [--target NAME2] [-P PROJECT] [--type BUILD_TYPE] [--auto-update-schema] [--wait] [--timeout SECS] [--refresh-metastore]
 dku job status JOB_ID [-P PROJECT] [-o FORMAT]
 dku job log JOB_ID [-P PROJECT] [--tail N] [--errors-only]
@@ -350,6 +351,7 @@ dku job abort JOB_ID [-P PROJECT]
 dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 ```
 
+- `last` prints the most recent job id on stdout — composable in shells: `dku job log $(dku job last -P PROJ) -P PROJ`. Pass `-o json` for the full record (id/state/initiator/start) or `-o table` for a one-row table. Exit 1 with a prescriptive error when there are no jobs
 - `run --target` is repeatable for building multiple outputs in one job
 - `run --type` defaults to `NON_RECURSIVE_FORCED_BUILD`; use `RECURSIVE_BUILD` to build upstream deps
 - `run --auto-update-schema` auto-updates output schemas before each recipe run — eliminates manual schema propagation
@@ -1177,10 +1179,14 @@ dku wiki delete ARTICLE_ID --confirm [-P PROJECT]
 ## sql
 
 ```bash
-dku sql query SQL --connection CONN [-o FORMAT]
+dku sql query SQL --connection CONN [-o FORMAT] [--no-auto-commit]
 ```
 
 - `query` accepts SQL string or `@file.sql`
+- Works for SELECT, DDL (`CREATE` / `DROP` / `ALTER` / `TRUNCATE`), and DML (`INSERT` / `UPDATE` / `DELETE` / `MERGE` / `GRANT` / `REVOKE`).
+- **DDL/DML auto-commits.** DSS's `sql_query` endpoint runs every statement in a streaming session that rolls back on close, so CREATE / INSERT / DROP would be silently discarded without a trailing `COMMIT`. The CLI detects DDL/DML by first-token (ignoring leading whitespace and `--` / `/* */` comments) and passes `post_queries=["COMMIT"]` to `client.sql_query()`. On success, prints `◆ Committed on <connection>`.
+- Pass `--no-auto-commit` to opt out — useful when wrapping multiple statements in explicit `BEGIN; ... COMMIT;` or when testing rollback behavior.
+- SELECT queries never auto-commit (no behavior change).
 
 ## whoami
 

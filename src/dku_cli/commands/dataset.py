@@ -298,12 +298,22 @@ def info_cmd(
                 "Consider sampling before transforming. "
                 "Use 'dku recipe create-sampling' to create a sample dataset."
             )
-        if metrics_stale:
-            info(
-                "Metrics not yet computed. Run: "
-                f"dku dataset build {dataset_name} -P {project_key} --wait "
-                "to compute metrics, or use the DSS UI."
-            )
+        # Stale-metrics hint — skip in JSON mode so the stderr line doesn't
+        # interfere with programmatic consumers that check both streams.
+        if metrics_stale and fmt != "json":
+            if last_build_time is not None:
+                # Dataset has been built but metrics are cached (DSS does
+                # NOT auto-recompute on build). Direct the agent to --recompute.
+                info(
+                    f"Metrics are stale — pass --recompute for fresh row count / size / file count: "
+                    f"dku dataset info {dataset_name} -P {project_key} --recompute"
+                )
+            else:
+                # Dataset was never successfully built — no metrics to refresh.
+                info(
+                    "Metrics not yet computed. Run: "
+                    f"dku dataset build {dataset_name} -P {project_key} --wait"
+                )
     except typer.Exit:
         raise
     except Exception as e:
