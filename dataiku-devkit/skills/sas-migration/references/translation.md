@@ -436,20 +436,22 @@ GREL function names are **case-sensitive**. See the `dataiku` skill's `reference
 
 `COMPRESS` modifiers: `k` = keep (instead of remove), `d` = digits, `a` = alpha, `s` = spaces, `p` = punct. `compress(s, , 'kd')` = keep only digits.
 
-### Dates (SQL recipe equivalents)
+### Dates (SQL recipe equivalents — engine-specific)
 
-| SAS | SQL equivalent | Note |
+SAS date functions don't have a single portable SQL equivalent. The column below shows the most common shape, but **check your target engine** — the exact function name varies (`DATEDIFF` / `MONTHS_BETWEEN` / `DATE_DIFF`), and so does the argument order. See the Postgres-specific forms in § SAS → SQL recipe translations below.
+
+| SAS | Shape (varies per engine) | Note |
 |---|---|---|
-| `INTCK('month', d1, d2)` | `MONTHS_BETWEEN(d2, d1)` or `DATEDIFF(month, d1, d2)` | Counts discrete boundary crossings |
-| `INTCK('year', d1, d2)` | `DATEDIFF(year, d1, d2)` | `intck('year', 15MAR2024, 01JAN2026)` = 2 |
-| `INTNX('month', d, n)` | `DATE_ADD(d, INTERVAL n MONTH)` | Defaults to BEGINNING of target month |
-| `INTNX('month', d, n, 'end')` | `LAST_DAY(DATE_ADD(d, INTERVAL n MONTH))` | End of target month |
-| `INTNX('month', d, n, 'sameday')` | `DATE_ADD(d, INTERVAL n MONTH)` | Preserves day-of-month |
-| `DATEPART(dt)` | `CAST(dt AS DATE)` | Extracts date from SAS datetime |
-| `MDY(m, d, y)` | `MAKE_DATE(y, m, d)` | |
-| `TODAY()` | `CURRENT_DATE` | |
-| `INPUT(s, DATE9.)` | `STR_TO_DATE(s, '%d%b%Y')` | Parses `'15MAR2024'` |
-| `INPUT(s, YYMMDD10.)` | `CAST(s AS DATE)` | Parses `'2024-03-15'` |
+| `INTCK('month', d1, d2)` | Oracle: `MONTHS_BETWEEN(d2, d1)`; SQL Server: `DATEDIFF(month, d1, d2)`; BigQuery: `DATE_DIFF(d2, d1, MONTH)` | Counts discrete boundary crossings |
+| `INTCK('year', d1, d2)` | `DATEDIFF(year, d1, d2)` — check engine syntax | `intck('year', 15MAR2024, 01JAN2026)` = 2 |
+| `INTNX('month', d, n)` | MySQL/BigQuery: `DATE_ADD(d, INTERVAL n MONTH)`; Snowflake: `DATEADD(MONTH, n, d)` | Defaults to BEGINNING of target month |
+| `INTNX('month', d, n, 'end')` | Wrap the above in `LAST_DAY(...)` if available | End of target month |
+| `INTNX('month', d, n, 'sameday')` | Same base `DATE_ADD` / `DATEADD` | Preserves day-of-month |
+| `DATEPART(dt)` | `CAST(dt AS DATE)` | Portable |
+| `MDY(m, d, y)` | `MAKE_DATE(y, m, d)` (PG/BigQuery) or `DATE(y, m, d)` | Check engine |
+| `TODAY()` | `CURRENT_DATE` | Portable |
+| `INPUT(s, DATE9.)` | MySQL: `STR_TO_DATE(s, '%d%b%Y')`; Snowflake: `TO_DATE(s, 'DDMONYYYY')`; PG: `TO_DATE(s, 'DDMonYYYY')` | Parses `'15MAR2024'` |
+| `INPUT(s, YYMMDD10.)` | `CAST(s AS DATE)` | Portable for ISO dates |
 
 `INPUT(s, COMMA10.)` strips `$` and `,` — use `toNumber(replace(replace(col, '$', ''), ',', ''))`.
 
@@ -577,29 +579,38 @@ Symptom of a rounding-mode mismatch in a parity check: off-by-step mismatches in
 
 ---
 
-## SAS → PostgreSQL translations (for SQL recipes)
+## SAS → SQL recipe translations
 
-| SAS | PostgreSQL |
-|---|---|
-| `intck('month', d1, d2)` | `(EXTRACT(YEAR FROM AGE(d2, d1)) * 12 + EXTRACT(MONTH FROM AGE(d2, d1)))::bigint` |
-| `intck('day', d1, d2)` | `(d2 - d1)::bigint` (date subtraction returns int) |
-| `intnx('month', d, n)` | `d + make_interval(months => n)` |
-| `round(x, 0.1)` | `round(x::numeric, 1)` — cast to NUMERIC for half-away-from-zero |
-| `put(num, best.)` | `trim(to_char(num, 'FM999999999999'))` |
-| `input(str, best.)` | `NULLIF(str, '')::double precision` |
-| `substr(s, start, len)` | `SUBSTRING(s, start, len)` — 1-indexed in both |
-| `tranwrd(s, a, b)` | `REPLACE(s, a, b)` |
-| `scan(s, n, delim)` | `SPLIT_PART(s, delim, n)` |
-| `strip(s)` / `trim(s)` | `TRIM(s)` |
-| `upcase(s)` / `lowcase(s)` | `UPPER(s)` / `LOWER(s)` |
-| `catx(sep, a, b, c)` | `concat_ws(sep, a, b, c)` — skips NULLs |
-| `missing(x)` numeric | `x IS NULL` |
-| `missing(x)` char | `x IS NULL OR x = ''` — SAS treats blanks as missing |
-| `ifn(cond, a, b)` | `CASE WHEN cond THEN a ELSE b END` |
-| `max of (a, b, c)` | `GREATEST(a, b, c)` |
-| `min of (a, b, c)` | `LEAST(a, b, c)` |
+The rows below come in two flavours:
+
+- **Portable (standard SQL)** — string ops, `CASE WHEN`, `IS NULL`, `GREATEST`/`LEAST` work as-is on Postgres, Snowflake, BigQuery, Redshift, Oracle, SQL Server, DuckDB.
+- **Engine-specific** — date math (`AGE`, `make_interval`), numeric casts (`::numeric`, `::double precision`), and `to_char` format strings are **Postgres-specific**. The Postgres forms are verified on DSS 14.4 + PG. For other engines, swap in the native equivalents — see the `Dates (SQL recipe equivalents)` table above for cross-engine date math.
+
+| SAS | Standard SQL or **Postgres** | Portability |
+|---|---|---|
+| `intck('month', d1, d2)` | **PG**: `(EXTRACT(YEAR FROM AGE(d2, d1)) * 12 + EXTRACT(MONTH FROM AGE(d2, d1)))::bigint` | PG only — `AGE()` is Postgres-specific |
+| `intck('day', d1, d2)` | **PG**: `(d2 - d1)::bigint` (date subtraction returns int) | PG only — Snowflake/BigQuery need `DATEDIFF` / `DATE_DIFF` |
+| `intnx('month', d, n)` | **PG**: `d + make_interval(months => n)` | PG only — Snowflake: `DATEADD(MONTH, n, d)`, BigQuery: `DATE_ADD(d, INTERVAL n MONTH)` |
+| `round(x, 0.1)` | **PG**: `round(x::numeric, 1)` — cast to NUMERIC for half-away-from-zero | PG only — other engines don't need the cast; Snowflake/BQ/Redshift/Oracle/SQL Server `ROUND` is already half-away-from-zero |
+| `put(num, best.)` | **PG/Oracle**: `trim(to_char(num, 'FM999999999999'))` | PG/Oracle — Snowflake: `TO_VARCHAR(num)`, BigQuery: `CAST(num AS STRING)` |
+| `input(str, best.)` | **PG**: `NULLIF(str, '')::double precision` | PG only — other engines: `CAST(NULLIF(str, '') AS DOUBLE)` or `TRY_CAST` |
+| `substr(s, start, len)` | `SUBSTRING(s, start, len)` | **Portable** — 1-indexed in every engine |
+| `tranwrd(s, a, b)` | `REPLACE(s, a, b)` | **Portable** |
+| `scan(s, n, delim)` | `SPLIT_PART(s, delim, n)` | PG / Redshift / Snowflake / DuckDB — BigQuery: `SPLIT(s, delim)[OFFSET(n-1)]` |
+| `strip(s)` / `trim(s)` | `TRIM(s)` | **Portable** |
+| `upcase(s)` / `lowcase(s)` | `UPPER(s)` / `LOWER(s)` | **Portable** |
+| `catx(sep, a, b, c)` | `concat_ws(sep, a, b, c)` — skips NULLs | PG / MySQL / Snowflake — BigQuery: `ARRAY_TO_STRING([a, b, c], sep)` |
+| `missing(x)` numeric | `x IS NULL` | **Portable** |
+| `missing(x)` char | `x IS NULL OR x = ''` — SAS treats blanks as missing | **Portable** |
+| `ifn(cond, a, b)` | `CASE WHEN cond THEN a ELSE b END` | **Portable** |
+| `max of (a, b, c)` | `GREATEST(a, b, c)` | Most engines — SQL Server needs `CASE WHEN` |
+| `min of (a, b, c)` | `LEAST(a, b, c)` | Most engines — SQL Server needs `CASE WHEN` |
+
+**Rule of thumb**: if you're on a non-Postgres SQL connection, start with the portable rows and substitute the engine-specific ones against the target engine's docs. The Postgres forms are what DSS + PG gives you out of the box and what was verified against a live `rds` connection.
 
 ### `PROC UNIVARIATE` → `PERCENTILE_CONT`
+
+Standard SQL — works on Postgres, Oracle, SQL Server, Snowflake, BigQuery, Redshift, DuckDB.
 
 ```sql
 SELECT
@@ -612,6 +623,8 @@ GROUP BY customer_id
 ```
 
 ### `RETAIN` state machines → `LAG` + cumulative sums
+
+Standard SQL window functions + CTEs — portable across engines. The only non-portable bit below is `COUNT(*)::bigint` (PG cast syntax); other engines use `CAST(COUNT(*) AS BIGINT)`.
 
 SAS:
 ```sas
