@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dku_cli.errors import _handle_govern_validation
+from dku_cli.errors import _handle_govern_validation, _handle_invalid_api_key
 
 
 def test_list_field_error():
@@ -49,3 +49,44 @@ def test_non_govern_error_returns_none():
     msg = "NotFoundException: Project does not exist"
     result = _handle_govern_validation(msg)
     assert result is None
+
+
+def test_invalid_api_key_with_unknown_key_message(monkeypatch):
+    monkeypatch.setenv("DKU_URL", "http://example:8082")
+    monkeypatch.setenv("DKU_PROFILE", "staging")
+    msg = "com.dataiku.dip.exceptions.NotAuthenticatedException: Unknown API Key"
+    result = _handle_invalid_api_key(msg)
+    assert result is not None
+    message, details = result
+    assert "DSS rejected" in message
+    assert "http://example:8082" in message
+    assert "staging" in message
+    # Recovery line should include the URL the user tried so the agent can
+    # copy-paste it without re-typing.
+    joined = "\n".join(details)
+    assert "dku auth login --url http://example:8082" in joined
+    assert "<new-key>" in joined
+
+
+def test_invalid_api_key_falls_back_when_no_url(monkeypatch):
+    monkeypatch.delenv("DKU_URL", raising=False)
+    monkeypatch.delenv("DKU_DSS_URL", raising=False)
+    monkeypatch.delenv("DKU_PROFILE", raising=False)
+    # Force config lookup to fail so we exercise the fallback path.
+    import dku_cli.errors as errors_mod
+
+    monkeypatch.setattr(errors_mod, "_resolve_auth_context", lambda: (None, None))
+    msg = "NotAuthenticatedException: Unknown API Key"
+    result = _handle_invalid_api_key(msg)
+    assert result is not None
+    message, details = result
+    # When no URL is known, the message should call that out instead of
+    # printing 'None' or crashing.
+    assert "<unknown URL" in message
+    assert any("dku auth login" in d for d in details)
+
+
+def test_invalid_api_key_returns_none_for_other_errors():
+    assert _handle_invalid_api_key("NotFoundException: Project does not exist") is None
+    assert _handle_invalid_api_key("ValidationException: bad field") is None
+    assert _handle_invalid_api_key("403 Forbidden") is None

@@ -177,6 +177,8 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 | `geospatial.md` | Geospatial data handling, projections, spatial joins |
 | `govern.md` | Govern CLI: blueprints, artifacts, signoffs, users, roles, JSON payloads |
 
+A dedicated **`govern-blueprint-designer`** skill (`dataiku-devkit/skills/govern-blueprint-designer/`) teaches agents end-to-end blueprint version authoring: fork → edit fields/workflow/hooks/views → activate → wire signoffs. Use it when the user wants to design a blueprint (as opposed to operating one at runtime).
+
 ---
 
 ## Critical Gotchas
@@ -212,6 +214,20 @@ Not validated server-side — wrong column names save but render blank charts. V
 ### Plugin Structure
 `python-agent-tools/`, `webapps/`, `custom-recipes/`, `python-runnables/`, `python-connectors/`, `python-lib/`, `code-env/`. See `skills/dataiku/references/plugin-structure.md`.
 
+### Govern Blueprint Designer
+Blueprint entity (`dku govern blueprint set-definition`) only stores name/icon/color. Fields, workflow, hooks, views, and signoffs live on the **version** (`set-version-definition`). New versions are DRAFT until `set-version-status BP VER ACTIVE`. Editing a version with existing artifacts blocks destructive changes unless `--force` (`dangerZoneAccepted`) is passed — never set this without user confirmation. Signoff `usersContainer.type` values are **lowercase**: `"user" / "group" / "role" / "global-api-key"`. `create-signoff-config` body must NOT include `id` (server assigns from URL path). `list-versions` uses the admin designer endpoint so DRAFTs appear — the non-admin path silently hides them.
+
+### Govern Doc Validation (pre-merge)
+The Govern backend accepts lax JSON — unknown fields are silently dropped and missing fields default to empty lists. That means a doc can ship with a wrong payload shape (wrong key name, missing nesting) and no test catches it. This has happened **twice** for the signoff configuration: 2026-04-08 had `approverConfiguration` (singular, wrong); 2026-04-12 re-fixed it to `approvers[]` (list, correct).
+
+Before merging changes to any doc under `dataiku-devkit/skills/dataiku/references/govern.md` or `dataiku-devkit/skills/govern-blueprint-designer/`, run:
+
+```bash
+uv run python scripts/verify_govern_docs.py
+```
+
+The script extracts every ```json block, classifies it (signoff config, blueprint version, field definition, workflow step, artifact, or blueprint entity), posts each complete payload through the matching API call on a live Govern instance, reads the result back, and flags both static shape errors (known-bad keys) and silently-dropped content. Partial/illustrative snippets are detected and skipped automatically. Requires an admin DSS client (same as `dku whoami`). Creates a scratch blueprint `bp.doc_verifier_tmp` and tears it down at exit. Use `--scratch-id` to isolate concurrent runs and `--keep` to inspect the scratch blueprint afterwards.
+
 ---
 
 ## dataikuapi Quirks
@@ -229,6 +245,8 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - Agent Hub is a plugin webapp, not a first-class object — manage via `get_webapp()` + `get_backend_actions()`
 - `DSSScenario.get_last_finished_run()` returns None when no runs exist (not an error)
 - `folder.list_contents()` returns `{"items": [...]}`, not a flat list
+- **Govern has parallel admin and non-admin read paths.** `govern.get_blueprint(id).list_versions()` hits `/blueprint/{id}/versions` and **silently filters out DRAFT versions**. `govern.get_blueprint_designer().get_blueprint(id).list_versions()` hits `/admin/blueprint/{id}/versions` and returns every version regardless of status. Use the designer path for anything authoring-related. Same asymmetry applies wherever `govern.get_X()` has a `get_X_designer()` counterpart. The CLI's `dku govern blueprint list-versions` defaults to the admin path for this reason
+- **Govern server silently drops unknown JSON fields.** Misshapen signoff configurations and blueprint version definitions often look like they succeed — the server saves whatever it can parse and ignores the rest. This is how the signoff-structure bug landed twice. Always verify a doc's JSON shape with `scripts/verify_govern_docs.py` before merging
 
 ---
 

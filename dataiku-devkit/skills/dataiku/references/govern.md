@@ -198,17 +198,34 @@ dku govern artifact set-definition ARTIFACT_ID --definition JSON
 ### govern blueprint
 
 ```bash
-# Discovery (no admin needed)
+# Discovery
 dku govern blueprint list [-o FORMAT]
 dku govern blueprint get BLUEPRINT_ID [-o FORMAT]
-dku govern blueprint list-versions BLUEPRINT_ID [-o FORMAT]
+dku govern blueprint list-versions BLUEPRINT_ID [-o FORMAT]          # all statuses (DRAFT/ACTIVE/ARCHIVED)
 dku govern blueprint get-version BLUEPRINT_ID VERSION_ID [-o FORMAT]
 dku govern blueprint fields BLUEPRINT_ID [--version VERSION_ID] [-o FORMAT]
+dku govern blueprint version-status BLUEPRINT_ID VERSION_ID [-o FORMAT]
 
-# Admin/architect commands
+# Blueprint entity (name/icon/color only)
 dku govern blueprint create IDENTIFIER --definition JSON [-o FORMAT]
 dku govern blueprint set-definition BLUEPRINT_ID --definition JSON
+dku govern blueprint delete BLUEPRINT_ID --confirm
+
+# Blueprint version designer (fields, workflow, hooks, views — see govern-blueprint-designer skill)
+dku govern blueprint create-version BLUEPRINT_ID NEW_ID [--name N] [--from VERSION_ID]
+dku govern blueprint set-version-definition BLUEPRINT_ID VERSION_ID --definition JSON [--force]
+dku govern blueprint set-version-status BLUEPRINT_ID VERSION_ID {DRAFT|ACTIVE|ARCHIVED}
+dku govern blueprint delete-version BLUEPRINT_ID VERSION_ID --confirm
+
+# Signoff configuration designer (per workflow step)
+dku govern blueprint list-signoff-configs BLUEPRINT_ID VERSION_ID
+dku govern blueprint get-signoff-config BLUEPRINT_ID VERSION_ID STEP_ID
+dku govern blueprint create-signoff-config BLUEPRINT_ID VERSION_ID STEP_ID --definition JSON
+dku govern blueprint set-signoff-config BLUEPRINT_ID VERSION_ID STEP_ID --definition JSON
+dku govern blueprint delete-signoff-config BLUEPRINT_ID VERSION_ID STEP_ID --confirm
 ```
+
+For end-to-end blueprint authoring (fork → edit → activate, field types, workflow, signoffs, hooks, UI views), see the **govern-blueprint-designer** skill.
 
 **`fields` command output columns:**
 
@@ -453,34 +470,66 @@ dku govern file download FILE_ID [--dest PATH]
 
 ## Blueprint Version Definition Structure
 
-When creating or modifying blueprint versions via the admin API, the definition follows this structure:
+When creating or modifying blueprint versions via the admin API (and what `dku govern blueprint get-version BP VER -o json` returns), the definition has these top-level keys. **Watch out for the unusual key names** — none of them follow the obvious naming, and several of the gotchas in this section come from agents assuming the keys are `fields` / `workflow` / `hooks` / etc.
+
+| Top-level key | Type | Notes |
+|---|---|---|
+| `id` | object | `{blueprintId, versionId}` — must match the URL on `set-version-definition`, otherwise the API rejects with "Blueprint version IDs do not match" |
+| `name` | string | Display name of the version |
+| `fieldDefinitions` | **dict keyed by field id** (NOT a list) | Each value has `{label, description, fieldType, sourceType, required/isMandatory, ...}`. Field type lives at `.fieldType`, NOT `.type` |
+| `workflowDefinition` | object | `{stepDefinitions: [...], initialStepId: "..."}` — the top-level key is **`workflowDefinition`**, not `workflow` |
+| `logicalHookList` | list (NOT `hooks`) | Each item is a hook definition with `{name, phases, script}` |
+| `actions` | object | Custom artifact actions (rarely used for new blueprints) |
+| `uiDefinition` | object | `{views, uiStepDefinitions, artifactPageViewId}` — see "UI definition shape" below. **CRITICAL**: Govern silently accepts `views: {}`, but the artifact page renders blank. Always declare at least one view |
+| `iconMode` | string | Usually `"INHERIT"` |
+| `instructions` | string | Optional free-text instructions for users editing artifacts of this blueprint |
+
+A typed example showing one field of each common type, one workflow step, and one minimal main view:
 
 ```json
 {
   "id": {
     "blueprintId": "bp.my_blueprint",
-    "versionId": "bv.system.default"
+    "versionId": "bv.v1"
   },
-  "name": "Default",
+  "name": "v1",
   "fieldDefinitions": {
-    "description": {
-      "label": "Description",
+    "title": {
+      "label": "Title",
       "fieldType": "TEXT",
       "sourceType": "STORE",
-      "required": false
+      "isMandatory": true
     },
     "risk_level": {
       "label": "Risk Level",
       "fieldType": "CATEGORY",
       "sourceType": "STORE",
-      "required": true,
+      "isMandatory": true,
       "categories": ["Low", "Medium", "High"]
+    },
+    "is_critical": {
+      "label": "Critical",
+      "fieldType": "BOOLEAN",
+      "sourceType": "STORE",
+      "isMandatory": false
+    },
+    "review_score": {
+      "label": "Review Score",
+      "fieldType": "NUMBER",
+      "sourceType": "STORE",
+      "isMandatory": false
+    },
+    "deadline": {
+      "label": "Deadline",
+      "fieldType": "DATE",
+      "sourceType": "STORE",
+      "isMandatory": false
     },
     "owner": {
       "label": "Owner",
       "fieldType": "REFERENCE",
       "sourceType": "STORE",
-      "required": true,
+      "isMandatory": true,
       "allowedBlueprints": ["bp.system.user", "bp.system.group"]
     },
     "documents": {
@@ -488,68 +537,139 @@ When creating or modifying blueprint versions via the admin API, the definition 
       "fieldType": "UPLOADED_FILE",
       "sourceType": "STORE",
       "listConfig": {},
-      "required": false
+      "isMandatory": false
     }
   },
   "workflowDefinition": {
     "stepDefinitions": [
-      {"id": "exploration", "name": "Exploration"},
-      {"id": "qualification", "name": "Qualification"},
-      {"id": "delivery", "name": "Delivered"}
-    ]
-  }
+      {"id": "draft",     "name": "Draft"},
+      {"id": "review",    "name": "Review"},
+      {"id": "approved",  "name": "Approved"}
+    ],
+    "initialStepId": "draft"
+  },
+  "logicalHookList": [],
+  "actions": {},
+  "uiDefinition": {
+    "views": {
+      "main": {
+        "label": "Main",
+        "description": "",
+        "viewComponent": {
+          "type": "container",
+          "layout": {
+            "type": "sequential",
+            "viewComponents": [
+              {"type": "text-field",           "fieldId": "title",        "label": "Title"},
+              {"type": "category-field",       "fieldId": "risk_level",   "label": "Risk Level"},
+              {"type": "boolean-field",        "fieldId": "is_critical",  "label": "Critical"},
+              {"type": "number-field",         "fieldId": "review_score", "label": "Review Score"},
+              {"type": "date-field",           "fieldId": "deadline",     "label": "Deadline"},
+              {"type": "card-reference-field", "fieldId": "owner",        "label": "Owner"},
+              {"type": "uploaded-file-field",  "fieldId": "documents",    "label": "Documents"}
+            ]
+          }
+        }
+      }
+    },
+    "uiStepDefinitions": {
+      "draft":    {"viewId": "main"},
+      "review":   {"viewId": "main"},
+      "approved": {"viewId": "main"}
+    },
+    "artifactPageViewId": "main"
+  },
+  "iconMode": "INHERIT"
 }
 ```
 
-**Field types:**
+### Field types
 
-| fieldType | sourceType | Description |
-|-----------|-----------|-------------|
-| `TEXT` | `STORE` | Free text, set by user |
-| `CATEGORY` | `STORE` | Constrained value from `categories` list |
-| `NUMBER` | `STORE` | Numeric value |
-| `DATE` | `STORE` | ISO 8601 datetime |
-| `REFERENCE` | `STORE` | Link to another artifact (by ID) |
-| `UPLOADED_FILE` | `STORE` | Attached file (by uploaded file ID) |
-| `*` | `COMPUTE` | Auto-calculated — cannot be set by users/agents |
+The view component `type` values listed below are the **complete set the server accepts** as of DSS/Govern 14.5 — the full list comes from a server-side `JsonParseException` when an unknown type is sent: `container`, `plugin-action`, `text-field`, `category-field`, `card-reference-field`, `date-field`, `time-series-field`, `table-reference-field`, `boolean-field`, `action`, `json-field`, `uploaded-file-field`, `number-field`. **Anything not in that list will be rejected by the server**, even if it sounds plausible (`select-field`, `markdown-field`, `string-field`, `users-groups-roles-field` all do not exist).
 
-Add `"listConfig": {}` to any field to make it accept arrays.
+| fieldType | sourceType | View component `type` | Description |
+|-----------|-----------|----------------------|-------------|
+| `TEXT` | `STORE` | `text-field` | Free text, set by user |
+| `CATEGORY` | `STORE` | `category-field` | Constrained value from `categories` list |
+| `NUMBER` | `STORE` | `number-field` | Numeric value |
+| `BOOLEAN` | `STORE` | `boolean-field` | True/false |
+| `DATE` | `STORE` | `date-field` | ISO 8601 datetime |
+| `REFERENCE` | `STORE` | `card-reference-field` | Link to another artifact by ID — restrict via `allowedBlueprints`. This is also how you reference users/groups (point at `bp.system.user` / `bp.system.group`) — there is **no** dedicated USER/GROUP fieldType |
+| `UPLOADED_FILE` | `STORE` | `uploaded-file-field` | Attached file by uploaded file ID — `dku govern file upload` first |
+| `JSON` | `STORE` | `json-field` | Free-form JSON value |
+| `*` | `COMPUTE` | _(read-only)_ | Auto-calculated by hooks — cannot be set by users/agents |
+
+`time-series-field` and `table-reference-field` exist as view component types and pair with their respective field types. `container`, `plugin-action`, and `action` are layout/special components, not field references.
+
+Add `"listConfig": {}` to any field definition to make it accept arrays. **Required flag** lives at `isMandatory` on read (and the API also accepts `required` on write — both are seen in the wild).
+
+### UI definition shape
+
+`uiDefinition` controls how artifact pages render in Govern. **Critical**: an empty `views` map is silently accepted by the API, but the artifact page is then **blank** in the UI — verified empirically. Always declare at least one view.
+
+```text
+uiDefinition
+├── views: { <view_id>: { label, description, viewComponent } }   ← dict keyed by view id, MUST be non-empty
+├── uiStepDefinitions: { <step_id>: { viewId } }                  ← every step must point to a real view id
+└── artifactPageViewId: "<view_id>"                               ← MUST be set to a real view id
+```
+
+Each view's `viewComponent` is either a leaf field reference (`{type: "text-field", fieldId: "...", label: "..."}`) or a `container` with a `layout` (`{type: "sequential", viewComponents: [...]}`) that holds nested children. Containers can be nested for sections.
+
+For the deeper view-authoring guide (grouped cards, tabs, conditional visibility, per-step view assignments), see [`govern-blueprint-designer/SKILL.md`](../../govern-blueprint-designer/SKILL.md) and its `references/ui-views.md`.
+
+### Inspecting a version
+
+Use `dku govern blueprint describe-version BP VER` to get a pretty-printed table view (fields, workflow, signoffs, views) plus structural warnings — this catches the empty-views silent-failure pattern and other UI bugs without you having to read the raw JSON. Use `dku govern blueprint get-version BP VER -o json` (alias: `get-version-definition`) when you need the raw payload to copy/edit.
 
 ## Signoff Configuration Structure
 
-Signoff configurations are created on blueprint versions and define who reviews at each workflow step:
+Signoff configurations are created on blueprint versions and define who reviews at each workflow step. The canonical payload (verified against a live Govern instance):
 
 ```json
 {
   "title": "Exploration Review",
+  "description": "Business review before moving to Qualification",
+  "mandatory": true,
   "feedbackUsersGroups": [
     {
       "id": "business_review",
       "title": "Business Reviewers",
-      "usersContainer": {
-        "type": "user",
-        "login": "alice"
-      }
+      "users": [
+        { "usersContainer": { "type": "user", "login": "alice" } },
+        { "usersContainer": { "type": "group", "groupName": "product_owners" } }
+      ]
     }
   ],
-  "approverConfiguration": {
-    "usersContainer": {
-      "type": "user",
-      "login": "bob"
-    }
+  "approvers": [
+    { "usersContainer": { "type": "user", "login": "bob" } }
+  ],
+  "recurrenceConfiguration": {
+    "activated": false,
+    "days": 0, "weeks": 0, "months": 0, "years": 0,
+    "reloadConf": false
   }
 }
 ```
 
-**Users container types for signoff configuration:**
+**Key structure notes:**
+- `feedbackUsersGroups[].users[]` is a list of `SignoffUser` objects, each wrapping a `usersContainer`
+- `approvers[]` is a flat list of `SignoffUser` objects (no grouping)
+- `id` is **not** set on the body when using `create-signoff-config` — the server builds it from the URL
+- On create, `addedBy` / `addedOn` are server-stamped automatically — omit them
+
+**Users container types** (values are **lowercase** — rejected otherwise):
 
 | Type | JSON | Use case |
 |------|------|----------|
 | Single user | `{"type": "user", "login": "alice"}` | Specific user as reviewer |
-| Field reference | `{"type": "FIELD", "fieldId": "signoff_reviewers_business"}` | Resolve users from a REFERENCE field on the artifact |
 | Group | `{"type": "group", "groupName": "administrators"}` | All members of a Govern group |
+| Role | `{"type": "role", "roleId": "ro.reviewer"}` | All users assigned a role |
+| API key | `{"type": "global-api-key", "keyId": "api:..."}` | A specific API key identity |
 
 **Important:** Each `feedbackUsersGroups` entry requires both `id` and `title`. The `id` is the group identifier used in `add-feedback --group-id` and `delegate-feedback --group-id`.
+
+**Creating signoff configurations via CLI** — see the **govern-blueprint-designer** skill for `create-signoff-config` / `set-signoff-config` / `delete-signoff-config` commands and end-to-end authoring examples.
 
 ---
 
@@ -596,3 +716,9 @@ When using `create --definition` or `set-definition`, the full artifact JSON loo
 | `unknown type "SINGLE_USER"` | Wrong users container type | Use `"type": "user"` (lowercase, no prefix) — not `"SINGLE_USER"` |
 | Blueprint field values silently ignored | Field ID doesn't match blueprint version | Run `dku govern blueprint fields BP_ID` to get exact field IDs |
 | Bulk create returns FAILURE for a user | User already exists or invalid params | Check the `error` column in the output table for the specific failure reason |
+| `Save blocked: this version has existing artifacts` | `set-version-definition` tried to remove a field or change a type while artifacts exist | Confirm with user, then retry with `--force`. Safer: create a new version and migrate artifacts |
+| New blueprint version not usable by artifacts | Version is still DRAFT | `dku govern blueprint set-version-status BP VER ACTIVE`. Only ACTIVE versions can host new artifacts |
+| `signoffConfiguration.id must not be set in creation` | Round-tripped a signoff payload into `create-signoff-config` | Strip `id` before POST (the CLI does this defensively, but author JSON without it) |
+| DRAFT version missing from `list-versions` | (Pre-fix) non-admin path filtered DRAFTs | Upgrade to current CLI; `list-versions` now uses the admin designer path and shows all statuses |
+| `unknown type "FIELD"` (or `"SINGLE_USER"`) on signoff create | Wrong `usersContainer.type` value | Use lowercase `"user"`, `"group"`, `"role"`, or `"global-api-key"` — see signoff structure above |
+| `REFERENCE field 'owner' expects an artifact ID` | Passed a login/name to `-f owner=admin` instead of an artifact ID | REFERENCE values are artifact IDs (`ar.<n>`). Find the right one: `dku govern artifact list --blueprint bp.system.user`, then `-f owner=ar.2`. Run `dku govern blueprint fields BP_ID` to see all REFERENCE fields and their `allowedBlueprints` |

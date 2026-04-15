@@ -47,7 +47,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [wiki](#wiki) — list, create, get, update, delete
 - [sql](#sql) — query
 - [whoami](#whoami)
-- [govern](#govern) — whoami, info; **artifact** list/get/create/delete/set-field/set-definition; **blueprint** list/get/list-versions/get-version/fields/create/set-definition/delete; **signoff** create/list/get/update-status/add-feedback/add-approval/delegate-feedback/delegate-approval/list-feedbacks/get-feedback/get-approval; **role** list/get/create/set-definition/delete; **custom-page** list/get/create/set-definition/delete; **user** list/get/create/create-bulk/edit-bulk/delete-bulk/get-own/list-activity; **group** list/get/create/delete; **time-series** create/get/push-values/delete; **file** upload/get/download
+- [govern](#govern) — whoami, info; **artifact** list/get/create/delete/set-field/set-definition; **blueprint** list/get/list-versions/get-version (alias: get-version-definition)/describe-version/fields/create/set-definition/delete; **signoff** create/list/get/update-status/add-feedback/add-approval/delegate-feedback/delegate-approval/list-feedbacks/get-feedback/get-approval; **role** list/get/create/set-definition/delete; **custom-page** list/get/create/set-definition/delete; **user** list/get/create/create-bulk/edit-bulk/delete-bulk/get-own/list-activity; **group** list/get/create/delete; **time-series** create/get/push-values/delete; **file** upload/get/download
 
 ---
 
@@ -948,6 +948,8 @@ dku govern blueprint list [-o FORMAT]
 dku govern blueprint get BLUEPRINT_ID [-o FORMAT]
 dku govern blueprint list-versions BLUEPRINT_ID [-o FORMAT]
 dku govern blueprint get-version BLUEPRINT_ID VERSION_ID [-o FORMAT]
+dku govern blueprint get-version-definition BLUEPRINT_ID VERSION_ID [-o FORMAT]   # alias of get-version
+dku govern blueprint describe-version BLUEPRINT_ID VERSION_ID                     # pretty-printed summary + structural lint
 dku govern blueprint fields BLUEPRINT_ID [--version VERSION_ID] [-o FORMAT]
 dku govern blueprint create IDENTIFIER --definition JSON [-o FORMAT]
 dku govern blueprint set-definition BLUEPRINT_ID --definition JSON
@@ -1011,6 +1013,8 @@ dku govern file download FILE_ID [--dest PATH]
 - `artifact create` has two modes: ergonomic (`-b`/`-n`/`-f` flags) and raw JSON (`--definition`). Run `blueprint fields` first
 - `artifact set-field` updates a single field without replacing the full definition
 - `blueprint fields` shows field IDs, types, required flags, valid categories. Auto-resolves ACTIVE version
+- `blueprint get-version-definition` is an alias for `blueprint get-version` — same output, longer name added for symmetry with `set-version-definition`
+- `blueprint describe-version` is a pretty-printer over `get-version` + `list-signoff-configs`: prints fields/workflow/signoffs/views as tables and ends with structural warnings (empty `uiDefinition.views`, missing `artifactPageViewId`, fields not in any view, signoffs on non-existent steps). Use this instead of `get-version | jq` when authoring or auditing a blueprint — it catches the silent-failure patterns the Govern API accepts but render broken in the UI
 - `blueprint create` / `role create` / `custom-page create`: IDENTIFIER becomes `bp.`/`ro.`/`cp.<identifier>`
 - Sign-off statuses: NOT_STARTED → WAITING_FOR_FEEDBACK → WAITING_FOR_APPROVAL → APPROVED/REJECTED/ABANDONED. Must go through ABANDONED to reset
 - Feedback statuses: APPROVED, MINOR_ISSUE, MAJOR_ISSUE. Approval statuses: APPROVED, REJECTED, ABANDONED

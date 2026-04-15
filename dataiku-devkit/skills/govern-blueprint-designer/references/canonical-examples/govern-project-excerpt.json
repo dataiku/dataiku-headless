@@ -1,0 +1,303 @@
+{
+  "id": {
+    "blueprintId": "bp.system.govern_project",
+    "versionId": "bv.system.default"
+  },
+  "name": "",
+  "fieldDefinitions": {
+    "description": {
+      "label": "Description",
+      "description": "Description of the Govern Project",
+      "fieldType": "TEXT",
+      "sourceType": "STORE",
+      "required": false
+    },
+    "target_end_date": {
+      "label": "Target end date",
+      "description": "Target date when the Govern Project ends",
+      "fieldType": "DATE",
+      "sourceType": "STORE",
+      "required": false
+    },
+    "qualification_risk_rating": {
+      "categories": [
+        "Low",
+        "Medium low",
+        "Medium high",
+        "High"
+      ],
+      "label": "Risk rating",
+      "description": "Risk rating of the Govern Project",
+      "fieldType": "CATEGORY",
+      "sourceType": "STORE",
+      "required": false,
+      "analysisDefinition": {
+        "missing": "WARNING",
+        "definitionMismatch": "WARNING",
+        "hint": "Governed projects default matrix view won't work properly"
+      }
+    },
+    "final_approvers": {
+      "allowedBlueprints": [
+        "bp.system.user",
+        "bp.system.group"
+      ],
+      "label": "Final approvers",
+      "description": "List of people acting as Final appovers during sign-off",
+      "fieldType": "REFERENCE",
+      "sourceType": "STORE",
+      "required": false,
+      "listConfig": {
+        "cardinalityMin": 0
+      }
+    },
+    "delivery_docs": {
+      "label": "Delivery documents",
+      "description": "Uploaded documents related to the delivered step of the Govern Project",
+      "fieldType": "UPLOADED_FILE",
+      "sourceType": "STORE",
+      "required": false,
+      "listConfig": {
+        "cardinalityMin": 0
+      }
+    },
+    "use_case_technical_dimension": {
+      "categories": [
+        "AI/ML",
+        "Analytics",
+        "LLM/GenAI"
+      ],
+      "label": "Use case technical dimension",
+      "description": "Technical use cases of the Govern Project",
+      "fieldType": "CATEGORY",
+      "sourceType": "STORE",
+      "required": false,
+      "listConfig": {
+        "cardinalityMin": 0
+      }
+    }
+  },
+  "workflowDefinition": {
+    "stepDefinitions": [
+      {
+        "id": "exploration",
+        "name": "Exploration",
+        "displaySignoffAfterView": false
+      },
+      {
+        "id": "qualification",
+        "name": "Qualification",
+        "displaySignoffAfterView": false
+      },
+      {
+        "id": "progress",
+        "name": "In Progress",
+        "displaySignoffAfterView": false
+      },
+      {
+        "id": "rollout",
+        "name": "Validation and Roll-out",
+        "displaySignoffAfterView": false
+      },
+      {
+        "id": "delivery",
+        "name": "Delivered",
+        "displaySignoffAfterView": false
+      }
+    ]
+  },
+  "logicalHookList": [
+    {
+      "name": "Update risk/value scores",
+      "description": "",
+      "phases": [
+        "CREATE",
+        "UPDATE"
+      ],
+      "script": "from govern.core.handler import get_handler\n\ndef map_category(cat):\n    x = cat.lower()\n    return {\n        'low': 20,\n        'medium low': 40,\n        'medium high': 60,\n        'high': 80\n    }[x]\n\nhandler = get_handler()\nhookPhase = handler.hookPhase\nartifact = handler.artifact\nrisk_rating = artifact.fields.get('qualification_risk_rating')\nvalue_rating = artifact.fields.get('qualification_value_rating')\nif risk_rating is not None:\n    artifact.fields['qualification_risk_score'] = 100 - map_category(risk_rating)\nelse:\n    artifact.fields['qualification_risk_score'] = None\n\nif value_rating is not None:\n    artifact.fields['qualification_value_score'] = map_category(value_rating)\nelse:\n    artifact.fields['qualification_value_score'] = None"
+    }
+  ],
+  "actions": {},
+  "hierarchicalParentFieldId": "business_initiative",
+  "uiDefinition": {
+    "views": {
+      "delivery": {
+        "label": "Delivery info",
+        "description": "",
+        "viewComponent": {
+          "type": "container",
+          "layout": {
+            "type": "sequential",
+            "viewComponents": [
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "delivery_notes",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_0",
+                "label": "Notes",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "uploaded-file-field",
+                "fieldId": "delivery_docs",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_1",
+                "label": "Supporting documents",
+                "description": "",
+                "documentation": ""
+              }
+            ]
+          },
+          "label": "",
+          "description": "",
+          "documentation": ""
+        }
+      },
+      "qualification": {
+        "label": "Qualification info",
+        "description": "",
+        "viewComponent": {
+          "type": "container",
+          "layout": {
+            "type": "sequential",
+            "viewComponents": [
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "qualification_notes",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_0",
+                "label": "Notes",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "uploaded-file-field",
+                "fieldId": "qualification_docs",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_1",
+                "label": "Supporting documents",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "category-field",
+                "fieldId": "qualification_risk_rating",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_2",
+                "label": "Risk rating",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "qualification_risk_comments",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_3",
+                "label": "Risk comments",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "category-field",
+                "fieldId": "qualification_value_rating",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_4",
+                "label": "Value rating",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "qualification_value_comments",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_5",
+                "label": "Value comments",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "category-field",
+                "fieldId": "cost_rating",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_6",
+                "label": "Cost rating",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "cost_comments",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_7",
+                "label": "Cost comments",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "category-field",
+                "fieldId": "qualification_feasibility_rating",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_8",
+                "label": "Feasibility rating",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "qualification_feasibility_comments",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_9",
+                "label": "Feasibility comments",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "category-field",
+                "fieldId": "qualification_resulting_decision",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_10",
+                "label": "Resulting decision",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "text-field",
+                "keepSourceFormat": false,
+                "fieldId": "qualification_comment_on_decision",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_11",
+                "label": "Comment on decision",
+                "description": "",
+                "documentation": ""
+              },
+              {
+                "type": "uploaded-file-field",
+                "fieldId": "qualification_project_plan",
+                "absoluteUiIndex": "bp.system.govern_project_bv.system.default_12",
+                "label": "Project plan",
+                "description": "",
+                "documentation": ""
+              }
+            ]
+          },
+          "label": "",
+          "description": "",
+          "documentation": ""
+        }
+      }
+    },
+    "uiStepDefinitions": {
+      "delivery": {
+        "viewId": "delivery"
+      },
+      "qualification": {
+        "viewId": "qualification"
+      },
+      "exploration": {
+        "viewId": "exploration"
+      },
+      "rollout": {
+        "viewId": "rollout"
+      },
+      "progress": {
+        "viewId": "progress"
+      }
+    },
+    "artifactPageViewId": "main"
+  },
+  "instructions": "Do not edit the workflow and the existing fields, only field additions are possible",
+  "iconMode": "INHERIT"
+}

@@ -1,4 +1,4 @@
-"""dku govern blueprint — list, get, list-versions, get-version, fields, create, set-definition."""
+"""dku govern blueprint — blueprint + version designer and signoff config."""
 
 from __future__ import annotations
 
@@ -6,13 +6,31 @@ from typing import Optional
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    console,
+    error,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(
     help="Manage Govern blueprints. Use 'fields' subcommand to discover field schemas for artifact creation."
 )
+
+_VALID_BV_STATUSES = ("DRAFT", "ACTIVE", "ARCHIVED")
+
+_VALID_MIGRATION_BEHAVIORS = (
+    "FAIL_IMPORT_ON_EXISTING_MIGRATION_OR_MISSING_VERSION",
+    "IGNORE_MIGRATION_ON_EXISTING_MIGRATION_OR_MISSING_VERSION",
+    "IMPORT_WITHOUT_MIGRATIONS",
+)
+
+_VALID_SIGNOFF_IMPORT_ROLES = ("ALL", "EXISTING", "NONE")
 
 
 @app.command("list")
@@ -75,11 +93,16 @@ def list_versions(
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List versions of a blueprint."""
+    """List all versions of a blueprint, including DRAFT and ARCHIVED.
+
+    Uses the admin designer path so authoring workflows can see DRAFT versions.
+    The non-admin /blueprint/{id}/versions endpoint hides DRAFTs.
+    """
     output = resolve_output_format(output)
     try:
         govern = get_govern_client_from_ctx(ctx)
-        bp = govern.get_blueprint(blueprint_id)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
         versions = bp.list_versions()
         data = []
         for item in versions:
@@ -109,13 +132,18 @@ def list_versions(
 
 
 @app.command("get-version")
+@app.command("get-version-definition")
 def get_version(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID (e.g. bv.system.default)"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get a blueprint version definition."""
+    """Get a blueprint version definition.
+
+    Both `get-version` and `get-version-definition` resolve to this command —
+    the longer name mirrors `set-version-definition` for symmetry.
+    """
     output = resolve_output_format(output)
     try:
         govern = get_govern_client_from_ctx(ctx)
@@ -123,6 +151,321 @@ def get_version(
         ver = bp.get_version(version_id)
         defn = ver.get_definition()
         render_raw(defn.get_raw(), output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _count_view_components(comp: object) -> int:
+    """Recursively count leaf field components in a viewComponent tree.
+
+    A view's `viewComponent` is either a leaf (`{type: "<x>-field", fieldId: ...}`)
+    or a `container` whose `layout.viewComponents[]` holds children that may
+    themselves be containers. We count any node with a `fieldId` as one
+    component.
+    """
+    if not isinstance(comp, dict):
+        return 0
+    if comp.get("type") == "container":
+        children = (comp.get("layout") or {}).get("viewComponents") or []
+        return sum(_count_view_components(c) for c in children)
+    return 1 if comp.get("fieldId") else 0
+
+
+def _collect_view_field_ids(comp: object, sink: set[str]) -> None:
+    """Walk a viewComponent tree and add every referenced fieldId to `sink`."""
+    if not isinstance(comp, dict):
+        return
+    fid = comp.get("fieldId")
+    if fid:
+        sink.add(fid)
+    if comp.get("type") == "container":
+        for child in (comp.get("layout") or {}).get("viewComponents") or []:
+            _collect_view_field_ids(child, sink)
+
+
+@app.command("describe-version")
+def describe_version(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID (e.g. bv.v1)"),
+) -> None:
+    """Pretty-print a blueprint version: fields, workflow, signoffs, views, and structural warnings.
+
+    Use this instead of `get-version | jq` when authoring or auditing a
+    blueprint — the tables are easier to scan and the bottom of the output
+    flags structural bugs (empty views, missing artifactPageViewId, fields not
+    in any view, signoffs on non-existent steps, etc.) that the Govern API
+    silently accepts but break the UI.
+    """
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        defn = version.get_definition()
+        raw = defn.get_raw()
+
+        # Resolve the version's status (DRAFT / ACTIVE / ARCHIVED) from the
+        # blueprint's version list, since the version definition itself
+        # doesn't carry the trace.
+        status = "?"
+        try:
+            for item in bp.list_versions():
+                trace_raw = item.get_raw()
+                bv = trace_raw.get("blueprintVersion", trace_raw)
+                vid_obj = bv.get("id", {}) if isinstance(bv, dict) else {}
+                vid = (
+                    vid_obj.get("versionId", "")
+                    if isinstance(vid_obj, dict)
+                    else str(vid_obj)
+                )
+                if vid == version_id:
+                    status = trace_raw.get("blueprintVersionTrace", {}).get(
+                        "status", "?"
+                    )
+                    break
+        except Exception:
+            pass
+
+        # Header
+        bp_def_raw = bp.get_definition().get_raw()
+        bp_inner = bp_def_raw.get("blueprint", bp_def_raw)
+        bp_name = bp_inner.get("name", "") if isinstance(bp_inner, dict) else ""
+        console.print(
+            f"[bold]Blueprint:[/bold] [cyan]{blueprint_id}[/cyan] — {bp_name}"
+        )
+        console.print(
+            f"[bold]Version:[/bold] [cyan]{version_id}[/cyan] — [magenta]{status}[/magenta]"
+        )
+        console.print()
+
+        # Fields
+        field_defs = raw.get("fieldDefinitions", {}) or {}
+        field_rows = []
+        for fid, fd in field_defs.items():
+            if not isinstance(fd, dict):
+                continue
+            categories = fd.get("categories") or []
+            field_rows.append(
+                {
+                    "id": fid,
+                    "label": fd.get("label", ""),
+                    "type": fd.get("fieldType", ""),
+                    "source": fd.get("sourceType", "STORE"),
+                    "list": "*" if "listConfig" in fd else "",
+                    "required": "*"
+                    if fd.get("isMandatory") or fd.get("required")
+                    else "",
+                    "categories": ",".join(categories) if categories else "",
+                }
+            )
+        render(
+            field_rows,
+            ["id", "label", "type", "source", "list", "required", "categories"],
+            output_format="table",
+            title=f"Fields ({len(field_rows)})",
+            headers={
+                "id": "ID",
+                "label": "LABEL",
+                "type": "TYPE",
+                "source": "SRC",
+                "list": "LIST",
+                "required": "REQ",
+                "categories": "CATEGORIES",
+            },
+        )
+
+        # Workflow steps
+        workflow = raw.get("workflowDefinition", {}) or {}
+        steps = workflow.get("stepDefinitions", []) or []
+        initial_id = workflow.get("initialStepId", "")
+        step_rows = []
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            sid = s.get("id", "")
+            step_rows.append(
+                {
+                    "id": sid,
+                    "name": s.get("name", ""),
+                    "initial": "*" if sid == initial_id else "",
+                }
+            )
+        render(
+            step_rows,
+            ["id", "name", "initial"],
+            output_format="table",
+            title=f"Workflow steps ({len(step_rows)})",
+            headers={"id": "STEP ID", "name": "NAME", "initial": "INIT"},
+        )
+
+        # Signoffs
+        try:
+            signoff_configs = list(version.list_signoff_configurations())
+        except Exception:
+            signoff_configs = []
+        signoff_rows = []
+        for item in signoff_configs:
+            cfg = item.get_raw() if hasattr(item, "get_raw") else item
+            if not isinstance(cfg, dict):
+                continue
+            cfg_id = cfg.get("id", {})
+            step_id = cfg_id.get("stepId", "") if isinstance(cfg_id, dict) else ""
+            groups = cfg.get("feedbackUsersGroups") or []
+            approvers = cfg.get("approvers") or []
+            approver_types = sorted(
+                {
+                    (a.get("usersContainer") or {}).get("type", "?")
+                    for a in approvers
+                    if isinstance(a, dict)
+                }
+            )
+            signoff_rows.append(
+                {
+                    "step": step_id,
+                    "title": cfg.get("title", ""),
+                    "mandatory": "*" if cfg.get("mandatory") else "",
+                    "approvers": str(len(approvers)),
+                    "approver_types": ",".join(approver_types),
+                    "feedback_groups": str(len(groups)),
+                }
+            )
+        render(
+            signoff_rows,
+            [
+                "step",
+                "title",
+                "mandatory",
+                "approvers",
+                "approver_types",
+                "feedback_groups",
+            ],
+            output_format="table",
+            title=f"Signoffs ({len(signoff_rows)})",
+            headers={
+                "step": "STEP ID",
+                "title": "TITLE",
+                "mandatory": "REQ",
+                "approvers": "#APPROVERS",
+                "approver_types": "APPROVER TYPES",
+                "feedback_groups": "#GROUPS",
+            },
+        )
+
+        # Views
+        ui_def = raw.get("uiDefinition", {}) or {}
+        views = ui_def.get("views", {}) or {}
+        artifact_page_view_id = ui_def.get("artifactPageViewId", "") or ""
+        ui_step_defs = ui_def.get("uiStepDefinitions", {}) or {}
+
+        view_to_steps: dict[str, list[str]] = {}
+        for step_id, sd in ui_step_defs.items():
+            vid = (sd or {}).get("viewId", "") or ""
+            if vid:
+                view_to_steps.setdefault(vid, []).append(step_id)
+
+        view_rows = []
+        for vid, vdef in views.items():
+            if not isinstance(vdef, dict):
+                continue
+            comp = vdef.get("viewComponent", {})
+            view_rows.append(
+                {
+                    "id": vid,
+                    "label": vdef.get("label", ""),
+                    "components": str(_count_view_components(comp)),
+                    "is_artifact_page": "*" if vid == artifact_page_view_id else "",
+                    "used_by_steps": ",".join(sorted(view_to_steps.get(vid, [])))
+                    or "—",
+                }
+            )
+        render(
+            view_rows,
+            ["id", "label", "components", "is_artifact_page", "used_by_steps"],
+            output_format="table",
+            title=f"Views ({len(view_rows)})",
+            headers={
+                "id": "VIEW ID",
+                "label": "LABEL",
+                "components": "#COMPONENTS",
+                "is_artifact_page": "MAIN",
+                "used_by_steps": "USED BY STEPS",
+            },
+        )
+
+        # Structural warnings — the whole point of this command. Catches the
+        # silent-failure patterns the Govern API will accept but render broken.
+        warnings: list[str] = []
+
+        if not views:
+            warnings.append(
+                "uiDefinition.views is empty — the artifact page will be BLANK in Govern. "
+                "Define at least one view that lists every field."
+            )
+        if not artifact_page_view_id:
+            warnings.append(
+                "uiDefinition.artifactPageViewId is empty — set it to a real "
+                "view id so the main artifact page renders."
+            )
+        elif views and artifact_page_view_id not in views:
+            warnings.append(
+                f"uiDefinition.artifactPageViewId='{artifact_page_view_id}' "
+                f"does not match any view id (have: {sorted(views)})."
+            )
+
+        # Steps with empty/invalid viewIds
+        valid_step_ids: set[str] = set()
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            sid = s.get("id", "")
+            if not sid:
+                continue
+            valid_step_ids.add(sid)
+            sd = ui_step_defs.get(sid) or {}
+            vid = sd.get("viewId", "") or ""
+            if not vid and views:
+                warnings.append(
+                    f"Step '{sid}' has no viewId — its tab will render blank. "
+                    f"Set uiStepDefinitions['{sid}'].viewId to a real view id."
+                )
+            elif vid and views and vid not in views:
+                warnings.append(
+                    f"Step '{sid}' viewId='{vid}' does not match any view id "
+                    f"(have: {sorted(views)})."
+                )
+
+        # Fields not referenced by any view
+        if views and field_defs:
+            referenced: set[str] = set()
+            for vdef in views.values():
+                if isinstance(vdef, dict):
+                    _collect_view_field_ids(vdef.get("viewComponent"), referenced)
+            unreferenced = sorted(set(field_defs.keys()) - referenced)
+            for fid in unreferenced:
+                warnings.append(
+                    f"Field '{fid}' is not referenced by any view component — "
+                    f"users won't see it. Add it to a view's viewComponents."
+                )
+
+        # Signoffs on non-existent steps
+        for row in signoff_rows:
+            sid = row["step"]
+            if sid and sid not in valid_step_ids:
+                warnings.append(
+                    f"Signoff configured on step '{sid}' which does not exist "
+                    f"in workflowDefinition.stepDefinitions."
+                )
+
+        console.print()
+        if warnings:
+            console.print("[bold yellow]Structural warnings:[/bold yellow]")
+            for w in warnings:
+                warn(w)
+        else:
+            success("No structural issues detected.")
     except SystemExit:
         raise
     except Exception as e:
@@ -305,6 +648,642 @@ def delete(
         designer = govern.get_blueprint_designer()
         designer.get_blueprint(blueprint_id).delete()
         success(f"Deleted blueprint '{blueprint_id}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Blueprint version designer (version-level: fields, workflow, hooks, UI)
+# ---------------------------------------------------------------------------
+
+
+@app.command("create-version")
+def create_version(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Parent blueprint ID (e.g. bp.custom_bp)"),
+    new_identifier: str = typer.Argument(
+        help="New version identifier (letters, digits, hyphen, underscore). Becomes 'bv.<identifier>'."
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", "-n", help="Human-readable version name"
+    ),
+    origin_version_id: Optional[str] = typer.Option(
+        None,
+        "--from",
+        "-f",
+        help="Fork from an existing version (recommended). E.g. 'bv.system.default'.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Create a new blueprint version (DRAFT by default).
+
+    STRONGLY RECOMMENDED: pass --from to fork from an existing ACTIVE version —
+    system blueprints contain under-the-hood fields and workflow steps that are
+    needed for Govern to function correctly. Starting blank is for advanced users.
+
+    The new version is created in DRAFT status and cannot be applied to artifacts
+    until activated. Use 'dku govern blueprint set-version-status BP VER ACTIVE'.
+    """
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.create_version(
+            new_identifier, name=name, origin_version_id=origin_version_id
+        )
+        defn = version.get_definition()
+        success(
+            f"Created version '{version.version_id}' of blueprint '{blueprint_id}' (status: DRAFT)"
+        )
+        render_raw(defn.get_raw(), output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-version-definition")
+def set_version_definition(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID (e.g. bv.v1)"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="Full BlueprintVersion JSON (string, @file.json, or - for stdin)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Set dangerZoneAccepted=true. Required when the version has existing artifacts AND the change may break them (e.g. removing fields, changing field types). DATA MAY BE LOST in artifacts.",
+    ),
+) -> None:
+    """Save a full BlueprintVersion definition (fields, workflow, hooks, views, actions).
+
+    This is where real blueprint design happens: fieldDefinitions, workflowDefinition.stepDefinitions,
+    logicalHookList, actions, uiDefinition, hierarchicalParentFieldId, instructions.
+
+    Typical loop:
+      1. dku govern blueprint get-version BP VER -o json > bv.json
+      2. edit bv.json
+      3. dku govern blueprint set-version-definition BP VER --definition @bv.json
+
+    If the blueprint version is applied to existing artifacts and your edit removes
+    a field or changes its type, the server will refuse the save unless --force is
+    set. Using --force may destroy data in existing artifacts — confirm with the
+    user before enabling it.
+    """
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        defn = version.get_definition()
+        new_def = read_json_input(definition)
+        if not isinstance(new_def, dict):
+            exit_with_error(
+                "Definition must be a JSON object (got list or scalar).",
+                code="invalid_definition",
+            )
+        defn.definition = new_def
+        defn.save(danger_zone_accepted=force)
+        success(
+            f"Saved definition for blueprint version '{blueprint_id}/{version_id}'"
+            + (" (force)" if force else "")
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        # Prescriptive guidance for the dangerZone-blocked case
+        msg = str(e).lower()
+        if "dangerzone" in msg or "danger zone" in msg or "existing artifacts" in msg:
+            exit_with_error(
+                "Save blocked: this version has existing artifacts and your change may break them.",
+                code="danger_zone",
+                details=[
+                    "Review the diff against the current definition:",
+                    f"  dku govern blueprint get-version {blueprint_id} {version_id} -o json",
+                    "If you understand that field removals / type changes will destroy",
+                    "data in existing artifacts, retry with --force.",
+                    "Safer alternative: create a new version and migrate artifacts to it.",
+                ],
+            )
+        handle_api_error(e)
+
+
+@app.command("delete-version")
+def delete_version(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    confirm: bool = typer.Option(
+        False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
+    ),
+) -> None:
+    """Delete a blueprint version. All artifacts using this version must be deleted first."""
+    if not confirm:
+        error(
+            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
+        )
+        raise typer.Exit(1)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        bp.get_version(version_id).delete()
+        success(f"Deleted blueprint version '{blueprint_id}/{version_id}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("version-status")
+def version_status(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show the current status of a blueprint version (DRAFT/ACTIVE/ARCHIVED) and its trace."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        trace = bp.get_version(version_id).get_trace()
+        render_raw(trace.get_raw(), output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-version-status")
+def set_version_status(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    status: str = typer.Argument(
+        help="New status: DRAFT, ACTIVE, or ARCHIVED. Only ACTIVE versions can be applied to artifacts."
+    ),
+) -> None:
+    """Update blueprint version status. Typical flow: DRAFT → ACTIVE (publish) → ARCHIVED (retire)."""
+    status = status.upper()
+    if status not in _VALID_BV_STATUSES:
+        exit_with_error(
+            f"Invalid status '{status}'. Must be one of: {', '.join(_VALID_BV_STATUSES)}.",
+            code="invalid_status",
+        )
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        trace = bp.get_version(version_id).get_trace()
+        trace.set_status(status)
+        success(f"Set status of '{blueprint_id}/{version_id}' to {status}")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Signoff configuration designer (per workflow step, on a blueprint version)
+# ---------------------------------------------------------------------------
+
+
+def _signoff_row(raw: dict) -> dict:
+    """Flatten a SignoffConfiguration dict into a scannable row."""
+    sid = raw.get("id", {}) or {}
+    step_id = sid.get("stepId", "")
+    groups = raw.get("feedbackUsersGroups") or []
+    approvers = raw.get("approvers") or []
+    rec = raw.get("recurrenceConfiguration") or {}
+    return {
+        "step": step_id,
+        "title": raw.get("title", ""),
+        "mandatory": "*" if raw.get("mandatory") else "",
+        "feedback_groups": str(len(groups)),
+        "approvers": str(len(approvers)),
+        "recurrence": "*" if rec.get("activated") else "",
+    }
+
+
+@app.command("list-signoff-configs")
+def list_signoff_configs(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List signoff configurations wired to a blueprint version's workflow steps."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        configs = version.list_signoff_configurations()
+        data = [_signoff_row(item.get_raw()) for item in configs]
+        render(
+            data,
+            [
+                "step",
+                "title",
+                "mandatory",
+                "feedback_groups",
+                "approvers",
+                "recurrence",
+            ],
+            output_format=output,
+            title=f"Signoff configs for {blueprint_id}/{version_id}",
+            headers={
+                "step": "STEP ID",
+                "title": "TITLE",
+                "mandatory": "REQ",
+                "feedback_groups": "#GROUPS",
+                "approvers": "#APPROVERS",
+                "recurrence": "REC",
+            },
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-signoff-config")
+def get_signoff_config(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    step_id: str = typer.Argument(
+        help="Workflow step ID (from workflowDefinition.stepDefinitions)"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the signoff configuration for a specific workflow step."""
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        cfg = version.get_signoff_configuration(step_id)
+        defn = cfg.get_definition()
+        render_raw(defn.get_raw(), output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("create-signoff-config")
+def create_signoff_config(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    step_id: str = typer.Argument(
+        help="Workflow step ID. Must reference an existing step in this version's workflowDefinition."
+    ),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="SignoffConfiguration JSON (string, @file.json, or - for stdin). Must NOT include 'id'.",
+    ),
+) -> None:
+    """Create a signoff configuration on a workflow step.
+
+    Body shape (minimal):
+      {
+        "title": "Review",
+        "mandatory": true,
+        "feedbackUsersGroups": [{"id": "g1", "title": "Reviewers", "users": [{"usersContainer": {"type": "USER", "login": "admin"}}]}],
+        "approvers": [{"usersContainer": {"type": "USER", "login": "admin"}}],
+        "recurrenceConfiguration": {"activated": false, "days": 0, "weeks": 0, "months": 0, "years": 0, "reloadConf": false}
+      }
+
+    The 'id' field is server-assigned from the URL — strip it from the body if present.
+    """
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        body = read_json_input(definition)
+        if not isinstance(body, dict):
+            exit_with_error(
+                "Signoff configuration must be a JSON object.",
+                code="invalid_signoff",
+            )
+        # Server rejects create if id is set; strip it defensively.
+        body.pop("id", None)
+        version.create_signoff_configuration(step_id, body)
+        success(
+            f"Created signoff config on step '{step_id}' of '{blueprint_id}/{version_id}'"
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-signoff-config")
+def set_signoff_config(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="Full SignoffConfiguration JSON (string, @file.json, or - for stdin)",
+    ),
+) -> None:
+    """Update an existing signoff configuration on a workflow step."""
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        cfg = version.get_signoff_configuration(step_id)
+        defn = cfg.get_definition()
+        new_def = read_json_input(definition)
+        if not isinstance(new_def, dict):
+            exit_with_error(
+                "Signoff configuration must be a JSON object.",
+                code="invalid_signoff",
+            )
+        defn.definition = new_def
+        defn.save()
+        success(
+            f"Updated signoff config on step '{step_id}' of '{blueprint_id}/{version_id}'"
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("delete-signoff-config")
+def delete_signoff_config(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    step_id: str = typer.Argument(help="Workflow step ID"),
+    confirm: bool = typer.Option(
+        False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
+    ),
+) -> None:
+    """Delete the signoff configuration on a workflow step."""
+    if not confirm:
+        error(
+            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
+        )
+        raise typer.Exit(1)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        version.get_signoff_configuration(step_id).delete()
+        success(
+            f"Deleted signoff config on step '{step_id}' of '{blueprint_id}/{version_id}'"
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Import / export — fork-across-instances, backup, migration
+# ---------------------------------------------------------------------------
+
+
+def _filter_signoff_users_for_export(signoff_cfg: dict) -> dict:
+    """Mirror the server's `BlueprintVersionExport.buildFromAndFilterUsers`.
+
+    Only role-based reviewers survive the Govern export→import round-trip.
+    The server's import hardcodes `forUsers=NONE, forGroups=NONE, forApiKeys=NONE`
+    and NONE means "drop the entire collection" (not "skip validation and keep").
+    So user/group/api-key reviewers are always stripped on import — we apply
+    the same filter on export to keep the envelope honest.
+
+    Also clears server-stamped `addedBy` / `addedOn` fields so the envelope
+    is portable across instances (they'll be re-stamped with the target
+    instance's auth identity on import).
+    """
+    out = dict(signoff_cfg)
+    for group in out.get("feedbackUsersGroups") or []:
+        if isinstance(group, dict):
+            group["users"] = _keep_only_role_users(group.get("users"))
+    out["approvers"] = _keep_only_role_users(out.get("approvers"))
+    return out
+
+
+def _keep_only_role_users(users: object) -> list:
+    """Return only SignoffUser entries whose usersContainer.type == 'role'."""
+    if not isinstance(users, list):
+        return []
+    kept = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+        uc = u.get("usersContainer") or {}
+        if isinstance(uc, dict) and uc.get("type") == "role":
+            cleaned = dict(u)
+            cleaned["addedBy"] = ""
+            cleaned["addedOn"] = ""
+            kept.append(cleaned)
+    return kept
+
+
+@app.command("export-version")
+def export_version(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID"),
+    keep_non_role_users: bool = typer.Option(
+        False,
+        "--keep-non-role-users",
+        help="Preserve user/group/api-key reviewers in the envelope. By default these are stripped because Govern's import endpoint silently drops them — the resulting envelope is not importable as-is. Only enable this when you intend to hand-edit reviewers before importing.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Export a blueprint version as a BlueprintVersionExport envelope.
+
+    Bundles the full version definition, its origin version ID (from the
+    trace), and all signoff configurations into the exact JSON shape that
+    `import-version` accepts. Round-trip this to fork a blueprint version
+    across Govern instances (e.g. staging → prod) or to back one up before a
+    destructive edit.
+
+    IMPORTANT: only role-based reviewers survive the export → import round-trip.
+    Govern's import endpoint hardcodes user/group/api-key validation to NONE,
+    and NONE mode drops those reviewers rather than preserving them. By
+    default we apply the same filter server-side, matching the Govern UI's
+    export behavior. Pass --keep-non-role-users if you need to hand-edit the
+    envelope before importing (e.g. to remap logins).
+
+    Migration paths (if any) are NOT included — they can only be authored via
+    the Govern UI today.
+
+    Pipe to a file and re-import:
+      dku govern blueprint export-version bp.my_bp bv.v1 -o json > bv_export.json
+      # on the target instance:
+      dku govern blueprint import-version bp.my_bp --definition @bv_export.json
+    """
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        designer = govern.get_blueprint_designer()
+        bp = designer.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+
+        defn_raw = version.get_definition().get_raw()
+        trace_raw = version.get_trace().get_raw()
+        signoff_configs = [
+            item.get_raw() for item in version.list_signoff_configurations()
+        ]
+        if not keep_non_role_users:
+            signoff_configs = [
+                _filter_signoff_users_for_export(s) for s in signoff_configs
+            ]
+
+        export = {
+            "blueprintVersion": defn_raw,
+            "originVersionId": trace_raw.get("originVersionId"),
+            "signoffsConfigurations": signoff_configs,
+        }
+        render_raw(export, output_format=output)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("import-version")
+def import_version(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Target blueprint ID"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        help="BlueprintVersionExport JSON envelope (string, @file.json, or - for stdin). Must contain 'blueprintVersion' at minimum.",
+    ),
+    ignore_origin_errors: bool = typer.Option(
+        False,
+        "--ignore-origin-errors",
+        help="Don't fail if the origin version referenced in the export no longer exists on this instance.",
+    ),
+    signoff_roles: str = typer.Option(
+        "ALL",
+        "--signoff-roles",
+        help="How strictly to validate signoff reviewer/approver references: ALL (strict — fail if any user/group/role/key missing), EXISTING (keep only existing, drop missing silently), NONE (skip validation, drop everything).",
+    ),
+    migration_behavior: Optional[str] = typer.Option(
+        None,
+        "--migration-behavior",
+        help="How to handle migration paths in the envelope: FAIL_IMPORT_ON_EXISTING_MIGRATION_OR_MISSING_VERSION (default), IGNORE_MIGRATION_ON_EXISTING_MIGRATION_OR_MISSING_VERSION, or IMPORT_WITHOUT_MIGRATIONS.",
+    ),
+) -> None:
+    """Import a blueprint version from an exported envelope.
+
+    Pair with `export-version`. The envelope must contain at least
+    `blueprintVersion` (the full definition). `originVersionId`,
+    `signoffsConfigurations`, and `migrationPaths` are optional.
+
+    The target blueprint must already exist on this instance — this command
+    adds a new version to it, it doesn't create the blueprint. Use
+    `dku govern blueprint create` first if needed.
+
+    The imported version lands in DRAFT status regardless of its status on
+    the source instance. Activate with `set-version-status BP VER ACTIVE`
+    after verifying the import.
+    """
+    signoff_roles = signoff_roles.upper()
+    if signoff_roles not in _VALID_SIGNOFF_IMPORT_ROLES:
+        exit_with_error(
+            f"Invalid --signoff-roles '{signoff_roles}'. Must be one of: {', '.join(_VALID_SIGNOFF_IMPORT_ROLES)}.",
+            code="invalid_signoff_roles",
+        )
+    if migration_behavior is not None:
+        migration_behavior = migration_behavior.upper()
+        if migration_behavior not in _VALID_MIGRATION_BEHAVIORS:
+            exit_with_error(
+                f"Invalid --migration-behavior '{migration_behavior}'. Must be one of: {', '.join(_VALID_MIGRATION_BEHAVIORS)}.",
+                code="invalid_migration_behavior",
+            )
+
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        body = read_json_input(definition)
+        if not isinstance(body, dict):
+            exit_with_error(
+                "Import envelope must be a JSON object.",
+                code="invalid_envelope",
+            )
+        if "blueprintVersion" not in body:
+            exit_with_error(
+                "Import envelope must contain a 'blueprintVersion' key.",
+                code="invalid_envelope",
+                details=[
+                    "Expected shape: {'blueprintVersion': {...}, 'originVersionId': '...', 'signoffsConfigurations': [...]}",
+                    "Generate a valid envelope with: dku govern blueprint export-version BP VER -o json",
+                ],
+            )
+
+        # Server enforces that the body's blueprint ID matches the URL's,
+        # AND that every signoff config's id.blueprintVersionId equals the
+        # outer blueprintVersion.id. Rewrite both so imports across instances
+        # / cross-blueprint forks work without hand-editing the envelope.
+        bv = body.get("blueprintVersion") or {}
+        if isinstance(bv, dict) and isinstance(bv.get("id"), dict):
+            bv["id"]["blueprintId"] = blueprint_id
+            target_version_id = bv["id"].get("versionId")
+            # Propagate the rewritten version id into every signoff config
+            for cfg in body.get("signoffsConfigurations") or []:
+                if not isinstance(cfg, dict):
+                    continue
+                sid = cfg.get("id")
+                if not isinstance(sid, dict):
+                    sid = {}
+                    cfg["id"] = sid
+                sid_bvid = sid.get("blueprintVersionId")
+                if not isinstance(sid_bvid, dict):
+                    sid_bvid = {}
+                    sid["blueprintVersionId"] = sid_bvid
+                sid_bvid["blueprintId"] = blueprint_id
+                if target_version_id:
+                    sid_bvid["versionId"] = target_version_id
+
+        params: dict[str, str] = {}
+        if ignore_origin_errors:
+            params["ignoreOriginVersionErrors"] = "true"
+        if signoff_roles:
+            params["signoffImportRoles"] = signoff_roles
+        if migration_behavior:
+            params["migrationPathImportBehavior"] = migration_behavior
+
+        result = govern._perform_json(
+            "POST",
+            f"/admin/blueprint/{blueprint_id}/versions/import",
+            params=params,
+            body=body,
+        )
+        imported_ver = (
+            result.get("blueprintVersion", {}).get("id", {}).get("versionId", "?")
+            if isinstance(result, dict)
+            else "?"
+        )
+        success(
+            f"Imported version '{imported_ver}' into blueprint '{blueprint_id}' (status: DRAFT until activated)"
+        )
     except SystemExit:
         raise
     except Exception as e:

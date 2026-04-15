@@ -74,6 +74,72 @@ def is_connection_required_error(e: Exception) -> bool:
     return "creationInfo" in msg or "Need to create output dataset" in msg
 
 
+def _resolve_auth_context() -> tuple[str | None, str | None]:
+    """Best-effort resolution of (url, profile) for prescriptive auth errors.
+
+    Reads from env vars first (so explicit overrides win), then falls back to
+    the CLI's TOML config (active profile + its url). Returns ``(None, None)``
+    if neither source is available — callers should handle the missing case.
+    """
+    import os
+
+    env_url = os.environ.get("DKU_URL") or os.environ.get("DKU_DSS_URL")
+    env_profile = os.environ.get("DKU_PROFILE")
+
+    config_url: str | None = None
+    config_profile: str | None = None
+    try:
+        from dku_cli.config import get_active_profile, get_profile_config
+
+        config_profile = get_active_profile()
+        config_url = (get_profile_config(config_profile) or {}).get("url")
+    except Exception:
+        # Config read can fail for many benign reasons (no config file, malformed
+        # TOML, platformdirs path issue). Don't let auth-error reporting cascade.
+        pass
+
+    return env_url or config_url, env_profile or config_profile
+
+
+def _handle_invalid_api_key(msg: str) -> tuple[str, list[str]] | None:
+    """Detect an invalid/unknown API key error and return prescriptive guidance.
+
+    DSS rejects unknown or rotated API keys with messages like
+    ``com.dataiku.dip.exceptions.NotAuthenticatedException: Unknown API Key``.
+    The base 401/Unauthorized branch in ``handle_api_error`` doesn't catch this
+    because the message contains neither ``401`` nor ``Unauthorized`` — so
+    without this helper the user just sees the raw Java exception.
+
+    Returns (message, details) or None if the input doesn't match.
+    """
+    if "NotAuthenticatedException" not in msg and "Unknown API Key" not in msg:
+        return None
+
+    url, profile = _resolve_auth_context()
+    url_display = url or "<unknown URL — set DKU_URL or run `dku auth login --url ...`>"
+    profile_display = profile or "default"
+
+    recover_args = []
+    if url:
+        recover_args.append(f"--url {url}")
+    recover_args.append("--api-key <new-key>")
+    recover_cmd = "dku auth login " + " ".join(recover_args)
+
+    return (
+        f"DSS rejected the stored API key (URL: {url_display}, profile: {profile_display}).",
+        [
+            "The stored credentials are no longer valid — the key may have been",
+            "rotated, deleted, or never had access to this DSS instance.",
+            "",
+            "Recover with:",
+            f"  {recover_cmd}",
+            "",
+            "Or for an interactive prompt that asks for the key:",
+            f"  dku auth login{' --url ' + url if url else ''}",
+        ],
+    )
+
+
 def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
     """Parse Govern ValidationException messages into prescriptive guidance.
 
@@ -159,6 +225,19 @@ def handle_api_error(e: Exception) -> None:
             code="govern_validation",
             details=govern_result[1],
             status=1,
+        )
+
+    # Invalid / rotated API key — DSS returns NotAuthenticatedException with
+    # "Unknown API Key" and neither the substring "401" nor "Unauthorized",
+    # so the generic branch below doesn't catch it. Handle this BEFORE the
+    # 401 branch so the friendlier message wins.
+    invalid_key_result = _handle_invalid_api_key(msg)
+    if invalid_key_result:
+        exit_with_error(
+            invalid_key_result[0],
+            code="auth_error",
+            details=invalid_key_result[1],
+            status=2,
         )
 
     # dataikuapi raises generic Exceptions with HTTP status info

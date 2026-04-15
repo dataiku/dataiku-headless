@@ -33,6 +33,7 @@ metadata:
 > 11. **Sample data before transforming.** Before writing prepare steps, creating joins, or configuring group-by: run `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ` to inspect actual column names, values, and formats. Don't guess date formats, value ranges, or column names — verify first. For joins, check both datasets have the join key.
 > 12. **Document what you build.** After creating a project, set its description (`dku project set-metadata PROJ --description "..."`). After creating datasets, describe columns (`dku dataset set-column-description DS col1 "desc" -P PROJ`). Create at least one wiki article ("Project Overview"). Use `set-metadata` on any object. Undocumented projects are incomplete projects.
 > 13. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
+> 14. **Designing a Govern blueprint? Switch skills.** The `govern-blueprint-designer` skill (separate) covers `create-version`, `set-version-definition`, signoff configuration, hooks, and UI views — with a dedicated cheat sheet and live-verified payload examples. This `dku-cli` skill handles **runtime** Govern operations (artifact CRUD, runtime signoff workflow, user/group admin). If the user says "create a blueprint", "add a field", "wire a signoff", or "activate a version" → stop and load `govern-blueprint-designer`.
 
 # dku-cli
 
@@ -46,6 +47,12 @@ metadata:
 - **`dataiku`** tells you *what* to build and *how DSS works* — which recipe type, which agent architecture, plugin patterns, formula syntax
 
 **Before writing any CLI commands**, consult the `dataiku` skill to confirm you're using the right DSS approach. The CLI can create a Python recipe in seconds — but if a visual recipe exists for that task, you've chosen wrong. The `dataiku` skill's recipe decision tree and agent type selection guide prevent these mistakes.
+
+## Task-specific skill: `govern-blueprint-designer`
+
+For **designing Govern blueprints** (creating blueprint versions, adding fields, wiring workflow steps with signoff configurations, writing lifecycle hooks, building UI views), use the dedicated **`govern-blueprint-designer`** skill. It covers `dku govern blueprint create-version`, `set-version-definition`, `set-version-status`, and the full `*-signoff-config` command set with real payload examples and the gotchas the live Govern backend enforces.
+
+Use this `dku-cli` skill for runtime Govern operations (artifact CRUD, runtime signoff workflow, user/group admin) and switch to `govern-blueprint-designer` when the user asks to create or modify blueprint versions themselves.
 
 ## Verification Protocol — Build It, Run It, Prove It
 

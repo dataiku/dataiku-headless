@@ -1,0 +1,55 @@
+{
+  "id": {
+    "blueprintId": "bp.REPLACE_ME",
+    "versionId": "bv.v1"
+  },
+  "name": "Version 1",
+  "fieldDefinitions": {
+    "title": {
+      "label": "Title",
+      "fieldType": "TEXT",
+      "sourceType": "STORE",
+      "required": true
+    },
+    "owner": {
+      "label": "Owner",
+      "fieldType": "REFERENCE",
+      "sourceType": "STORE",
+      "required": true,
+      "allowedBlueprints": ["bp.system.user"]
+    },
+    "risk_level": {
+      "label": "Risk level",
+      "fieldType": "CATEGORY",
+      "sourceType": "STORE",
+      "required": true,
+      "categories": ["Low", "Medium", "High"]
+    },
+    "target_date": {
+      "label": "Target date",
+      "fieldType": "DATE",
+      "sourceType": "STORE",
+      "required": false
+    }
+  },
+  "workflowDefinition": {
+    "stepDefinitions": [
+      { "id": "draft",    "name": "Draft",    "displaySignoffAfterView": false },
+      { "id": "review",   "name": "Review",   "displaySignoffAfterView": false },
+      { "id": "approved", "name": "Approved", "displaySignoffAfterView": false }
+    ]
+  },
+  "logicalHookList": [],
+  "actions": {},
+  "uiDefinition": {
+    "views": {},
+    "uiStepDefinitions": {
+      "draft":    { "viewId": "" },
+      "review":   { "viewId": "" },
+      "approved": { "viewId": "" }
+    },
+    "artifactPageViewId": ""
+  },
+  "instructions": "Minimal starter blueprint version. Replace bp.REPLACE_ME with your blueprint ID before saving.",
+  "iconMode": "INHERIT"
+}

@@ -238,6 +238,8 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 | **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
 | **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
 | **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
+| **Govern** | Govern concepts (blueprints, artifacts, signoffs), `dku govern` CLI, JSON payload shapes (signoff configs, blueprint version definitions), gotchas | `references/govern.md` |
+| **Govern Custom Pages** | The four custom page types, embedding external content (chat assistants, dashboards, DSS webapps) via `custom-page-custom-html` + iframe, auth/cookies/CORS, security notes | `references/govern-custom-pages.md` |
 
 ## Instructions
 

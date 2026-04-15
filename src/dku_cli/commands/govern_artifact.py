@@ -2,17 +2,91 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import error, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(
     help="Manage Govern artifacts. Use 'govern blueprint fields' to discover field schemas."
 )
+
+_AR_ID_RE = re.compile(r"^ar\.\d+$")
+
+
+def _get_version_field_defs(govern, blueprint_id: str, version_id: str) -> dict:
+    """Fetch fieldDefinitions for a blueprint version. Returns {} on any failure."""
+    try:
+        bp = govern.get_blueprint(blueprint_id)
+        version = bp.get_version(version_id)
+        defn = version.get_definition()
+        return defn.get_raw().get("fieldDefinitions", {}) or {}
+    except Exception:
+        return {}
+
+
+def _validate_reference_fields(
+    field_defs: dict,
+    fields_dict: dict,
+) -> None:
+    """Catch REFERENCE fields set to non-artifact-ID values before POST.
+
+    The Govern server rejects bad REFERENCE values with a flat validation error
+    that doesn't explain the expected shape, so agents typically waste a round
+    trying logins/names. This helper turns the failure into a prescriptive
+    error pointing at `dku govern artifact list --blueprint <allowed_bp>`.
+    """
+    if not field_defs:
+        return  # Couldn't fetch schema — let the server validate
+
+    problems: list[tuple[str, object, list[str]]] = []
+    for key, value in fields_dict.items():
+        fd = field_defs.get(key)
+        if not fd or fd.get("fieldType") != "REFERENCE":
+            continue
+        if fd.get("sourceType") == "COMPUTE":
+            continue  # computed references are backend-managed
+
+        allowed = fd.get("allowedBlueprints") or []
+        values = value if isinstance(value, list) else [value]
+        for v in values:
+            if v is None or (isinstance(v, str) and v == ""):
+                continue
+            if not isinstance(v, str) or not _AR_ID_RE.match(v):
+                problems.append((key, v, allowed))
+
+    if not problems:
+        return
+
+    first_key, first_val, first_allowed = problems[0]
+    details: list[str] = [
+        f"Got: {first_val!r}",
+        "REFERENCE field values must be artifact IDs in the form 'ar.<number>'.",
+        "",
+    ]
+    if first_allowed:
+        details.append(f"Allowed blueprints: {', '.join(first_allowed)}")
+        details.append("Find candidate artifact IDs with:")
+        for bp_ref in first_allowed:
+            details.append(f"  dku govern artifact list --blueprint {bp_ref}")
+        details.append("")
+    if len(problems) > 1:
+        details.append(
+            f"({len(problems) - 1} more invalid REFERENCE value(s) on this artifact.)"
+        )
+        details.append(
+            "Run 'dku govern blueprint fields <BP_ID>' to see all REFERENCE fields and their allowed blueprints."
+        )
+
+    exit_with_error(
+        f"REFERENCE field '{first_key}' expects an artifact ID, not {first_val!r}.",
+        code="invalid_reference_value",
+        details=details,
+    )
 
 
 @app.command("list")
@@ -166,8 +240,6 @@ def create(
     output = resolve_output_format(output)
 
     if definition is None and blueprint is None:
-        from dku_cli.errors import exit_with_error
-
         exit_with_error(
             "Either --blueprint or --definition is required.",
             code="missing_argument",
@@ -183,12 +255,21 @@ def create(
 
         if definition is not None:
             artifact_data = read_json_input(definition)
+            # Validate REFERENCE fields on raw-JSON path too
+            if isinstance(artifact_data, dict):
+                bv = artifact_data.get("blueprintVersionId") or {}
+                bp_id = bv.get("blueprintId")
+                ver_id = bv.get("versionId")
+                fields_dict = artifact_data.get("fields") or {}
+                if bp_id and ver_id and isinstance(fields_dict, dict):
+                    field_defs = _get_version_field_defs(govern, bp_id, ver_id)
+                    _validate_reference_fields(field_defs, fields_dict)
         else:
             # Build artifact from --blueprint, --name, --field
             from dku_cli.commands.govern_blueprint import _resolve_active_version
 
             version_id = _resolve_active_version(govern, blueprint)
-            fields_dict: dict = {}
+            fields_dict = {}
             for f in field or []:
                 eq_idx = f.find("=")
                 if eq_idx < 1:
@@ -209,6 +290,10 @@ def create(
                         fields_dict[k] = parsed
                 except (json_mod.JSONDecodeError, ValueError):
                     fields_dict[k] = v
+
+            # Prescriptive REFERENCE-field validation before POST
+            field_defs = _get_version_field_defs(govern, blueprint, version_id)
+            _validate_reference_fields(field_defs, fields_dict)
 
             artifact_data = {
                 "blueprintVersionId": {
@@ -287,6 +372,14 @@ def set_field(
             parsed = json_mod.loads(value)
         except (json_mod.JSONDecodeError, ValueError):
             parsed = value
+
+        # Prescriptive REFERENCE-field validation
+        bv = raw.get("blueprintVersionId") or {}
+        bp_id = bv.get("blueprintId")
+        ver_id = bv.get("versionId")
+        if bp_id and ver_id:
+            field_defs = _get_version_field_defs(govern, bp_id, ver_id)
+            _validate_reference_fields(field_defs, {field_id: parsed})
 
         raw.setdefault("fields", {})[field_id] = parsed
         defn.definition = raw

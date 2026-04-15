@@ -2325,19 +2325,10 @@ def mock_client():
     custom_pages_handler.create_custom_page.return_value = admin_page_obj
     govern_client.get_custom_pages_handler.return_value = custom_pages_handler
 
-    # Blueprint designer (admin)
-    bp_designer = MagicMock()
-    admin_bp_obj = MagicMock()
-    admin_bp_obj.blueprint_id = "bp.custom.my_bp"
-    admin_bp_def = MagicMock()
-    admin_bp_def.get_raw.return_value = {
-        "id": "bp.custom.my_bp",
-        "name": "My Blueprint",
-    }
-    admin_bp_obj.get_definition.return_value = admin_bp_def
-    bp_designer.create_blueprint.return_value = admin_bp_obj
-    bp_designer.get_blueprint.return_value = admin_bp_obj
-    govern_client.get_blueprint_designer.return_value = bp_designer
+    # Blueprint designer (admin) — wired via tests.fixtures.govern_designer
+    from tests.fixtures.govern_designer import wire_designer_mocks
+
+    wire_designer_mocks(govern_client, bp_ver_item, bp_ver)
 
     # Role create (admin)
     admin_role_obj = MagicMock()

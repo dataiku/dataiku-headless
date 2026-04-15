@@ -1,0 +1,25 @@
+{
+  "title": "Review gate",
+  "description": "Business review before moving to Approved",
+  "mandatory": true,
+  "feedbackUsersGroups": [
+    {
+      "id": "reviewers",
+      "title": "Reviewers",
+      "users": [
+        { "usersContainer": { "type": "user", "login": "REPLACE_WITH_REVIEWER_LOGIN" } }
+      ]
+    }
+  ],
+  "approvers": [
+    { "usersContainer": { "type": "user", "login": "REPLACE_WITH_APPROVER_LOGIN" } }
+  ],
+  "recurrenceConfiguration": {
+    "activated": false,
+    "days": 0,
+    "weeks": 0,
+    "months": 0,
+    "years": 0,
+    "reloadConf": false
+  }
+}
