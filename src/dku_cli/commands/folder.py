@@ -1,7 +1,16 @@
-"""dku folder — create, delete, get, list, ls, upload, download, delete-file, create-dataset, set-metadata."""
+"""dku folder — managed folder file operations.
+
+Commands: create, delete, get, list, ls, upload, upload-dir, download,
+delete-file, delete-files, create-dataset, set-metadata, rename, copy,
+decompress.
+"""
 
 from __future__ import annotations
 
+import io
+import os
+import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -432,6 +441,230 @@ def set_metadata(
 
         folder.set_definition(defn)
         success(f"Updated metadata for folder '{folder_ref}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def rename(
+    ctx: typer.Context,
+    folder_ref: str = typer.Argument(help="Managed folder ID or name"),
+    new_name: str = typer.Argument(help="New name for the folder"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Rename a managed folder."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = resolve_folder(proj, folder_ref)
+        folder.rename(new_name)
+        success(f"Renamed folder '{folder_ref}' → '{new_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def copy(
+    ctx: typer.Context,
+    source_ref: str = typer.Argument(help="Source managed folder ID or name"),
+    target_ref: str = typer.Argument(help="Target managed folder ID or name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    write_mode: str = typer.Option(
+        "OVERWRITE",
+        "--write-mode",
+        "-w",
+        help="Write mode: OVERWRITE or APPEND",
+    ),
+    target_project: str = typer.Option(
+        None,
+        "--target-project",
+        help="Target project key (defaults to same project)",
+    ),
+) -> None:
+    """Copy contents of one managed folder to another.
+
+    Both folders must exist. Returns when the async copy completes.
+    """
+    project_key = resolve_project(project)
+    target_project_key = target_project or project_key
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        source = resolve_folder(proj, source_ref)
+        target_proj = client.get_project(target_project_key)
+        target = resolve_folder(target_proj, target_ref)
+        future = source.copy_to(target, write_mode=write_mode)
+        future.wait_for_result()
+        success(f"Copied folder '{source_ref}' → '{target_ref}' (mode={write_mode})")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("upload-dir")
+def upload_dir(
+    ctx: typer.Context,
+    folder_ref: str = typer.Argument(help="Managed folder ID or name"),
+    local_dir: Path = typer.Argument(help="Local directory to upload"),
+    remote_prefix: str = typer.Option(
+        "/", "--prefix", help="Remote path prefix (default: /)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Upload an entire local directory to a managed folder.
+
+    All files are uploaded preserving the directory structure.
+    """
+    project_key = resolve_project(project)
+    if not local_dir.is_dir():
+        error(f"Not a directory: {local_dir}")
+        raise typer.Exit(1)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = resolve_folder(proj, folder_ref)
+
+        count = 0
+        for root, _dirs, files in os.walk(local_dir):
+            for filename in files:
+                local_path = Path(root) / filename
+                relative = local_path.relative_to(local_dir)
+                remote_path = f"{remote_prefix.rstrip('/')}/{relative}"
+                with local_path.open("rb") as f:
+                    folder.put_file(remote_path, f)
+                count += 1
+
+        success(f"Uploaded {count} file(s) from {local_dir} → {remote_prefix}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("delete-files")
+def delete_files(
+    ctx: typer.Context,
+    folder_ref: str = typer.Argument(help="Managed folder ID or name"),
+    paths: list[str] = typer.Argument(help="Paths of files to delete"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Delete multiple files from a managed folder.
+
+    Pass one or more file paths as arguments.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = resolve_folder(proj, folder_ref)
+        for path in paths:
+            folder.delete_file(path)
+        success(f"Deleted {len(paths)} file(s) from folder {folder_ref}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def decompress(
+    ctx: typer.Context,
+    folder_ref: str = typer.Argument(help="Managed folder ID or name"),
+    archive_path: str = typer.Argument(
+        help="Path to zip/tar.gz archive within the folder"
+    ),
+    dest: str = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination path within folder (default: same directory as archive)",
+    ),
+    delete_archive: bool = typer.Option(
+        False,
+        "--delete-archive",
+        help="Delete the archive after extraction",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Extract a zip archive inside a managed folder.
+
+    Downloads the archive, extracts it locally, uploads all extracted files
+    back to the folder. Supports .zip files.
+
+    The DSS UI has "UNCOMPRESS TO CURRENT FOLDER" but that endpoint is
+    session-only (no API key auth). This command does equivalent work
+    client-side.
+
+    Example: dku folder decompress FOLDER_ID /Places.zip -P PROJ
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("table", "json"), default="table")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = resolve_folder(proj, folder_ref)
+
+        # Determine destination prefix
+        if dest is not None:
+            dest_prefix = dest.rstrip("/")
+        else:
+            # Same directory as the archive
+            parent = "/".join(archive_path.split("/")[:-1])
+            dest_prefix = parent if parent else ""
+
+        # Download the archive
+        info(f"Downloading {archive_path}...")
+        stream = folder.get_file(archive_path)
+        archive_data = io.BytesIO(stream.content)
+
+        if not zipfile.is_zipfile(archive_data):
+            exit_with_error(
+                f"'{archive_path}' is not a valid zip file.",
+                code="invalid_archive",
+                details=[
+                    "Only .zip archives are supported.",
+                    f"Check file: dku folder ls {folder_ref} -P {project_key}",
+                ],
+            )
+
+        archive_data.seek(0)
+        extracted_files = []
+
+        with zipfile.ZipFile(archive_data, "r") as zf:
+            members = [m for m in zf.infolist() if not m.is_dir()]
+            info(f"Extracting {len(members)} file(s)...")
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zf.extractall(tmpdir)
+                for member in members:
+                    local_path = Path(tmpdir) / member.filename
+                    remote_path = f"{dest_prefix}/{member.filename}"
+                    with local_path.open("rb") as f:
+                        folder.put_file(remote_path, f)
+                    extracted_files.append(remote_path)
+
+        if delete_archive:
+            folder.delete_file(archive_path)
+            info(f"Deleted archive {archive_path}")
+
+        if output == "json":
+            render_raw(
+                {
+                    "archive": archive_path,
+                    "destination": dest_prefix or "/",
+                    "files_extracted": len(extracted_files),
+                    "files": extracted_files,
+                    "archive_deleted": delete_archive,
+                },
+                output_format="json",
+            )
+        else:
+            success(
+                f"Extracted {len(extracted_files)} file(s) from {archive_path} → {dest_prefix or '/'}"
+            )
     except typer.Exit:
         raise
     except Exception as e:
