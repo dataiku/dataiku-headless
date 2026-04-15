@@ -1931,7 +1931,7 @@ def mock_client():
     mes_settings_mock.get_raw.return_value = {
         "id": "mes1",
         "name": "Churn Eval Store",
-        "mesFlavor": "TABULAR",
+        "flavor": "TABULAR",
     }
     mes_mock.get_settings.return_value = mes_settings_mock
 
@@ -1949,8 +1949,11 @@ def mock_client():
     mes_mock.delete.return_value = None
 
     proj1.list_model_evaluation_stores.return_value = [mes_mock]
+    proj1.list_evaluation_stores.return_value = [mes_mock]
     proj1.create_model_evaluation_store.return_value = mes_mock
+    proj1.create_evaluation_store.return_value = mes_mock
     proj1.get_model_evaluation_store.return_value = mes_mock
+    proj1.get_evaluation_store.return_value = mes_mock
 
     # Wiki — DSSWikiArticle has .article_id + .get_data() → DSSWikiArticleData
     wiki_mock = MagicMock()
