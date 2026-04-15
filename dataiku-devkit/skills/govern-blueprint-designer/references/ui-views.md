@@ -15,26 +15,44 @@ The `uiDefinition` section of a blueprint version controls what users see on the
 | Key | Purpose |
 |---|---|
 | `views` | Map of view ID → view object. Each view contains a tree of components |
-| `uiStepDefinitions` | Map of workflow step ID → which view to show on that step. **Every step in `workflowDefinition.stepDefinitions` must have a matching entry** (value may be `{"viewId": ""}` for no custom view) |
-| `artifactPageViewId` | The view shown on the artifact's Overview tab (typically `"main"`) |
+| `uiStepDefinitions` | Map of workflow step ID → which view to show on that step. **Every step in `workflowDefinition.stepDefinitions` must have a matching entry pointing at a real `viewId`** — empty strings render a blank step tab |
+| `artifactPageViewId` | The view shown on the artifact's Overview tab (must be a real view id, typically `"main"`) |
 
-## Minimal (default) uiDefinition
+## Minimum viable uiDefinition
 
-The laziest working config — no custom views, default rendering for everything:
+**Empty `views: {}` does NOT produce default rendering — it produces a BLANK artifact page.** The Govern API silently accepts `"views": {}`, `"artifactPageViewId": ""`, and step `"viewId": ""`, but there is no UI fallback: the page shows nothing, no fields are rendered, and the user sees an empty tab. Every `viewId` reference must resolve to a view that exists in `views{}`.
+
+The minimum viable config defines a single `main` view listing every field, and binds every workflow step and the artifact page to it:
 
 ```json
 "uiDefinition": {
-  "views": {},
-  "uiStepDefinitions": {
-    "draft":    {"viewId": ""},
-    "review":   {"viewId": ""},
-    "approved": {"viewId": ""}
+  "views": {
+    "main": {
+      "label": "Overview",
+      "description": "",
+      "viewComponent": {
+        "type": "container",
+        "layout": {
+          "type": "sequential",
+          "viewComponents": [
+            {"type": "text-field",     "fieldId": "title",      "label": "Title"},
+            {"type": "category-field", "fieldId": "risk_level", "label": "Risk level"},
+            {"type": "date-field",     "fieldId": "deadline",   "label": "Deadline"}
+          ]
+        }
+      }
+    }
   },
-  "artifactPageViewId": ""
+  "uiStepDefinitions": {
+    "draft":    {"viewId": "main"},
+    "review":   {"viewId": "main"},
+    "approved": {"viewId": "main"}
+  },
+  "artifactPageViewId": "main"
 }
 ```
 
-With `"views": {}` and empty `viewId`s, DSS renders a generic form listing all the fields. **This is the correct starting point** — only build custom views when the user asks for specific layout.
+This is the correct starting point when the user hasn't asked for specific layout — one view listing every field, bound to every step. From here you can split into per-step views (see [Common patterns](#common-patterns)) as requirements emerge. Verify after pushing with `dku govern blueprint describe-version BP VER` — the command prints structural warnings for empty views, missing `artifactPageViewId`, unreferenced fields, and other silent-failure patterns.
 
 ## View structure
 
@@ -87,7 +105,7 @@ Layouts:
 
 ### Field components
 
-One per field type. The `fieldId` references a key in `fieldDefinitions`.
+One per field type. The `fieldId` references a key in `fieldDefinitions`. These component `type` values are **the full set the Govern server accepts** (derived from a live server `JsonParseException`). Anything not listed is rejected at save time, even if it sounds plausible — `reference-field`, `select-field`, `string-field`, `markdown-field`, and `users-groups-roles-field` all do **NOT** exist.
 
 | Component type | For fieldType |
 |---|---|
@@ -96,10 +114,13 @@ One per field type. The `fieldId` references a key in `fieldDefinitions`.
 | `boolean-field` | BOOLEAN |
 | `date-field` | DATE |
 | `category-field` | CATEGORY |
-| `reference-field` | REFERENCE |
+| `card-reference-field` | REFERENCE — also how USER / GROUP / ROLE are referenced (point at `bp.system.user` / `bp.system.group`) |
 | `uploaded-file-field` | UPLOADED_FILE |
 | `time-series-field` | TIME_SERIES |
+| `table-reference-field` | paired with a table-reference field definition |
 | `json-field` | JSON |
+
+Also accepted as view components (non-field, covered separately): `container`, `action`, `plugin-action`.
 
 Common props for all field components:
 
@@ -220,7 +241,7 @@ An overview view with grouped subsections:
         "label": "General information",
         "layout": {"type": "sequential", "viewComponents": [
           {"type": "text-field", "fieldId": "description"},
-          {"type": "reference-field", "fieldId": "owners"},
+          {"type": "card-reference-field", "fieldId": "owners"},
           {"type": "date-field", "fieldId": "target_end_date"}
         ]}
       },
@@ -241,7 +262,8 @@ Then bind it via `"artifactPageViewId": "main"`.
 
 ## Gotchas
 
-- **Every step in `workflowDefinition.stepDefinitions` needs an entry in `uiStepDefinitions`.** If you add a step and forget to add its UI step def, the step may break the page. Empty `{"viewId": ""}` is the right default.
+- **Empty `views: {}` ≠ default rendering — it means BLANK artifact page.** The Govern API silently accepts `"views": {}` / `"artifactPageViewId": ""` / step `"viewId": ""`, but the UI has no fallback path: the page renders nothing, no fields are shown. Every `viewId` reference must resolve to a real view in `views{}`. Run `dku govern blueprint describe-version BP VER` after every push — it prints structural warnings for all of these. This is the #1 silent-failure pattern when authoring blueprints and has shipped blank-page blueprints at least once (2026-04-14 `bp.gdpr_data_export`).
+- **Every step in `workflowDefinition.stepDefinitions` needs an entry in `uiStepDefinitions`** pointing at a real `viewId`. If you add a step and forget its UI step def — or leave the `viewId` empty — the step's tab renders blank.
 - **Field not in any view ≠ field not required.** If a field is marked `required: true` but not placed in any view, users can't set it — and the artifact can't save. Either remove `required: true` or add the field to a view.
 - **Dragging and reordering** in the Govern Designer UI mutates `absoluteUiIndex` values. When round-tripping JSON, preserve them to avoid spurious diffs.
 - **Conditional visibility conditions are evaluated client-side.** A malformed condition silently fails to match, hiding the component. Test by setting the trigger field to each possible value.

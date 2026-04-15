@@ -42,13 +42,30 @@
   "logicalHookList": [],
   "actions": {},
   "uiDefinition": {
-    "views": {},
-    "uiStepDefinitions": {
-      "draft":    { "viewId": "" },
-      "review":   { "viewId": "" },
-      "approved": { "viewId": "" }
+    "views": {
+      "main": {
+        "label": "Overview",
+        "description": "",
+        "viewComponent": {
+          "type": "container",
+          "layout": {
+            "type": "sequential",
+            "viewComponents": [
+              { "type": "text-field",           "fieldId": "title",       "label": "Title" },
+              { "type": "card-reference-field", "fieldId": "owner",       "label": "Owner" },
+              { "type": "category-field",       "fieldId": "risk_level",  "label": "Risk level" },
+              { "type": "date-field",           "fieldId": "target_date", "label": "Target date" }
+            ]
+          }
+        }
+      }
     },
-    "artifactPageViewId": ""
+    "uiStepDefinitions": {
+      "draft":    { "viewId": "main" },
+      "review":   { "viewId": "main" },
+      "approved": { "viewId": "main" }
+    },
+    "artifactPageViewId": "main"
   },
   "instructions": "Minimal starter blueprint version. Replace bp.REPLACE_ME with your blueprint ID before saving.",
   "iconMode": "INHERIT"

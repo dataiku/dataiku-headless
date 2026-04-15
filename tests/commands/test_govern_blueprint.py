@@ -302,6 +302,178 @@ def test_set_version_definition_rejects_non_object(patch_client):
     assert "JSON object" in result.output
 
 
+# ---------------------------------------------------------------------------
+# Structural lint: _lint_version_definition + set-version-definition warnings
+# ---------------------------------------------------------------------------
+
+
+def _clean_version_payload() -> dict:
+    """A minimally well-formed blueprint version definition (no warnings)."""
+    return {
+        "fieldDefinitions": {
+            "title": {"fieldType": "TEXT", "label": "Title"},
+        },
+        "workflowDefinition": {
+            "stepDefinitions": [{"id": "draft", "name": "Draft"}],
+            "initialStepId": "draft",
+        },
+        "logicalHookList": [],
+        "actions": {},
+        "uiDefinition": {
+            "views": {
+                "main": {
+                    "label": "Overview",
+                    "viewComponent": {
+                        "type": "container",
+                        "layout": {
+                            "type": "sequential",
+                            "viewComponents": [
+                                {"type": "text-field", "fieldId": "title"},
+                            ],
+                        },
+                    },
+                }
+            },
+            "uiStepDefinitions": {"draft": {"viewId": "main"}},
+            "artifactPageViewId": "main",
+        },
+    }
+
+
+def test_lint_version_definition_clean_payload():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    assert _lint_version_definition(_clean_version_payload()) == []
+
+
+def test_lint_version_definition_flags_empty_views():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["views"] = {}
+    payload["uiDefinition"]["artifactPageViewId"] = ""
+    payload["uiDefinition"]["uiStepDefinitions"] = {"draft": {"viewId": ""}}
+
+    warnings = _lint_version_definition(payload)
+    joined = " | ".join(warnings)
+    assert "views is empty" in joined
+    assert "artifactPageViewId is empty" in joined
+    # With views empty, the step-viewId check doesn't fire (there's nothing to
+    # reference) — only the top-level empty-views + empty-page-id warnings.
+
+
+def test_lint_version_definition_flags_dangling_artifact_page_view_id():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["artifactPageViewId"] = "ghost"
+
+    warnings = _lint_version_definition(payload)
+    assert any("ghost" in w and "does not match" in w for w in warnings)
+
+
+def test_lint_version_definition_flags_empty_step_view_id():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["uiStepDefinitions"]["draft"] = {"viewId": ""}
+
+    warnings = _lint_version_definition(payload)
+    assert any("Step 'draft'" in w and "has no viewId" in w for w in warnings)
+
+
+def test_lint_version_definition_flags_dangling_step_view_id():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["uiStepDefinitions"]["draft"] = {"viewId": "ghost"}
+
+    warnings = _lint_version_definition(payload)
+    assert any(
+        "Step 'draft'" in w and "ghost" in w and "does not match" in w for w in warnings
+    )
+
+
+def test_lint_version_definition_flags_unreferenced_field():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["fieldDefinitions"]["orphan"] = {
+        "fieldType": "TEXT",
+        "label": "Orphan",
+    }
+
+    warnings = _lint_version_definition(payload)
+    assert any("Field 'orphan'" in w and "not referenced" in w for w in warnings)
+    # 'title' is still referenced and should not be flagged
+    assert not any("Field 'title'" in w for w in warnings)
+
+
+def test_lint_version_definition_handles_non_dict_input():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    assert _lint_version_definition([]) == []  # type: ignore[arg-type]
+    assert _lint_version_definition("nope") == []  # type: ignore[arg-type]
+
+
+def test_set_version_definition_warns_on_empty_views(patch_client, tmp_path):
+    """set-version-definition must surface structural warnings on push."""
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["views"] = {}
+    payload["uiDefinition"]["artifactPageViewId"] = ""
+    payload["uiDefinition"]["uiStepDefinitions"] = {"draft": {"viewId": ""}}
+
+    f = tmp_path / "bv.json"
+    f.write_text(json.dumps(payload))
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--definition",
+            f"@{f}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Save still succeeds
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    defn_mock = designer.get_blueprint.return_value.get_version.return_value.get_definition.return_value
+    defn_mock.save.assert_called_once_with(danger_zone_accepted=False)
+    # But stderr carries the structural warnings (CliRunner mixes stderr into output)
+    assert "structural issue" in result.output
+    assert "views is empty" in result.output
+    assert "artifactPageViewId is empty" in result.output
+    assert "describe-version" in result.output
+
+
+def test_set_version_definition_no_warning_on_clean_push(patch_client, tmp_path):
+    """A well-formed payload produces no structural-warning banner."""
+    payload = _clean_version_payload()
+    f = tmp_path / "bv.json"
+    f.write_text(json.dumps(payload))
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--definition",
+            f"@{f}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Saved definition" in result.output
+    assert "structural issue" not in result.output
+    assert "views is empty" not in result.output
+
+
 def test_delete_version_requires_confirm(patch_client):
     result = runner.invoke(
         app,

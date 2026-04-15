@@ -185,6 +185,81 @@ def _collect_view_field_ids(comp: object, sink: set[str]) -> None:
             _collect_view_field_ids(child, sink)
 
 
+def _lint_version_definition(raw: dict) -> list[str]:
+    """Return structural-warning strings for a blueprint version definition.
+
+    Catches the silent-failure patterns the Govern API accepts but render
+    broken: empty views, empty/invalid artifactPageViewId, empty/invalid step
+    viewIds, fields not referenced by any view. Called from describe-version
+    (read) and set-version-definition (write, pre-push) so the same lint rules
+    live in one place.
+
+    Signoff-step-existence checks live in describe-version because they depend
+    on a separate live API call (list_signoff_configurations), not the raw
+    version definition.
+    """
+    warnings: list[str] = []
+    if not isinstance(raw, dict):
+        return warnings
+
+    ui_def = raw.get("uiDefinition", {}) or {}
+    views = ui_def.get("views", {}) or {}
+    artifact_page_view_id = ui_def.get("artifactPageViewId", "") or ""
+    ui_step_defs = ui_def.get("uiStepDefinitions", {}) or {}
+    workflow = raw.get("workflowDefinition", {}) or {}
+    steps = workflow.get("stepDefinitions", []) or []
+    field_defs = raw.get("fieldDefinitions", {}) or {}
+
+    if not views:
+        warnings.append(
+            "uiDefinition.views is empty — the artifact page will be BLANK in Govern. "
+            "Define at least one view that lists every field."
+        )
+    if not artifact_page_view_id:
+        warnings.append(
+            "uiDefinition.artifactPageViewId is empty — set it to a real "
+            "view id so the main artifact page renders."
+        )
+    elif views and artifact_page_view_id not in views:
+        warnings.append(
+            f"uiDefinition.artifactPageViewId='{artifact_page_view_id}' "
+            f"does not match any view id (have: {sorted(views)})."
+        )
+
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("id", "")
+        if not sid:
+            continue
+        sd = ui_step_defs.get(sid) or {}
+        vid = sd.get("viewId", "") or ""
+        if not vid and views:
+            warnings.append(
+                f"Step '{sid}' has no viewId — its tab will render blank. "
+                f"Set uiStepDefinitions['{sid}'].viewId to a real view id."
+            )
+        elif vid and views and vid not in views:
+            warnings.append(
+                f"Step '{sid}' viewId='{vid}' does not match any view id "
+                f"(have: {sorted(views)})."
+            )
+
+    if views and field_defs:
+        referenced: set[str] = set()
+        for vdef in views.values():
+            if isinstance(vdef, dict):
+                _collect_view_field_ids(vdef.get("viewComponent"), referenced)
+        unreferenced = sorted(set(field_defs.keys()) - referenced)
+        for fid in unreferenced:
+            warnings.append(
+                f"Field '{fid}' is not referenced by any view component — "
+                f"users won't see it. Add it to a view's viewComponents."
+            )
+
+    return warnings
+
+
 @app.command("describe-version")
 def describe_version(
     ctx: typer.Context,
@@ -397,60 +472,14 @@ def describe_version(
 
         # Structural warnings — the whole point of this command. Catches the
         # silent-failure patterns the Govern API will accept but render broken.
-        warnings: list[str] = []
+        # Most rules live in the shared _lint_version_definition helper so
+        # set-version-definition can reuse them on push. The signoff-step
+        # check stays here because it depends on a separate live API call.
+        warnings = _lint_version_definition(raw)
 
-        if not views:
-            warnings.append(
-                "uiDefinition.views is empty — the artifact page will be BLANK in Govern. "
-                "Define at least one view that lists every field."
-            )
-        if not artifact_page_view_id:
-            warnings.append(
-                "uiDefinition.artifactPageViewId is empty — set it to a real "
-                "view id so the main artifact page renders."
-            )
-        elif views and artifact_page_view_id not in views:
-            warnings.append(
-                f"uiDefinition.artifactPageViewId='{artifact_page_view_id}' "
-                f"does not match any view id (have: {sorted(views)})."
-            )
-
-        # Steps with empty/invalid viewIds
-        valid_step_ids: set[str] = set()
-        for s in steps:
-            if not isinstance(s, dict):
-                continue
-            sid = s.get("id", "")
-            if not sid:
-                continue
-            valid_step_ids.add(sid)
-            sd = ui_step_defs.get(sid) or {}
-            vid = sd.get("viewId", "") or ""
-            if not vid and views:
-                warnings.append(
-                    f"Step '{sid}' has no viewId — its tab will render blank. "
-                    f"Set uiStepDefinitions['{sid}'].viewId to a real view id."
-                )
-            elif vid and views and vid not in views:
-                warnings.append(
-                    f"Step '{sid}' viewId='{vid}' does not match any view id "
-                    f"(have: {sorted(views)})."
-                )
-
-        # Fields not referenced by any view
-        if views and field_defs:
-            referenced: set[str] = set()
-            for vdef in views.values():
-                if isinstance(vdef, dict):
-                    _collect_view_field_ids(vdef.get("viewComponent"), referenced)
-            unreferenced = sorted(set(field_defs.keys()) - referenced)
-            for fid in unreferenced:
-                warnings.append(
-                    f"Field '{fid}' is not referenced by any view component — "
-                    f"users won't see it. Add it to a view's viewComponents."
-                )
-
-        # Signoffs on non-existent steps
+        valid_step_ids: set[str] = {
+            s.get("id", "") for s in steps if isinstance(s, dict) and s.get("id")
+        }
         for row in signoff_rows:
             sid = row["step"]
             if sid and sid not in valid_step_ids:
@@ -749,11 +778,23 @@ def set_version_definition(
                 code="invalid_definition",
             )
         defn.definition = new_def
+        lint_warnings = _lint_version_definition(new_def)
         defn.save(danger_zone_accepted=force)
         success(
             f"Saved definition for blueprint version '{blueprint_id}/{version_id}'"
             + (" (force)" if force else "")
         )
+        if lint_warnings:
+            warn(
+                f"Pushed a definition with {len(lint_warnings)} structural issue(s) — "
+                "the Govern API accepted it but the UI may render broken:"
+            )
+            for w in lint_warnings:
+                warn(f"  - {w}")
+            warn(
+                f"Run 'dku govern blueprint describe-version {blueprint_id} {version_id}' "
+                "to re-verify, or fix the definition and re-push."
+            )
     except SystemExit:
         raise
     except Exception as e:
