@@ -218,21 +218,58 @@ def test_project_delete_with_confirm(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "--confirm"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once()
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=False,
+        clear_output_managed_folders=False,
+    )
+    # Default path emits the hint about --drop-data
+    assert "--drop-data" in result.output
 
 
 def test_project_delete_with_yes(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once()
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=False,
+        clear_output_managed_folders=False,
+    )
 
 
 def test_project_delete_with_y(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "-y"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once()
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=False,
+        clear_output_managed_folders=False,
+    )
+
+
+def test_project_delete_with_drop_data(patch_client):
+    """--drop-data should pass clear_managed_datasets=True and clear_output_managed_folders=True."""
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes", "--drop-data"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=True,
+        clear_output_managed_folders=True,
+    )
+    # With --drop-data, the hint about --drop-data should NOT appear
+    assert "Re-run with --drop-data" not in result.output
+
+
+def test_project_delete_with_clear_managed_alias(patch_client):
+    """--clear-managed is an alias for --drop-data."""
+    result = runner.invoke(
+        app, ["project", "delete", "PROJ1", "--yes", "--clear-managed"]
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=True,
+        clear_output_managed_folders=True,
+    )
 
 
 # --- project duplicate ---

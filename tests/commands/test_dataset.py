@@ -979,13 +979,50 @@ def test_dataset_info_json(patch_client):
 
 
 def test_dataset_info_no_metrics(patch_client):
-    """When metrics haven't been computed, shows (not computed) and guidance."""
+    """When the dataset has never been built, hint points at 'dku dataset build'."""
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.get_last_metric_values.side_effect = Exception("No metrics")
+    # Ensure get_info() returns no buildEndTime (never built)
+    ds.get_info.return_value.get_raw.return_value = {"lastBuild": {}}
     result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "not computed" in result.output
-    assert "dku dataset build" in result.output  # shows how to compute metrics
+    assert "dku dataset build" in result.output
+
+
+def test_dataset_info_stale_metrics_after_build_hints_recompute(patch_client):
+    """When the dataset has been built but metrics are stale, hint points at --recompute."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    # Mock get_info() to return a recent buildEndTime — ms since epoch
+    ds.get_info.return_value.get_raw.return_value = {
+        "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
+    }
+    result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "not computed" in result.output
+    assert "--recompute" in result.output
+    # The old "dku dataset build" hint must NOT appear for a built dataset
+    # (only the --recompute hint should fire).
+    assert "dku dataset info ds1 -P PROJ1 --recompute" in result.output
+
+
+def test_dataset_info_stale_metrics_json_suppresses_hint(patch_client):
+    """JSON mode must not emit the stderr hint (keeps programmatic output clean)."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    ds.get_info.return_value.get_raw.return_value = {
+        "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
+    }
+    result = runner.invoke(
+        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["rows"] is None
+    assert parsed["metrics_computed"] is False
+    # No hint in JSON mode
+    assert "--recompute" not in result.output
 
 
 def test_dataset_info_large_dataset_warning(patch_client):
