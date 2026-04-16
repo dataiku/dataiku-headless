@@ -10,32 +10,52 @@ from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_
 from dku_cli.helpers import get_client_from_ctx, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Manage DSS model evaluation stores.")
+_VALID_FLAVORS = ("TABULAR", "LLM", "AGENT")
+
+app = typer.Typer(help="Manage DSS evaluation stores (TABULAR, LLM, AGENT).")
 
 
 @app.command("list")
 def list_stores(
     ctx: typer.Context,
+    flavor: str | None = typer.Option(
+        None, "--flavor", "-f", help="Filter by flavor: TABULAR, LLM, or AGENT"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List model evaluation stores in a project."""
+    """List evaluation stores in a project."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
+    if flavor and flavor.upper() not in _VALID_FLAVORS:
+        exit_with_error(
+            f"Invalid flavor '{flavor}'.",
+            details=[f"Valid flavors: {', '.join(_VALID_FLAVORS)}"],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        stores = proj.list_model_evaluation_stores()
+        stores = proj.list_evaluation_stores(flavor=flavor.upper() if flavor else None)
 
-        # stores are objects with .id property, not dicts
-        data = [{"id": s.id} for s in stores]
+        data = []
+        for s in stores:
+            raw = s.get_settings().get_raw()
+            data.append(
+                {
+                    "id": s.id,
+                    "name": raw.get("name", ""),
+                    "flavor": raw.get("flavor", "TABULAR"),
+                }
+            )
 
         render(
             data,
-            ["id"],
+            ["id", "name", "flavor"],
             output_format=output,
             title=f"Evaluation Stores ({project_key})",
         )
+    except SystemExit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -44,22 +64,31 @@ def list_stores(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Name for the evaluation store"),
+    flavor: str = typer.Option(
+        "TABULAR", "--flavor", "-f", help="Store flavor: TABULAR, LLM, or AGENT"
+    ),
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if a store with this name already exists"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Create a new model evaluation store."""
+    """Create a new evaluation store (TABULAR, LLM, or AGENT)."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
+    flavor_upper = flavor.upper()
+    if flavor_upper not in _VALID_FLAVORS:
+        exit_with_error(
+            f"Invalid flavor '{flavor}'.",
+            details=[f"Valid flavors: {', '.join(_VALID_FLAVORS)}"],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        store = proj.create_model_evaluation_store(name)
-        result = {"id": store.id}
+        store = proj.create_evaluation_store(name, flavor=flavor_upper)
+        result = {"id": store.id, "flavor": flavor_upper}
         render_raw(result, output)
-        success(f"Created evaluation store {store.id}")
+        success(f"Created {flavor_upper} evaluation store {store.id}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             success(f"Evaluation store '{name}' already exists, skipping.")

@@ -1225,7 +1225,7 @@ def test_recipe_create_extract(patch_client):
 
 
 def test_recipe_create_llm_eval_minimal(patch_client):
-    patch_client._perform_json.return_value = {"name": "my_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -1242,24 +1242,17 @@ def test_recipe_create_llm_eval_minimal(patch_client):
     )
     assert result.exit_code == 0
     assert "Created LLM eval recipe" in result.output
-    proj = patch_client.get_project("PROJ1")
-    patch_client._perform_json.assert_called_once()
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert body["recipePrototype"]["type"] == "nlp_llm_evaluation"
-    assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "responses"
-    assert (
-        body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"]
-        == "eval_store_1"
-    )
-    assert "main" not in body["recipePrototype"]["outputs"]
-    assert "metrics" not in body["recipePrototype"]["outputs"]
-    assert body["creationSettings"] == {"rawCreation": True}
-    proj.get_recipe.assert_called_once_with("my_eval")
+    proj.new_recipe.assert_called_once_with("nlp_llm_evaluation", "my_eval")
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("responses")
+    builder.with_output_evaluation_store.assert_called_once_with("eval_store_1")
+    builder.with_output.assert_not_called()
+    builder.with_output_metrics.assert_not_called()
+    builder.build.assert_called_once()
 
 
 def test_recipe_create_llm_eval_full(patch_client):
-    patch_client._perform_json.return_value = {"name": "rag_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -1295,18 +1288,14 @@ def test_recipe_create_llm_eval_full(patch_client):
         ],
     )
     assert result.exit_code == 0
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert (
-        body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_scored"
-    )
-    assert (
-        body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"]
-        == "eval_metrics"
-    )
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("qa_data")
+    builder.with_output_evaluation_store.assert_called_once_with("eval_store_1")
+    builder.with_output.assert_called_once_with("eval_scored")
+    builder.with_output_metrics.assert_called_once_with("eval_metrics")
 
     # Verify post-creation payload settings
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["taskType"] == "QUESTION_ANSWERING"
@@ -1323,8 +1312,8 @@ def test_recipe_create_llm_eval_full(patch_client):
 def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
     from unittest.mock import PropertyMock
 
-    patch_client._perform_json.return_value = {"name": "rag_eval"}
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.new_recipe.return_value.build.return_value
     settings = recipe.get_settings.return_value
     # obj_payload is a read-only property that returns None (no payload yet)
     type(settings).obj_payload = PropertyMock(return_value=None)
@@ -1355,7 +1344,8 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
 
 
 def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
-    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
+    proj = patch_client.get_project("PROJ1")
+    dataset_mock = proj.get_dataset("eval_scored")
     dataset_mock.get_definition.side_effect = Exception(
         "NotFoundException: dataset does not exist"
     )
@@ -1378,7 +1368,7 @@ def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
     assert result.exit_code == 1
     assert "Output dataset 'eval_scored'" in result.output
     assert "then retry" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
@@ -1411,11 +1401,12 @@ def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
     )
     assert result.exit_code == 1
     assert "Metrics output dataset 'eval_metrics'" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_client):
-    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
+    proj = patch_client.get_project("PROJ1")
+    dataset_mock = proj.get_dataset("eval_scored")
     dataset_mock.get_definition.side_effect = Exception("403 Forbidden")
     result = runner.invoke(
         app,
@@ -1435,11 +1426,11 @@ def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_cli
     )
     assert result.exit_code == 2
     assert "Permission denied" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_agent_eval_minimal(patch_client):
-    patch_client._perform_json.return_value = {"name": "agent_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -1456,24 +1447,21 @@ def test_recipe_create_agent_eval_minimal(patch_client):
     )
     assert result.exit_code == 0
     assert "Created agent eval recipe" in result.output
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert body["recipePrototype"]["type"] == "nlp_agent_evaluation"
-    assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "agent_runs"
-    assert (
-        body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"]
-        == "agent_store_1"
-    )
+    proj.new_recipe.assert_called_once_with("nlp_agent_evaluation", "agent_eval")
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("agent_runs")
+    builder.with_output_evaluation_store.assert_called_once_with("agent_store_1")
 
     # Default input format
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     assert settings.obj_payload["inputFormat"] == "AGENT_EXECUTION"
     settings.save.assert_called()
 
 
 def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client):
-    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_out")
+    proj = patch_client.get_project("PROJ1")
+    dataset_mock = proj.get_dataset("eval_out")
     dataset_mock.get_definition.side_effect = Exception(
         "NotFoundException: dataset does not exist"
     )
@@ -1495,7 +1483,7 @@ def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client)
     )
     assert result.exit_code == 1
     assert "Output dataset 'eval_out'" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client):
@@ -1528,11 +1516,11 @@ def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client
     )
     assert result.exit_code == 1
     assert "Metrics output dataset 'eval_metrics'" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_agent_eval_full(patch_client):
-    patch_client._perform_json.return_value = {"name": "agent_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -1560,15 +1548,11 @@ def test_recipe_create_agent_eval_full(patch_client):
         ],
     )
     assert result.exit_code == 0
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_out"
-    assert (
-        body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"]
-        == "eval_metrics"
-    )
+    builder = proj.new_recipe.return_value
+    builder.with_output.assert_called_once_with("eval_out")
+    builder.with_output_metrics.assert_called_once_with("eval_metrics")
 
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["inputFormat"] == "PROMPT_RECIPE"

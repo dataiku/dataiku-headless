@@ -143,8 +143,7 @@ def _get_recipe_or_exit(proj, recipe_name: str, project_key: str):
         raise
 
 
-def _create_eval_recipe_raw(
-    client,
+def _create_eval_recipe(
     proj,
     recipe_name: str,
     recipe_type: str,
@@ -153,42 +152,15 @@ def _create_eval_recipe_raw(
     output_ds: str | None,
     output_metrics: str | None,
 ):
-    recipe_proto = {
-        "projectKey": proj.project_key,
-        "type": recipe_type,
-        "name": recipe_name,
-        "inputs": {
-            "main": {
-                "items": [{"ref": input_ds}],
-            }
-        },
-        "outputs": {
-            "evaluationStore": {
-                "items": [{"ref": eval_store, "appendMode": False}],
-            }
-        },
-    }
-
+    """Create an LLM or Agent evaluation recipe using the public dataikuapi builder."""
+    builder = proj.new_recipe(recipe_type, recipe_name)
+    builder.with_input(input_ds)
+    builder.with_output_evaluation_store(eval_store)
     if output_ds:
-        recipe_proto["outputs"]["main"] = {
-            "items": [{"ref": output_ds, "appendMode": False}],
-        }
+        builder.with_output(output_ds)
     if output_metrics:
-        recipe_proto["outputs"]["metrics"] = {
-            "items": [{"ref": output_metrics, "appendMode": True}],
-        }
-
-    # PRIVATE API: dataikuapi builders don't support eval-store outputs or rawCreation.
-    # Switch to public builder when dataikuapi adds eval recipe support.
-    response = client._perform_json(
-        "POST",
-        f"/projects/{proj.project_key}/recipes/",
-        body={
-            "recipePrototype": recipe_proto,
-            "creationSettings": {"rawCreation": True},
-        },
-    )
-    return proj.get_recipe(response["name"])
+        builder.with_output_metrics(output_metrics)
+    return builder.build()
 
 
 # Recipe types whose payload is raw source text (Python / SQL / R / shell),
@@ -3530,8 +3502,7 @@ def create_llm_eval(
                 proj, output_metrics, project_key, "Metrics output"
             )
         try:
-            recipe = _create_eval_recipe_raw(
-                client,
+            recipe = _create_eval_recipe(
                 proj,
                 recipe_name,
                 "nlp_llm_evaluation",
@@ -3549,8 +3520,8 @@ def create_llm_eval(
                     f"Failed to create LLM eval recipe — eval store '{eval_store}' may not exist.",
                     code="eval_store_not_found",
                     details=[
-                        "Evaluation stores must be created in the DSS UI before use.",
-                        "Verify the eval store ID in: Administration > Evaluation Stores",
+                        f"Create one first: dku evaluation-store create MY_STORE --flavor LLM -P {project_key}",
+                        f"Then retry: dku recipe create-llm-eval {recipe_name} --eval-store MY_STORE --input {input_ds} -P {project_key}",
                     ],
                 )
             raise  # Re-raise network/auth/other errors unchanged
@@ -3639,8 +3610,7 @@ def create_agent_eval(
                 proj, output_metrics, project_key, "Metrics output"
             )
         try:
-            recipe = _create_eval_recipe_raw(
-                client,
+            recipe = _create_eval_recipe(
                 proj,
                 recipe_name,
                 "nlp_agent_evaluation",
@@ -3658,8 +3628,8 @@ def create_agent_eval(
                     f"Failed to create agent eval recipe — eval store '{eval_store}' may not exist.",
                     code="eval_store_not_found",
                     details=[
-                        "Evaluation stores must be created in the DSS UI before use.",
-                        "Verify the eval store ID in: Administration > Evaluation Stores",
+                        f"Create one first: dku evaluation-store create MY_STORE --flavor AGENT -P {project_key}",
+                        f"Then retry: dku recipe create-agent-eval {recipe_name} --eval-store MY_STORE --input {input_ds} -P {project_key}",
                     ],
                 )
             raise  # Re-raise network/auth/other errors unchanged

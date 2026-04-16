@@ -416,6 +416,7 @@ For flag details on any command, run `dku <noun> <verb> --help`. For full comman
 | `llm` | list, completion, embeddings, **generate-image, rerank** | Yes |
 | `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
+| `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
 | `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |
 | `macro` | list, run | Yes |
 | `flow` | graph, **visualize**, zones, create-zone, **set-zone**, **move**, propagate, check, sources, successors | Yes |
