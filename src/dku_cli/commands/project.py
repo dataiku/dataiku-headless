@@ -344,8 +344,19 @@ def delete(
     confirm: bool = typer.Option(
         False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
     ),
+    drop_data: bool = typer.Option(
+        False,
+        "--drop-data",
+        "--clear-managed",
+        help="Also drop the backing storage of managed datasets and managed folders (physical SQL tables, managed folder contents). Without this flag, managed datasets' backing tables are orphaned on the target connection.",
+    ),
 ) -> None:
-    """Delete a project. Requires --confirm / --yes flag."""
+    """Delete a project. Requires --confirm / --yes flag.
+
+    By default, backing storage of managed datasets (e.g. physical PostgreSQL
+    tables for managed SQL datasets) is NOT dropped. Pass --drop-data to also
+    clear them.
+    """
     if not confirm:
         error(
             "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
@@ -354,8 +365,16 @@ def delete(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        proj.delete()
+        proj.delete(
+            clear_managed_datasets=drop_data,
+            clear_output_managed_folders=drop_data,
+        )
         success(f"Deleted project {project_key}")
+        if not drop_data:
+            info(
+                "Managed datasets' backing storage was NOT dropped. "
+                "Re-run with --drop-data to also clear backing SQL tables and managed folder contents."
+            )
     except Exception as e:
         handle_api_error(e)
 

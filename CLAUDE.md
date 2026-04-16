@@ -17,7 +17,7 @@ uv build                   # Build wheel
 The globally-installed `dku` tool (via `uv tool install`) caches its build. After merging changes to the main repo, you must force-reinstall to pick them up:
 
 ```bash
-uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-cli dku-cli --force --reinstall
+uv tool install --from . dku-cli --force --reinstall
 ```
 
 **`--force` alone is not enough** — it reuses the cached wheel. `--reinstall` rebuilds from source. Without both flags, `dku folder create --help` etc. will show "No such command" even though the code is on disk.
@@ -153,42 +153,7 @@ When editing skills, **progressive disclosure is non-negotiable**:
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
 
-### Dataiku Reference Docs
-
-Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read the relevant doc BEFORE working on that topic.
-
-| Document | Read when... |
-|----------|--------------|
-| `plugin-structure.md` | Creating a new plugin, plugin.json anatomy |
-| `recipes.md` | Building custom recipes, dataset operations |
-| `webapps.md` | Building webapp dashboards (Flask/Vue/React) |
-| `webapp-pitfalls.md` | Debugging webapp errors, critical mistakes |
-| `llm-tools.md` | Creating agent tools, custom agents |
-| `parameters.md` | Defining plugin parameters (30+ types) |
-| `code-environments.md` | Python dependency management, code env config |
-| `datasets.md` | Building dataset connectors |
-| `macros.md` | Building runnables/macros |
-| `testing.md` | Unit/integration/E2E testing patterns |
-| `best-practices.md` | Architecture, error handling, performance |
-| `plugin-workflow.md` | Git integration, versioning, CI/CD, distribution |
-| `formulas.md` | Formula language, Prepare recipe expressions |
-| `llm-mesh.md` | LLM connections, guardrails, RAG, knowledge banks |
-| `structured-agents.md` | SVA design guide: all 13 block types, graph patterns, state, CLI workflow |
-| `python-api.md` | dataiku/dataikuapi packages, dataset I/O, SQL |
-| `scenarios.md` | Automation, triggers, steps, reporters |
-| `mlops.md` | Model lifecycle, drift detection, API Node |
-| `guardrails.md` | LLM guardrails: blocking, filtering, PII, LLM judge, trace API |
-| `styling.md` | Dataiku brand colors, typography, components |
-| `plugin-architecture.md` | Plugin tiers (1-5), patterns/anti-patterns, official docs gaps |
-| `visual-agent-blocks.md` | BlockHandler, block.json, dual-mode components, agent connectors |
-| `webapp-patterns.md` | Advanced: multi-tab dashboards, filters, caching, React+Vite, Chart.js |
-| `agent-tool-patterns.md` | Advanced: subprocess tools, MCP gateway, OAuth, multi-agent, HITL |
-| `plugin-review-checklist.md` | Reviewing plugins, code review criteria, scoring rubric |
-| `scaffolding.md` | Plugin scaffolding, adding components, deploying, reviewing |
-| `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
-| `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
-| `geospatial.md` | Geospatial data handling, projections, spatial joins |
-| `govern.md` | Govern CLI: blueprints, artifacts, signoffs, users, roles, JSON payloads |
+### Govern Blueprint Designer Skill
 
 A dedicated **`govern-blueprint-designer`** skill (`dataiku-devkit/skills/govern-blueprint-designer/`) teaches agents end-to-end blueprint version authoring: fork → edit fields/workflow/hooks/views → activate → wire signoffs. Use it when the user wants to design a blueprint (as opposed to operating one at runtime).
 
@@ -266,6 +231,9 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `folder.list_contents()` returns `{"items": [...]}`, not a flat list
 - **Govern has parallel admin and non-admin read paths.** `govern.get_blueprint(id).list_versions()` hits `/blueprint/{id}/versions` and **silently filters out DRAFT versions**. `govern.get_blueprint_designer().get_blueprint(id).list_versions()` hits `/admin/blueprint/{id}/versions` and returns every version regardless of status. Use the designer path for anything authoring-related. Same asymmetry applies wherever `govern.get_X()` has a `get_X_designer()` counterpart. The CLI's `dku govern blueprint list-versions` defaults to the admin path for this reason
 - **Govern server silently drops unknown JSON fields.** Misshapen signoff configurations and blueprint version definitions often look like they succeed — the server saves whatever it can parse and ignores the rest. This is how the signoff-structure bug landed twice and the empty-`views: {}` blank-page bug landed once. Always verify a doc's JSON shape with `scripts/verify_govern_docs.py` before merging. `dku govern blueprint describe-version BP VER` and `set-version-definition` both print structural warnings (empty views, missing `artifactPageViewId`, unreferenced fields, step viewIds pointing nowhere) — use them as the last line of defense
+- `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
+- `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
+- Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
 
 ---
 
@@ -339,4 +307,4 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 |-----|-------------|
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
-| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |
+| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see Quick Router in `dataiku/SKILL.md` |

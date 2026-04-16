@@ -276,6 +276,135 @@ def test_dataset_create_with_definition_format_fields(patch_client, tmp_path):
     assert call_kwargs["formatParams"] == {"separator": ","}
 
 
+def test_dataset_create_postgresql_auto_populates_mode_and_table(patch_client):
+    """--type PostgreSQL -c rds (no --definition) should inject mode=table +
+    table=${projectKey}_<name> so the dataset is writable by recipes."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "orders",
+            "--type",
+            "PostgreSQL",
+            "--connection",
+            "rds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["connection"] == "rds"
+    assert params["mode"] == "table"
+    assert params["table"] == "${projectKey}_orders"
+    assert params["tableCreationMode"] == "auto"
+
+
+def test_dataset_create_snowflake_auto_populates_mode_and_table(patch_client):
+    """Same fix applies to every SQL subtype (Snowflake, Redshift, ...)."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "sales",
+            "--type",
+            "Snowflake",
+            "--connection",
+            "sf_prod",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["mode"] == "table"
+    assert params["table"] == "${projectKey}_sales"
+
+
+def test_dataset_create_postgresql_respects_explicit_definition(patch_client, tmp_path):
+    """When --definition is passed, the CLI must NOT auto-populate mode/table."""
+    def_file = tmp_path / "def.json"
+    def_file.write_text(
+        json.dumps(
+            {
+                "type": "PostgreSQL",
+                "params": {"connection": "rds", "mode": "query"},
+            }
+        )
+    )
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "q_only",
+            "--type",
+            "PostgreSQL",
+            "--definition",
+            f"@{def_file}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["mode"] == "query"
+    # table should NOT be auto-set when definition was explicit
+    assert "table" not in params
+
+
+def test_dataset_create_filesystem_not_affected_by_sql_defaults(patch_client):
+    """Filesystem datasets should NOT get mode/table params."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "fs_ds",
+            "--type",
+            "Filesystem",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # Filesystem goes through new_managed_dataset(), not create_dataset()
+    proj = patch_client.get_project("PROJ1")
+    proj.new_managed_dataset.assert_called_once_with("fs_ds")
+
+
+def test_dataset_create_type_sql_prescriptive_license_error(patch_client):
+    """--type SQL triggers a DSS license error; the CLI must translate it into
+    a prescriptive hint listing the concrete subtypes."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_dataset.side_effect = Exception(
+        "Your license does not allow you to create a dataset of type SQL"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "foo",
+            "--type",
+            "SQL",
+            "--connection",
+            "rds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "concrete DB subtype" in result.output
+    assert "--type PostgreSQL" in result.output
+    assert "dku connection list" in result.output
+
+
 def test_dataset_create_fails_on_conflicting_definition_type(patch_client, tmp_path):
     def_file = tmp_path / "def.json"
     def_file.write_text(json.dumps({"type": "S3", "params": {"connection": "s3_conn"}}))
@@ -979,13 +1108,50 @@ def test_dataset_info_json(patch_client):
 
 
 def test_dataset_info_no_metrics(patch_client):
-    """When metrics haven't been computed, shows (not computed) and guidance."""
+    """When the dataset has never been built, hint points at 'dku dataset build'."""
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.get_last_metric_values.side_effect = Exception("No metrics")
+    # Ensure get_info() returns no buildEndTime (never built)
+    ds.get_info.return_value.get_raw.return_value = {"lastBuild": {}}
     result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "not computed" in result.output
-    assert "dku dataset build" in result.output  # shows how to compute metrics
+    assert "dku dataset build" in result.output
+
+
+def test_dataset_info_stale_metrics_after_build_hints_recompute(patch_client):
+    """When the dataset has been built but metrics are stale, hint points at --recompute."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    # Mock get_info() to return a recent buildEndTime — ms since epoch
+    ds.get_info.return_value.get_raw.return_value = {
+        "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
+    }
+    result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "not computed" in result.output
+    assert "--recompute" in result.output
+    # The old "dku dataset build" hint must NOT appear for a built dataset
+    # (only the --recompute hint should fire).
+    assert "dku dataset info ds1 -P PROJ1 --recompute" in result.output
+
+
+def test_dataset_info_stale_metrics_json_suppresses_hint(patch_client):
+    """JSON mode must not emit the stderr hint (keeps programmatic output clean)."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    ds.get_info.return_value.get_raw.return_value = {
+        "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
+    }
+    result = runner.invoke(
+        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["rows"] is None
+    assert parsed["metrics_computed"] is False
+    # No hint in JSON mode
+    assert "--recompute" not in result.output
 
 
 def test_dataset_info_large_dataset_warning(patch_client):

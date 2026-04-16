@@ -110,7 +110,7 @@ def test_add_block(patch_client):
         patch_client.get_project("PROJ1").get_agent("agent_blocks").get_settings()
     )
     raw = settings.get_raw()
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     assert any(b["id"] == "new_emit" for b in blocks)
     settings.save.assert_called()
 
@@ -139,7 +139,7 @@ def test_add_block_set_start(patch_client):
         .get_raw()
     )
     assert (
-        raw["versions"][0]["toolsUsingAgentSettings"]["startingBlockId"] == "new_start"
+        raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "new_start"
     )
 
 
@@ -176,14 +176,28 @@ def test_add_block_auto_mode_switch(patch_client):
         {"type": "EMIT_OUTPUT", "id": "first_block", "template": "Hello"}
     )
     result = runner.invoke(
-        app, ["agent-block", "add", "agent1", "--block", block, "--project", "PROJ1"]
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent_empty",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
 
-    raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
-    tuas = raw["versions"][0]["toolsUsingAgentSettings"]
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent_empty")
+        .get_settings()
+        .get_raw()
+    )
+    sas = raw["versions"][0]["structuredAgentSettings"]
     # First block should auto-become starting block
-    assert tuas.get("startingBlockId") == "first_block"
+    assert sas.get("startingBlockId") == "first_block"
 
 
 # ── remove ────────────────────────────────────────────────────────────────
@@ -203,7 +217,7 @@ def test_remove_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     assert not any(b["id"] == "emit_result" for b in blocks)
 
 
@@ -229,8 +243,8 @@ def test_remove_starting_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    assert tuas.get("startingBlockId") is None
+    sas = raw["versions"][0]["structuredAgentSettings"]
+    assert sas.get("startingBlockId") is None
 
 
 # ── connect / disconnect ──────────────────────────────────────────────────
@@ -260,7 +274,7 @@ def test_connect_blocks(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     emit_block = [b for b in blocks if b["id"] == "emit_result"][0]
     assert emit_block["nextBlock"] == "init_state"
 
@@ -331,7 +345,7 @@ def test_connect_standard_react_uses_default_next_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     react = [b for b in blocks if b["id"] == "react_block"][0]
     assert react.get("defaultNextBlock") == "emit_result"
     assert "nextBlock" not in react
@@ -379,7 +393,7 @@ def test_disconnect_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     classify_block = [b for b in blocks if b["id"] == "classify"][0]
     assert "nextBlock" not in classify_block
 
@@ -414,7 +428,7 @@ def test_disconnect_standard_react_clears_default_next_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     react = [b for b in blocks if b["id"] == "react_block"][0]
     assert react.get("defaultNextBlock") == "emit_result"
 
@@ -434,7 +448,7 @@ def test_disconnect_standard_react_clears_default_next_block(patch_client):
     assert "Disconnected" in result.output
 
     # Verify defaultNextBlock is gone
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     react = [b for b in blocks if b["id"] == "react_block"][0]
     assert "defaultNextBlock" not in react
 
@@ -496,7 +510,7 @@ def test_set_start(patch_client):
         .get_raw()
     )
     assert (
-        raw["versions"][0]["toolsUsingAgentSettings"]["startingBlockId"] == "classify"
+        raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "classify"
     )
 
 
@@ -542,7 +556,7 @@ def test_set_mode_to_simple(patch_client):
         .get_settings()
         .get_raw()
     )
-    assert raw["versions"][0]["toolsUsingAgentSettings"]["mode"] == "SIMPLE"
+    assert raw["versions"][0]["structuredAgentSettings"]["mode"] == "SIMPLE"
 
 
 def test_set_mode_invalid(patch_client):
@@ -604,10 +618,10 @@ def test_set_graph(patch_client):
         .get_settings()
         .get_raw()
     )
-    tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    assert tuas["mode"] == "BLOCKS_GRAPH"
-    assert len(tuas["blocks"]) == 1
-    assert tuas["blocks"][0]["id"] == "greet"
+    sas = raw["versions"][0]["structuredAgentSettings"]
+    assert sas["mode"] == "BLOCKS_GRAPH"
+    assert len(sas["blocks"]) == 1
+    assert sas["blocks"][0]["id"] == "greet"
 
 
 def test_set_graph_from_file(patch_client, tmp_path):
@@ -642,7 +656,7 @@ def test_set_graph_from_file(patch_client, tmp_path):
         .get_settings()
         .get_raw()
     )
-    assert raw["versions"][0]["toolsUsingAgentSettings"]["startingBlockId"] == "start"
+    assert raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "start"
 
 
 # ── agent not found ───────────────────────────────────────────────────────
@@ -659,6 +673,27 @@ def test_list_blocks_structured_agent(patch_client):
     assert result.exit_code == 0
     assert "main_loop" in result.output
     assert "output" in result.output
+
+
+def test_list_blocks_shows_default_next_block(patch_client):
+    """CORE_LOOP blocks should show defaultNextBlock with (default) suffix."""
+    result = runner.invoke(
+        app, ["agent-block", "list", "structured_agent", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "(default)" in result.output
+
+
+def test_list_blocks_default_next_block_json(patch_client):
+    """JSON output should include defaultNextBlock with (default) suffix."""
+    result = runner.invoke(
+        app,
+        ["agent-block", "list", "structured_agent", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    loop = [b for b in parsed if b["id"] == "main_loop"][0]
+    assert loop["next_block"] == "output (default)"
 
 
 def test_get_graph_structured_agent(patch_client):
@@ -996,3 +1031,31 @@ def test_set_graph_empty_cel_rejected(patch_client):
     )
     assert result.exit_code != 0
     assert "Micro-CEL" in result.output or "EMPTY CEL" in result.output
+
+
+# ── agent type validation ─────────────────────────────────────────────
+
+
+def test_add_block_to_tools_using_agent_errors(patch_client):
+    """Adding a block to TOOLS_USING_AGENT should error, not just warn."""
+    block = json.dumps(
+        {
+            "type": "EMIT_OUTPUT",
+            "id": "new_output",
+            "template": "Done",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent1",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "STRUCTURED_AGENT" in result.output

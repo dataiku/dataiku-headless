@@ -26,7 +26,7 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 | `create-llm-eval` | `nlp_llm_evaluation` | Evaluate LLM outputs (RAG, QA, summarization) |
 | `create-agent-eval` | `nlp_agent_evaluation` | Evaluate agent tool-calling accuracy |
 
-`create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS.
+`create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS. The evaluation store must also exist — create it first with `dku evaluation-store create NAME --flavor LLM` (or `--flavor AGENT`).
 
 ## UI-Only Recipe Types (NOT available via API)
 
@@ -37,10 +37,23 @@ These recipe types have **no dataikuapi builder classes** — create them in the
 
 Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_def.json` to capture the definition, and `dku recipe set-definition RECIPE -P PROJ --definition @recipe_def.json` to modify.
 
+### Batch Agent Processing via Prompt Recipe
+
+Run an agent over every row in a dataset using a Prompt recipe:
+
+1. Create agent: `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`
+2. Configure block graph, tools, and prompts via CLI
+3. **Create Prompt recipe in DSS UI** (no CLI creation — see above)
+4. Set the Prompt recipe's LLM to `agent:AGENT_ID` (calls agent via LLM Mesh)
+5. Run: `dku recipe run PROMPT_RECIPE -P PROJ --wait`
+6. Verify: `dku dataset head OUTPUT -P PROJ -n 5`
+
+Key: `DSSAgent.as_llm()` is the programmatic interface — Prompt recipes accept `agent:AGENT_ID` as the LLM. There is no `run_conversation()` method.
+
 ## RAG Evaluation Flow (1 tool call)
 
 ```bash
-# End-to-end: embed data -> create eval -> configure -> run
+# End-to-end: embed data -> create eval store + datasets -> configure -> run
 dku recipe create-embed embed_step \
   --input qa_documents \
   --output-kb qa_kb \
@@ -48,6 +61,7 @@ dku recipe create-embed embed_step \
   --text-column content \
   -P PROJ && \
 dku recipe run embed_step -P PROJ --wait && \
+dku evaluation-store create my_eval_store --flavor LLM -P PROJ && \
 dku dataset create eval_scored --type Filesystem -P PROJ && \
 dku dataset create eval_metrics --type Filesystem -P PROJ && \
 dku recipe create-llm-eval rag_eval \

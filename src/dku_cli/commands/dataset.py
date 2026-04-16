@@ -298,12 +298,22 @@ def info_cmd(
                 "Consider sampling before transforming. "
                 "Use 'dku recipe create-sampling' to create a sample dataset."
             )
-        if metrics_stale:
-            info(
-                "Metrics not yet computed. Run: "
-                f"dku dataset build {dataset_name} -P {project_key} --wait "
-                "to compute metrics, or use the DSS UI."
-            )
+        # Stale-metrics hint — skip in JSON mode so the stderr line doesn't
+        # interfere with programmatic consumers that check both streams.
+        if metrics_stale and fmt != "json":
+            if last_build_time is not None:
+                # Dataset has been built but metrics are cached (DSS does
+                # NOT auto-recompute on build). Direct the agent to --recompute.
+                info(
+                    f"Metrics are stale — pass --recompute for fresh row count / size / file count: "
+                    f"dku dataset info {dataset_name} -P {project_key} --recompute"
+                )
+            else:
+                # Dataset was never successfully built — no metrics to refresh.
+                info(
+                    "Metrics not yet computed. Run: "
+                    f"dku dataset build {dataset_name} -P {project_key} --wait"
+                )
     except typer.Exit:
         raise
     except Exception as e:
@@ -446,6 +456,34 @@ def build(
         handle_api_error(e)
 
 
+# Dataset types that live on a SQL connection. `dku dataset create --type <T> -c <C>`
+# for these types should produce a managed, writable `mode: "table"` dataset by
+# default — otherwise the dataset comes up as an unmanaged query-mode dataset
+# that no recipe can write to. The canonical list of SQL dataset types exposed
+# via dataikuapi's concrete type names.
+_SQL_DATASET_TYPES = frozenset(
+    {
+        "PostgreSQL",
+        "MySQL",
+        "Snowflake",
+        "Redshift",
+        "BigQuery",
+        "Oracle",
+        "SQLServer",
+        "Vertica",
+        "Teradata",
+        "Greenplum",
+        "Netezza",
+        "Synapse",
+        "Databricks",
+        "Exasol",
+        "SAPHANA",
+        "Athena",
+        "DB2",
+    }
+)
+
+
 @app.command()
 def create(
     ctx: typer.Context,
@@ -454,7 +492,7 @@ def create(
         "Filesystem",
         "--type",
         "-t",
-        help="Dataset type (Filesystem, UploadedFiles, SQL, S3). Default: Filesystem",
+        help="Dataset type: Filesystem, UploadedFiles, PostgreSQL, MySQL, Snowflake, Redshift, BigQuery, Oracle, SQLServer, S3, ... Use the concrete DB name for SQL connections — 'SQL' is rejected by the DSS license system on most instances. Default: Filesystem",
     ),
     connection: str | None = typer.Option(
         None,
@@ -473,7 +511,14 @@ def create(
         help="Dataset definition JSON. Supported create-time fields: type, params, formatType, formatParams",
     ),
 ) -> None:
-    """Create a new dataset."""
+    """Create a new dataset.
+
+    For SQL dataset types (PostgreSQL, Snowflake, ...), the CLI auto-populates
+    `mode: "table"` and `table: "${projectKey}_<name>"` so the dataset is
+    immediately writable by downstream recipes. Without this, DSS creates a
+    query-mode unmanaged dataset that no recipe can write to. Pass --definition
+    with explicit params to opt out of the auto-populate.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -495,6 +540,14 @@ def create(
             params["connection"] = connection
 
         dataset_type = definition_type or type_name
+
+        # Auto-populate SQL-type defaults so the dataset is immediately
+        # writable. Only applies when the user did NOT pass --definition
+        # (which is the "I know what I'm doing" opt-out).
+        if dataset_type in _SQL_DATASET_TYPES and not definition:
+            params.setdefault("mode", "table")
+            params.setdefault("table", "${projectKey}_" + dataset_name)
+            params.setdefault("tableCreationMode", "auto")
 
         # UploadedFiles uses "uploadConnection" param, not "connection".
         # Map --connection to the correct param for this type.
@@ -551,6 +604,18 @@ def create(
                             "Cloud DSS instances require an explicit upload connection.",
                             f"Fix: dku dataset create {dataset_name} --type UploadedFiles --connection <CONNECTION_NAME> -P {project_key}",
                             "Find connections: dku connection list",
+                        ],
+                    )
+                if dataset_type == "SQL" and ("license" in msg and "sql" in msg):
+                    exit_with_error(
+                        "'--type SQL' is a catch-all name and is rejected by the DSS license system.",
+                        code="invalid_type",
+                        details=[
+                            "Use the concrete DB subtype instead:",
+                            "  --type PostgreSQL / --type MySQL / --type Snowflake /",
+                            "  --type Redshift / --type BigQuery / --type Oracle / --type SQLServer",
+                            "Run 'dku connection list' to see which connection types your instance has.",
+                            f"Example: dku dataset create {dataset_name} --type PostgreSQL -c <YOUR_CONN> -P {project_key}",
                         ],
                     )
                 raise

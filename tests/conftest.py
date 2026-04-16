@@ -935,6 +935,15 @@ def mock_client():
     folder_mock.delete.return_value = None
     folder_mock.delete_file.return_value = None
     folder_mock.rename.return_value = None
+    # copy_to returns a DSSFuture mock
+    copy_future_mock = MagicMock()
+    copy_future_mock.wait_for_result.return_value = None
+    folder_mock.copy_to.return_value = copy_future_mock
+    # get_file returns a response-like object with .content
+    file_response_mock = MagicMock()
+    file_response_mock.content = b"file content"
+    file_response_mock.iter_content.return_value = [b"file content"]
+    folder_mock.get_file.return_value = file_response_mock
     folder_settings = MagicMock()
     folder_settings.get_raw.return_value = {
         "id": "folder1",
@@ -1279,7 +1288,7 @@ def mock_client():
     agent_blocks_mock = MagicMock()
     agent_blocks_version_data = {
         "versionId": "v1",
-        "toolsUsingAgentSettings": {
+        "structuredAgentSettings": {
             "mode": "BLOCKS_GRAPH",
             "startingBlockId": "init_state",
             "blocks": [
@@ -1314,14 +1323,14 @@ def mock_client():
         "projectKey": "PROJ1",
         "id": "agent_blocks",
         "name": "Block Agent",
-        "type": "TOOLS_USING_AGENT",
+        "type": "STRUCTURED_AGENT",
         "activeVersion": "v1",
         "versions": [agent_blocks_version_data],
     }
     agent_blocks_settings = MagicMock()
     agent_blocks_settings.get_raw.return_value = agent_blocks_raw
     agent_blocks_settings.active_version = "v1"
-    agent_blocks_settings.type = "TOOLS_USING_AGENT"
+    agent_blocks_settings.type = "STRUCTURED_AGENT"
     agent_blocks_settings.get_version_ids.return_value = ["v1"]
     agent_blocks_settings.save.return_value = None
     agent_blocks_mock.get_settings.return_value = agent_blocks_settings
@@ -1931,7 +1940,7 @@ def mock_client():
     mes_settings_mock.get_raw.return_value = {
         "id": "mes1",
         "name": "Churn Eval Store",
-        "mesFlavor": "TABULAR",
+        "flavor": "TABULAR",
     }
     mes_mock.get_settings.return_value = mes_settings_mock
 
@@ -1949,8 +1958,11 @@ def mock_client():
     mes_mock.delete.return_value = None
 
     proj1.list_model_evaluation_stores.return_value = [mes_mock]
+    proj1.list_evaluation_stores.return_value = [mes_mock]
     proj1.create_model_evaluation_store.return_value = mes_mock
+    proj1.create_evaluation_store.return_value = mes_mock
     proj1.get_model_evaluation_store.return_value = mes_mock
+    proj1.get_evaluation_store.return_value = mes_mock
 
     # Wiki — DSSWikiArticle has .article_id + .get_data() → DSSWikiArticleData
     wiki_mock = MagicMock()
