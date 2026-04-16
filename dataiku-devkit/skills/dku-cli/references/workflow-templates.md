@@ -95,6 +95,55 @@ dku dataset head scored -P MY_PROJ -o json | jq 'length'
 
 > **You are NOT done until Tool call 3 passes.** If `head` returns 0 rows or wrong columns, debug before reporting success.
 
+## Pipeline Building — Wire First, Build Once
+
+### Anti-Pattern: Step-by-Step Builds
+
+```bash
+# BAD — each build is non-recursive, no schema updates.
+# If schemas don't match between steps, every downstream build fails.
+dku dataset build ds_a -P PROJ --wait && \
+dku dataset build ds_b -P PROJ --wait && \
+dku dataset build ds_c -P PROJ --wait
+```
+
+### Correct Pattern
+
+**Step 1:** Wire the entire pipeline (datasets + recipes) in one `&&` chain. Visual recipe commands auto-create managed output datasets.
+
+**Step 2:** Build with auto-schema (one command):
+
+```bash
+dku job run --target FINAL_OUTPUT -P PROJ \
+  --type RECURSIVE_BUILD \
+  --auto-update-schema \
+  --wait
+```
+
+### Build Types
+
+| Type | Behavior |
+|---|---|
+| `NON_RECURSIVE_FORCED_BUILD` | Build only specified outputs (default) |
+| `RECURSIVE_BUILD` | Build outputs + upstream dependencies that need building |
+| `RECURSIVE_FORCED_BUILD` | Force-rebuild outputs + ALL upstream dependencies |
+| `RECURSIVE_MISSING_ONLY_BUILD` | Build only outputs that have never been built |
+
+### When to Use What
+
+| Scenario | Command |
+|---|---|
+| Build one dataset (schema already correct) | `dku dataset build NAME --wait` |
+| Build entire pipeline from leaf dataset | `dku job run --target NAME --type RECURSIVE_BUILD --auto-update-schema --wait` |
+| Schema changed on source, propagate downstream | `dku flow propagate SOURCE_DS -P PROJ` |
+| Check if a recipe's output schema is stale | `dku recipe check-schema RECIPE -P PROJ` |
+| Apply pending schema updates for a recipe | `dku recipe apply-schema RECIPE -P PROJ` |
+| Run consistency check on entire flow | `dku flow check -P PROJ` |
+| Force rebuild everything | `dku job run --target NAME --type RECURSIVE_FORCED_BUILD --auto-update-schema --wait` |
+| Build only missing outputs | `dku job run --target NAME --type RECURSIVE_MISSING_ONLY_BUILD --wait` |
+| Build recipe that outputs to a managed folder | `dku recipe run RECIPE -P PROJ --wait` (folders NOT buildable via `dataset build`) |
+| Inspect a failed build log | `dku job log JOB_ID -P PROJ` |
+
 ## Chaining Pattern Examples
 
 ### Data Pipeline (1 tool call)
