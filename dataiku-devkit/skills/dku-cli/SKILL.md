@@ -109,6 +109,8 @@ dku auth login
 | `--quiet` / `-q` | — | Suppress messages |
 | `--errors text\|json` | — | Error format |
 
+**Global options MUST come BEFORE the subcommand:** `dku --profile X whoami`, NOT `dku whoami --profile X`. This is a Click/Typer limitation — the root parser only sees options placed before the subcommand name.
+
 ### Project Resolution
 
 1. `--project KEY` / `-P KEY` flag

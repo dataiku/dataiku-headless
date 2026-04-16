@@ -41,3 +41,30 @@ def test_auth_logout_removes_profile_from_config():
 
     assert result.exit_code == 0
     mock_delete_profile.assert_called_once_with("default")
+
+
+def test_auth_switch_exits_zero_on_success():
+    """Regression: auth switch must exit 0 on success (not 2) for set -e scripts."""
+    with (
+        patch(
+            "dku_cli.commands.auth_cmd.get_all_profiles",
+            return_value={"default": {}, "analytics": {}},
+        ),
+        patch("dku_cli.commands.auth_cmd.set_active_profile") as mock_set,
+    ):
+        result = runner.invoke(app, ["auth", "switch", "analytics"])
+
+    assert result.exit_code == 0
+    assert "Switched to profile" in result.output
+    mock_set.assert_called_once_with("analytics")
+
+
+def test_auth_switch_nonexistent_profile_exits_one():
+    with patch(
+        "dku_cli.commands.auth_cmd.get_all_profiles",
+        return_value={"default": {}},
+    ):
+        result = runner.invoke(app, ["auth", "switch", "nonexistent"])
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.output

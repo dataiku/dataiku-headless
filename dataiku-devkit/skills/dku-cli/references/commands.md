@@ -557,6 +557,7 @@ No create via API (DSS UI only). But you can read/edit existing webapp code via 
 ```bash
 dku webapp list [-P PROJECT] [-o FORMAT]
 dku webapp start WEBAPP_ID [-P PROJECT]
+dku webapp restart WEBAPP_ID [-P PROJECT]
 dku webapp stop WEBAPP_ID [-P PROJECT]
 dku webapp status WEBAPP_ID [-P PROJECT]
 dku webapp get-definition WEBAPP_ID [-P PROJECT] [-o json]
@@ -695,9 +696,11 @@ dku library read PATH [-P PROJECT]
 dku library write PATH [-P PROJECT] --content CONTENT
 dku library delete PATH [-P PROJECT]
 dku library mkdir PATH [-P PROJECT]
+dku library sync LOCAL_DIR [REMOTE_DIR] [-P PROJECT] [--delete] [--dry-run/-n] [--exclude/-e PATTERN]
 ```
 
 - `write --content @file.py` reads from local file
+- `sync` uploads all files from a local directory to the project library, creating directories as needed. Skips `.git`, `__pycache__`, `.DS_Store`, `*.pyc`, `.venv`, `node_modules` by default. `--exclude` adds extra glob patterns. `--delete` removes remote files not present locally. `--dry-run` shows what would happen without uploading
 
 ## agent
 

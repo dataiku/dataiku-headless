@@ -21,13 +21,13 @@ Complete list of all `dku` command groups and verbs.
 | `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata, create-mlflow, import-mlflow, create-external** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
 | `llm` | list, completion, embeddings, **generate-image, rerank** | Yes |
-| `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
+| `webapp` | list, start, **restart**, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
 | `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
 | `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |
 | `macro` | list, run | Yes |
 | `flow` | graph, **visualize**, zones, create-zone, **set-zone**, **move**, propagate, check, sources, successors | Yes |
-| `library` | list, read, write, delete, mkdir | Yes |
+| `library` | list, read, write, delete, mkdir, **sync** | Yes |
 | `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, **set-metadata** | Yes |
 | `agent-review` | list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results | Yes |
 | `agent-tool` | list, get, **create** (--dataset, --llm, --kb), set-definition, run, types, delete | Yes (except `types`) |
