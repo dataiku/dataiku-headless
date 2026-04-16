@@ -211,7 +211,7 @@ dku govern blueprint create IDENTIFIER --definition JSON [-o FORMAT]
 dku govern blueprint set-definition BLUEPRINT_ID --definition JSON
 dku govern blueprint delete BLUEPRINT_ID --confirm
 
-# Blueprint version designer (fields, workflow, hooks, views — see govern-blueprint-designer skill)
+# Blueprint version designer (fields, workflow, hooks, views — see govern-blueprint-designer.md)
 dku govern blueprint create-version BLUEPRINT_ID NEW_ID [--name N] [--from VERSION_ID]
 dku govern blueprint set-version-definition BLUEPRINT_ID VERSION_ID --definition JSON [--force]
 dku govern blueprint set-version-status BLUEPRINT_ID VERSION_ID {DRAFT|ACTIVE|ARCHIVED}
@@ -225,7 +225,7 @@ dku govern blueprint set-signoff-config BLUEPRINT_ID VERSION_ID STEP_ID --defini
 dku govern blueprint delete-signoff-config BLUEPRINT_ID VERSION_ID STEP_ID --confirm
 ```
 
-For end-to-end blueprint authoring (fork → edit → activate, field types, workflow, signoffs, hooks, UI views), see the **govern-blueprint-designer** skill.
+For end-to-end blueprint authoring (fork → edit → activate, field types, workflow, signoffs, hooks, UI views), see [`govern-blueprint-designer.md`](govern-blueprint-designer.md).
 
 **`fields` command output columns:**
 
@@ -616,7 +616,7 @@ uiDefinition
 
 Each view's `viewComponent` is either a leaf field reference (`{type: "text-field", fieldId: "...", label: "..."}`) or a `container` with a `layout` (`{type: "sequential", viewComponents: [...]}`) that holds nested children. Containers can be nested for sections.
 
-For the deeper view-authoring guide (grouped cards, tabs, conditional visibility, per-step view assignments), see [`govern-blueprint-designer/SKILL.md`](../../govern-blueprint-designer/SKILL.md) and its `references/ui-views.md`.
+For the deeper view-authoring guide (grouped cards, tabs, conditional visibility, per-step view assignments), see [`govern-blueprint-designer.md`](govern-blueprint-designer.md) and its `govern-blueprint-designer/ui-views.md`.
 
 ### Inspecting a version
 
@@ -669,7 +669,7 @@ Signoff configurations are created on blueprint versions and define who reviews 
 
 **Important:** Each `feedbackUsersGroups` entry requires both `id` and `title`. The `id` is the group identifier used in `add-feedback --group-id` and `delegate-feedback --group-id`.
 
-**Creating signoff configurations via CLI** — see the **govern-blueprint-designer** skill for `create-signoff-config` / `set-signoff-config` / `delete-signoff-config` commands and end-to-end authoring examples.
+**Creating signoff configurations via CLI** — see [`govern-blueprint-designer.md`](govern-blueprint-designer.md) for `create-signoff-config` / `set-signoff-config` / `delete-signoff-config` commands and end-to-end authoring examples.
 
 ---
 

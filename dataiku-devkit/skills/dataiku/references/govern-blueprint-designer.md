@@ -1,24 +1,8 @@
----
-name: govern-blueprint-designer
-description: Design Dataiku Govern blueprints — blueprint versions, fields, workflow steps, signoff configurations, logical hooks, and UI views. Use when the user wants to create a governance template, fork an existing blueprint, add or change fields, wire signoffs, or move a version through DRAFT → ACTIVE → ARCHIVED. Pairs with the dku-cli skill for command reference and the dataiku skill for general Govern concepts.
-triggers:
-  - govern blueprint
-  - blueprint designer
-  - design a blueprint
-  - create a blueprint version
-  - fork a blueprint
-  - add a field to blueprint
-  - signoff configuration
-  - govern workflow step
-  - publish a blueprint version
-  - activate blueprint version
-metadata:
-  author: dataiku
-  version: "1.0.0"
-  tags: dataiku, govern, blueprint, authoring, admin
----
+# Govern Blueprint Designer
 
-> **Agent Cheat Sheet (read this first)**
+Design Dataiku Govern blueprints — blueprint versions, fields, workflow steps, signoff configurations, logical hooks, and UI views. Read this reference when you need to create a governance template, fork an existing blueprint, add or change fields, wire signoffs, or move a version through DRAFT → ACTIVE → ARCHIVED. Pairs with `dku-cli` for command reference and `govern.md` (sibling reference) for runtime Govern concepts.
+
+> **Cheat Sheet (read this first)**
 >
 > 1. **Blueprint ≠ version.** The blueprint entity only stores `name`, `icon`, `color`. Fields, workflow, hooks, views, signoffs all live on the **version**. `set-definition` edits the blueprint entity; `set-version-definition` edits everything else.
 > 2. **Fork, do not start blank.** Pass `--from bv.system.default` (or another ACTIVE version) on `create-version`. System versions contain under-the-hood fields and workflow steps required for Govern to work. Only start blank if the user explicitly insists.
@@ -167,7 +151,7 @@ Export omits migration paths. If you need them, use the Govern UI today. The `--
 
 ## Field types at a glance
 
-Nine types — see [references/field-types.md](references/field-types.md) for full JSON.
+Nine types — see [govern-blueprint-designer/field-types.md](govern-blueprint-designer/field-types.md) for full JSON.
 
 | fieldType | Scalar JSON | List JSON |
 |---|---|---|
@@ -261,7 +245,7 @@ caused by: JsonParseException: Cannot deserialize UsersContainer:
 unknown type "USER" ... (possible type values are: "role", "global-api-key", "user", "group")
 ```
 
-See [references/workflow-and-signoffs.md](references/workflow-and-signoffs.md) for more container types and recurrence patterns.
+See [govern-blueprint-designer/workflow-and-signoffs.md](govern-blueprint-designer/workflow-and-signoffs.md) for more container types and recurrence patterns.
 
 ## Logical hooks
 
@@ -281,7 +265,7 @@ Python scripts that run on artifact lifecycle phases (CREATE / UPDATE / DELETE).
 - Do **not** mutate neighbor artifacts via the API client from inside a hook — it may trigger another hook execution, which is unsupported and fails the action.
 - To schedule updates on neighbor artifacts, append their IDs to `handler.artifactIdsToUpdate` and they will be UPDATE-hooked **after** the current action commits.
 
-See [references/hooks-and-actions.md](references/hooks-and-actions.md) for the `handler` object API and common hook patterns.
+See [govern-blueprint-designer/hooks-and-actions.md](govern-blueprint-designer/hooks-and-actions.md) for the `handler` object API and common hook patterns.
 
 ## UI views (minimum viable)
 
@@ -333,7 +317,7 @@ The minimum viable `uiDefinition` for a blueprint with fields `title`, `risk_sco
 | `UPLOADED_FILE` | `uploaded-file-field` |
 | `JSON` | `json-field` |
 
-To build richer views (grouped cards, tabs, conditional visibility, per-step field hiding), see [references/ui-views.md](references/ui-views.md).
+To build richer views (grouped cards, tabs, conditional visibility, per-step field hiding), see [govern-blueprint-designer/ui-views.md](govern-blueprint-designer/ui-views.md).
 
 ## Gotchas
 
@@ -358,12 +342,12 @@ To build richer views (grouped cards, tabs, conditional visibility, per-step fie
 - **Artifact CRUD** (creating/updating/deleting individual governed items) → use the `dku-cli` skill's `govern artifact` commands
 - **Runtime signoff operations** (moving through phases, adding feedback, delegating approvals) → use `dku govern signoff` commands (see dku-cli skill)
 - **Govern users/groups admin** → use `dku govern user` / `dku govern group`
-- **General Govern concepts** (what is a blueprint, what is governance) → see the `dataiku` skill's `references/govern.md`
+- **General Govern concepts** (what is a blueprint, what is governance) → see sibling `govern.md`
 
 ## References
 
-- [references/field-types.md](references/field-types.md) — Complete catalogue of the 9 FieldTypes with JSON templates and live payload examples
-- [references/workflow-and-signoffs.md](references/workflow-and-signoffs.md) — Workflow step definition, visibility conditions, signoff reviewer containers, recurrence, delegation
-- [references/hooks-and-actions.md](references/hooks-and-actions.md) — Python hook anatomy, `handler` API, safe patterns, common pitfalls
-- [references/ui-views.md](references/ui-views.md) — uiDefinition.views, view components (container / text-field / reference-field / ...), per-step view assignments, conditional views
-- [references/canonical-examples/](references/canonical-examples/) — Real blueprint version payloads: a minimal starter + a rich fork of `bp.system.govern_project`
+- [govern-blueprint-designer/field-types.md](govern-blueprint-designer/field-types.md) — Complete catalogue of the 9 FieldTypes with JSON templates and live payload examples
+- [govern-blueprint-designer/workflow-and-signoffs.md](govern-blueprint-designer/workflow-and-signoffs.md) — Workflow step definition, visibility conditions, signoff reviewer containers, recurrence, delegation
+- [govern-blueprint-designer/hooks-and-actions.md](govern-blueprint-designer/hooks-and-actions.md) — Python hook anatomy, `handler` API, safe patterns, common pitfalls
+- [govern-blueprint-designer/ui-views.md](govern-blueprint-designer/ui-views.md) — uiDefinition.views, view components (container / text-field / reference-field / ...), per-step view assignments, conditional views
+- [govern-blueprint-designer/canonical-examples/](govern-blueprint-designer/canonical-examples/) — Real blueprint version payloads: a minimal starter + a rich fork of `bp.system.govern_project`
