@@ -11,7 +11,6 @@ triggers:
   - dku recipe
   - dku scenario
   - dku agent
-  - govern
 metadata:
   author: dataiku
   version: "1.0.0"
@@ -37,7 +36,6 @@ metadata:
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. Read the relevant file first — don't try to figure it out from `--help` alone.
 > 16. **Cross-connection landing is a first-class feature.** `dku recipe create -t sync --connection X` moves data between connections. Never write a Python passthrough. See `references/sql-engines.md`.
 > 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). See `references/agent-patterns.md`.
-> 18. **Designing a Govern blueprint? Switch skills.** If the user says "create a blueprint", "add a field", "wire a signoff", or "activate a version" → load the `govern-blueprint-designer` skill. This skill handles **runtime** Govern ops only (artifact CRUD, runtime signoff workflow, user/group admin).
 
 # dku-cli
 
