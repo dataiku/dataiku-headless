@@ -17,7 +17,7 @@ uv build                   # Build wheel
 The globally-installed `dku` tool (via `uv tool install`) caches its build. After merging changes to the main repo, you must force-reinstall to pick them up:
 
 ```bash
-uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-cli dku-cli --force --reinstall
+uv tool install --from . dku-cli --force --reinstall
 ```
 
 **`--force` alone is not enough** — it reuses the cached wheel. `--reinstall` rebuilds from source. Without both flags, `dku folder create --help` etc. will show "No such command" even though the code is on disk.
@@ -156,42 +156,6 @@ When editing skills, **progressive disclosure is non-negotiable**:
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
 
-### Dataiku Reference Docs
-
-Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read the relevant doc BEFORE working on that topic.
-
-| Document | Read when... |
-|----------|--------------|
-| `plugin-structure.md` | Creating a new plugin, plugin.json anatomy |
-| `recipes.md` | Building custom recipes, dataset operations |
-| `webapps.md` | Building webapp dashboards (Flask/Vue/React) |
-| `webapp-pitfalls.md` | Debugging webapp errors, critical mistakes |
-| `llm-tools.md` | Creating agent tools, custom agents |
-| `parameters.md` | Defining plugin parameters (30+ types) |
-| `code-environments.md` | Python dependency management, code env config |
-| `datasets.md` | Building dataset connectors |
-| `macros.md` | Building runnables/macros |
-| `testing.md` | Unit/integration/E2E testing patterns |
-| `best-practices.md` | Architecture, error handling, performance |
-| `plugin-workflow.md` | Git integration, versioning, CI/CD, distribution |
-| `formulas.md` | Formula language, Prepare recipe expressions |
-| `llm-mesh.md` | LLM connections, guardrails, RAG, knowledge banks |
-| `structured-agents.md` | SVA design guide: all 13 block types, graph patterns, state, CLI workflow |
-| `python-api.md` | dataiku/dataikuapi packages, dataset I/O, SQL |
-| `scenarios.md` | Automation, triggers, steps, reporters |
-| `mlops.md` | Model lifecycle, drift detection, API Node |
-| `guardrails.md` | LLM guardrails: blocking, filtering, PII, LLM judge, trace API |
-| `styling.md` | Dataiku brand colors, typography, components |
-| `plugin-architecture.md` | Plugin tiers (1-5), patterns/anti-patterns, official docs gaps |
-| `visual-agent-blocks.md` | BlockHandler, block.json, dual-mode components, agent connectors |
-| `webapp-patterns.md` | Advanced: multi-tab dashboards, filters, caching, React+Vite, Chart.js |
-| `agent-tool-patterns.md` | Advanced: subprocess tools, MCP gateway, OAuth, multi-agent, HITL |
-| `plugin-review-checklist.md` | Reviewing plugins, code review criteria, scoring rubric |
-| `scaffolding.md` | Plugin scaffolding, adding components, deploying, reviewing |
-| `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
-| `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
-| `geospatial.md` | Geospatial data handling, projections, spatial joins |
-
 ---
 
 ## Critical Gotchas
@@ -326,4 +290,4 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 |-----|-------------|
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
-| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |
+| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see Quick Router in `dataiku/SKILL.md` |

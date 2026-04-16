@@ -26,7 +26,7 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 | `create-llm-eval` | `nlp_llm_evaluation` | Evaluate LLM outputs (RAG, QA, summarization) |
 | `create-agent-eval` | `nlp_agent_evaluation` | Evaluate agent tool-calling accuracy |
 
-`create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS.
+`create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS. The evaluation store must also exist — create it first with `dku evaluation-store create NAME --flavor LLM` (or `--flavor AGENT`).
 
 ## UI-Only Recipe Types (NOT available via API)
 
@@ -53,7 +53,7 @@ Key: `DSSAgent.as_llm()` is the programmatic interface — Prompt recipes accept
 ## RAG Evaluation Flow (1 tool call)
 
 ```bash
-# End-to-end: embed data -> create eval -> configure -> run
+# End-to-end: embed data -> create eval store + datasets -> configure -> run
 dku recipe create-embed embed_step \
   --input qa_documents \
   --output-kb qa_kb \
@@ -61,6 +61,7 @@ dku recipe create-embed embed_step \
   --text-column content \
   -P PROJ && \
 dku recipe run embed_step -P PROJ --wait && \
+dku evaluation-store create my_eval_store --flavor LLM -P PROJ && \
 dku dataset create eval_scored --type Filesystem -P PROJ && \
 dku dataset create eval_metrics --type Filesystem -P PROJ && \
 dku recipe create-llm-eval rag_eval \
