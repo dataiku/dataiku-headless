@@ -117,8 +117,6 @@ dku auth login          # authenticate to your DSS instance
 
 > For detailed auth setup (CI/CD, env vars, profiles), see `references/setup.md`.
 
-> **Sandboxed agent runs + macOS keychain:** If any `dku` command fails with `Can't get password from keychain: (-50, 'Unknown Error')`, the sandbox is blocking macOS keychain access (not a DSS problem). Re-run outside the sandbox, or export `DKU_URL` + `DKU_API_KEY` to bypass the keychain entirely.
-
 ## When to Use dku vs Python API
 
 | Use `dku` CLI | Use Python API directly |
