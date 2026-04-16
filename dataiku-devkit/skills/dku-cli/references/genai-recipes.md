@@ -30,7 +30,7 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 
 ## Prompt Recipe — Programmatic Creation
 
-**Prompt Recipes ARE creatable via the CLI.** Despite how they look in the UI, DSS treats them internally as visual recipes, so `dku recipe create -t prompt` works. The only friction is that the full payload schema is not documented in the DSS public docs — see **`references/prompt-recipe-payload.md`** for the copy-paste schema.
+See `references/prompt-recipe-payload.md` for the full payload schema.
 
 ```bash
 # 0. Discover the LLM ID — do NOT hardcode it (varies per instance)
