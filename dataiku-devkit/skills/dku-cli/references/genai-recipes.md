@@ -28,14 +28,32 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 
 `create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS. The evaluation store must also exist — create it first with `dku evaluation-store create NAME --flavor LLM` (or `--flavor AGENT`).
 
-## UI-Only Recipe Types (NOT available via API)
+## Prompt Recipe — Programmatic Creation
 
-These recipe types have **no dataikuapi builder classes** — create them in the DSS UI, then manage via `dku recipe get/set-definition/run`:
+**Prompt Recipes ARE creatable via the CLI.** Despite how they look in the UI, DSS treats them internally as visual recipes, so `dku recipe create -t prompt` works. The only friction is that the full payload schema is not documented in the DSS public docs — see **`references/prompt-recipe-payload.md`** for the copy-paste schema.
 
-- **Prompt Recipe** (Prompt, Classify, Summarize, Extract, Simplify, Translate)
-- **RAG Query Recipe**
+```bash
+# 0. Discover the LLM ID — do NOT hardcode it (varies per instance)
+LLM_ID=$(dku llm list -P PROJ -o json | jq -r '.[0].id') && \
 
-Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_def.json` to capture the definition, and `dku recipe set-definition RECIPE -P PROJ --definition @recipe_def.json` to modify.
+# 1. Pre-create the output dataset — Prompt Recipes do NOT auto-create outputs
+dku dataset create kpi_results --type Filesystem -c filesystem_managed -P PROJ && \
+# 2. Create the recipe shell
+dku recipe create extract_kpis -t prompt -i input_tasks --output-ds kpi_results -P PROJ && \
+# 3. Configure the payload (substitute $LLM_ID into prompt_settings.template.json first)
+jq --arg llm "$LLM_ID" '.payload.llmId = $llm' prompt_settings.template.json > prompt_settings.json && \
+dku recipe set-settings extract_kpis -P PROJ -s @prompt_settings.json && \
+# 4. First build MUST use --auto-update-schema — `recipe run` alone returns an empty schema
+dku job run --target kpi_results -P PROJ --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait
+```
+
+The recipe appends fixed columns `llm_output, llm_validation_status, llm_raw_response, llm_error_message, llm_raw_query` to the input dataset's columns. `llm_output` is the only one with content by default. To parse it downstream, use a Prepare recipe + JSONFlattener — no Python recipe needed:
+
+```bash
+dku recipe add-step parse_output --type JSONFlattener \
+  --params '{"inCol":"llm_output","flattenArrays":false,"maxDepth":2,"nullAsEmpty":true,"prefixOutputs":true,"separator":"_"}' \
+  -P PROJ
+```
 
 ### Batch Agent Processing via Prompt Recipe
 
@@ -43,12 +61,16 @@ Run an agent over every row in a dataset using a Prompt recipe:
 
 1. Create agent: `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`
 2. Configure block graph, tools, and prompts via CLI
-3. **Create Prompt recipe in DSS UI** (no CLI creation — see above)
-4. Set the Prompt recipe's LLM to `agent:AGENT_ID` (calls agent via LLM Mesh)
-5. Run: `dku recipe run PROMPT_RECIPE -P PROJ --wait`
-6. Verify: `dku dataset head OUTPUT -P PROJ -n 5`
+3. Create Prompt recipe: `dku recipe create batch_agent -t prompt -i input_rows --output-ds agent_outputs -P PROJ`
+4. Set the Prompt recipe's LLM to `agent:AGENT_ID` (calls the agent via LLM Mesh) — patch `payload.llmId = "agent:AGENT_ID"` via `set-settings`
+5. Build: `dku job run --target agent_outputs -P PROJ --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait`
+6. Verify: `dku dataset head agent_outputs -P PROJ -n 5`
 
 Key: `DSSAgent.as_llm()` is the programmatic interface — Prompt recipes accept `agent:AGENT_ID` as the LLM. There is no `run_conversation()` method.
+
+## Still UI-Only
+
+- **RAG Query Recipe** — no dataikuapi builder class confirmed. Create in the DSS UI, then manage via `dku recipe get/set-definition/run`.
 
 ## RAG Evaluation Flow (1 tool call)
 

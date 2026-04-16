@@ -467,32 +467,41 @@ def run(
     dependencies with automatic schema propagation.
     """
     project_key = resolve_project(project)
+    # Track job.id outside the try so the except handler can reference it
+    # when the wait loop raises (e.g. on FAILED status).
+    job_id: str | None = None
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
 
-        if job_type or auto_update_schema:
-            # Get recipe outputs to build via job builder
-            settings = recipe.get_settings()
-            output_refs = settings.get_flat_output_refs()
-            if not output_refs:
-                from dku_cli.output import error
+        # Always use the job builder path, not recipe.run(). recipe.run()
+        # blocks internally and raises on failure BEFORE we learn the job
+        # ID, so agents have no way to inspect the log. The builder path
+        # returns a DSSJob object immediately after start(), which gives us
+        # job.id even when the job later fails in the wait loop.
+        settings = recipe.get_settings()
+        output_refs = settings.get_flat_output_refs()
+        if not output_refs:
+            exit_with_error(
+                f"Recipe '{recipe_name}' has no outputs to build.",
+                code="no_outputs",
+                status=1,
+                details=[
+                    f"Check wiring: dku recipe get {recipe_name} -P {project_key} -o json",
+                ],
+            )
 
-                error(f"Recipe '{recipe_name}' has no outputs to build")
-                raise typer.Exit(1)
-
-            builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
-            for ref in output_refs:
-                builder.with_output(ref)
-            if auto_update_schema:
-                builder.with_auto_update_schema_before_each_recipe_run(True)
-            job = builder.start()
-        else:
-            job = recipe.run()
+        builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
+        for ref in output_refs:
+            builder.with_output(ref)
+        if auto_update_schema:
+            builder.with_auto_update_schema_before_each_recipe_run(True)
+        job = builder.start()
+        job_id = job.id
 
         success(f"Recipe '{recipe_name}' started")
-        info(f"Job ID: {job.id}")
+        info(f"Job ID: {job_id}")
         if auto_update_schema:
             info("Auto-update schema: enabled")
 
@@ -507,12 +516,32 @@ def run(
             if state == "DONE":
                 success("Recipe completed successfully")
             else:
-                from dku_cli.output import error
-
-                error(f"Recipe finished with state: {state}")
+                exit_with_error(
+                    f"Recipe '{recipe_name}' finished with state: {state}",
+                    code="job_failed",
+                    status=4,
+                    details=[
+                        f"Inspect the log: dku job log {job_id} -P {project_key}",
+                        f"Job status: dku job status {job_id} -P {project_key} -o json",
+                    ],
+                )
     except typer.Exit:
         raise
     except Exception as e:
+        # If the exception came from the wait loop after we already know the
+        # job ID, give the agent the log command instead of just a raw API
+        # error. This covers the case where dataikuapi raises before our
+        # explicit state check fires.
+        if job_id:
+            exit_with_error(
+                f"Recipe '{recipe_name}' run failed: {e}",
+                code="job_failed",
+                status=4,
+                details=[
+                    f"Inspect the log: dku job log {job_id} -P {project_key}",
+                    f"Job status: dku job status {job_id} -P {project_key} -o json",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -3183,6 +3212,21 @@ def create_pivot(
         "--no-global-count",
         help="Suppress the per-modality 'count' column that DSS adds to every pivot by default. Mirrors the create-group flag.",
     ),
+    value_limit: str = typer.Option(
+        "TOP_N",
+        "--value-limit",
+        help="Modality value limit: TOP_N (default, keeps top N by frequency), NO_LIMIT (keep every distinct column-key value), or AT_LEAST_N_OCC (keep only modalities with at least N occurrences). DSS 14.4+ crashes if this field is missing from the payload.",
+    ),
+    topn_limit: int = typer.Option(
+        20,
+        "--topn-limit",
+        help="When --value-limit=TOP_N, keep this many distinct column-key modalities (default 20, mirrors the DSS UI default).",
+    ),
+    min_occ_limit: int = typer.Option(
+        0,
+        "--min-occ-limit",
+        help="When --value-limit=AT_LEAST_N_OCC, keep only modalities with at least N occurrences in the input.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a Pivot recipe (long→wide). NEVER use df.pivot_table() in Python.
@@ -3194,16 +3238,31 @@ def create_pivot(
     --agg-type. Pass --no-global-count to suppress it when you only want the
     explicit aggregate in the output.
 
+    Modality defaults: DSS limits the number of distinct column-key values
+    written into the output. The CLI emits valueLimit=TOP_N and topnLimit=20
+    to match the UI default — without these, DSS 14.4+ crashes at build time
+    with 'Unexpected value limit on modality collection'. Override with
+    --value-limit NO_LIMIT (keep all), --value-limit AT_LEAST_N_OCC
+    --min-occ-limit N (keep modalities seen at least N times), or
+    --topn-limit N if the dataset needs different limits.
+
     Example: dku recipe create-pivot piv -i sales --output-ds sales_wide --row-key product --column-key month --value-column revenue --agg-type SUM -P PROJ
     """
     _VALID_PIVOT_AGGS = frozenset(
         {"SUM", "AVG", "MIN", "MAX", "COUNT", "COUNT_DISTINCT", "CONCAT", "STDDEV"}
     )
+    _VALID_VALUE_LIMITS = frozenset({"TOP_N", "NO_LIMIT", "AT_LEAST_N_OCC"})
     if agg_type and agg_type.upper() not in _VALID_PIVOT_AGGS:
         exit_with_error(
             f"Unknown aggregation type: '{agg_type}'.",
             code="invalid_argument",
             details=[f"Valid: {', '.join(sorted(_VALID_PIVOT_AGGS))}"],
+        )
+    if value_limit.upper() not in _VALID_VALUE_LIMITS:
+        exit_with_error(
+            f"Unknown --value-limit: '{value_limit}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_VALUE_LIMITS))}"],
         )
     project_key = resolve_project(project)
     try:
@@ -3218,34 +3277,84 @@ def create_pivot(
         # Configure pivot dimensions and aggregation.
         # DSS stores pivot config in payload.explicitIdentifiers (row keys) and
         # payload.pivots[0] (column key, value columns, aggregation functions).
-        if row_key or column_key or value_column or agg_type or no_global_count:
-            recipe_obj = proj.get_recipe(recipe_name)
-            settings = recipe_obj.get_settings()
-            payload = _get_recipe_payload(settings)
-            if row_key:
-                payload["explicitIdentifiers"] = list(row_key)
-            # Configure the first pivot entry (DSS default creates one)
-            pivots = payload.setdefault("pivots", [{}])
-            pivot = pivots[0] if pivots else {}
-            if not pivots:
-                pivots.append(pivot)
-            if column_key:
-                pivot["keyColumns"] = [column_key]
-            if value_column:
-                agg_fn = agg_type.upper() if agg_type else "SUM"
-                pivot["valueColumns"] = [{"column": value_column, "function": agg_fn}]
-            elif agg_type:
-                # agg_type without value_column — set on existing valueColumns
-                for vc in pivot.get("valueColumns", []):
-                    vc["function"] = agg_type.upper()
-            if no_global_count:
-                pivot["globalCount"] = False
-            settings.save()
-            info(
-                f"Pivot config: row={row_key}, column={column_key}, value={value_column}, agg={agg_type}"
-            )
+        # Always normalize modality settings to match the DSS UI payload — otherwise
+        # DSS 14.4+ crashes at build time with:
+        #   "Unexpected value limit on modality collection"
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(settings)
+        if row_key:
+            payload["explicitIdentifiers"] = list(row_key)
+        # Configure the first pivot entry (DSS default creates one)
+        pivots = payload.setdefault("pivots", [{}])
+        pivot = pivots[0] if pivots else {}
+        if not pivots:
+            pivots.append(pivot)
+        if column_key:
+            pivot["keyColumns"] = [column_key]
+        # Value-column aggregation flag mapping.
+        # DSS pivot valueColumns are GroupingValue objects that use BOOLEAN fields
+        # (sum, avg, count, ...) NOT a `function` string. Writing `function: "SUM"`
+        # looks accepted but the recipe produces no aggregated columns at build time.
+        _AGG_FLAG_MAP = {
+            "SUM": "sum",
+            "AVG": "avg",
+            "MIN": "min",
+            "MAX": "max",
+            "COUNT": "count",
+            "COUNT_DISTINCT": "countDistinct",
+            "CONCAT": "concat",
+            "STDDEV": "stddev",
+        }
 
-        _auto_apply_schema(proj, recipe_name)
+        def _build_value_column(col: str, agg: str) -> dict:
+            flag = _AGG_FLAG_MAP[agg.upper()]
+            vc = {
+                "column": col,
+                "type": "double",  # UI writes this as a schema hint for numeric aggs
+                "min": False,
+                "max": False,
+                "count": False,
+                "countDistinct": False,
+                "sum": False,
+                "concat": False,
+                "stddev": False,
+                "avg": False,
+            }
+            vc[flag] = True
+            return vc
+
+        if value_column:
+            agg_fn = agg_type.upper() if agg_type else "SUM"
+            pivot["valueColumns"] = [_build_value_column(value_column, agg_fn)]
+        elif agg_type:
+            # agg_type without value_column — toggle the boolean flag on existing entries
+            flag = _AGG_FLAG_MAP[agg_type.upper()]
+            for vc in pivot.get("valueColumns", []):
+                for existing_flag in _AGG_FLAG_MAP.values():
+                    vc[existing_flag] = False
+                vc[flag] = True
+                vc.setdefault("type", "double")
+        if no_global_count:
+            pivot["globalCount"] = False
+        # Always set modality limits so the payload matches a UI-normalized recipe.
+        vl_upper = value_limit.upper()
+        pivot["valueLimit"] = vl_upper
+        pivot["topnLimit"] = topn_limit
+        pivot["minOccLimit"] = min_occ_limit
+        pivot.setdefault("explicitValues", [])
+        settings.save()
+        info(
+            f"Pivot config: row={row_key}, column={column_key}, value={value_column}, agg={agg_type}, value_limit={vl_upper}, topn_limit={topn_limit}, min_occ_limit={min_occ_limit}"
+        )
+
+        # Skip _auto_apply_schema for pivot: DSS refuses to pre-compute the output
+        # schema because modality lists must be collected by the build itself
+        # ("Modality lists stored in output schema are not up-to-date"). The schema
+        # will be populated correctly when the recipe runs — no action needed here.
+        info(
+            f"Output schema for '{output_ds}' will be populated when you run the recipe (pivot modalities are collected at build time)."
+        )
         success(f"Created pivot recipe '{recipe_name}' in {project_key}")
     except typer.Exit:
         raise

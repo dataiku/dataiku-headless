@@ -35,7 +35,7 @@ metadata:
 > 14. **One multi-input join > cascading joins.** Joining A+B, then result+C, then result+D = 3 recipes, 3 intermediate datasets, 3x build time. Instead: one `create-join -i A -i B -i C -i D` with index-prefixed keys. See [Visual Recipe Design Patterns](#visual-recipe-design-patterns).
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. When you need syntax, examples, or patterns for a specific task, **read the relevant reference file first** — don't try to figure it out from `--help` alone or by trial and error. The reference index at the bottom tells you which file covers what.
 > 16. **Cross-connection landing is a first-class feature.** To move data between connections (CSV → SQL, fs → warehouse, etc.) use `dku recipe create -t sync --connection X` / `-t sql_query --connection X` — auto-creates a managed output on the target connection. Never write a Python passthrough for this. Engine-specific idioms and push-down gotchas live in `references/sql-engines.md` — read it before writing any Prepare formula that targets a SQL-connection output.
-> 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). For batch processing, use a Prompt recipe (UI-only) calling `agent:AGENT_ID` — see `references/genai-recipes.md`.
+> 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). For batch processing, create a Prompt recipe (`dku recipe create -t prompt`) with `payload.llmId = "agent:AGENT_ID"` — see `references/genai-recipes.md` and `references/prompt-recipe-payload.md`.
 
 # dku-cli
 
@@ -116,6 +116,8 @@ dku auth login          # authenticate to your DSS instance
 > **Chaining Rule:** Always `&&`-chain related `dku` commands in a **single Bash tool call**. Each separate tool call costs a full agent turn (~$0.05 + 3s). A 10-command workflow should be 1 tool call, not 10. See `references/workflow-templates.md` for chaining templates.
 
 > For detailed auth setup (CI/CD, env vars, profiles), see `references/setup.md`.
+
+> **Sandboxed agent runs + macOS keychain:** If any `dku` command fails with `Can't get password from keychain: (-50, 'Unknown Error')`, the sandbox is blocking macOS keychain access (not a DSS problem). Re-run outside the sandbox, or export `DKU_URL` + `DKU_API_KEY` to bypass the keychain entirely.
 
 ## When to Use dku vs Python API
 
@@ -298,6 +300,12 @@ Visual recipe commands auto-create the output dataset. For advanced configuratio
 | `dku dataset build` fails for folder outputs | Use `dku recipe run RECIPE -P PROJ --wait` for managed folder outputs |
 | Prepare recipe `create` fails with "Output dataset does not exist" | Unlike visual recipes, `create --type prepare` does NOT auto-create the output. Pre-create it first |
 | `add-fold` or `add-filter-rows --formula` fails with `UnavailableTypeException` | Plugin processors unavailable on some instances. For fold: use Python `pd.melt()`. For filter: use `add-step --type FilterOnCustomFormula` |
+| `create-pivot` build crashes with `Unexpected value limit on modality collection` | CLI now emits `valueLimit=TOP_N` + `topnLimit=20` by default. If your recipe was edited manually, set `payload.pivots[0].valueLimit = "TOP_N"` and `topnLimit = 20`. Override at create time with `--value-limit TOP_N\|NO_LIMIT\|AT_LEAST_N_OCC` (+ `--topn-limit` / `--min-occ-limit`) |
+| `create-pivot` runs but output has only `_count` columns, no SUM/AVG/etc. | DSS pivot `valueColumns` are GroupingValue objects — aggregation is a **boolean flag** (`sum: true`, `avg: true`, ...), NOT a `function` string. CLI handles this; if hand-editing, set `valueColumns[i].sum = true` etc. and leave `function` out |
+| Prompt Recipe claimed "UI-only" in older docs | **Stale** — `dku recipe create -t prompt` works. Pre-create the output, then `set-settings` the payload. See `references/prompt-recipe-payload.md` for the full schema and `references/genai-recipes.md` for the workflow |
+| Prompt Recipe build crashes with `NullPointerException` on `ExpectedFormat.ordinal()` | `payload.prompt.resultValidation.expectedFormat = "JSON"` is NOT a valid enum value — the server silently deserializes it to null then crashes at runtime. Use `"NONE"` and parse downstream with a Prepare recipe + `add-step --type JSONFlattener` on `llm_output`. Full details in `references/prompt-recipe-payload.md` |
+| Prompt Recipe first run returns empty output schema | `dku recipe run PROMPT --wait` doesn't populate the output schema. Always use `dku job run --target OUT --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait` for the first build of a Prompt Recipe |
+| Prompt Recipe output has unexpected `llm_*` columns | The recipe always appends `llm_output, llm_validation_status, llm_raw_response, llm_error_message, llm_raw_query`. Only `llm_output` has content by default. Drop the noise with `add-delete-columns` in a downstream Prepare recipe |
 | GREL formula returns null for columns with spaces | Columns with spaces can't be referenced via GREL. Use `add-rename` first, or a Python recipe |
 | SQL-engine push-down / cross-connection landing | See `references/sql-engines.md` for sync+connection, GREL→SQL compilation gotchas, and stale-table recovery |
 
@@ -771,6 +779,7 @@ There are ~95 purpose-built processors. If you're about to write `add-formula` w
 | `references/recipe-examples.md` | Need detailed recipe code (join, group, topN, window, reshape, plugin recipes) |
 | `references/agent-patterns.md` | Building SVAs, agent tools, agent evaluation, LLM ID discovery |
 | `references/genai-recipes.md` | Embedding, RAG pipelines, knowledge banks, LLM eval, model deployment |
+| `references/prompt-recipe-payload.md` | Full payload schema for `dku recipe create -t prompt` — system/user templates, variable bindings, enum values, fixed output columns |
 | `references/prepare-guide.md` | Adding prepare steps with `add-step`, processor JSON params, step management |
 | `references/dashboard-patterns.md` | Charts, dashboards, tiles, chart JSON anatomy |
 | `references/sql-engines.md` | SQL-connection landing (`-t sync --connection`), GREL → SQL push-down gotchas, stale-table recovery |

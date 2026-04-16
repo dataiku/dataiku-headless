@@ -181,6 +181,36 @@ def test_recipe_run_auto_update_schema(patch_client):
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
 
 
+def test_recipe_run_failure_prints_log_command(patch_client):
+    """When the recipe run fails, the CLI must print the job ID and a
+    copy-paste 'dku job log' command so the agent can inspect the failure
+    without extra discovery calls."""
+    proj = patch_client.get_project("PROJ1")
+    started_job = proj.new_job.return_value.start.return_value
+    started_job.id = "Build_failed_123"
+    started_job.get_status.return_value = {"baseStatus": {"state": "FAILED"}}
+
+    result = runner.invoke(
+        app, ["recipe", "run", "recipe1", "--wait", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 4, result.output
+    assert "Build_failed_123" in result.output
+    assert "dku job log Build_failed_123" in result.output
+    assert "PROJ1" in result.output
+
+
+def test_recipe_run_always_uses_builder_path(patch_client):
+    """Even without --type or --auto-update-schema, run uses the job builder
+    path (not recipe.run()) so the job ID is known on failure."""
+    result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    # The builder was invoked with the default job type
+    proj.new_job.assert_called_with("NON_RECURSIVE_FORCED_BUILD")
+    builder = proj.new_job.return_value
+    builder.start.assert_called_once()
+
+
 # --- New commands ---
 
 
@@ -2384,8 +2414,120 @@ def test_recipe_create_pivot_with_agg_type(patch_client):
     assert result.exit_code == 0
     pivots = settings.obj_payload["pivots"]
     assert pivots[0]["keyColumns"] == ["month"]
-    assert pivots[0]["valueColumns"] == [{"column": "revenue", "function": "SUM"}]
+    # DSS pivot valueColumns are GroupingValue objects — aggregation is a
+    # BOOLEAN flag (`sum`, `avg`, ...), NOT a `function` string. Writing
+    # `function: "SUM"` is silently accepted but produces no sum columns.
+    vc = pivots[0]["valueColumns"][0]
+    assert vc["column"] == "revenue"
+    assert vc["type"] == "double"
+    assert vc["sum"] is True
+    assert vc["avg"] is False
+    assert vc["count"] is False
+    # UI-normalized modality defaults — without these DSS 14.4+ crashes with
+    # "Unexpected value limit on modality collection" at runtime
+    assert pivots[0]["valueLimit"] == "TOP_N"
+    assert pivots[0]["topnLimit"] == 20
     assert settings.obj_payload["explicitIdentifiers"] == ["product"]
+
+
+def test_recipe_create_pivot_custom_value_limit(patch_client):
+    """--value-limit NO_LIMIT and --topn-limit override the UI defaults."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--value-limit",
+            "NO_LIMIT",
+            "--topn-limit",
+            "50",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pivots = settings.obj_payload["pivots"]
+    assert pivots[0]["valueLimit"] == "NO_LIMIT"
+    assert pivots[0]["topnLimit"] == 50
+
+
+def test_recipe_create_pivot_min_occ_limit(patch_client):
+    """--value-limit AT_LEAST_N_OCC + --min-occ-limit configures the occurrence filter."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--value-limit",
+            "AT_LEAST_N_OCC",
+            "--min-occ-limit",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pivots = settings.obj_payload["pivots"]
+    assert pivots[0]["valueLimit"] == "AT_LEAST_N_OCC"
+    assert pivots[0]["minOccLimit"] == 5
+
+
+def test_recipe_create_pivot_invalid_value_limit(patch_client):
+    """--value-limit with unknown value gives error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--value-limit",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Unknown --value-limit" in result.output
 
 
 def test_recipe_create_pivot_no_global_count(patch_client):
