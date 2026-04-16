@@ -217,60 +217,6 @@ htmlAttr(e, "href")                      // attribute value
 10. **Date parsing:** Always specify format when input isn't ISO-8601.
 11. **forEach returns array:** Use `join()` if you need a string result.
 
-## GREL → SQL push-down gotchas
-
-When a Prepare recipe has BOTH a SQL-connection input AND a SQL-connection output, DSS compiles the Shaker script to SQL and pushes it down to the database engine. A few GREL idioms compile to broken SQL or cause DSS to fall back to the in-memory engine. Verified against DSS 14.4 + PostgreSQL.
-
-| GREL | Compiles to (SQL) | Problem | Use instead |
-|---|---|---|---|
-| `"" + col` where col is numeric | `'' + "col"` | SQL `+` is numeric addition, not string concat. PG fails with `invalid input syntax for type bigint: ""` | `concat("", col)` |
-| `strval(col)` and `strval(col, "")` on a numeric column | does not push down | DSS **falls back to the in-memory engine** AND the output column ends up empty (both forms tested) | `concat("", col)` or `toString(col)` |
-| `round(x * 10) / 10` on a DOUBLE column | `round(...) / 10` on `double precision` | PG's 1-arg `round(double)` uses banker's rounding (half-to-even): `1.25 → 1.2`, `8.25 → 8.2`, `-1.25 → -1.2`, `-8.25 → -8.2` | See "Rounding to 0.1 with half-away-from-zero semantics" below |
-
-**`toString(col)` works on DSS 14.4+.** It compiles to `CAST("col" AS VARCHAR(100))` and works correctly inside a `CASE WHEN` with a string literal. `concat("", col)` is still the more portable form across DSS versions.
-
-**`concat(numeric, numeric)` on DSS 14.4 + PG** compiles to `CONCAT("a", "b")` and produces a correct string concatenation — PG's `CONCAT()` auto-coerces numeric args to text.
-
-### Rounding to 0.1 with half-away-from-zero semantics
-
-SAS `round(x, 0.1)` is half-away-from-zero for any sign. Matching it in Dataiku is subtle because **neither** the DSS in-memory engine nor PG's `round(double)` produces half-away-from-zero for negatives:
-
-| Path | 1.25 | 8.25 | -1.25 | -8.25 | Matches SAS? |
-|---|---|---|---|---|---|
-| SAS `round(x, 0.1)` | 1.3 | 8.3 | -1.3 | -8.3 | ✓ (reference) |
-| GREL `round(x * 10) / 10` on DSS in-memory (Java `Math.round`, round-half-up) | 1.3 | 8.3 | **-1.2** | **-8.2** | ✗ for negatives |
-| GREL `round(x * 10) / 10` pushed to PG `double precision` (banker's) | 1.2 | 8.2 | -1.2 | -8.2 | ✗ |
-| GREL `floor(x * 10 + 0.5) / 10` (either engine) | 1.3 | 8.3 | **-1.2** | **-8.2** | ✗ for negatives |
-| GREL `if(x >= 0, floor(x * 10 + 0.5) / 10, 0 - floor(0 - x * 10 + 0.5) / 10)` | 1.3 | 8.3 | -1.3 | -8.3 | ✓ (both engines, pushes down) |
-| PG SQL recipe `ROUND(x::numeric, 1)` | 1.3 | 8.3 | -1.3 | -8.3 | ✓ |
-
-Verified on DSS 14.4 + PostgreSQL with inputs `[1.25, -1.25, 8.25, -8.25, 2.5, -2.5, 3.0, 0.0]`.
-
-**Rule of thumb:**
-- If all values are non-negative (counts, amounts known to be ≥ 0), `floor(x * 10 + 0.5) / 10` is fine.
-- If values can be negative (net positions, deltas, refunds), use the two-branch `if()` formula above, OR drop into a SQL recipe with `ROUND(x::numeric, 1)`.
-- GREL `round(x * 10) / 10` is correct only for the in-memory engine with non-negative inputs, and is wrong on PG DOUBLE regardless of sign.
-
-### Diagnosing a push-down compilation bug
-
-If a Prepare recipe fails at build time with a PG/Snowflake error like `invalid input syntax for type bigint: "..."`, look at the job log:
-
-```bash
-dku job log "$(dku job list -P PROJ -o json | jq -r '.[0].id')" -P PROJ | grep -B 50 "Position:"
-```
-
-The log dumps the generated SQL around the failure — you'll see your GREL expression compiled into a CASE/CAST that chose the wrong type. The fix is usually one of the replacements above.
-
-### Checking the selected engine
-
-DSS logs the selected engine twice — once pre-run and once post-reselection:
-
-```bash
-dku job log <JOB_ID> -P PROJ 2>&1 | grep -i "selected engine\|engines ok"
-```
-
-If `After reselection, selectedEngine is DSS` appears on a recipe that should push down, a formula in the recipe is not translatable (e.g., `strval(col)` single-arg) and DSS fell back to in-memory execution.
-
 ## Examples
 
 **User:** "Combine first and last name with a space"

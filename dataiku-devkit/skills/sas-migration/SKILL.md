@@ -20,7 +20,7 @@ metadata:
 
 # SAS Migration
 
-Migrating SAS programs (`.sas`, `.egp`, `.flw`) to a Dataiku DSS flow. Pair this skill with `dku-cli` (CLI execution) and `dataiku` (platform knowledge). When the target is a SQL connection, also read the `dku-cli` skill's `references/sql-engines.md` and the `dataiku` skill's `references/formulas.md` § GREL → SQL push-down.
+Migrating SAS programs (`.sas`, `.egp`, `.flw`) to a Dataiku DSS flow. Pair this skill with `dku-cli` (CLI execution) and `dataiku` (platform knowledge). When the target is a SQL connection, also read the `dku-cli` skill's `references/sql-engines.md` § GREL → SQL push-down gotchas.
 
 ## Rules
 
@@ -34,7 +34,7 @@ Migrating SAS programs (`.sas`, `.egp`, `.flw`) to a Dataiku DSS flow. Pair this
 8. **Date columns stay STRING at ingest.** `dku dataset set-schema` with `type: date` on a CSV silently nulls every row. ISO strings compare and aggregate chronologically anyway.
 9. **`dku recipe create-filter` builds a Prepare recipe.** The Sampling recipe's filter schema is unstable across DSS versions and silently drops the formula on many instances.
 10. **Group recipe adds a `count` column by default.** Pass `--no-global-count` for PROC SQL / PROC MEANS parity.
-11. **For int → string casts in a Prepare recipe pushed down to SQL, use `concat("", col)`.** `"" + col` compiles to SQL numeric addition and fails on PG with `invalid input syntax`. `toString(col)` compiles to `CAST(col AS VARCHAR)` and works on DSS 14.4+, but `concat("", col)` is the portable form. See the `dataiku` skill's `references/formulas.md` § GREL → SQL push-down.
+11. **For int → string casts in a Prepare recipe pushed down to SQL, use `concat("", col)`.** `"" + col` compiles to SQL numeric addition and fails with `invalid input syntax`. `toString(col)` is the Shaker-side cast and does not always survive push-down — `concat("", col)` is the portable form. See the `dku-cli` skill's `references/sql-engines.md` § GREL → SQL push-down gotchas.
 12. **Organize the flow into zones as you build.** A migrated SAS project yields dozens of recipes and datasets — a flat flow is unreadable. Group by stage (ingest, prepare, join, aggregate, output) or functional area (credit, collateral, reporting) with `dku flow zones` / `dku flow move`. Assign each recipe and its output to its zone immediately after the recipe runs, not in a post-hoc cleanup pass.
 13. **Document the migration with a wiki and descriptions.** Before reporting done: add a project wiki (`dku wiki create`) covering the source SAS layout, the migration map (SAS step → recipe), and any deviations from parity. Set short descriptions on every dataset (`dku dataset set-metadata --short-desc`) and give recipes clear names so the flow is self-explanatory when a reviewer opens it. Use `dku dataset ai-describe --save` and `dku project ai-describe --save` to bootstrap.
 
@@ -207,8 +207,7 @@ SAS language gotchas (missing values, MERGE semantics, `<>` operator, LAG traps,
 |---|---|
 | `references/semantics.md` | Any time you need to understand *why* a SAS program produces a given value — PDV, MERGE semantics, missing value rules, macro scoping, LAG trap, PROC UNIVARIATE defaults |
 | `references/translation.md` | DATA/PROC → recipe mapping, canonical Join+Prepare patterns, PROC FORMAT, rounding parity, enterprise ODBC passthrough workflow, SAS function → GREL/SQL tables, SAS→Postgres translations |
-| `dku-cli` skill's `references/sql-engines.md` | When the target connection is a SQL engine — cross-connection landing with `-t sync --connection`, `dku sql query` transaction semantics, `dataset info --recompute` |
-| `dataiku` skill's `references/formulas.md` § GREL → SQL push-down | Before writing any GREL expression in a Prepare recipe whose input AND output are on a SQL connection |
+| `dku-cli` skill's `references/sql-engines.md` | When the target connection is a SQL engine — cross-connection landing with `-t sync --connection`, `dku sql query` transaction semantics, `dataset info --recompute`, **and GREL → SQL push-down gotchas** (read before writing any GREL in a Prepare recipe whose input AND output are on a SQL connection) |
 
 ## Error recovery
 
