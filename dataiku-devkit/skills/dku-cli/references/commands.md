@@ -586,6 +586,39 @@ dku dashboard set-metadata DASHBOARD_ID [-P PROJECT] [--description DESC] [--sho
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
 - See `skills/dataiku/references/dashboard-charts.md` for full chart JSON anatomy
 
+## evaluation-store
+
+```bash
+dku evaluation-store list [-P PROJECT] [-o FORMAT] [--flavor FLAVOR]
+dku evaluation-store create NAME [-P PROJECT] [-o FORMAT] [--flavor FLAVOR] [--if-not-exists]
+dku evaluation-store get STORE_ID [-P PROJECT] [-o FORMAT]
+dku evaluation-store evaluations STORE_ID [-P PROJECT] [-o FORMAT]
+dku evaluation-store latest STORE_ID [-P PROJECT]
+dku evaluation-store build STORE_ID [-P PROJECT] [--wait/--no-wait]
+dku evaluation-store delete STORE_ID [-P PROJECT]
+```
+
+- `--flavor` on `create` specifies the store type: `TABULAR` (default), `LLM`, or `AGENT`. LLM eval recipes need `--flavor LLM`, agent eval recipes need `--flavor AGENT`
+- `--flavor` on `list` filters by store flavor; omit to list all flavors
+- `list` shows id, name, and flavor columns
+- `create --if-not-exists` skips creation if a store with the same name already exists
+- `latest` returns the most recent evaluation in a store (exits with error if empty)
+- `build` waits for completion by default; use `--no-wait` for async
+
+**End-to-end LLM evaluation:**
+```bash
+dku evaluation-store create my_eval --flavor LLM -P PROJ && \
+dku dataset create eval_scored --type Filesystem -c filesystem_managed -P PROJ && \
+dku dataset create eval_metrics --type Filesystem -c filesystem_managed -P PROJ && \
+dku recipe create-llm-eval rag_eval \
+  --input qa_responses --eval-store my_eval \
+  --output-ds eval_scored --output-metrics eval_metrics \
+  --task-type QUESTION_ANSWERING \
+  --metrics "answerRelevancy,faithfulness" \
+  --completion-llm "openai:gpt-4o" -P PROJ && \
+dku recipe run rag_eval -P PROJ --wait
+```
+
 ## insight
 
 ```bash
