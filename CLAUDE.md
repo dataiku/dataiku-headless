@@ -126,12 +126,9 @@ dataiku-devkit/
 │   ├── dataiku/               # Platform knowledge router
 │   │   ├── SKILL.md           # Routes to correct reference doc based on task
 │   │   └── references/*.md    # Deep platform knowledge (progressive disclosure layer 3)
-│   ├── dku-cli/               # CLI operations and composability patterns
-│   │   ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
-│   │   └── references/        # CLI command reference
-│   └── sas-migration/         # SAS (.sas/.egp/.flw) → Dataiku migration domain
-│       ├── SKILL.md           # 5-phase plan, cheat sheet, inventory parsing, top gotchas
-│       └── references/        # semantics.md (language rules), translation.md (recipe mapping)
+│   └── dku-cli/               # CLI operations and composability patterns
+│       ├── SKILL.md           # THE primary agent interface — cheat sheet + patterns + gotchas
+│       └── references/        # CLI command reference
 └── agents/                    # Subagents for complex tasks
     ├── plugin-reviewer.md
     ├── dss-explorer.md

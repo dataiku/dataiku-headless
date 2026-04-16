@@ -142,7 +142,7 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 ```
 
 - `upload` auto-detects format + schema after upload (calls `autodetect_settings`)
-- `upload --overwrite` clears the dataset's existing uploaded files first, making the upload idempotent
+- `upload --overwrite` clears the dataset's existing uploaded files first
 - `upload --no-autodetect` skips detection (if you'll set format manually)
 - `head` defaults to 10 rows, override with `-n`. Use `--columns "col1,col2"` / `-C` to inspect specific columns before transforming
 - `build --wait` blocks until job completes
@@ -151,7 +151,7 @@ dku dataset lineage DATASET_NAME --column COL [-P PROJECT] [--max-datasets N] [-
 - `create` defaults to `--type Filesystem` with `-c filesystem_managed` if neither is specified
 - `create --if-not-exists` skips creation silently when the dataset already exists (idempotent)
 - `create --definition` supports create-time fields such as `type`, `params`, `formatType`, and `formatParams`
-- `info --recompute` (alias `--fresh`) recomputes the row count, size, and file count metrics before reading them. **DSS does not auto-recompute metrics on build** — pass `--recompute` (alias `--fresh`) after a recipe run to avoid stale numbers in the cache. Without `--recompute`, `info` on a built dataset with cached metrics prints a hint pointing at the flag (skipped in `-o json` mode)
+- `info --recompute` (alias `--fresh`) recomputes the row count, size, and file count metrics before reading them. Use after a recipe run to avoid stale numbers in the cache. Without `--recompute`, `info` on a built dataset with cached metrics prints a hint pointing at the flag (skipped in `-o json` mode)
 - `set-schema` accepts both `{"columns": [...]}` (full object) and `[{name, type}, ...]` (plain array — auto-wrapped). Round-trips with `schema -o json`
 - `set-metadata` updates description, short description, and/or tags without needing JSON. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `set-column-description` takes alternating column-name description pairs (even count required)
@@ -203,7 +203,7 @@ dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL
 
 `sync` moves data from one dataset to another. Unlike most visual recipes (which require the output to pre-exist), **`-t sync --connection X`** auto-creates the output as a managed dataset on the target connection — no Python passthrough needed. The same pattern works for `-t sql_query --connection X` when you want a custom SELECT landed as a new managed table.
 
-For `dku sql query` transaction behavior, `dataset info --recompute`, and stale-table recovery on SQL connections, see `references/sql-engines.md`. For GREL → SQL push-down compilation gotchas, see the `dataiku` skill's `references/formulas.md`.
+For engine-specific examples, push-down gotchas, and recovery snippets, see `references/sql-engines.md`.
 
 ### Prepare recipe step commands
 
@@ -585,39 +585,6 @@ dku dashboard set-metadata DASHBOARD_ID [-P PROJECT] [--description DESC] [--sho
 - Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
 - See `skills/dataiku/references/dashboard-charts.md` for full chart JSON anatomy
-
-## evaluation-store
-
-```bash
-dku evaluation-store list [-P PROJECT] [-o FORMAT] [--flavor FLAVOR]
-dku evaluation-store create NAME [-P PROJECT] [-o FORMAT] [--flavor FLAVOR] [--if-not-exists]
-dku evaluation-store get STORE_ID [-P PROJECT] [-o FORMAT]
-dku evaluation-store evaluations STORE_ID [-P PROJECT] [-o FORMAT]
-dku evaluation-store latest STORE_ID [-P PROJECT]
-dku evaluation-store build STORE_ID [-P PROJECT] [--wait/--no-wait]
-dku evaluation-store delete STORE_ID [-P PROJECT]
-```
-
-- `--flavor` on `create` specifies the store type: `TABULAR` (default), `LLM`, or `AGENT`. LLM eval recipes need `--flavor LLM`, agent eval recipes need `--flavor AGENT`
-- `--flavor` on `list` filters by store flavor; omit to list all flavors
-- `list` shows id, name, and flavor columns
-- `create --if-not-exists` skips creation if a store with the same name already exists
-- `latest` returns the most recent evaluation in a store (exits with error if empty)
-- `build` waits for completion by default; use `--no-wait` for async
-
-**End-to-end LLM evaluation:**
-```bash
-dku evaluation-store create my_eval --flavor LLM -P PROJ && \
-dku dataset create eval_scored --type Filesystem -c filesystem_managed -P PROJ && \
-dku dataset create eval_metrics --type Filesystem -c filesystem_managed -P PROJ && \
-dku recipe create-llm-eval rag_eval \
-  --input qa_responses --eval-store my_eval \
-  --output-ds eval_scored --output-metrics eval_metrics \
-  --task-type QUESTION_ANSWERING \
-  --metrics "answerRelevancy,faithfulness" \
-  --completion-llm "openai:gpt-4o" -P PROJ && \
-dku recipe run rag_eval -P PROJ --wait
-```
 
 ## insight
 
