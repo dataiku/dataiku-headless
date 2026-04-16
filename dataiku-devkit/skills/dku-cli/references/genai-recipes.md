@@ -68,10 +68,6 @@ Run an agent over every row in a dataset using a Prompt recipe:
 
 Key: `DSSAgent.as_llm()` is the programmatic interface — Prompt recipes accept `agent:AGENT_ID` as the LLM. There is no `run_conversation()` method.
 
-## Still UI-Only
-
-- **RAG Query Recipe** — no dataikuapi builder class confirmed. Create in the DSS UI, then manage via `dku recipe get/set-definition/run`.
-
 ## RAG Evaluation Flow (1 tool call)
 
 ```bash
