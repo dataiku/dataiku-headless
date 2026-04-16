@@ -336,3 +336,275 @@ def test_folder_set_metadata_no_args(patch_client):
         app, ["folder", "set-metadata", "folder1", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# --- Rename tests ---
+
+
+def test_folder_rename(patch_client):
+    result = runner.invoke(
+        app,
+        ["folder", "rename", "folder1", "New Name", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Renamed" in result.output
+    assert "New Name" in result.output
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    folder.rename.assert_called_once_with("New Name")
+
+
+# --- Copy tests ---
+
+
+def test_folder_copy(patch_client):
+    result = runner.invoke(
+        app,
+        ["folder", "copy", "folder1", "folder1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Copied" in result.output
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    folder.copy_to.assert_called_once()
+
+
+def test_folder_copy_write_mode(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "copy",
+            "folder1",
+            "folder1",
+            "--write-mode",
+            "APPEND",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    call_kwargs = folder.copy_to.call_args
+    assert call_kwargs[1]["write_mode"] == "APPEND"
+
+
+# --- Upload-dir tests ---
+
+
+def test_folder_upload_dir(patch_client, tmp_path):
+    # Create test directory structure
+    sub = tmp_path / "docs" / "sub"
+    sub.mkdir(parents=True)
+    (tmp_path / "docs" / "a.txt").write_text("hello")
+    (sub / "b.txt").write_text("world")
+
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "upload-dir",
+            "folder1",
+            str(tmp_path / "docs"),
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Uploaded 2 file(s)" in result.output
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    assert folder.put_file.call_count == 2
+
+
+def test_folder_upload_dir_not_directory(patch_client, tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "upload-dir",
+            "folder1",
+            str(tmp_path / "nonexistent"),
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_folder_upload_dir_with_prefix(patch_client, tmp_path):
+    (tmp_path / "file.txt").write_text("data")
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "upload-dir",
+            "folder1",
+            str(tmp_path),
+            "--prefix",
+            "/uploads",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    call_args = folder.put_file.call_args[0]
+    assert call_args[0].startswith("/uploads/")
+
+
+# --- Delete-files tests ---
+
+
+def test_folder_delete_files(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "delete-files",
+            "folder1",
+            "/a.txt",
+            "/b.txt",
+            "/c.txt",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Deleted 3 file(s)" in result.output
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    assert folder.delete_file.call_count == 3
+
+
+# --- Decompress tests ---
+
+
+def test_folder_decompress(patch_client):
+    import io
+    import zipfile
+
+    # Create a real zip file in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("hello.txt", "Hello!")
+        zf.writestr("sub/world.txt", "World!")
+    zip_bytes = zip_buffer.getvalue()
+
+    # Mock get_file to return zip content
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": zip_bytes})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        ["folder", "decompress", "folder1", "/archive.zip", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Extracted 2 file(s)" in result.output
+    folder.get_file.assert_called_once_with("/archive.zip")
+    # Should have uploaded 2 files
+    assert folder.put_file.call_count == 2
+
+
+def test_folder_decompress_json(patch_client):
+    import io
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("file.txt", "content")
+    zip_bytes = zip_buffer.getvalue()
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": zip_bytes})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        [
+            "--quiet",
+            "folder",
+            "decompress",
+            "folder1",
+            "/test.zip",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["files_extracted"] == 1
+    assert parsed["archive_deleted"] is False
+
+
+def test_folder_decompress_delete_archive(patch_client):
+    import io
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("file.txt", "content")
+    zip_bytes = zip_buffer.getvalue()
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": zip_bytes})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "decompress",
+            "folder1",
+            "/test.zip",
+            "--delete-archive",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    folder.delete_file.assert_called_once_with("/test.zip")
+
+
+def test_folder_decompress_with_dest(patch_client):
+    import io
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("file.txt", "content")
+    zip_bytes = zip_buffer.getvalue()
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": zip_bytes})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "decompress",
+            "folder1",
+            "/archive.zip",
+            "--dest",
+            "/extracted",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # Check the uploaded path starts with /extracted/
+    call_args = folder.put_file.call_args[0]
+    assert call_args[0].startswith("/extracted/")
+
+
+def test_folder_decompress_invalid_zip(patch_client):
+    # Mock get_file to return non-zip content
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": b"not a zip file"})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        ["folder", "decompress", "folder1", "/bad.zip", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0

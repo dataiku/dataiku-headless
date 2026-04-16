@@ -935,6 +935,15 @@ def mock_client():
     folder_mock.delete.return_value = None
     folder_mock.delete_file.return_value = None
     folder_mock.rename.return_value = None
+    # copy_to returns a DSSFuture mock
+    copy_future_mock = MagicMock()
+    copy_future_mock.wait_for_result.return_value = None
+    folder_mock.copy_to.return_value = copy_future_mock
+    # get_file returns a response-like object with .content
+    file_response_mock = MagicMock()
+    file_response_mock.content = b"file content"
+    file_response_mock.iter_content.return_value = [b"file content"]
+    folder_mock.get_file.return_value = file_response_mock
     folder_settings = MagicMock()
     folder_settings.get_raw.return_value = {
         "id": "folder1",
