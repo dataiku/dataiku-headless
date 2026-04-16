@@ -3215,7 +3215,7 @@ def create_pivot(
     value_limit: str = typer.Option(
         "TOP_N",
         "--value-limit",
-        help="Modality value limit: TOP_N (default, keeps top N by frequency), NO_LIMIT (keep every distinct column-key value), or AT_LEAST_N_OCC (keep only modalities with at least N occurrences). DSS 14.4+ crashes if this field is missing from the payload.",
+        help="Modality value limit: TOP_N (default, keeps top N by frequency), NO_LIMIT (keep every distinct column-key value), or AT_LEAST_N_OCC (keep only modalities with at least N occurrences). DSS crashes at build time if this field is missing from the payload.",
     ),
     topn_limit: int = typer.Option(
         20,
@@ -3240,8 +3240,8 @@ def create_pivot(
 
     Modality defaults: DSS limits the number of distinct column-key values
     written into the output. The CLI emits valueLimit=TOP_N and topnLimit=20
-    to match the UI default — without these, DSS 14.4+ crashes at build time
-    with 'Unexpected value limit on modality collection'. Override with
+    to match the UI default — without these, DSS crashes at build time with
+    'Unexpected value limit on modality collection'. Override with
     --value-limit NO_LIMIT (keep all), --value-limit AT_LEAST_N_OCC
     --min-occ-limit N (keep modalities seen at least N times), or
     --topn-limit N if the dataset needs different limits.
@@ -3278,7 +3278,7 @@ def create_pivot(
         # DSS stores pivot config in payload.explicitIdentifiers (row keys) and
         # payload.pivots[0] (column key, value columns, aggregation functions).
         # Always normalize modality settings to match the DSS UI payload — otherwise
-        # DSS 14.4+ crashes at build time with:
+        # DSS crashes at build time with:
         #   "Unexpected value limit on modality collection"
         recipe_obj = proj.get_recipe(recipe_name)
         settings = recipe_obj.get_settings()

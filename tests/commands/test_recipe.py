@@ -2423,7 +2423,7 @@ def test_recipe_create_pivot_with_agg_type(patch_client):
     assert vc["sum"] is True
     assert vc["avg"] is False
     assert vc["count"] is False
-    # UI-normalized modality defaults — without these DSS 14.4+ crashes with
+    # UI-normalized modality defaults — without these DSS crashes with
     # "Unexpected value limit on modality collection" at runtime
     assert pivots[0]["valueLimit"] == "TOP_N"
     assert pivots[0]["topnLimit"] == 20

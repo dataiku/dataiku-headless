@@ -294,11 +294,11 @@ Places a chart or table insight on the dashboard:
 
 ### Text/HTML Tile
 
-> **⚠️ DSS 14.4+ may normalize `tileParams.htmlContent` away on save.** On tested
-> 14.4.x instances, writing a `TEXT` tile via `dku dashboard set-definition` persists
-> the tile but drops `htmlContent`, keeping only fields like `verticalAlign`. Always
-> re-read with `dku dashboard get-definition` after writing and diff — if the HTML
-> was dropped, prefer a chart insight with a large title instead of a scripted header.
+> **⚠️ DSS may normalize `tileParams.htmlContent` away on save.** Writing a `TEXT`
+> tile via `dku dashboard set-definition` can persist the tile but drop `htmlContent`,
+> keeping only fields like `verticalAlign`. Always re-read with
+> `dku dashboard get-definition` after writing and diff — if the HTML was dropped,
+> prefer a chart insight with a large title instead of a scripted header.
 
 ```json
 {
@@ -327,9 +327,9 @@ Places a chart or table insight on the dashboard:
 ## Dataset Table Insight
 
 > **Do NOT hand-write the full `dataset_table` payload.** The nested `shakerScript`
-> schema varies across DSS versions. In particular, `shakerScript.columnOrder` on
-> DSS 14.4+ expects an array of **objects**, not bare column-name strings — passing
-> strings fails with `Expected BEGIN_OBJECT but was STRING at path $.shakerScript.columnOrder[0]`.
+> schema varies across DSS versions. In particular, `shakerScript.columnOrder` can
+> expect an array of **objects**, not bare column-name strings — passing strings
+> fails with `Expected BEGIN_OBJECT but was STRING at path $.shakerScript.columnOrder[0]`.
 > Use the **clone-then-narrow** pattern instead: create the insight with `--dataset`,
 > pull the live default via `get-definition`, and only touch the safe fields below.
 
@@ -361,7 +361,7 @@ diff <(jq -S . table-updated.json) <(jq -S . table.after.json) || true
 - `previewMode` — `"ALL_ROWS"` or `"FIRST_N_ROWS"`
 
 **Leave alone unless you've read the exact object shape for your DSS version:**
-- `columnOrder` — objects, not strings, on DSS 14.4+
+- `columnOrder` — may expect objects, not strings
 - `columnWidthsByName`
 - `coloring.individualColumns`
 
@@ -469,5 +469,5 @@ dku dashboard set-definition DASHBOARD_ID -d @dashboard.json -P PROJ
 | Missing `engineType: "LINO"` | Chart may fail to render | Always include `"engineType": "LINO"` in params |
 | Using `type: "bar"` instead of `type: "multi_columns_lines"` | Invalid chart type | See chart type table above |
 | Hand-written `dataset_table.shakerScript.columnOrder = ["col1",...]` | `Expected BEGIN_OBJECT but was STRING at path $.shakerScript.columnOrder[0]` | Don't hand-write the shakerScript — clone the live default via `dku insight get-definition` first and only edit `columnsSelection` |
-| `TEXT` tile `htmlContent` missing after `dashboard set-definition` | Tile renders empty / no header | DSS 14.4+ normalizes it away. Always re-read with `dku dashboard get-definition` and diff. If dropped, use a chart insight with large titleOptions instead of a scripted TEXT header |
+| `TEXT` tile `htmlContent` missing after `dashboard set-definition` | Tile renders empty / no header | DSS may normalize it away. Always re-read with `dku dashboard get-definition` and diff. If dropped, use a chart insight with large titleOptions instead of a scripted TEXT header |
 | Filter page has no dataset even though UI shows one bound | `pages[].filtersParams.datasetSmartName` was checked as the filter insight | Filter dataset can live at `pages[i].filtersParams.datasetSmartName` — check both paths |

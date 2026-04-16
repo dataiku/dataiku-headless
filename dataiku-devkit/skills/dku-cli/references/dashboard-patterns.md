@@ -58,10 +58,10 @@ dku dashboard set-definition DASH_ID -d @dashboard.json -P PROJ && \
   diff <(jq -S . dashboard.json) <(jq -S . dashboard.after.json) || true
 ```
 
-Known normalization on DSS 14.4+:
+Known normalization:
 - `TEXT` tile `tileParams.htmlContent` can be stripped. Prefer a chart insight with
   a large title instead of a scripted header.
-- `dataset_table.shakerScript.columnOrder` expects objects, not strings — clone a
+- `dataset_table.shakerScript.columnOrder` can expect objects, not strings — clone a
   live default via `dku insight get-definition` before narrowing.
 
 ## Common Mistakes

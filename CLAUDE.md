@@ -224,16 +224,6 @@ Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_met
 ### Chart Column Names
 Not validated server-side — wrong column names save but render blank charts. Verify with `dku dataset schema DS -P PROJ` first. Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles`.
 
-### Pivot Recipe Payload Shape (DSS 14.4+)
-Two separate footguns in `create-pivot`, both fixed in the CLI but worth knowing when touching visual-recipe code:
-
-1. **Modality limit fields are mandatory.** `payload.pivots[0]` must include `valueLimit` (`TOP_N` / `NO_LIMIT` / `AT_LEAST_N_OCC`), `topnLimit`, `minOccLimit`, and `explicitValues`. Missing fields → runtime crash `Unexpected value limit on modality collection`. The CLI emits `TOP_N` + `topnLimit=20` by default; overrides: `--value-limit`, `--topn-limit`, `--min-occ-limit`.
-
-2. **`valueColumns[]` are GroupingValue objects with BOOLEAN aggregation flags.** Each value column is `{column, type, sum: bool, avg: bool, count: bool, min: bool, max: bool, countDistinct: bool, concat: bool, stddev: bool}` — NOT a `function: "SUM"` string. Writing `function: "SUM"` is silently accepted by the API but the recipe builds with no aggregated columns (only the per-modality `_count` columns from `globalCount`). Verified against `dip/src/main/java/com/dataiku/dip/dataflow/exec/grouping/GroupingRecipePayloadParams.java:GroupingValue`. When adding new visual-recipe commands, always verify payload shape against a UI-saved recipe AND check the Java class for field types — not just what the JSON API accepts at write time.
-
-### Dashboard & Insight Write-Read Verification
-`dashboard set-definition` and `insight set-definition` can succeed while DSS silently normalizes away fields. Known cases on 14.4+: `TEXT` tile `tileParams.htmlContent` is dropped; `dataset_table.shakerScript.columnOrder` expects objects (not strings). **Never hand-write a full `dataset_table` payload** — clone the live default via `dku insight get-definition` and only edit `columnsSelection`/`sorting`/`previewMode`. **Always follow `set-definition` with `get-definition` and diff** to confirm what actually persisted. Filter-page dataset binding can live at `pages[i].filtersParams.datasetSmartName`, not only inside filter insight definitions.
-
 ### Plugin Deployment via API
 `install_plugin_from_archive()` / `update_from_zip()` return None (use async variants for futures). ZIP must have `plugin.json` at root. Plugin must NOT be in `plugins/dev/` when installing via API.
 
