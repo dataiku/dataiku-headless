@@ -175,7 +175,20 @@ Both prompt by default. Use `--yes` / `-y` to skip confirmation:
 dku dataset delete DS -P PROJ --yes
 dku recipe delete RECIPE -P PROJ --yes
 dku project delete PROJ --yes
+dku knowledge delete KB -P PROJ --yes
+dku ml delete ANALYSIS MLTASK -P PROJ --yes
 ```
+
+### Gotchas (silent failures)
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `dataset build` "completed" but output dataset empty / missing | `recipe add-input RECIPE FOLDER_NAME` wrote a folder name as a dataset ref; flow edge dropped | Pass `--type MANAGED_FOLDER` (or use the folder ID). Auto-detect is on by default; explicit is safest. |
+| Scoring recipe fails with `Saved model ... cannot be used` | Saved model not wired as `model`-role input | `dku recipe create X -t clustering_scoring -i DS --model SM_ID --output-ds OUT` (scoring types now require `--model`). Or on an existing recipe: `dku recipe add-input RECIPE SM_ID --type SAVED_MODEL` |
+| Agent test errors "knowledge bank does not exist" | `agent-tool create --kb NAME` used to store the name literally | Fixed: CLI now resolves KB name → ID. Verify: `dku agent-tool get TOOL -P PROJ -o json \| jq .params.knowledgeBankRef` |
+| Numeric recipe fails with `IntCastingNaNError` / type mismatch after CSV upload | Uploaded CSV columns default to STRING | Set typed schema BEFORE recipes: `dku dataset set-schema DS -d @schema.json -P PROJ` |
+| `jq: parse error` when piping `dku ... -o json` | Used `2>&1` — status line on stderr merged into JSON stdout | Never `2>&1` with `-o json`. Use `dku ... -o json \| jq ...` and let stderr pass through. |
+| Prediction model trains to AUC=1.0 (too good) | Auto-guess kept a label-leaking column as INPUT | After `create-prediction`, audit `dku ml settings ANALYSIS MLTASK -P PROJ`; reject leaky columns with `dku ml set-feature ANALYSIS MLTASK COL --role REJECT` |
 
 ### Chaining Rule
 

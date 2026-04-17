@@ -258,6 +258,164 @@ def resolve_folder(project, folder_ref: str):
     )
 
 
+def resolve_saved_model(project, model_ref: str):
+    """Resolve a saved model by ID or name.
+
+    Tries get_saved_model(ref).get_settings() first (by ID). If that raises,
+    falls back to listing saved models and matching by name.
+    Returns a DSSSavedModel handle.
+    """
+    try:
+        model = project.get_saved_model(model_ref)
+        model.get_settings()
+        return model
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    models = project.list_saved_models()
+    for m in models:
+        if m.get("name", "") == model_ref:
+            return project.get_saved_model(m.get("id"))
+    from dku_cli.errors import exit_with_error
+
+    model_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
+    exit_with_error(
+        f"Saved model '{model_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available saved models:",
+            *model_names,
+            "Use the saved model ID (left column) or exact name.",
+        ]
+        if model_names
+        else [
+            "No saved models found in this project.",
+            "Train one with: dku ml create-prediction / create-clustering + train + deploy.",
+        ],
+        status=3,
+    )
+
+
+def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None):
+    """Resolve a recipe input ref to (kind, resolved_ref) where kind is one of
+    "DATASET", "MANAGED_FOLDER", "SAVED_MODEL".
+
+    If explicit_type is given, only that kind is tried (and resolution failure
+    aborts via exit_with_error with prescriptive guidance).
+
+    With no explicit_type, tries dataset → folder → saved model in order and
+    returns the first match. If more than one kind matches, aborts with an
+    ambiguity error so the caller can disambiguate via --type.
+    """
+    from dku_cli.errors import exit_with_error
+
+    kind = (explicit_type or "").upper() or None
+
+    def _try_dataset():
+        # Dataset names are the canonical dataset ref — no ID/name distinction.
+        try:
+            project.get_dataset(ref).get_definition()
+            return ref
+        except Exception as e:
+            if (
+                "not found" in str(e).lower()
+                or "NotFoundException" in str(e)
+                or "does not exist" in str(e)
+            ):
+                return None
+            raise
+
+    def _try_folder():
+        # Use list-match — folders have distinct ID/name; get_managed_folder is
+        # lazy and get_settings() doesn't reliably raise on MagicMocks/tests.
+        for f in project.list_managed_folders():
+            if f.get("id") == ref or f.get("name", "") == ref:
+                return f.get("id")
+        return None
+
+    def _try_model():
+        for m in project.list_saved_models():
+            if m.get("id") == ref or m.get("name", "") == ref:
+                return m.get("id")
+        return None
+
+    if kind == "DATASET":
+        resolved = _try_dataset()
+        if resolved is None:
+            exit_with_error(
+                f"Dataset '{ref}' not found in this project.",
+                code="not_found",
+                details=[
+                    "List datasets: dku dataset list -P PROJ",
+                    "If this is a folder, pass --type MANAGED_FOLDER.",
+                    "If this is a saved model, pass --type SAVED_MODEL.",
+                ],
+                status=3,
+            )
+        return "DATASET", resolved
+    if kind == "MANAGED_FOLDER":
+        resolved = _try_folder()
+        if resolved is None:
+            exit_with_error(
+                f"Managed folder '{ref}' not found in this project.",
+                code="not_found",
+                details=["List folders: dku folder list -P PROJ"],
+                status=3,
+            )
+        return "MANAGED_FOLDER", resolved
+    if kind == "SAVED_MODEL":
+        resolved = _try_model()
+        if resolved is None:
+            exit_with_error(
+                f"Saved model '{ref}' not found in this project.",
+                code="not_found",
+                details=["List saved models: dku ml models -P PROJ"],
+                status=3,
+            )
+        return "SAVED_MODEL", resolved
+
+    # Auto-detect
+    matches = []
+    ds = _try_dataset()
+    if ds is not None:
+        matches.append(("DATASET", ds))
+    fd = _try_folder()
+    if fd is not None:
+        matches.append(("MANAGED_FOLDER", fd))
+    sm = _try_model()
+    if sm is not None:
+        matches.append(("SAVED_MODEL", sm))
+
+    if not matches:
+        exit_with_error(
+            f"'{ref}' is not a dataset, managed folder, or saved model in this project.",
+            code="not_found",
+            details=[
+                "List candidates:",
+                "  dku dataset list -P PROJ",
+                "  dku folder list -P PROJ",
+                "  dku ml models -P PROJ",
+                "Folders and saved models must be referenced by their ID (or unique name).",
+            ],
+            status=3,
+        )
+    if len(matches) > 1:
+        exit_with_error(
+            f"'{ref}' is ambiguous — matches multiple object types: "
+            f"{', '.join(k for k, _ in matches)}.",
+            code="ambiguous",
+            details=[
+                "Disambiguate with --type DATASET|MANAGED_FOLDER|SAVED_MODEL.",
+            ],
+            status=3,
+        )
+    return matches[0]
+
+
 def update_taggable_metadata(
     settings,
     description: str | None = None,

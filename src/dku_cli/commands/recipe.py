@@ -26,6 +26,8 @@ from dku_cli.helpers import (
     read_json_input,
     read_text_input,
     resolve_project,
+    resolve_recipe_input_ref,
+    resolve_saved_model,
 )
 from dku_cli.output import (
     info,
@@ -83,6 +85,15 @@ _INPUT_OPTIONAL_TYPES = frozenset(
 # `dku recipe create` path. sync and sql_query inherit
 # SingleOutputRecipeCreator.with_new_output(name, connection, ...) and
 # auto-create the output on the target connection, so they're excluded.
+_SCORING_RECIPE_TYPES = frozenset(
+    {
+        "prediction_scoring",
+        "clustering_scoring",
+        "evaluation",
+        "standalone_evaluation",
+    }
+)
+
 _VISUAL_RECIPE_TYPES = frozenset(
     {
         "join",
@@ -590,6 +601,11 @@ def create(
         "--params",
         help="Plugin recipe config as JSON string, @file.json, or '-' for stdin",
     ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        help="Saved model ID or name (required for prediction_scoring / clustering_scoring)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(
         None,
@@ -651,9 +667,24 @@ def create(
                     "Or from stdin: echo '{...}' | dku recipe create ... --params -",
                 ],
             )
+    type_lower_for_check = type_name.lower()
+    is_scoring_type = type_lower_for_check in _SCORING_RECIPE_TYPES
+    if is_scoring_type and model is None:
+        exit_with_error(
+            f"Recipe type '{type_name}' requires a saved model. Pass --model SAVED_MODEL_ID_OR_NAME.",
+            code="missing_param",
+            details=[
+                "List saved models: dku ml models -P " + project_key,
+                f"Example: dku recipe create {recipe_name} -t {type_name} -i <INPUT_DS> "
+                f"--model <SAVED_MODEL_ID> --output-ds {output_ds} -P {project_key}",
+            ],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
+        resolved_model_id: str | None = None
+        if model is not None:
+            resolved_model_id = resolve_saved_model(proj, model).id
         # Validate --input is provided for types that require it
         if input_ds is None and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
             exit_with_error(
@@ -712,6 +743,13 @@ def create(
             else:
                 builder.with_output(output_ds)
             builder.build()
+        # Scoring recipes need the saved model wired as a "model"-role input
+        # (the server errors at run time otherwise).
+        if is_scoring_type and resolved_model_id is not None:
+            recipe = proj.get_recipe(recipe_name)
+            recipe_settings = recipe.get_settings()
+            recipe_settings.add_input("model", resolved_model_id)
+            recipe_settings.save()
         success(f"Created recipe '{recipe_name}' in {project_key}")
     except Exception as e:
         if is_already_exists_error(e):
@@ -1131,11 +1169,29 @@ def set_settings_cmd(
 def add_input(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    ref: str = typer.Argument(help="Dataset reference to add as input"),
-    role: str = typer.Option("main", "--role", help="Input role"),
+    ref: str = typer.Argument(
+        help="Dataset, managed folder, or saved model reference (name or ID)"
+    ),
+    role: str | None = typer.Option(
+        None,
+        "--role",
+        help="Input role. Defaults to 'main' for datasets/folders, 'model' for saved models",
+    ),
+    input_type: str | None = typer.Option(
+        None,
+        "--type",
+        help="Input type: DATASET | MANAGED_FOLDER | SAVED_MODEL. Auto-detected if omitted.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add an input dataset to a recipe.
+    """Add an input to a recipe.
+
+    The REF can be a dataset name, managed folder (name or ID), or saved model
+    (ID or name). When --type is omitted, the CLI probes the project and
+    resolves automatically, erroring on ambiguity. Folder/model names are
+    resolved to IDs before being written — DSS stores those refs as IDs.
+
+    For saved models, --role defaults to 'model' (what scoring recipes expect).
 
     For visual recipes that use payload.virtualInputs[] (join, stack, pivot,
     window, distinct, ...), this also appends a matching virtualInputs entry
@@ -1146,14 +1202,18 @@ def add_input(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        proj = client.get_project(project_key)
+        kind, resolved_ref = resolve_recipe_input_ref(proj, ref, input_type)
+        if role is None:
+            role = "model" if kind == "SAVED_MODEL" else "main"
+        recipe = proj.get_recipe(recipe_name)
         settings = recipe.get_settings()
-        settings.add_input(role, ref)
+        settings.add_input(role, resolved_ref)
 
         # Visual recipes store a parallel view of inputs in payload.virtualInputs.
         # settings.add_input() only touches the top-level inputs dict, so we
         # need to patch the payload explicitly when the recipe is visual.
-        if role == "main":
+        if role == "main" and kind == "DATASET":
             try:
                 payload = settings.obj_payload
             except (AttributeError, TypeError, ValueError):
@@ -1173,7 +1233,14 @@ def add_input(
                     vi.append({"index": new_index})
 
         settings.save()
-        success(f"Added input '{ref}' to recipe '{recipe_name}'")
+        label = {
+            "DATASET": "dataset",
+            "MANAGED_FOLDER": "folder",
+            "SAVED_MODEL": "saved model",
+        }[kind]
+        success(
+            f"Added {label} '{resolved_ref}' (role={role}) to recipe '{recipe_name}'"
+        )
     except Exception as e:
         handle_api_error(e)
 

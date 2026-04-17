@@ -71,6 +71,32 @@ dku recipe create-join enrich_sales \
 
 **Default is INNER.** If task says "enrich", use **LEFT**.
 
+## Scoring a Saved Model
+
+Apply a saved model to a dataset without writing Python:
+
+```bash
+dku recipe create score_it -t clustering_scoring \
+  -i features_ds --output-ds scored \
+  --model SAVED_MODEL_ID -P PROJ && \
+dku dataset build scored -P PROJ --wait && \
+dku dataset head scored -P PROJ -n 5
+```
+
+`-t clustering_scoring` and `-t prediction_scoring` require `--model`. The CLI
+wires the saved model as a `model`-role input after recipe creation. Without
+`--model`, the server errors with `IndexOutOfBoundsException`.
+
+Adding a saved model to an existing recipe (e.g. a custom Python scorer):
+
+```bash
+dku recipe add-input my_scorer SAVED_MODEL_ID --type SAVED_MODEL -P PROJ
+```
+
+The `--type SAVED_MODEL` form defaults `--role` to `model` (what scoring
+recipes expect). For folders, use `--type MANAGED_FOLDER`; the folder name is
+resolved to its ID before being written to the recipe definition.
+
 ## Python Recipe (Last Resort)
 
 ```bash

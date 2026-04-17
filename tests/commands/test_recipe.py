@@ -951,7 +951,7 @@ def test_recipe_add_input(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "Added input" in result.output
+    assert "Added dataset 'extra_input'" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     settings = recipe.get_settings()
     settings.add_input.assert_called_once_with("main", "extra_input")
@@ -5296,3 +5296,168 @@ def test_recipe_add_geodistance_default_output(patch_client):
     assert result.exit_code == 0
     step = settings.obj_payload["steps"][0]
     assert step["params"]["output_column"] == "geo_distance"
+
+
+def test_recipe_add_input_folder_by_name_resolves_to_id(patch_client):
+    """Folder name → folder ID resolution on add-input."""
+    proj = patch_client.get_project("PROJ1")
+    # Ensure "Data Folder" is not a dataset — auto-detect should pick folder
+    ds_mock = MagicMock()
+    ds_mock.get_definition.side_effect = Exception("NotFoundException")
+    default_ds = proj.get_dataset.return_value
+
+    def get_dataset(ref):
+        if ref == "Data Folder":
+            return ds_mock
+        return default_ds
+
+    proj.get_dataset.side_effect = get_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "Data Folder",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "folder 'folder1'" in result.output
+    recipe = proj.get_recipe("recipe1")
+    settings = recipe.get_settings()
+    settings.add_input.assert_called_once_with("main", "folder1")
+
+
+def test_recipe_add_input_saved_model_defaults_role_model(patch_client):
+    """Saved model name → model ID, role defaults to 'model'."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "My Model",
+            "--type",
+            "SAVED_MODEL",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "saved model 'model1'" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    settings = recipe.get_settings()
+    settings.add_input.assert_called_once_with("model", "model1")
+
+
+def test_recipe_add_input_rejects_unknown_ref(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    # Nothing in the project matches "does_not_exist_anywhere"
+    ds_mock = MagicMock()
+    ds_mock.get_definition.side_effect = Exception("NotFoundException")
+    default_ds = proj.get_dataset.return_value
+
+    def get_dataset(ref):
+        if ref == "does_not_exist_anywhere":
+            return ds_mock
+        return default_ds
+
+    proj.get_dataset.side_effect = get_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "does_not_exist_anywhere",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 3
+    assert "not a dataset, managed folder, or saved model" in result.output
+
+
+def test_recipe_add_input_explicit_type_dataset(patch_client):
+    """--type DATASET skips folder/model probing."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "extra_input",
+            "--type",
+            "DATASET",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_recipe_create_scoring_requires_model(patch_client):
+    """clustering_scoring must be rejected when --model is omitted."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "score_it",
+            "-t",
+            "clustering_scoring",
+            "-i",
+            "input_ds",
+            "--output-ds",
+            "scored",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "requires a saved model" in result.output
+    assert "--model" in result.output
+
+
+def test_agent_tool_create_kb_resolves_name_to_id(patch_client):
+    """--kb NAME must resolve to the KB id via list_knowledge_banks."""
+    proj = patch_client.get_project("PROJ1")
+    # Seed knowledge bank list so name→ID resolution works
+    proj.list_knowledge_banks.return_value = [
+        {"id": "kb_id_123", "name": "my_kb"},
+    ]
+    # Make get_knowledge_bank(name).get_settings() raise to force fallback
+    kb_mock_by_name = MagicMock()
+    kb_mock_by_name.get_settings.side_effect = Exception("NotFoundException")
+    kb_mock_by_id = MagicMock()
+    kb_mock_by_id.id = "kb_id_123"
+    kb_mock_by_id.get_settings.return_value = MagicMock()
+
+    def get_kb(ref):
+        if ref == "kb_id_123":
+            return kb_mock_by_id
+        return kb_mock_by_name
+
+    proj.get_knowledge_bank.side_effect = get_kb
+
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "search_tool",
+            "--type",
+            "VectorStoreSearch",
+            "--kb",
+            "my_kb",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    builder = proj.new_agent_tool.return_value
+    builder.with_knowledge_bank.assert_called_once_with("kb_id_123")

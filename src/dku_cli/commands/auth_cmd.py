@@ -17,7 +17,14 @@ from dku_cli.config import (
     set_default_project,
     set_profile_config,
 )
-from dku_cli.output import console, error, info, success
+from dku_cli.output import (
+    console,
+    error,
+    info,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS authentication profiles.")
 
@@ -105,37 +112,85 @@ def logout(
 
 
 @app.command()
-def status() -> None:
+def status(
+    output: str | None = typer.Option(
+        None, "-o", "--output", help="Output format (text or json)"
+    ),
+) -> None:
     """Show current authentication status."""
+    fmt = resolve_output_format(output)
     profile = get_active_profile()
     config = get_profile_config(profile)
     url = config.get("url")
 
     if not url:
-        error(f'Profile "{profile}" has no URL configured.')
-        error("Run 'dku auth login' to set up.")
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "url": None,
+                    "status": "no_url",
+                    "error": "No URL configured",
+                },
+                output_format=fmt,
+            )
+        else:
+            error(f'Profile "{profile}" has no URL configured.')
+            error("Run 'dku auth login' to set up.")
         raise typer.Exit(1)
 
     api_key = get_api_key(profile)
     if not api_key:
-        error(f'Profile "{profile}" has no API key stored.')
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "url": url,
+                    "status": "no_key",
+                    "error": "No API key stored",
+                },
+                output_format=fmt,
+            )
+        else:
+            error(f'Profile "{profile}" has no API key stored.')
         raise typer.Exit(1)
 
-    # Test connection
     try:
         import dataikuapi
 
         client = dataikuapi.DSSClient(url, api_key=api_key)
         auth_info = client.get_auth_info()
         user = auth_info.get("authIdentifier", "unknown")
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "url": url,
+                    "user": user,
+                    "status": "connected",
+                },
+                output_format=fmt,
+            )
+            return
         console.print(f"[bold]Profile:[/bold]  {profile}")
         console.print(f"[bold]URL:[/bold]      {url}")
         console.print(f"[bold]User:[/bold]     {user}")
         console.print(f"[bold]Status:[/bold]   [green]{ICON} Connected[/green]")
     except Exception as e:
-        console.print(f"[bold]Profile:[/bold]  {profile}")
-        console.print(f"[bold]URL:[/bold]      {url}")
-        console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "url": url,
+                    "status": "error",
+                    "error": str(e),
+                },
+                output_format=fmt,
+            )
+        else:
+            console.print(f"[bold]Profile:[/bold]  {profile}")
+            console.print(f"[bold]URL:[/bold]      {url}")
+            console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
         raise typer.Exit(1)
 
 

@@ -28,6 +28,29 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 
 `create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS. The evaluation store must also exist — create it first with `dku evaluation-store create NAME --flavor LLM` (or `--flavor AGENT`).
 
+### `create-embed-docs` + FilesInFolder: known failure → use `create-embed` instead
+
+`create-embed-docs` on a `FilesInFolder` dataset can fail at build time with
+`managed folder does not exist: PROJ.DATASET_NAME` — DSS resolves the dataset
+name as a folder name internally. When that happens, fall back to:
+
+1. Materialize folder text into a CSV dataset with a single `content` column
+   (one row per doc). A small Prepare or Python step over the FilesInFolder
+   dataset works — or extract text upstream and upload as CSV.
+2. Run `create-embed` (not `create-embed-docs`) on the text column:
+
+```bash
+dku recipe create-embed embed_docs \
+  --input docs_text \
+  --output-kb my_kb \
+  --embedding-llm "$LLM_ID" \
+  --text-column content -P PROJ
+```
+
+`create-embed` is stable with CSV text inputs. `create-embed-docs` is best used
+when your input is already a plain dataset of document rows with a text column,
+not a file-backed FilesInFolder dataset.
+
 ## Prompt Recipe — Programmatic Creation
 
 See `references/prompt-recipe-payload.md` for the full payload schema.

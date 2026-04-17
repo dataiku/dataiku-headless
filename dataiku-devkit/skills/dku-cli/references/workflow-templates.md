@@ -295,6 +295,26 @@ dku project list --profile prod
 dku auth list
 ```
 
+### After `dataset build` — detect orphaned recipes
+
+A `dku dataset build` can report success while doing nothing when a recipe
+input is silently ignored (e.g. a folder name written as a dataset ref). The
+job's source graph is empty, the job exits 0, and the output dataset is
+unchanged — there's no surface error.
+
+```bash
+# Detect orphaned recipes in the job log
+dku job log JOB_ID -P PROJ | grep -E "Failed to add recipe|Job has the following sources: \{\}" || true
+```
+
+If either pattern appears, a recipe was silently dropped. Check its inputs:
+
+```bash
+dku recipe get-settings SUSPECT_RECIPE -P PROJ -o json | jq '.inputs'
+```
+
+Fix folder refs with `dku recipe add-input RECIPE FOLDER_ID --type MANAGED_FOLDER`.
+
 ## Task-Specific Verification Blocks
 
 ### After Creating Agents

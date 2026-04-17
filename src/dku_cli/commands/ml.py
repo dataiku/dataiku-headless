@@ -637,6 +637,62 @@ def set_algorithm(
         handle_api_error(e)
 
 
+@app.command("set-feature")
+def set_feature(
+    ctx: typer.Context,
+    analysis_id: str = typer.Argument(help="Analysis ID"),
+    mltask_id: str = typer.Argument(help="ML task ID"),
+    feature: str = typer.Argument(help="Feature (column) name"),
+    role: str = typer.Option(
+        ...,
+        "--role",
+        help="INPUT | REJECT | TARGET (prediction only) | WEIGHT (prediction only)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Change the role of a feature in an ML task (e.g. reject a leaky column).
+
+    After create-prediction / create-clustering, DSS auto-guesses feature roles.
+    Use this to reject columns that leak the target (labels, post-event columns)
+    without rebuilding the upstream dataset.
+
+    Example:
+      dku ml set-feature ml_analysis_1 mltask_1 true_label --role REJECT -P PROJ
+    """
+    role_upper = role.upper()
+    valid_roles = {"INPUT", "REJECT", "REJECTED", "TARGET", "WEIGHT"}
+    if role_upper not in valid_roles:
+        exit_with_error(
+            f"Invalid --role '{role}'. Allowed: INPUT, REJECT, TARGET, WEIGHT.",
+            code="invalid_param",
+        )
+    # DSS stores rejected role as "REJECT" internally.
+    if role_upper == "REJECTED":
+        role_upper = "REJECT"
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        mltask = proj.get_ml_task(analysis_id, mltask_id)
+        task_settings = mltask.get_settings()
+        try:
+            feat = task_settings.get_feature_preprocessing(feature)
+        except Exception:
+            exit_with_error(
+                f"Feature '{feature}' not found in ML task {mltask_id}.",
+                code="not_found",
+                details=[
+                    f"Inspect features: dku ml settings {analysis_id} {mltask_id} -P {project_key} | jq '.preprocessing.per_feature | keys'",
+                ],
+                status=3,
+            )
+        feat["role"] = role_upper
+        task_settings.save()
+        success(f"Set feature '{feature}' role = {role_upper} in ML task {mltask_id}.")
+    except Exception as e:
+        handle_api_error(e)
+
+
 # ---------------------------------------------------------------------------
 # Delete
 # ---------------------------------------------------------------------------
@@ -647,6 +703,7 @@ def delete(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Delete an ML task."""
@@ -655,6 +712,11 @@ def delete(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
+        if not yes:
+            typer.confirm(
+                f"Delete ML task {mltask_id} (analysis {analysis_id}) in {project_key}?",
+                abort=True,
+            )
         mltask.delete()
         success(f"Deleted ML task {mltask_id}")
     except Exception as e:

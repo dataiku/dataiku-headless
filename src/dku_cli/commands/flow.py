@@ -78,7 +78,7 @@ def zones(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List flow zones."""
+    """List flow zones with their items (objectType + objectId per member)."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -89,16 +89,28 @@ def zones(
 
         data = []
         for z in zone_list:
+            raw_items = getattr(z, "_raw", {}).get("items", []) or []
+            items = [
+                {
+                    "objectType": i.get("objectType"),
+                    "objectId": i.get("objectId"),
+                    "projectKey": i.get("projectKey", project_key),
+                }
+                for i in raw_items
+            ]
             data.append(
                 {
                     "id": z.id,
                     "name": z.name,
+                    "itemCount": len(items),
+                    "items": items,
                 }
             )
 
+        # Table view only shows id/name/itemCount; items shipped in JSON.
         render(
             data,
-            ["id", "name"],
+            ["id", "name", "itemCount"],
             output_format=output,
             title=f"Flow Zones ({project_key})",
         )
