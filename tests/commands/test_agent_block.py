@@ -45,6 +45,15 @@ def test_list_blocks_simple_mode(patch_client):
     assert result.exit_code == 0
 
 
+def test_list_blocks_resolve_by_name(patch_client):
+    """Agent-block commands should resolve agents by name, not just ID."""
+    result = runner.invoke(
+        app, ["agent-block", "list", "Block Agent", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "init_state" in result.output
+
+
 # ── get ───────────────────────────────────────────────────────────────────
 
 
@@ -101,7 +110,7 @@ def test_add_block(patch_client):
         patch_client.get_project("PROJ1").get_agent("agent_blocks").get_settings()
     )
     raw = settings.get_raw()
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     assert any(b["id"] == "new_emit" for b in blocks)
     settings.save.assert_called()
 
@@ -130,7 +139,7 @@ def test_add_block_set_start(patch_client):
         .get_raw()
     )
     assert (
-        raw["versions"][0]["toolsUsingAgentSettings"]["startingBlockId"] == "new_start"
+        raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "new_start"
     )
 
 
@@ -162,25 +171,33 @@ def test_add_block_missing_type(patch_client):
 
 
 def test_add_block_auto_mode_switch(patch_client):
-    """Adding a block should populate the blocks list and set the starting block.
-
-    On DSS 14.5+, block-graph mode is implicit (no mode field). The add command
-    no longer sets mode=BLOCKS_GRAPH — blocks presence is sufficient.
-    """
+    """Adding a block should create blocks list and set starting block."""
     block = json.dumps(
-        {"type": "GENERATE_OUTPUT", "id": "first_block", "template": "Hello"}
+        {"type": "EMIT_OUTPUT", "id": "first_block", "template": "Hello"}
     )
     result = runner.invoke(
-        app, ["agent-block", "add", "agent1", "--block", block, "--project", "PROJ1"]
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent_empty",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
 
-    raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
-    tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    # blocks list must be populated
-    assert any(b["id"] == "first_block" for b in tuas.get("blocks", []))
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent_empty")
+        .get_settings()
+        .get_raw()
+    )
+    sas = raw["versions"][0]["structuredAgentSettings"]
     # First block should auto-become starting block
-    assert tuas.get("startingBlockId") == "first_block"
+    assert sas.get("startingBlockId") == "first_block"
 
 
 # ── remove ────────────────────────────────────────────────────────────────
@@ -200,7 +217,7 @@ def test_remove_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     assert not any(b["id"] == "emit_result" for b in blocks)
 
 
@@ -226,8 +243,8 @@ def test_remove_starting_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    assert tuas.get("startingBlockId") is None
+    sas = raw["versions"][0]["structuredAgentSettings"]
+    assert sas.get("startingBlockId") is None
 
 
 # ── connect / disconnect ──────────────────────────────────────────────────
@@ -257,7 +274,7 @@ def test_connect_blocks(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     emit_block = [b for b in blocks if b["id"] == "emit_result"][0]
     assert emit_block["nextBlock"] == "init_state"
 
@@ -328,7 +345,7 @@ def test_connect_standard_react_uses_default_next_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     react = [b for b in blocks if b["id"] == "react_block"][0]
     assert react.get("defaultNextBlock") == "emit_result"
     assert "nextBlock" not in react
@@ -376,7 +393,7 @@ def test_disconnect_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     classify_block = [b for b in blocks if b["id"] == "classify"][0]
     assert "nextBlock" not in classify_block
 
@@ -411,7 +428,7 @@ def test_disconnect_standard_react_clears_default_next_block(patch_client):
         .get_settings()
         .get_raw()
     )
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     react = [b for b in blocks if b["id"] == "react_block"][0]
     assert react.get("defaultNextBlock") == "emit_result"
 
@@ -431,7 +448,7 @@ def test_disconnect_standard_react_clears_default_next_block(patch_client):
     assert "Disconnected" in result.output
 
     # Verify defaultNextBlock is gone
-    blocks = raw["versions"][0]["toolsUsingAgentSettings"]["blocks"]
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
     react = [b for b in blocks if b["id"] == "react_block"][0]
     assert "defaultNextBlock" not in react
 
@@ -493,7 +510,7 @@ def test_set_start(patch_client):
         .get_raw()
     )
     assert (
-        raw["versions"][0]["toolsUsingAgentSettings"]["startingBlockId"] == "classify"
+        raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "classify"
     )
 
 
@@ -539,7 +556,7 @@ def test_set_mode_to_simple(patch_client):
         .get_settings()
         .get_raw()
     )
-    assert raw["versions"][0]["toolsUsingAgentSettings"]["mode"] == "SIMPLE"
+    assert raw["versions"][0]["structuredAgentSettings"]["mode"] == "SIMPLE"
 
 
 def test_set_mode_invalid(patch_client):
@@ -601,10 +618,10 @@ def test_set_graph(patch_client):
         .get_settings()
         .get_raw()
     )
-    tuas = raw["versions"][0]["toolsUsingAgentSettings"]
-    assert tuas["mode"] == "BLOCKS_GRAPH"
-    assert len(tuas["blocks"]) == 1
-    assert tuas["blocks"][0]["id"] == "greet"
+    sas = raw["versions"][0]["structuredAgentSettings"]
+    assert sas["mode"] == "BLOCKS_GRAPH"
+    assert len(sas["blocks"]) == 1
+    assert sas["blocks"][0]["id"] == "greet"
 
 
 def test_set_graph_from_file(patch_client, tmp_path):
@@ -639,7 +656,7 @@ def test_set_graph_from_file(patch_client, tmp_path):
         .get_settings()
         .get_raw()
     )
-    assert raw["versions"][0]["toolsUsingAgentSettings"]["startingBlockId"] == "start"
+    assert raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "start"
 
 
 # ── agent not found ───────────────────────────────────────────────────────
@@ -656,6 +673,27 @@ def test_list_blocks_structured_agent(patch_client):
     assert result.exit_code == 0
     assert "main_loop" in result.output
     assert "output" in result.output
+
+
+def test_list_blocks_shows_default_next_block(patch_client):
+    """CORE_LOOP blocks should show defaultNextBlock with (default) suffix."""
+    result = runner.invoke(
+        app, ["agent-block", "list", "structured_agent", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "(default)" in result.output
+
+
+def test_list_blocks_default_next_block_json(patch_client):
+    """JSON output should include defaultNextBlock with (default) suffix."""
+    result = runner.invoke(
+        app,
+        ["agent-block", "list", "structured_agent", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    loop = [b for b in parsed if b["id"] == "main_loop"][0]
+    assert loop["next_block"] == "output (default)"
 
 
 def test_get_graph_structured_agent(patch_client):
@@ -784,6 +822,57 @@ def test_add_block_structured_agent(patch_client):
     assert "classify" in ids
 
 
+def test_add_block_structured_agent_no_initial_settings(patch_client):
+    """Adding blocks to a newly-created STRUCTURED_AGENT (no structuredAgentSettings yet)
+    should create structuredAgentSettings, NOT fall back to toolsUsingAgentSettings."""
+    block = json.dumps({"type": "LLM_REQUEST", "id": "first_block", "llmId": "llm1"})
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent_empty",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent_empty")
+        .get_settings()
+        .get_raw()
+    )
+    ver = raw["versions"][0]
+    # Must write to structuredAgentSettings, not toolsUsingAgentSettings
+    assert "structuredAgentSettings" in ver
+    assert "toolsUsingAgentSettings" not in ver
+    blocks = ver["structuredAgentSettings"]["blocks"]
+    assert len(blocks) == 1
+    assert blocks[0]["id"] == "first_block"
+    # First block should be auto-set as starting block
+    assert ver["structuredAgentSettings"]["startingBlockId"] == "first_block"
+
+
+def test_list_blocks_structured_agent_empty(patch_client):
+    """Listing blocks on a STRUCTURED_AGENT with no settings yet should return empty."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "list",
+            "structured_agent_empty",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
 # ── agent not found ───────────────────────────────────────────────────
 
 
@@ -792,3 +881,181 @@ def test_list_blocks_agent_not_found(patch_client):
         app, ["agent-block", "list", "nonexistent_agent", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# ── CEL validation ───────────────────────────────────────────────────
+
+
+def test_add_routing_block_empty_cel_rejected(patch_client):
+    """ROUTING block with empty CEL expression must be rejected."""
+    block = json.dumps(
+        {
+            "type": "ROUTING",
+            "id": "bad_routing",
+            "routingMode": "CLAUSES",
+            "clausesBasedDecisions": [
+                {
+                    "clause": {
+                        "type": "EXPRESSION",
+                        "expression": {"language": "CEL", "expression": ""},
+                    },
+                    "nextBlock": "some_block",
+                }
+            ],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Micro-CEL" in result.output or "EMPTY CEL" in result.output
+
+
+def test_add_routing_block_valid_cel_accepted(patch_client):
+    """ROUTING block with valid CEL expression should be accepted."""
+    block = json.dumps(
+        {
+            "type": "ROUTING",
+            "id": "good_routing",
+            "routingMode": "CLAUSES",
+            "clausesBasedDecisions": [
+                {
+                    "clause": {
+                        "type": "EXPRESSION",
+                        "expression": {
+                            "language": "CEL",
+                            "expression": 'state["intent"] == "billing"',
+                        },
+                    },
+                    "nextBlock": "billing_handler",
+                }
+            ],
+            "defaultNextBlockIfNoClauseMatch": "fallback",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+
+def test_add_routing_block_llm_based_clause_no_cel_ok(patch_client):
+    """ROUTING block with LLM_BASED clauses (no CEL) should be accepted."""
+    block = json.dumps(
+        {
+            "type": "ROUTING",
+            "id": "llm_routing",
+            "routingMode": "CLAUSES",
+            "clausesBasedDecisions": [
+                {
+                    "clause": {
+                        "type": "LLM_BASED",
+                        "passConversationHistory": True,
+                        "systemPromptAfterHistory": "Is this a billing question?",
+                    },
+                    "nextBlock": "billing_handler",
+                }
+            ],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added block" in result.output
+
+
+def test_set_graph_empty_cel_rejected(patch_client):
+    """set-graph with ROUTING block containing empty CEL must be rejected."""
+    graph = json.dumps(
+        {
+            "mode": "BLOCKS_GRAPH",
+            "startingBlockId": "bad_routing",
+            "blocks": [
+                {
+                    "type": "ROUTING",
+                    "id": "bad_routing",
+                    "routingMode": "CLAUSES",
+                    "clausesBasedDecisions": [
+                        {
+                            "clause": {
+                                "type": "EXPRESSION",
+                                "expression": {"language": "CEL", "expression": "  "},
+                            },
+                            "nextBlock": "target",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "set-graph",
+            "agent_blocks",
+            "--definition",
+            graph,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Micro-CEL" in result.output or "EMPTY CEL" in result.output
+
+
+# ── agent type validation ─────────────────────────────────────────────
+
+
+def test_add_block_to_tools_using_agent_errors(patch_client):
+    """Adding a block to TOOLS_USING_AGENT should error, not just warn."""
+    block = json.dumps(
+        {
+            "type": "EMIT_OUTPUT",
+            "id": "new_output",
+            "template": "Done",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent1",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "STRUCTURED_AGENT" in result.output

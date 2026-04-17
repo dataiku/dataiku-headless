@@ -64,6 +64,70 @@ def test_recipe_get_definition_table(patch_client):
     assert "Payload" in result.output
 
 
+def test_recipe_get_definition_sql_query_raw_payload(patch_client):
+    """SQL query recipes have raw text payloads — obj_payload raises JSONDecodeError.
+    get-definition must not crash and should show a text preview of the SQL.
+    """
+    from unittest.mock import PropertyMock
+    import json as _json
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "extract_base_plan",
+    }
+    settings._str_payload = (
+        "SELECT * FROM ${projectKey}_src WHERE reporting_date > '2024-12-31'"
+    )
+    # obj_payload should NOT be consulted for sql_query recipes; simulate the
+    # real dataikuapi behavior where it raises on invalid JSON.
+    type(settings).obj_payload = PropertyMock(
+        side_effect=_json.JSONDecodeError("Expecting value", "", 0)
+    )
+    settings.get_flat_input_refs.return_value = ["src", "dim_a", "dim_b"]
+    settings.get_flat_output_refs.return_value = ["extract_base_plan"]
+
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "extract_base_plan", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "sql_query" in result.output
+    assert "src" in result.output
+    assert "extract_base_plan" in result.output
+    # The SQL preview should appear (truncated is OK)
+    assert "SELECT" in result.output or "reporting_date" in result.output
+
+
+def test_recipe_get_definition_sql_query_json_output(patch_client):
+    """In JSON mode, SQL recipe payload must serialize as a string, not crash."""
+    from unittest.mock import PropertyMock
+    import json as _json
+
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "my_sql",
+    }
+    settings._str_payload = "SELECT count(*) FROM ${projectKey}_dim_a"
+    type(settings).obj_payload = PropertyMock(
+        side_effect=_json.JSONDecodeError("Expecting value", "", 0)
+    )
+    settings.get_flat_input_refs.return_value = ["dim_a"]
+    settings.get_flat_output_refs.return_value = ["my_sql_out"]
+
+    result = runner.invoke(
+        app, ["recipe", "get-definition", "my_sql", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = _json.loads(result.output)
+    assert parsed["definition"]["type"] == "sql_query"
+    assert parsed["payload"] == "SELECT count(*) FROM ${projectKey}_dim_a"
+
+
 def test_recipe_run(patch_client):
     result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -143,8 +207,8 @@ def test_recipe_create(patch_client):
     proj.new_recipe.assert_called_once_with("python", "new_recipe")
     builder = proj.new_recipe.return_value
     builder.with_input.assert_called_once_with("input_ds")
-    # MagicMock has all attrs, so hasattr picks with_existing_output
-    builder.with_existing_output.assert_called_once_with("output_ds")
+    # Python is a code recipe — no --connection means with_output() (project default)
+    builder.with_output.assert_called_once_with("output_ds")
     builder.build.assert_called_once()
 
 
@@ -350,7 +414,8 @@ def test_recipe_create_output_dataset_alias(patch_client):
     assert "Created recipe" in result.output
     proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
-    builder.with_existing_output.assert_called_once_with("output_ds")
+    # Python is a code recipe — no --connection means with_output() (project default)
+    builder.with_output.assert_called_once_with("output_ds")
 
 
 def test_recipe_create_output_ds_already_exists(patch_client):
@@ -411,8 +476,19 @@ def test_recipe_create_with_connection(patch_client):
     builder.build.assert_called_once()
 
 
-def test_recipe_create_connection_ignored_for_visual(patch_client):
-    """--connection is ignored (with warning) for visual recipes that use with_existing_output."""
+def test_recipe_create_visual_with_connection_auto_creates_output(patch_client):
+    """Visual recipes with --connection auto-create the output via with_new_output().
+
+    Visual recipe builders (JoinRecipeCreator, GroupingRecipeCreator, ...)
+    inherit with_new_output(name, connection) from SingleOutputRecipeCreator
+    via VirtualInputsSingleOutputRecipeCreator. The CLI routes --connection
+    through that path so visual recipes can create their output on the target
+    connection in one call (no need to pre-create the output dataset).
+    """
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Visual builders have with_new_output but NOT with_new_output_dataset
+    del builder.with_new_output_dataset
     result = runner.invoke(
         app,
         [
@@ -426,7 +502,31 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
             "--output-ds",
             "output_ds",
             "--connection",
-            "filesystem_managed",
+            "sql_managed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created recipe" in result.output
+    builder.with_new_output.assert_called_once_with("output_ds", "sql_managed")
+    builder.with_existing_output.assert_not_called()
+
+
+def test_recipe_create_visual_without_connection_uses_existing_output(patch_client):
+    """Visual recipes without --connection still require a pre-existing output."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "visual_recipe",
+            "--type",
+            "join",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
             "--project",
             "PROJ1",
         ],
@@ -435,7 +535,71 @@ def test_recipe_create_connection_ignored_for_visual(patch_client):
     assert "Created recipe" in result.output
     builder = patch_client.get_project("PROJ1").new_recipe.return_value
     builder.with_existing_output.assert_called_once_with("output_ds")
-    builder.with_new_output_dataset.assert_not_called()
+    builder.with_new_output.assert_not_called()
+
+
+def test_recipe_create_sync_with_connection(patch_client):
+    """-t sync --connection X routes to with_new_output() (SingleOutputRecipeCreator path).
+
+    Canonical cross-connection landing pattern (file -> managed SQL table, etc.).
+    Before this fix, `sync` was mis-classified as visual and forced users to
+    pre-create the output dataset (which defaults to unwritable `query` mode on
+    SQL connections).
+    """
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # SingleOutputRecipeCreator has with_new_output but NOT with_new_output_dataset
+    del builder.with_new_output_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "sync_csv_to_sql",
+            "--type",
+            "sync",
+            "--input",
+            "my_csv",
+            "--output-ds",
+            "my_sql_table",
+            "--connection",
+            "sql_managed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created recipe" in result.output
+    proj.new_recipe.assert_called_once_with("sync", "sync_csv_to_sql")
+    builder.with_new_output.assert_called_once_with("my_sql_table", "sql_managed")
+    builder.with_existing_output.assert_not_called()
+
+
+def test_recipe_create_sql_query_with_connection(patch_client):
+    """-t sql_query --connection X routes to with_new_output()."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    del builder.with_new_output_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_sql_step",
+            "--type",
+            "sql_query",
+            "--input",
+            "src_table",
+            "--output-ds",
+            "derived_table",
+            "--connection",
+            "sql_managed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    builder.with_new_output.assert_called_once_with("derived_table", "sql_managed")
 
 
 def test_recipe_create_connection_required_error(patch_client):
@@ -503,11 +667,117 @@ def test_recipe_create_visual_type_connection_error_suggests_pre_create(patch_cl
 
 
 def test_recipe_delete(patch_client):
-    result = runner.invoke(app, ["recipe", "delete", "recipe1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted recipe" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     recipe.delete.assert_called_once()
+
+
+def test_recipe_rename(patch_client):
+    result = runner.invoke(
+        app,
+        ["recipe", "rename", "recipe1", "--name", "recipe1_new", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Renamed" in result.output
+    assert "recipe1_new" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.rename.assert_called_once_with("recipe1_new")
+
+
+def test_recipe_rename_same_name_error(patch_client):
+    """Renaming to the same name gives prescriptive error."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.rename.side_effect = ValueError("Recipe name is already recipe1")
+    result = runner.invoke(
+        app,
+        ["recipe", "rename", "recipe1", "--name", "recipe1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "already" in result.output.lower()
+
+
+def test_recipe_rename_requires_name(patch_client):
+    """--name is required."""
+    result = runner.invoke(app, ["recipe", "rename", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+
+
+# --- status ---
+
+
+def test_recipe_status_table(patch_client):
+    """Status shows engine, severity, and messages."""
+    result = runner.invoke(app, ["recipe", "status", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "DSS" in result.output  # engine
+    assert "SUCCESS" in result.output  # severity
+    assert "Recipe is valid" in result.output  # message title
+
+
+def test_recipe_status_json(patch_client):
+    """JSON output returns structured status."""
+    result = runner.invoke(
+        app, ["recipe", "status", "recipe1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["engine"] == "DSS"
+    assert parsed["severity"] == "SUCCESS"
+    assert len(parsed["messages"]) == 1
+    assert parsed["messages"][0]["severity"] == "SUCCESS"
+
+
+def test_recipe_status_no_engine(patch_client):
+    """Recipes without engine concept show (none)."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    status_mock = recipe.get_status.return_value
+    status_mock.get_selected_engine_details.side_effect = ValueError(
+        "This recipe doesn't have a selected engine"
+    )
+    result = runner.invoke(app, ["recipe", "status", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "(none)" in result.output
+
+
+def test_recipe_status_no_messages(patch_client):
+    """Recipes with no messages show informational text."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    status_mock = recipe.get_status.return_value
+    status_mock.get_status_messages.return_value = []
+    status_mock.get_status_severity.return_value = None
+    result = runner.invoke(app, ["recipe", "status", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "no status messages" in result.output.lower()
+
+
+def test_recipe_status_env_project(patch_client, monkeypatch):
+    """Resolves project from DKU_PROJECT env var."""
+    monkeypatch.setenv("DKU_PROJECT", "PROJ1")
+    result = runner.invoke(app, ["recipe", "status", "recipe1"])
+    assert result.exit_code == 0
+
+
+def test_recipe_delete_prompts_without_yes(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="y\n"
+    )
+    assert result.exit_code == 0
+    assert "Delete recipe 'recipe1' from PROJ1?" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.delete.assert_called_once()
+
+
+def test_recipe_delete_aborts_on_no(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="n\n"
+    )
+    assert result.exit_code != 0
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.delete.assert_not_called()
 
 
 def test_recipe_set_code_inline(patch_client):
@@ -696,6 +966,62 @@ def test_recipe_add_input_custom_role(patch_client):
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     settings = recipe.get_settings()
     settings.add_input.assert_called_once_with("lookup", "lookup_ds")
+
+
+def test_recipe_add_input_syncs_visual_recipe_virtual_inputs(patch_client):
+    """For visual recipes (join/stack/pivot/...), add-input must append to
+    payload.virtualInputs[] so the new input is visible to the payload."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Simulate a 2-input visual join before add-input
+    settings.obj_payload = {
+        "virtualInputs": [
+            {"index": 0},
+            {"index": 1},
+        ]
+    }
+    # After add_input is called, the main items should grow to 3
+    settings.get_recipe_raw_definition.return_value = {
+        "inputs": {
+            "main": {
+                "items": [
+                    {"ref": "src1"},
+                    {"ref": "src2"},
+                    {"ref": "src3"},
+                ]
+            }
+        }
+    }
+
+    result = runner.invoke(
+        app,
+        ["recipe", "add-input", "jrec", "src3", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    # virtualInputs should now have 3 entries with indices 0, 1, 2
+    vi = settings.obj_payload["virtualInputs"]
+    assert len(vi) == 3
+    assert {v["index"] for v in vi} == {0, 1, 2}
+
+
+def test_recipe_add_input_code_recipe_leaves_payload_alone(patch_client):
+    """For code recipes (python/sql/r/shell), add-input must NOT touch
+    the payload — they don't use virtualInputs."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Python recipes have no virtualInputs field at all
+    settings.obj_payload = {"some_other_key": "unchanged"}
+
+    result = runner.invoke(
+        app,
+        ["recipe", "add-input", "py_rec", "extra_ds", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    # Payload should be untouched — no virtualInputs key added
+    assert "virtualInputs" not in settings.obj_payload
+    assert settings.obj_payload["some_other_key"] == "unchanged"
 
 
 # --- GenAI recipe creation ---
@@ -899,7 +1225,7 @@ def test_recipe_create_extract(patch_client):
 
 
 def test_recipe_create_llm_eval_minimal(patch_client):
-    patch_client._perform_json.return_value = {"name": "my_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -916,24 +1242,17 @@ def test_recipe_create_llm_eval_minimal(patch_client):
     )
     assert result.exit_code == 0
     assert "Created LLM eval recipe" in result.output
-    proj = patch_client.get_project("PROJ1")
-    patch_client._perform_json.assert_called_once()
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert body["recipePrototype"]["type"] == "nlp_llm_evaluation"
-    assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "responses"
-    assert (
-        body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"]
-        == "eval_store_1"
-    )
-    assert "main" not in body["recipePrototype"]["outputs"]
-    assert "metrics" not in body["recipePrototype"]["outputs"]
-    assert body["creationSettings"] == {"rawCreation": True}
-    proj.get_recipe.assert_called_once_with("my_eval")
+    proj.new_recipe.assert_called_once_with("nlp_llm_evaluation", "my_eval")
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("responses")
+    builder.with_output_evaluation_store.assert_called_once_with("eval_store_1")
+    builder.with_output.assert_not_called()
+    builder.with_output_metrics.assert_not_called()
+    builder.build.assert_called_once()
 
 
 def test_recipe_create_llm_eval_full(patch_client):
-    patch_client._perform_json.return_value = {"name": "rag_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -969,18 +1288,14 @@ def test_recipe_create_llm_eval_full(patch_client):
         ],
     )
     assert result.exit_code == 0
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert (
-        body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_scored"
-    )
-    assert (
-        body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"]
-        == "eval_metrics"
-    )
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("qa_data")
+    builder.with_output_evaluation_store.assert_called_once_with("eval_store_1")
+    builder.with_output.assert_called_once_with("eval_scored")
+    builder.with_output_metrics.assert_called_once_with("eval_metrics")
 
     # Verify post-creation payload settings
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["taskType"] == "QUESTION_ANSWERING"
@@ -997,8 +1312,8 @@ def test_recipe_create_llm_eval_full(patch_client):
 def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
     from unittest.mock import PropertyMock
 
-    patch_client._perform_json.return_value = {"name": "rag_eval"}
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.new_recipe.return_value.build.return_value
     settings = recipe.get_settings.return_value
     # obj_payload is a read-only property that returns None (no payload yet)
     type(settings).obj_payload = PropertyMock(return_value=None)
@@ -1029,7 +1344,8 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
 
 
 def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
-    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
+    proj = patch_client.get_project("PROJ1")
+    dataset_mock = proj.get_dataset("eval_scored")
     dataset_mock.get_definition.side_effect = Exception(
         "NotFoundException: dataset does not exist"
     )
@@ -1052,7 +1368,7 @@ def test_recipe_create_llm_eval_requires_existing_output_dataset(patch_client):
     assert result.exit_code == 1
     assert "Output dataset 'eval_scored'" in result.output
     assert "then retry" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
@@ -1085,11 +1401,12 @@ def test_recipe_create_llm_eval_requires_existing_metrics_dataset(patch_client):
     )
     assert result.exit_code == 1
     assert "Metrics output dataset 'eval_metrics'" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_client):
-    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_scored")
+    proj = patch_client.get_project("PROJ1")
+    dataset_mock = proj.get_dataset("eval_scored")
     dataset_mock.get_definition.side_effect = Exception("403 Forbidden")
     result = runner.invoke(
         app,
@@ -1109,11 +1426,11 @@ def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_cli
     )
     assert result.exit_code == 2
     assert "Permission denied" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_agent_eval_minimal(patch_client):
-    patch_client._perform_json.return_value = {"name": "agent_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -1130,24 +1447,21 @@ def test_recipe_create_agent_eval_minimal(patch_client):
     )
     assert result.exit_code == 0
     assert "Created agent eval recipe" in result.output
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert body["recipePrototype"]["type"] == "nlp_agent_evaluation"
-    assert body["recipePrototype"]["inputs"]["main"]["items"][0]["ref"] == "agent_runs"
-    assert (
-        body["recipePrototype"]["outputs"]["evaluationStore"]["items"][0]["ref"]
-        == "agent_store_1"
-    )
+    proj.new_recipe.assert_called_once_with("nlp_agent_evaluation", "agent_eval")
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("agent_runs")
+    builder.with_output_evaluation_store.assert_called_once_with("agent_store_1")
 
     # Default input format
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     assert settings.obj_payload["inputFormat"] == "AGENT_EXECUTION"
     settings.save.assert_called()
 
 
 def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client):
-    dataset_mock = patch_client.get_project("PROJ1").get_dataset("eval_out")
+    proj = patch_client.get_project("PROJ1")
+    dataset_mock = proj.get_dataset("eval_out")
     dataset_mock.get_definition.side_effect = Exception(
         "NotFoundException: dataset does not exist"
     )
@@ -1169,7 +1483,7 @@ def test_recipe_create_agent_eval_requires_existing_output_dataset(patch_client)
     )
     assert result.exit_code == 1
     assert "Output dataset 'eval_out'" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client):
@@ -1202,11 +1516,11 @@ def test_recipe_create_agent_eval_requires_existing_metrics_dataset(patch_client
     )
     assert result.exit_code == 1
     assert "Metrics output dataset 'eval_metrics'" in result.output
-    patch_client._perform_json.assert_not_called()
+    proj.new_recipe.assert_not_called()
 
 
 def test_recipe_create_agent_eval_full(patch_client):
-    patch_client._perform_json.return_value = {"name": "agent_eval"}
+    proj = patch_client.get_project("PROJ1")
     result = runner.invoke(
         app,
         [
@@ -1234,15 +1548,11 @@ def test_recipe_create_agent_eval_full(patch_client):
         ],
     )
     assert result.exit_code == 0
-    _, kwargs = patch_client._perform_json.call_args
-    body = kwargs["body"]
-    assert body["recipePrototype"]["outputs"]["main"]["items"][0]["ref"] == "eval_out"
-    assert (
-        body["recipePrototype"]["outputs"]["metrics"]["items"][0]["ref"]
-        == "eval_metrics"
-    )
+    builder = proj.new_recipe.return_value
+    builder.with_output.assert_called_once_with("eval_out")
+    builder.with_output_metrics.assert_called_once_with("eval_metrics")
 
-    recipe = patch_client.get_project("PROJ1").get_recipe.return_value
+    recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
     assert payload["inputFormat"] == "PROMPT_RECIPE"
@@ -1255,9 +1565,7 @@ def test_recipe_create_agent_eval_full(patch_client):
 
 
 def test_recipe_get_json_error_payload(patch_client):
-    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception(
-        "NotFoundException: recipe does not exist"
-    )
+    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("'recipe'")
     result = runner.invoke(
         app,
         ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
@@ -1267,7 +1575,14 @@ def test_recipe_get_json_error_payload(patch_client):
     parsed = json.loads(result.stderr)
     assert parsed["error"]["code"] == "not_found"
     assert parsed["error"]["exit_code"] == 3
-    assert "recipe does not exist" in parsed["error"]["message"]
+    assert (
+        parsed["error"]["message"]
+        == "Recipe 'missing_recipe' not found in project 'PROJ1'."
+    )
+    assert parsed["error"]["details"] == [
+        "List recipes: dku recipe list -P PROJ1",
+        "Inspect the project flow: dku project inspect PROJ1 -o json",
+    ]
 
 
 # ── Schema inspection commands ───────────────────────────────────────
@@ -1711,6 +2026,55 @@ def test_recipe_create_join_multi_input_indexed_keys(patch_client):
     assert mock_joins[1]["on"][0]["column1"]["name"] == "region"
 
 
+def test_recipe_create_join_five_inputs_creates_four_join_pairs(patch_client):
+    """With 5 inputs, the CLI extends raw_joins to 4 pairs (DSS's builder
+    pre-creates only 1 pair, so we must fill the rest)."""
+    # Simulate DSS's builder pre-creating a single default join pair for 2+ inputs.
+    _proj, _settings, mock_joins = _setup_join_mock(patch_client, num_joins=1)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "five_way",
+            "-i",
+            "main",
+            "-i",
+            "dim_a",
+            "-i",
+            "dim_b",
+            "-i",
+            "dim_c",
+            "-i",
+            "dim_d",
+            "--output-ds",
+            "fully_enriched",
+            "--join-key",
+            "k0=a_key",
+            "--join-key",
+            "1:k1=b_key",
+            "--join-key",
+            "2:k2=c_key",
+            "--join-key",
+            "3:k3=d_key",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # 5 inputs → 4 join pairs
+    assert len(mock_joins) == 4
+    # Each pair fans out from table 0 to tables 1..4
+    for i, j in enumerate(mock_joins):
+        assert j["table1"] == 0
+        assert j["table2"] == i + 1
+    # All four keys should be wired (not just the first)
+    assert mock_joins[0]["on"][0]["column1"]["name"] == "k0"
+    assert mock_joins[1]["on"][0]["column1"]["name"] == "k1"
+    assert mock_joins[2]["on"][0]["column1"]["name"] == "k2"
+    assert mock_joins[3]["on"][0]["column1"]["name"] == "k3"
+
+
 # ── Visual recipe: create-pivot ────────────────────────────────────────
 
 
@@ -2024,6 +2388,41 @@ def test_recipe_create_pivot_with_agg_type(patch_client):
     assert settings.obj_payload["explicitIdentifiers"] == ["product"]
 
 
+def test_recipe_create_pivot_no_global_count(patch_client):
+    """--no-global-count should flip pivots[0].globalCount to False."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Start the mocked payload as a dict so the CLI's .setdefault() works
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--no-global-count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["pivots"][0]["globalCount"] is False
+
+
 def test_recipe_create_pivot_invalid_agg_type(patch_client):
     """--agg-type with unknown type gives error."""
     result = runner.invoke(
@@ -2050,7 +2449,8 @@ def test_recipe_create_pivot_invalid_agg_type(patch_client):
 
 
 def test_recipe_create_window_with_compute_rank(patch_client):
-    """--compute rowNumber::rn sets top-level boolean in payload."""
+    """--compute rowNumber::rn sets top-level boolean in payload AND warns that
+    the custom output name won't be honored (DSS has no payload field for it)."""
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
@@ -2078,6 +2478,37 @@ def test_recipe_create_window_with_compute_rank(patch_client):
     assert result.exit_code == 0
     # rowNumber is a top-level boolean in DSS Window payload
     assert settings.obj_payload["rowNumber"] is True
+    # User asked for `rn` but DSS will name it `rownumber` — warn loudly
+    assert "does not support custom output column names" in result.output
+    assert "→ column 'rownumber'" in result.output
+
+
+def test_recipe_create_window_no_warning_when_name_matches_dss(patch_client):
+    """When the user's custom name matches what DSS will produce, no warning."""
+    # patch_client fixture seeds the recipe mock; we only need to invoke the CLI.
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w2",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--partition-key",
+            "cat",
+            "--order-key",
+            "id",
+            # Explicit name that matches DSS's generated name
+            "--compute",
+            "rowNumber::rownumber",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "does not support custom output column names" not in result.output
 
 
 def test_recipe_create_window_with_compute_lag(patch_client):
@@ -2460,6 +2891,36 @@ def test_recipe_create_group(patch_client):
     builder.with_group_key.assert_called_once_with("region")
 
 
+def test_recipe_create_group_no_global_count(patch_client):
+    """--no-global-count disables the DSS default per-group count column."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "tight_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum",
+            "--no-global-count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.set_global_count_enabled.assert_called_once_with(False)
+    settings.save.assert_called()
+
+
 def test_recipe_create_group_with_agg(patch_client):
     """--agg configures column aggregations after build."""
     proj = patch_client.get_project("PROJ1")
@@ -2745,6 +3206,81 @@ def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
     )
     assert result.exit_code == 0
     assert "Created distinct recipe" in result.output
+
+
+def test_recipe_create_distinct_defaults_to_all_input_columns(patch_client):
+    """Without --on, create-distinct populates keys with every input column.
+
+    Prevents the silent bug where DSS defaults to keys=[first_col] +
+    selectAllColumns=false, which projects the output to a single column.
+    """
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [
+            {"name": "customer_id", "type": "string"},
+            {"name": "order_date", "type": "date"},
+            {"name": "amount", "type": "double"},
+        ]
+    }
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "orders",
+            "--output-ds",
+            "unique_orders",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == [
+        {"column": "customer_id"},
+        {"column": "order_date"},
+        {"column": "amount"},
+    ]
+    assert settings.obj_payload["selectAllColumns"] is True
+    settings.save.assert_called()
+
+
+def test_recipe_create_distinct_with_explicit_on_flag(patch_client):
+    """--on col1 --on col2 sets only the specified keys (skips schema lookup)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "orders",
+            "--output-ds",
+            "unique_per_customer",
+            "--on",
+            "customer_id",
+            "--on",
+            "order_date",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == [
+        {"column": "customer_id"},
+        {"column": "order_date"},
+    ]
+    assert settings.obj_payload["selectAllColumns"] is True
 
 
 # ── Dynamic connection discovery ──────────────────────────────────────
@@ -3375,6 +3911,7 @@ def test_recipe_add_delete_columns(patch_client):
 
 
 def test_recipe_add_find_replace(patch_client):
+    """Default --matching is SUBSTRING."""
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
@@ -3397,6 +3934,32 @@ def test_recipe_add_find_replace(patch_client):
     assert step["type"] == "FindReplace"
     assert step["params"]["columns"] == ["category"]
     assert step["params"]["mapping"] == [{"from": "Electronics", "to": "Tech"}]
+    assert step["params"]["matching"] == "SUBSTRING"
+
+
+def test_recipe_add_find_replace_full_string_opt_in(patch_client):
+    """Exact-match mode is opt-in via --matching FULL_STRING."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-find-replace",
+            "prep1",
+            "--column",
+            "status",
+            "--find",
+            "ACTIVE",
+            "--replace",
+            "active",
+            "--matching",
+            "FULL_STRING",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
     assert step["params"]["matching"] == "FULL_STRING"
 
 
@@ -3426,7 +3989,13 @@ def test_recipe_create_window_basic(patch_client):
 
 
 def test_recipe_create_window_with_partition_key(patch_client):
-    """--partition-key sets partitioningColumns in payload."""
+    """--partition-key sets partitioningColumns in payload.
+
+    Writes both to top-level (for backwards compat) AND nested under
+    windows[0] with enablePartitioning=true (DSS's canonical location).
+    Writing only to top-level causes the Window recipe to silently ignore
+    partitioning and produce global aggregations.
+    """
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
@@ -3448,8 +4017,45 @@ def test_recipe_create_window_with_partition_key(patch_client):
         ],
     )
     assert result.exit_code == 0
+    # Top-level (backwards compat)
     assert settings.obj_payload["partitioningColumns"] == [{"column": "customer_id"}]
+    # Nested windows[0] (canonical) — enable flag MUST be true
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enablePartitioning"] is True
+    assert win0["partitioningColumns"] == ["customer_id"]
     settings.save.assert_called()
+
+
+def test_recipe_create_window_partition_and_order_sets_enable_flags(patch_client):
+    """Partition + order both set their enable flags inside windows[0]."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--partition-key",
+            "customer_id",
+            "--order-key",
+            "last_update_date:desc",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enablePartitioning"] is True
+    assert win0["partitioningColumns"] == ["customer_id"]
+    assert win0["enableOrdering"] is True
+    assert win0["orders"] == [{"column": "last_update_date", "desc": True}]
 
 
 def test_recipe_create_window_with_order_key(patch_client):
@@ -3760,6 +4366,62 @@ def test_recipe_get_settings_json(patch_client):
     assert "name" in parsed
 
 
+def test_recipe_get_settings_python_recipe_with_code(patch_client):
+    """get-settings on a Python recipe must NOT crash on obj_payload JSON
+    parsing — it must read the string payload directly, same as get-definition."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    # Simulate a Python recipe with code set
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "python",
+        "name": "my_py",
+    }
+    settings._str_payload = "import dataiku\nprint('hello')"
+    # obj_payload would blow up on this — our code must not call it
+    type(settings).obj_payload = property(
+        lambda self: (_ for _ in ()).throw(ValueError("JSON decode"))
+    )
+
+    result = runner.invoke(
+        app,
+        ["recipe", "get-settings", "my_py", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["type"] == "python"
+    assert parsed["payload"] == "import dataiku\nprint('hello')"
+
+    # Restore the mock for subsequent tests
+    del type(settings).obj_payload
+
+
+def test_recipe_get_settings_sql_query_recipe_with_code(patch_client):
+    """Same fix must apply to sql_query / r / shell / spark_sql_query / etc."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "sql_query",
+        "name": "extract",
+    }
+    settings._str_payload = "SELECT id, name FROM t WHERE active = 1"
+    type(settings).obj_payload = property(
+        lambda self: (_ for _ in ()).throw(ValueError("JSON decode"))
+    )
+
+    result = runner.invoke(
+        app,
+        ["recipe", "get-settings", "extract", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["type"] == "sql_query"
+    assert parsed["payload"] == "SELECT id, name FROM t WHERE active = 1"
+
+    del type(settings).obj_payload
+
+
 def test_recipe_set_settings_updates_definition(patch_client):
     """set-settings updates raw definition keys."""
     settings_json = json.dumps({"engineType": "DSS"})
@@ -3800,10 +4462,8 @@ def test_recipe_set_settings_updates_payload(patch_client):
 
 
 def test_recipe_create_filter_with_formula(patch_client):
-    """--filter-formula configures filter expression."""
-    proj = patch_client.get_project("PROJ1")
-    recipe_mock = proj.get_recipe.return_value
-    settings = recipe_mock.get_settings.return_value
+    """create-filter builds a Prepare recipe with a FilterOnCustomFormula step."""
+    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
 
     result = runner.invoke(
         app,
@@ -3821,11 +4481,44 @@ def test_recipe_create_filter_with_formula(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "Created filter recipe" in result.output
-    assert settings.obj_payload["filterExpression"] == "age > 30"
-    assert settings.obj_payload["samplingMethod"] == "FULL"
+    # Expect a prepare/shaker recipe with a single FilterOnCustomFormula step
+    proj.new_recipe.assert_called_with("shaker", "my_filter")
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["type"] == "FilterOnCustomFormula"
+    assert step["params"]["expression"] == "age > 30"
+    assert step["params"]["action"] == "KEEP_ROW"
     settings.save.assert_called()
+
+
+def test_recipe_create_filter_remove_row(patch_client):
+    """--action REMOVE_ROW drops matching rows instead of keeping them."""
+    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-filter",
+            "drop_bad",
+            "-i",
+            "data",
+            "--output-ds",
+            "cleaned",
+            "-f",
+            "status == 'ERROR'",
+            "--action",
+            "REMOVE_ROW",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert steps[0]["params"]["action"] == "REMOVE_ROW"
 
 
 def test_recipe_create_window_with_partition_col(patch_client):

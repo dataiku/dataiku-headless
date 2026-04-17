@@ -6,6 +6,7 @@ import sys
 
 from platformdirs import user_config_dir
 from pathlib import Path
+from dku_cli.config import get_profile_credential_store, set_profile_credential_store
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -33,22 +34,37 @@ def store_api_key(profile: str, api_key: str) -> str:
     if _keyring_available():
         import keyring
 
-        keyring.set_password(SERVICE_NAME, profile, api_key)
-        backend = keyring.get_keyring()
-        return type(backend).__name__
-    else:
-        return _store_file_fallback(profile, api_key)
+        try:
+            keyring.set_password(SERVICE_NAME, profile, api_key)
+            backend = keyring.get_keyring()
+            set_profile_credential_store(profile, "keychain")
+            return type(backend).__name__
+        except keyring.errors.KeyringError as e:
+            storage = _store_file_fallback(profile, api_key)
+            set_profile_credential_store(profile, "file")
+            return f"{storage} (Keychain error: {e})"
+
+    storage = _store_file_fallback(profile, api_key)
+    set_profile_credential_store(profile, "file")
+    return storage
 
 
 def get_api_key(profile: str) -> str | None:
     """Retrieve API key for a profile."""
+    credential_store = get_profile_credential_store(profile)
+    if credential_store == "file":
+        return _get_file_fallback(profile)
+
     # Try keyring first
     if _keyring_available():
         import keyring
 
-        key = keyring.get_password(SERVICE_NAME, profile)
-        if key:
-            return key
+        try:
+            key = keyring.get_password(SERVICE_NAME, profile)
+            if key:
+                return key
+        except keyring.errors.KeyringError:
+            pass
     # Fallback to file
     return _get_file_fallback(profile)
 
@@ -56,13 +72,14 @@ def get_api_key(profile: str) -> str | None:
 def delete_api_key(profile: str) -> bool:
     """Delete API key for a profile. Returns True if deleted."""
     deleted = False
-    if _keyring_available():
+    credential_store = get_profile_credential_store(profile)
+    if credential_store != "file" and _keyring_available():
         import keyring
 
         try:
             keyring.delete_password(SERVICE_NAME, profile)
             deleted = True
-        except keyring.errors.PasswordDeleteError:
+        except keyring.errors.KeyringError:
             pass
     # Also remove from file fallback
     if _delete_file_fallback(profile):

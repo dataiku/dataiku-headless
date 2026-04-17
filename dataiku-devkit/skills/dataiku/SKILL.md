@@ -12,7 +12,6 @@ triggers:
   - structured visual agent
   - SVA
   - block graph
-  - blocks graph
   - code agent
   - python agent
   - build agent
@@ -60,9 +59,22 @@ metadata:
 
 # Dataiku Platform Reference
 
-Comprehensive knowledge base for building Dataiku plugins, webapps, agents, and automations. Consult the routing table below, then read the relevant reference file(s).
+Comprehensive knowledge for building Dataiku plugins, webapps, agents, and automations.
 
-> **Boundary**: This skill covers *development patterns* — plugin code, API usage, component design, platform concepts. For *live DSS operations* via shell commands (list projects, manage datasets, run jobs), use the `dku-cli` skill.
+> **Cheat Sheet (read this first)**
+>
+> 1. **Visual recipe > Python recipe.** Join, group, stack, filter, window, topN — use visual. Python ONLY for custom logic.
+> 2. **Purpose-built processor > GREL.** Rename → `add-rename`, dates → `DateParser`, uppercase → `StringTransformer`. ~95 processors exist.
+> 3. **Verify everything.** `dku dataset head OUTPUT -P PROJ -n 5`. Exit code 0 ≠ correct data. See `references/verification.md` for per-artifact verification (agents, KB, charts, scenarios) and cost risk table.
+> 4. **Gauge before you grab.** `dku dataset info DS -P PROJ` BEFORE `head`. If >1M rows or >1GB, ask before building. Never trigger `RECURSIVE_BUILD` on Spark/BigQuery/Snowflake without asking.
+> 5. **Join prefixing.** Join recipes prefix columns (customers_name, orders_amount). Plan downstream refs.
+> 6. **LEFT join for enrichment.** Default is INNER. For lookups, use LEFT to keep source rows.
+> 7. **Code env on Python 3.11:** Use `installCorePackages: false` + explicit `requirements.txt`. NOT `true`.
+> 8. **Webapp backend ≠ Flask.** Import from `dataiku.customwebapp`, NOT `flask`. Folder is `webapps/`, not `custom-webapps/`.
+> 9. **GREL log() = base-10.** No `ln()`, `exp()` is base-e. Formula cols default to STRING — run `apply-schema`.
+> 10. **Agent tool input at input.get().** NOT root. Trace at `trace.attributes` NOT `set_attribute`.
+
+> **Boundary:** This skill covers *development patterns*. For *live operations* via CLI (list, create, build), use `dku-cli`.
 
 ---
 
@@ -70,130 +82,38 @@ Comprehensive knowledge base for building Dataiku plugins, webapps, agents, and 
 
 **This skill and `dku-cli` are a pair. Always use both.**
 
-- **This skill** tells you *what* to build and *how* DSS works (recipes, agents, plugins, formulas, MLOps patterns)
-- **`dku-cli`** tells you *how to execute* — create projects, upload data, wire recipes, build pipelines, deploy plugins
+- **This skill** tells you *what* to build and *how* DSS works
+- **`dku-cli`** tells you *how to execute* — create, configure, build, verify
 
 **Typical workflow:**
-1. Read this skill to understand the right DSS approach (visual recipe? agent? plugin?)
-2. Use `dku-cli` commands to create, configure, build, and verify everything
-3. **Verify every outcome** — see [Verification Protocol](#verification-protocol) below
-
-When this skill says "use a visual join recipe", the CLI skill shows the exact `dku recipe create-join` command. When this skill says "create a knowledge bank", the CLI skill shows `dku knowledge create`. Never read one without considering the other.
+1. Read this skill to understand the right DSS approach
+2. Use `dku-cli` commands to create and verify
+3. Verify every outcome — see cheat sheet rule #3
 
 ---
 
-## Verification Protocol — Trust Nothing, Verify Everything
-
-**Every artifact you create MUST be verified before you consider the task done.** DSS commands can succeed (exit 0) while producing empty datasets, broken schemas, or misconfigured recipes. Silent failures are the norm, not the exception.
-
-### Mandatory Verification Steps
-
-After creating and building any pipeline, agent, or plugin:
-
-| What you built | How to verify | What to check |
-|----------------|--------------|---------------|
-| **Dataset upload** | `dku dataset head NAME -P PROJ -n 3` | Rows exist, columns correct, types not all string |
-| **Recipe (any type)** | `dku dataset build OUTPUT --wait -P PROJ` then `dku dataset head OUTPUT -P PROJ -n 5` | Output has rows, schema matches expectations |
-| **Full pipeline** | `dku job run --target LEAF -P PROJ --type RECURSIVE_BUILD --auto-update-schema --wait` then `dku dataset head LEAF -P PROJ` | Final output is populated, no schema mismatches |
-| **Visual recipe config** | `dku recipe get-definition NAME -P PROJ -o json` | Verify join keys, aggregation columns, filter conditions are set |
-| **Agent** | `dku agent status NAME -P PROJ` | Status is correct, LLM is assigned |
-| **Agent tools** | `dku agent-tool list -P PROJ` | Tools are created AND attached to the agent |
-| **Knowledge bank** | `dku knowledge search NAME --query "test" -P PROJ` | Returns results after build |
-| **Plugin push** | `dku plugin get NAME -o json` | Version correct, code env assigned |
-| **Dashboard/Chart** | `dku insight validate ID -P PROJ` | Column names exist in dataset |
-| **Scenario** | `dku scenario run NAME -P PROJ --wait` then `dku scenario status NAME -P PROJ` | Completed successfully |
-| **ML model** | `dku ml details AID TID MID -P PROJ` | Metrics exist, performance is reasonable |
-
-### Verification Rules
-
-1. **Never assume success from exit code alone.** A recipe can "build successfully" but produce 0 rows.
-2. **Always `head` the final output.** This is the single most important verification — if the output looks right, the pipeline works.
-3. **Check schemas after visual recipes.** Visual recipes auto-propagate schemas, but columns may be renamed (e.g., join prefixing) or dropped.
-4. **Test agents end-to-end.** Creating an agent + tools is not enough. Verify the agent can actually call the tools and return useful output.
-5. **Build before declaring done.** An unwired pipeline with 0 built datasets is not a working pipeline.
-
----
-
-## Why Visual Matters — Dataiku's Core Value
-
-Dataiku exists to **democratize data science and AI**. Its power is that business analysts, data engineers, and data scientists all work in the same visual environment — no code required for most tasks. Every decision you make should reinforce this principle:
-
-**Always prefer visual over code. Always prefer configurable over hardcoded. Always prefer the platform over custom scripts.**
-
-When building agents, recipes, or workflows in DSS, the question is never "can I write code for this?" — it's "can the platform do this visually?" If yes, use the visual approach. It's more maintainable, more accessible to the wider team, auditable, and benefits from DSS's built-in governance, versioning, and monitoring.
-
-Code is the escape hatch, not the default.
-
----
-
-## Agent Type Selection — Visual Agent > SVA > Code Agent
-
-When building agents in Dataiku, **always start with the simplest agent type that meets the requirements.** Escalate only when the simpler type genuinely can't do the job.
-
-### Priority Order
+## Agent Type Selection
 
 ```
 1. VISUAL AGENT (TOOLS_USING_AGENT, mode: SIMPLE)
-   └─ Default choice. LLM + tools. Handles 80% of use cases.
+   └─ Default. LLM + tools. 80% of use cases.
 
 2. STRUCTURED VISUAL AGENT (TOOLS_USING_AGENT, mode: BLOCKS_GRAPH)
-   └─ When you need deterministic control flow on top of agentic reasoning.
+   └─ When you need deterministic control flow.
 
 3. CODE AGENT (PYTHON_AGENT)
-   └─ Last resort. Only when the platform can't express your logic.
+   └─ Last resort. Custom orchestration only.
 ```
 
 ### When to Use Each
 
-| Agent Type | Use When | Examples |
-|------------|----------|---------|
-| **Visual Agent** | Single-turn Q&A, conversational, LLM decides tool order, simple RAG, exploratory tasks | Customer support chatbot, document Q&A, data exploration assistant |
-| **SVA** | Multi-step pipeline, guaranteed item processing, conditional branching, parallel data gathering, compliance/audit workflows, report generation | Regulatory impact analysis, document processing pipeline, multi-source data enrichment, approval workflows |
-| **Code Agent** | Custom LLM orchestration (LangGraph, CrewAI), external agent runtimes, logic that truly can't be expressed visually | Custom multi-agent systems, non-standard inference loops, integration with external agent frameworks |
+| Agent Type | Use When |
+|------------|----------|
+| **Visual Agent** | Q&A, conversational, simple RAG, exploratory |
+| **SVA** | Multi-step pipeline, guaranteed processing, conditional branching, audit trails |
+| **Code Agent** | LangGraph, CrewAI, non-standard inference loops |
 
-### Decision Framework
-
-```
-Can the LLM just pick tools and answer?
-  └─ YES → Visual Agent (SIMPLE mode)
-
-Do you need ANY of these?
-  • Guaranteed processing of every item in a list
-  • Conditional branching based on data (not LLM judgment)
-  • Parallel execution of independent tasks
-  • Document/report generation at the end
-  • Deterministic tool calls (known args, guaranteed execution)
-  • Audit trail with explicit block-by-block state
-  └─ YES → SVA (BLOCKS_GRAPH mode)
-
-Does the workflow require custom Python orchestration
-that can't be expressed as blocks?
-  └─ YES → Code Agent (PYTHON_AGENT)
-```
-
-### Why SVAs Are Powerful
-
-SVAs combine the best of both worlds — **deterministic system design** with **agentic intelligence**:
-
-- **Deterministic blocks** (ROUTING, MANUAL_TOOL_CALL, FOR_EACH, PARALLEL) guarantee execution order, data flow, and coverage
-- **Agentic blocks** (STANDARD_REACT, LLM_REQUEST, MANDATORY_TOOL_CALL) bring LLM reasoning where it's needed — query formulation, analysis, summarization
-- **The graph is the contract** — every step is visible, auditable, and modifiable without touching code
-- **Event-based flow** — blocks trigger based on data conditions (CEL expressions), not LLM whims
-
-A well-designed SVA is a deterministic pipeline with intelligence injected at specific points, not an unconstrained LLM that might skip steps.
-
-### Why NOT Code Agents
-
-Code agents (`PYTHON_AGENT`) are powerful but come with costs:
-
-- **Not visual** — other team members can't understand or modify the workflow without reading Python
-- **Not governed** — DSS can't enforce guardrails, audit steps, or manage state at the block level
-- **Not composable** — can't drag-and-drop new blocks or rewire connections in the UI
-- **Not reusable** — custom orchestration code is harder to share across projects
-
-Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when the block types genuinely can't express your logic. If you're tempted to write a code agent "because it's easier" — reconsider. The SVA may take more upfront design but pays off in maintainability, governance, and team accessibility.
-
-> **Design guide:** See `references/structured-agents.md` for the complete SVA design guide — all 13 block types, when/why, graph patterns, state management, and CLI workflow.
+> For full SVA design (13 block types), see `references/structured-agents.md`.
 
 ---
 
@@ -201,107 +121,75 @@ Use code agents ONLY when you need a framework like LangGraph or CrewAI, or when
 
 ### Plugin Development
 
-| Topic | When to use | Reference |
-|-------|-------------|-----------|
-| **Plugin Structure** | Creating a new plugin, plugin.json anatomy, folder layout, packaging | `references/plugin-structure.md` |
-| **Custom Recipes** | Building recipe components, input/output roles, dataset operations | `references/recipes.md` |
-| **Agent Tools** | Building LLM agent tools, tool.json/tool.py, invoke() pattern, custom agents | `references/llm-tools.md` |
-| **Webapps** | Interactive dashboards (Flask backend, Vue/React/Bokeh/Dash frontend) | `references/webapps.md` |
-| **Webapp Pitfalls** | `Unexpected token '<'` errors, 404 routing, critical webapp mistakes | `references/webapp-pitfalls.md` |
-| **Parameters** | Plugin parameter types (30+), STRING/SELECT/DATASET/COLUMN/PRESET, visibility conditions | `references/parameters.md` |
-| **Dataset Connectors** | Building custom dataset connectors, read/write schema, HTTP patterns | `references/datasets.md` |
-| **Macros / Runnables** | One-click utilities, result types (HTML/TABLE/FILE), macro roles | `references/macros.md` |
-| **Code Environments** | Python dependency management, requirements.txt, desc.json, version pinning | `references/code-environments.md` |
-| **Testing** | Unit tests (mocked), integration tests (DSS), E2E tests (Playwright), fixtures | `references/testing.md` |
-| **Best Practices** | Separation of concerns, error handling, retry logic, performance, security | `references/best-practices.md` |
-| **Plugin Workflow** | Git integration, semantic versioning, CI/CD, distribution, code quality | `references/plugin-workflow.md` |
-| **Plugin Architecture** | Plugin tiers (1-5), patterns, anti-patterns, official docs comparison, agent-hub gold standard | `references/plugin-architecture.md` |
-| **Visual Agent Blocks** | BlockHandler, block.json, dynamic_choices, dual-mode (block+tool), agent connectors (DSS 14.4+) | `references/visual-agent-blocks.md` |
-| **Webapp Patterns** | Advanced: multi-tab dashboards, filter pipelines, caching, React+Vite SPA, Chart.js, SQLAlchemy | `references/webapp-patterns.md` |
-| **Agent Tool Patterns** | Advanced: subprocess tools, MCP gateway, multi-agent orchestration, OAuth, HITL | `references/agent-tool-patterns.md` |
-| **Plugin Review** | Reviewing plugins, code review criteria, scoring rubric | `references/plugin-review-checklist.md` |
-| **Scaffolding & Lifecycle** | Creating new plugins, adding components (tool/recipe/webapp/guardrail), deploying, reviewing | `references/scaffolding.md` |
-| **Guardrails** | Building plugin guardrails, BaseGuardrail, blocking vs filtering, PII detection, LLM judge, trace API | `references/guardrails.md` |
-| **Dashboard & Charts** | Chart JSON anatomy, insight definitions, dashboard tiles, chart types, end-to-end examples | `references/dashboard-charts.md` |
+| Topic | Reference |
+|-------|-----------|
+| Plugin Structure | `references/plugin-structure.md` |
+| Custom Recipes | `references/recipes.md` |
+| Agent Tools | `references/llm-tools.md` |
+| Webapps | `references/webapps.md` |
+| Webapp Pitfalls | `references/webapp-pitfalls.md` |
+| Parameters | `references/parameters.md` |
+| Dataset Connectors | `references/datasets.md` |
+| Macros | `references/macros.md` |
+| Code Environments | `references/code-environments.md` |
+| Testing | `references/testing.md` |
+| Best Practices | `references/best-practices.md` |
+| Plugin Workflow | `references/plugin-workflow.md` |
+| Plugin Architecture | `references/plugin-architecture.md` |
+| Visual Agent Blocks | `references/visual-agent-blocks.md` |
+| Webapp Patterns | `references/webapp-patterns.md` |
+| Agent Tool Patterns | `references/agent-tool-patterns.md` |
+| Plugin Review | `references/plugin-review-checklist.md` |
+| Scaffolding | `references/scaffolding.md` |
+| Guardrails | `references/guardrails.md` |
+| Dashboard & Charts | `references/dashboard-charts.md` |
 
 ### Platform Knowledge
 
-| Topic | When to use | Reference |
-|-------|-------------|-----------|
-| **Formulas** | Formula language, computed columns, Prepare recipe expressions, `if()`, `strval()`, `forEach()`, log/exp gotchas | `references/formulas.md` |
-| **Prepare Processors** | ~95 processor types with selection guidance. **ALWAYS prefer purpose-built processors over GREL.** Decision table, shared param patterns, canonical JSON for 20 processors | `references/prepare-processors.md` |
-| **Visual Recipe Payloads** | JSON payload structure for join, group, window, filter, topN recipes. Use when CLI flags don't cover your configuration need | `references/visual-recipe-payloads.md` |
-| **Visual Conditions** | Shared `uiData.conditions[]` schema for filters, split conditions, VisualIfRule. Operator catalog, AND/OR groups, canonical examples | `references/visual-conditions.md` |
-| **LLM Mesh** | GenAI apps, LLM connections, tools, guardrails, RAG, knowledge banks, LangChain integration | `references/llm-mesh.md` |
-| **Structured Visual Agents** | SVA design guide: all 13 block types (when/why), graph patterns, state management, CLI workflow | `references/structured-agents.md` |
-| **Scenarios** | Automation, triggers, steps, reporters, metrics/checks, pipeline orchestration | `references/scenarios.md` |
-| **MLOps** | Model training, evaluation, MLflow, saved models, API Node, deployment, drift detection | `references/mlops.md` |
-| **Python API** | `dataiku.Dataset`, `dataikuapi`, read/write data, managed folders, SQL, code recipes | `references/python-api.md` |
-| **Styling** | Dataiku brand colors, typography, Tailwind config, UI components, design system | `references/styling.md` |
-| **App Designer** | Building self-service apps: manifest structure, tile types, param types (DATASET_COLUMN, SEPARATOR, SELECT, visibilityCondition), section design, UX patterns | `references/app-designer.md` |
+| Topic | Reference |
+|-------|-----------|
+| Formulas | `references/formulas.md` |
+| Prepare Processors | `references/prepare-processors.md` |
+| Visual Recipe JSON | `references/visual-recipe-payloads.md` + `references/visual-conditions.md` |
+| LLM Mesh | `references/llm-mesh.md` |
+| Structured Visual Agents | `references/structured-agents.md` |
+| Scenarios | `references/scenarios.md` |
+| MLOps | `references/mlops.md` |
+| Python API | `references/python-api.md` |
+| Styling | `dataiku-internal-branding` skill |
+| Geospatial | `references/geospatial.md` |
+| Verification & Cost | `references/verification.md` |
+| App Designer | `references/app-designer.md` |
 
-## Instructions
-
-1. Identify which topic(s) the user's task involves
-2. **Use `dku-cli` commands to execute.** This skill tells you what to build; the CLI skill tells you how to run it. Always use both.
-3. For scaffolding tasks (new plugin, add component, deploy, review), read `references/scaffolding.md`
-4. For new plugins, read `references/plugin-architecture.md` first to pick the right tier
-5. Read the relevant reference file(s) — for cross-cutting tasks, read multiple
-6. Apply the patterns and examples from the references
-7. For webapps, always also check `references/webapp-pitfalls.md`
-8. For dependency or compatibility issues, check `references/code-environments.md`
-9. For structured visual agents (SVAs), read `references/structured-agents.md` for design patterns and block selection, then `docs/block-graph-api.md` for JSON schemas
-10. **When unsure about a pattern**, check the "Official Plugin Repos" section in `references/plugin-architecture.md` — it lists 40+ public repos at `github.com/dataiku` organized by component type. Browse the closest match to see real production code.
-11. **Verify every outcome.** After building anything, run it and check the output. See [Verification Protocol](#verification-protocol--trust-nothing-verify-everything) above. Your job is done when you've proven the output is correct, not when commands exit 0.
-12. **Prepare recipes: ALWAYS prefer purpose-built processors over GREL.** Before writing any prepare step, READ `references/prepare-processors.md` for the processor decision table and exact params. Use `CreateColumnWithGREL` / `add-formula` ONLY when no dedicated processor exists. There are ~95 processor types — date parsing, string transforms, if/then/else, filtering, binning, JSON flattening, and more all have dedicated processors that are faster and cleaner than GREL.
-13. **Sample data before transforming.** Before creating or configuring ANY recipe, inspect the input dataset with `dku dataset head INPUT -P PROJ -n 5` to verify column names, data formats, and value patterns. Don't assume date formats (`yyyy-MM-dd` vs `MM/dd/yyyy`), column cardinality, or value ranges from schema alone. For joins, verify both datasets have matching key column values.
-14. **Visual recipe payloads.** When CLI flags don't cover your configuration need (custom join conditions, additional aggregations, post-filters), READ `references/visual-recipe-payloads.md` for payload schemas and `references/visual-conditions.md` for filter/condition JSON. Use `dku recipe get-settings` → edit → `dku recipe set-definition --payload`.
+---
 
 ## Cross-Cutting Patterns
 
-Common task combinations that span multiple references:
+Quick links for common combinations:
 
-- **"Scaffold a new plugin"** -> `scaffolding.md` (Section 1) + `plugin-structure.md` + `code-environments.md`
-- **"Add an agent tool to a plugin"** -> `scaffolding.md` (Section 2.1) + `llm-tools.md`
-- **"Add a recipe to a plugin"** -> `scaffolding.md` (Section 2.2) + `recipes.md`
-- **"Add a webapp to a plugin"** -> `scaffolding.md` (Section 2.3) + `webapps.md` + `webapp-pitfalls.md`
-- **"Add a guardrail to a plugin"** -> `scaffolding.md` (Section 2.4) + `guardrails.md`
-- **"Deploy a plugin to DSS"** -> `scaffolding.md` (Section 3)
-- **"Review a plugin"** -> `scaffolding.md` (Section 4) + `plugin-review-checklist.md`, or spawn `plugin-reviewer` agent
-- **"Build a Dataiku plugin"** -> `plugin-structure.md` + `code-environments.md` + `best-practices.md`
-- **"Build a plugin webapp"** -> `plugin-architecture.md` (pick tier) + `webapps.md` + `webapp-pitfalls.md` + `styling.md`
-- **"Build a production analytics dashboard"** -> `plugin-architecture.md` (Tier 3) + `webapp-patterns.md` + `webapp-pitfalls.md`
-- **"Create a plugin with an LLM agent tool"** -> `plugin-architecture.md` (Tier 2) + `llm-tools.md` + `agent-tool-patterns.md`
-- **"Build a subprocess agent tool"** -> `agent-tool-patterns.md` + `llm-tools.md`
-- **"Build an MCP gateway or OAuth webapp"** -> `plugin-architecture.md` (Tier 4) + `agent-tool-patterns.md` + `webapp-patterns.md`
-- **"Build a full-stack plugin with database"** -> `plugin-architecture.md` (Tier 4-5) + `webapp-patterns.md`
-- **"Build visual agent blocks"** -> `visual-agent-blocks.md` + `plugin-architecture.md` (Tier 2b) + `structured-agents.md`
-- **"Integrate external agent runtime"** -> `visual-agent-blocks.md` (agent connector section) + `llm-mesh.md`
-- **"Build a structured agent"** -> `structured-agents.md` + `llm-mesh.md`
-- **"Build an agent" / "What type of agent?"** -> Read Agent Type Selection section above first, then `structured-agents.md` (SVA) or `llm-mesh.md` (Visual) or `python-api.md` (Code)
-- **"Add prepare recipe steps"** -> `prepare-processors.md` (READ FIRST — processor selection + params) + `dku-cli` skill (CLI commands)
-- **"Add a formula processor"** -> `prepare-processors.md` (check if a purpose-built processor exists first) + `formulas.md` (only if GREL is truly needed)
-- **"Configure visual recipe beyond CLI flags"** -> `visual-recipe-payloads.md` (payload schemas) + `visual-conditions.md` (filter/condition JSON)
-- **"Add filter/condition to a recipe"** -> `visual-conditions.md` (uiData operator catalog) + `visual-recipe-payloads.md` (where filters go in each recipe type)
-- **"Style a Dataiku dashboard"** -> `styling.md` + `webapps.md`
-- **"Automate model retraining"** -> `scenarios.md` + `mlops.md`
-- **"Read data and write to a folder"** -> `python-api.md`
-- **"Deploy a model to production"** -> `mlops.md` + `scenarios.md`
-- **"Test a plugin thoroughly"** -> `testing.md` + `best-practices.md`
-- **"Set up a RAG pipeline"** -> `llm-mesh.md`
-- **"Build a scoring pipeline with checks"** -> `scenarios.md` + `python-api.md` + `mlops.md`
-- **"Build a guardrail"** -> `guardrails.md` + `scaffolding.md` (Section 2.4)
-- **"Build a dataset connector"** -> `datasets.md` + `plugin-structure.md`
-- **"Build a macro/runnable"** -> `macros.md` + `plugin-structure.md`
-- **"Optimize plugin performance"** -> `best-practices.md` + `webapp-patterns.md` (if webapp)
-- **"Turn a project into an app"** -> `app-designer.md` + `dku-cli` skill (app-designer commands)
-- **"Build an app homepage"** -> `app-designer.md` (tile types, param types, UX patterns)
-- **"Add variable edit forms to an app"** -> `app-designer.md` (PROJECT_VARIABLES_EDIT section)
+- **Scaffold plugin** → `scaffolding.md` + `plugin-structure.md`
+- **Add agent tool** → `scaffolding.md` + `llm-tools.md`
+- **Add recipe** → `scaffolding.md` + `recipes.md`
+- **Add webapp** → `scaffolding.md` + `webapps.md`
+- **Build RAG** → `llm-mesh.md`
+- **Build SVA** → `structured-agents.md`
+- **Style dashboard** → `dataiku-internal-branding` skill + `webapps.md`
+- **Automate retraining** → `scenarios.md` + `mlops.md`
+- **Deploy model** → `mlops.md` + `scenarios.md`
+- **Set up guardrail** → `guardrails.md` + `scaffolding.md`
+- **Turn project into app** → `app-designer.md` + `dku-cli` skill
 
-## Additional References
+---
 
-If a topic is not covered by the reference files above, consult the official Dataiku documentation:
+## Instructions
 
-- **Developer docs**: https://developer.dataiku.com/
-- **Product docs**: https://doc.dataiku.com/dss/latest/
-- **Plugin docs**: https://developer.dataiku.com/latest/plugins/index.html
+1. Identify topic(s) — check Quick Router above
+2. Use `dku-cli` commands to execute
+3. For scaffolding, read `references/scaffolding.md` first
+4. For new plugins, read `references/plugin-architecture.md` first
+5. Read relevant reference file(s)
+6. Apply patterns
+7. For webapps, also check `references/webapp-pitfalls.md`
+8. **Verify every outcome** — run and check output
+
+> For full documentation, see official Dataiku docs: https://developer.dataiku.com/

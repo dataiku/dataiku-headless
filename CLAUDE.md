@@ -17,7 +17,7 @@ uv build                   # Build wheel
 The globally-installed `dku` tool (via `uv tool install`) caches its build. After merging changes to the main repo, you must force-reinstall to pick them up:
 
 ```bash
-uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-cli dku-cli --force --reinstall
+uv tool install --from . dku-cli --force --reinstall
 ```
 
 **`--force` alone is not enough** — it reuses the cached wheel. `--reinstall` rebuilds from source. Without both flags, `dku folder create --help` etc. will show "No such command" even though the code is on disk.
@@ -28,10 +28,10 @@ uv tool install --from /Users/christiaanburrett/Documents/Areas_new/Dataiku/dku-
 
 We ship two components:
 
-1. **`dku` CLI** — a `kubectl`-style tool (~244 commands, 32 groups) wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
+1. **`dku` CLI** — a `kubectl`-style tool wrapping `dataikuapi`. Replaces throwaway Python scripts with composable shell commands agents chain with `&&`.
 2. **Agent skills & knowledge** — 2 skills, reference docs, and 3 subagents that teach agents how to operate DSS.
 
-**NOT on PyPI.** Install from GitHub source only — see [Distribution](#distribution).
+**Private repo — NOT on PyPI.** Install from a local clone — see [Distribution](#distribution).
 
 ---
 
@@ -55,8 +55,14 @@ When you receive benchmark feedback:
 2. **Categorize**: built-in capability gap > CLI bug > skill doc gap > test gap > not actionable
 3. **Fix in all three places** — CLI error message + skill doc + CLAUDE.md gotcha
 4. **Verify against `dataikuapi`** — Never invent APIs. Read the source in `.venv/lib/*/dataikuapi/`.
-5. **Run tests** — `uv run pytest -v`
-6. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
+5. **Run tests — ALWAYS, no exceptions** — `uv run pytest -v` after ANY CLI code change. Write new tests for new commands. Test error paths too, not just happy paths. Never skip this step.
+6. **Test against live DSS (MANDATORY)** — Unit test mocks are guesses until verified. After unit tests pass, run every new/changed command against the real DSS instance with `uv run dku <command>`. Use projects **ADVISORGPT** (Snowflake datasets, recipes, flow graph) or **AGENTTEST**. Verify:
+   - Table output shows real data, not blank columns (field name mismatches cause this)
+   - JSON output field names match what DSS actually returns
+   - Empty results produce helpful messages (no usages, no schemas, etc.)
+   - Wrong inputs (bad column name, non-SQL connection for schemas) produce prescriptive errors
+   - If live testing reveals mismatches, fix them BEFORE committing
+7. **Format before committing** — `uv run ruff format .` (CI runs `ruff format --check` and will reject unformatted code)
 
 ---
 
@@ -95,8 +101,6 @@ Every command follows the same flow:
 | `errors.py` | `dataikuapi` exception → user-friendly message + exit code. **Every error must tell the agent what to do next.** |
 | `commands/*.py` | One file per noun. Never touches presentation directly — always uses `output.py` |
 
-**31 command groups** — see `skills/dku-cli/references/commands.md` for full reference.
-
 ---
 
 ## Development Conventions
@@ -134,48 +138,20 @@ dataiku-devkit/
 
 ### Skill Quality Standards
 
-When editing `dataiku-devkit/skills/dku-cli/SKILL.md`:
+When editing skills, **progressive disclosure is non-negotiable**:
 
+| Layer | File | What goes here | What does NOT go here |
+|-------|------|----------------|----------------------|
+| 1 | SKILL.md cheat sheet (top 30 lines) | Failure prevention rules, one line each | Command syntax, flag details |
+| 2 | SKILL.md body | Command Groups table (verb names only), chaining patterns for new workflows | Per-command notes, flag descriptions, API details |
+| 3 | `references/commands.md` | Full command syntax, all flags, usage notes, API quirks | — (this is the detail layer) |
+
+**Rules:**
+- **SKILL.md is loaded into every conversation.** Every line costs tokens. Be ruthless about what earns a spot.
+- **Never add per-command documentation to SKILL.md.** That's what `references/commands.md` is for. SKILL.md gets the verb in the Command Groups table + a chaining pattern IF the command enables a new workflow.
 - **Cheat sheet** (top 30 lines): Must prevent the top failure modes. One line per rule. If you add a gotcha to CLAUDE.md, ask: does the cheat sheet need a rule too?
 - **Examples**: Every example must be copy-paste-runnable. Include `-P PROJ` and all required flags.
 - **Gotchas table**: Scannable — symptom in one column, fix in another. Agents pattern-match on error messages.
-
-### Dataiku Reference Docs
-
-Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read the relevant doc BEFORE working on that topic.
-
-| Document | Read when... |
-|----------|--------------|
-| `plugin-structure.md` | Creating a new plugin, plugin.json anatomy |
-| `recipes.md` | Building custom recipes, dataset operations |
-| `webapps.md` | Building webapp dashboards (Flask/Vue/React) |
-| `webapp-pitfalls.md` | Debugging webapp errors, critical mistakes |
-| `llm-tools.md` | Creating agent tools, custom agents |
-| `parameters.md` | Defining plugin parameters (30+ types) |
-| `code-environments.md` | Python dependency management, code env config |
-| `datasets.md` | Building dataset connectors |
-| `macros.md` | Building runnables/macros |
-| `testing.md` | Unit/integration/E2E testing patterns |
-| `best-practices.md` | Architecture, error handling, performance |
-| `plugin-workflow.md` | Git integration, versioning, CI/CD, distribution |
-| `formulas.md` | Formula language, Prepare recipe expressions |
-| `llm-mesh.md` | LLM connections, guardrails, RAG, knowledge banks |
-| `structured-agents.md` | SVA design guide: all 13 block types, graph patterns, state, CLI workflow |
-| `python-api.md` | dataiku/dataikuapi packages, dataset I/O, SQL |
-| `scenarios.md` | Automation, triggers, steps, reporters |
-| `mlops.md` | Model lifecycle, drift detection, API Node |
-| `guardrails.md` | LLM guardrails: blocking, filtering, PII, LLM judge, trace API |
-| `styling.md` | Dataiku brand colors, typography, components |
-| `plugin-architecture.md` | Plugin tiers (1-5), patterns/anti-patterns, official docs gaps |
-| `visual-agent-blocks.md` | BlockHandler, block.json, dual-mode components, agent connectors |
-| `webapp-patterns.md` | Advanced: multi-tab dashboards, filters, caching, React+Vite, Chart.js |
-| `agent-tool-patterns.md` | Advanced: subprocess tools, MCP gateway, OAuth, multi-agent, HITL |
-| `plugin-review-checklist.md` | Reviewing plugins, code review criteria, scoring rubric |
-| `scaffolding.md` | Plugin scaffolding, adding components, deploying, reviewing |
-| `prepare-processors.md` | ~95 Prepare recipe processor types: type IDs, params, examples |
-| `dashboard-charts.md` | Chart JSON anatomy, insight definitions, dashboard tiles, chart types |
-| `geospatial.md` | Geospatial data handling, projections, spatial joins |
-| `app-designer.md` | App Designer: manifest, tile types, param types, section design, UX patterns |
 
 ---
 
@@ -186,10 +162,16 @@ Platform knowledge lives in `dataiku-devkit/skills/dataiku/references/`. Read th
 ### Dataset Create + Upload
 `dku dataset create` defaults to Filesystem, which does NOT support `dku dataset upload`. Use `--type UploadedFiles` for anything being uploaded via CLI.
 
-`dku dataset delete` / `dku project delete` have no `--yes` flag. For non-interactive deletion: `echo y | dku dataset delete NAME -P PROJ`.
+`dku dataset delete` and `dku recipe delete` prompt by default but support `--yes` / `-y` for non-interactive deletion. `dku project delete` requires `--confirm`, `--yes`, or `-y`.
 
 ### Code Recipe Create + Connection
-`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c`. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). Visual recipes don't need `--connection`.
+`dku recipe create` for code recipes fails if the project has no default managed connection. Always pass `--connection` / `-c` when creating Python/SQL recipes in projects without a default managed connection. Use `dku connection list` to find available connections (`filesystem_managed` is the most common). If `connection list` is unavailable, inspect an existing dataset with `dku dataset get-definition DS -P PROJ -o json | jq -r '.params.connection'`. Cross-project recipe inputs use `PROJECT_KEY.DATASET_NAME`. Visual recipe shortcuts auto-create outputs and don't need `--connection`.
+
+### Dataset Verification + Schema Reality
+`dku dataset head -o json` returning `[]` means the dataset has 0 rows, not an error. Always verify built outputs with `dku dataset head OUTPUT -P PROJ -n 5` and inspect actual columns with `dku dataset schema OUTPUT -P PROJ` before assuming a recipe worked. Wiki plans and schema docs can lag the real dataset.
+
+### Python Recipe Numeric IDs
+ID columns from external datasets may contain nulls or non-numeric values. Never cast directly with `.astype("int64")`; use `pd.to_numeric(..., errors="coerce")`, `dropna`, then cast, or the recipe will fail with `IntCastingNaNError`.
 
 ### Plugin Webapp Backend
 DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app = Flask(__name__)` — it breaks `/__ping`. Import from `dataiku.customwebapp`, not `dataiku.webapp`. Folder is `webapps/`, not `custom-webapps/`. `webapp.json` needs `hasBackend: true`, `noJSSecurity: true`.
@@ -225,6 +207,13 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `create_managed_folder()` returns `DSSManagedFolder` with `.id` (8-char hash)
 - `plugin.list_files()` returns nested dict tree — dev plugins only
 - Plugin recipe types not registered until JVM restart after API install
+- `get_semantic_model()` is lazy — must call `_get_definition()` to verify existence
+- Agent Hub is a plugin webapp, not a first-class object — manage via `get_webapp()` + `get_backend_actions()`
+- `DSSScenario.get_last_finished_run()` returns None when no runs exist (not an error)
+- `folder.list_contents()` returns `{"items": [...]}`, not a flat list
+- `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
+- `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
+- Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
 
 ---
 
@@ -298,4 +287,4 @@ CI matrix: Python 3.10, 3.11, 3.12, 3.13 — use 3.10 as minimum baseline.
 |-----|-------------|
 | `benchmark/README.md` | Benchmark framework architecture, test tiers, how to run |
 | `dataiku-devkit/skills/dku-cli/references/commands.md` | Full CLI command reference with flags and examples |
-| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see table above |
+| `dataiku-devkit/skills/dataiku/references/*.md` | Platform reference docs — see Quick Router in `dataiku/SKILL.md` |

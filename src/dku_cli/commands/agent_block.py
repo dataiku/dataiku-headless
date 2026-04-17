@@ -116,6 +116,18 @@ def _find_block(agent_cfg: dict, block_id: str) -> dict | None:
     return None
 
 
+def _display_next_block(b: dict) -> str:
+    """Get display value for next block, with defaultNextBlock fallback."""
+    nb = b.get("nextBlock")
+    if nb:
+        return nb
+    if b.get("type") in _DEFAULT_NEXT_BLOCK_TYPES:
+        dnb = b.get("defaultNextBlock")
+        if dnb:
+            return f"{dnb} (default)"
+    return ""
+
+
 def _find_dangling_refs(blocks: list[dict], removed_id: str) -> list[tuple[str, str]]:
     """Return [(block_id, field_name)] for blocks referencing removed_id."""
     refs = []
@@ -144,6 +156,37 @@ def _find_dangling_refs(blocks: list[dict], removed_id: str) -> list[tuple[str, 
             if cond.get("nextBlock") == removed_id:
                 refs.append((bid, "exitConditions[].nextBlock"))
     return refs
+
+
+def _validate_routing_block(block: dict) -> list[str]:
+    """Validate a ROUTING block for common pitfalls. Returns list of error messages."""
+    errors = []
+    if block.get("type") != "ROUTING":
+        return errors
+
+    clauses = block.get("clausesBasedDecisions", [])
+    for i, clause_entry in enumerate(clauses):
+        clause = clause_entry.get("clause", {})
+        if clause.get("type") == "EXPRESSION":
+            expr_obj = clause.get("expression", {})
+            expr_str = (
+                expr_obj.get("expression", "") if isinstance(expr_obj, dict) else ""
+            )
+            if not expr_str or not expr_str.strip():
+                errors.append(
+                    f"ROUTING block '{block.get('id', '?')}' clause {i} has an EMPTY CEL expression. "
+                    "This causes 'Micro-CEL Evaluation Error: unexpected EOF while parsing'. "
+                    'Set a valid expression like: state["intent"] == "billing"'
+                )
+    return errors
+
+
+def _validate_blocks(blocks: list[dict]) -> list[str]:
+    """Validate all blocks. Returns list of error messages."""
+    errors = []
+    for block in blocks:
+        errors.extend(_validate_routing_block(block))
+    return errors
 
 
 def _fetch_settings(
@@ -203,7 +246,7 @@ def list_blocks(
                 {
                     "id": bid,
                     "type": b.get("type", ""),
-                    "next_block": b.get("nextBlock", ""),
+                    "next_block": _display_next_block(b),
                     "start": "*" if bid == starting else "",
                 }
             )
@@ -299,9 +342,31 @@ def add_block(
             ctx, agent_id, project, version
         )
 
+        # Block addition to non-STRUCTURED agents — blocks silently vanish
+        agent_type = raw.get("type", "")
+        if agent_type != "STRUCTURED_AGENT":
+            exit_with_error(
+                f"Agent '{agent_id}' is type '{agent_type}', not STRUCTURED_AGENT. "
+                "Block graphs require STRUCTURED_AGENT — blocks silently vanish on other types.",
+                code="wrong_agent_type",
+                details=[
+                    "Fix: dku agent create NAME --type STRUCTURED_AGENT -P PROJ",
+                    "Then add blocks to the new agent instead.",
+                ],
+            )
+
         # Ensure blocks list exists (on DSS 14.5+ mode is implicit, not a field)
         if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:
             agent_cfg["blocks"] = []
+
+        # Validate block (e.g. ROUTING blocks with empty CEL expressions)
+        block_errors = _validate_routing_block(new_block)
+        if block_errors:
+            exit_with_error(
+                block_errors[0],
+                code="invalid_block",
+                status=1,
+            )
 
         # Check duplicate ID
         if _find_block(agent_cfg, block_id) is not None:
@@ -571,6 +636,16 @@ def set_graph(
         if not new_agent_cfg:
             exit_with_error(
                 "Definition JSON cannot be empty.", code="invalid_input", status=1
+            )
+
+        # Validate all blocks before saving
+        block_errors = _validate_blocks(new_agent_cfg.get("blocks", []))
+        if block_errors:
+            exit_with_error(
+                block_errors[0],
+                code="invalid_block",
+                status=1,
+                details=block_errors[1:] if len(block_errors) > 1 else None,
             )
 
         project_key = resolve_project(project)

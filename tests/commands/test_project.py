@@ -218,21 +218,58 @@ def test_project_delete_with_confirm(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "--confirm"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once()
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=False,
+        clear_output_managed_folders=False,
+    )
+    # Default path emits the hint about --drop-data
+    assert "--drop-data" in result.output
 
 
 def test_project_delete_with_yes(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once()
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=False,
+        clear_output_managed_folders=False,
+    )
 
 
 def test_project_delete_with_y(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1", "-y"])
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once()
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=False,
+        clear_output_managed_folders=False,
+    )
+
+
+def test_project_delete_with_drop_data(patch_client):
+    """--drop-data should pass clear_managed_datasets=True and clear_output_managed_folders=True."""
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes", "--drop-data"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=True,
+        clear_output_managed_folders=True,
+    )
+    # With --drop-data, the hint about --drop-data should NOT appear
+    assert "Re-run with --drop-data" not in result.output
+
+
+def test_project_delete_with_clear_managed_alias(patch_client):
+    """--clear-managed is an alias for --drop-data."""
+    result = runner.invoke(
+        app, ["project", "delete", "PROJ1", "--yes", "--clear-managed"]
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.delete.assert_called_once_with(
+        clear_managed_datasets=True,
+        clear_output_managed_folders=True,
+    )
 
 
 # --- project duplicate ---
@@ -425,3 +462,92 @@ def test_project_tags_with_tags(patch_client):
     parsed = json.loads(result.output)
     assert "production" in parsed
     assert "ml" in parsed
+
+
+# --- ai-describe ---
+
+
+def test_project_ai_describe(patch_client):
+    result = runner.invoke(app, ["project", "ai-describe", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "customer data pipelines" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.generate_ai_description.assert_called_once_with(
+        language="english", purpose="generic", length="medium", save_description=False
+    )
+
+
+def test_project_ai_describe_save(patch_client):
+    result = runner.invoke(
+        app, ["project", "ai-describe", "--save", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "saved" in result.output.lower()
+    proj = patch_client.get_project("PROJ1")
+    proj.generate_ai_description.assert_called_once_with(
+        language="english", purpose="generic", length="medium", save_description=True
+    )
+
+
+def test_project_ai_describe_json(patch_client):
+    result = runner.invoke(
+        app, ["project", "ai-describe", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "msg" in parsed
+    assert "customer data pipelines" in parsed["msg"]
+
+
+def test_project_ai_describe_custom_options(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "ai-describe",
+            "--language",
+            "french",
+            "--purpose",
+            "technical",
+            "--length",
+            "high",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.generate_ai_description.assert_called_once_with(
+        language="french", purpose="technical", length="high", save_description=False
+    )
+
+
+# --- timeline ---
+
+
+def test_project_timeline_table(patch_client):
+    result = runner.invoke(app, ["project", "timeline", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "admin" in result.output
+    assert "dataiku" in result.output
+
+
+def test_project_timeline_json(patch_client):
+    result = runner.invoke(
+        app, ["project", "timeline", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["createdBy"]["login"] == "admin"
+    assert len(parsed["allContributors"]) == 2
+    assert len(parsed["items"]) == 1
+
+
+def test_project_timeline_custom_limit(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "timeline", "--limit", "5", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.get_timeline.assert_called_once_with(item_count=5)

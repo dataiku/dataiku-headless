@@ -12,7 +12,9 @@ from dku_cli.config import (
     clear_profile_configs,
     delete_profile_config,
     get_config,
+    get_profile_credential_store,
     set_profile_config,
+    set_profile_credential_store,
 )
 
 
@@ -106,3 +108,41 @@ def test_clear_profile_configs_preserves_root_settings(tmp_path):
 
     assert removed == 1
     assert result == {"output": "json"}
+
+
+def test_set_profile_credential_store_preserves_existing_values(tmp_path):
+    path = tmp_path / "config.toml"
+    _write_toml(
+        path,
+        {
+            "active_profile": "default",
+            "default": {
+                "url": "https://default.example.com",
+                "default_project": "PROJ1",
+            },
+        },
+    )
+
+    with patch("dku_cli.config.CONFIG_FILE", path):
+        set_profile_credential_store("default", "file")
+        result = get_config()
+
+    assert result["default"]["url"] == "https://default.example.com"
+    assert result["default"]["default_project"] == "PROJ1"
+    assert result["default"]["credential_store"] == "file"
+
+
+def test_get_profile_credential_store_returns_value(tmp_path):
+    path = tmp_path / "config.toml"
+    _write_toml(
+        path,
+        {
+            "default": {
+                "url": "https://default.example.com",
+                "credential_store": "keychain",
+            }
+        },
+    )
+
+    with patch("dku_cli.config.CONFIG_FILE", path):
+        assert get_profile_credential_store("default") == "keychain"

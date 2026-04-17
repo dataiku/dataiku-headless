@@ -25,7 +25,9 @@ def test_sql_query_table(patch_client):
     assert result.exit_code == 0
     assert "val1" in result.output
     assert "val2" in result.output
-    patch_client.sql_query.assert_called_once_with("SELECT 1", connection="myconn")
+    patch_client.sql_query.assert_called_once_with(
+        "SELECT 1", connection="myconn", post_queries=None
+    )
 
 
 def test_sql_query_json(patch_client):
@@ -48,7 +50,9 @@ def test_sql_query_from_file(tmp_path, patch_client):
     )
     assert result.exit_code == 0
     patch_client.sql_query.assert_called_once_with(
-        "SELECT * FROM users WHERE active = 1", connection="myconn"
+        "SELECT * FROM users WHERE active = 1",
+        connection="myconn",
+        post_queries=None,
     )
 
 
@@ -186,3 +190,110 @@ def test_sql_query_api_error(patch_client):
     patch_client.sql_query.side_effect = Exception("connection refused")
     result = runner.invoke(app, ["sql", "query", "SELECT 1", "-c", "badconn"])
     assert result.exit_code != 0
+
+
+def test_sql_query_ddl_auto_commits(patch_client):
+    """DDL statements (DROP, CREATE, TRUNCATE, ALTER) return no result set
+    AND are silently rolled back by DSS's sql_query endpoint unless we pass
+    post_queries=['COMMIT']. The CLI auto-appends the commit and reports
+    'Committed on <connection>'.
+    """
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = KeyError("schema")
+    patch_client.sql_query.return_value = result_mock
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            'DROP TABLE IF EXISTS "stale_table"',
+            "-c",
+            "sql_managed",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Committed on" in result.output
+    assert "sql_managed" in result.output
+    patch_client.sql_query.assert_called_once_with(
+        'DROP TABLE IF EXISTS "stale_table"',
+        connection="sql_managed",
+        post_queries=["COMMIT"],
+    )
+
+
+def test_sql_query_insert_auto_commits(patch_client):
+    """INSERT is DML — CLI should auto-commit."""
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = Exception("no schema for DML")
+    patch_client.sql_query.return_value = result_mock
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            "INSERT INTO logs (msg) VALUES ('hi')",
+            "-c",
+            "myconn",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Committed on" in result.output
+    patch_client.sql_query.assert_called_once_with(
+        "INSERT INTO logs (msg) VALUES ('hi')",
+        connection="myconn",
+        post_queries=["COMMIT"],
+    )
+
+
+def test_sql_query_no_auto_commit_flag(patch_client):
+    """--no-auto-commit opts out of the COMMIT append."""
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = KeyError("schema")
+    patch_client.sql_query.return_value = result_mock
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            "CREATE TABLE t (id int)",
+            "-c",
+            "myconn",
+            "--no-auto-commit",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # No auto-commit → old-style "Statement executed" wording
+    assert "Statement executed" in result.output
+    patch_client.sql_query.assert_called_once_with(
+        "CREATE TABLE t (id int)", connection="myconn", post_queries=None
+    )
+
+
+def test_sql_query_ddl_detection_ignores_leading_comments(patch_client):
+    """A DDL statement after -- line comments should still be detected as DDL."""
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = KeyError("schema")
+    patch_client.sql_query.return_value = result_mock
+    query = "-- cleanup\n/* remove stale */\nDROP TABLE t"
+    # Use -- to stop Typer from interpreting the leading '--' as a flag
+    result = runner.invoke(
+        app,
+        ["sql", "query", "-c", "myconn", "--", query],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Committed on" in result.output
+    patch_client.sql_query.assert_called_once_with(
+        query, connection="myconn", post_queries=["COMMIT"]
+    )
+
+
+def test_sql_query_select_does_not_auto_commit(patch_client):
+    """Plain SELECT must not get a post COMMIT — it's pointless and could confuse some drivers."""
+    result = runner.invoke(
+        app,
+        ["sql", "query", "SELECT 42", "-c", "myconn"],
+    )
+    assert result.exit_code == 0, result.output
+    patch_client.sql_query.assert_called_once_with(
+        "SELECT 42", connection="myconn", post_queries=None
+    )

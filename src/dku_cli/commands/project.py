@@ -1,4 +1,4 @@
-"""dku project — list, get, export, create, delete, duplicate, variables, permissions, tags."""
+"""dku project — list, get, export, create, delete, duplicate, variables, permissions, tags, ai-describe, timeline."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
     error,
+    info,
     render,
     render_raw,
     resolve_output_format,
@@ -280,6 +281,13 @@ def create(
     description: str = typer.Option(
         "", "--description", "-d", help="Short description"
     ),
+    owner: Optional[str] = typer.Option(
+        None, "--owner", help="Project owner login (default: current user)"
+    ),
+    folder_id: Optional[str] = typer.Option(
+        None, "--folder", help="Project folder ID to create in"
+    ),
+    tags: Optional[str] = typer.Option(None, "--tags", help="Comma-separated tags"),
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if project already exists"
     ),
@@ -289,13 +297,20 @@ def create(
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        owner = client.get_auth_info()["authIdentifier"]
-        client.create_project(project_key, name, owner, description=description)
+        project_owner = owner or client.get_auth_info()["authIdentifier"]
+        kwargs: dict = {}
+        if folder_id:
+            kwargs["project_folder_id"] = folder_id
+        if tags:
+            kwargs["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+        client.create_project(
+            project_key, name, project_owner, description=description, **kwargs
+        )
 
         data = [
             {"field": "Key", "value": project_key},
             {"field": "Name", "value": name},
-            {"field": "Owner", "value": owner},
+            {"field": "Owner", "value": project_owner},
             {"field": "Description", "value": description},
         ]
 
@@ -329,8 +344,19 @@ def delete(
     confirm: bool = typer.Option(
         False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
     ),
+    drop_data: bool = typer.Option(
+        False,
+        "--drop-data",
+        "--clear-managed",
+        help="Also drop the backing storage of managed datasets and managed folders (physical SQL tables, managed folder contents). Without this flag, managed datasets' backing tables are orphaned on the target connection.",
+    ),
 ) -> None:
-    """Delete a project. Requires --confirm / --yes flag."""
+    """Delete a project. Requires --confirm / --yes flag.
+
+    By default, backing storage of managed datasets (e.g. physical PostgreSQL
+    tables for managed SQL datasets) is NOT dropped. Pass --drop-data to also
+    clear them.
+    """
     if not confirm:
         error(
             "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
@@ -339,8 +365,16 @@ def delete(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        proj.delete()
+        proj.delete(
+            clear_managed_datasets=drop_data,
+            clear_output_managed_folders=drop_data,
+        )
         success(f"Deleted project {project_key}")
+        if not drop_data:
+            info(
+                "Managed datasets' backing storage was NOT dropped. "
+                "Re-run with --drop-data to also clear backing SQL tables and managed folder contents."
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -533,5 +567,147 @@ def tags(
         meta = proj.get_metadata()
         tag_list = meta.get("tags", [])
         render_raw(tag_list, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("ai-describe")
+def ai_describe(
+    ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    language: str = typer.Option(
+        "english",
+        "--language",
+        "-l",
+        help="Language (english, french, german, dutch, portuguese, spanish, japanese)",
+    ),
+    purpose: str = typer.Option(
+        "generic",
+        "--purpose",
+        help="Purpose: generic, technical, business_oriented, executive",
+    ),
+    length: str = typer.Option(
+        "medium",
+        "--length",
+        help="Length: low, medium, high",
+    ),
+    save: bool = typer.Option(
+        False, "--save", help="Save generated description to the project"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Generate AI-powered description for a project.
+
+    Requires 'Generate Metadata' enabled in DSS AI Services admin settings.
+
+    Example:
+      dku project ai-describe PROJ
+      dku project ai-describe PROJ --purpose technical --save
+    """
+    key = project_key or project
+    key = resolve_project(key)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(key)
+        result = proj.generate_ai_description(
+            language=language,
+            purpose=purpose,
+            length=length,
+            save_description=save,
+        )
+
+        if fmt == "json":
+            render_raw(result, output_format="json")
+        else:
+            if save:
+                success(f"AI description saved for project '{key}'")
+            else:
+                info("AI-generated description (not saved — use --save to persist):")
+            msg = result.get("msg", "")
+            if msg:
+                info(msg)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def timeline(
+    ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    limit: int = typer.Option(20, "--limit", help="Max number of timeline items"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show project timeline: creation, contributors, recent modifications.
+
+    Example:
+      dku project timeline PROJ
+      dku project timeline PROJ --limit 50 -o json
+    """
+    key = project_key or project
+    key = resolve_project(key)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(key)
+        tl = proj.get_timeline(item_count=limit)
+
+        if fmt == "json":
+            render_raw(tl, output_format="json")
+        else:
+            # Format timestamps
+            def _fmt_ts(ts):
+                if not ts:
+                    return ""
+                try:
+                    from datetime import datetime, timezone
+
+                    return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M UTC"
+                    )
+                except Exception:
+                    return str(ts)
+
+            created_by = tl.get("createdBy", {}).get("login", "unknown")
+            last_by = tl.get("lastModifiedBy", {}).get("login", "unknown")
+
+            info(f"Created by: {created_by} on {_fmt_ts(tl.get('createdOn'))}")
+            info(f"Last modified by: {last_by} on {_fmt_ts(tl.get('lastModifiedOn'))}")
+
+            contributors = tl.get("allContributors", [])
+            if contributors:
+                logins = [c.get("login", "") for c in contributors]
+                info(f"Contributors: {', '.join(logins)}")
+
+            items = tl.get("items", [])
+            if items:
+                data = []
+                for item in items[:limit]:
+                    data.append(
+                        {
+                            "time": _fmt_ts(item.get("time")),
+                            "user": item.get("user", ""),
+                            "action": item.get("action", ""),
+                            "object": item.get("objectId", ""),
+                        }
+                    )
+                render(
+                    data,
+                    ["time", "user", "action", "object"],
+                    output_format=fmt,
+                    title=f"Timeline ({key})",
+                    headers={
+                        "time": "TIME",
+                        "user": "USER",
+                        "action": "ACTION",
+                        "object": "OBJECT",
+                    },
+                )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

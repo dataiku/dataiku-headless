@@ -6,9 +6,9 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Manage DSS apps and instances.")
+app = typer.Typer(help="Manage DSS applications (app templates and instances).")
 
 
 @app.command("list")
@@ -16,25 +16,35 @@ def list_apps(
     ctx: typer.Context,
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List all apps on the DSS instance."""
-    output = resolve_output_format(output)
+    """List all applications (app templates)."""
+    fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        items = client.list_apps(as_type="listitems")
+        items = client.list_apps()
 
         data = []
         for item in items:
-            data.append(
-                {
-                    "app_id": item.get("appId", ""),
-                    "label": item.get("label", ""),
-                    "project_key": item.get("projectKey", ""),
-                }
-            )
+            try:
+                app_id = item._data.get("appId", "")
+                label = item._data.get("label", "")
+            except AttributeError:
+                app_id = getattr(item, "app_id", str(item))
+                label = ""
+            data.append({"id": app_id, "label": label})
 
-        render(
-            data, ["app_id", "label", "project_key"], output_format=output, title="Apps"
-        )
+        if fmt == "json":
+            render_raw(data, output_format="json")
+        else:
+            if not data:
+                info("No applications found.")
+                return
+            render(
+                data,
+                ["id", "label"],
+                output_format=fmt,
+                title="Applications",
+                headers={"id": "ID", "label": "LABEL"},
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -80,26 +90,44 @@ def get(
 @app.command("list-instances")
 def list_instances(
     ctx: typer.Context,
-    app_id: str = typer.Argument(help="App ID (e.g. PROJECT_MYAPP)"),
+    app_id: str = typer.Argument(help="App ID"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List instances of an app."""
-    output = resolve_output_format(output)
+    """List instances of an application.
+
+    Example:
+      dku app list-instances PROJECT_MYAPP
+    """
+    fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        app_handle = client.get_app(app_id)
-        instances = app_handle.list_instances()
+        application = client.get_app(app_id)
+        instances = application.list_instances()
 
-        data = []
-        for inst in instances:
-            data.append({"project_key": inst.get("projectKey", "")})
+        if fmt == "json":
+            render_raw(instances, output_format="json")
+        else:
+            if not instances:
+                info(f"No instances of app '{app_id}'.")
+                return
 
-        render(
-            data,
-            ["project_key"],
-            output_format=output,
-            title=f"Instances of {app_id}",
-        )
+            data = []
+            for inst in instances:
+                data.append(
+                    {
+                        "project_key": inst.get("projectKey", ""),
+                        "name": inst.get("name", ""),
+                    }
+                )
+            render(
+                data,
+                ["project_key", "name"],
+                output_format=fmt,
+                title=f"Instances ({app_id})",
+                headers={"project_key": "PROJECT KEY", "name": "NAME"},
+            )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -107,28 +135,40 @@ def list_instances(
 @app.command("create-instance")
 def create_instance(
     ctx: typer.Context,
-    app_id: str = typer.Argument(help="App ID (e.g. PROJECT_MYAPP)"),
+    app_id: str = typer.Argument(help="App ID to instantiate"),
     instance_key: str = typer.Option(
-        ..., "--key", "-k", help="Project key for the new instance"
+        ..., "--key", "-k", help="Project key for the new instance (must be unique)"
     ),
     instance_name: str = typer.Option(
         ..., "--name", "-n", help="Display name for the new instance"
     ),
     wait: bool = typer.Option(
-        True, "--wait/--no-wait", help="Wait for instance creation (default: true)"
+        True, "--wait/--no-wait", help="Wait for instance creation"
     ),
 ) -> None:
-    """Create a new app instance."""
+    """Create a new instance of an application.
+
+    Example:
+      dku app create-instance PROJECT_MYAPP --key MYAPP_PROD --name "Production Instance"
+    """
     try:
         client = get_client_from_ctx(ctx)
-        app_handle = client.get_app(app_id)
-        result = app_handle.create_instance(instance_key, instance_name, wait=wait)
+        application = client.get_app(app_id)
 
         if wait:
+            instance = application.create_instance(
+                instance_key, instance_name, wait=True
+            )
             success(
-                f"Created app instance '{instance_key}' (project: {result.project_key})"
+                f"Created app instance '{instance_name}' "
+                f"(project: {instance.project_key}) from '{app_id}'"
             )
         else:
-            success(f"Instance creation started for '{instance_key}'")
+            application.create_instance(instance_key, instance_name, wait=False)
+            success(
+                f"Instance creation started for '{instance_name}' (project: {instance_key})"
+            )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

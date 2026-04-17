@@ -36,6 +36,49 @@ def test_job_list_json(patch_client):
     assert parsed[0]["id"] == "job1"
 
 
+def test_job_last_prints_id(patch_client):
+    """Default output is the plain job id on stdout — composable with $()."""
+    result = runner.invoke(app, ["job", "last", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    # Output is just the id, possibly with a trailing newline
+    assert result.output.strip() == "job1"
+
+
+def test_job_last_json(patch_client):
+    """-o json returns the full record."""
+    result = runner.invoke(app, ["job", "last", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "job1"
+    assert parsed["state"] == "DONE"
+    assert parsed["initiator"] == "testuser"
+
+
+def test_job_last_table(patch_client):
+    """-o table shows a one-row table."""
+    result = runner.invoke(app, ["job", "last", "--project", "PROJ1", "-o", "table"])
+    assert result.exit_code == 0
+    assert "job1" in result.output
+    assert "DONE" in result.output
+
+
+def test_job_last_no_jobs(patch_client):
+    """When there are no jobs, exit 1 with a prescriptive error."""
+    proj = patch_client.get_project("PROJ1")
+    proj.list_jobs.return_value = []
+    result = runner.invoke(app, ["job", "last", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "No jobs found" in result.output
+    assert "dku recipe run" in result.output  # prescriptive fix
+
+
+def test_job_last_invalid_format(patch_client):
+    """Invalid output format should raise BadParameter."""
+    result = runner.invoke(app, ["job", "last", "--project", "PROJ1", "-o", "yaml"])
+    assert result.exit_code != 0
+    assert "plain, table, json" in result.output
+
+
 def test_job_status(patch_client):
     result = runner.invoke(app, ["job", "status", "job1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -54,6 +97,54 @@ def test_job_log(patch_client):
     result = runner.invoke(app, ["job", "log", "job1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "Log line" in result.output
+
+
+def test_job_log_tail(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "line1\nline2\nline3\nline4"
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--tail", "2"]
+    )
+    assert result.exit_code == 0
+    assert "line1" not in result.output
+    assert "line2" not in result.output
+    assert "line3" in result.output
+    assert "line4" in result.output
+
+
+def test_job_log_errors_only(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "\n".join(
+        [
+            "INFO start",
+            "INFO preparing recipe",
+            "ERROR recipe failed",
+            'ValueError: bad column "MONTH_DATE"',
+            "Traceback (most recent call last):",
+            'KeyError: "MONTH_DATE"',
+            "INFO cleanup",
+        ]
+    )
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--errors-only"]
+    )
+    assert result.exit_code == 0
+    assert "ERROR recipe failed" in result.output
+    assert 'KeyError: "MONTH_DATE"' in result.output
+    assert "INFO preparing recipe" in result.output
+    assert "INFO start" not in result.output
+
+
+def test_job_log_errors_only_falls_back_when_no_matches(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "INFO build started\nINFO build finished"
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--errors-only"]
+    )
+    assert result.exit_code == 0
+    assert "No error-like lines found" in result.output
+    assert "INFO build started" in result.output
+    assert "INFO build finished" in result.output
 
 
 def test_job_abort(patch_client):

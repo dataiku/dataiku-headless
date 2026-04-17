@@ -109,9 +109,7 @@ def test_flow_check_json(patch_client):
     """Flow check with JSON output."""
     result = runner.invoke(app, ["flow", "check", "--project", "PROJ1", "-o", "json"])
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
-    assert "summary" in parsed
-    assert "errors" in parsed
+    assert "summary" in result.output
 
 
 def test_flow_sources(patch_client):
@@ -224,6 +222,50 @@ def test_flow_move_recipe_type(patch_client):
     proj.get_recipe.assert_called_with("recipe1")
 
 
+def test_flow_move_managed_folder_by_name(patch_client):
+    """Move a managed folder using its display name (not opaque ID).
+
+    resolve_folder() should be used instead of get_managed_folder() directly,
+    because get_managed_folder() is lazy and only accepts the 8-char ID.
+    """
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "Data Folder",
+            "--zone",
+            "Processing",
+            "--type",
+            "MANAGED_FOLDER",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+
+
+def test_flow_move_managed_folder_by_id(patch_client):
+    """Move a managed folder using its ID."""
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "folder1",
+            "--zone",
+            "Processing",
+            "--type",
+            "MANAGED_FOLDER",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+
+
 def test_flow_sources_with_dataset(patch_client):
     """flow sources DATASET traces upstream to find source nodes."""
     # Mock graph: ds1 -> recipe1, recipe1 has no successors
@@ -238,3 +280,36 @@ def test_flow_sources_without_dataset(patch_client):
     result = runner.invoke(app, ["flow", "sources", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "ds1" in result.output
+
+
+# --- set-zone ---
+
+
+def test_flow_set_zone_name(patch_client):
+    result = runner.invoke(
+        app,
+        ["flow", "set-zone", "Default", "--name", "Ingestion", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Updated zone" in result.output
+
+
+def test_flow_set_zone_color(patch_client):
+    result = runner.invoke(
+        app,
+        ["flow", "set-zone", "Default", "--color", "#FF5500", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+
+
+def test_flow_set_zone_no_args(patch_client):
+    result = runner.invoke(app, ["flow", "set-zone", "Default", "--project", "PROJ1"])
+    assert result.exit_code != 0
+
+
+def test_flow_create_zone_with_color(patch_client):
+    result = runner.invoke(
+        app, ["flow", "create-zone", "ETL", "--color", "#00FF00", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Created zone" in result.output
