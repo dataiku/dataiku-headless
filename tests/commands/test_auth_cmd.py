@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -41,3 +41,64 @@ def test_auth_logout_removes_profile_from_config():
 
     assert result.exit_code == 0
     mock_delete_profile.assert_called_once_with("default")
+
+
+def test_auth_status_shows_sources_and_project(patch_client):
+    project = MagicMock()
+    project.get_metadata.return_value = {"label": "Project One"}
+    patch_client.get_project.return_value = project
+
+    with (
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_profile_config",
+            return_value={"url": "https://dss.example.com", "default_project": "PROJ1"},
+        ),
+        patch("dku_cli.commands.auth_cmd.get_default_project", return_value="PROJ1"),
+        patch(
+            "dku_cli.commands.auth_cmd.resolve_auth",
+            return_value=("https://dss.example.com", "secret"),
+        ),
+        patch(
+            "dku_cli.commands.auth_cmd.dataikuapi.DSSClient", return_value=patch_client
+        ),
+    ):
+        result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 0
+    assert "Profile:" in result.output
+    assert "URL Src:" in result.output
+    assert "Key Src:" in result.output
+    assert "DSS:" in result.output
+    assert "Project:" in result.output
+    assert "Project OK:" in result.output
+
+
+def test_auth_status_project_access_error(patch_client):
+    patch_client.get_project.side_effect = Exception(
+        "NotFoundException: Project MISSING does not exist"
+    )
+
+    with (
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_profile_config",
+            return_value={
+                "url": "https://dss.example.com",
+                "default_project": "MISSING",
+            },
+        ),
+        patch("dku_cli.commands.auth_cmd.get_default_project", return_value="MISSING"),
+        patch(
+            "dku_cli.commands.auth_cmd.resolve_auth",
+            return_value=("https://dss.example.com", "secret"),
+        ),
+        patch(
+            "dku_cli.commands.auth_cmd.dataikuapi.DSSClient", return_value=patch_client
+        ),
+    ):
+        result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 0
+    assert "Project OK:" in result.output
+    assert "NotFoundException: Project MISSING does not exist" in result.output
