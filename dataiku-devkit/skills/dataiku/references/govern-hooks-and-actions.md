@@ -131,7 +131,7 @@ Actions are a **dict** keyed on action ID (`ac.<identifier>`), not a list. The k
 | `description` | string | Tooltip / help text |
 | `script` | string | Python source that runs when the button is clicked |
 
-The action is only visible if it's placed inside a view's viewComponent (see [ui-views.md](ui-views.md)). An action defined in `actions{}` but not referenced in any view is never shown.
+The action is only visible if it's placed inside a view's viewComponent (see [govern-ui-views.md](govern-ui-views.md)). An action defined in `actions{}` but not referenced in any view is never shown.
 
 ### Action handler API
 

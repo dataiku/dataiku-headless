@@ -170,7 +170,7 @@ cat > bv.json <<'EOF'
     ]
   },
   "uiDefinition": {
-    ...existing views — keep them, do NOT ship empty (see ui-views.md)...
+    ...existing views — keep them, do NOT ship empty (see govern-ui-views.md)...
     "uiStepDefinitions": {
       "draft":            {"viewId": "main"},
       "business_review":  {"viewId": "main"},

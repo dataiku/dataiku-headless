@@ -1234,104 +1234,74 @@ Shows: user, DSS URL, DSS version, groups.
 
 ## govern
 
-Dataiku Govern commands for managing artifacts, blueprints, signoffs, roles, users, groups, custom pages, time series, and files. All govern commands require a DSS instance with Govern integration enabled and an admin API key. Subcommands are nested: `dku govern <group> <verb>`.
-
-For full JSON payload reference, field types, signoff state machine, and gotchas, see `skills/dataiku/references/govern.md`.
+Nested `dku govern <group> <verb>`. Requires Govern integration + admin API key. Deep patterns, JSON payloads, signoff state machine, gotchas: `skills/dataiku/references/govern.md`. Blueprint authoring (versions, fields, hooks, views, signoff config): `skills/dataiku/references/govern-blueprint-designer.md`.
 
 ```bash
 # Instance
 dku govern whoami [-o FORMAT]
 dku govern info [-o FORMAT]
 
-# Artifacts — run `dku govern blueprint fields BP_ID` first to discover field schemas
-dku govern artifact list [-b BLUEPRINT_ID] [-n NAME] [--archived|--no-archived] [--page-size N] [--all] [-o FORMAT]
+# Artifacts — run `blueprint fields BP` first to discover schema
+dku govern artifact list [-b BP] [-n NAME] [--archived|--no-archived] [--page-size N] [--all] [-o FORMAT]
 dku govern artifact get ARTIFACT_ID [-o FORMAT]
-dku govern artifact create -b BLUEPRINT_ID -n NAME [-f key=value ...] [-o FORMAT]
-dku govern artifact create --definition JSON [-o FORMAT]
-dku govern artifact delete ARTIFACT_ID --confirm
+dku govern artifact create (-b BP -n NAME [-f key=value ...] | --definition JSON) [-o FORMAT]
 dku govern artifact set-field ARTIFACT_ID FIELD_ID VALUE
 dku govern artifact set-definition ARTIFACT_ID --definition JSON
+dku govern artifact delete ARTIFACT_ID --confirm
 
-# Blueprints
+# Blueprints (read-side only — authoring verbs live in govern-blueprint-designer.md)
 dku govern blueprint list [-o FORMAT]
-dku govern blueprint get BLUEPRINT_ID [-o FORMAT]
-dku govern blueprint list-versions BLUEPRINT_ID [-o FORMAT]
-dku govern blueprint get-version BLUEPRINT_ID VERSION_ID [-o FORMAT]
-dku govern blueprint get-version-definition BLUEPRINT_ID VERSION_ID [-o FORMAT]   # alias of get-version
-dku govern blueprint describe-version BLUEPRINT_ID VERSION_ID                     # pretty-printed summary + structural lint
-dku govern blueprint fields BLUEPRINT_ID [--version VERSION_ID] [-o FORMAT]
+dku govern blueprint get BP_ID [-o FORMAT]
+dku govern blueprint list-versions BP_ID [-o FORMAT]
+dku govern blueprint get-version BP_ID VER_ID [-o FORMAT]        # alias: get-version-definition
+dku govern blueprint describe-version BP_ID VER_ID                # summary + structural lint
+dku govern blueprint fields BP_ID [--version VER_ID] [-o FORMAT]
 dku govern blueprint create IDENTIFIER --definition JSON [-o FORMAT]
-dku govern blueprint set-definition BLUEPRINT_ID --definition JSON
-dku govern blueprint delete BLUEPRINT_ID --confirm
+dku govern blueprint set-definition BP_ID --definition JSON
+dku govern blueprint delete BP_ID --confirm
 
 # Sign-offs
-dku govern signoff create ARTIFACT_ID STEP_ID
-dku govern signoff list ARTIFACT_ID [-o FORMAT]
-dku govern signoff get ARTIFACT_ID STEP_ID [-o FORMAT]
-dku govern signoff update-status ARTIFACT_ID STEP_ID STATUS
-dku govern signoff add-feedback ARTIFACT_ID STEP_ID -g GROUP_ID -s STATUS [-c COMMENT]
-dku govern signoff add-approval ARTIFACT_ID STEP_ID -s STATUS [-c COMMENT]
-dku govern signoff delegate-feedback ARTIFACT_ID STEP_ID -g GROUP_ID --users-container JSON
-dku govern signoff delegate-approval ARTIFACT_ID STEP_ID --users-container JSON
-dku govern signoff list-feedbacks ARTIFACT_ID STEP_ID [-o FORMAT]
-dku govern signoff get-feedback ARTIFACT_ID STEP_ID FEEDBACK_ID [-o FORMAT]
-dku govern signoff get-approval ARTIFACT_ID STEP_ID [-o FORMAT]
+dku govern signoff create          ARTIFACT_ID STEP_ID
+dku govern signoff list            ARTIFACT_ID                                            [-o FORMAT]
+dku govern signoff get             ARTIFACT_ID STEP_ID                                    [-o FORMAT]
+dku govern signoff update-status   ARTIFACT_ID STEP_ID STATUS
+dku govern signoff add-feedback    ARTIFACT_ID STEP_ID -g GROUP_ID -s STATUS [-c COMMENT]
+dku govern signoff add-approval    ARTIFACT_ID STEP_ID            -s STATUS [-c COMMENT]
+dku govern signoff delegate-feedback  ARTIFACT_ID STEP_ID -g GROUP_ID --users-container JSON
+dku govern signoff delegate-approval  ARTIFACT_ID STEP_ID            --users-container JSON
+dku govern signoff list-feedbacks  ARTIFACT_ID STEP_ID                                    [-o FORMAT]
+dku govern signoff get-feedback    ARTIFACT_ID STEP_ID FEEDBACK_ID                        [-o FORMAT]
+dku govern signoff get-approval    ARTIFACT_ID STEP_ID                                    [-o FORMAT]
 
-# Roles
-dku govern role list [-o FORMAT]
-dku govern role get ROLE_ID [-o FORMAT]
-dku govern role create IDENTIFIER --definition JSON
-dku govern role set-definition ROLE_ID --definition JSON
-dku govern role delete ROLE_ID --confirm
+# Roles / Custom pages (same CRUD shape — ID prefixes `ro.` / `cp.`)
+dku govern role        {list | get ID | create IDENTIFIER --definition JSON | set-definition ID --definition JSON | delete ID --confirm}
+dku govern custom-page {list | get ID | create IDENTIFIER --definition JSON | set-definition ID --definition JSON | delete ID --confirm}
 
-# Custom pages
-dku govern custom-page list [-o FORMAT]
-dku govern custom-page get PAGE_ID [-o FORMAT]
-dku govern custom-page create IDENTIFIER --definition JSON
-dku govern custom-page set-definition PAGE_ID --definition JSON
-dku govern custom-page delete PAGE_ID --confirm
-
-# Users (admin)
+# Users / Groups (admin)
 dku govern user list [-o FORMAT]
 dku govern user get LOGIN [-o FORMAT]
-dku govern user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--group GROUP ...] [--profile PROFILE] [--source-type LOCAL|LDAP]
-dku govern user create-bulk --definition JSON [-o FORMAT]
-dku govern user edit-bulk --definition JSON [-o FORMAT]
-dku govern user delete-bulk --definition JSON --confirm [-o FORMAT]
-dku govern user get-own [-o FORMAT]
+dku govern user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--group G ...] [--profile P] [--source-type LOCAL|LDAP]
+dku govern user {create-bulk | edit-bulk | delete-bulk} --definition JSON [--confirm] [-o FORMAT]
+dku govern user get-own [-o FORMAT]                                   # user-session auth only
 dku govern user list-activity [--enabled-only] [-o FORMAT]
+dku govern group {list | get GROUP_NAME | create GROUP_NAME [--description D] [--source-type LOCAL|LDAP] | delete GROUP_NAME --confirm}
 
-# Groups (admin)
-dku govern group list [-o FORMAT]
-dku govern group get GROUP_NAME [-o FORMAT]
-dku govern group create GROUP_NAME [--description DESC] [--source-type LOCAL|LDAP]
-dku govern group delete GROUP_NAME --confirm
-
-# Time series
+# Time series (timestamps = epoch ms; push-values upserts by default, `--no-upsert` skips existing)
 dku govern time-series create [--datapoints JSON] [-o FORMAT]
-dku govern time-series get TIME_SERIES_ID [--min EPOCH_MS] [--max EPOCH_MS] [-o FORMAT]
-dku govern time-series push-values TIME_SERIES_ID --datapoints JSON [--no-upsert]
-dku govern time-series delete TIME_SERIES_ID [--min EPOCH_MS] [--max EPOCH_MS] --confirm
+dku govern time-series get TS_ID [--min EPOCH_MS] [--max EPOCH_MS] [-o FORMAT]
+dku govern time-series push-values TS_ID --datapoints JSON [--no-upsert]
+dku govern time-series delete TS_ID [--min EPOCH_MS] [--max EPOCH_MS] --confirm
 
-# Files
-dku govern file upload FILE_PATH [-o FORMAT]
+# Files — returned `uf.<id>` goes into UPLOADED_FILE fields as array: '["uf.1"]'
+dku govern file upload PATH [-o FORMAT]
 dku govern file get FILE_ID [-o FORMAT]
 dku govern file download FILE_ID [--dest PATH]
 ```
 
-- `artifact create` has two modes: ergonomic (`-b`/`-n`/`-f` flags) and raw JSON (`--definition`). Run `blueprint fields` first
-- `artifact set-field` updates a single field without replacing the full definition
-- `blueprint fields` shows field IDs, types, required flags, valid categories. Auto-resolves ACTIVE version
-- `blueprint get-version-definition` is an alias for `blueprint get-version` — same output, longer name added for symmetry with `set-version-definition`
-- `blueprint describe-version` is a pretty-printer over `get-version` + `list-signoff-configs`: prints fields/workflow/signoffs/views as tables and ends with structural warnings (empty `uiDefinition.views`, missing `artifactPageViewId`, fields not in any view, signoffs on non-existent steps). Use this instead of `get-version | jq` when authoring or auditing a blueprint — it catches the silent-failure patterns the Govern API accepts but render broken in the UI
-- `blueprint create` / `role create` / `custom-page create`: IDENTIFIER becomes `bp.`/`ro.`/`cp.<identifier>`
-- Sign-off statuses: NOT_STARTED → WAITING_FOR_FEEDBACK → WAITING_FOR_APPROVAL → APPROVED/REJECTED/ABANDONED. Must go through ABANDONED to reset
-- Feedback statuses: APPROVED, MINOR_ISSUE, MAJOR_ISSUE. Approval statuses: APPROVED, REJECTED, ABANDONED
-- Users container JSON for delegation: `'{"type": "user", "login": "alice"}'` — type must be `"user"` (lowercase)
-- `user delete-bulk` requires `--confirm`. `user get-own` only works with user session auth, not API keys
-- `--definition` and `--datapoints` accept string, `@file.json`, or `-` for stdin
-- Time series timestamps are epoch in **milliseconds**
-- File IDs from `file upload` are used in artifact UPLOADED_FILE fields as arrays: `'["uf.1"]'`
-- `file download` saves to current dir using original filename; override with `--dest`
-- `time-series push-values` upserts by default; `--no-upsert` skips existing timestamps
-- All `delete` commands require `--confirm` (or `--yes` / `-y`). `blueprint delete` requires all versions and artifacts deleted first
+- `artifact create`: ergonomic (`-b`/`-n`/`-f`) or raw (`--definition`). `set-field` updates one field without round-tripping the full definition
+- `blueprint fields` auto-resolves the ACTIVE version; prints field IDs, types, required flags, categories
+- `blueprint describe-version` pretty-prints fields/workflow/signoffs/views + flags silent-failure patterns (empty `uiDefinition.views`, missing `artifactPageViewId`, fields not in any view, signoffs on non-existent steps). Prefer over `get-version | jq` when authoring
+- Sign-off state machine: `NOT_STARTED → WAITING_FOR_FEEDBACK → WAITING_FOR_APPROVAL → APPROVED|REJECTED|ABANDONED`. Reset requires passing through `ABANDONED`. Feedback statuses: `APPROVED|MINOR_ISSUE|MAJOR_ISSUE`; approval: `APPROVED|REJECTED|ABANDONED`
+- `--users-container` JSON: `'{"type": "user", "login": "alice"}'` — `type` is **lowercase** (`user`/`group`/`role`/`global-api-key`)
+- All `--definition` / `--datapoints` flags accept literal string, `@file.json`, or `-` (stdin)
+- All `delete*` commands require `--confirm` / `-y`. `blueprint delete` needs every version + artifact gone first

@@ -238,5 +238,3 @@ The real default Govern Project blueprint has 41 fields. A representative slice:
   }
 }
 ```
-
-See [canonical-examples/govern-project-excerpt.json](canonical-examples/govern-project-excerpt.json) for a trimmed copy of the full payload.

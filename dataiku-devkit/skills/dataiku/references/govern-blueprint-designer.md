@@ -151,7 +151,7 @@ Export omits migration paths. If you need them, use the Govern UI today. The `--
 
 ## Field types at a glance
 
-Nine types — see [govern-blueprint-designer/field-types.md](govern-blueprint-designer/field-types.md) for full JSON.
+Nine types — see [govern-field-types.md](govern-field-types.md) for full JSON.
 
 | fieldType | Scalar JSON | List JSON |
 |---|---|---|
@@ -245,7 +245,7 @@ caused by: JsonParseException: Cannot deserialize UsersContainer:
 unknown type "USER" ... (possible type values are: "role", "global-api-key", "user", "group")
 ```
 
-See [govern-blueprint-designer/workflow-and-signoffs.md](govern-blueprint-designer/workflow-and-signoffs.md) for more container types and recurrence patterns.
+See [govern-workflow-and-signoffs.md](govern-workflow-and-signoffs.md) for more container types and recurrence patterns.
 
 ## Logical hooks
 
@@ -265,7 +265,7 @@ Python scripts that run on artifact lifecycle phases (CREATE / UPDATE / DELETE).
 - Do **not** mutate neighbor artifacts via the API client from inside a hook — it may trigger another hook execution, which is unsupported and fails the action.
 - To schedule updates on neighbor artifacts, append their IDs to `handler.artifactIdsToUpdate` and they will be UPDATE-hooked **after** the current action commits.
 
-See [govern-blueprint-designer/hooks-and-actions.md](govern-blueprint-designer/hooks-and-actions.md) for the `handler` object API and common hook patterns.
+See [govern-hooks-and-actions.md](govern-hooks-and-actions.md) for the `handler` object API and common hook patterns.
 
 ## UI views (minimum viable)
 
@@ -317,7 +317,7 @@ The minimum viable `uiDefinition` for a blueprint with fields `title`, `risk_sco
 | `UPLOADED_FILE` | `uploaded-file-field` |
 | `JSON` | `json-field` |
 
-To build richer views (grouped cards, tabs, conditional visibility, per-step field hiding), see [govern-blueprint-designer/ui-views.md](govern-blueprint-designer/ui-views.md).
+To build richer views (grouped cards, tabs, conditional visibility, per-step field hiding), see [govern-ui-views.md](govern-ui-views.md).
 
 ## Gotchas
 
@@ -346,8 +346,7 @@ To build richer views (grouped cards, tabs, conditional visibility, per-step fie
 
 ## References
 
-- [govern-blueprint-designer/field-types.md](govern-blueprint-designer/field-types.md) — Complete catalogue of the 9 FieldTypes with JSON templates and live payload examples
-- [govern-blueprint-designer/workflow-and-signoffs.md](govern-blueprint-designer/workflow-and-signoffs.md) — Workflow step definition, visibility conditions, signoff reviewer containers, recurrence, delegation
-- [govern-blueprint-designer/hooks-and-actions.md](govern-blueprint-designer/hooks-and-actions.md) — Python hook anatomy, `handler` API, safe patterns, common pitfalls
-- [govern-blueprint-designer/ui-views.md](govern-blueprint-designer/ui-views.md) — uiDefinition.views, view components (container / text-field / reference-field / ...), per-step view assignments, conditional views
-- [govern-blueprint-designer/canonical-examples/](govern-blueprint-designer/canonical-examples/) — Real blueprint version payloads: a minimal starter + a rich fork of `bp.system.govern_project`
+- [govern-field-types.md](govern-field-types.md) — Complete catalogue of the 9 FieldTypes with JSON templates and live payload examples
+- [govern-workflow-and-signoffs.md](govern-workflow-and-signoffs.md) — Workflow step definition, visibility conditions, signoff reviewer containers, recurrence, delegation
+- [govern-hooks-and-actions.md](govern-hooks-and-actions.md) — Python hook anatomy, `handler` API, safe patterns, common pitfalls
+- [govern-ui-views.md](govern-ui-views.md) — uiDefinition.views, view components (container / text-field / reference-field / ...), per-step view assignments, conditional views

@@ -616,7 +616,7 @@ uiDefinition
 
 Each view's `viewComponent` is either a leaf field reference (`{type: "text-field", fieldId: "...", label: "..."}`) or a `container` with a `layout` (`{type: "sequential", viewComponents: [...]}`) that holds nested children. Containers can be nested for sections.
 
-For the deeper view-authoring guide (grouped cards, tabs, conditional visibility, per-step view assignments), see [`govern-blueprint-designer.md`](govern-blueprint-designer.md) and its `govern-blueprint-designer/ui-views.md`.
+For the deeper view-authoring guide (grouped cards, tabs, conditional visibility, per-step view assignments), see [`govern-blueprint-designer.md`](govern-blueprint-designer.md) and [`govern-ui-views.md`](govern-ui-views.md).
 
 ### Inspecting a version
 
