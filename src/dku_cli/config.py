@@ -126,6 +126,20 @@ def get_default_project() -> str | None:
     return get_profile_config(profile).get("default_project")
 
 
+def get_profile_credential_store(profile: str) -> str | None:
+    return get_profile_config(profile).get("credential_store")
+
+
+def set_profile_credential_store(profile: str, store: str) -> None:
+    config = get_config()
+    profile_cfg = config.get(profile, {})
+    if not isinstance(profile_cfg, dict):
+        profile_cfg = {}
+    profile_cfg["credential_store"] = store
+    config[profile] = profile_cfg
+    _write_toml(CONFIG_FILE, config)
+
+
 def set_default_project(project_key: str) -> None:
     config = get_config()
     profile = get_active_profile()
