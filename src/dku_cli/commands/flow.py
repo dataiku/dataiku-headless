@@ -107,13 +107,17 @@ def zones(
                 }
             )
 
-        # Table view only shows id/name/itemCount; items shipped in JSON.
-        render(
-            data,
-            ["id", "name", "itemCount"],
-            output_format=output,
-            title=f"Flow Zones ({project_key})",
-        )
+        # Table view only shows id/name/itemCount; items[] shipped in JSON/CSV
+        # via render_raw to preserve the nested list.
+        if output == "table":
+            render(
+                data,
+                ["id", "name", "itemCount"],
+                output_format=output,
+                title=f"Flow Zones ({project_key})",
+            )
+        else:
+            render_raw(data, output)
     except Exception as e:
         handle_api_error(e)
 

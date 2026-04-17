@@ -97,6 +97,18 @@ The `--type SAVED_MODEL` form defaults `--role` to `model` (what scoring
 recipes expect). For folders, use `--type MANAGED_FOLDER`; the folder name is
 resolved to its ID before being written to the recipe definition.
 
+### Silent failure: folder input written as a dataset ref
+
+Passing a managed folder to a code recipe WITHOUT `--type MANAGED_FOLDER` used
+to silently write the folder name as a dataset ref. Symptom: `dataset build`
+exits 0, but the output is empty/missing and the job log contains
+`Failed to add recipe ... to graph: dataset does not exist: PROJ.FOLDER_NAME`.
+Auto-detect is on now — but for code recipes consuming folders, always:
+
+```bash
+dku recipe add-input my_recipe my_folder --type MANAGED_FOLDER -P PROJ
+```
+
 ## Python Recipe (Last Resort)
 
 ```bash

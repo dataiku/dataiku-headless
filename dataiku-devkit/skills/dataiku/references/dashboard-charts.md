@@ -294,7 +294,7 @@ Places a chart or table insight on the dashboard:
 
 ### Text/HTML Tile
 
-> **⚠️ DSS may normalize `tileParams.htmlContent` away on save.** Writing a `TEXT`
+> **DSS may normalize `tileParams.htmlContent` away on save.** Writing a `TEXT`
 > tile via `dku dashboard set-definition` can persist the tile but drop `htmlContent`,
 > keeping only fields like `verticalAlign`. Always re-read with
 > `dku dashboard get-definition` after writing and diff — if the HTML was dropped,
