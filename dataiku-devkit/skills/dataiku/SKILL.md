@@ -44,6 +44,9 @@ triggers:
   - prepare recipe
   - computed column
   - dataiku formula
+  - semantic model
+  - text-to-sql
+  - sql generation agent
 globs:
   - "**/plugin.json"
   - "**/tool.json"
@@ -159,6 +162,7 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 | Styling | `dataiku-internal-branding` skill |
 | Geospatial | `references/geospatial.md` |
 | Verification & Cost | `references/verification.md` |
+| Semantic Models (text-to-SQL) | `references/semantic-models.md` |
 
 ---
 

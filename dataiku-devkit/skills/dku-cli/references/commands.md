@@ -969,6 +969,45 @@ dku semantic-model set-version SM_REF --definition JSON|@file.json|- [--version 
 dku semantic-model set-active-version SM_REF VERSION_ID [-P PROJECT]
 dku semantic-model distinct-values SM_REF [--version VID] [--entity E --attribute A] [--max N] [-P PROJECT] [-o FORMAT]
 dku semantic-model update-index SM_REF [--version VID] [--wait] [-P PROJECT]
+
+# Splice-level mutation verbs (preferred over raw set-version)
+dku semantic-model add-entity SM_REF --from-dataset DS [--name N] [--pk COL[,COL2]] \
+  [--index-values COL1,COL2] [--resolve-values COL1,COL2] [--description D] [--tags t1,t2] \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-entity SM_REF ENTITY_NAME [--version VID] [-P PROJECT]
+
+dku semantic-model add-relationship SM_REF --from A --to B (--on COL[,COL2] | --expression "left.x = right.x") \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-relationship SM_REF --from A --to B [--version VID] [-P PROJECT]
+
+dku semantic-model add-glossary-term SM_REF --term T [--description D] [--synonyms s1,s2] \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-glossary-term SM_REF --term T [--version VID] [-P PROJECT]
+
+dku semantic-model list-entities SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+dku semantic-model list-relationships SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+dku semantic-model list-glossary SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+
+# Entity-scoped: metrics (aggregates) and filters (predicates)
+dku semantic-model add-metric SM_REF --entity E --name N --expression "COUNT(*)" \
+  [--description D] [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-metric SM_REF --entity E --name N [--version VID] [-P PROJECT]
+dku semantic-model list-metrics SM_REF --entity E [--version VID] [-P PROJECT] [-o FORMAT]
+
+dku semantic-model add-filter SM_REF --entity E --name N --expression "col = 'x'" \
+  [--description D] [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-filter SM_REF --entity E --name N [--version VID] [-P PROJECT]
+dku semantic-model list-filters SM_REF --entity E [--version VID] [-P PROJECT] [-o FORMAT]
+
+# Attribute-scoped: curated enum values
+dku semantic-model set-manual-values SM_REF --entity E --attribute A \
+  (--values "a,b,c" | --clear) [--version VID] [-P PROJECT]
+
+# Version-scoped: golden queries (NL→SQL few-shot examples)
+dku semantic-model add-golden-query SM_REF --name N --question Q --sql SQL \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-golden-query SM_REF --name N [--version VID] [-P PROJECT]
+dku semantic-model list-golden-queries SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
 ```
 
 - All commands accept semantic model ID **or name** — name resolved via list fallback
@@ -976,9 +1015,50 @@ dku semantic-model update-index SM_REF [--version VID] [--wait] [-P PROJECT]
 - `--version` defaults to the active version when omitted
 - `create-version` does NOT persist until the server is called — `new_version().save()` is handled internally
 - `create-version --duplicate-of` clones an existing version's configuration
-- `set-version` merges JSON into current version settings (shallow merge). Get current: `dku semantic-model get-version SM -o json`
+- `set-version` **shallow-merges** JSON into current version settings at the TOP level. This means passing `{"relationships":[{...}]}` **REPLACES the entire relationships array**, not appends. Always read current, modify, then save:
+  ```bash
+  dku semantic-model get-version SM -P PROJ -o json > sm.json
+  jq '.relationships += [{"firstEntity":"A","secondEntity":"B","pseudoSQLExpression":"left.id = right.id"}]' sm.json > sm_new.json
+  dku semantic-model set-version SM --definition @sm_new.json -P PROJ
+  ```
+- **Relationship JSON shape** (verified on DSS 14.4.3): `{"firstEntity":"name","secondEntity":"name","pseudoSQLExpression":"left.col = right.col"}`. Three fields. No cardinality. See `dataiku` skill's `references/semantic-models.md` for entity/glossary shapes.
+- **Never guess inner JSON shapes.** `dataikuapi` treats entities/relationships/glossary as opaque dicts with no inner class definitions. Build one example in the DSS UI → export with `get-version -o json` → templatize.
+- **Prefer splice verbs over `set-version` for mutations.** `add-entity`/`add-relationship`/`add-glossary-term` load the current version, splice the array, and save — no shallow-merge hazard. Use raw `set-version` only for bulk replace or top-level field changes (`description`, `indexingSettings`).
+- **`add-entity --from-dataset DS`** auto-generates all attribute definitions from the dataset schema (column names, DSS types, descriptions). Pass `--index-values COL1,COL2` to enable distinct-value indexing + fuzzy resolution on specific columns. Default PK is the first dataset column — override with `--pk COL`.
+- **`add-relationship --on COL`** builds `left.COL = right.COL`. Comma-separated for composite joins (`--on ACCOUNT_SK,MONTH` → `left.ACCOUNT_SK = right.ACCOUNT_SK AND left.MONTH = right.MONTH`). Use `--expression` for computed predicates (`LOWER(left.x) = LOWER(right.y)`).
+- **Entity metrics/filters are pseudo-SQL.** Metrics are aggregates (`COUNT(*)`, `SUM(Amount)`, `COUNT(DISTINCT CustomerID)`). Filters are predicates (`Subscribed = 'true'`, `Date >= CURRENT_DATE - INTERVAL '30 days'`). These become the **approved** building blocks the text-to-SQL agent composes — without them the agent hand-rolls SQL from scratch, which is worse.
+- **`set-manual-values` flips the attribute to curated-enum mode.** Automatically sets `distinctValuesHandlingMode=MANUAL`, `indexDistinctValues=true`, `resolveInUserRequests=true` so the agent resolves user strings ("high risk" → `RiskTolerance = 'High'`). Use `--clear` to revert to indexed scan (`mode=NONE`).
+- **Golden queries drive quality more than any other single input.** Add real NL questions + the canonical SQL. The agent uses these as few-shot examples, learning join style + your column conventions.
+- **From-scratch workflow, high-quality** (verified DSS 14.4.3):
+  ```bash
+  dku semantic-model create "My Model" -P PROJ
+  dku semantic-model create-version $SM_ID v1 -P PROJ
+  dku semantic-model set-active-version $SM_ID v1 -P PROJ
+
+  # Entities (auto-generate attributes from datasets)
+  dku semantic-model add-entity $SM_ID --from-dataset Customers --pk CustomerID --index-values Name,RiskTolerance -P PROJ
+  dku semantic-model add-entity $SM_ID --from-dataset Orders --pk OrderID -P PROJ
+
+  # Metrics & filters (agent's approved aggregates/predicates)
+  dku semantic-model add-metric $SM_ID --entity customers --name "Total Customers" --expression "COUNT(CustomerID)" -P PROJ
+  dku semantic-model add-metric $SM_ID --entity customers --name "Subscribed Customers" --expression "COUNT(CASE WHEN Subscribed='true' THEN CustomerID END)" -P PROJ
+  dku semantic-model add-filter $SM_ID --entity customers --name "Subscribed" --expression "Subscribed = 'true'" -P PROJ
+
+  # Curated enums on categorical attributes
+  dku semantic-model set-manual-values $SM_ID --entity customers --attribute RiskTolerance --values "Low,Medium,High" -P PROJ
+
+  # Joins
+  dku semantic-model add-relationship $SM_ID --from customers --to orders --on CustomerID -P PROJ
+
+  # Glossary & golden queries
+  dku semantic-model add-glossary-term $SM_ID --term ARR --description "Annual Recurring Revenue" --synonyms "annual recurring revenue" -P PROJ
+  dku semantic-model add-golden-query $SM_ID --name "count subscribers" --question "How many subscribed customers do we have?" --sql "SELECT COUNT(*) FROM Customers WHERE Subscribed='true'" -P PROJ
+
+  dku semantic-model update-index $SM_ID --wait -P PROJ
+  ```
 - `distinct-values` requires `--entity` AND `--attribute` together, or neither (for all attributes)
 - `update-index` triggers distinct values indexing (async). Use `--wait` to block until complete
+- **Always `update-index --wait` after changing entities/attributes.** The text-to-SQL agent only sees indexed distinct values.
 - **Limitation**: `get_semantic_model()` is lazy — the CLI calls `_get_definition()` internally to verify existence
 
 ## agent-hub

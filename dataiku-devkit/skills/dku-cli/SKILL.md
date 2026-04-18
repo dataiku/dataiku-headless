@@ -36,6 +36,7 @@ metadata:
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. Read the relevant file first — don't try to figure it out from `--help` alone.
 > 16. **Cross-connection landing is a first-class feature.** `dku recipe create -t sync --connection X` moves data between connections. Never write a Python passthrough. See `references/sql-engines.md`.
 > 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). See `references/agent-patterns.md`.
+> 18. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
 
 # dku-cli
 
