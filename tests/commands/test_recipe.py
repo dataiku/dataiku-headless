@@ -2788,12 +2788,13 @@ def test_recipe_add_fold_by_name(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "FoldColumnsByName" in result.output
+    assert "MultiColumnFold" in result.output
     step = settings.obj_payload["steps"][0]
-    assert step["type"] == "FoldColumnsByName"
+    assert step["type"] == "MultiColumnFold"
     assert step["params"]["columns"] == ["jan", "feb", "mar"]
-    assert step["params"]["keyColumn"] == "month"
-    assert step["params"]["valueColumn"] == "sales"
+    assert step["params"]["foldNameColumn"] == "month"
+    assert step["params"]["foldValueColumn"] == "sales"
+    assert step["params"]["foldRemoveFoldedColumns"] is True
 
 
 def test_recipe_add_fold_by_pattern(patch_client):
@@ -2816,10 +2817,13 @@ def test_recipe_add_fold_by_pattern(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "FoldColumnsByPattern" in result.output
+    assert "MultiColumnByPrefixFold" in result.output
     step = settings.obj_payload["steps"][0]
-    assert step["type"] == "FoldColumnsByPattern"
+    assert step["type"] == "MultiColumnByPrefixFold"
     assert step["params"]["columnNamePattern"] == ".*-25"
+    assert step["params"]["columnNameColumn"] == "month"
+    assert step["params"]["columnContentColumn"] == "value"
+    assert step["params"]["foldRemoveFoldedColumns"] is True
 
 
 def test_recipe_add_fold_requires_columns_or_pattern(patch_client):

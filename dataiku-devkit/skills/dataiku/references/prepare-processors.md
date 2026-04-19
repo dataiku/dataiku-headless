@@ -23,7 +23,7 @@ Processors that **DO NOT** work with spaces (they use GREL variable references):
 
 ## Processor Decision Table
 
-Before writing a GREL formula, check this table. All 81 processors below are verified working on stock DSS (no plugins).
+Before writing a GREL formula, check this table. The processors below are stock DSS unless flagged otherwise (`FoldColumnsByName` is a plugin — see its section).
 
 | Need to... | Processor | CLI |
 |------------|-----------|-----|
@@ -219,17 +219,20 @@ Each entry: type ID, when to use, key params, canonical JSON for `add-step --par
 
 ### StringTransformer
 
-**When:** Uppercase, lowercase, or trim text. Prefer over GREL `upper()`, `lower()`, `trim()`.
+**When:** Uppercase, lowercase, trim, normalize, or truncate text. Prefer over GREL `toUppercase()`, `toLowercase()`, `trim()`.
 
 | Param | Required | Description |
 |-------|----------|-------------|
-| `mode` | Yes | `UPPERCASE`, `LOWERCASE`, `TITLECASE`, `TRIM`, `NORMALIZE` |
+| `mode` | Yes | `TO_UPPER`, `TO_LOWER`, `TRIM`, `NORMALIZE`, `TRUNCATE` |
 | `appliesTo` | Yes | Scope (see shared params) |
 | `columns` | Yes | `["col_name"]` |
+| `truncate_limit` | Cond | Integer max length (required when `mode: TRUNCATE`) |
 
 ```json
-{"mode": "UPPERCASE", "appliesTo": "SINGLE_COLUMN", "columns": ["city"]}
+{"mode": "TO_UPPER", "appliesTo": "SINGLE_COLUMN", "columns": ["city"]}
 ```
+
+**Note on mode names:** use `TO_UPPER`/`TO_LOWER`, NOT `UPPERCASE`/`LOWERCASE`. Wrong values produce a runtime NullPointerException (`this.parameter.mode is null`) at build time, not at step-add time. DSS has no `TITLECASE` mode — for title case, use GREL `toTitlecase(col)`.
 
 ---
 
@@ -312,7 +315,10 @@ With `limitOutput`:
 
 Each branch has a `filter` (visual condition) and `actions` (output assignments):
 - **Filter:** `{"uiData": {"mode": "&&", "conditions": [...]}, "distinct": true, "enabled": true}`
-- **Condition:** `{"input": "col_name", "col": "col_name", "operator": "...", "string": "", "num": 0.0, "num2": 0.0}`
+- **Condition:** `{"input": "col_name", "col": "", "operator": "...", "string": "", "num": 0.0, "num2": 0.0}`
+  - `input` — column being tested (left-hand side)
+  - `col` — other-column name for `== [column]` operator (right-hand side). **Use `col`, not `string`** — the string field holds literal values, not column refs.
+  - `string` / `num` / `num2` — literal value(s) for the operator
 - **Action:** `{"outputColumnName": "result", "column": "", "formula": "", "value": "high", "operator": "ASSIGN_VALUE"}`
 
 #### Condition operators
@@ -331,13 +337,15 @@ Each branch has a `filter` (visual condition) and `actions` (output assignments)
 | | `<  [number]` | `num` | 2 spaces after `<` |
 | | `>= [number]` | `num` | 1 space after `>=` |
 | | `<= [number]` | `num` | 1 space after `<=` |
-| Column compare | `== [column]` | `string` (other column name) | |
+| Column compare | `== [column]` | `col` (other column name) | Use `col`, NOT `string` |
 | Boolean | `true` | — | |
 | | `false` | — | |
 
-**Broken via API** (produce silent `False` — DSS bug): `regex`, `in [string]`, `not in [string]`, date operators, geo operators. Use GREL alternatives:
-- Regex: `add-formula --expr 'if(length(match(col, "(pattern)")) > 0, "YES", "NO")'`
+**Broken via API** (produce silent `False` — DSS bug, verified on stock DSS): `regex`, `in [string]`, `not in [string]`. Date and geo operators also known to fail. Verified-working operators in the table above. Use GREL alternatives for broken ones:
+- Regex: `add-formula --expr 'if(length(match(col, /pattern/)) > 0, "YES", "NO")'` — note `/pattern/`, not `"pattern"`
 - Is any of: `add-formula --expr 'switch(col, "a", "MATCH", "b", "MATCH", "NO_MATCH")'`
+
+The same `uiData.conditions[]` schema is shared with filter/join/split recipes (see `visual-conditions.md`). The broken-operator bug is specific to VisualIfRule within Prepare; other recipe types may handle these operators differently — verify before relying on them via API.
 
 #### Action operators
 
@@ -397,7 +405,7 @@ For `FLAG` action, add `"flagColumn": "col_name"` to create a boolean flag colum
 
 **Related Flag processors** (same pattern, different condition types):
 - `FlagOnBadType` — flag by column type: `{"appliesTo": "SINGLE_COLUMN", "columns": ["amount"], "type": "Numeric", "action": "FLAG", "flagColumn": "is_valid", "considerEmptyAsInvalid": true, "booleanMode": "AND"}`
-- `FlagOnCustomFormula` — flag by formula: `{"expression": "val(\"amount\") > 100", "action": "FLAG", "flagColumn": "high_amount"}`
+- `FlagOnCustomFormula` — flag by formula: `{"expression": "val(\"amount\") > 100", "action": "FLAG", "flagColumn": "high_amount"}` (quoted column name required for `val`/`numval`/`strval`)
 - `FlagOnDate` — flag by date range: `{"appliesTo": "SINGLE_COLUMN", "columns": ["date"], "filterType": "RANGE", "min": "2024-01-01T00:00:00.000", "max": "2024-12-31T00:00:00.000", "action": "FLAG", "flagColumn": "in_2024", "timezone_id": "UTC", "booleanMode": "AND", "includeEmptyValues": false}`
 - `FlagOnNumericalRange` — flag by numeric range: `{"appliesTo": "SINGLE_COLUMN", "columns": ["amount"], "min": 100.0, "max": 500.0, "action": "FLAG", "flagColumn": "in_range", "booleanMode": "AND", "includeEmptyValues": false}`
 
@@ -559,28 +567,37 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 
 ### MultiColumnFold
 
-**When:** Unpivot wide-to-long. Prefer over `pd.melt()`.
-**CLI shortcut:** `dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ`
-
-> **Compatibility note:** `FoldColumnsByName` is a plugin processor that may not be installed on all DSS instances. If you get `UnavailableTypeException`, fall back to a Python recipe with `pd.melt(id_vars=[...], value_vars=[...], var_name=..., value_name=...)`.
-
-**FoldColumnsByName:**
+**When:** Unpivot wide-to-long. Prefer over `pd.melt()`. Stock DSS — works on every instance.
+**CLI shortcut:** `dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ` (emits this type with `foldRemoveFoldedColumns: true`)
 
 | Param | Required | Description |
 |-------|----------|-------------|
 | `columns` | Yes | Array of column names to fold |
 | `foldNameColumn` | Yes | Output column for original column names |
 | `foldValueColumn` | Yes | Output column for values |
+| `foldRemoveFoldedColumns` | No | `true` to drop the folded source columns (pd.melt semantic); `false`/omit to keep them |
 
 ```json
-{"columns": ["jan", "feb", "mar"], "foldNameColumn": "month", "foldValueColumn": "sales"}
+{"columns": ["jan", "feb", "mar"], "foldNameColumn": "month", "foldValueColumn": "sales", "foldRemoveFoldedColumns": true}
 ```
 
-Also available: `MultiColumnByPrefixFold` — folds columns matching a prefix pattern:
+### MultiColumnByPrefixFold
+
+**When:** Same as `MultiColumnFold`, but the columns to fold are selected by a regex on the column name. Stock DSS.
+**CLI shortcut:** `dku recipe add-fold RECIPE --pattern ".*_2025" --key-column year --value-column value -P PROJ`
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `columnNamePattern` | Yes | Regex matching source column names |
+| `columnNameColumn` | Yes | Output column for original column names |
+| `columnContentColumn` | Yes | Output column for values |
+| `foldRemoveFoldedColumns` | No | `true` to drop matched source columns |
 
 ```json
-{"columnNamePattern": "score_", "keyColumn": "metric", "valueColumn": "value"}
+{"columnNamePattern": "score_.*", "columnNameColumn": "metric", "columnContentColumn": "value", "foldRemoveFoldedColumns": true}
 ```
+
+> **Plugin variants:** `FoldColumnsByName` and `FoldColumnsByPattern` exist as plugin processors with similar semantics but different param names (`keyColumn`/`valueColumn` instead of `foldNameColumn`/`foldValueColumn`). Prefer the stock processors above — the plugin versions fail with `UnavailableTypeException` when the plugin is not installed.
 
 ---
 
@@ -626,9 +643,8 @@ Also available: `MultiColumnByPrefixFold` — folds columns matching a prefix pa
 | `round(x, 2)` | Silent empty output — `round()` takes exactly 1 arg (nearest integer) | `round(x * 100) / 100` for 2 decimals, `round(x * 10) / 10` for 1 decimal |
 | `asDateOnly()` on STRING column | Silently fails in some recipe contexts | Run `DateParser` step first, then use the parsed column in date functions |
 | `log()` | Returns base-10, not natural log | Use `ln()` for natural log |
-| `numval()` / `val()` | Don't work in formula columns | Use direct arithmetic — GREL auto-casts strings to numbers |
+| `numval(col)` / `val(col)` bareword | Silent empty output — accessor needs a quoted column name | Use `numval("col")` / `val("col")` with quotes, OR drop the wrapper and use bareword `col` (arithmetic auto-coerces) |
 | Formula column type | New columns default to STRING | Always run `apply-schema` after adding formula steps |
-| VisualIfRule `regex`/`in [string]` | Silent boolean `False` via API (DSS bug) | Use GREL `match()` for regex, `switch()` for is-any-of |
 
 ---
 

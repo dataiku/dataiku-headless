@@ -31,11 +31,13 @@ GREL function names use inconsistent casing. Getting one letter wrong produces `
 ## Core syntax reference
 
 ### Column access
-- `column_name` — returns the cell value directly
-- `numval(column)` — forces numeric interpretation
-- `strval(column)` — forces string interpretation (returns "" for empty)
-- `strval(column, default)` — string value with fallback
-- `val(column, [default], [offset])` — generic accessor with optional default and row offset
+- `column_name` — returns the cell value directly (bareword identifier)
+- `numval("column")` — forces numeric interpretation (column name MUST be quoted string)
+- `strval("column")` — forces string interpretation (returns "" for empty)
+- `strval("column", default)` — string value with fallback
+- `val("column", [default], [offset])` — generic accessor with optional default and row offset
+
+**CRITICAL:** `val`/`numval`/`strval` require a **quoted** column name. The bareword form `numval(column)` silently returns empty string — DSS parses `column` as an undefined variable instead of a column reference. Use `numval("column")` or drop the wrapper and rely on bareword `column` + arithmetic (GREL auto-coerces).
 
 ### Conditionals & logic
 
@@ -66,7 +68,8 @@ concat(a, b, ...)                // join strings (also: a + b)
 contains(s, fragment)            // substring check
 startsWith(s, prefix)
 endsWith(s, suffix)
-replace(s, pattern, replacement) // supports regex
+replace(s, "substring", replacement) // literal substring replacement
+replace(s, /pattern/, replacement)    // regex replacement (pattern must be /.../-delimited literal)
 replaceChars(s, from, to)        // per-character replacement
 split(s, separator)              // returns array
 join(array, separator)           // array to string
@@ -150,8 +153,10 @@ type(x)                                  // returns type name string
 
 ### Regex
 
+Regex patterns are `/.../`-delimited literals — NOT strings. `replace(s, "abc", "x")` treats `"abc"` as a literal substring; `replace(s, /a.c/, "x")` treats it as a regex.
+
 ```
-match(s, pattern)                        // returns array of capture groups
+match(s, /pattern/)                      // returns array of capture groups (pattern is regex literal)
 replace(s, /pattern/, replacement)       // regex replace
 ```
 

@@ -180,7 +180,7 @@ DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app
 NEVER use `installCorePackages: true` — installs `pandas==0.23.4` which fails on Python 3.11. Use `installCorePackages: false` + explicit `requirements.txt`: `pandas>=2.0,<3`, `numpy>=1.22,<3`, `python-dateutil>=2.8,<3`, `requests>=2.28,<3`. Include all four even if not used directly. If `create_code_env()` fails, the broken env persists — delete it before retrying.
 
 ### GREL Formula Quirks
-`log()` = base-10 (no `ln()`). `exp()` IS base-e (inconsistent). `numval()`/`val()` don't work — use direct arithmetic. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
+`log()` = base-10, `ln()` = natural log (despite `exp()` being base-e). `numval()`/`strval()`/`val()` require QUOTED column names — `numval("col")` works, bareword `numval(col)` silently returns empty. `replace(s, "pat", ...)` is literal substring; regex needs `/pat/` delimiters. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
 
 ### Agent Tool Patterns
 Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_metadata()`. `invoke()` input is at `input.get("input", {})`, not root. Subprocess tools MUST set `stdin=subprocess.DEVNULL` + `env["CI"] = "true"` + `env["NO_COLOR"] = "1"`.

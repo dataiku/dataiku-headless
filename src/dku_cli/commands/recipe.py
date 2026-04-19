@@ -1823,11 +1823,12 @@ def add_fold(
             ctx,
             recipe_name,
             project,
-            "FoldColumnsByName",
+            "MultiColumnFold",
             {
                 "columns": col_list,
-                "keyColumn": key_column,
-                "valueColumn": value_column,
+                "foldNameColumn": key_column,
+                "foldValueColumn": value_column,
+                "foldRemoveFoldedColumns": True,
             },
         )
     else:
@@ -1835,11 +1836,12 @@ def add_fold(
             ctx,
             recipe_name,
             project,
-            "FoldColumnsByPattern",
+            "MultiColumnByPrefixFold",
             {
                 "columnNamePattern": pattern,
                 "columnNameColumn": key_column,
                 "columnContentColumn": value_column,
+                "foldRemoveFoldedColumns": True,
             },
         )
 

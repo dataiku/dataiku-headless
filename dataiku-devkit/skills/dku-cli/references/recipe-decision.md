@@ -36,7 +36,7 @@ None of the above?                  → THEN use Python: create NAME -t python
 | **Window functions** | `dku recipe create-window NAME -i ds --output-ds out -k grp --order-key date --compute 'rowNumber::rn' -P PROJ` | ~~df.groupby().transform()~~ |
 | **Top N** | `dku recipe create-topn NAME -i ds --output-ds out --n 10 --rank-by col:desc -P PROJ` | ~~df.nlargest()~~ |
 | **Top N per group** | `dku recipe create-topn NAME -i ds --output-ds out --n 1 --rank-by date:desc -k stock -P PROJ` | ~~groupby().first()~~ |
-| **Split by condition** | `dku recipe create-split NAME -i ds --output-ds out -P PROJ` | ~~manual filtering~~ |
+| **Split by condition** | `dku recipe create-split NAME -i ds --output-ds out_a -P PROJ && dku recipe add-output NAME out_b -P PROJ && dku recipe set-definition NAME --payload @split.json -P PROJ` (create-split alone is a stub — attach more outputs and configure split conditions via `set-definition`) | ~~manual filtering~~ |
 | **Pivot (long->wide)** | `dku recipe create-pivot NAME -i ds --output-ds out --row-key id --column-key month --value-column val --agg-type SUM -P PROJ` | ~~df.pivot_table()~~ |
 | **Unpivot (wide->long)** | `dku recipe add-fold PREP --columns "jan,feb,mar" --key-column month --value-column val -P PROJ` | ~~pd.melt()~~ |
 | **Random sample** | `dku recipe create-sampling NAME -i ds --output-ds out --size 1000 -P PROJ` | ~~df.sample()~~ |
