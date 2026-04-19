@@ -119,6 +119,16 @@ def inspect(
             {"name": r.get("name", ""), "type": r.get("type", "")} for r in recipes
         ]
 
+        # Managed folders
+        try:
+            folders = proj.list_managed_folders()
+        except Exception as exc:
+            folders = []
+            warn(f"Could not fetch folders: {exc}")
+        folder_info = [
+            {"id": f.get("id", ""), "name": f.get("name", "")} for f in folders
+        ]
+
         # Scenarios
         scenarios = proj.list_scenarios()
         scen_info = []
@@ -186,6 +196,7 @@ def inspect(
                 "description": meta.get("shortDesc", ""),
                 "datasets": ds_info,
                 "recipes": recipe_info,
+                "folders": folder_info,
                 "scenarios": scen_info,
                 "flow_sources": source_nodes,
                 "recent_jobs": job_info,
@@ -194,6 +205,7 @@ def inspect(
                 "counts": {
                     "datasets": len(datasets),
                     "recipes": len(recipes),
+                    "folders": len(folders),
                     "scenarios": len(scenarios),
                     "jobs": len(jobs),
                     "wiki_articles": len(articles),
@@ -213,6 +225,11 @@ def inspect(
                     "section": "Recipes",
                     "detail": f"{len(recipes)}: {', '.join(r['name'] for r in recipe_info[:10])}"
                     + ("..." if len(recipe_info) > 10 else ""),
+                },
+                {
+                    "section": "Folders",
+                    "detail": f"{len(folders)}: {', '.join(f['name'] for f in folder_info[:10])}"
+                    + ("..." if len(folder_info) > 10 else ""),
                 },
                 {
                     "section": "Scenarios",

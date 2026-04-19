@@ -1565,7 +1565,10 @@ def test_recipe_create_agent_eval_full(patch_client):
 
 
 def test_recipe_get_json_error_payload(patch_client):
-    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("'recipe'")
+    # get_recipe() is lazy; the existence check happens on get_settings()
+    patch_client.get_project(
+        "PROJ1"
+    ).get_recipe.return_value.get_settings.side_effect = Exception("'recipe'")
     result = runner.invoke(
         app,
         ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],

@@ -291,6 +291,9 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
 - `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
+- `get-code` only works on code recipes (python, sql, r, shell, pyspark, sparkr, cpython). For visual recipes (prepare/shaker, join, group, etc.) use `get-settings` to inspect the recipe definition
+- `check-schema` output column is `NEEDS_UPDATE` (yes/no per output). Non-zero exit when any output needs an update — pair with `apply-schema` in scripts
+- `run` on failure exits 1 with the failing job ID + `dku job log <ID>` + `dku job status <ID>` hints pre-formatted in the error details
 - `get-settings` returns full recipe settings as JSON including the visual recipe payload (sort orders, join keys, filter conditions, etc.). Unlike `get`, this includes the payload
 - `set-settings` sets full recipe settings from JSON. Root-level keys update the definition; the `payload` key updates the visual recipe config (shallow merge). Use `get-settings` first to read, modify, then `set-settings` to update
 - `set-definition --payload` updates visual recipe config (aggregations, join keys, filter conditions). `--definition` updates raw recipe definition (I/O, connection). Mutually exclusive
@@ -429,6 +432,7 @@ dku connection sync-acls CONNECTION_NAME [--root/--datasets] [--wait/--no-wait]
 ```
 
 - `list --type` filters by connection type (Snowflake, PostgreSQL, EC2, etc.) using fast `list_connections_names` endpoint
+- `test` only works on SQL and cloud connections. Filesystem/LLM/local connections exit 2 with `unsupported_operation` — use `dku connection get` to inspect instead
 - `schemas` lists SQL schemas or Iceberg namespaces. Requires project context (`-P`)
 - `tables` lists tables available for import. Use `--schema` to narrow results. Auto-detects SQL vs Iceberg
 - `sync-acls` syncs HDFS ACLs (only useful with User Isolation + DSS-managed HDFS ACL). `--datasets` syncs dataset ACLs instead of root

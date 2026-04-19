@@ -7,7 +7,12 @@ from pathlib import Path
 
 import typer
 
-from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
+from dku_cli.errors import (
+    exit_with_error,
+    handle_api_error,
+    is_already_exists_error,
+    is_not_found_error,
+)
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
     error,
@@ -388,6 +393,13 @@ def head(
             output_format=output,
             title=f"{dataset_name} (first {rows} rows)",
         )
+        # Table rendering truncates columns aggressively once there are more
+        # than ~6 on a typical terminal. Hint the agent toward JSON output.
+        if output == "table" and len(display_columns) > 6:
+            info(
+                f"{len(display_columns)} columns — table output truncates. Use "
+                f"'-o json' or '--columns col1,col2' for readable output."
+            )
     except typer.Exit:
         raise
     except Exception as e:
@@ -1334,15 +1346,28 @@ def zone(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        z = ds.get_zone()
+        # DSS raises NotFoundException when the dataset is in the default zone
+        # (no zone membership has been explicitly set). Treat that as success.
+        try:
+            z = ds.get_zone()
+            zone_id = z.id
+            zone_name = z.name
+        except Exception as e:
+            if is_not_found_error(e) and "flow zone" in str(e).lower():
+                zone_id = "default"
+                zone_name = "Default"
+            else:
+                raise
 
         if fmt == "json":
             render_raw(
-                {"zone_id": z.id, "zone_name": z.name, "dataset": dataset_name},
+                {"zone_id": zone_id, "zone_name": zone_name, "dataset": dataset_name},
                 output_format="json",
             )
         else:
-            success(f"Dataset '{dataset_name}' is in zone '{z.name}' (ID: {z.id})")
+            success(
+                f"Dataset '{dataset_name}' is in zone '{zone_name}' (ID: {zone_id})"
+            )
     except typer.Exit:
         raise
     except Exception as e:
