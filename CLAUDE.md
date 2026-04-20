@@ -214,7 +214,6 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
 - `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
 - Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
-- `DSSScenario.set_definition()` is **DEPRECATED and header-only** — only updates active / checklists / description / shortDesc / tags, silently drops `params.steps` / `triggers`. Use `scenario.get_settings() → get_raw() → settings.save()` for full replace. `scenario.get_definition()` has the matching header-only limitation — for steps read `get_settings().get_raw()["params"]["steps"]`, for triggers use `list-triggers`.
 - Valid scenario step types: `build_flowitem` (builds datasets/folders), `custom_python` (inline script), `exec_sql` (SQL). See `dataikuapi/dss/scenario.py` line 629.
 
 ---
