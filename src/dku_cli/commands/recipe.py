@@ -469,6 +469,11 @@ def run(
         "--auto-update-schema",
         help="Auto-update output schemas before each recipe run",
     ),
+    timeout: int | None = typer.Option(
+        None,
+        "--timeout",
+        help="When --wait is set, max seconds to wait before failing (matches dku job run). Default: no limit.",
+    ),
 ) -> None:
     """Run a recipe.
 
@@ -513,7 +518,18 @@ def run(
 
         if wait and state not in ("DONE", "FAILED", "ABORTED"):
             info("Waiting for completion...")
+            start = time.time()
             while state not in ("DONE", "FAILED", "ABORTED"):
+                if timeout is not None and (time.time() - start) > timeout:
+                    exit_with_error(
+                        f"Recipe '{recipe_name}' did not finish within {timeout}s (job {job.id}).",
+                        code="timeout",
+                        details=[
+                            f"Job is still running — poll status: dku job status {job.id} -P {project_key}",
+                            f"View log: dku job log {job.id} -P {project_key}",
+                            f"Abort if needed: dku job abort {job.id} -P {project_key}",
+                        ],
+                    )
                 time.sleep(2)
                 status = job.get_status()
                 state = status.get("baseStatus", {}).get("state", "")
@@ -552,13 +568,13 @@ def create(
         "-t",
         help="Recipe type: python, sql, join, group, etc. For plugin recipes: CustomCode_<recipeComponentId>",
     ),
-    input_ds: str | None = typer.Option(
-        None,
+    inputs: list[str] = typer.Option(
+        [],
         "--input",
         "-i",
         "--input-ds",
         "--input-dataset",
-        help="Input dataset name (must exist). Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
+        help="Input dataset name (must exist). Repeatable: `-i A -i B` wires both. Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
     ),
     output_ds: str = typer.Option(
         ...,
@@ -652,7 +668,7 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         # Validate --input is provided for types that require it
-        if input_ds is None and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
+        if not inputs and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
             exit_with_error(
                 f"--input is required for recipe type '{type_name}'.",
                 code="missing_input",
@@ -668,8 +684,8 @@ def create(
 
             builder = DSSRecipeCreator(type_name, recipe_name, proj)
             builder.set_raw_mode()
-            if input_ds is not None:
-                builder.with_input(input_ds, role=input_role)
+            for _input in inputs:
+                builder.with_input(_input, role=input_role)
             builder.with_output(output_ds, role=output_role)
             if params_dict is not None:
                 builder.creation_settings["rawPayload"] = json.dumps(params_dict)
@@ -686,8 +702,8 @@ def create(
                         "Discover plugin recipes: dku plugin recipes",
                     ],
                 )
-            if input_ds is not None:
-                builder.with_input(input_ds)
+            for _input in inputs:
+                builder.with_input(_input)
             # Output wiring:
             # - Code recipes use CodeRecipeCreator.with_new_output_dataset(name, connection)
             # - Everything else with --connection uses
@@ -730,7 +746,7 @@ def create(
                     code="output_not_found",
                     details=[
                         f"Create it first: dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
-                        f"Then retry: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} -P {project_key}",
+                        f"Then retry: dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
                         "Tip: visual recipe shortcuts (create-join, create-group, etc.) auto-create the output dataset.",
                     ],
                 )
@@ -742,7 +758,7 @@ def create(
                         "This DSS project has no default managed connection for auto-creating datasets.",
                         "Fix: add --connection <NAME> to specify where the output should be stored.",
                         "Find available connections: dku connection list",
-                        f"Example: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
+                        f"Example: dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
                     ],
                 )
         if "recipe type" in str(e).lower() and "unknown" in str(e).lower():

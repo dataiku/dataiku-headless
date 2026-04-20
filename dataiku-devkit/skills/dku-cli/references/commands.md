@@ -341,6 +341,9 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 - `add-trigger --trigger` accepts raw trigger JSON (inline, `@file.json`, or `-` for stdin). Must include `type`, `active`, and `params` fields
 - `add-trigger-dataset` is a convenience shortcut for dataset-change triggers. `--delay` is the check interval in seconds (default: 120). `--grace-delay` is the stabilization period (default: 0)
 - `remove-trigger --index` removes a trigger by its 0-based index (use `list-triggers` to find the index)
+- `set-definition` does a FULL settings replace — including `params.steps`, `params.reporters`, and the header fields. Supply a complete scenario definition (the shape returned by `get-definition` or `get_settings().get_raw()`). Partial updates of header-only fields should use `set-metadata` instead.
+- **Step types for `params.steps`:** `build_flowitem` (build datasets/folders — takes `params.builds` as a list of `{type: "DATASET"|"MANAGED_FOLDER", itemId, partitionsSpec}` and `params.buildMode`), `custom_python` (inline script — `params.script`), `exec_sql` (SQL — `params.sql`, `params.connection`). See `dataikuapi/dss/scenario.py` for the full step-type catalogue.
+- **`get-definition` is header-only:** it does NOT include `params.steps` or `triggers`. For triggers use `list-triggers`; for steps read via the API's `get_settings().get_raw()` path.
 
 ## job
 

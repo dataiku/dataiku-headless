@@ -212,6 +212,38 @@ def test_recipe_create(patch_client):
     builder.build.assert_called_once()
 
 
+def test_recipe_create_multiple_inputs(patch_client):
+    """Regression: `-i A -i B` must wire BOTH inputs, not silently drop the first."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "multi_input",
+            "--type",
+            "python",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "-i",
+            "c",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Every -i must reach with_input — previously only the last was wired.
+    assert builder.with_input.call_count == 3
+    called_inputs = [call.args[0] for call in builder.with_input.call_args_list]
+    assert called_inputs == ["a", "b", "c"]
+
+
 def test_recipe_create_plugin_type_uses_raw_mode(patch_client):
     """CustomCode_* plugin types bypass new_recipe() and use DSSRecipeCreator in raw mode."""
     proj = patch_client.get_project("PROJ1")
