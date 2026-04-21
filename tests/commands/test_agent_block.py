@@ -1033,6 +1033,108 @@ def test_set_graph_empty_cel_rejected(patch_client):
     assert "Micro-CEL" in result.output or "EMPTY CEL" in result.output
 
 
+# ── SET_STATE_ENTRIES / SAVE_TO_STATE / LLM block validation ──────────
+
+
+def test_add_set_state_entries_empty_value_rejected(patch_client):
+    """SET_STATE_ENTRIES with an empty-string CEL value must be rejected."""
+    block = json.dumps(
+        {
+            "type": "SET_STATE_ENTRIES",
+            "id": "bad_set",
+            "entriesToSet": [{"key": "foo", "value": ""}],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "EMPTY CEL" in result.output
+
+
+def test_add_set_state_entries_valid_cel_accepted(patch_client):
+    """SET_STATE_ENTRIES with a valid CEL literal should be accepted."""
+    block = json.dumps(
+        {
+            "type": "SET_STATE_ENTRIES",
+            "id": "good_set",
+            "entriesToSet": [{"key": "intent", "value": "''"}],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
+def test_add_save_to_state_missing_output_key_rejected(patch_client):
+    """Block with outputMode=SAVE_TO_STATE but no output key must be rejected."""
+    block = json.dumps(
+        {
+            "type": "LLM_REQUEST",
+            "id": "bad_save",
+            "outputMode": "SAVE_TO_STATE",
+            "llmId": "openai:conn:gpt-4o",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "output key" in result.output or "outputKey" in result.output
+
+
+def test_add_llm_block_missing_llm_id_warns(patch_client):
+    """LLM-dependent block without llmId should warn but still succeed."""
+    block = json.dumps(
+        {
+            "type": "CORE_LOOP",
+            "id": "loop_no_llm",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "agent_blocks",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "llmId" in result.output
+
+
 # ── agent type validation ─────────────────────────────────────────────
 
 
