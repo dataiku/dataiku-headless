@@ -24,7 +24,11 @@ Before reaching for `add-formula` (GREL), check if a purpose-built processor exi
 | Uppercase/lowercase | `add-step --type StringTransformer` (not GREL `toUppercase()`) |
 | Concatenate columns | `add-step --type ColumnsConcat` (not GREL `col1 + " " + col2`) |
 | If/then/else logic | `add-step --type VisualIfRule` (not GREL `if()` chains) |
-| Parse dates | `add-step --type DateParser` (not GREL `toDate()`) |
+| Parse dates | `add-step --type DateParser` (not GREL `toDate()` — it doesn't exist) |
+| Format dates (custom pattern) | `add-step --type DateFormatter` (`inCol`/`outCol`/`format`; NOT GREL `toString(date, "fmt")` — that's a no-op, NOT GREL `formatDate()` — it doesn't exist) |
+| Truncate dates | `add-step --type DateTruncate` with `datePart: MONTH/YEAR/...` |
+| UNIX epoch → date | `add-step --type UNIXTimestampParser` with `milliseconds: true/false` (BOOLEAN) |
+| Timestamp → date-only | `add-step --type DateParser` with `outType: dateonly` (one-step, no DateFormatter needed) |
 | Extract year/month/day | `add-step --type DateComponentsExtractor` (not GREL `year()`) |
 | Date differences | `add-step --type DateDifference` (not GREL `dateDiff()`) |
 | Fill empty values | `add-fill-empty` (not GREL `if(isBlank())`) |
@@ -40,9 +44,11 @@ Before reaching for `add-formula` (GREL), check if a purpose-built processor exi
 
 ### DateParser — Parse date strings to ISO 8601
 
+**CRITICAL:** Always specify `outCol` — omitting it (in-place) silently produces all nulls.
+
 ```bash
 dku recipe add-step prep --type DateParser \
-  --params '{"appliesTo":"SINGLE_COLUMN","columns":["order_date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outType":{"name":"out","type":"date"}}' -P PROJ
+  --params '{"appliesTo":"SINGLE_COLUMN","columns":["order_date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"order_date_parsed","outType":{"name":"out","type":"date"}}' -P PROJ
 ```
 
 ### DateComponentsExtractor — Extract year and month
@@ -51,6 +57,54 @@ dku recipe add-step prep --type DateParser \
 dku recipe add-step prep --type DateComponentsExtractor \
   --params '{"column":"order_date","timezone_id":"UTC","outYearColumn":"order_year","outMonthColumn":"order_month"}' -P PROJ
 ```
+
+### DateParser with dateonly — Timestamp → date-only (yyyy-MM-dd)
+
+**CRITICAL:** Always specify `outCol` — omitting it (in-place) **silently produces all nulls**.
+
+```bash
+# Parse timestamp string directly to date-only (strips time component)
+dku recipe add-step prep --type DateParser \
+  --params '{"appliesTo":"SINGLE_COLUMN","columns":["timestamp_col"],"formats":["yyyy-MM-dd HH:mm:ss"],"lang":"auto","timezone_id":"UTC","outCol":"date_only","outType":{"name":"out","type":"dateonly"}}' -P PROJ
+```
+
+Common DateParser format patterns (verified working):
+- `yyyy-MM-dd HH:mm:ss` — standard timestamp
+- `MM/dd/yyyy h:mm a` — US format with AM/PM
+- `yyyy-MM-dd'T'HH:mm:ssZ` — ISO 8601 (use `Z`, NOT `XXX`)
+- `yyyy-MM-dd` — already date-only string
+
+### DateFormatter — Format a parsed date into a custom string pattern
+
+```bash
+# First parse the string column into a real date column
+dku recipe add-step prep --type DateParser \
+  --params '{"appliesTo":"SINGLE_COLUMN","columns":["raw_ts"],"formats":["yyyy-MM-dd HH:mm:ss"],"lang":"auto","timezone_id":"UTC","outCol":"parsed","outType":{"name":"out","type":"date"}}' -P PROJ
+# Then format with a custom pattern (e.g. "Jan 2025", "03/15/2024")
+dku recipe add-step prep --type DateFormatter \
+  --params '{"inCol":"parsed","outCol":"month_label","format":"MMM yyyy","lang":"en_US","timezone_id":"UTC"}' -P PROJ
+```
+
+> **Param trap:** `DateFormatter` uses `inCol`/`outCol`, NOT `column`/`outputColumn`. Wrong field names fail with a misleading `Empty column name` error. The `dku recipe add-step` CLI catches this and tells you the fix.
+
+### UNIXTimestampParser — Epoch → ISO date
+
+```bash
+# Input is seconds (milliseconds=false is the default)
+dku recipe add-step prep --type UNIXTimestampParser \
+  --params '{"inCol":"event_ts","outCol":"event_date","milliseconds":false}' -P PROJ
+```
+
+> **Param trap:** `milliseconds` is a BOOLEAN (`true`/`false`), NOT a string (`"SECONDS"`/`"MILLISECONDS"`). Passing `"unit":"SECONDS"` is silently ignored and defaults to seconds interpretation; passing `{"milliseconds": true}` for a seconds column produces dates at `1970-01-21`.
+
+### DateTruncate — Truncate a parsed date to a unit
+
+```bash
+dku recipe add-step prep --type DateTruncate \
+  --params '{"inCol":"parsed","outCol":"month_start","datePart":"MONTH"}' -P PROJ
+```
+
+> **Param trap:** The param is `datePart`, not `unit`/`truncate`. Valid values: `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `SECOND` (UPPERCASE). Missing or misspelled param silently defaults to `YEAR`.
 
 ### StringTransformer — Uppercase a text column
 

@@ -253,9 +253,13 @@ dku recipe add-geodistance RECIPE --from-column COL --to-column COL [--output-co
 | Task | Type | Example `--params` |
 |------|------|-------------------|
 | Uppercase/lowercase | `StringTransformer` | `'{"mode":"UPPERCASE","appliesTo":"SINGLE_COLUMN","columns":["city"]}'` |
-| Parse dates | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outType":{"name":"out","type":"date"}}'` |
+| Parse dates | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"date_parsed","outType":{"name":"out","type":"date"}}'` (MUST have outCol — in-place = nulls) |
 | Extract year/month | `DateComponentsExtractor` | `'{"column":"date","timezone_id":"UTC","outYearColumn":"year","outMonthColumn":"month"}'` |
 | Date difference | `DateDifference` | `'{"input1":"start","compareTo":"NOW","output":"days_ago","outputUnit":"DAYS","timezone_id":"UTC"}'` |
+| Timestamp → date-only | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["ts"],"formats":["yyyy-MM-dd HH:mm:ss"],"lang":"auto","timezone_id":"UTC","outCol":"date_only","outType":{"name":"out","type":"dateonly"}}'` |
+| Format date (custom pattern) | `DateFormatter` | `'{"inCol":"parsed","outCol":"month_label","format":"MMM yyyy","lang":"en_US","timezone_id":"UTC"}'` — `inCol`/`outCol`, NOT `column`/`outputColumn` |
+| Truncate date to unit | `DateTruncate` | `'{"inCol":"parsed","outCol":"month_start","datePart":"MONTH"}'` — `datePart` must be `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND` (defaults to `YEAR` if omitted) |
+| UNIX epoch → date | `UNIXTimestampParser` | `'{"inCol":"event_ts","outCol":"event_date","milliseconds":false}'` — `milliseconds` is BOOLEAN, not `"SECONDS"`/`"MILLISECONDS"` |
 | Concat columns | `ColumnsConcat` | `'{"columns":["first","last"],"join":" ","outputColumn":"full_name"}'` |
 | Split column | `ColumnSplitter` | `'{"inCol":"name","separator":" ","outColPrefix":"name_","target":"COLUMNS","keepEmptyChunks":false,"limitOutput":false,"limit":0}'` |
 | Copy column | `ColumnCopier` | `'{"inputColumn":"status","outputColumn":"status_bak"}'` |
@@ -724,7 +728,7 @@ dku agent set-metadata AGENT_REF [-P PROJECT] [--description DESC] [--short-desc
 
 ## agent-block
 
-Manage visual agent block graphs (structured visual agents). Blocks live inside `TOOLS_USING_AGENT` with `mode: "BLOCKS_GRAPH"`.
+Manage visual agent block graphs (structured visual agents). Blocks live inside `STRUCTURED_AGENT` agents (DSS 14.5+). Do NOT use `TOOLS_USING_AGENT` for block graphs — blocks silently fail to persist.
 
 ```bash
 dku agent-block list AGENT_ID [-P PROJECT] [--version VER] [-o FORMAT]
@@ -750,12 +754,17 @@ dku agent-block set-graph AGENT_ID --definition/-d JSON [-P PROJECT] [--version 
 
 **Example: Build an SVA from scratch:**
 ```bash
-dku agent create "My SVA" -P PROJ
-dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
-dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
+dku agent create "My SVA" --type STRUCTURED_AGENT -P PROJ
+dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"'\''ready'\''"}],"nextBlock":"classify"}' -P PROJ
+dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputKey":"intent","nextBlock":"respond"}' -P PROJ
 dku agent-block add My_SVA -b '{"type":"EMIT_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
 dku agent-block list My_SVA -P PROJ
 ```
+
+**Critical block requirements (DSS 14.5+):**
+- Every CORE_LOOP / LLM_REQUEST / MANDATORY_TOOL_CALL block needs `"llmId"`
+- Every block with `"outputMode": "SAVE_TO_STATE"` needs `"outputKey"` (or `"outputStateKey"`)
+- SET_STATE_ENTRIES `"value"` fields are CEL — never use `""` (empty), use `"''"` instead
 
 ## agent-review
 

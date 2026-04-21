@@ -185,6 +185,12 @@ NEVER use `installCorePackages: true` — installs `pandas==0.23.4` which fails 
 ### Agent Tool Patterns
 Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_metadata()`. `invoke()` input is at `input.get("input", {})`, not root. Subprocess tools MUST set `stdin=subprocess.DEVNULL` + `env["CI"] = "true"` + `env["NO_COLOR"] = "1"`.
 
+### SVA Block Graph (DSS 14.5+)
+Agent type MUST be `STRUCTURED_AGENT` for block graphs. `TOOLS_USING_AGENT` silently drops blocks. Every CORE_LOOP/LLM_REQUEST block needs explicit `llmId`. Every SAVE_TO_STATE block needs `outputKey`. Empty string in SET_STATE_ENTRIES `value` crashes CEL — use `"''"`.
+
+### Date Formatting in Prepare Recipes
+`DateFormatter`, `DateTruncate`, `UNIXTimestampParser` **all exist** on DSS 14.5 (verified against `dip/src/.../shaker/processors/time/`). The agent trap is wrong param names: they use `inCol`/`outCol` (NOT `column`/`outputColumn` from older docs), and DSS returns a misleading `Empty column name` error otherwise — the `dku recipe add-step` CLI catches this pre-send. Other traps: `DateTruncate` param is `datePart` (values `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND`) and defaults to `YEAR` if missing. `UNIXTimestampParser` uses `milliseconds` BOOLEAN, not `unit` string. What actually *doesn't* work: GREL `formatDate()` and `toDate()` do not exist; GREL `toString(date, "format")` is a no-op; `DateParser` without `outCol` silently produces all nulls. ISO 8601 DateParser format: use `Z`/`z` pattern, NOT `XXX`.
+
 ### Chart Column Names
 Not validated server-side — wrong column names save but render blank charts. Verify with `dku dataset schema DS -P PROJ` first. Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles`.
 
