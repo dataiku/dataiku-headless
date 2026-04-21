@@ -6,6 +6,66 @@ The `dku` CLI itself is engine-agnostic. This file collects the engine-specific 
 
 ---
 
+## Snowflake: LISTAGG limit on concat aggregation
+
+**Symptom:** `dku recipe create-group` with `--agg "col:concat"` on a text or JSON column fails at build time with Snowflake error `SQL execution internal error (300002)`.
+
+**Root cause:** DSS compiles the `concat` aggregation type to Snowflake's `LISTAGG()` function. `LISTAGG` produces a single VARCHAR result per group, and Snowflake enforces a per-group result size limit (16 MB for the overall query, but individual group results can hit internal limits much sooner). When rows contain large text values — JSON objects (200-1000+ chars), long strings, serialized blobs — and there are many rows per group, the concatenated result exceeds the limit.
+
+**Fix pattern — split numeric and text aggregation:**
+
+1. **Visual group recipe for all numeric columns.** `SUM`, `AVG`, `COUNT`, `MIN`, `MAX` run as native Snowflake `GROUP BY` — fast, precise, no size limits.
+2. **Python recipe downstream ONLY for JSON/text merging.** Reads from the original source, parses and merges text/JSON in pandas, then joins onto the grouped numerics.
+
+```bash
+# Step 1: Visual group for numeric aggs (runs natively in Snowflake)
+dku recipe create-group aggregate_numerics \
+  -i raw_data \
+  --output-ds grouped_numerics \
+  -k ACCOUNT_SK -k MONTH \
+  --agg "NB_PROJECTS:sum" \
+  --agg "NB_DATASETS:sum" \
+  --agg "NB_USERS:sum" \
+  -P PROJ && \
+dku dataset build grouped_numerics -P PROJ --wait
+
+# Step 2: Python recipe for JSON/text merging (what LISTAGG can't handle)
+dku recipe create merge_text -t python \
+  -i raw_data -i grouped_numerics \
+  --output-ds final_output \
+  -P PROJ && \
+dku recipe set-code merge_text -P PROJ --code @merge_text.py
+```
+
+**This is Snowflake-specific.** Other SQL engines (Postgres `STRING_AGG`, BigQuery `STRING_AGG`) have different limits or behavior. The split pattern is still good practice for any engine when concatenating large text values.
+
+---
+
+## Snowflake: bigint precision loss in Python recipes
+
+**Symptom:** A Python recipe reads a Snowflake bigint column (e.g. `ACCOUNT_SK`) and downstream values are silently wrong — off by 1 or more for large IDs.
+
+**Root cause:** When pandas reads Snowflake bigint columns via the Snowflake connector, they may arrive as `float64`. IEEE 754 float64 can only represent integers exactly up to 2^53 (9,007,199,254,740,992). Values above this threshold lose precision silently — no error, just wrong numbers.
+
+**Visual recipes preserve full precision.** Any visual recipe (group, join, filter, window, etc.) running on a Snowflake connection executes as native SQL inside Snowflake, where `BIGINT`/`NUMBER` has full 128-bit precision. No Python, no float conversion, no precision loss.
+
+**Python recipes that must touch bigint columns:**
+
+```python
+# WRONG — silently truncates values > 2^53
+df["ACCOUNT_SK"] = pd.to_numeric(df["ACCOUNT_SK"]).astype("int64")
+
+# RIGHT — string-based casting preserves full precision
+df["ACCOUNT_SK"] = df["ACCOUNT_SK"].apply(lambda v: int(str(v).split(".")[0]) if pd.notna(v) else None)
+
+# ALSO RIGHT — round-trip through float with explicit rounding (safe if values < 2^53)
+df["ACCOUNT_SK"] = df["ACCOUNT_SK"].apply(lambda v: int(round(float(v))) if pd.notna(v) else None)
+```
+
+**Rule:** Prefer visual recipes for any pipeline touching bigint keys. Only use Python when the operation genuinely cannot be expressed as a visual recipe (e.g., JSON parsing, custom ML logic). When Python is unavoidable, cast bigint columns via string, not `pd.to_numeric().astype("int64")`.
+
+---
+
 ## Landing data across connections with `sync`
 
 `sync` moves data from one dataset to another — typically across connections (CSV → Postgres, filesystem → Snowflake, etc.). Unlike most visual recipes (which require the output to pre-exist), **`-t sync --connection X`** auto-creates the output as a managed dataset on the target connection. One recipe call, no Python passthrough.
@@ -90,3 +150,5 @@ Then re-run the Prepare recipe — DSS will recreate the physical table from the
 - Before writing any GREL expression in a Prepare recipe whose input AND output are on a SQL connection
 - When a Prepare recipe fails on build with a SQL type-mismatch error from the database engine
 - When a rebuild after a column-type change fails with the old type still reported by the engine
+- When a `create-group` with `--agg "col:concat"` fails on Snowflake with error 300002 (LISTAGG limit)
+- When Python recipes produce wrong values for large Snowflake bigint keys (float64 precision loss)

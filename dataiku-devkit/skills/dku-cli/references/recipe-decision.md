@@ -100,5 +100,7 @@ Direct `.astype("int64")` on dirty data fails with `IntCastingNaNError`.
 | Prepare recipe without output | Pre-create output dataset |
 | Plugin recipe SELECT wrong case | Values are case-sensitive |
 | GREL for columns with spaces | Use `add-rename` first |
+| `concat` agg on large text (Snowflake) | Split: visual group for numerics, Python for JSON/text merge. See `sql-engines.md` |
+| Python recipe on bigint keys (Snowflake) | Visual recipe preserves precision. Python float64 truncates > 2^53. See `sql-engines.md` |
 
 > For payload schemas, see `dataiku` skill's `references/visual-recipe-payloads.md`.
