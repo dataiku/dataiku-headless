@@ -111,9 +111,22 @@ Live testing revealed that `enable` silently fails on fresh projects because `ge
 ---
 
 ## [2026-04-22] Built "SAS Portfolio Complexity Evaluator" app template on SOL_SAS_INVENTORY_SCORER
-**Status:** pending
+**Status:** resolved (partial)
 
-**Recurring**: `projectAppType = APP_TEMPLATE` gate already flagged in [2026-04-07] entries — confirms the fix (`dku app enable` auto-setting it) is the right direction. My session hit it again because I went via raw `dataikuapi` instead of a CLI verb, which reinforces the case for exposing `dku app set-manifest` / `dku app convert-to-template`.
+### Shipped in `8ccb788` on `feat/app-designer`
+- `dku scenario set-definition` now uses `DSSScenarioSettings.save()` with post-save step-count verification that errors loudly if the server drops steps — `src/dku_cli/commands/scenario.py`.
+- `dku scenario get-definition` now returns `get_settings().get_raw()`, so `params.steps` is visible from the CLI.
+- `dku scenario run --wait` uses the `running` property (not the buggy `hasattr(run, 'outcome')` guard) — successful runs no longer get reported as "DSS API error: outcome not available".
+- `dku-cli` SKILL.md cheat-sheet rule #18 disambiguates `dku app` from `dku app-designer`.
+- `dku app --help` now points at `dku app-designer` for authoring.
+- Regression tests for all three scenario bugs.
+
+### Deferred
+- No new `dku app convert-to-template` / `set-manifest` verbs — the existing `dku app-designer enable` / `set-definition` already cover the gap (I missed them this session because I used a stale globally-installed CLI). The skill-cheatsheet rule is the real fix for that discoverability problem.
+- CLAUDE.md `DSSScenario.set_definition` quirk note — explicitly skipped per user direction (CLAUDE.md is loaded into every conversation; not worth the tokens for a quirk that's now fenced by the CLI fix).
+- `list-files` alias for `dku folder ls` — cosmetic, not taken.
+
+**Recurring**: `projectAppType = APP_TEMPLATE` gate already flagged in [2026-04-07] entries — confirms the fix (`dku app-designer enable` auto-setting it) is the right direction. My session hit it again because I went via raw `dataikuapi` instead of a CLI verb, which reinforces the case for the cheat-sheet rule that shipped.
 
 ### TL;DR
 Three major blockers, all worth fixing: (1) `dku scenario set-definition` silently drops steps despite its help text promising otherwise; (2) there's no CLI path for app-template creation/manifest editing — had to hand-roll Python with undocumented `projectAppType=APP_TEMPLATE` flipping; (3) PUT `/app-manifest` returns opaque `AssertionError: null` for any missing top-level field or bad tile type, so you learn the accepted schema by trial and error.
