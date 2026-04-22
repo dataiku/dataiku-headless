@@ -239,3 +239,58 @@ dku recipe create-join enrich_all \
 ```
 
 **When cascading IS acceptable:** Different join types per step (e.g., LEFT join for A+B, then INNER join for result+C), or when intermediate datasets are reused by other recipes.
+
+## Split Aggregation: Numeric + Text (Snowflake)
+
+When a Snowflake dataset has both numeric columns to aggregate and large text/JSON columns to merge, **do not** use `--agg "col:concat"` on the text columns. Snowflake's `LISTAGG()` (which DSS compiles `concat` to) has a per-group result size limit that fails with error 300002 on large text values.
+
+Split the work: visual group for numerics, Python recipe for text/JSON merging.
+
+```bash
+# Step 1: Visual group for numeric columns (runs as Snowflake GROUP BY — fast, precise)
+dku recipe create-group aggregate_numerics \
+  -i raw_reports \
+  --output-ds usage_grouped \
+  -k ACCOUNT_SK -k MONTH \
+  --agg "NB_PROJECTS:sum" \
+  --agg "NB_DATASETS:sum" \
+  --agg "NB_USERS:sum" \
+  -P PROJ && \
+dku dataset build usage_grouped -P PROJ --wait
+
+# Step 2: Python recipe ONLY for JSON dict merging (what SQL can't do)
+dku recipe create merge_json -t python \
+  -i raw_reports -i usage_grouped \
+  --output-ds usage_final \
+  -P PROJ && \
+dku recipe set-code merge_json -P PROJ --code @merge_json.py
+```
+
+Sample `merge_json.py`:
+
+```python
+import dataiku
+import pandas as pd
+import json
+from collections import Counter
+
+raw = dataiku.Dataset("raw_reports").get_dataframe()
+grouped = dataiku.Dataset("usage_grouped").get_dataframe()
+
+def merge_dicts(series):
+    merged = Counter()
+    for val in series.dropna():
+        try:
+            merged.update(json.loads(val) if isinstance(val, str) else val)
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return json.dumps(dict(merged)) if merged else None
+
+json_agg = raw.groupby(["ACCOUNT_SK", "MONTH"])["RECIPE_TYPES_JSON"].apply(merge_dicts).reset_index()
+json_agg.columns = ["ACCOUNT_SK", "MONTH", "RECIPE_TYPES_JSON"]
+
+result = grouped.merge(json_agg, on=["ACCOUNT_SK", "MONTH"], how="left")
+dataiku.Dataset("usage_final").write_with_schema(result)
+```
+
+**Why not all-Python?** The visual group runs as a Snowflake `GROUP BY` — orders of magnitude faster than pulling all rows into Python, preserves bigint precision, and gives visual lineage in the flow. Python handles only the JSON merging that SQL has no native operation for.
