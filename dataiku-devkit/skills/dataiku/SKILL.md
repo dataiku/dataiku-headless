@@ -166,6 +166,7 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 | Govern Blueprint Designer (authoring: versions, fields, workflow, hooks, views) | `references/govern-blueprint-designer.md` |
 | Govern Custom Pages | `references/govern-custom-pages.md` |
 | Semantic Models (text-to-SQL) | `references/semantic-models.md` |
+| App Designer | `references/app-designer.md` |
 
 ---
 
@@ -183,6 +184,7 @@ Quick links for common combinations:
 - **Automate retraining** → `scenarios.md` + `mlops.md`
 - **Deploy model** → `mlops.md` + `scenarios.md`
 - **Set up guardrail** → `guardrails.md` + `scaffolding.md`
+- **Turn project into app** → `app-designer.md` + `dku-cli` skill
 
 ---
 

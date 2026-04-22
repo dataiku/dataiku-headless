@@ -49,6 +49,7 @@ Complete list of all `dku` command groups and verbs.
 | `model-comparison` | **list, create, get, add-model, remove-model, delete** | Yes |
 | `workspace` | **list, create, get, list-objects, delete** | No |
 | `app` | **list, get, list-instances, create-instance** | No |
+| `app-designer` | **enable, disable, get, set-definition, set-section, list-tiles, add-tile, remove-tile** | Yes |
 | `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
 | `admin` | **logs, get-log, usage, instance-info, sanity-check** | No (admin) |
 | `api-key` | **list, get, create, delete** | No (admin) |

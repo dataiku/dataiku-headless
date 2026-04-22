@@ -376,6 +376,8 @@ dku project delete MY_PROJ --yes
 | `knowledge` | list, create, build, search |
 | `insight` | list, create, validate |
 | `llm` | list, completion, embeddings |
+| `app-designer` | enable, set-section, add-tile, list-tiles, get |
+| `app` | list, get, list-instances, create-instance |
 
 ### Dataset Types (CRITICAL)
 

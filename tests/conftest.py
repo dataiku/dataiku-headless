@@ -715,6 +715,17 @@ def mock_client():
     }
     scenario_settings_mock.get_raw.return_value = scenario_settings_raw
     scenario_settings_mock.save.return_value = None
+    # DSSScenarioSettings.get_raw() returns a mutable reference to the full
+    # settings dict including params.steps — the non-legacy source of truth.
+    scenario_settings_raw = {
+        "type": "step_based",
+        "name": "Build All",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
+        "params": {"steps": []},
+    }
+    scenario_settings_mock.get_raw.return_value = scenario_settings_raw
     scenario_mock.get_settings.return_value = scenario_settings_mock
 
     # get_last_runs returns DSSScenarioRun objects with properties
@@ -2008,6 +2019,38 @@ def mock_client():
     wiki_mock.get_article.return_value = article_mock
     wiki_mock.create_article.return_value = article_mock
     proj1.get_wiki.return_value = wiki_mock
+
+    # App Designer — project-level manifest used by dku app-designer commands
+    app_manifest_raw = {
+        "useAppHomepage": True,
+        "label": "My Test App",
+        "shortDesc": "A test application",
+        "homepageSections": [
+            {
+                "tiles": [
+                    {
+                        "type": "SCENARIO_RUN",
+                        "scenarioId": "BUILD",
+                        "prompt": "Build Flow",
+                    },
+                    {
+                        "type": "PROJECT_VARIABLES_EDIT",
+                        "behavior": "MODAL",
+                        "params": [{"name": "x", "type": "STRING", "label": "X Value"}],
+                        "prompt": "Configure",
+                    },
+                ]
+            }
+        ],
+        "instantiationPermission": "USE_APP_MASTER_PERMISSIONS",
+        "tags": [],
+    }
+    app_manifest_mock_proj = MagicMock()
+    app_manifest_mock_proj.get_raw.return_value = app_manifest_raw
+    app_manifest_mock_proj.raw_data = app_manifest_raw
+    app_manifest_mock_proj.project_key = "PROJ1"
+    app_manifest_mock_proj.save.return_value = None
+    proj1.get_app_manifest.return_value = app_manifest_mock_proj
 
     # Agent reviews
     review_item = MagicMock()

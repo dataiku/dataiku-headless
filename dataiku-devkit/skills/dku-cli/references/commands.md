@@ -43,6 +43,8 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [knowledge](#knowledge) — list, create, get, set-definition, build, search, delete
 - [semantic-model](#semantic-model) — list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index
 - [agent-hub](#agent-hub) — list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop
+- [app-designer](#app-designer) — get, set-definition, list-tiles, add-tile, remove-tile, set-section, enable, disable
+- [app](#app) — list, get, list-instances, create-instance
 - [bundle](#bundle) — list, export, download, import, activate
 - [api-service](#api-service) — list, create, get, create-package, list-packages
 - [wiki](#wiki) — list, create, get, update, delete
@@ -1144,6 +1146,49 @@ dku agent-hub stop [--hub HUB_ID] [-P PROJECT]
 - `set-agent --examples` accepts a JSON array string, e.g. `'["Q4 sales?", "Revenue by region"]'`
 - `set-llm` sets the orchestrating LLM (must support tool calling for Tools mode)
 - `start`/`stop` control the webapp backend (same as `dku webapp start/stop`)
+
+## app-designer
+
+```bash
+# Enable/disable app homepage
+dku app-designer enable [-P PROJECT] [--label LABEL] [--description DESC]
+dku app-designer disable [-P PROJECT]
+
+# Get/set full manifest
+dku app-designer get [-P PROJECT] [-o json]
+dku app-designer set-definition [-P PROJECT] -d JSON|@file.json|-
+
+# Section titles and text
+dku app-designer set-section [-P PROJECT] -s INDEX --title "Step 1) Upload" [--text "HTML description"]
+
+# Tile management
+dku app-designer list-tiles [-P PROJECT] [-o FORMAT]
+dku app-designer add-tile [-P PROJECT] -s INDEX --type TYPE [--dataset DS] [--scenario ID] [--dashboard ID] [--folder ID] [--prompt LABEL] [--help-text TEXT] [--behavior BEH] [--button-text TEXT] [--params JSON] [--code CODE] [--definition JSON]
+dku app-designer remove-tile [-P PROJECT] -s SECTION -i INDEX
+```
+
+**Notes:**
+- `enable` must be called before other commands on a non-app project
+- `add-tile --type` supports: `SCENARIO_RUN`, `INLINE_DATASET_EDIT`, `UPLOAD_DATASET_SET_FILE`, `DOWNLOAD_DATASET`, `DASHBOARD_LINK`, `MANAGED_FOLDER_BROWSE`, `MANAGED_FOLDER_ADD_FILE`, `DOWNLOAD_MANAGED_FOLDER_FILE`, `PROJECT_VARIABLES_EDIT`, `INLINE_PYTHON_RUN`, `PERFORM_SCHEMA_PROPAGATION`, `DATASET_EDIT_SETTINGS`, `FILES_BASED_DATASET_BROWSE_AND_PREVIEW`, `DOWNLOAD_DASHBOARD_EXPORT`, `DOWNLOAD_RMARKDOWN`, `MANAGED_FOLDER_LINK`
+- `--dataset` binds tile to a specific dataset (for INLINE_DATASET_EDIT, UPLOAD_DATASET_SET_FILE, DOWNLOAD_DATASET)
+- `--behavior INLINE_UPLOAD_REDETECT_AND_INFER` is best for upload tiles (auto-detects schema)
+- `--definition @tile.json` overrides all shortcut flags for complex tiles (e.g., PROJECT_VARIABLES_EDIT with params)
+- `set-section --text` supports HTML: `<i class="icon-warning-sign"></i>`, `<b>bold</b>`, wiki links `[text](article:ID)`
+- See `dataiku` skill's `references/app-designer.md` for full tile/param type reference and UX patterns
+
+## app
+
+```bash
+dku app list [-o FORMAT]
+dku app get APP_ID [-o FORMAT]
+dku app list-instances APP_ID [-o FORMAT]
+dku app create-instance APP_ID --key PROJECT_KEY --name "Instance Name" [--wait|--no-wait]
+```
+
+**Notes:**
+- App IDs follow `PROJECT_XXXX` format (project key prefixed with `PROJECT_`)
+- `create-instance` creates a full copy of the template project
+- `list` does not require a project flag
 
 ## bundle
 

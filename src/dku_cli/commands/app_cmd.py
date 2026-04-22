@@ -1,4 +1,4 @@
-"""dku app — list, get, create-instance, list-instances, manifest."""
+"""dku app — list, get, list-instances, create-instance."""
 
 from __future__ import annotations
 
@@ -8,7 +8,13 @@ from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Manage DSS applications (app templates and instances).")
+app = typer.Typer(
+    help=(
+        "List DSS applications and instantiate them. "
+        "For authoring (enable app mode, homepage sections, tiles, manifest) "
+        "use [blue bold]dku app-designer[/blue bold]."
+    )
+)
 
 
 @app.command("list")
@@ -25,8 +31,6 @@ def list_apps(
         data = []
         for item in items:
             try:
-                # dataikuapi DSSAppListItem stores raw data in _data
-                # (no public accessor for appId/label on list items)
                 app_id = item._data.get("appId", "")
                 label = item._data.get("label", "")
             except AttributeError:
@@ -54,16 +58,37 @@ def list_apps(
 @app.command()
 def get(
     ctx: typer.Context,
-    app_id: str = typer.Argument(help="App ID (format: PROJECT_<key>)"),
+    app_id: str = typer.Argument(help="App ID (e.g. PROJECT_MYAPP)"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get app manifest (definition)."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    """Get app manifest/details."""
+    output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        application = client.get_app(app_id)
-        manifest = application.get_manifest()
-        render_raw(manifest.get_raw(), output_format=output)
+        app_handle = client.get_app(app_id)
+        manifest = app_handle.get_manifest()
+        raw = manifest.get_raw()
+
+        if output == "json":
+            render_raw(raw, output_format=output)
+        else:
+            total_tiles = sum(
+                len(s.get("tiles", [])) for s in raw.get("homepageSections", [])
+            )
+            data = [
+                {"field": "App ID", "value": app_id},
+                {"field": "Label", "value": raw.get("label", "")},
+                {"field": "Description", "value": raw.get("shortDesc", "")},
+                {"field": "Homepage", "value": str(raw.get("useAppHomepage", False))},
+                {"field": "Tiles", "value": str(total_tiles)},
+                {
+                    "field": "Permission",
+                    "value": raw.get("instantiationPermission", ""),
+                },
+            ]
+            render(
+                data, ["field", "value"], output_format="table", title=f"App: {app_id}"
+            )
     except Exception as e:
         handle_api_error(e)
 
