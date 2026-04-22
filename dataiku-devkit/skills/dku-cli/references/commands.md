@@ -65,6 +65,7 @@ dku auth switch PROFILE
 - `login` without `--api-key` prompts interactively (also prompts for default project)
 - `login` with all flags is non-interactive (CI/CD)
 - `logout --all` removes all profiles
+- `status` shows resolved auth sources, DSS version/node type, and default project accessibility
 - Credentials stored in keyring (macOS Keychain, etc.) with file fallback
 
 ## config
