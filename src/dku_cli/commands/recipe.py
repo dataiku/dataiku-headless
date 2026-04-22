@@ -126,9 +126,17 @@ def _require_existing_dataset(
 
 
 def _get_recipe_or_exit(proj, recipe_name: str, project_key: str):
-    """Return a recipe object or exit with prescriptive guidance when missing."""
+    """Return a recipe object or exit with prescriptive guidance when missing.
+
+    proj.get_recipe() is lazy — it returns a handle without contacting DSS. The
+    existence check happens on the first call that hits the API (usually
+    get_settings()), which raises KeyError('recipe') when the recipe doesn't
+    exist because dataikuapi does data["recipe"]["type"] unchecked. We force
+    that check up front so the error is prescriptive instead of a raw KeyError.
+    """
+    recipe = proj.get_recipe(recipe_name)
     try:
-        return proj.get_recipe(recipe_name)
+        recipe.get_settings()
     except Exception as e:
         if is_not_found_error(e) or str(e).strip("'") == "recipe":
             exit_with_error(
@@ -141,6 +149,7 @@ def _get_recipe_or_exit(proj, recipe_name: str, project_key: str):
                 ],
             )
         raise
+    return recipe
 
 
 def _create_eval_recipe(
@@ -254,7 +263,7 @@ def _parse_order_specs(specs: list[str]) -> list[dict]:
 
 def _get_prepare_settings(proj, recipe_name: str, project_key: str):
     """Get settings for a prepare recipe, validating type. Returns (recipe, settings)."""
-    recipe = proj.get_recipe(recipe_name)
+    recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
     settings = recipe.get_settings()
     raw_def = settings.get_recipe_raw_definition()
     rtype = raw_def.get("type", "")
@@ -460,6 +469,11 @@ def run(
         "--auto-update-schema",
         help="Auto-update output schemas before each recipe run",
     ),
+    timeout: int | None = typer.Option(
+        None,
+        "--timeout",
+        help="When --wait is set, max seconds to wait before failing (matches dku job run). Default: no limit.",
+    ),
 ) -> None:
     """Run a recipe.
 
@@ -489,27 +503,55 @@ def run(
                 builder.with_auto_update_schema_before_each_recipe_run(True)
             job = builder.start()
         else:
-            job = recipe.run()
+            # no_fail=True so we handle the FAILED/ABORTED states ourselves
+            # and can surface the job ID + log hint before exiting.
+            job = recipe.run(no_fail=True)
 
         success(f"Recipe '{recipe_name}' started")
         info(f"Job ID: {job.id}")
         if auto_update_schema:
             info("Auto-update schema: enabled")
 
-        if wait:
+        # recipe.run(no_fail=True) already waited; poll state from the job object.
+        status = job.get_status()
+        state = status.get("baseStatus", {}).get("state", "")
+
+        if wait and state not in ("DONE", "FAILED", "ABORTED"):
             info("Waiting for completion...")
-            while True:
+            start = time.time()
+            while state not in ("DONE", "FAILED", "ABORTED"):
+                if timeout is not None and (time.time() - start) > timeout:
+                    exit_with_error(
+                        f"Recipe '{recipe_name}' did not finish within {timeout}s (job {job.id}).",
+                        code="timeout",
+                        details=[
+                            f"Job is still running — poll status: dku job status {job.id} -P {project_key}",
+                            f"View log: dku job log {job.id} -P {project_key}",
+                            f"Abort if needed: dku job abort {job.id} -P {project_key}",
+                        ],
+                    )
+                time.sleep(2)
                 status = job.get_status()
                 state = status.get("baseStatus", {}).get("state", "")
-                if state in ("DONE", "FAILED", "ABORTED"):
-                    break
-                time.sleep(2)
-            if state == "DONE":
-                success("Recipe completed successfully")
-            else:
-                from dku_cli.output import error
 
-                error(f"Recipe finished with state: {state}")
+        if state == "DONE":
+            if wait or not (job_type or auto_update_schema):
+                success("Recipe completed successfully")
+        elif state in ("FAILED", "ABORTED"):
+            err_msg = status.get("errorMessage") or (status.get("error") or {}).get(
+                "message", ""
+            )
+            details = []
+            if err_msg:
+                details.append(f"Error: {err_msg}")
+            details.append(f"View log: dku job log {job.id} -P {project_key}")
+            details.append(f"Full status: dku job status {job.id} -P {project_key}")
+            exit_with_error(
+                f"Recipe '{recipe_name}' {state.lower()} (job {job.id}).",
+                code="job_failed",
+                status=1,
+                details=details,
+            )
     except typer.Exit:
         raise
     except Exception as e:
@@ -526,13 +568,13 @@ def create(
         "-t",
         help="Recipe type: python, sql, join, group, etc. For plugin recipes: CustomCode_<recipeComponentId>",
     ),
-    input_ds: str | None = typer.Option(
-        None,
+    inputs: list[str] = typer.Option(
+        [],
         "--input",
         "-i",
         "--input-ds",
         "--input-dataset",
-        help="Input dataset name (must exist). Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
+        help="Input dataset name (must exist). Repeatable: `-i A -i B` wires both. Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
     ),
     output_ds: str = typer.Option(
         ...,
@@ -626,7 +668,7 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         # Validate --input is provided for types that require it
-        if input_ds is None and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
+        if not inputs and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
             exit_with_error(
                 f"--input is required for recipe type '{type_name}'.",
                 code="missing_input",
@@ -642,8 +684,8 @@ def create(
 
             builder = DSSRecipeCreator(type_name, recipe_name, proj)
             builder.set_raw_mode()
-            if input_ds is not None:
-                builder.with_input(input_ds, role=input_role)
+            for _input in inputs:
+                builder.with_input(_input, role=input_role)
             builder.with_output(output_ds, role=output_role)
             if params_dict is not None:
                 builder.creation_settings["rawPayload"] = json.dumps(params_dict)
@@ -660,8 +702,8 @@ def create(
                         "Discover plugin recipes: dku plugin recipes",
                     ],
                 )
-            if input_ds is not None:
-                builder.with_input(input_ds)
+            for _input in inputs:
+                builder.with_input(_input)
             # Output wiring:
             # - Code recipes use CodeRecipeCreator.with_new_output_dataset(name, connection)
             # - Everything else with --connection uses
@@ -704,7 +746,7 @@ def create(
                     code="output_not_found",
                     details=[
                         f"Create it first: dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
-                        f"Then retry: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} -P {project_key}",
+                        f"Then retry: dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
                         "Tip: visual recipe shortcuts (create-join, create-group, etc.) auto-create the output dataset.",
                     ],
                 )
@@ -716,7 +758,7 @@ def create(
                         "This DSS project has no default managed connection for auto-creating datasets.",
                         "Fix: add --connection <NAME> to specify where the output should be stored.",
                         "Find available connections: dku connection list",
-                        f"Example: dku recipe create {recipe_name} -t {type_name} -i {input_ds} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
+                        f"Example: dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
                     ],
                 )
         if "recipe type" in str(e).lower() and "unknown" in str(e).lower():
@@ -772,7 +814,9 @@ def rename(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         recipe.rename(new_name)
         success(f"Renamed recipe '{recipe_name}' to '{new_name}' in {project_key}")
     except ValueError as e:
@@ -809,7 +853,9 @@ def status(
     fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         recipe_status = recipe.get_status()
 
         # Extract engine info
@@ -906,7 +952,12 @@ def get_code(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get the code payload of a code recipe."""
+    """Get the code payload of a code recipe.
+
+    Only works on code recipes (python, sql, r, shell, etc.). For visual
+    recipes (prepare, join, group, etc.) use 'dku recipe get-settings' to
+    inspect the recipe definition.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output, allowed=("text", "json"), default="text")
     try:
@@ -915,11 +966,24 @@ def get_code(
             client.get_project(project_key), recipe_name, project_key
         )
         settings = recipe.get_settings()
+        if not _is_text_payload_recipe(settings):
+            rtype = settings.get_recipe_raw_definition().get("type", "")
+            exit_with_error(
+                f"Recipe '{recipe_name}' is type '{rtype}', which has no code payload.",
+                code="wrong_recipe_type",
+                status=2,
+                details=[
+                    "get-code only works on code recipes (python, sql, r, shell, etc.).",
+                    f"Inspect visual recipes with: dku recipe get-settings {recipe_name} -P {project_key}",
+                ],
+            )
         payload = settings.get_payload()
         if output == "json":
             render_raw({"code": payload}, output_format="json")
         else:
             print(payload)
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -982,7 +1046,9 @@ def set_definition(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         if definition:
             new_def = read_json_input(definition)
@@ -1027,7 +1093,9 @@ def get_settings_cmd(
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
         # Build complete settings dict: definition + parsed payload
@@ -1077,7 +1145,9 @@ def set_settings_cmd(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         new_settings = read_json_input(settings_json)
 
@@ -1117,7 +1187,9 @@ def add_input(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         settings.add_input(role, ref)
 
@@ -1161,7 +1233,9 @@ def add_output(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         settings = recipe.get_settings()
         settings.add_output(role, ref)
         settings.save()
@@ -1191,7 +1265,9 @@ def check_schema(
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         updates = recipe.compute_schema_updates()
 
         if output == "json":
@@ -1200,17 +1276,18 @@ def check_schema(
             data = []
             for comp in updates.data.get("computables", []):
                 cols = comp.get("newSchema", {}).get("columns", [])
+                incompat = comp.get("incompatibilities", []) or []
                 data.append(
                     {
                         "output": comp.get("datasetName", comp.get("id", "")),
                         "type": comp.get("type", ""),
                         "columns": str(len(cols)),
-                        "changed": str(comp.get("schemaChanged", False)),
+                        "needs_update": "yes" if incompat else "no",
                     }
                 )
             render(
                 data,
-                ["output", "type", "columns", "changed"],
+                ["output", "type", "columns", "needs_update"],
                 output_format=output,
                 title=f"Schema Check: {recipe_name}",
             )
@@ -1243,7 +1320,9 @@ def apply_schema(
     output = resolve_output_format(output, allowed=("table", "json"), default="json")
     try:
         client = get_client_from_ctx(ctx)
-        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
         updates = recipe.compute_schema_updates()
 
         if not updates.any_action_required():
@@ -1823,11 +1902,12 @@ def add_fold(
             ctx,
             recipe_name,
             project,
-            "FoldColumnsByName",
+            "MultiColumnFold",
             {
                 "columns": col_list,
-                "keyColumn": key_column,
-                "valueColumn": value_column,
+                "foldNameColumn": key_column,
+                "foldValueColumn": value_column,
+                "foldRemoveFoldedColumns": True,
             },
         )
     else:
@@ -1835,11 +1915,12 @@ def add_fold(
             ctx,
             recipe_name,
             project,
-            "FoldColumnsByPattern",
+            "MultiColumnByPrefixFold",
             {
                 "columnNamePattern": pattern,
                 "columnNameColumn": key_column,
                 "columnContentColumn": value_column,
+                "foldRemoveFoldedColumns": True,
             },
         )
 

@@ -263,17 +263,30 @@ def set_definition(
         ...,
         "--definition",
         "-d",
-        help="JSON definition (string, @file.json, or - for stdin)",
+        help="JSON definition (string, @file.json, or - for stdin). Supports full settings including params.steps for step-based scenarios.",
     ),
 ) -> None:
-    """Update a scenario's definition from JSON."""
+    """Update a scenario's definition from JSON.
+
+    Uses the full settings endpoint (DSSScenarioSettings.save) so params.steps,
+    triggers, and reporters all persist. The legacy DSSScenario.set_definition
+    endpoint is header-only (active / description / shortDesc / tags / checklists)
+    and silently drops steps — this command deliberately does NOT use it.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         new_def = read_json_input(definition)
-        scenario.set_definition(new_def)
+        settings = scenario.get_settings()
+        raw = settings.get_raw()
+        # Full replace: copy every top-level key from the supplied definition into
+        # the settings dict. We mutate the existing dict (rather than reassign)
+        # because get_raw returns a reference tracked by settings.save().
+        raw.clear()
+        raw.update(new_def)
+        settings.save()
         success(f"Updated definition for scenario '{scenario_id}'")
     except Exception as e:
         handle_api_error(e)

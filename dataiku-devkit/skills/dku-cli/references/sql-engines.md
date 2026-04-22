@@ -85,9 +85,12 @@ The same pattern works for **`-t sql_query --connection X`** when the source is 
 
 ```bash
 dku recipe create extract_active -t sql_query -i pg_source_table \
-  --output-ds pg_active_subset --connection postgresql-local -P PROJ
-# then open the recipe, edit the SELECT, and build
+  --output-ds pg_active_subset --connection postgresql-local -P PROJ && \
+dku recipe set-code extract_active --code @query.sql -P PROJ && \
+dku dataset build pg_active_subset --wait -P PROJ
 ```
+
+The default SQL body is `SELECT * FROM "<PROJECT>_<input>"`. Overwrite it with `set-code` (literal string, `@path/to/query.sql`, or `-` for stdin). Inspect with `dku recipe get-code extract_active -P PROJ` to confirm. If the output schema changes, re-propagate with `dku dataset build pg_active_subset --force -P PROJ` or run the recipe with `--auto-update-schema`.
 
 **Rule:** if your first instinct is to write a Python recipe that just `read_dataframe()` → `write_dataframe()` to move data between connections, stop — `-t sync --connection X` does it as a first-class DSS feature with schema propagation, lineage, and no Python code.
 

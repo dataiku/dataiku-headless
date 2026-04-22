@@ -50,6 +50,8 @@ Each condition in the `conditions[]` array:
 | `col` | string | Column name for column-vs-column comparisons |
 | `items` | array | Values list for `in [string]` operator |
 
+> **VisualIfRule caveat:** Inside a Prepare recipe's `VisualIfRule` step, several operators below produce a silent `False` when the step is created via API (DSS bug, verified on stock DSS): `regex`, `in [string]`, `not in [string]`, `== [date]`/`>  [date]`/`<  [date]`, and geo operators. In filter/join/split recipes these operators work; only VisualIfRule is affected. If you need these inside a VisualIfRule, use GREL alternatives in a `CreateColumnWithGREL` or `FilterOnCustomFormula` step instead (see `prepare-processors.md` → VisualIfRule).
+
 ## Operator Catalog
 
 ### String Operators

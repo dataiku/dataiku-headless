@@ -64,7 +64,7 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 > **Cheat Sheet (read this first)**
 >
 > 1. **Visual recipe > Python recipe.** Join, group, stack, filter, window, topN — use visual. Python ONLY for custom logic.
-> 2. **Purpose-built processor > GREL.** Rename → `add-rename`, dates → `DateParser`, uppercase → `StringTransformer`. ~95 processors exist.
+> 2. **Purpose-built processor > GREL.** Rename → `add-rename`, dates → `DateParser`, uppercase → `StringTransformer` (`mode: TO_UPPER`, not `UPPERCASE`). Full processor catalog in `references/prepare-processors.md`.
 > 3. **Verify everything.** `dku dataset head OUTPUT -P PROJ -n 5`. Exit code 0 ≠ correct data. See `references/verification.md` for per-artifact verification (agents, KB, charts, scenarios) and cost risk table.
 > 4. **Gauge before you grab.** `dku dataset info DS -P PROJ` BEFORE `head`. If >1M rows or >1GB, ask before building. Never trigger `RECURSIVE_BUILD` on Spark/BigQuery/Snowflake without asking.
 > 5. **Join prefixing.** Join recipes prefix columns (customers_name, orders_amount). Plan downstream refs.

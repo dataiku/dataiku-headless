@@ -212,6 +212,38 @@ def test_recipe_create(patch_client):
     builder.build.assert_called_once()
 
 
+def test_recipe_create_multiple_inputs(patch_client):
+    """Regression: `-i A -i B` must wire BOTH inputs, not silently drop the first."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "multi_input",
+            "--type",
+            "python",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "-i",
+            "c",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    # Every -i must reach with_input — previously only the last was wired.
+    assert builder.with_input.call_count == 3
+    called_inputs = [call.args[0] for call in builder.with_input.call_args_list]
+    assert called_inputs == ["a", "b", "c"]
+
+
 def test_recipe_create_plugin_type_uses_raw_mode(patch_client):
     """CustomCode_* plugin types bypass new_recipe() and use DSSRecipeCreator in raw mode."""
     proj = patch_client.get_project("PROJ1")
@@ -1565,7 +1597,10 @@ def test_recipe_create_agent_eval_full(patch_client):
 
 
 def test_recipe_get_json_error_payload(patch_client):
-    patch_client.get_project("PROJ1").get_recipe.side_effect = Exception("'recipe'")
+    # get_recipe() is lazy; the existence check happens on get_settings()
+    patch_client.get_project(
+        "PROJ1"
+    ).get_recipe.return_value.get_settings.side_effect = Exception("'recipe'")
     result = runner.invoke(
         app,
         ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
@@ -2788,12 +2823,13 @@ def test_recipe_add_fold_by_name(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "FoldColumnsByName" in result.output
+    assert "MultiColumnFold" in result.output
     step = settings.obj_payload["steps"][0]
-    assert step["type"] == "FoldColumnsByName"
+    assert step["type"] == "MultiColumnFold"
     assert step["params"]["columns"] == ["jan", "feb", "mar"]
-    assert step["params"]["keyColumn"] == "month"
-    assert step["params"]["valueColumn"] == "sales"
+    assert step["params"]["foldNameColumn"] == "month"
+    assert step["params"]["foldValueColumn"] == "sales"
+    assert step["params"]["foldRemoveFoldedColumns"] is True
 
 
 def test_recipe_add_fold_by_pattern(patch_client):
@@ -2816,10 +2852,13 @@ def test_recipe_add_fold_by_pattern(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "FoldColumnsByPattern" in result.output
+    assert "MultiColumnByPrefixFold" in result.output
     step = settings.obj_payload["steps"][0]
-    assert step["type"] == "FoldColumnsByPattern"
+    assert step["type"] == "MultiColumnByPrefixFold"
     assert step["params"]["columnNamePattern"] == ".*-25"
+    assert step["params"]["columnNameColumn"] == "month"
+    assert step["params"]["columnContentColumn"] == "value"
+    assert step["params"]["foldRemoveFoldedColumns"] is True
 
 
 def test_recipe_add_fold_requires_columns_or_pattern(patch_client):

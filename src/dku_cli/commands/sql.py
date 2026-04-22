@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx
 from dku_cli.output import render, resolve_output_format, success
 
@@ -127,5 +127,34 @@ def query(
             output_format=output,
             title=f"Query Results ({connection})",
         )
+    except typer.Exit:
+        raise
     except Exception as e:
+        msg = str(e)
+        # Raw Java exceptions leak from DSS in several scenarios. Classify them
+        # so agents get actionable guidance instead of "Cannot connect to DSS".
+        if "Connection '" in msg and "does not exist" in msg:
+            exit_with_error(
+                f"Connection '{connection}' does not exist.",
+                code="not_found",
+                status=3,
+                details=["List connections: dku connection list"],
+            )
+        if "Unexpected connection type" in msg or "AbstractSQLConnection" in msg:
+            exit_with_error(
+                f"Connection '{connection}' is not a SQL connection.",
+                code="wrong_connection_type",
+                status=2,
+                details=[
+                    "dku sql query only works on SQL connections.",
+                    "Filter SQL conns: dku connection list --type PostgreSQL (or your SQL type)",
+                ],
+            )
+        if "PSQLException" in msg or "SQLException" in msg or "ERROR:" in msg:
+            exit_with_error(
+                "SQL query failed.",
+                code="sql_error",
+                status=1,
+                details=[f"Database: {msg.strip()}"],
+            )
         handle_api_error(e)

@@ -291,6 +291,9 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
 - `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
+- `get-code` only works on code recipes (python, sql, r, shell, pyspark, sparkr, cpython). For visual recipes (prepare/shaker, join, group, etc.) use `get-settings` to inspect the recipe definition
+- `check-schema` output column is `NEEDS_UPDATE` (yes/no per output). Non-zero exit when any output needs an update — pair with `apply-schema` in scripts
+- `run` on failure exits 1 with the failing job ID + `dku job log <ID>` + `dku job status <ID>` hints pre-formatted in the error details
 - `get-settings` returns full recipe settings as JSON including the visual recipe payload (sort orders, join keys, filter conditions, etc.). Unlike `get`, this includes the payload
 - `set-settings` sets full recipe settings from JSON. Root-level keys update the definition; the `payload` key updates the visual recipe config (shallow merge). Use `get-settings` first to read, modify, then `set-settings` to update
 - `set-definition --payload` updates visual recipe config (aggregations, join keys, filter conditions). `--definition` updates raw recipe definition (I/O, connection). Mutually exclusive
@@ -338,6 +341,9 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 - `add-trigger --trigger` accepts raw trigger JSON (inline, `@file.json`, or `-` for stdin). Must include `type`, `active`, and `params` fields
 - `add-trigger-dataset` is a convenience shortcut for dataset-change triggers. `--delay` is the check interval in seconds (default: 120). `--grace-delay` is the stabilization period (default: 0)
 - `remove-trigger --index` removes a trigger by its 0-based index (use `list-triggers` to find the index)
+- `set-definition` does a FULL settings replace — including `params.steps`, `params.reporters`, and the header fields. Supply a complete scenario definition (the shape returned by `get-definition` or `get_settings().get_raw()`). Partial updates of header-only fields should use `set-metadata` instead.
+- **Step types for `params.steps`:** `build_flowitem` (build datasets/folders — takes `params.builds` as a list of `{type: "DATASET"|"MANAGED_FOLDER", itemId, partitionsSpec}` and `params.buildMode`), `custom_python` (inline script — `params.script`), `exec_sql` (SQL — `params.sql`, `params.connection`). See `dataikuapi/dss/scenario.py` for the full step-type catalogue.
+- **`get-definition` is header-only:** it does NOT include `params.steps` or `triggers`. For triggers use `list-triggers`; for steps read via the API's `get_settings().get_raw()` path.
 
 ## job
 
@@ -429,6 +435,7 @@ dku connection sync-acls CONNECTION_NAME [--root/--datasets] [--wait/--no-wait]
 ```
 
 - `list --type` filters by connection type (Snowflake, PostgreSQL, EC2, etc.) using fast `list_connections_names` endpoint
+- `test` only works on SQL and cloud connections. Filesystem/LLM/local connections exit 2 with `unsupported_operation` — use `dku connection get` to inspect instead
 - `schemas` lists SQL schemas or Iceberg namespaces. Requires project context (`-P`)
 - `tables` lists tables available for import. Use `--schema` to narrow results. Auto-detects SQL vs Iceberg
 - `sync-acls` syncs HDFS ACLs (only useful with User Isolation + DSS-managed HDFS ACL). `--datasets` syncs dataset ACLs instead of root

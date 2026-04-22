@@ -184,9 +184,56 @@ def test_scenario_set_definition(patch_client):
     assert "Updated definition" in result.output
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    scenario.set_definition.assert_called_once_with(
-        {"type": "step_based", "name": "Updated", "params": {"x": 1}}
+    # Verify: the settings.save() path was used (NOT deprecated set_definition),
+    # and the full payload (including params) was written to get_raw().
+    settings = scenario.get_settings()
+    settings.save.assert_called_once()
+    assert settings.get_raw() == {
+        "type": "step_based",
+        "name": "Updated",
+        "params": {"x": 1},
+    }
+
+
+def test_scenario_set_definition_persists_steps(patch_client):
+    """Regression: params.steps must survive set-definition (not silently dropped)."""
+    new_def = json.dumps(
+        {
+            "type": "step_based",
+            "name": "WithSteps",
+            "params": {
+                "steps": [
+                    {
+                        "id": "build_x",
+                        "type": "build_flowitem",
+                        "name": "Build x",
+                        "params": {"builds": [{"type": "DATASET", "itemId": "x"}]},
+                    }
+                ]
+            },
+        }
     )
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-definition",
+            "scen1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings()
+    settings.save.assert_called_once()
+    saved_steps = settings.get_raw()["params"]["steps"]
+    assert len(saved_steps) == 1
+    assert saved_steps[0]["id"] == "build_x"
+    assert saved_steps[0]["type"] == "build_flowitem"
 
 
 def test_scenario_set_definition_from_file(tmp_path, patch_client):
@@ -208,9 +255,9 @@ def test_scenario_set_definition_from_file(tmp_path, patch_client):
     assert "Updated definition" in result.output
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    scenario.set_definition.assert_called_once_with(
-        {"type": "step_based", "name": "FromFile"}
-    )
+    settings = scenario.get_settings()
+    settings.save.assert_called_once()
+    assert settings.get_raw() == {"type": "step_based", "name": "FromFile"}
 
 
 # ── run --wait polling tests ─────────────────────────────────────────────

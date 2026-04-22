@@ -707,6 +707,13 @@ def mock_client():
     ]
     scenario_settings_mock = MagicMock()
     type(scenario_settings_mock).raw_triggers = property(lambda self: scenario_triggers)
+    # get_raw() returns a real dict that tests can mutate and assert on after save().
+    scenario_settings_raw = {
+        "type": "step_based",
+        "name": "Build All",
+        "params": {"steps": []},
+    }
+    scenario_settings_mock.get_raw.return_value = scenario_settings_raw
     scenario_settings_mock.save.return_value = None
     scenario_mock.get_settings.return_value = scenario_settings_mock
 
