@@ -205,9 +205,19 @@ def test_git_create_branch_from_commit(patch_client):
 # --- delete-branch ---
 
 
-def test_git_delete_branch(patch_client):
+def test_git_delete_branch_blocks_without_yes(patch_client):
     result = runner.invoke(
         app, ["git", "delete-branch", "old-branch", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 77
+    proj = patch_client.get_project("PROJ1")
+    git = proj.get_project_git()
+    git.delete_branch.assert_not_called()
+
+
+def test_git_delete_branch(patch_client):
+    result = runner.invoke(
+        app, ["git", "delete-branch", "old-branch", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     assert "Deleted branch" in result.output
@@ -218,9 +228,37 @@ def test_git_delete_branch(patch_client):
     )
 
 
-def test_git_delete_branch_force(patch_client):
+def test_git_delete_branch_force_requires_confirm_name(patch_client):
+    """--force elevates to tier-3; --yes alone is not enough."""
     result = runner.invoke(
-        app, ["git", "delete-branch", "old-branch", "--force", "--project", "PROJ1"]
+        app,
+        [
+            "git",
+            "delete-branch",
+            "old-branch",
+            "--force",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 77
+
+
+def test_git_delete_branch_force_with_matching_confirm_name(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "git",
+            "delete-branch",
+            "old-branch",
+            "--force",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "old-branch",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")

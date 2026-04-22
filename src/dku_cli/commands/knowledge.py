@@ -311,20 +311,25 @@ def search(
 def delete(
     ctx: typer.Context,
     kb_id: str = typer.Argument(help="Knowledge bank ID or name"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Delete a knowledge bank."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="knowledge.delete",
+        subject=f"knowledge bank '{kb_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete knowledge bank '{kb_id}' from {project_key}? All chunks are removed.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         kb = resolve_knowledge_bank(proj, kb_id)
-        if not yes:
-            typer.confirm(
-                f"Delete knowledge bank '{kb_id}' from {project_key}?",
-                abort=True,
-            )
         kb.delete()
         success(f"Deleted knowledge bank '{kb_id}'")
     except Exception as e:

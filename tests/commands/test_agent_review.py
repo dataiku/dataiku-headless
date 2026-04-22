@@ -69,7 +69,7 @@ def test_get_not_found(patch_client):
 
 def test_delete(patch_client):
     result = runner.invoke(
-        app, ["agent-review", "delete", "review1", "--project", "PROJ1"]
+        app, ["agent-review", "delete", "review1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
 

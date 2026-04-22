@@ -138,7 +138,9 @@ def test_scenario_create_already_exists_fails(patch_client):
 
 
 def test_scenario_delete(patch_client):
-    result = runner.invoke(app, ["scenario", "delete", "scen1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["scenario", "delete", "scen1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted scenario" in result.output
     proj = patch_client.get_project("PROJ1")
@@ -793,6 +795,7 @@ def test_scenario_remove_trigger(patch_client):
             "0",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
@@ -812,6 +815,7 @@ def test_scenario_remove_trigger_invalid_index(patch_client):
             "99",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code != 0

@@ -208,61 +208,74 @@ def test_project_set_metadata_no_args(patch_client):
 # --- project delete ---
 
 
-def test_project_delete_without_confirm(patch_client):
+def test_project_delete_without_yes_blocks(patch_client):
     result = runner.invoke(app, ["project", "delete", "PROJ1"])
-    assert result.exit_code != 0
-    assert "--confirm" in result.output
+    assert result.exit_code == 77
 
 
-def test_project_delete_with_confirm(patch_client):
-    result = runner.invoke(app, ["project", "delete", "PROJ1", "--confirm"])
+def test_project_delete_without_confirm_name_blocks(patch_client):
+    """Tier-3 needs both --yes and --confirm-name matching the project key."""
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes"])
+    assert result.exit_code == 77
+
+
+def test_project_delete_with_wrong_confirm_name_blocks(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "delete", "PROJ1", "--yes", "--confirm-name", "WRONG_PROJ"],
+    )
+    assert result.exit_code == 77
+
+
+def test_project_delete_with_matching_confirm_name(patch_client):
+    result = runner.invoke(
+        app,
+        ["project", "delete", "PROJ1", "--yes", "--confirm-name", "PROJ1"],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.delete.assert_called_once_with(
         clear_managed_datasets=False,
         clear_output_managed_folders=False,
     )
-    # Default path emits the hint about --drop-data
     assert "--drop-data" in result.output
 
 
-def test_project_delete_with_yes(patch_client):
-    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes"])
-    assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once_with(
-        clear_managed_datasets=False,
-        clear_output_managed_folders=False,
-    )
-
-
-def test_project_delete_with_y(patch_client):
-    result = runner.invoke(app, ["project", "delete", "PROJ1", "-y"])
-    assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
-    proj.delete.assert_called_once_with(
-        clear_managed_datasets=False,
-        clear_output_managed_folders=False,
-    )
-
-
 def test_project_delete_with_drop_data(patch_client):
-    """--drop-data should pass clear_managed_datasets=True and clear_output_managed_folders=True."""
-    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes", "--drop-data"])
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "delete",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "PROJ1",
+            "--drop-data",
+        ],
+    )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.delete.assert_called_once_with(
         clear_managed_datasets=True,
         clear_output_managed_folders=True,
     )
-    # With --drop-data, the hint about --drop-data should NOT appear
     assert "Re-run with --drop-data" not in result.output
 
 
 def test_project_delete_with_clear_managed_alias(patch_client):
     """--clear-managed is an alias for --drop-data."""
     result = runner.invoke(
-        app, ["project", "delete", "PROJ1", "--yes", "--clear-managed"]
+        app,
+        [
+            "project",
+            "delete",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "PROJ1",
+            "--clear-managed",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -270,6 +283,13 @@ def test_project_delete_with_clear_managed_alias(patch_client):
         clear_managed_datasets=True,
         clear_output_managed_folders=True,
     )
+
+
+def test_project_delete_dangerous_still_needs_confirm_name(patch_client, monkeypatch):
+    """--dangerous / DKU_DANGEROUS does NOT bypass tier-3 --confirm-name."""
+    monkeypatch.setenv("DKU_DANGEROUS", "1")
+    result = runner.invoke(app, ["project", "delete", "PROJ1", "--yes"])
+    assert result.exit_code == 77
 
 
 # --- project duplicate ---
@@ -346,11 +366,28 @@ def test_project_set_variables_with_set(patch_client):
     assert call_args["standard"]["key1"] == "val1"  # existing preserved
 
 
-def test_project_set_variables_with_definition(patch_client):
+def test_project_set_variables_with_definition_blocks_without_yes(patch_client):
     new_vars = json.dumps({"standard": {"x": "1"}, "local": {}})
     result = runner.invoke(
         app,
         ["project", "set-variables", "--project", "PROJ1", "--definition", new_vars],
+    )
+    assert result.exit_code == 77
+
+
+def test_project_set_variables_with_definition(patch_client):
+    new_vars = json.dumps({"standard": {"x": "1"}, "local": {}})
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "set-variables",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_vars,
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
@@ -378,11 +415,28 @@ def test_project_permissions(patch_client):
 # --- project set-permissions ---
 
 
-def test_project_set_permissions(patch_client):
+def test_project_set_permissions_blocks_without_yes(patch_client):
     perms = json.dumps({"permissions": [{"user": "new_user", "admin": False}]})
     result = runner.invoke(
         app,
         ["project", "set-permissions", "--project", "PROJ1", "--definition", perms],
+    )
+    assert result.exit_code == 77
+
+
+def test_project_set_permissions(patch_client):
+    perms = json.dumps({"permissions": [{"user": "new_user", "admin": False}]})
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "set-permissions",
+            "--project",
+            "PROJ1",
+            "--definition",
+            perms,
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")

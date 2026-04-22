@@ -109,10 +109,16 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete a DSS group."""
-    if not yes:
-        confirm = typer.confirm(f"Delete group '{name}'?")
-        if not confirm:
-            raise typer.Abort()
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="group.delete",
+        subject=f"group '{name}'",
+        yes=yes,
+        prompt=f"Delete DSS group '{name}'? Users in the group lose its associated permissions.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         group = client.get_group(name)

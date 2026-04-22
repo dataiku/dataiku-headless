@@ -226,15 +226,28 @@ def delete(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a scenario."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="scenario.delete",
+        subject=f"scenario '{scenario_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete scenario '{scenario_id}' from project {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         scenario.delete()
         success(f"Deleted scenario '{scenario_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -856,9 +869,20 @@ def remove_trigger(
         help="Trigger index to remove (0-based, from list-triggers)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a trigger from a scenario by index."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="scenario.remove_trigger",
+        subject=f"trigger index {index} from scenario '{scenario_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove trigger at index {index} from scenario '{scenario_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

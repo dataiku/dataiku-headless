@@ -36,9 +36,10 @@ metadata:
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. Read the relevant file first — don't try to figure it out from `--help` alone.
 > 16. **Cross-connection landing is a first-class feature.** `dku recipe create -t sync --connection X` moves data between connections. Never write a Python passthrough. See `references/sql-engines.md`.
 > 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). See `references/agent-patterns.md`.
-> 18. **`@file` silently uses leftover content.** If your prior Write was rejected ("File has not been read yet"), Bash still runs and `dku <cmd> --body @file` reads whatever was on disk — often stale content from a previous session. Either Read first so Write accepts the overwrite, or use a per-session path like `/tmp/dku_${RANDOM}_X.md`. Applies to every `--body @`, `--code @`, `--content @`, `--definition @`, `--payload @`, `--params @` flag.
-> 19. **`dku admin` writes can lock users out.** `license upload`, `sso/ldap/azure-ad set`, `settings set`, `infra push-base-images`, `users-sync resync-all`, `messaging create` all dry-run without `--yes`. IAM `set` also requires `--i-understand-lockout-risk`. ALWAYS `get` → edit → `set` (never hand-write IAM payloads). See `references/admin-safety.md`.
-> 20. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
+> 18. **Guarded mode is default (exit 77).** Destructive commands (delete, clear, set-permissions, etc.) refuse to run without `--yes`. On exit code **77**, stderr contains an `AGENT INSTRUCTION:` block — read the verbatim question to ask the user and the exact re-run command. Tier-3 cascades (`project delete`, `plugin delete --force`, `git delete-branch --force`) also require `--confirm-name <target>` matching the resource. Never guess; ask the user first.
+> 19. **`@file` silently uses leftover content.** If your prior Write was rejected ("File has not been read yet"), Bash still runs and `dku <cmd> --body @file` reads whatever was on disk — often stale content from a previous session. Either Read first so Write accepts the overwrite, or use a per-session path like `/tmp/dku_${RANDOM}_X.md`. Applies to every `--body @`, `--code @`, `--content @`, `--definition @`, `--payload @`, `--params @` flag.
+> 20. **`dku admin` writes can lock users out.** `license upload`, `sso/ldap/azure-ad set`, `settings set`, `infra push-base-images`, `users-sync resync-all`, `messaging create` all dry-run without `--yes`. IAM `set` also requires `--i-understand-lockout-risk`. ALWAYS `get` → edit → `set` (never hand-write IAM payloads). See `references/admin-safety.md`.
+> 21. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
 
 # dku-cli
 
@@ -111,6 +112,7 @@ dku auth login
 | `--profile NAME` / `-p` | — | Auth profile |
 | `--quiet` / `-q` | — | Suppress messages |
 | `--errors text\|json` | — | Error format |
+| `--dangerous` | `DKU_DANGEROUS` | Skip safety guards (tiers 2–3). Not for agent use unless user explicitly asks. |
 
 **Global options MUST come BEFORE the subcommand:** `dku --profile X whoami`, NOT `dku whoami --profile X`. This is a Click/Typer limitation — the root parser only sees options placed before the subcommand name.
 
@@ -416,15 +418,29 @@ None of above?      → create -t python
 
 > For full recipe examples, see `references/recipe-decision.md`.
 
-### Deletion Commands
+### Deletion Commands (Safety Guards — exit 77)
 
-All `delete` verbs prompt by default; use `--yes` / `-y` for non-interactive:
+**Guarded mode is default.** Destructive commands refuse to run without `--yes` and exit with code **77** + an `AGENT INSTRUCTION:` block on stderr. Read it, ask the user verbatim, then re-run.
+
+| Tier | Examples | Required flags |
+|---|---|---|
+| 2 (delete) | `agent delete`, `agent-block remove`, `agent-hub remove-agent`, `agent-review delete`, `agent-tool delete`, `analysis delete`, `api-deployer delete-deployment`, `api-key delete`, `api-service delete-package`, `cluster delete`, `code-env delete`, `code-studio delete`, `dashboard delete`, `dataset clear`, `dataset delete`, `dq delete`, `evaluation-store delete`, `folder delete`, `folder delete-file`, `folder delete-files`, `git delete-branch`, `group delete`, `insight delete`, `knowledge delete`, `library delete`, `ml delete`, `model delete`, `model delete-version`, `model-comparison delete`, `model-comparison remove-model`, `notebook delete`, `notebook clear-outputs`, `plugin delete` (no `--force`), `project-deployer delete-deployment`, `project set-permissions`, `project set-variables`, `rag delete`, `recipe delete`, `recipe remove-step`, `scenario delete`, `scenario remove-trigger`, `semantic-model delete`, `streaming delete`, `user delete`, `wiki delete`, `workspace delete` | `--yes` |
+| 3 (cascade) | `connection delete`, `project delete`, `plugin delete --force`, `git delete-branch --force` | `--yes` AND `--confirm-name <TARGET>` |
+| 4 (admin) | — (reserved) | `--yes` + `--confirm-name` + `--i-know-what-im-doing`. Never bypassable. |
+
 ```bash
+# Tier 2
 dku dataset delete DS -P PROJ --yes
 dku recipe delete RECIPE -P PROJ --yes
-dku project delete PROJ --yes
 dku knowledge delete KB -P PROJ --yes
 dku ml delete ANALYSIS MLTASK -P PROJ --yes
+
+# Tier 3 — --confirm-name must match the target identifier
+dku project delete MYPROJ --yes --confirm-name MYPROJ
+dku plugin delete my-plugin --force --yes --confirm-name my-plugin
+
+# Session-wide bypass (only if user explicitly authorises it)
+export DKU_DANGEROUS=1
 ```
 
 ### Chaining Rule

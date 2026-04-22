@@ -220,7 +220,7 @@ def test_evaluation_store_build_no_wait(patch_client):
 
 def test_evaluation_store_delete(patch_client):
     result = runner.invoke(
-        app, ["evaluation-store", "delete", "mes1", "--project", "PROJ1"]
+        app, ["evaluation-store", "delete", "mes1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     assert "Deleted evaluation store" in result.output

@@ -155,6 +155,44 @@ When editing skills, **progressive disclosure is non-negotiable**:
 
 ---
 
+## Safety & Guarded Mode
+
+**`dku` is guarded by default.** Every destructive command calls `safety.guard()`. There is NO other path — adding a new destructive command without calling `guard()` is a bug.
+
+### The primitives
+
+- **`src/dku_cli/safety.py`** — the only module that emits `AGENT INSTRUCTION` blocks and exits 77.
+  - `Tier.READ / WRITE / DELETE / CASCADE / ADMIN` (IntEnum).
+  - `guard(ctx, *, tier, action, subject, yes, target_id=None, confirm_name=None, i_know=False, prompt=None)` — the only call every destructive command makes.
+- **Exit code 77** (`SAFETY_BLOCKED_EXIT`) is reserved for safety blocks. Do NOT reuse it.
+- **Global flag `--dangerous`** + **env `DKU_DANGEROUS=1`** + **`config.toml` `dangerous_mode=true`** all disable tier 2–3 guards. Tier 4 (admin) is never bypassable.
+
+### Tiers — call-site rules
+
+| Tier | Use when the command … | Required flags |
+|---|---|---|
+| `READ` / `WRITE` | Lists, creates, reversible updates | No guard call needed |
+| `DELETE` | Deletes one resource or wipes its data | Pass `yes=yes` |
+| `CASCADE` | Is irreversible, touches many resources, or uses a `--force` override | Pass `yes=yes`, `target_id=<id>`, `confirm_name=confirm_name` |
+| `ADMIN` | Reserved for instance-wide admin mutators | Pass `yes`, `target_id`, `confirm_name`, `i_know` |
+
+### When adding a new destructive command
+
+1. Pick the tier. If in doubt between DELETE and CASCADE, ask: *can this destroy work the user did not explicitly name in the command*? If yes → CASCADE.
+2. Add `yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard")`.
+3. For CASCADE: also add `confirm_name: str = typer.Option(None, "--confirm-name", help="Must match <TARGET> to proceed.")`.
+4. Call `guard(ctx, tier=Tier.X, action="noun.verb", subject="human-readable '{name}' in {scope}", yes=yes, ..., prompt="User-facing question ending in a question mark?")`.
+5. Write the `prompt=` from the user's perspective — it's shown to the human verbatim by the agent. Start with the verb, name the target, end with a question.
+6. Write tests: (a) blocks without `--yes` (exit 77), (b) succeeds with `--yes`, (c) tier-3 rejects mismatched `--confirm-name`, (d) `DKU_DANGEROUS=1` bypasses (tier 2) or still requires `--confirm-name` (tier 3).
+
+### Existing agent-facing artifacts that mention safety
+
+- `dataiku-devkit/skills/dku-cli/SKILL.md` — cheat sheet rule 18 + the "Deletion Commands (Safety Guards)" section.
+- `dataiku-devkit/skills/dku-cli/references/commands.md` — "Safety Modes & Exit Code 77" section.
+- CLI error messages — `AGENT INSTRUCTION:` block emitted from `safety._emit_block` / `_emit_cascade_name_mismatch` / `_emit_admin_refusal`.
+
+---
+
 ## Critical Gotchas
 
 **Rule: Every gotcha below MUST also exist in `dataiku-devkit/skills/dku-cli/SKILL.md` gotchas table AND be caught with a prescriptive error message in the CLI code.**

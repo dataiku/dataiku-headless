@@ -187,10 +187,16 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
     """Delete a cluster (does not stop it first)."""
-    if not yes:
-        confirm = typer.confirm(f"Delete cluster '{cluster_id}'?")
-        if not confirm:
-            raise typer.Abort()
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="cluster.delete",
+        subject=f"cluster '{cluster_id}'",
+        yes=yes,
+        prompt=f"Delete cluster '{cluster_id}'? (This does not stop the cluster first.)",
+    )
     try:
         client = get_client_from_ctx(ctx)
         cluster = client.get_cluster(cluster_id)

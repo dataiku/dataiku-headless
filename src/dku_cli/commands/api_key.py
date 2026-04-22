@@ -111,10 +111,16 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
     """Delete a global API key."""
-    if not yes:
-        confirm = typer.confirm(f"Delete API key '{key_id}'?")
-        if not confirm:
-            raise typer.Abort()
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="api_key.delete",
+        subject=f"API key '{key_id}'",
+        yes=yes,
+        prompt=f"Delete global API key '{key_id}'? Any clients still using it will stop working.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         key = client.get_global_api_key_by_id(key_id)

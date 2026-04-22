@@ -150,13 +150,24 @@ def remove_model(
     comparison_id: str = typer.Argument(help="Comparison ID"),
     full_id: str = typer.Option(..., "--model", "-m", help="Full model ID to remove"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a model from a comparison.
 
     Example:
-      dku model-comparison remove-model MEC_ID --model S-PROJ-modelId-v1 -P PROJ
+      dku model-comparison remove-model MEC_ID --model S-PROJ-modelId-v1 -P PROJ --yes
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="model_comparison.remove_model",
+        subject=f"model '{full_id}' from comparison '{comparison_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove model '{full_id}' from comparison '{comparison_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -179,13 +190,17 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
     """Delete a model comparison."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
-    if not yes:
-        confirm = typer.confirm(
-            f"Delete model comparison '{comparison_id}' from {project_key}?"
-        )
-        if not confirm:
-            raise typer.Abort()
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="model_comparison.delete",
+        subject=f"model comparison '{comparison_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete model comparison '{comparison_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

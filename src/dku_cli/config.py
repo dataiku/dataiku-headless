@@ -152,3 +152,14 @@ def set_default_project(project_key: str) -> None:
 def get_default_output() -> str:
     config = get_config()
     return config.get("output", "table")
+
+
+def get_dangerous_mode() -> bool:
+    config = get_config()
+    return bool(config.get("dangerous_mode", False))
+
+
+def set_dangerous_mode(enabled: bool) -> None:
+    config = get_config()
+    config["dangerous_mode"] = bool(enabled)
+    _write_toml(CONFIG_FILE, config)

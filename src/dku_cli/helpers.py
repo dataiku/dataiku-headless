@@ -33,10 +33,17 @@ def resolve_project(project: str | None) -> str:
     )
 
 
+_CLIENT_OPTS = ("url", "api_key", "profile")
+
+
 def get_client_from_ctx(ctx: typer.Context) -> dataikuapi.DSSClient:
-    """Extract global opts from ctx.obj and return authenticated DSSClient."""
+    """Extract global opts from ctx.obj and return authenticated DSSClient.
+
+    Filters to the keys `get_client()` accepts so non-auth globals
+    (e.g. `dangerous`) in ctx.obj don't crash the client constructor.
+    """
     opts = ctx.obj or {}
-    return get_client(**opts)
+    return get_client(**{k: opts[k] for k in _CLIENT_OPTS if k in opts})
 
 
 def resolve_agent(project, agent_ref: str):

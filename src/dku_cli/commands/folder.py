@@ -155,12 +155,16 @@ def delete(
         folder_name = folder.get_settings().get_raw().get("name", folder_ref)
         folder_id = folder.id if hasattr(folder, "id") else folder_ref
 
-        if not yes:
-            confirm = typer.confirm(
-                f"Delete managed folder '{folder_name}' ({folder_id}) from {project_key}?"
-            )
-            if not confirm:
-                raise typer.Abort()
+        from dku_cli.safety import Tier, guard
+
+        guard(
+            ctx,
+            tier=Tier.DELETE,
+            action="folder.delete",
+            subject=f"managed folder '{folder_name}' ({folder_id}) in {project_key}",
+            yes=yes,
+            prompt=f"Delete managed folder '{folder_name}' ({folder_id}) from {project_key}? (File contents on underlying storage are preserved.)",
+        )
 
         folder.delete()
         success(
@@ -181,18 +185,31 @@ def delete_file(
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     path: str = typer.Argument(help="Path of file to delete within the folder"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a file from a managed folder.
 
     No error is raised if the file doesn't exist (idempotent).
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="folder.delete_file",
+        subject=f"file '{path}' in folder '{folder_ref}' ({project_key})",
+        yes=yes,
+        prompt=f"Delete file '{path}' from folder '{folder_ref}' in {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
         folder.delete_file(path)
         success(f"Deleted {path} from folder {folder_ref}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -572,12 +589,23 @@ def delete_files(
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     paths: list[str] = typer.Argument(help="Paths of files to delete"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete multiple files from a managed folder.
 
     Pass one or more file paths as arguments.
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="folder.delete_files",
+        subject=f"{len(paths)} file(s) in folder '{folder_ref}' ({project_key})",
+        yes=yes,
+        prompt=f"Delete {len(paths)} file(s) from folder '{folder_ref}' in {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -585,6 +613,8 @@ def delete_files(
         for path in paths:
             folder.delete_file(path)
         success(f"Deleted {len(paths)} file(s) from folder {folder_ref}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

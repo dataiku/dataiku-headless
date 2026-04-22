@@ -703,20 +703,25 @@ def delete(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Delete an ML task."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="ml.delete",
+        subject=f"ML task '{mltask_id}' (analysis '{analysis_id}') in {project_key}",
+        yes=yes,
+        prompt=f"Delete ML task '{mltask_id}' in analysis '{analysis_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
-        if not yes:
-            typer.confirm(
-                f"Delete ML task {mltask_id} (analysis {analysis_id}) in {project_key}?",
-                abort=True,
-            )
         mltask.delete()
         success(f"Deleted ML task {mltask_id}")
     except Exception as e:

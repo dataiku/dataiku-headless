@@ -94,13 +94,26 @@ def get(
 def delete(
     ctx: typer.Context,
     login: str = typer.Argument(help="User login"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a DSS user."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="user.delete",
+        subject=f"user '{login}'",
+        yes=yes,
+        prompt=f"Delete DSS user '{login}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         user = client.get_user(login)
         user.delete()
         success(f"Deleted user '{login}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

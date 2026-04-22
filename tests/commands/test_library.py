@@ -131,7 +131,15 @@ def test_library_write_missing_file(patch_client):
 
 def test_library_delete(patch_client):
     result = runner.invoke(
-        app, ["library", "delete", "python/mylib/old.py", "--project", "PROJ1"]
+        app,
+        [
+            "library",
+            "delete",
+            "python/mylib/old.py",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")

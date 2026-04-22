@@ -60,7 +60,9 @@ def test_agent_get_json(patch_client):
 
 
 def test_agent_delete(patch_client):
-    result = runner.invoke(app, ["agent", "delete", "agent1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["agent", "delete", "agent1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_agent("agent1").delete.assert_called_once()
 

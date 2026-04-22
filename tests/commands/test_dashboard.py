@@ -115,7 +115,7 @@ def test_dashboard_create_already_exists_fails(patch_client):
 
 def test_dashboard_delete(patch_client):
     result = runner.invoke(
-        app, ["dashboard", "delete", "dashboard1", "--project", "PROJ1"]
+        app, ["dashboard", "delete", "dashboard1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     assert "Deleted dashboard" in result.output

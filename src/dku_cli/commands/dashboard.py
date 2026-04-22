@@ -133,15 +133,28 @@ def delete(
     ctx: typer.Context,
     dashboard_id: str = typer.Argument(help="Dashboard ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a dashboard."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="dashboard.delete",
+        subject=f"dashboard '{dashboard_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete dashboard '{dashboard_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         dashboard = proj.get_dashboard(dashboard_id)
         dashboard.delete()
         success(f"Deleted dashboard '{dashboard_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

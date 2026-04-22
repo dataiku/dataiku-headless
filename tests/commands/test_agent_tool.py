@@ -69,7 +69,9 @@ def test_agent_tool_run_no_input(patch_client):
 
 
 def test_agent_tool_delete(patch_client):
-    result = runner.invoke(app, ["agent-tool", "delete", "tool1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["agent-tool", "delete", "tool1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_agent_tool(
         "tool1"

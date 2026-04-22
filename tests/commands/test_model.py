@@ -122,7 +122,16 @@ def test_model_metrics_no_active_version(patch_client):
 def test_model_delete_version(patch_client):
     result = runner.invoke(
         app,
-        ["model", "delete-version", "model1", "--version", "v1", "--project", "PROJ1"],
+        [
+            "model",
+            "delete-version",
+            "model1",
+            "--version",
+            "v1",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     assert "Deleted 1 version(s)" in result.output
@@ -144,6 +153,7 @@ def test_model_delete_version_multiple(patch_client):
             "v2",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
@@ -157,7 +167,9 @@ def test_model_delete_version_multiple(patch_client):
 
 
 def test_model_delete(patch_client):
-    result = runner.invoke(app, ["model", "delete", "model1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["model", "delete", "model1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted saved model" in result.output
     patch_client.get_project("PROJ1").get_saved_model(

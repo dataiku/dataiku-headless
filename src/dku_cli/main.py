@@ -157,6 +157,12 @@ def main(
     errors: str = typer.Option(
         "text", "--errors", help="Error output format (text or json)"
     ),
+    dangerous: Optional[bool] = typer.Option(
+        None,
+        "--dangerous",
+        envvar="DKU_DANGEROUS",
+        help="Disable safety guards for destructive commands (tiers 2–3). Prints a warning banner.",
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -174,6 +180,8 @@ def main(
         ctx.obj["api_key"] = api_key
     if profile:
         ctx.obj["profile"] = profile
+    if dangerous:
+        ctx.obj["dangerous"] = True
     if quiet:
         from dku_cli.output import set_quiet
 

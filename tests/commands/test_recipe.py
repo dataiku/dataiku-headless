@@ -823,21 +823,9 @@ def test_recipe_status_env_project(patch_client, monkeypatch):
     assert result.exit_code == 0
 
 
-def test_recipe_delete_prompts_without_yes(patch_client):
-    result = runner.invoke(
-        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="y\n"
-    )
-    assert result.exit_code == 0
-    assert "Delete recipe 'recipe1' from PROJ1?" in result.output
-    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
-    recipe.delete.assert_called_once()
-
-
-def test_recipe_delete_aborts_on_no(patch_client):
-    result = runner.invoke(
-        app, ["recipe", "delete", "recipe1", "--project", "PROJ1"], input="n\n"
-    )
-    assert result.exit_code != 0
+def test_recipe_delete_blocks_without_yes(patch_client):
+    result = runner.invoke(app, ["recipe", "delete", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 77
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     recipe.delete.assert_not_called()
 
@@ -3859,6 +3847,7 @@ def test_recipe_remove_step_single(patch_client):
             "1",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
@@ -3888,6 +3877,7 @@ def test_recipe_remove_step_multiple(patch_client):
             "3",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
@@ -3913,6 +3903,7 @@ def test_recipe_remove_step_out_of_range(patch_client):
             "5",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code != 0

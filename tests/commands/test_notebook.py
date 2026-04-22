@@ -81,7 +81,7 @@ def test_notebook_create(patch_client):
 
 def test_notebook_delete(patch_client):
     result = runner.invoke(
-        app, ["notebook", "delete", "my_notebook", "--project", "PROJ1"]
+        app, ["notebook", "delete", "my_notebook", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     assert "Deleted" in result.output
@@ -132,7 +132,15 @@ def test_notebook_stop_with_session(patch_client):
 
 def test_notebook_clear_outputs(patch_client):
     result = runner.invoke(
-        app, ["notebook", "clear-outputs", "my_notebook", "--project", "PROJ1"]
+        app,
+        [
+            "notebook",
+            "clear-outputs",
+            "my_notebook",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     assert "Cleared" in result.output

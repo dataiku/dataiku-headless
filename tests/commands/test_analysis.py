@@ -50,7 +50,9 @@ def test_analysis_get_table(patch_client):
 
 
 def test_analysis_delete(patch_client):
-    result = runner.invoke(app, ["analysis", "delete", "a1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["analysis", "delete", "a1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted analysis" in result.output
 

@@ -183,6 +183,7 @@ def test_remove_agent(patch_client):
             "PROJ1:agent:a1",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
@@ -212,6 +213,7 @@ def test_remove_agent_not_found(patch_client):
             "PROJ1:agent:nonexistent",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code != 0
