@@ -159,6 +159,9 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 | Styling | `dataiku-internal-branding` skill |
 | Geospatial | `references/geospatial.md` |
 | Verification & Cost | `references/verification.md` |
+| Govern (runtime: artifacts, signoffs, admin) | `references/govern.md` |
+| Govern Blueprint Designer (authoring: versions, fields, workflow, hooks, views) | `references/govern-blueprint-designer.md` |
+| Govern Custom Pages | `references/govern-custom-pages.md` |
 
 ---
 

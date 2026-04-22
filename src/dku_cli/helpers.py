@@ -127,6 +127,28 @@ def resolve_knowledge_bank(project, kb_ref: str):
     )
 
 
+def get_govern_client_from_ctx(ctx: typer.Context):
+    """Get GovernClient via DSS's internal Govern integration settings.
+
+    Uses DSSClient.get_govern_client() which requires admin rights.
+    Exits with a prescriptive error if Govern is not configured.
+    """
+    from dku_cli.errors import exit_with_error
+
+    client = get_client_from_ctx(ctx)
+    govern_client = client.get_govern_client()
+    if govern_client is None:
+        exit_with_error(
+            "Govern integration is not enabled on this DSS instance.",
+            code="govern_not_configured",
+            details=[
+                "Ensure Govern is enabled in DSS Administration > Settings > Govern.",
+                "The API key must have admin rights on the DSS instance.",
+            ],
+        )
+    return govern_client
+
+
 def resolve_semantic_model(project, sm_ref: str):
     """Resolve a semantic model by ID or name.
 
