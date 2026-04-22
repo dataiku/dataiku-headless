@@ -2,6 +2,59 @@
 
 Copy-paste-ready templates for common multi-step workflows. All examples use `&&`-chaining in a single Bash tool call.
 
+## CSV Upload: fix the STRING-typed schema
+
+`dataset upload` on a CSV auto-detects format but leaves every column typed as
+`string`. Any downstream numeric/date recipe (ML, Prepare DateParser, filter
+on numeric range) will fail or silently coerce. Apply a typed schema BEFORE
+wiring recipes:
+
+```bash
+dku dataset upload raw data.csv -P PROJ && \
+dku dataset set-schema raw -d @schema.json -P PROJ && \
+dku dataset head raw -P PROJ -n 5   # verify typed values
+```
+
+Generate a schema stub with `dku dataset detect DS -P PROJ -o json` and edit
+types as needed.
+
+## JSON piping: don't `2>&1`
+
+`dku` writes status lines like `◆ Deployed to flow. Saved model: ...` to
+**stderr**; JSON payloads go to stdout. Piping `2>&1` into `jq` mixes them and
+produces a parse error. Instead:
+
+```bash
+# CORRECT — stderr passes through to the terminal, jq reads clean JSON
+dku ml deploy MODEL_ID --name my_model -P PROJ -o json | jq .saved_model_id
+
+# WRONG — 2>&1 corrupts jq's input
+dku ml deploy MODEL_ID --name my_model -P PROJ -o json 2>&1 | jq .   # parse error
+```
+
+## ML training: audit `settings` for label leakage
+
+After `dku ml create-prediction`, the auto-guesser sets feature roles but does
+not detect label leakage (e.g. a `true_label` column kept as INPUT). Silent
+AUC≈1.0 models are the worst kind of failure. Audit and reject leaky columns
+BEFORE training:
+
+```bash
+# 1. Create the task
+dku ml create-prediction customer_features churn -P PROJ
+# → returns {analysis_id, mltask_id}
+
+# 2. Audit which columns are INPUT
+dku ml settings ANALYSIS MLTASK -P PROJ | jq '.preprocessing.per_feature | to_entries | map({col: .key, role: .value.role})'
+
+# 3. Reject anything that leaks the target
+dku ml set-feature ANALYSIS MLTASK true_label --role REJECT -P PROJ
+dku ml set-feature ANALYSIS MLTASK event_after_churn --role REJECT -P PROJ
+
+# 4. Train
+dku ml train ANALYSIS MLTASK -P PROJ --wait
+```
+
 ## Multi-Dataset Project (e-commerce example)
 
 ```bash
@@ -294,6 +347,26 @@ dku project list --profile prod
 # List profiles
 dku auth list
 ```
+
+### After `dataset build` — detect orphaned recipes
+
+A `dku dataset build` can report success while doing nothing when a recipe
+input is silently ignored (e.g. a folder name written as a dataset ref). The
+job's source graph is empty, the job exits 0, and the output dataset is
+unchanged — there's no surface error.
+
+```bash
+# Detect orphaned recipes in the job log
+dku job log JOB_ID -P PROJ | grep -E "Failed to add recipe|Job has the following sources: \{\}" || true
+```
+
+If either pattern appears, a recipe was silently dropped. Check its inputs:
+
+```bash
+dku recipe get-settings SUSPECT_RECIPE -P PROJ -o json | jq '.inputs'
+```
+
+Fix folder refs with `dku recipe add-input RECIPE FOLDER_ID --type MANAGED_FOLDER`.
 
 ## Task-Specific Verification Blocks
 

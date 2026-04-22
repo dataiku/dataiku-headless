@@ -23,7 +23,7 @@ Processors that **DO NOT** work with spaces (they use GREL variable references):
 
 ## Processor Decision Table
 
-Before writing a GREL formula, check this table. All 81 processors below are verified working on stock DSS (no plugins).
+Before writing a GREL formula, check this table. The processors below are stock DSS unless flagged otherwise (`FoldColumnsByName` is a plugin — see its section).
 
 | Need to... | Processor | CLI |
 |------------|-----------|-----|
@@ -57,9 +57,10 @@ Before writing a GREL formula, check this table. All 81 processors below are ver
 | Parse date strings | `DateParser` | `add-step --type DateParser` |
 | Extract year/month/day | `DateComponentsExtractor` | `add-step --type DateComponentsExtractor` |
 | Compute date difference | `DateDifference` | `add-step --type DateDifference` |
-| Format dates | `DateFormatter` | `add-step --type DateFormatter` |
+| Timestamp → date-only | `DateParser` (outType: dateonly) | `add-step --type DateParser` |
+| Format dates (custom pattern) | `DateFormatter` | `add-step --type DateFormatter` |
+| Truncate dates to unit | `DateTruncate` | `add-step --type DateTruncate` |
 | Increment dates | `DateIncrement` | `add-step --type DateIncrement` |
-| Truncate dates | `DateTruncate` | `add-step --type DateTruncate` |
 | Parse UNIX timestamps | `UNIXTimestampParser` | `add-step --type UNIXTimestampParser` |
 | Detect holidays | `HolidaysComputer` | `add-step --type HolidaysComputer` |
 | Bin/discretize numbers | `BinnerProcessor` | `add-step --type BinnerProcessor` |
@@ -219,17 +220,20 @@ Each entry: type ID, when to use, key params, canonical JSON for `add-step --par
 
 ### StringTransformer
 
-**When:** Uppercase, lowercase, or trim text. Prefer over GREL `upper()`, `lower()`, `trim()`.
+**When:** Uppercase, lowercase, trim, normalize, or truncate text. Prefer over GREL `toUppercase()`, `toLowercase()`, `trim()`.
 
 | Param | Required | Description |
 |-------|----------|-------------|
-| `mode` | Yes | `UPPERCASE`, `LOWERCASE`, `TITLECASE`, `TRIM`, `NORMALIZE` |
+| `mode` | Yes | `TO_UPPER`, `TO_LOWER`, `TRIM`, `NORMALIZE`, `TRUNCATE` |
 | `appliesTo` | Yes | Scope (see shared params) |
 | `columns` | Yes | `["col_name"]` |
+| `truncate_limit` | Cond | Integer max length (required when `mode: TRUNCATE`) |
 
 ```json
-{"mode": "UPPERCASE", "appliesTo": "SINGLE_COLUMN", "columns": ["city"]}
+{"mode": "TO_UPPER", "appliesTo": "SINGLE_COLUMN", "columns": ["city"]}
 ```
+
+**Note on mode names:** use `TO_UPPER`/`TO_LOWER`, NOT `UPPERCASE`/`LOWERCASE`. Wrong values produce a runtime NullPointerException (`this.parameter.mode is null`) at build time, not at step-add time. DSS has no `TITLECASE` mode — for title case, use GREL `toTitlecase(col)`.
 
 ---
 
@@ -312,7 +316,10 @@ With `limitOutput`:
 
 Each branch has a `filter` (visual condition) and `actions` (output assignments):
 - **Filter:** `{"uiData": {"mode": "&&", "conditions": [...]}, "distinct": true, "enabled": true}`
-- **Condition:** `{"input": "col_name", "col": "col_name", "operator": "...", "string": "", "num": 0.0, "num2": 0.0}`
+- **Condition:** `{"input": "col_name", "col": "", "operator": "...", "string": "", "num": 0.0, "num2": 0.0}`
+  - `input` — column being tested (left-hand side)
+  - `col` — other-column name for `== [column]` operator (right-hand side). **Use `col`, not `string`** — the string field holds literal values, not column refs.
+  - `string` / `num` / `num2` — literal value(s) for the operator
 - **Action:** `{"outputColumnName": "result", "column": "", "formula": "", "value": "high", "operator": "ASSIGN_VALUE"}`
 
 #### Condition operators
@@ -331,13 +338,15 @@ Each branch has a `filter` (visual condition) and `actions` (output assignments)
 | | `<  [number]` | `num` | 2 spaces after `<` |
 | | `>= [number]` | `num` | 1 space after `>=` |
 | | `<= [number]` | `num` | 1 space after `<=` |
-| Column compare | `== [column]` | `string` (other column name) | |
+| Column compare | `== [column]` | `col` (other column name) | Use `col`, NOT `string` |
 | Boolean | `true` | — | |
 | | `false` | — | |
 
-**Broken via API** (produce silent `False` — DSS bug): `regex`, `in [string]`, `not in [string]`, date operators, geo operators. Use GREL alternatives:
-- Regex: `add-formula --expr 'if(length(match(col, "(pattern)")) > 0, "YES", "NO")'`
+**Broken via API** (produce silent `False` — DSS bug, verified on stock DSS): `regex`, `in [string]`, `not in [string]`. Date and geo operators also known to fail. Verified-working operators in the table above. Use GREL alternatives for broken ones:
+- Regex: `add-formula --expr 'if(length(match(col, /pattern/)) > 0, "YES", "NO")'` — note `/pattern/`, not `"pattern"`
 - Is any of: `add-formula --expr 'switch(col, "a", "MATCH", "b", "MATCH", "NO_MATCH")'`
+
+The same `uiData.conditions[]` schema is shared with filter/join/split recipes (see `visual-conditions.md`). The broken-operator bug is specific to VisualIfRule within Prepare; other recipe types may handle these operators differently — verify before relying on them via API.
 
 #### Action operators
 
@@ -397,7 +406,7 @@ For `FLAG` action, add `"flagColumn": "col_name"` to create a boolean flag colum
 
 **Related Flag processors** (same pattern, different condition types):
 - `FlagOnBadType` — flag by column type: `{"appliesTo": "SINGLE_COLUMN", "columns": ["amount"], "type": "Numeric", "action": "FLAG", "flagColumn": "is_valid", "considerEmptyAsInvalid": true, "booleanMode": "AND"}`
-- `FlagOnCustomFormula` — flag by formula: `{"expression": "val(\"amount\") > 100", "action": "FLAG", "flagColumn": "high_amount"}`
+- `FlagOnCustomFormula` — flag by formula: `{"expression": "val(\"amount\") > 100", "action": "FLAG", "flagColumn": "high_amount"}` (quoted column name required for `val`/`numval`/`strval`)
 - `FlagOnDate` — flag by date range: `{"appliesTo": "SINGLE_COLUMN", "columns": ["date"], "filterType": "RANGE", "min": "2024-01-01T00:00:00.000", "max": "2024-12-31T00:00:00.000", "action": "FLAG", "flagColumn": "in_2024", "timezone_id": "UTC", "booleanMode": "AND", "includeEmptyValues": false}`
 - `FlagOnNumericalRange` — flag by numeric range: `{"appliesTo": "SINGLE_COLUMN", "columns": ["amount"], "min": 100.0, "max": 500.0, "action": "FLAG", "flagColumn": "in_range", "booleanMode": "AND", "includeEmptyValues": false}`
 
@@ -478,20 +487,20 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 
 ### DateParser
 
-**When:** Parse date strings to ISO 8601. Prefer over GREL `toDate()`.
+**When:** Parse date strings to ISO 8601. Also used for timestamp→dateonly conversion (the only working approach on DSS 14.5).
 
 | Param | Required | Description |
 |-------|----------|-------------|
 | `appliesTo` | Yes | `SINGLE_COLUMN` |
 | `columns` | Yes | `["date_col"]` |
-| `formats` | Yes | Java date patterns: `["yyyy-MM-dd", "MM/dd/yyyy"]` |
+| `formats` | Yes | Java date patterns: `["yyyy-MM-dd", "MM/dd/yyyy"]`. For ISO 8601 with timezone, use `Z`/`z` NOT `XXX` |
 | `lang` | Yes | `"auto"` or locale code (`en_US`, `fr_FR`) |
 | `timezone_id` | Yes | `"UTC"`, IANA timezone, etc. |
-| `outCol` | No | Output column (omit/empty = parse in-place) |
+| `outCol` | **Yes** | Output column name. **CRITICAL: omitting outCol (in-place) silently produces all nulls** |
 | `outType` | Yes | `{"name":"out","type":"date"}`, `"dateonly"`, or `"datetimenotz"` |
 
 ```json
-{"appliesTo": "SINGLE_COLUMN", "columns": ["signup_date"], "formats": ["yyyy-MM-dd"], "lang": "auto", "outType": {"name": "out", "type": "date"}, "timezone_id": "UTC"}
+{"appliesTo": "SINGLE_COLUMN", "columns": ["signup_date"], "formats": ["yyyy-MM-dd"], "lang": "auto", "outCol": "signup_parsed", "outType": {"name": "out", "type": "date"}, "timezone_id": "UTC"}
 ```
 
 ---
@@ -537,6 +546,86 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 
 ---
 
+### DateFormatter
+
+**When:** Format an ISO-8601 date column into a custom string format (e.g. `MMM yyyy`, `yyyy-MM-dd`, `EEEE d MMMM`). Input must be a parsed date column (type `date`, `datetimenotz`, or `dateonly`) — run `DateParser` first if the source is a string.
+
+**⚠ Param naming trap:** DSS expects `inCol`/`outCol`. Agents often guess `column`/`outputColumn` from older docs — DSS rejects with a misleading `Empty column name` error. The `dku recipe add-step` CLI catches this and exits early.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `inCol` | Yes | Input column name (must be a parsed date/datetime column) |
+| `outCol` | No | Output column name (omit or empty = in-place) |
+| `format` | Yes | Java `SimpleDateFormat` pattern (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `EEEE`, `MMM`, etc.) |
+| `lang` | No | Locale code (`en_US`, `fr_FR`, …). Default `auto` |
+| `timezone_id` | No | `"UTC"`, IANA timezone, `"use_preferred_timezone"`, `"extract_from_column"`. Default `"UTC"` |
+| `timezone_src` | Cond | Column name when `timezone_id = "extract_from_column"` |
+
+```json
+{"inCol": "parsed_date", "outCol": "month_label", "format": "MMM yyyy", "lang": "en_US", "timezone_id": "UTC"}
+```
+
+**Output type:** `STRING`. DSS warns that non-ISO-8601 output will be treated as an unparsed date — that's fine if you only need the string representation.
+
+---
+
+### DateTruncate
+
+**When:** Truncate a parsed date to a unit (year / month / day / hour / minute / second). Output keeps the date type (not a string) — good for subsequent grouping or aggregation. Prefer over GREL `trunc()`.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `inCol` | Yes | Input column name (parsed date) |
+| `outCol` | No | Output column name (empty = in-place) |
+| `datePart` | No | `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `SECOND` (UPPERCASE). Default `YEAR` if omitted — **silent trap if you forget it** |
+
+```json
+{"inCol": "parsed_date", "outCol": "month_start", "datePart": "MONTH"}
+```
+
+**Gotcha:** Unknown fields (e.g., `unit`, `truncate`, `precision`) are silently ignored, and `datePart` defaults to `YEAR`. Always spell `datePart` correctly and supply one of the enum values above.
+
+---
+
+### UNIXTimestampParser
+
+**When:** Convert an integer UNIX epoch column (seconds or milliseconds) to an ISO-8601 date column.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `inCol` | Yes | Input column (integer or string epoch) |
+| `outCol` | No | Output column name (empty = in-place) |
+| `milliseconds` | No | `true` = interpret as ms, `false` = interpret as seconds. **Default `false`** (seconds). Note: this is a BOOLEAN, not a string enum — `"unit":"SECONDS"` is ignored |
+
+```json
+{"inCol": "event_ts", "outCol": "event_date", "milliseconds": false}
+```
+
+Output column type is `date` (ISO-8601). Use downstream `DateFormatter` / `DateTruncate` / `DateParser(outType: dateonly)` for further shaping.
+
+---
+
+### Timestamp → date-only (common recipe)
+
+**For timestamp string → date-only column:** Use `DateParser` with `outType: dateonly`. Always provide `outCol` — in-place DateParser **silently produces all nulls**.
+
+```json
+{"appliesTo": "SINGLE_COLUMN", "columns": ["timestamp_col"], "formats": ["yyyy-MM-dd HH:mm:ss"], "lang": "auto", "timezone_id": "UTC", "outCol": "date_only", "outType": {"name": "out", "type": "dateonly"}}
+```
+
+**DateParser format patterns (Java SimpleDateFormat):**
+- `yyyy-MM-dd HH:mm:ss` — standard timestamp
+- `MM/dd/yyyy h:mm a` — US format with AM/PM
+- `yyyy-MM-dd'T'HH:mm:ssZ` — ISO 8601 (use `Z`/`z`, NOT `XXX` — `XXX` causes "Illegal pattern component")
+- `yyyy-MM-dd` — date-only string
+- Works on both string AND already-typed date columns (e.g., `datetimenotz`)
+
+**Timezone gotcha:** DateParser converts to UTC before extracting date. `2024-01-01 23:59:59-05:00` → `2024-01-02` in UTC dateonly. Use `"timezone_id":"use_preferred_timezone"` if you want to preserve the source timezone's date.
+
+**For UNIX epoch → date-only:** `UNIXTimestampParser` → `DateParser(outType: dateonly)` in two steps.
+
+---
+
 ### BinnerProcessor
 
 **When:** Discretize numbers into bins (age groups, price ranges). Prefer over GREL `if` chains.
@@ -559,28 +648,37 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 
 ### MultiColumnFold
 
-**When:** Unpivot wide-to-long. Prefer over `pd.melt()`.
-**CLI shortcut:** `dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ`
-
-> **Compatibility note:** `FoldColumnsByName` is a plugin processor that may not be installed on all DSS instances. If you get `UnavailableTypeException`, fall back to a Python recipe with `pd.melt(id_vars=[...], value_vars=[...], var_name=..., value_name=...)`.
-
-**FoldColumnsByName:**
+**When:** Unpivot wide-to-long. Prefer over `pd.melt()`. Stock DSS — works on every instance.
+**CLI shortcut:** `dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ` (emits this type with `foldRemoveFoldedColumns: true`)
 
 | Param | Required | Description |
 |-------|----------|-------------|
 | `columns` | Yes | Array of column names to fold |
 | `foldNameColumn` | Yes | Output column for original column names |
 | `foldValueColumn` | Yes | Output column for values |
+| `foldRemoveFoldedColumns` | No | `true` to drop the folded source columns (pd.melt semantic); `false`/omit to keep them |
 
 ```json
-{"columns": ["jan", "feb", "mar"], "foldNameColumn": "month", "foldValueColumn": "sales"}
+{"columns": ["jan", "feb", "mar"], "foldNameColumn": "month", "foldValueColumn": "sales", "foldRemoveFoldedColumns": true}
 ```
 
-Also available: `MultiColumnByPrefixFold` — folds columns matching a prefix pattern:
+### MultiColumnByPrefixFold
+
+**When:** Same as `MultiColumnFold`, but the columns to fold are selected by a regex on the column name. Stock DSS.
+**CLI shortcut:** `dku recipe add-fold RECIPE --pattern ".*_2025" --key-column year --value-column value -P PROJ`
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `columnNamePattern` | Yes | Regex matching source column names |
+| `columnNameColumn` | Yes | Output column for original column names |
+| `columnContentColumn` | Yes | Output column for values |
+| `foldRemoveFoldedColumns` | No | `true` to drop matched source columns |
 
 ```json
-{"columnNamePattern": "score_", "keyColumn": "metric", "valueColumn": "value"}
+{"columnNamePattern": "score_.*", "columnNameColumn": "metric", "columnContentColumn": "value", "foldRemoveFoldedColumns": true}
 ```
+
+> **Plugin variants:** `FoldColumnsByName` and `FoldColumnsByPattern` exist as plugin processors with similar semantics but different param names (`keyColumn`/`valueColumn` instead of `foldNameColumn`/`foldValueColumn`). Prefer the stock processors above — the plugin versions fail with `UnavailableTypeException` when the plugin is not installed.
 
 ---
 
@@ -624,11 +722,16 @@ Also available: `MultiColumnByPrefixFold` — folds columns matching a prefix pa
 | Trap | What happens | Fix |
 |------|-------------|-----|
 | `round(x, 2)` | Silent empty output — `round()` takes exactly 1 arg (nearest integer) | `round(x * 100) / 100` for 2 decimals, `round(x * 10) / 10` for 1 decimal |
+| `toString(date, "yyyy-MM-dd")` | **No-op** — format argument silently ignored, returns original ISO date | Use the `DateFormatter` processor (`inCol`/`outCol`/`format`) for custom string formats |
+| `formatDate()` / `toDate()` | **Do not exist in GREL** — "Unknown function" error | Use processors: `DateFormatter` for formatting, `DateParser` or `UNIXTimestampParser` for parsing — never these GREL functions |
+| DateParser without `outCol` | **Silently produces all nulls** — in-place parsing is broken | Always specify `outCol` to write to a new column |
+| Date processor `Empty column name` error | Legacy param names `column`/`outputColumn` instead of `inCol`/`outCol` | `DateFormatter`, `DateTruncate`, `UNIXTimestampParser` all use `inCol`/`outCol`. The `dku recipe add-step` CLI catches this and exits early |
+| `DateTruncate` silently truncates to year | `datePart` param missing or misspelled (e.g. `unit`, `truncate`) — unknown fields are ignored and it defaults to `YEAR` | Always spell `datePart` exactly; valid values are `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND` (UPPERCASE) |
+| `UNIXTimestampParser` dates at `1970-01-21` | Default `milliseconds` is `false`; passing `"unit":"SECONDS"` does nothing because `unit` isn't a valid key | Use boolean `"milliseconds": true` for ms input, `false` (or omit) for seconds |
 | `asDateOnly()` on STRING column | Silently fails in some recipe contexts | Run `DateParser` step first, then use the parsed column in date functions |
 | `log()` | Returns base-10, not natural log | Use `ln()` for natural log |
-| `numval()` / `val()` | Don't work in formula columns | Use direct arithmetic — GREL auto-casts strings to numbers |
+| `numval(col)` / `val(col)` bareword | Silent empty output — accessor needs a quoted column name | Use `numval("col")` / `val("col")` with quotes, OR drop the wrapper and use bareword `col` (arithmetic auto-coerces) |
 | Formula column type | New columns default to STRING | Always run `apply-schema` after adding formula steps |
-| VisualIfRule `regex`/`in [string]` | Silent boolean `False` via API (DSS bug) | Use GREL `match()` for regex, `switch()` for is-any-of |
 
 ---
 
@@ -668,9 +771,11 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 
 | Processor | Type ID | Key Params |
 |-----------|---------|------------|
-| Format date | `DateFormatter` | `column`, `outputColumn`, `format` |
+| Timestamp → date-only | `DateParser` | Use `outType: dateonly` + `outCol` (MUST have outCol — in-place = all nulls) |
+| Format date (custom pattern) | `DateFormatter` | `inCol`, `outCol`, `format` (SimpleDateFormat), `lang`, `timezone_id` — NOT `column`/`outputColumn` |
+| Truncate date | `DateTruncate` | `inCol`, `outCol`, `datePart` (`YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND`) — defaults to `YEAR` if `datePart` missing |
 | Date increment | `DateIncrement` | `column`, `incrementValue`, `incrementUnit` |
-| Unix timestamp | `UNIXTimestampParser` | `column`, `unit` (`SECONDS`/`MILLISECONDS`) |
+| Unix timestamp | `UNIXTimestampParser` | `inCol`, `outCol`, `milliseconds` (BOOLEAN: `true`=ms, `false`=sec). NOT `unit`/`"SECONDS"` |
 | Flag holidays | `HolidaysComputer` | `column`, `calendar_id`, `flagColumn` |
 
 ### Split & Reshape

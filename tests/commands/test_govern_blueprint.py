@@ -1,0 +1,1081 @@
+"""Tests for dku govern-blueprint commands."""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock
+
+from typer.testing import CliRunner
+
+from dku_cli.main import app
+
+runner = CliRunner()
+
+
+def MagicMock_wrapper(raw: dict) -> MagicMock:
+    """Build a MagicMock whose `.get_raw()` returns the given dict."""
+    m = MagicMock()
+    m.get_raw.return_value = raw
+    return m
+
+
+def test_blueprint_list(patch_client):
+    result = runner.invoke(app, ["govern", "blueprint", "list"])
+    assert result.exit_code == 0
+    assert "govern_project" in result.output
+
+
+def test_blueprint_list_json(patch_client):
+    result = runner.invoke(app, ["govern", "blueprint", "list", "-o", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data) == 1
+    assert data[0]["id"] == "bp.system.govern_project"
+
+
+def test_blueprint_get(patch_client):
+    result = runner.invoke(
+        app, ["govern", "blueprint", "get", "bp.system.govern_project"]
+    )
+    assert result.exit_code == 0
+    assert "govern_project" in result.output
+
+
+def test_blueprint_get_json(patch_client):
+    result = runner.invoke(
+        app, ["govern", "blueprint", "get", "bp.system.govern_project", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["id"] == "bp.system.govern_project"
+
+
+def test_blueprint_list_versions(patch_client):
+    result = runner.invoke(
+        app, ["govern", "blueprint", "list-versions", "bp.system.govern_project"]
+    )
+    assert result.exit_code == 0
+    assert "ACTIVE" in result.output or "Default" in result.output
+
+
+def test_blueprint_list_versions_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "list-versions",
+            "bp.system.govern_project",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data) == 1
+    assert data[0]["version_id"] == "bv.system.default"
+
+
+def test_blueprint_get_version(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "get-version",
+            "bp.system.govern_project",
+            "bv.system.default",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "govern_project" in result.output or "Default" in result.output
+
+
+def test_blueprint_get_version_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "get-version",
+            "bp.system.govern_project",
+            "bv.system.default",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["name"] == "Default"
+
+
+def test_blueprint_fields(patch_client):
+    """Test fields command shows field schema."""
+    result = runner.invoke(
+        app, ["govern", "blueprint", "fields", "bp.system.govern_project"]
+    )
+    assert result.exit_code == 0
+    assert "description" in result.output
+    assert "TEXT" in result.output
+    assert "cost_rating" in result.output
+    assert "CATEGORY" in result.output
+
+
+def test_blueprint_fields_json(patch_client):
+    """Test fields command in JSON output."""
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    field_ids = [f["field"] for f in data]
+    assert "description" in field_ids
+    assert "cost_rating" in field_ids
+    # COMPUTE fields should be excluded
+    assert "govern_models" not in field_ids
+
+
+def test_blueprint_fields_shows_list_marker(patch_client):
+    """Test that list fields are marked with * in the LIST column."""
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+    )
+    data = json.loads(result.output)
+    countries = next(f for f in data if f["field"] == "countries")
+    assert countries["list"] == "*"
+    description = next(f for f in data if f["field"] == "description")
+    assert description["list"] == ""
+
+
+def test_blueprint_fields_shows_categories(patch_client):
+    """Test that category values are shown."""
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+    )
+    data = json.loads(result.output)
+    cost = next(f for f in data if f["field"] == "cost_rating")
+    assert "Low" in cost["values"]
+    assert "High" in cost["values"]
+
+
+def test_blueprint_fields_shows_allowed_refs(patch_client):
+    """Test that REFERENCE fields show allowed blueprints."""
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+    )
+    data = json.loads(result.output)
+    bi = next(f for f in data if f["field"] == "business_initiative")
+    assert "bp.system.business_initiative" in bi["values"]
+
+
+# ---------------------------------------------------------------------------
+# Version designer: create-version, set-version-definition, delete-version,
+# version-status, set-version-status
+# ---------------------------------------------------------------------------
+
+
+def test_create_version_forwards_args(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "create-version",
+            "bp.custom.my_bp",
+            "v1",
+            "--name",
+            "Version 1",
+            "--from",
+            "bv.system.default",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created version 'bv.v1'" in result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    admin_bp.create_version.assert_called_once_with(
+        "v1", name="Version 1", origin_version_id="bv.system.default"
+    )
+
+
+def test_create_version_minimal(patch_client):
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "create-version", "bp.custom.my_bp", "v1"],
+    )
+    assert result.exit_code == 0, result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    admin_bp.create_version.assert_called_with("v1", name=None, origin_version_id=None)
+
+
+def test_set_version_definition_saves_with_force(patch_client, tmp_path):
+    payload = {
+        "id": {"blueprintId": "bp.custom.my_bp", "versionId": "bv.system.default"},
+        "name": "Default",
+        "fieldDefinitions": {},
+        "workflowDefinition": {"stepDefinitions": []},
+        "logicalHookList": [],
+        "actions": {},
+        "uiDefinition": {"views": {}, "uiStepDefinitions": {}},
+    }
+    f = tmp_path / "bv.json"
+    f.write_text(json.dumps(payload))
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.system.default",
+            "--definition",
+            f"@{f}",
+            "--force",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "(force)" in result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    defn_mock = admin_bp.get_version.return_value.get_definition.return_value
+    assert defn_mock.definition == payload
+    defn_mock.save.assert_called_once_with(danger_zone_accepted=True)
+
+
+def test_set_version_definition_without_force_rejects_dangerzone(
+    patch_client, tmp_path
+):
+    f = tmp_path / "bv.json"
+    f.write_text('{"id": {"blueprintId": "bp.custom.my_bp", "versionId": "bv.v1"}}')
+    # Simulate backend dangerZone rejection
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    defn_mock = admin_bp.get_version.return_value.get_definition.return_value
+    defn_mock.save.side_effect = Exception(
+        "Blueprint version has existing artifacts and dangerZoneAccepted is false"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--definition",
+            f"@{f}",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Save blocked" in result.output
+    assert "--force" in result.output
+    assert "create a new version" in result.output
+
+
+def test_set_version_definition_rejects_non_object(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--definition",
+            '["not", "an", "object"]',
+        ],
+    )
+    assert result.exit_code != 0
+    assert "JSON object" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Structural lint: _lint_version_definition + set-version-definition warnings
+# ---------------------------------------------------------------------------
+
+
+def _clean_version_payload() -> dict:
+    """A minimally well-formed blueprint version definition (no warnings)."""
+    return {
+        "fieldDefinitions": {
+            "title": {"fieldType": "TEXT", "label": "Title"},
+        },
+        "workflowDefinition": {
+            "stepDefinitions": [{"id": "draft", "name": "Draft"}],
+            "initialStepId": "draft",
+        },
+        "logicalHookList": [],
+        "actions": {},
+        "uiDefinition": {
+            "views": {
+                "main": {
+                    "label": "Overview",
+                    "viewComponent": {
+                        "type": "container",
+                        "layout": {
+                            "type": "sequential",
+                            "viewComponents": [
+                                {"type": "text-field", "fieldId": "title"},
+                            ],
+                        },
+                    },
+                }
+            },
+            "uiStepDefinitions": {"draft": {"viewId": "main"}},
+            "artifactPageViewId": "main",
+        },
+    }
+
+
+def test_lint_version_definition_clean_payload():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    assert _lint_version_definition(_clean_version_payload()) == []
+
+
+def test_lint_version_definition_flags_empty_views():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["views"] = {}
+    payload["uiDefinition"]["artifactPageViewId"] = ""
+    payload["uiDefinition"]["uiStepDefinitions"] = {"draft": {"viewId": ""}}
+
+    warnings = _lint_version_definition(payload)
+    joined = " | ".join(warnings)
+    assert "views is empty" in joined
+    assert "artifactPageViewId is empty" in joined
+    # With views empty, the step-viewId check doesn't fire (there's nothing to
+    # reference) — only the top-level empty-views + empty-page-id warnings.
+
+
+def test_lint_version_definition_flags_dangling_artifact_page_view_id():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["artifactPageViewId"] = "ghost"
+
+    warnings = _lint_version_definition(payload)
+    assert any("ghost" in w and "does not match" in w for w in warnings)
+
+
+def test_lint_version_definition_flags_empty_step_view_id():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["uiStepDefinitions"]["draft"] = {"viewId": ""}
+
+    warnings = _lint_version_definition(payload)
+    assert any("Step 'draft'" in w and "has no viewId" in w for w in warnings)
+
+
+def test_lint_version_definition_flags_dangling_step_view_id():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["uiStepDefinitions"]["draft"] = {"viewId": "ghost"}
+
+    warnings = _lint_version_definition(payload)
+    assert any(
+        "Step 'draft'" in w and "ghost" in w and "does not match" in w for w in warnings
+    )
+
+
+def test_lint_version_definition_flags_unreferenced_field():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    payload = _clean_version_payload()
+    payload["fieldDefinitions"]["orphan"] = {
+        "fieldType": "TEXT",
+        "label": "Orphan",
+    }
+
+    warnings = _lint_version_definition(payload)
+    assert any("Field 'orphan'" in w and "not referenced" in w for w in warnings)
+    # 'title' is still referenced and should not be flagged
+    assert not any("Field 'title'" in w for w in warnings)
+
+
+def test_lint_version_definition_handles_non_dict_input():
+    from dku_cli.commands.govern_blueprint import _lint_version_definition
+
+    assert _lint_version_definition([]) == []  # type: ignore[arg-type]
+    assert _lint_version_definition("nope") == []  # type: ignore[arg-type]
+
+
+def test_set_version_definition_warns_on_empty_views(patch_client, tmp_path):
+    """set-version-definition must surface structural warnings on push."""
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["views"] = {}
+    payload["uiDefinition"]["artifactPageViewId"] = ""
+    payload["uiDefinition"]["uiStepDefinitions"] = {"draft": {"viewId": ""}}
+
+    f = tmp_path / "bv.json"
+    f.write_text(json.dumps(payload))
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--definition",
+            f"@{f}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Save still succeeds
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    defn_mock = designer.get_blueprint.return_value.get_version.return_value.get_definition.return_value
+    defn_mock.save.assert_called_once_with(danger_zone_accepted=False)
+    # But stderr carries the structural warnings (CliRunner mixes stderr into output)
+    assert "structural issue" in result.output
+    assert "views is empty" in result.output
+    assert "artifactPageViewId is empty" in result.output
+    assert "describe-version" in result.output
+
+
+def test_set_version_definition_no_warning_on_clean_push(patch_client, tmp_path):
+    """A well-formed payload produces no structural-warning banner."""
+    payload = _clean_version_payload()
+    f = tmp_path / "bv.json"
+    f.write_text(json.dumps(payload))
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-definition",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--definition",
+            f"@{f}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Saved definition" in result.output
+    assert "structural issue" not in result.output
+    assert "views is empty" not in result.output
+
+
+def test_delete_version_requires_confirm(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "delete-version",
+            "bp.custom.my_bp",
+            "bv.v1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--confirm" in result.output
+
+
+def test_delete_version_with_confirm(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "delete-version",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "--confirm",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    admin_bp.get_version.return_value.delete.assert_called_once()
+
+
+def test_version_status_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "version-status",
+            "bp.system.govern_project",
+            "bv.system.default",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["status"] == "ACTIVE"
+
+
+def test_set_version_status_active(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-status",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "ACTIVE",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "ACTIVE" in result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    trace_mock = admin_bp.get_version.return_value.get_trace.return_value
+    trace_mock.set_status.assert_called_once_with("ACTIVE")
+
+
+def test_set_version_status_rejects_unknown(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-status",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "PUBLISHED",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid status" in result.output
+
+
+def test_set_version_status_case_insensitive(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-version-status",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "draft",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    trace_mock = admin_bp.get_version.return_value.get_trace.return_value
+    trace_mock.set_status.assert_called_with("DRAFT")
+
+
+# ---------------------------------------------------------------------------
+# Signoff configuration designer
+# ---------------------------------------------------------------------------
+
+
+def test_list_signoff_configs(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "list-signoff-configs",
+            "bp.system.govern_project",
+            "bv.system.default",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "review" in result.output
+    assert "Review gate" in result.output
+
+
+def test_list_signoff_configs_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "list-signoff-configs",
+            "bp.system.govern_project",
+            "bv.system.default",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data[0]["step"] == "review"
+    assert data[0]["mandatory"] == "*"
+    assert data[0]["feedback_groups"] == "1"
+
+
+def test_get_signoff_config(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "get-signoff-config",
+            "bp.system.govern_project",
+            "bv.system.default",
+            "review",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["title"] == "Review gate"
+    assert data["id"]["stepId"] == "review"
+
+
+def test_create_signoff_config_strips_id(patch_client):
+    body = {
+        "id": {"should": "be stripped"},
+        "title": "New signoff",
+        "mandatory": True,
+        "feedbackUsersGroups": [],
+        "approvers": [],
+    }
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "create-signoff-config",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "review",
+            "--definition",
+            json.dumps(body),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    version = admin_bp.get_version.return_value
+    version.create_signoff_configuration.assert_called_once()
+    call_args = version.create_signoff_configuration.call_args
+    assert call_args[0][0] == "review"
+    assert "id" not in call_args[0][1]
+    assert call_args[0][1]["title"] == "New signoff"
+
+
+def test_set_signoff_config(patch_client, tmp_path):
+    body = {
+        "title": "Updated",
+        "mandatory": False,
+        "feedbackUsersGroups": [],
+        "approvers": [],
+    }
+    f = tmp_path / "so.json"
+    f.write_text(json.dumps(body))
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "set-signoff-config",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "review",
+            "--definition",
+            f"@{f}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    version = admin_bp.get_version.return_value
+    signoff = version.get_signoff_configuration.return_value
+    defn = signoff.get_definition.return_value
+    assert defn.definition == body
+    defn.save.assert_called_once()
+
+
+def test_delete_signoff_config_requires_confirm(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "delete-signoff-config",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "review",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--confirm" in result.output
+
+
+def test_delete_signoff_config_with_confirm(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "delete-signoff-config",
+            "bp.custom.my_bp",
+            "bv.v1",
+            "review",
+            "--confirm",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    admin_bp = designer.get_blueprint.return_value
+    version = admin_bp.get_version.return_value
+    version.get_signoff_configuration.return_value.delete.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Import / Export version
+# ---------------------------------------------------------------------------
+
+
+def test_export_version_wraps_definition_trace_and_signoffs(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "export-version",
+            "bp.system.govern_project",
+            "bv.system.default",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    envelope = json.loads(result.output)
+    assert "blueprintVersion" in envelope
+    assert envelope["blueprintVersion"]["name"] == "Default"
+    # Origin version ID is pulled from the trace — None in the default fixture
+    assert "originVersionId" in envelope
+    # Signoffs list is populated from list_signoff_configurations()
+    assert isinstance(envelope["signoffsConfigurations"], list)
+    assert len(envelope["signoffsConfigurations"]) == 1
+    assert envelope["signoffsConfigurations"][0]["title"] == "Review gate"
+
+
+def test_export_version_strips_non_role_users_by_default(patch_client):
+    """Non-role reviewers are dropped on import — export filters them too by default."""
+    gov = patch_client.get_govern_client.return_value
+    designer = gov.get_blueprint_designer.return_value
+    admin_bp = designer.get_blueprint.return_value
+    version = admin_bp.get_version.return_value
+    # Inject a signoff config with a mix of user/group/role reviewers
+    mixed_item = MagicMock_wrapper(
+        {
+            "id": {
+                "blueprintVersionId": {
+                    "blueprintId": "bp.x",
+                    "versionId": "bv.v1",
+                },
+                "stepId": "review",
+            },
+            "title": "Mixed",
+            "feedbackUsersGroups": [
+                {
+                    "id": "g1",
+                    "title": "Group 1",
+                    "users": [
+                        {"usersContainer": {"type": "user", "login": "alice"}},
+                        {"usersContainer": {"type": "role", "roleId": "ro.reviewer"}},
+                    ],
+                }
+            ],
+            "approvers": [
+                {"usersContainer": {"type": "group", "groupName": "approvers"}},
+                {"usersContainer": {"type": "role", "roleId": "ro.final"}},
+            ],
+        }
+    )
+    version.list_signoff_configurations.return_value = [mixed_item]
+
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "export-version", "bp.x", "bv.v1", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    envelope = json.loads(result.output)
+    s = envelope["signoffsConfigurations"][0]
+    # Only role users survive the default filter
+    assert len(s["feedbackUsersGroups"][0]["users"]) == 1
+    assert s["feedbackUsersGroups"][0]["users"][0]["usersContainer"]["type"] == "role"
+    assert len(s["approvers"]) == 1
+    assert s["approvers"][0]["usersContainer"]["type"] == "role"
+
+
+def test_export_version_keep_non_role_users_flag(patch_client):
+    """--keep-non-role-users preserves all reviewer types verbatim."""
+    gov = patch_client.get_govern_client.return_value
+    designer = gov.get_blueprint_designer.return_value
+    admin_bp = designer.get_blueprint.return_value
+    version = admin_bp.get_version.return_value
+    mixed_item = MagicMock_wrapper(
+        {
+            "id": {
+                "blueprintVersionId": {
+                    "blueprintId": "bp.x",
+                    "versionId": "bv.v1",
+                },
+                "stepId": "review",
+            },
+            "title": "Mixed",
+            "feedbackUsersGroups": [
+                {
+                    "id": "g1",
+                    "title": "Group 1",
+                    "users": [
+                        {"usersContainer": {"type": "user", "login": "alice"}},
+                    ],
+                }
+            ],
+            "approvers": [],
+        }
+    )
+    version.list_signoff_configurations.return_value = [mixed_item]
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "export-version",
+            "bp.x",
+            "bv.v1",
+            "--keep-non-role-users",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    envelope = json.loads(result.output)
+    s = envelope["signoffsConfigurations"][0]
+    assert len(s["feedbackUsersGroups"][0]["users"]) == 1
+    assert s["feedbackUsersGroups"][0]["users"][0]["usersContainer"]["type"] == "user"
+
+
+def test_import_version_happy_path(patch_client):
+    envelope = {
+        "blueprintVersion": {
+            "id": {"blueprintId": "bp.custom.my_bp", "versionId": "bv.v2"},
+            "name": "Version 2",
+            "fieldDefinitions": {},
+            "workflowDefinition": {"stepDefinitions": []},
+        },
+        "originVersionId": "bv.v1",
+        "signoffsConfigurations": [],
+    }
+    # Stub the private _perform_json on the govern client
+    gov = patch_client.get_govern_client.return_value
+    gov._perform_json.return_value = {
+        "blueprintVersion": {
+            "id": {"blueprintId": "bp.custom.my_bp", "versionId": "bv.v2"}
+        }
+    }
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.custom.my_bp",
+            "--definition",
+            json.dumps(envelope),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Imported version 'bv.v2'" in result.output
+    call = gov._perform_json.call_args
+    assert call[0][0] == "POST"
+    assert call[0][1] == "/admin/blueprint/bp.custom.my_bp/versions/import"
+    assert call.kwargs["params"].get("signoffImportRoles") == "ALL"
+    assert (
+        call.kwargs["body"]["blueprintVersion"]["id"]["blueprintId"]
+        == "bp.custom.my_bp"
+    )
+
+
+def test_import_version_rewrites_blueprint_id_in_body(patch_client):
+    """Cross-blueprint import: body's id.blueprintId is rewritten to match URL."""
+    envelope = {
+        "blueprintVersion": {
+            "id": {"blueprintId": "bp.SOURCE", "versionId": "bv.v1"},
+            "name": "x",
+        }
+    }
+    gov = patch_client.get_govern_client.return_value
+    gov._perform_json.return_value = {
+        "blueprintVersion": {"id": {"blueprintId": "bp.TARGET", "versionId": "bv.v1"}}
+    }
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.TARGET",
+            "--definition",
+            json.dumps(envelope),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    call = gov._perform_json.call_args
+    assert call.kwargs["body"]["blueprintVersion"]["id"]["blueprintId"] == "bp.TARGET"
+
+
+def test_import_version_rewrites_signoff_config_ids(patch_client):
+    """Signoff config IDs must be rewritten to match the target blueprint,
+    otherwise the server's performSignoffsConfigurationsImport validation fails
+    (`the blueprint version id specified in the sign-off configuration must
+    match the outer blueprint version id`)."""
+    envelope = {
+        "blueprintVersion": {
+            "id": {"blueprintId": "bp.SOURCE", "versionId": "bv.v1"},
+            "name": "x",
+        },
+        "signoffsConfigurations": [
+            {
+                "id": {
+                    "blueprintVersionId": {
+                        "blueprintId": "bp.SOURCE",
+                        "versionId": "bv.v1",
+                    },
+                    "stepId": "review",
+                },
+                "title": "Review",
+            }
+        ],
+    }
+    gov = patch_client.get_govern_client.return_value
+    gov._perform_json.return_value = {
+        "blueprintVersion": {"id": {"blueprintId": "bp.TARGET", "versionId": "bv.v1"}}
+    }
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.TARGET",
+            "--definition",
+            json.dumps(envelope),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    body = gov._perform_json.call_args.kwargs["body"]
+    signoff = body["signoffsConfigurations"][0]
+    assert signoff["id"]["blueprintVersionId"]["blueprintId"] == "bp.TARGET"
+    assert signoff["id"]["blueprintVersionId"]["versionId"] == "bv.v1"
+    assert signoff["id"]["stepId"] == "review"
+
+
+def test_import_version_forwards_flags(patch_client):
+    envelope = {
+        "blueprintVersion": {"id": {"blueprintId": "bp.x", "versionId": "bv.v1"}}
+    }
+    gov = patch_client.get_govern_client.return_value
+    gov._perform_json.return_value = {
+        "blueprintVersion": {"id": {"blueprintId": "bp.x", "versionId": "bv.v1"}}
+    }
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.x",
+            "--definition",
+            json.dumps(envelope),
+            "--ignore-origin-errors",
+            "--signoff-roles",
+            "EXISTING",
+            "--migration-behavior",
+            "IMPORT_WITHOUT_MIGRATIONS",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    params = gov._perform_json.call_args.kwargs["params"]
+    assert params["ignoreOriginVersionErrors"] == "true"
+    assert params["signoffImportRoles"] == "EXISTING"
+    assert params["migrationPathImportBehavior"] == "IMPORT_WITHOUT_MIGRATIONS"
+
+
+def test_import_version_rejects_missing_blueprintVersion(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.x",
+            "--definition",
+            json.dumps({"originVersionId": "bv.v1"}),
+        ],
+    )
+    assert result.exit_code != 0
+    out = result.output + (result.stderr or "")
+    assert "blueprintVersion" in out
+
+
+def test_import_version_rejects_invalid_signoff_roles(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.x",
+            "--definition",
+            '{"blueprintVersion": {"id": {"blueprintId": "bp.x", "versionId": "bv.v1"}}}',
+            "--signoff-roles",
+            "WHATEVER",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid --signoff-roles" in result.output
+
+
+def test_import_version_rejects_invalid_migration_behavior(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "import-version",
+            "bp.x",
+            "--definition",
+            '{"blueprintVersion": {"id": {"blueprintId": "bp.x", "versionId": "bv.v1"}}}',
+            "--migration-behavior",
+            "BOGUS",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid --migration-behavior" in result.output

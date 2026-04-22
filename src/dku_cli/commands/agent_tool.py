@@ -5,7 +5,12 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    resolve_knowledge_bank,
+    resolve_project,
+)
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 # Known built-in agent tool types in DSS (verified on DSS 14.4+).
@@ -111,7 +116,10 @@ def create(
                         "List knowledge banks with: dku knowledge list -P PROJ",
                     ],
                 )
-            builder.with_knowledge_bank(knowledge_bank)
+            # Resolve name → ID. DSS stores knowledgeBankRef as the KB ID;
+            # passing a name silently breaks the tool at runtime.
+            kb = resolve_knowledge_bank(proj, knowledge_bank)
+            builder.with_knowledge_bank(kb.id)
 
         tool = builder.create()
 

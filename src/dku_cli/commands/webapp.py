@@ -66,6 +66,24 @@ def start(
 
 
 @app.command()
+def restart(
+    ctx: typer.Context,
+    webapp_id: str = typer.Argument(help="Web app ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Restart a running web app backend."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        webapp = proj.get_webapp(webapp_id)
+        webapp.start_or_restart_backend()
+        success(f"Restarted web app '{webapp_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
 def stop(
     ctx: typer.Context,
     webapp_id: str = typer.Argument(help="Web app ID"),

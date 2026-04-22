@@ -2,7 +2,7 @@
 
 > Dataiku-specific patterns for building agent tools, subprocess integrations, and multi-agent plugins. Assumes you already know Python, subprocess, Flask, etc.
 
-**Source codebases:** opencode-agent-tool, dataiku-mcp-gateway, dss-plugin-agent-hub, [`dss-plugin-semantic-models-lab`](https://github.com/dataiku/dss-plugin-semantic-models-lab)
+**Source codebases:** opencode-agent-tool, dataiku-mcp-gateway, dss-plugin-agent-hub, `dss-plugin-semantic-models-lab` (internal Dataiku — not public on GitHub)
 
 ---
 
@@ -188,7 +188,7 @@ def invoke(self, input, trace):
 
 For tools that run multi-step reasoning internally — not just a single request→response. The tool receives a question and orchestrates multiple LLM calls + internal tool executions before returning.
 
-**Source:** [`dss-plugin-semantic-models-lab`](https://github.com/dataiku/dss-plugin-semantic-models-lab) (Dataiku state-of-the-art)
+**Source:** `dss-plugin-semantic-models-lab` (Dataiku internal state-of-the-art — plugin not public; patterns below distilled from its code). For semantic model JSON schema, see `references/semantic-models.md`.
 
 ### Architecture
 

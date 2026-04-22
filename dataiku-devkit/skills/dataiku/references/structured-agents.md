@@ -627,6 +627,22 @@ LLM_REQUEST (parse regulation)
 **Wrong:** Using `dku agent-block connect` to wire PYTHON_CODE blocks — `nextBlock` is ignored by DSS for this type.
 **Fix:** The CLI rejects `connect` for PYTHON_CODE with a prescriptive error. Use `validNextBlocksFromCode` in the block JSON and `yield NextBlock()` from `process()`. Push via `set-graph`. Note: `connect` works correctly for STANDARD_REACT (automatically sets `defaultNextBlock`).
 
+### 12. CORE_LOOP / LLM_REQUEST blocks need explicit llmId
+**Wrong:** CORE_LOOP block without `llmId` — fails at runtime with "Please select a valid LLM on the block".
+**Fix:** Add `"llmId": "openai:conn:gpt-4.1"` to every CORE_LOOP, LLM_REQUEST, and MANDATORY_TOOL_CALL block. The agent-level LLM is NOT inherited by blocks on DSS 14.5+. Discover available LLMs: `dku llm list -P PROJ`.
+
+### 13. Empty values in SET_STATE_ENTRIES crash CEL
+**Wrong:** `"value": ""` — causes "Micro-CEL Evaluation Error: unexpected EOF while parsing".
+**Fix:** Use CEL literals: `"''"` (empty string), `"0"` (number), `"[]"` (empty list). Never leave value empty. The CLI validates this and rejects empty values.
+
+### 14. SAVE_TO_STATE requires outputKey
+**Wrong:** Block with `outputMode: "SAVE_TO_STATE"` but no `outputKey` or `outputStateKey` — LLM output silently lost, downstream blocks see empty state.
+**Fix:** Add `"outputKey": "my_field"` (DSS 14.5+) or `"outputStateKey": "my_field"` (DSS 13.x). The CLI validates this and rejects blocks with SAVE_TO_STATE but no output key.
+
+### 15. Block graphs require STRUCTURED_AGENT type
+**Wrong:** Creating agent as `TOOLS_USING_AGENT` (default) then adding blocks — blocks appear to add (exit 0) but don't persist.
+**Fix:** Always create SVA agents with `--type STRUCTURED_AGENT`: `dku agent create "My SVA" --type STRUCTURED_AGENT -P PROJ`. The CLI warns when adding blocks to non-STRUCTURED_AGENT agents.
+
 ---
 
 ## Scaling Guidance

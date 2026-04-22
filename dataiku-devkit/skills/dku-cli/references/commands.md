@@ -21,6 +21,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [code-env](#code-env) — list, get, create, delete, update
 - [connection](#connection) — list, get, create, delete, test
 - [model](#model) — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata
+- [ml](#ml) — create-prediction, create-clustering, create-timeseries, create-causal, list, status, settings, algorithms, set-algorithm, set-feature, train, models, details, deploy, redeploy, delete
 - [folder](#folder) — list, ls, upload, download, create, delete, delete-file, get, create-dataset, set-metadata
 - [llm](#llm) — list, completion, embeddings
 - [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
@@ -42,11 +43,14 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [knowledge](#knowledge) — list, create, get, set-definition, build, search, delete
 - [semantic-model](#semantic-model) — list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index
 - [agent-hub](#agent-hub) — list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop
+- [app-designer](#app-designer) — get, set-definition, list-tiles, add-tile, remove-tile, set-section, enable, disable
+- [app](#app) — list, get, list-instances, create-instance
 - [bundle](#bundle) — list, export, download, import, activate
 - [api-service](#api-service) — list, create, get, create-package, list-packages
 - [wiki](#wiki) — list, create, get, update, delete
 - [sql](#sql) — query
 - [whoami](#whoami)
+- [govern](#govern) — whoami, info; **artifact** list/get/create/delete/set-field/set-definition; **blueprint** list/get/list-versions/get-version (alias: get-version-definition)/describe-version/fields/create/set-definition/delete; **signoff** create/list/get/update-status/add-feedback/add-approval/delegate-feedback/delegate-approval/list-feedbacks/get-feedback/get-approval; **role** list/get/create/set-definition/delete; **custom-page** list/get/create/set-definition/delete; **user** list/get/create/create-bulk/edit-bulk/delete-bulk/get-own/list-activity; **group** list/get/create/delete; **time-series** create/get/push-values/delete; **file** upload/get/download
 
 ---
 
@@ -57,7 +61,7 @@ Manage DSS authentication profiles. No project needed.
 ```bash
 dku auth login [--profile NAME] [--url URL] [--api-key KEY]
 dku auth logout [--profile NAME] [--all]
-dku auth status
+dku auth status [-o text|json]
 dku auth list
 dku auth switch PROFILE
 ```
@@ -65,6 +69,7 @@ dku auth switch PROFILE
 - `login` without `--api-key` prompts interactively (also prompts for default project)
 - `login` with all flags is non-interactive (CI/CD)
 - `logout --all` removes all profiles
+- `status` shows resolved auth sources, DSS version/node type, and default project accessibility
 - Credentials stored in keyring (macOS Keychain, etc.) with file fallback
 
 ## config
@@ -90,7 +95,7 @@ dku project export PROJECT_KEY [--dest DIR]
 dku project create PROJECT_KEY --name NAME [--description DESC] [--if-not-exists] [-o FORMAT]
 dku project delete PROJECT_KEY --yes [--drop-data]
 dku project duplicate PROJECT_KEY --target-key KEY --target-name NAME [-o FORMAT]
-dku project set-metadata PROJECT_KEY [--name NAME] [--description DESC]
+dku project set-metadata PROJECT_KEY [--name NAME] [--description DESC] [--tags a,b,c]
 dku project variables [-P PROJECT] [-o FORMAT]
 dku project set-variables [-P PROJECT] --set key=value [--set key2=value2]
 dku project set-variables [-P PROJECT] --definition JSON
@@ -181,7 +186,7 @@ dku recipe create-filter NAME -i DS --output-ds OUT --filter-formula EXPR [--act
 dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL] [-P PROJECT]  # Window functions
 dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
 dku recipe create-topn NAME -i DS --output-ds OUT [--sort-col COL] [--n N] [-P PROJECT]  # Top/bottom N rows
-dku recipe create-pivot NAME -i DS --output-ds OUT [--row-key COL] [--column-key COL] [-P PROJECT]  # Pivot (long→wide)
+dku recipe create-pivot NAME -i DS --output-ds OUT [--row-key COL] [--column-key COL] [--value-column COL] [--agg-type SUM|AVG|...] [--value-limit TOP_N|NO_LIMIT|AT_LEAST_N_OCC] [--topn-limit N] [--min-occ-limit N] [-P PROJECT]  # Pivot (long→wide)
 dku recipe create-sampling NAME -i DS --output-ds OUT [--method METHOD] [--size N] [-P PROJECT]     # Random sample
 dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL [-P PROJECT]       # Fold (wide→long)
 ```
@@ -189,7 +194,7 @@ dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL
 - `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`, `--join-key 2:col`. With N inputs the CLI creates N-1 join pairs (main ↔ input 1, main ↔ input 2, …)
 - `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group. DSS adds a per-group `count` column by default — pass `--no-global-count` to suppress it when you want only the explicit aggregates in the output
 - `create-distinct` deduplicates on **all input columns by default** (matching `df.drop_duplicates()` semantics). Use `--on col1 --on col2` to dedup on a subset. Passing no `--on` flag reads the input schema and wires every column as a key
-- `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional
+- `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional. Always emits `payload.pivots[0].valueLimit = "TOP_N"` + `topnLimit = 20` to match the DSS UI — without these, DSS crashes at build time with `Unexpected value limit on modality collection`. Valid `--value-limit` values: `TOP_N` (keep top N by frequency, default), `NO_LIMIT` (keep every distinct column-key value), `AT_LEAST_N_OCC` (keep modalities seen at least `--min-occ-limit N` times). Aggregation is stored as **boolean flags** on each value column (`sum: true`, `avg: true`, ...) — NOT as a `function` string. The CLI writes `{column, type: "double", sum/avg/min/max/count/count_distinct/concat/stddev: bool}` to match the UI. Writing `function: "SUM"` would be silently accepted by the API but produce a recipe that builds with no aggregated columns
 - `create-sampling` takes a sample. `--method`: RANDOM_FIXED_NB (default), RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED. `--size N` or `--ratio 0.1`
 - `add-fold` unpivots columns into rows (wide→long). Use `--columns` for explicit list or `--pattern` for regex match
 - `create-sort --sort-col COL` sets sort columns at creation (repeatable). Use `COL` for ascending or `COL:desc` for descending
@@ -253,9 +258,13 @@ dku recipe add-geodistance RECIPE --from-column COL --to-column COL [--output-co
 | Task | Type | Example `--params` |
 |------|------|-------------------|
 | Uppercase/lowercase | `StringTransformer` | `'{"mode":"UPPERCASE","appliesTo":"SINGLE_COLUMN","columns":["city"]}'` |
-| Parse dates | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outType":{"name":"out","type":"date"}}'` |
+| Parse dates | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["date"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"date_parsed","outType":{"name":"out","type":"date"}}'` (MUST have outCol — in-place = nulls) |
 | Extract year/month | `DateComponentsExtractor` | `'{"column":"date","timezone_id":"UTC","outYearColumn":"year","outMonthColumn":"month"}'` |
 | Date difference | `DateDifference` | `'{"input1":"start","compareTo":"NOW","output":"days_ago","outputUnit":"DAYS","timezone_id":"UTC"}'` |
+| Timestamp → date-only | `DateParser` | `'{"appliesTo":"SINGLE_COLUMN","columns":["ts"],"formats":["yyyy-MM-dd HH:mm:ss"],"lang":"auto","timezone_id":"UTC","outCol":"date_only","outType":{"name":"out","type":"dateonly"}}'` |
+| Format date (custom pattern) | `DateFormatter` | `'{"inCol":"parsed","outCol":"month_label","format":"MMM yyyy","lang":"en_US","timezone_id":"UTC"}'` — `inCol`/`outCol`, NOT `column`/`outputColumn` |
+| Truncate date to unit | `DateTruncate` | `'{"inCol":"parsed","outCol":"month_start","datePart":"MONTH"}'` — `datePart` must be `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND` (defaults to `YEAR` if omitted) |
+| UNIX epoch → date | `UNIXTimestampParser` | `'{"inCol":"event_ts","outCol":"event_date","milliseconds":false}'` — `milliseconds` is BOOLEAN, not `"SECONDS"`/`"MILLISECONDS"` |
 | Concat columns | `ColumnsConcat` | `'{"columns":["first","last"],"join":" ","outputColumn":"full_name"}'` |
 | Split column | `ColumnSplitter` | `'{"inCol":"name","separator":" ","outColPrefix":"name_","target":"COLUMNS","keepEmptyChunks":false,"limitOutput":false,"limit":0}'` |
 | Copy column | `ColumnCopier` | `'{"inputColumn":"status","outputColumn":"status_bak"}'` |
@@ -281,7 +290,7 @@ dku recipe status RECIPE_NAME [-P PROJECT] [-o FORMAT]             # Engine, sev
 dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
 dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME {--definition JSON | --payload JSON} [--deep-merge] [-P PROJECT]
-dku recipe add-input RECIPE_NAME DS [--role main] [-P PROJECT]
+dku recipe add-input RECIPE_NAME REF [--type DATASET|MANAGED_FOLDER|SAVED_MODEL] [--role ROLE] [-P PROJECT]
 dku recipe add-output RECIPE_NAME DS [--role main] [-P PROJECT]
 dku recipe check-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
@@ -289,8 +298,13 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 
 - `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
+- `create -t prediction_scoring` and `create -t clustering_scoring` REQUIRE `--model SAVED_MODEL_ID_OR_NAME`. The model is auto-wired as a `model`-role input after creation. Omitting it errors before the server call
+- `add-input REF` — `REF` can be a dataset name, managed folder (name or ID), or saved model (ID or name). When `--type` is omitted, the CLI auto-detects by probing the project and errors on ambiguity. For saved models, `--role` defaults to `model`. Folder names are resolved to IDs before writing the ref (DSS stores folder refs as IDs)
 - `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
+- `get-code` only works on code recipes (python, sql, r, shell, pyspark, sparkr, cpython). For visual recipes (prepare/shaker, join, group, etc.) use `get-settings` to inspect the recipe definition
+- `check-schema` output column is `NEEDS_UPDATE` (yes/no per output). Non-zero exit when any output needs an update — pair with `apply-schema` in scripts
+- `run` on failure exits 1 with the failing job ID + `dku job log <ID>` + `dku job status <ID>` hints pre-formatted in the error details
 - `get-settings` returns full recipe settings as JSON including the visual recipe payload (sort orders, join keys, filter conditions, etc.). Unlike `get`, this includes the payload
 - `set-settings` sets full recipe settings from JSON. Root-level keys update the definition; the `payload` key updates the visual recipe config (shallow merge). Use `get-settings` first to read, modify, then `set-settings` to update
 - `set-definition --payload` updates visual recipe config (aggregations, join keys, filter conditions). `--definition` updates raw recipe definition (I/O, connection). Mutually exclusive
@@ -338,6 +352,9 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 - `add-trigger --trigger` accepts raw trigger JSON (inline, `@file.json`, or `-` for stdin). Must include `type`, `active`, and `params` fields
 - `add-trigger-dataset` is a convenience shortcut for dataset-change triggers. `--delay` is the check interval in seconds (default: 120). `--grace-delay` is the stabilization period (default: 0)
 - `remove-trigger --index` removes a trigger by its 0-based index (use `list-triggers` to find the index)
+- `set-definition` does a FULL settings replace — including `params.steps`, `params.reporters`, and the header fields. Supply a complete scenario definition (the shape returned by `get-definition` or `get_settings().get_raw()`). Partial updates of header-only fields should use `set-metadata` instead.
+- **Step types for `params.steps`:** `build_flowitem` (build datasets/folders — takes `params.builds` as a list of `{type: "DATASET"|"MANAGED_FOLDER", itemId, partitionsSpec}` and `params.buildMode`), `custom_python` (inline script — `params.script`), `exec_sql` (SQL — `params.sql`, `params.connection`). See `dataikuapi/dss/scenario.py` for the full step-type catalogue.
+- **`get-definition` is header-only:** it does NOT include `params.steps` or `triggers`. For triggers use `list-triggers`; for steps read via the API's `get_settings().get_raw()` path.
 
 ## job
 
@@ -429,6 +446,7 @@ dku connection sync-acls CONNECTION_NAME [--root/--datasets] [--wait/--no-wait]
 ```
 
 - `list --type` filters by connection type (Snowflake, PostgreSQL, EC2, etc.) using fast `list_connections_names` endpoint
+- `test` only works on SQL and cloud connections. Filesystem/LLM/local connections exit 2 with `unsupported_operation` — use `dku connection get` to inspect instead
 - `schemas` lists SQL schemas or Iceberg namespaces. Requires project context (`-P`)
 - `tables` lists tables available for import. Use `--schema` to narrow results. Auto-detects SQL vs Iceberg
 - `sync-acls` syncs HDFS ACLs (only useful with User Isolation + DSS-managed HDFS ACL). `--datasets` syncs dataset ACLs instead of root
@@ -462,6 +480,34 @@ dku model create-external NAME -t PREDICTION_TYPE --protocol PROTO [--connection
 - `create-mlflow` creates a saved model for MLflow pyfunc models. Prediction type optional (BINARY_CLASSIFICATION, MULTICLASS, REGRESSION). Follow with `import-mlflow` to import a version
 - `import-mlflow` imports a MLflow model version from a local path. Model must have been created with `create-mlflow`. `--code-env` defaults to active env; set `INHERIT` for project default
 - `create-external` creates a saved model for remote endpoints (SageMaker, Databricks, Azure ML, Vertex AI). `--protocol` is required. Use `--config` for full JSON config override
+
+## ml
+
+Train visual-ML models (prediction, clustering, timeseries, causal). Prefer these over Python.
+
+```bash
+dku ml create-prediction --input DS --target COL [--name NAME] [-P PROJECT]
+dku ml create-clustering --input DS [--name NAME] [-P PROJECT]
+dku ml create-timeseries --input DS --target COL --time-col COL [-P PROJECT]
+dku ml create-causal --input DS --treatment COL --outcome COL [-P PROJECT]
+dku ml list [-P PROJECT] [-o FORMAT]
+dku ml status ANALYSIS MLTASK [-P PROJECT]
+dku ml settings ANALYSIS MLTASK [-P PROJECT] [-o FORMAT]
+dku ml algorithms ANALYSIS MLTASK [-P PROJECT] [-o FORMAT]
+dku ml set-algorithm ANALYSIS MLTASK [--enable ALG]... [--disable ALG]... [--disable-all] [-P PROJECT]
+dku ml set-feature ANALYSIS MLTASK FEATURE --role INPUT|REJECT|TARGET|WEIGHT [-P PROJECT]
+dku ml train ANALYSIS MLTASK [-P PROJECT] [--wait]
+dku ml models ANALYSIS MLTASK [-P PROJECT] [-o FORMAT]
+dku ml details MODEL_ID [-P PROJECT] [-o FORMAT]
+dku ml deploy MODEL_ID --name NAME [-P PROJECT]
+dku ml redeploy MODEL_ID --saved-model-id SM_ID [-P PROJECT]
+dku ml delete ANALYSIS MLTASK [--yes|-y] [-P PROJECT]
+```
+
+- **After `create-prediction`, ALWAYS audit `dku ml settings`** for label-leaking columns. Auto-guess does not detect leakage. Reject leaky columns with `dku ml set-feature ANALYSIS MLTASK COL --role REJECT` before training
+- `set-feature --role REJECT` disables a column as input without rebuilding the upstream dataset. Use for label leakage, post-event columns, high-cardinality IDs
+- `delete` prompts for confirmation; use `--yes` / `-y` for non-interactive
+- To apply a saved clustering/prediction model to a dataset, see `references/recipe-decision.md` → "Scoring a Saved Model"
 
 ## folder
 
@@ -557,6 +603,7 @@ No create via API (DSS UI only). But you can read/edit existing webapp code via 
 ```bash
 dku webapp list [-P PROJECT] [-o FORMAT]
 dku webapp start WEBAPP_ID [-P PROJECT]
+dku webapp restart WEBAPP_ID [-P PROJECT]
 dku webapp stop WEBAPP_ID [-P PROJECT]
 dku webapp status WEBAPP_ID [-P PROJECT]
 dku webapp get-definition WEBAPP_ID [-P PROJECT] [-o json]
@@ -583,6 +630,9 @@ dku dashboard set-metadata DASHBOARD_ID [-P PROJECT] [--description DESC] [--sho
 - No create via API for individual tiles/charts — manage via the raw JSON definition
 - `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
 - Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
+- **URL anatomy:** `/dashboards/<dashboardId>_<slug>/view/<pageId>` maps to `dashboard.id` and `pages[].id`. Paste the URL path to locate a specific page in `get-definition` output
+- **Filter-page dataset binding** can live at `pages[i].filtersParams.datasetSmartName`, not only inside filter insight definitions. Check both paths when tracing which dataset a filter targets
+- **Always verify after `set-definition`** — DSS normalizes the payload on save. `TEXT` tile `tileParams.htmlContent` can be silently dropped. Follow every `set-definition` with a `get-definition` re-read and `diff` to confirm what actually persisted
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
 - See `skills/dataiku/references/dashboard-charts.md` for full chart JSON anatomy
 
@@ -637,6 +687,7 @@ dku insight set-metadata INSIGHT_ID [-P PROJECT] [--description DESC] [--short-d
 - `--dataset` / `--ds` binds the insight to a dataset (sets `params.datasetSmartName`). Required for chart/dataset_table types
 - `--definition` overrides/extends creation info (merged with `--type` and name)
 - `validate` checks chart column references against the dataset schema (client-side). Reports mismatches with fuzzy suggestions
+- **Never hand-write a full `dataset_table` payload.** DSS's `shakerScript` schema has nested objects that vary across versions (e.g. `columnOrder` expects objects, not strings). Clone the live default first: `dku insight create NAME --type dataset_table --dataset DS -P PROJ && dku insight get-definition ID -P PROJ -o json > table.json`, then only edit `params.shakerScript.columnsSelection` / `sorting` / `previewMode` before `set-definition`. See `skills/dataiku/references/dashboard-charts.md` for the safe-to-edit field list
 
 ## macro
 
@@ -664,7 +715,7 @@ dku user add-secret LOGIN --name NAME --value VALUE        # Add/replace a user 
 ```bash
 dku flow graph [-P PROJECT] [-o FORMAT]
 dku flow visualize [-P PROJECT]
-dku flow zones [-P PROJECT] [-o FORMAT]
+dku flow zones [-P PROJECT] [-o FORMAT]    # JSON output includes `items[]` per zone: {objectType, objectId, projectKey}
 dku flow create-zone NAME [--color HEX] [-P PROJECT]
 dku flow set-zone ZONE_REF [--name NAME] [--color HEX] [-P PROJECT]
 dku flow move ITEM [ITEM2 ...] --zone ZONE [-t TYPE] [-P PROJECT]
@@ -695,9 +746,11 @@ dku library read PATH [-P PROJECT]
 dku library write PATH [-P PROJECT] --content CONTENT
 dku library delete PATH [-P PROJECT]
 dku library mkdir PATH [-P PROJECT]
+dku library sync LOCAL_DIR [REMOTE_DIR] [-P PROJECT] [--delete] [--dry-run/-n] [--exclude/-e PATTERN]
 ```
 
 - `write --content @file.py` reads from local file
+- `sync` uploads all files from a local directory to the project library, creating directories as needed. Skips `.git`, `__pycache__`, `.DS_Store`, `*.pyc`, `.venv`, `node_modules` by default. `--exclude` adds extra glob patterns. `--delete` removes remote files not present locally. `--dry-run` shows what would happen without uploading
 
 ## agent
 
@@ -724,7 +777,7 @@ dku agent set-metadata AGENT_REF [-P PROJECT] [--description DESC] [--short-desc
 
 ## agent-block
 
-Manage visual agent block graphs (structured visual agents). Blocks live inside `TOOLS_USING_AGENT` with `mode: "BLOCKS_GRAPH"`.
+Manage visual agent block graphs (structured visual agents). Blocks live inside `STRUCTURED_AGENT` agents (DSS 14.5+). Do NOT use `TOOLS_USING_AGENT` for block graphs — blocks silently fail to persist.
 
 ```bash
 dku agent-block list AGENT_ID [-P PROJECT] [--version VER] [-o FORMAT]
@@ -750,12 +803,17 @@ dku agent-block set-graph AGENT_ID --definition/-d JSON [-P PROJECT] [--version 
 
 **Example: Build an SVA from scratch:**
 ```bash
-dku agent create "My SVA" -P PROJ
-dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"ready"}],"nextBlock":"classify"}' -P PROJ
-dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputStateKey":"intent","nextBlock":"respond"}' -P PROJ
+dku agent create "My SVA" --type STRUCTURED_AGENT -P PROJ
+dku agent-block add My_SVA --set-start -b '{"type":"SET_STATE_ENTRIES","id":"init","entriesToSet":[{"secret":false,"key":"status","value":"'\''ready'\''"}],"nextBlock":"classify"}' -P PROJ
+dku agent-block add My_SVA -b '{"type":"LLM_REQUEST","id":"classify","llmId":"openai:conn:gpt-4.1-mini","passConversationHistory":true,"systemPromptAfterHistory":"Classify intent","completionSettings":{"stopSequences":[],"outputTrajectory":true},"streamOutput":false,"outputMode":"SAVE_TO_STATE","outputKey":"intent","nextBlock":"respond"}' -P PROJ
 dku agent-block add My_SVA -b '{"type":"EMIT_OUTPUT","id":"respond","templateType":"CEL_EXPANSION","template":"Intent: {{state.intent}}","addToMessages":true}' -P PROJ
 dku agent-block list My_SVA -P PROJ
 ```
+
+**Critical block requirements (DSS 14.5+):**
+- Every CORE_LOOP / LLM_REQUEST / MANDATORY_TOOL_CALL block needs `"llmId"`
+- Every block with `"outputMode": "SAVE_TO_STATE"` needs `"outputKey"` (or `"outputStateKey"`)
+- SET_STATE_ENTRIES `"value"` fields are CEL — never use `""` (empty), use `"''"` instead
 
 ## agent-review
 
@@ -944,7 +1002,7 @@ dku knowledge get KB_REF [-P PROJECT] [-o FORMAT]
 dku knowledge set-definition KB_REF --definition JSON|@file.json|- [-P PROJECT]
 dku knowledge build KB_REF [-P PROJECT] [--wait]
 dku knowledge search KB_REF --query TEXT [--max N] [-P PROJECT] [-o FORMAT]
-dku knowledge delete KB_REF [-P PROJECT]
+dku knowledge delete KB_REF [--yes|-y] [-P PROJECT]
 ```
 
 - All commands (except `list`, `create`) accept knowledge bank ID **or name** — name is resolved via list fallback
@@ -969,6 +1027,45 @@ dku semantic-model set-version SM_REF --definition JSON|@file.json|- [--version 
 dku semantic-model set-active-version SM_REF VERSION_ID [-P PROJECT]
 dku semantic-model distinct-values SM_REF [--version VID] [--entity E --attribute A] [--max N] [-P PROJECT] [-o FORMAT]
 dku semantic-model update-index SM_REF [--version VID] [--wait] [-P PROJECT]
+
+# Splice-level mutation verbs (preferred over raw set-version)
+dku semantic-model add-entity SM_REF --from-dataset DS [--name N] [--pk COL[,COL2]] \
+  [--index-values COL1,COL2] [--resolve-values COL1,COL2] [--description D] [--tags t1,t2] \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-entity SM_REF ENTITY_NAME [--version VID] [-P PROJECT]
+
+dku semantic-model add-relationship SM_REF --from A --to B (--on COL[,COL2] | --expression "left.x = right.x") \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-relationship SM_REF --from A --to B [--version VID] [-P PROJECT]
+
+dku semantic-model add-glossary-term SM_REF --term T [--description D] [--synonyms s1,s2] \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-glossary-term SM_REF --term T [--version VID] [-P PROJECT]
+
+dku semantic-model list-entities SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+dku semantic-model list-relationships SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+dku semantic-model list-glossary SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
+
+# Entity-scoped: metrics (aggregates) and filters (predicates)
+dku semantic-model add-metric SM_REF --entity E --name N --expression "COUNT(*)" \
+  [--description D] [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-metric SM_REF --entity E --name N [--version VID] [-P PROJECT]
+dku semantic-model list-metrics SM_REF --entity E [--version VID] [-P PROJECT] [-o FORMAT]
+
+dku semantic-model add-filter SM_REF --entity E --name N --expression "col = 'x'" \
+  [--description D] [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-filter SM_REF --entity E --name N [--version VID] [-P PROJECT]
+dku semantic-model list-filters SM_REF --entity E [--version VID] [-P PROJECT] [-o FORMAT]
+
+# Attribute-scoped: curated enum values
+dku semantic-model set-manual-values SM_REF --entity E --attribute A \
+  (--values "a,b,c" | --clear) [--version VID] [-P PROJECT]
+
+# Version-scoped: golden queries (NL→SQL few-shot examples)
+dku semantic-model add-golden-query SM_REF --name N --question Q --sql SQL \
+  [--version VID] [--if-not-exists] [-P PROJECT]
+dku semantic-model remove-golden-query SM_REF --name N [--version VID] [-P PROJECT]
+dku semantic-model list-golden-queries SM_REF [--version VID] [-P PROJECT] [-o FORMAT]
 ```
 
 - All commands accept semantic model ID **or name** — name resolved via list fallback
@@ -976,9 +1073,50 @@ dku semantic-model update-index SM_REF [--version VID] [--wait] [-P PROJECT]
 - `--version` defaults to the active version when omitted
 - `create-version` does NOT persist until the server is called — `new_version().save()` is handled internally
 - `create-version --duplicate-of` clones an existing version's configuration
-- `set-version` merges JSON into current version settings (shallow merge). Get current: `dku semantic-model get-version SM -o json`
+- `set-version` **shallow-merges** JSON into current version settings at the TOP level. This means passing `{"relationships":[{...}]}` **REPLACES the entire relationships array**, not appends. Always read current, modify, then save:
+  ```bash
+  dku semantic-model get-version SM -P PROJ -o json > sm.json
+  jq '.relationships += [{"firstEntity":"A","secondEntity":"B","pseudoSQLExpression":"left.id = right.id"}]' sm.json > sm_new.json
+  dku semantic-model set-version SM --definition @sm_new.json -P PROJ
+  ```
+- **Relationship JSON shape** (verified on DSS 14.4.3): `{"firstEntity":"name","secondEntity":"name","pseudoSQLExpression":"left.col = right.col"}`. Three fields. No cardinality. See `dataiku` skill's `references/semantic-models.md` for entity/glossary shapes.
+- **Never guess inner JSON shapes.** `dataikuapi` treats entities/relationships/glossary as opaque dicts with no inner class definitions. Build one example in the DSS UI → export with `get-version -o json` → templatize.
+- **Prefer splice verbs over `set-version` for mutations.** `add-entity`/`add-relationship`/`add-glossary-term` load the current version, splice the array, and save — no shallow-merge hazard. Use raw `set-version` only for bulk replace or top-level field changes (`description`, `indexingSettings`).
+- **`add-entity --from-dataset DS`** auto-generates all attribute definitions from the dataset schema (column names, DSS types, descriptions). Pass `--index-values COL1,COL2` to enable distinct-value indexing + fuzzy resolution on specific columns. Default PK is the first dataset column — override with `--pk COL`.
+- **`add-relationship --on COL`** builds `left.COL = right.COL`. Comma-separated for composite joins (`--on ACCOUNT_SK,MONTH` → `left.ACCOUNT_SK = right.ACCOUNT_SK AND left.MONTH = right.MONTH`). Use `--expression` for computed predicates (`LOWER(left.x) = LOWER(right.y)`).
+- **Entity metrics/filters are pseudo-SQL.** Metrics are aggregates (`COUNT(*)`, `SUM(Amount)`, `COUNT(DISTINCT CustomerID)`). Filters are predicates (`Subscribed = 'true'`, `Date >= CURRENT_DATE - INTERVAL '30 days'`). These become the **approved** building blocks the text-to-SQL agent composes — without them the agent hand-rolls SQL from scratch, which is worse.
+- **`set-manual-values` flips the attribute to curated-enum mode.** Automatically sets `distinctValuesHandlingMode=MANUAL`, `indexDistinctValues=true`, `resolveInUserRequests=true` so the agent resolves user strings ("high risk" → `RiskTolerance = 'High'`). Use `--clear` to revert to indexed scan (`mode=NONE`).
+- **Golden queries drive quality more than any other single input.** Add real NL questions + the canonical SQL. The agent uses these as few-shot examples, learning join style + your column conventions.
+- **From-scratch workflow, high-quality** (verified DSS 14.4.3):
+  ```bash
+  dku semantic-model create "My Model" -P PROJ
+  dku semantic-model create-version $SM_ID v1 -P PROJ
+  dku semantic-model set-active-version $SM_ID v1 -P PROJ
+
+  # Entities (auto-generate attributes from datasets)
+  dku semantic-model add-entity $SM_ID --from-dataset Customers --pk CustomerID --index-values Name,RiskTolerance -P PROJ
+  dku semantic-model add-entity $SM_ID --from-dataset Orders --pk OrderID -P PROJ
+
+  # Metrics & filters (agent's approved aggregates/predicates)
+  dku semantic-model add-metric $SM_ID --entity customers --name "Total Customers" --expression "COUNT(CustomerID)" -P PROJ
+  dku semantic-model add-metric $SM_ID --entity customers --name "Subscribed Customers" --expression "COUNT(CASE WHEN Subscribed='true' THEN CustomerID END)" -P PROJ
+  dku semantic-model add-filter $SM_ID --entity customers --name "Subscribed" --expression "Subscribed = 'true'" -P PROJ
+
+  # Curated enums on categorical attributes
+  dku semantic-model set-manual-values $SM_ID --entity customers --attribute RiskTolerance --values "Low,Medium,High" -P PROJ
+
+  # Joins
+  dku semantic-model add-relationship $SM_ID --from customers --to orders --on CustomerID -P PROJ
+
+  # Glossary & golden queries
+  dku semantic-model add-glossary-term $SM_ID --term ARR --description "Annual Recurring Revenue" --synonyms "annual recurring revenue" -P PROJ
+  dku semantic-model add-golden-query $SM_ID --name "count subscribers" --question "How many subscribed customers do we have?" --sql "SELECT COUNT(*) FROM Customers WHERE Subscribed='true'" -P PROJ
+
+  dku semantic-model update-index $SM_ID --wait -P PROJ
+  ```
 - `distinct-values` requires `--entity` AND `--attribute` together, or neither (for all attributes)
 - `update-index` triggers distinct values indexing (async). Use `--wait` to block until complete
+- **Always `update-index --wait` after changing entities/attributes.** The text-to-SQL agent only sees indexed distinct values.
 - **Limitation**: `get_semantic_model()` is lazy — the CLI calls `_get_definition()` internally to verify existence
 
 ## agent-hub
@@ -1008,6 +1146,49 @@ dku agent-hub stop [--hub HUB_ID] [-P PROJECT]
 - `set-agent --examples` accepts a JSON array string, e.g. `'["Q4 sales?", "Revenue by region"]'`
 - `set-llm` sets the orchestrating LLM (must support tool calling for Tools mode)
 - `start`/`stop` control the webapp backend (same as `dku webapp start/stop`)
+
+## app-designer
+
+```bash
+# Enable/disable app homepage
+dku app-designer enable [-P PROJECT] [--label LABEL] [--description DESC]
+dku app-designer disable [-P PROJECT]
+
+# Get/set full manifest
+dku app-designer get [-P PROJECT] [-o json]
+dku app-designer set-definition [-P PROJECT] -d JSON|@file.json|-
+
+# Section titles and text
+dku app-designer set-section [-P PROJECT] -s INDEX --title "Step 1) Upload" [--text "HTML description"]
+
+# Tile management
+dku app-designer list-tiles [-P PROJECT] [-o FORMAT]
+dku app-designer add-tile [-P PROJECT] -s INDEX --type TYPE [--dataset DS] [--scenario ID] [--dashboard ID] [--folder ID] [--prompt LABEL] [--help-text TEXT] [--behavior BEH] [--button-text TEXT] [--params JSON] [--code CODE] [--definition JSON]
+dku app-designer remove-tile [-P PROJECT] -s SECTION -i INDEX
+```
+
+**Notes:**
+- `enable` must be called before other commands on a non-app project
+- `add-tile --type` supports: `SCENARIO_RUN`, `INLINE_DATASET_EDIT`, `UPLOAD_DATASET_SET_FILE`, `DOWNLOAD_DATASET`, `DASHBOARD_LINK`, `MANAGED_FOLDER_BROWSE`, `MANAGED_FOLDER_ADD_FILE`, `DOWNLOAD_MANAGED_FOLDER_FILE`, `PROJECT_VARIABLES_EDIT`, `INLINE_PYTHON_RUN`, `PERFORM_SCHEMA_PROPAGATION`, `DATASET_EDIT_SETTINGS`, `FILES_BASED_DATASET_BROWSE_AND_PREVIEW`, `DOWNLOAD_DASHBOARD_EXPORT`, `DOWNLOAD_RMARKDOWN`, `MANAGED_FOLDER_LINK`
+- `--dataset` binds tile to a specific dataset (for INLINE_DATASET_EDIT, UPLOAD_DATASET_SET_FILE, DOWNLOAD_DATASET)
+- `--behavior INLINE_UPLOAD_REDETECT_AND_INFER` is best for upload tiles (auto-detects schema)
+- `--definition @tile.json` overrides all shortcut flags for complex tiles (e.g., PROJECT_VARIABLES_EDIT with params)
+- `set-section --text` supports HTML: `<i class="icon-warning-sign"></i>`, `<b>bold</b>`, wiki links `[text](article:ID)`
+- See `dataiku` skill's `references/app-designer.md` for full tile/param type reference and UX patterns
+
+## app
+
+```bash
+dku app list [-o FORMAT]
+dku app get APP_ID [-o FORMAT]
+dku app list-instances APP_ID [-o FORMAT]
+dku app create-instance APP_ID --key PROJECT_KEY --name "Instance Name" [--wait|--no-wait]
+```
+
+**Notes:**
+- App IDs follow `PROJECT_XXXX` format (project key prefixed with `PROJECT_`)
+- `create-instance` creates a full copy of the template project
+- `list` does not require a project flag
 
 ## bundle
 
@@ -1228,3 +1409,79 @@ dku whoami
 ```
 
 Shows: user, DSS URL, DSS version, groups.
+
+---
+
+## govern
+
+Nested `dku govern <group> <verb>`. Requires Govern integration + admin API key. Deep patterns, JSON payloads, signoff state machine, gotchas: `skills/dataiku/references/govern.md`. Blueprint authoring (versions, fields, hooks, views, signoff config): `skills/dataiku/references/govern-blueprint-designer.md`.
+
+```bash
+# Instance
+dku govern whoami [-o FORMAT]
+dku govern info [-o FORMAT]
+
+# Artifacts — run `blueprint fields BP` first to discover schema
+dku govern artifact list [-b BP] [-n NAME] [--archived|--no-archived] [--page-size N] [--all] [-o FORMAT]
+dku govern artifact get ARTIFACT_ID [-o FORMAT]
+dku govern artifact create (-b BP -n NAME [-f key=value ...] | --definition JSON) [-o FORMAT]
+dku govern artifact set-field ARTIFACT_ID FIELD_ID VALUE
+dku govern artifact set-definition ARTIFACT_ID --definition JSON
+dku govern artifact delete ARTIFACT_ID --confirm
+
+# Blueprints (read-side only — authoring verbs live in govern-blueprint-designer.md)
+dku govern blueprint list [-o FORMAT]
+dku govern blueprint get BP_ID [-o FORMAT]
+dku govern blueprint list-versions BP_ID [-o FORMAT]
+dku govern blueprint get-version BP_ID VER_ID [-o FORMAT]        # alias: get-version-definition
+dku govern blueprint describe-version BP_ID VER_ID                # summary + structural lint
+dku govern blueprint fields BP_ID [--version VER_ID] [-o FORMAT]
+dku govern blueprint create IDENTIFIER --definition JSON [-o FORMAT]
+dku govern blueprint set-definition BP_ID --definition JSON
+dku govern blueprint delete BP_ID --confirm
+
+# Sign-offs
+dku govern signoff create          ARTIFACT_ID STEP_ID
+dku govern signoff list            ARTIFACT_ID                                            [-o FORMAT]
+dku govern signoff get             ARTIFACT_ID STEP_ID                                    [-o FORMAT]
+dku govern signoff update-status   ARTIFACT_ID STEP_ID STATUS
+dku govern signoff add-feedback    ARTIFACT_ID STEP_ID -g GROUP_ID -s STATUS [-c COMMENT]
+dku govern signoff add-approval    ARTIFACT_ID STEP_ID            -s STATUS [-c COMMENT]
+dku govern signoff delegate-feedback  ARTIFACT_ID STEP_ID -g GROUP_ID --users-container JSON
+dku govern signoff delegate-approval  ARTIFACT_ID STEP_ID            --users-container JSON
+dku govern signoff list-feedbacks  ARTIFACT_ID STEP_ID                                    [-o FORMAT]
+dku govern signoff get-feedback    ARTIFACT_ID STEP_ID FEEDBACK_ID                        [-o FORMAT]
+dku govern signoff get-approval    ARTIFACT_ID STEP_ID                                    [-o FORMAT]
+
+# Roles / Custom pages (same CRUD shape — ID prefixes `ro.` / `cp.`)
+dku govern role        {list | get ID | create IDENTIFIER --definition JSON | set-definition ID --definition JSON | delete ID --confirm}
+dku govern custom-page {list | get ID | create IDENTIFIER --definition JSON | set-definition ID --definition JSON | delete ID --confirm}
+
+# Users / Groups (admin)
+dku govern user list [-o FORMAT]
+dku govern user get LOGIN [-o FORMAT]
+dku govern user create LOGIN --password PASS [--display-name NAME] [--email EMAIL] [--group G ...] [--profile P] [--source-type LOCAL|LDAP]
+dku govern user {create-bulk | edit-bulk | delete-bulk} --definition JSON [--confirm] [-o FORMAT]
+dku govern user get-own [-o FORMAT]                                   # user-session auth only
+dku govern user list-activity [--enabled-only] [-o FORMAT]
+dku govern group {list | get GROUP_NAME | create GROUP_NAME [--description D] [--source-type LOCAL|LDAP] | delete GROUP_NAME --confirm}
+
+# Time series (timestamps = epoch ms; push-values upserts by default, `--no-upsert` skips existing)
+dku govern time-series create [--datapoints JSON] [-o FORMAT]
+dku govern time-series get TS_ID [--min EPOCH_MS] [--max EPOCH_MS] [-o FORMAT]
+dku govern time-series push-values TS_ID --datapoints JSON [--no-upsert]
+dku govern time-series delete TS_ID [--min EPOCH_MS] [--max EPOCH_MS] --confirm
+
+# Files — returned `uf.<id>` goes into UPLOADED_FILE fields as array: '["uf.1"]'
+dku govern file upload PATH [-o FORMAT]
+dku govern file get FILE_ID [-o FORMAT]
+dku govern file download FILE_ID [--dest PATH]
+```
+
+- `artifact create`: ergonomic (`-b`/`-n`/`-f`) or raw (`--definition`). `set-field` updates one field without round-tripping the full definition
+- `blueprint fields` auto-resolves the ACTIVE version; prints field IDs, types, required flags, categories
+- `blueprint describe-version` pretty-prints fields/workflow/signoffs/views + flags silent-failure patterns (empty `uiDefinition.views`, missing `artifactPageViewId`, fields not in any view, signoffs on non-existent steps). Prefer over `get-version | jq` when authoring
+- Sign-off state machine: `NOT_STARTED → WAITING_FOR_FEEDBACK → WAITING_FOR_APPROVAL → APPROVED|REJECTED|ABANDONED`. Reset requires passing through `ABANDONED`. Feedback statuses: `APPROVED|MINOR_ISSUE|MAJOR_ISSUE`; approval: `APPROVED|REJECTED|ABANDONED`
+- `--users-container` JSON: `'{"type": "user", "login": "alice"}'` — `type` is **lowercase** (`user`/`group`/`role`/`global-api-key`)
+- All `--definition` / `--datapoints` flags accept literal string, `@file.json`, or `-` (stdin)
+- All `delete*` commands require `--confirm` / `-y`. `blueprint delete` needs every version + artifact gone first
