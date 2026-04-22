@@ -8,7 +8,13 @@ from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
-app = typer.Typer(help="Manage DSS applications (app templates and instances).")
+app = typer.Typer(
+    help=(
+        "List DSS applications and instantiate them. "
+        "For authoring (enable app mode, homepage sections, tiles, manifest) "
+        "use [blue bold]dku app-designer[/blue bold]."
+    )
+)
 
 
 @app.command("list")

@@ -708,6 +708,17 @@ def mock_client():
     scenario_settings_mock = MagicMock()
     type(scenario_settings_mock).raw_triggers = property(lambda self: scenario_triggers)
     scenario_settings_mock.save.return_value = None
+    # DSSScenarioSettings.get_raw() returns a mutable reference to the full
+    # settings dict including params.steps — the non-legacy source of truth.
+    scenario_settings_raw = {
+        "type": "step_based",
+        "name": "Build All",
+        "description": "",
+        "shortDesc": "",
+        "tags": [],
+        "params": {"steps": []},
+    }
+    scenario_settings_mock.get_raw.return_value = scenario_settings_raw
     scenario_mock.get_settings.return_value = scenario_settings_mock
 
     # get_last_runs returns DSSScenarioRun objects with properties

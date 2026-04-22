@@ -36,6 +36,7 @@ metadata:
 > 15. **Read reference files BEFORE exploring.** This skill has detailed reference docs in `references/`. Read the relevant file first — don't try to figure it out from `--help` alone.
 > 16. **Cross-connection landing is a first-class feature.** `dku recipe create -t sync --connection X` moves data between connections. Never write a Python passthrough. See `references/sql-engines.md`.
 > 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). See `references/agent-patterns.md`.
+> 18. **App authoring is `dku app-designer`, not `dku app`.** `dku app` only lists and instantiates; authoring (homepage, sections, tiles) is `dku app-designer enable | set-section | add-tile | set-definition`. `enable` auto-flips `projectAppType=APP_TEMPLATE`. See `dataiku` skill's `references/app-designer.md` for the 21 valid tile types and required manifest fields.
 
 # dku-cli
 

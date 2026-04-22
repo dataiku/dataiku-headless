@@ -109,3 +109,79 @@ Live testing revealed that `enable` silently fails on fresh projects because `ge
 5. **CLAUDE.md: add `projectAppType` quirk** — dataikuapi quirks section
 
 ---
+
+## [2026-04-22] Built "SAS Portfolio Complexity Evaluator" app template on SOL_SAS_INVENTORY_SCORER
+**Status:** pending
+
+**Recurring**: `projectAppType = APP_TEMPLATE` gate already flagged in [2026-04-07] entries — confirms the fix (`dku app enable` auto-setting it) is the right direction. My session hit it again because I went via raw `dataikuapi` instead of a CLI verb, which reinforces the case for exposing `dku app set-manifest` / `dku app convert-to-template`.
+
+### TL;DR
+Three major blockers, all worth fixing: (1) `dku scenario set-definition` silently drops steps despite its help text promising otherwise; (2) there's no CLI path for app-template creation/manifest editing — had to hand-roll Python with undocumented `projectAppType=APP_TEMPLATE` flipping; (3) PUT `/app-manifest` returns opaque `AssertionError: null` for any missing top-level field or bad tile type, so you learn the accepted schema by trial and error.
+
+### CLI Friction (6 issues)
+
+| Issue | What Happened | Suggested Fix |
+|-------|--------------|---------------|
+| `dku scenario set-definition` lies | Help text says "Uses the full settings endpoint (DSSScenarioSettings.save) so params.steps, triggers, and reporters all persist." Code at `src/dku_cli/commands/scenario.py:276` calls `scenario.set_definition(new_def)` — the legacy header-only endpoint that silently drops steps. I wasted 3 round-trips before checking the source. | Change implementation to `s = scenario.get_settings(); s.get_raw().update(new_def); s.save()` — or at minimum, make the help text match reality. |
+| `dku scenario get-definition` also uses legacy endpoint | After saving via dataikuapi, `get-definition` still returned 0 steps. Had to verify via Python. `params.steps` is invisible through the CLI. | Same as above — use `get_settings().get_raw()` so steps are visible. |
+| No `dku app` verb for creating/editing app templates | `dku app` only has `list`, `get`, `list-instances`, `create-instance`. For app authoring you MUST drop to dataikuapi. Given the CLAUDE.md mission statement ("make AI coding agents excellent at operating DSS"), this is a big gap. | Add `dku app convert-to-template`, `dku app set-manifest -d @file.json`, `dku app unset-template`. Optionally `dku app add-tile` / `dku app add-section` for scripted building. |
+| `dku folder list-files` doesn't exist | Typed the obvious name, got "No such command. Did you mean 'delete-files', 'delete-file'?" The actual command is `ls`. | Either add `list-files` as an alias for `ls`, or improve the did-you-mean to suggest `ls` (it's obvious from the noun pair). |
+| `dku scenario run --no-wait` doesn't exist | Guessed the flag from common CLI convention. Actual: `--wait` (defaults to no-wait). Error was good ("Did you mean --wait?"), but default-no-wait with a `--wait` flag is unusual; `--no-wait` would be more discoverable. | Accept `--no-wait` as an explicit equivalent of the default, or document it prominently in `--help`. |
+| `dku scenario run --wait` timed out at "outcome not available" despite scenario succeeding | Ran `scenario run --wait`, got "outcome not available for this scenario run. Maybe still running?" The run had already succeeded — the CLI gave up too early or checked the wrong endpoint. | Implement `--wait` using a proper poll of the run's final state (`DSSScenarioRun.get_info()` → `result.outcome`) with a sensible timeout. |
+
+### Skill & Doc Gaps (5 issues)
+
+| Gap | Impact | Where to Fix |
+|-----|--------|-------------|
+| Zero docs on how to programmatically create an app-as-recipe template | Took ~20 min of source-diving + trial-and-error to learn the sequence: `projectAppType = "APP_TEMPLATE"` → `PUT /app-manifest` with full required scalars. No skill mentions this. | Add a new reference doc `references/app-designer.md` in the `dataiku` skill covering: project-to-app conversion, required manifest scalars, valid tile types list, tile-to-object binding, export/instance feature flags. Link from the router in `dataiku/SKILL.md`. |
+| Valid tile types not documented anywhere | I invented `DATASET_EXPLORE` (seemed plausible) and `MANAGED_FOLDER_BROWSE` (saw in one example); both rejected. Had to grep across all live apps to build the allow-list. | Same reference doc should include the authoritative list + callouts that `DATASET_EXPLORE` and `MANAGED_FOLDER_BROWSE` are NOT valid. |
+| `projectAppType` field not mentioned anywhere in docs | This is the one-line gate between "my PUT works" and "opaque server AssertionError". | CLAUDE.md Critical Gotchas section and/or new app-designer reference doc. |
+| AppManifest PUT required-fields list is undiscoverable | The endpoint returns `AssertionError: null` for any missing top-level scalar. There's no schema docs. | Ship a minimal working manifest template (JSON skeleton) in `references/app-designer.md`. |
+| `dku scenario set-definition` silently succeeds — no warning | The CLI prints `Updated definition for scenario 'X'` even though steps were dropped. No way for an agent to know it failed without verifying independently. | Independent of the underlying endpoint fix: after save, read back `len(params.steps)` and warn if it differs from input. |
+
+### Gotchas Hit (4 issues)
+
+- **Tried**: `PUT /projects/SOL_SAS_INVENTORY_SCORER/app-manifest` with a full manifest body.
+  - **Failed**: `jakarta.servlet.ServletException: Handler dispatch failed: java.lang.AssertionError, caused by: AssertionError: null`
+  - **Fix**: Set `project_settings.raw["projectAppType"] = "APP_TEMPLATE"` and `save()` first; then the PUT succeeds.
+  - **Document in**: CLAUDE.md Critical Gotchas + new `references/app-designer.md` + (if a `dku app convert-to-template` is added) a clear error message when the project isn't yet an app.
+
+- **Tried**: Same PUT with the project now as APP_TEMPLATE, but minimal body (only `useAppHomepage`, `homepageSections`, `instanceFeatures`, `projectExportManifest`).
+  - **Failed**: Same `AssertionError: null` — zero signal about what was missing.
+  - **Fix**: Add `id`, `label`, `shortDesc`, `instantiationPermission`, `accessRequestsEnabled`, `limitedVisibilityEnabled`, `showInitials`, `imgPattern`, `tags`, `allowedMissingCodeEnvs`, `allowedMissingConnections`. Mirror from `client._perform_json("GET", "/apps/PROJECT_X/")` on any existing app.
+  - **Document in**: reference doc with a ready-to-use skeleton.
+
+- **Tried**: Tile type `"DATASET_EXPLORE"` (seemed natural for "let user explore this dataset").
+  - **Failed**: `IllegalArgumentException: Invalid tile type "DATASET_EXPLORE"` (at least this error is prescriptive).
+  - **Fix**: Use `DOWNLOAD_DATASET` with `exportParams.format.type = "csv"`. No "view this dataset" tile exists.
+  - **Document in**: valid-tile-types table in reference doc.
+
+- **Tried**: `dku scenario set-definition Build_X -d @file.json` and assumed it worked.
+  - **Failed**: Steps count was 0 after save despite no error message.
+  - **Fix**: Use dataikuapi directly: `scenario.get_settings()` → mutate `.get_raw()["params"]["steps"]` → `.save()`.
+  - **Document in**: CLAUDE.md gotchas + fix the CLI so this workaround isn't needed.
+
+### dataikuapi Discoveries
+
+| Quirk | Details | Add to CLAUDE.md? |
+|-------|---------|-------------------|
+| `project.get_app_manifest()` fails if `projectAppType != APP_TEMPLATE` | No dedicated "convert" endpoint — flip the flag on project settings, then manifest endpoints start working. | Yes — high-value gotcha (recurring) |
+| `/projects/X/app-manifest` supports only GET and PUT | POST returns 405. PUT is idempotent upsert once the project is APP_TEMPLATE. | Yes — reference doc |
+| `DSSAppManifest.save()` only works if manifest was fetched via `project.get_app_manifest()` | `DSSApp.get_manifest()` returns manifest with `project_key=None` (unless app_id starts with `PROJECT_`), and `.save()` raises. | Worth a line |
+| `DSSScenarioSettings.save()` (full) vs `DSSScenario.set_definition()` (header-only) | Two endpoints, wildly different behavior. The CLI picked the wrong one. | Already scheduled as CLI fix — CLAUDE.md line worth adding |
+
+### Built-In Feature Misses
+
+Nothing to report — pure app-template authoring. The task genuinely required app-manifest editing.
+
+### Recommended Changes (ranked by agent impact)
+
+1. **Fix `dku scenario set-definition` to actually use `DSSScenarioSettings.save()`** — `src/dku_cli/commands/scenario.py:276`. Currently calls `scenario.set_definition()` (legacy), contradicting its own docstring. Silently loses work for every agent authoring step-based scenarios via the CLI.
+2. **Add `dku app convert-to-template` and `dku app set-manifest -d @file.json`** — closes the biggest capability gap. Every app-authoring workflow currently forces a drop to raw `dataikuapi`.
+3. **Add `dataiku-devkit/skills/dataiku/references/app-designer.md`** — projectAppType flip, required manifest scalars with working skeleton, authoritative valid-tile-types list with rejection callouts, tile-binding fields, minimal end-to-end Python snippet. Link from router in `dataiku/SKILL.md`.
+4. **Add CLAUDE.md Critical Gotcha**: "App manifest PUT requires `projectAppType = APP_TEMPLATE` on project settings first — otherwise PUT returns opaque `AssertionError: null`." With prescriptive fix snippet.
+5. **Fix `dku scenario run --wait`** to actually wait for the run outcome (currently returns "outcome not available" even for successfully-completed runs). Poll `DSSScenarioRun.get_info()["result"]["outcome"]`.
+6. **Make `dku scenario get-definition` use the full-settings endpoint** so agents can verify their step-based scenarios after saving without dropping to Python.
+7. **Add `list-files` alias for `dku folder ls`** — nice-to-have.
+
+---
