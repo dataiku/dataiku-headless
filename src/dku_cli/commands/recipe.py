@@ -567,7 +567,7 @@ def run(
             exit_with_error(
                 f"Recipe '{recipe_name}' {state.lower()} (job {job_id}).",
                 code="job_failed",
-                status=1,
+                status=4,
                 details=details,
             )
     except typer.Exit:
