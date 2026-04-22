@@ -120,6 +120,16 @@ dku job log "$(dku job list -P PROJ -o json | jq -r '.[0].id')" -P PROJ | grep -
 
 The log dumps the generated SQL around the failure — you'll see your GREL expression compiled into a CASE/CAST that chose the wrong type. The fix is almost always one of the replacements in the table above.
 
+### Checking the selected engine
+
+DSS logs the selected engine twice — once pre-run and once post-reselection:
+
+```bash
+dku job log <JOB_ID> -P PROJ 2>&1 | grep -i "selected engine\|engines ok"
+```
+
+If `After reselection, selectedEngine is DSS` appears on a recipe that should push down, some formula in the recipe is not translatable (e.g. single-arg `strval(col)`) and DSS fell back to in-memory execution — the output column may end up empty even though the job succeeds.
+
 ---
 
 ## Common engine-specific recipe mistakes
