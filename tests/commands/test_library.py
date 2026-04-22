@@ -151,3 +151,111 @@ def test_library_list_csv(patch_client):
     result = runner.invoke(app, ["library", "list", "--project", "PROJ1", "-o", "csv"])
     assert result.exit_code == 0
     assert "utils.py" in result.output
+
+
+# ── sync ────────────────────────────────────────────────────────────────
+
+
+def test_library_sync_basic(patch_client, tmp_path):
+    """Sync a local dir with 2 files to the library."""
+    (tmp_path / "utils.py").write_text("print('hello')")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "module.py").write_text("import os")
+
+    result = runner.invoke(
+        app,
+        ["library", "sync", str(tmp_path), "/", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Synced 2 file(s)" in result.output
+
+
+def test_library_sync_dry_run(patch_client, tmp_path):
+    """Dry-run should not upload, but report what would happen."""
+    (tmp_path / "data.py").write_text("x = 1")
+
+    result = runner.invoke(
+        app,
+        ["library", "sync", str(tmp_path), "/", "--project", "PROJ1", "--dry-run"],
+    )
+    assert result.exit_code == 0
+    assert "(dry-run)" in result.output
+    assert "Would upload" in result.output
+    assert "Would sync 1 file(s)" in result.output
+
+
+def test_library_sync_exclude(patch_client, tmp_path):
+    """Exclude patterns should skip matching files."""
+    (tmp_path / "keep.py").write_text("keep")
+    (tmp_path / "skip.log").write_text("skip")
+
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "sync",
+            str(tmp_path),
+            "/",
+            "--project",
+            "PROJ1",
+            "--exclude",
+            "*.log",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Synced 1 file(s)" in result.output
+
+
+def test_library_sync_default_excludes(patch_client, tmp_path):
+    """Default excludes (.git, __pycache__, *.pyc) should be skipped."""
+    (tmp_path / "good.py").write_text("ok")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "bad.pyc").write_text("cached")
+    (tmp_path / ".DS_Store").write_text("ds")
+    (tmp_path / "also_bad.pyc").write_text("pyc")
+
+    result = runner.invoke(
+        app,
+        ["library", "sync", str(tmp_path), "/", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Synced 1 file(s)" in result.output
+
+
+def test_library_sync_with_remote_dir(patch_client, tmp_path):
+    """Sync to a specific remote subdirectory."""
+    (tmp_path / "app.py").write_text("run()")
+
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "sync",
+            str(tmp_path),
+            "webapps/my_app",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Synced 1 file(s)" in result.output
+
+
+def test_library_sync_nonexistent_dir(patch_client):
+    """Sync from non-existent local dir should error."""
+    result = runner.invoke(
+        app,
+        ["library", "sync", "/nonexistent/path", "/", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output
+
+
+def test_library_sync_empty_dir(patch_client, tmp_path):
+    """Sync from empty dir should report no files."""
+    result = runner.invoke(
+        app,
+        ["library", "sync", str(tmp_path), "/", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "No files to sync" in result.output
