@@ -181,6 +181,36 @@ def test_recipe_run_auto_update_schema(patch_client):
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
 
 
+def test_recipe_run_failure_prints_log_command(patch_client):
+    """When the recipe run fails, the CLI must print the job ID and a
+    copy-paste 'dku job log' command so the agent can inspect the failure
+    without extra discovery calls."""
+    proj = patch_client.get_project("PROJ1")
+    started_job = proj.new_job.return_value.start.return_value
+    started_job.id = "Build_failed_123"
+    started_job.get_status.return_value = {"baseStatus": {"state": "FAILED"}}
+
+    result = runner.invoke(
+        app, ["recipe", "run", "recipe1", "--wait", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 4, result.output
+    assert "Build_failed_123" in result.output
+    assert "dku job log Build_failed_123" in result.output
+    assert "PROJ1" in result.output
+
+
+def test_recipe_run_always_uses_builder_path(patch_client):
+    """Even without --type or --auto-update-schema, run uses the job builder
+    path (not recipe.run()) so the job ID is known on failure."""
+    result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    # The builder was invoked with the default job type
+    proj.new_job.assert_called_with("NON_RECURSIVE_FORCED_BUILD")
+    builder = proj.new_job.return_value
+    builder.start.assert_called_once()
+
+
 # --- New commands ---
 
 
@@ -953,7 +983,7 @@ def test_recipe_add_input(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "Added input" in result.output
+    assert "Added dataset 'extra_input'" in result.output
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
     settings = recipe.get_settings()
     settings.add_input.assert_called_once_with("main", "extra_input")
@@ -2419,8 +2449,120 @@ def test_recipe_create_pivot_with_agg_type(patch_client):
     assert result.exit_code == 0
     pivots = settings.obj_payload["pivots"]
     assert pivots[0]["keyColumns"] == ["month"]
-    assert pivots[0]["valueColumns"] == [{"column": "revenue", "function": "SUM"}]
+    # DSS pivot valueColumns are GroupingValue objects — aggregation is a
+    # BOOLEAN flag (`sum`, `avg`, ...), NOT a `function` string. Writing
+    # `function: "SUM"` is silently accepted but produces no sum columns.
+    vc = pivots[0]["valueColumns"][0]
+    assert vc["column"] == "revenue"
+    assert vc["type"] == "double"
+    assert vc["sum"] is True
+    assert vc["avg"] is False
+    assert vc["count"] is False
+    # UI-normalized modality defaults — without these DSS crashes with
+    # "Unexpected value limit on modality collection" at runtime
+    assert pivots[0]["valueLimit"] == "TOP_N"
+    assert pivots[0]["topnLimit"] == 20
     assert settings.obj_payload["explicitIdentifiers"] == ["product"]
+
+
+def test_recipe_create_pivot_custom_value_limit(patch_client):
+    """--value-limit NO_LIMIT and --topn-limit override the UI defaults."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--value-limit",
+            "NO_LIMIT",
+            "--topn-limit",
+            "50",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pivots = settings.obj_payload["pivots"]
+    assert pivots[0]["valueLimit"] == "NO_LIMIT"
+    assert pivots[0]["topnLimit"] == 50
+
+
+def test_recipe_create_pivot_min_occ_limit(patch_client):
+    """--value-limit AT_LEAST_N_OCC + --min-occ-limit configures the occurrence filter."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--value-limit",
+            "AT_LEAST_N_OCC",
+            "--min-occ-limit",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pivots = settings.obj_payload["pivots"]
+    assert pivots[0]["valueLimit"] == "AT_LEAST_N_OCC"
+    assert pivots[0]["minOccLimit"] == 5
+
+
+def test_recipe_create_pivot_invalid_value_limit(patch_client):
+    """--value-limit with unknown value gives error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--value-limit",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Unknown --value-limit" in result.output
 
 
 def test_recipe_create_pivot_no_global_count(patch_client):
@@ -5329,3 +5471,168 @@ def test_recipe_add_geodistance_default_output(patch_client):
     assert result.exit_code == 0
     step = settings.obj_payload["steps"][0]
     assert step["params"]["output_column"] == "geo_distance"
+
+
+def test_recipe_add_input_folder_by_name_resolves_to_id(patch_client):
+    """Folder name → folder ID resolution on add-input."""
+    proj = patch_client.get_project("PROJ1")
+    # Ensure "Data Folder" is not a dataset — auto-detect should pick folder
+    ds_mock = MagicMock()
+    ds_mock.get_definition.side_effect = Exception("NotFoundException")
+    default_ds = proj.get_dataset.return_value
+
+    def get_dataset(ref):
+        if ref == "Data Folder":
+            return ds_mock
+        return default_ds
+
+    proj.get_dataset.side_effect = get_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "Data Folder",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "folder 'folder1'" in result.output
+    recipe = proj.get_recipe("recipe1")
+    settings = recipe.get_settings()
+    settings.add_input.assert_called_once_with("main", "folder1")
+
+
+def test_recipe_add_input_saved_model_defaults_role_model(patch_client):
+    """Saved model name → model ID, role defaults to 'model'."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "My Model",
+            "--type",
+            "SAVED_MODEL",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "saved model 'model1'" in result.output
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    settings = recipe.get_settings()
+    settings.add_input.assert_called_once_with("model", "model1")
+
+
+def test_recipe_add_input_rejects_unknown_ref(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    # Nothing in the project matches "does_not_exist_anywhere"
+    ds_mock = MagicMock()
+    ds_mock.get_definition.side_effect = Exception("NotFoundException")
+    default_ds = proj.get_dataset.return_value
+
+    def get_dataset(ref):
+        if ref == "does_not_exist_anywhere":
+            return ds_mock
+        return default_ds
+
+    proj.get_dataset.side_effect = get_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "does_not_exist_anywhere",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 3
+    assert "not a dataset, managed folder, or saved model" in result.output
+
+
+def test_recipe_add_input_explicit_type_dataset(patch_client):
+    """--type DATASET skips folder/model probing."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-input",
+            "recipe1",
+            "extra_input",
+            "--type",
+            "DATASET",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_recipe_create_scoring_requires_model(patch_client):
+    """clustering_scoring must be rejected when --model is omitted."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "score_it",
+            "-t",
+            "clustering_scoring",
+            "-i",
+            "input_ds",
+            "--output-ds",
+            "scored",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "requires a saved model" in result.output
+    assert "--model" in result.output
+
+
+def test_agent_tool_create_kb_resolves_name_to_id(patch_client):
+    """--kb NAME must resolve to the KB id via list_knowledge_banks."""
+    proj = patch_client.get_project("PROJ1")
+    # Seed knowledge bank list so name→ID resolution works
+    proj.list_knowledge_banks.return_value = [
+        {"id": "kb_id_123", "name": "my_kb"},
+    ]
+    # Make get_knowledge_bank(name).get_settings() raise to force fallback
+    kb_mock_by_name = MagicMock()
+    kb_mock_by_name.get_settings.side_effect = Exception("NotFoundException")
+    kb_mock_by_id = MagicMock()
+    kb_mock_by_id.id = "kb_id_123"
+    kb_mock_by_id.get_settings.return_value = MagicMock()
+
+    def get_kb(ref):
+        if ref == "kb_id_123":
+            return kb_mock_by_id
+        return kb_mock_by_name
+
+    proj.get_knowledge_bank.side_effect = get_kb
+
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "search_tool",
+            "--type",
+            "VectorStoreSearch",
+            "--kb",
+            "my_kb",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    builder = proj.new_agent_tool.return_value
+    builder.with_knowledge_bank.assert_called_once_with("kb_id_123")

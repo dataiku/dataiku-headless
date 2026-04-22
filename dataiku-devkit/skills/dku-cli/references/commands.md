@@ -21,6 +21,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [code-env](#code-env) — list, get, create, delete, update
 - [connection](#connection) — list, get, create, delete, test
 - [model](#model) — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata
+- [ml](#ml) — create-prediction, create-clustering, create-timeseries, create-causal, list, status, settings, algorithms, set-algorithm, set-feature, train, models, details, deploy, redeploy, delete
 - [folder](#folder) — list, ls, upload, download, create, delete, delete-file, get, create-dataset, set-metadata
 - [llm](#llm) — list, completion, embeddings
 - [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
@@ -57,7 +58,7 @@ Manage DSS authentication profiles. No project needed.
 ```bash
 dku auth login [--profile NAME] [--url URL] [--api-key KEY]
 dku auth logout [--profile NAME] [--all]
-dku auth status
+dku auth status [-o text|json]
 dku auth list
 dku auth switch PROFILE
 ```
@@ -91,7 +92,7 @@ dku project export PROJECT_KEY [--dest DIR]
 dku project create PROJECT_KEY --name NAME [--description DESC] [--if-not-exists] [-o FORMAT]
 dku project delete PROJECT_KEY --yes [--drop-data]
 dku project duplicate PROJECT_KEY --target-key KEY --target-name NAME [-o FORMAT]
-dku project set-metadata PROJECT_KEY [--name NAME] [--description DESC]
+dku project set-metadata PROJECT_KEY [--name NAME] [--description DESC] [--tags a,b,c]
 dku project variables [-P PROJECT] [-o FORMAT]
 dku project set-variables [-P PROJECT] --set key=value [--set key2=value2]
 dku project set-variables [-P PROJECT] --definition JSON
@@ -182,7 +183,7 @@ dku recipe create-filter NAME -i DS --output-ds OUT --filter-formula EXPR [--act
 dku recipe create-window NAME -i DS --output-ds OUT [--partition-col COL] [--order-col COL] [-P PROJECT]  # Window functions
 dku recipe create-split NAME -i DS --output-ds OUT [-P PROJECT]            # Split by condition
 dku recipe create-topn NAME -i DS --output-ds OUT [--sort-col COL] [--n N] [-P PROJECT]  # Top/bottom N rows
-dku recipe create-pivot NAME -i DS --output-ds OUT [--row-key COL] [--column-key COL] [-P PROJECT]  # Pivot (long→wide)
+dku recipe create-pivot NAME -i DS --output-ds OUT [--row-key COL] [--column-key COL] [--value-column COL] [--agg-type SUM|AVG|...] [--value-limit TOP_N|NO_LIMIT|AT_LEAST_N_OCC] [--topn-limit N] [--min-occ-limit N] [-P PROJECT]  # Pivot (long→wide)
 dku recipe create-sampling NAME -i DS --output-ds OUT [--method METHOD] [--size N] [-P PROJECT]     # Random sample
 dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL [-P PROJECT]       # Fold (wide→long)
 ```
@@ -190,7 +191,7 @@ dku recipe add-fold RECIPE --columns "c1,c2" --key-column KEY --value-column VAL
 - `create-join` requires 2+ inputs. `--join-type LEFT|INNER|RIGHT|CROSS` (default LEFT). `--join-key col` or `--join-key left=right` (repeatable). For multi-input joins, prefix with index: `--join-key 1:col`, `--join-key 2:col`. With N inputs the CLI creates N-1 join pairs (main ↔ input 1, main ↔ input 2, …)
 - `create-group -k col` sets first group key. Use `--agg col:sum,avg,count` to configure aggregation functions (repeatable). Without `--agg`, defaults to COUNT per group. DSS adds a per-group `count` column by default — pass `--no-global-count` to suppress it when you want only the explicit aggregates in the output
 - `create-distinct` deduplicates on **all input columns by default** (matching `df.drop_duplicates()` semantics). Use `--on col1 --on col2` to dedup on a subset. Passing no `--on` flag reads the input schema and wires every column as a key
-- `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional
+- `create-pivot` transposes rows into columns. `--row-key` (repeatable), `--column-key`, `--value-column` optional. Always emits `payload.pivots[0].valueLimit = "TOP_N"` + `topnLimit = 20` to match the DSS UI — without these, DSS crashes at build time with `Unexpected value limit on modality collection`. Valid `--value-limit` values: `TOP_N` (keep top N by frequency, default), `NO_LIMIT` (keep every distinct column-key value), `AT_LEAST_N_OCC` (keep modalities seen at least `--min-occ-limit N` times). Aggregation is stored as **boolean flags** on each value column (`sum: true`, `avg: true`, ...) — NOT as a `function` string. The CLI writes `{column, type: "double", sum/avg/min/max/count/count_distinct/concat/stddev: bool}` to match the UI. Writing `function: "SUM"` would be silently accepted by the API but produce a recipe that builds with no aggregated columns
 - `create-sampling` takes a sample. `--method`: RANDOM_FIXED_NB (default), RANDOM_FIXED_RATIO, HEAD_SEQUENTIAL, STRATIFIED. `--size N` or `--ratio 0.1`
 - `add-fold` unpivots columns into rows (wide→long). Use `--columns` for explicit list or `--pattern` for regex match
 - `create-sort --sort-col COL` sets sort columns at creation (repeatable). Use `COL` for ascending or `COL:desc` for descending
@@ -286,7 +287,7 @@ dku recipe status RECIPE_NAME [-P PROJECT] [-o FORMAT]             # Engine, sev
 dku recipe set-code RECIPE_NAME --code CODE|-|@file.py [-P PROJECT]
 dku recipe get-code RECIPE_NAME [-P PROJECT] [-o text|json]
 dku recipe set-definition RECIPE_NAME {--definition JSON | --payload JSON} [--deep-merge] [-P PROJECT]
-dku recipe add-input RECIPE_NAME DS [--role main] [-P PROJECT]
+dku recipe add-input RECIPE_NAME REF [--type DATASET|MANAGED_FOLDER|SAVED_MODEL] [--role ROLE] [-P PROJECT]
 dku recipe add-output RECIPE_NAME DS [--role main] [-P PROJECT]
 dku recipe check-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
@@ -294,6 +295,8 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 
 - `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
+- `create -t prediction_scoring` and `create -t clustering_scoring` REQUIRE `--model SAVED_MODEL_ID_OR_NAME`. The model is auto-wired as a `model`-role input after creation. Omitting it errors before the server call
+- `add-input REF` — `REF` can be a dataset name, managed folder (name or ID), or saved model (ID or name). When `--type` is omitted, the CLI auto-detects by probing the project and errors on ambiguity. For saved models, `--role` defaults to `model`. Folder names are resolved to IDs before writing the ref (DSS stores folder refs as IDs)
 - `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
 - `set-code` accepts `--code @file.py` to read from file, or `--code -` to read from stdin
 - `get-code` only works on code recipes (python, sql, r, shell, pyspark, sparkr, cpython). For visual recipes (prepare/shaker, join, group, etc.) use `get-settings` to inspect the recipe definition
@@ -475,6 +478,34 @@ dku model create-external NAME -t PREDICTION_TYPE --protocol PROTO [--connection
 - `import-mlflow` imports a MLflow model version from a local path. Model must have been created with `create-mlflow`. `--code-env` defaults to active env; set `INHERIT` for project default
 - `create-external` creates a saved model for remote endpoints (SageMaker, Databricks, Azure ML, Vertex AI). `--protocol` is required. Use `--config` for full JSON config override
 
+## ml
+
+Train visual-ML models (prediction, clustering, timeseries, causal). Prefer these over Python.
+
+```bash
+dku ml create-prediction --input DS --target COL [--name NAME] [-P PROJECT]
+dku ml create-clustering --input DS [--name NAME] [-P PROJECT]
+dku ml create-timeseries --input DS --target COL --time-col COL [-P PROJECT]
+dku ml create-causal --input DS --treatment COL --outcome COL [-P PROJECT]
+dku ml list [-P PROJECT] [-o FORMAT]
+dku ml status ANALYSIS MLTASK [-P PROJECT]
+dku ml settings ANALYSIS MLTASK [-P PROJECT] [-o FORMAT]
+dku ml algorithms ANALYSIS MLTASK [-P PROJECT] [-o FORMAT]
+dku ml set-algorithm ANALYSIS MLTASK [--enable ALG]... [--disable ALG]... [--disable-all] [-P PROJECT]
+dku ml set-feature ANALYSIS MLTASK FEATURE --role INPUT|REJECT|TARGET|WEIGHT [-P PROJECT]
+dku ml train ANALYSIS MLTASK [-P PROJECT] [--wait]
+dku ml models ANALYSIS MLTASK [-P PROJECT] [-o FORMAT]
+dku ml details MODEL_ID [-P PROJECT] [-o FORMAT]
+dku ml deploy MODEL_ID --name NAME [-P PROJECT]
+dku ml redeploy MODEL_ID --saved-model-id SM_ID [-P PROJECT]
+dku ml delete ANALYSIS MLTASK [--yes|-y] [-P PROJECT]
+```
+
+- **After `create-prediction`, ALWAYS audit `dku ml settings`** for label-leaking columns. Auto-guess does not detect leakage. Reject leaky columns with `dku ml set-feature ANALYSIS MLTASK COL --role REJECT` before training
+- `set-feature --role REJECT` disables a column as input without rebuilding the upstream dataset. Use for label leakage, post-event columns, high-cardinality IDs
+- `delete` prompts for confirmation; use `--yes` / `-y` for non-interactive
+- To apply a saved clustering/prediction model to a dataset, see `references/recipe-decision.md` → "Scoring a Saved Model"
+
 ## folder
 
 Managed folders. Commands accept folder ID (8-char hash) or folder name.
@@ -595,6 +626,9 @@ dku dashboard set-metadata DASHBOARD_ID [-P PROJECT] [--description DESC] [--sho
 - No create via API for individual tiles/charts — manage via the raw JSON definition
 - `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
 - Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
+- **URL anatomy:** `/dashboards/<dashboardId>_<slug>/view/<pageId>` maps to `dashboard.id` and `pages[].id`. Paste the URL path to locate a specific page in `get-definition` output
+- **Filter-page dataset binding** can live at `pages[i].filtersParams.datasetSmartName`, not only inside filter insight definitions. Check both paths when tracing which dataset a filter targets
+- **Always verify after `set-definition`** — DSS normalizes the payload on save. `TEXT` tile `tileParams.htmlContent` can be silently dropped. Follow every `set-definition` with a `get-definition` re-read and `diff` to confirm what actually persisted
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
 - See `skills/dataiku/references/dashboard-charts.md` for full chart JSON anatomy
 
@@ -649,6 +683,7 @@ dku insight set-metadata INSIGHT_ID [-P PROJECT] [--description DESC] [--short-d
 - `--dataset` / `--ds` binds the insight to a dataset (sets `params.datasetSmartName`). Required for chart/dataset_table types
 - `--definition` overrides/extends creation info (merged with `--type` and name)
 - `validate` checks chart column references against the dataset schema (client-side). Reports mismatches with fuzzy suggestions
+- **Never hand-write a full `dataset_table` payload.** DSS's `shakerScript` schema has nested objects that vary across versions (e.g. `columnOrder` expects objects, not strings). Clone the live default first: `dku insight create NAME --type dataset_table --dataset DS -P PROJ && dku insight get-definition ID -P PROJ -o json > table.json`, then only edit `params.shakerScript.columnsSelection` / `sorting` / `previewMode` before `set-definition`. See `skills/dataiku/references/dashboard-charts.md` for the safe-to-edit field list
 
 ## macro
 
@@ -676,7 +711,7 @@ dku user add-secret LOGIN --name NAME --value VALUE        # Add/replace a user 
 ```bash
 dku flow graph [-P PROJECT] [-o FORMAT]
 dku flow visualize [-P PROJECT]
-dku flow zones [-P PROJECT] [-o FORMAT]
+dku flow zones [-P PROJECT] [-o FORMAT]    # JSON output includes `items[]` per zone: {objectType, objectId, projectKey}
 dku flow create-zone NAME [--color HEX] [-P PROJECT]
 dku flow set-zone ZONE_REF [--name NAME] [--color HEX] [-P PROJECT]
 dku flow move ITEM [ITEM2 ...] --zone ZONE [-t TYPE] [-P PROJECT]
@@ -961,7 +996,7 @@ dku knowledge get KB_REF [-P PROJECT] [-o FORMAT]
 dku knowledge set-definition KB_REF --definition JSON|@file.json|- [-P PROJECT]
 dku knowledge build KB_REF [-P PROJECT] [--wait]
 dku knowledge search KB_REF --query TEXT [--max N] [-P PROJECT] [-o FORMAT]
-dku knowledge delete KB_REF [-P PROJECT]
+dku knowledge delete KB_REF [--yes|-y] [-P PROJECT]
 ```
 
 - All commands (except `list`, `create`) accept knowledge bank ID **or name** — name is resolved via list fallback

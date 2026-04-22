@@ -436,10 +436,13 @@ def set_metadata(
     description: Optional[str] = typer.Option(
         None, "--description", "-d", help="New short description"
     ),
+    tags: Optional[str] = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
 ) -> None:
-    """Update project name and/or description."""
-    if name is None and description is None:
-        error("Provide --name and/or --description to update.")
+    """Update project name, description, and/or tags."""
+    if name is None and description is None and tags is None:
+        error("Provide --name, --description, and/or --tags to update.")
         raise typer.Exit(1)
     try:
         client = get_client_from_ctx(ctx)
@@ -450,6 +453,8 @@ def set_metadata(
             meta["label"] = name
         if description is not None:
             meta["shortDesc"] = description
+        if tags is not None:
+            meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
 
         proj.set_metadata(meta)
         success(f"Updated metadata for {project_key}")

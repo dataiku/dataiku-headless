@@ -407,11 +407,13 @@ None of above?      → create -t python
 
 ### Deletion Commands
 
-Both prompt by default. Use `--yes` / `-y` to skip confirmation:
+All `delete` verbs prompt by default; use `--yes` / `-y` for non-interactive:
 ```bash
 dku dataset delete DS -P PROJ --yes
 dku recipe delete RECIPE -P PROJ --yes
 dku project delete PROJ --yes
+dku knowledge delete KB -P PROJ --yes
+dku ml delete ANALYSIS MLTASK -P PROJ --yes
 ```
 
 ### Chaining Rule
@@ -453,6 +455,7 @@ dku dataset schema SOURCE_DS -P PROJ
 | `references/recipe-examples.md` | Detailed visual recipe code |
 | `references/agent-patterns.md` | Agent + tool creation |
 | `references/genai-recipes.md` | Embedding, RAG, KB, LLM |
+| `references/prompt-recipe-payload.md` | Full payload schema for `dku recipe create -t prompt` |
 | `references/prepare-steps.md` | Prepare steps with add-step |
 | `references/dashboard-patterns.md` | Charts, dashboards |
 | `references/sql-engines.md` | SQL landing, GREL push-down |

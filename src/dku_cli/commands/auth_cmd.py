@@ -23,7 +23,14 @@ from dku_cli.config import (
     set_default_project,
     set_profile_config,
 )
-from dku_cli.output import console, error, info, success
+from dku_cli.output import (
+    console,
+    error,
+    info,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS authentication profiles.")
 
@@ -159,8 +166,14 @@ def logout(
 
 
 @app.command()
-def status(ctx: typer.Context) -> None:
+def status(
+    ctx: typer.Context,
+    output: str | None = typer.Option(
+        None, "-o", "--output", help="Output format (text or json)"
+    ),
+) -> None:
     """Show current authentication status."""
+    fmt = resolve_output_format(output)
     opts = ctx.obj or {}
     profile = opts.get("profile") or get_active_profile()
     flag_url = opts.get("url")
@@ -169,8 +182,18 @@ def status(ctx: typer.Context) -> None:
     try:
         url, api_key = resolve_auth(url=flag_url, api_key=flag_api_key, profile=profile)
     except Exception:
-        error(f'Profile "{profile}" is not fully configured.')
-        error("Run 'dku auth login' to set up.")
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "status": "not_configured",
+                    "error": "Profile is not fully configured",
+                },
+                output_format=fmt,
+            )
+        else:
+            error(f'Profile "{profile}" is not fully configured.')
+            error("Run 'dku auth login' to set up.")
         raise typer.Exit(1)
 
     url_source, api_key_source = _resolve_auth_sources(
@@ -191,6 +214,37 @@ def status(ctx: typer.Context) -> None:
             version = "unknown"
             node_type = "unknown"
 
+        project_ok: bool | None = None
+        project_error: str | None = None
+        if project_key:
+            try:
+                client.get_project(project_key).get_metadata()
+                project_ok = True
+            except Exception as exc:
+                project_ok = False
+                project_error = str(exc)
+
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "url": url,
+                    "url_source": url_source,
+                    "api_key_source": api_key_source,
+                    "user": user,
+                    "groups": groups,
+                    "dss_version": version,
+                    "node_type": node_type,
+                    "project": project_key,
+                    "project_source": project_source,
+                    "project_ok": project_ok,
+                    "project_error": project_error,
+                    "status": "connected",
+                },
+                output_format=fmt,
+            )
+            return
+
         console.print(f"[bold]Profile:[/bold]  {profile}")
         console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
         console.print(f"[bold]URL Src:[/bold]  {url_source}")
@@ -201,22 +255,32 @@ def status(ctx: typer.Context) -> None:
         console.print(f"[bold]DSS:[/bold]      {version} ({node_type})")
         if project_key:
             console.print(f"[bold]Project:[/bold]  {project_key} [{project_source}]")
-            try:
-                client.get_project(project_key).get_metadata()
+            if project_ok:
                 console.print(
                     f"[bold]Project OK:[/bold] [green]{ICON} Accessible[/green]"
                 )
-            except Exception as exc:
+            else:
                 console.print(
-                    f"[bold]Project OK:[/bold] [red]{ICON} Error: {exc}[/red]"
+                    f"[bold]Project OK:[/bold] [red]{ICON} Error: {project_error}[/red]"
                 )
         else:
             console.print("[bold]Project:[/bold]  none configured")
         console.print(f"[bold]Status:[/bold]   [green]{ICON} Connected[/green]")
     except Exception as e:
-        console.print(f"[bold]Profile:[/bold]  {profile}")
-        console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
-        console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
+        if fmt == "json":
+            render_raw(
+                {
+                    "profile": profile,
+                    "url": url,
+                    "status": "error",
+                    "error": str(e),
+                },
+                output_format=fmt,
+            )
+        else:
+            console.print(f"[bold]Profile:[/bold]  {profile}")
+            console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
+            console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
         raise typer.Exit(1)
 
 
