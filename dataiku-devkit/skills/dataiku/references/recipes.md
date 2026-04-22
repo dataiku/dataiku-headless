@@ -175,9 +175,16 @@ custom-recipes/
 | `PYTHON` | Python recipe |
 | `R` | R recipe |
 | `SPARK` | PySpark recipe |
-| `SQL` | SQL query recipe |
+| `SQL` | SQL query recipe (see notes below) |
 | `IMPALA` | Impala SQL |
 | `HIVE` | Hive SQL |
+
+#### SQL Query Recipe Notes
+
+- **CTEs work on Snowflake** (verified on DSS 14.5) — both single and multi-CTE patterns succeed. CTE support may vary by database engine.
+- **Use actual database table names** in SQL code, not DSS dataset names. Check with `dku connection tables CONN -P PROJ` to find the real table name (typically `PROJKEY_DATASET_NAME` in a schema like `PUBLIC`).
+- **Only SELECT statements** — SQL query recipes produce output datasets; they don't support INSERT/UPDATE/DELETE or DDL.
+- **Input datasets must be SQL-backed** — Filesystem or S3 datasets cannot be used as SQL recipe inputs.
 
 #### Input/Output Roles
 

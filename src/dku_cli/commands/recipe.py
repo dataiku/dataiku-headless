@@ -1439,6 +1439,43 @@ def add_step(
         steps = _ensure_steps_array(settings)
 
         parsed_params = read_json_input(params)
+
+        # Catch the "Empty column name" trap: several date processors use
+        # inCol/outCol, but agents often pass column/outputColumn from older
+        # docs. DSS returns a misleading "Empty column name" error that makes
+        # agents assume the processor doesn't exist.
+        _INCOL_PROCESSORS = {
+            "DateFormatter": ("format", "yyyy-MM-dd HH:mm:ss"),
+            "DateTruncate": ("datePart", "MONTH"),
+            "UNIXTimestampParser": ("milliseconds", False),
+        }
+        if step_type in _INCOL_PROCESSORS and isinstance(parsed_params, dict):
+            has_wrong = "column" in parsed_params or "outputColumn" in parsed_params
+            has_right = "inCol" in parsed_params
+            if has_wrong and not has_right:
+                extra_key, extra_val = _INCOL_PROCESSORS[step_type]
+                example = {
+                    "inCol": parsed_params.get("column", "COL"),
+                    "outCol": parsed_params.get("outputColumn", "NEW_COL"),
+                    extra_key: extra_val,
+                }
+                exit_with_error(
+                    f"Processor '{step_type}' expects 'inCol'/'outCol' (not 'column'/'outputColumn').",
+                    code="wrong_param_names",
+                    details=[
+                        "DSS returns a misleading 'Empty column name' error when these field names are wrong.",
+                        f"Correct params: {json.dumps(example)}",
+                        "See: dataiku skill's references/prepare-processors.md",
+                    ],
+                )
+
+        # Warn about DateParser without outCol (silently produces all nulls)
+        if step_type == "DateParser" and "outCol" not in parsed_params:
+            warn(
+                "DateParser without 'outCol' silently produces all nulls. "
+                "Add outCol to write to a new column."
+            )
+
         step_dict: dict = {
             "metaType": "PROCESSOR",
             "type": step_type,

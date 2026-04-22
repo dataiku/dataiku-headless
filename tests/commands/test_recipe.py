@@ -3559,6 +3559,142 @@ def test_recipe_add_step_wrong_type(patch_client):
     assert "not 'prepare'" in result.output
 
 
+def test_recipe_add_step_dateformatter_wrong_param_names_rejected(patch_client):
+    """DateFormatter with legacy 'column'/'outputColumn' must be caught before it
+    hits DSS (which returns a misleading 'Empty column name' error). Correct
+    params are inCol/outCol."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateFormatter",
+            "--params",
+            '{"column":"ts","outputColumn":"fmt","format":"yyyy-MM-dd","timezone_id":"UTC"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "inCol" in result.output
+    assert "Empty column name" in result.output
+    settings.save.assert_not_called()
+
+
+def test_recipe_add_step_datetruncate_wrong_param_names_rejected(patch_client):
+    """DateTruncate with legacy 'column' must be caught. Correct params use
+    inCol/outCol + datePart."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateTruncate",
+            "--params",
+            '{"column":"ts","unit":"DAY"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "inCol" in result.output
+    settings.save.assert_not_called()
+
+
+def test_recipe_add_step_unixtimestampparser_wrong_param_names_rejected(patch_client):
+    """UNIXTimestampParser with legacy 'column' must be caught. Correct params
+    use inCol/outCol + milliseconds (boolean)."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "UNIXTimestampParser",
+            "--params",
+            '{"column":"ts","unit":"SECONDS"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "inCol" in result.output
+    settings.save.assert_not_called()
+
+
+def test_recipe_add_step_dateformatter_correct_params_accepted(patch_client):
+    """DateFormatter with correct inCol/outCol params must pass CLI validation."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateFormatter",
+            "--params",
+            '{"inCol":"ts","outCol":"fmt","format":"yyyy-MM-dd","timezone_id":"UTC"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_step_warns_dateparser_no_outcol(patch_client):
+    """DateParser without outCol silently produces nulls — CLI should warn."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateParser",
+            "--params",
+            '{"appliesTo":"SINGLE_COLUMN","columns":["ts"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outType":{"name":"out","type":"date"}}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    # Should succeed but with a warning
+    assert result.exit_code == 0
+    assert "outCol" in result.output
+    assert "nulls" in result.output
+
+
+def test_recipe_add_step_dateparser_with_outcol_no_warning(patch_client):
+    """DateParser with outCol should not warn."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateParser",
+            "--params",
+            '{"appliesTo":"SINGLE_COLUMN","columns":["ts"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"parsed","outType":{"name":"out","type":"date"}}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "nulls" not in result.output
+
+
 # -- remove-step --
 
 
