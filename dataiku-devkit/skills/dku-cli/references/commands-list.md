@@ -38,7 +38,7 @@ Complete list of all `dku` command groups and verbs.
 | `notebook` | list, get, create, delete, sessions, stop, clear-outputs, history | Yes |
 | `discussion` | list, get, create, reply | Yes |
 | `knowledge` | list, create, get, set-definition, build, search, delete | Yes (accepts name or ID) |
-| `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index | Yes (accepts name or ID) |
+| `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index, add-entity, remove-entity, add-relationship, remove-relationship, add-glossary-term, remove-glossary-term, list-entities, list-relationships, list-glossary, add-metric, remove-metric, list-metrics, add-filter, remove-filter, list-filters, set-manual-values, add-golden-query, remove-golden-query, list-golden-queries | Yes (accepts name or ID). Splice verbs cover entities, relationships, metrics, filters, manual values, glossary, golden queries. |
 | `agent-hub` | list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop | Yes (auto-detects hub) |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages, **add-endpoint, list-endpoints, publish-package, delete-package** | Yes |

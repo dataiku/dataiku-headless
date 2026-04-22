@@ -44,6 +44,9 @@ triggers:
   - prepare recipe
   - computed column
   - dataiku formula
+  - semantic model
+  - text-to-sql
+  - sql generation agent
 globs:
   - "**/plugin.json"
   - "**/tool.json"
@@ -162,6 +165,7 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 | Govern (runtime: artifacts, signoffs, admin) | `references/govern.md` |
 | Govern Blueprint Designer (authoring: versions, fields, workflow, hooks, views) | `references/govern-blueprint-designer.md` |
 | Govern Custom Pages | `references/govern-custom-pages.md` |
+| Semantic Models (text-to-SQL) | `references/semantic-models.md` |
 
 ---
 

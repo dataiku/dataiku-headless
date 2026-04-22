@@ -203,6 +203,9 @@ Not validated server-side — wrong column names save but render blank charts. V
 ### Plugin Structure
 `python-agent-tools/`, `webapps/`, `custom-recipes/`, `python-runnables/`, `python-connectors/`, `python-lib/`, `code-env/`. See `skills/dataiku/references/plugin-structure.md`.
 
+### Semantic Model Schema
+`dataikuapi.dss.semantic_model` exposes `entities`, `relationships`, `goldenQueries`, `glossaryTerms`, `glossaryBindings` as **opaque dicts with no inner class definitions** — the schema is nowhere in the SDK or public docs. Relationship shape (verified DSS 14.4.3): `{"firstEntity","secondEntity","pseudoSQLExpression":"left.col = right.col"}` — three fields, no cardinality (inferred from `entity.primaryKey`). `set-version` is a **shallow merge** at the version top level — passing `{"relationships":[...]}` replaces the whole array. Always build one example in the UI → `get-version -o json` → templatize → `set-version @file`. Full schema in `dataiku-devkit/skills/dataiku/references/semantic-models.md`.
+
 ---
 
 ## dataikuapi Quirks
