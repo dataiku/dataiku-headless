@@ -173,3 +173,191 @@ def add_secret(
         success(f"Added secret '{name}' for user '{login}'")
     except Exception as e:
         handle_api_error(e)
+
+
+# =============================================================================
+# Bulk user ops — create_users / edit_users (admin only)
+# =============================================================================
+
+
+def _load_users_from_csv(path: str) -> list[dict]:
+    """Parse a CSV file into the user dicts expected by DSSClient.create_users().
+
+    Required header: login
+    Optional headers: password, displayName, email, groups, userProfile, sourceType
+    'groups' is a semicolon-separated list within the cell.
+    """
+    import csv
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.exists():
+        raise typer.BadParameter(f"CSV file not found: {path}")
+    users: list[dict] = []
+    with p.open(newline="") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames is None or "login" not in reader.fieldnames:
+            raise typer.BadParameter(
+                f"CSV must have a 'login' column. Found: {reader.fieldnames}"
+            )
+        for row in reader:
+            user = {k: v for k, v in row.items() if v != "" and v is not None}
+            if "groups" in user and isinstance(user["groups"], str):
+                user["groups"] = [
+                    g.strip() for g in user["groups"].split(";") if g.strip()
+                ]
+            users.append(user)
+    return users
+
+
+@app.command("bulk-create")
+def bulk_create(
+    ctx: typer.Context,
+    from_json: str | None = typer.Option(
+        None,
+        "--from",
+        "-f",
+        help="JSON list of user dicts (inline, @file, -)",
+    ),
+    from_csv: str | None = typer.Option(
+        None,
+        "--from-csv",
+        help="CSV file path. Headers: login[,password,displayName,email,groups,userProfile,sourceType]. groups separator: ';'",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Confirm creation of all users in the input"
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Bulk-create users from JSON or CSV. Returns per-user status list.
+
+    Example:
+      dku user bulk-create --from-csv @new-team.csv --yes
+      dku user bulk-create --from '[{"login":"alice","password":"x","groups":["readers"]}]' --yes
+
+    CSV columns (semicolon separates group lists):
+      login,password,displayName,email,groups,userProfile,sourceType
+      alice,tempPass,Alice A,alice@example.com,data_team;readers,DATA_SCIENTIST,LOCAL
+    """
+    from dku_cli.helpers import read_json_input
+
+    if (from_json is None) == (from_csv is None):
+        from dku_cli.errors import exit_with_error
+
+        exit_with_error(
+            "Pass exactly one of --from or --from-csv.",
+            code="user_bulk_input_missing",
+        )
+
+    if from_csv:
+        users = _load_users_from_csv(from_csv)
+    else:
+        parsed = read_json_input(from_json)
+        if not isinstance(parsed, list):
+            from dku_cli.errors import exit_with_error
+
+            exit_with_error(
+                "--from must be a JSON array of user objects.",
+                code="user_bulk_bad_payload",
+            )
+        users = parsed
+
+    if not users:
+        info("No users to create (empty input).")
+        raise typer.Exit(code=0)
+
+    if not yes:
+        info(f"Dry run — would create {len(users)} user(s). Pass --yes to execute.")
+        for u in users[:10]:
+            info(
+                f"  • {u.get('login', '?')} "
+                f"(profile={u.get('userProfile', 'DATA_SCIENTIST')}, "
+                f"groups={u.get('groups', [])})"
+            )
+        if len(users) > 10:
+            info(f"  • … and {len(users) - 10} more")
+        raise typer.Exit(code=0)
+
+    try:
+        client = get_client_from_ctx(ctx)
+        results = client.create_users(users)
+        fmt = resolve_output_format(output)
+        if fmt == "json":
+            render_raw(results, output_format="json")
+        else:
+            data = [
+                {
+                    "login": r.get("login", ""),
+                    "status": r.get("status", ""),
+                    "error": (r.get("error") or "")[:80],
+                }
+                for r in results
+            ]
+            render(
+                data,
+                ["login", "status", "error"],
+                output_format=fmt,
+                title="Bulk User Create Results",
+            )
+        failures = [r for r in results if r.get("status") == "FAILURE"]
+        if failures:
+            info(f"{len(failures)} user(s) failed — see 'error' column.")
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("bulk-edit")
+def bulk_edit(
+    ctx: typer.Context,
+    from_json: str = typer.Option(
+        ...,
+        "--from",
+        "-f",
+        help="JSON list of user-change dicts (each must have 'login')",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm mass edit"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Bulk-edit existing users. Each change dict MUST include 'login'.
+
+    Example:
+      # Move 3 users into a new group
+      dku user bulk-edit --from '[
+        {"login":"alice","groups":["data_team","admin"]},
+        {"login":"bob","groups":["data_team"]},
+        {"login":"clara","enabled":false}
+      ]' --yes
+    """
+    from dku_cli.errors import exit_with_error
+    from dku_cli.helpers import read_json_input
+
+    changes = read_json_input(from_json)
+    if not isinstance(changes, list):
+        exit_with_error(
+            "--from must be a JSON array of change objects.",
+            code="user_bulk_bad_payload",
+        )
+    missing_login = [c for c in changes if not isinstance(c, dict) or "login" not in c]
+    if missing_login:
+        exit_with_error(
+            f"{len(missing_login)} change entries missing 'login' — required for bulk-edit.",
+            code="user_bulk_missing_login",
+        )
+
+    if not yes:
+        info(f"Dry run — would edit {len(changes)} user(s). Pass --yes to execute.")
+        for c in changes[:10]:
+            fields = [k for k in c if k != "login"]
+            info(f"  • {c['login']} → {fields}")
+        raise typer.Exit(code=0)
+
+    try:
+        client = get_client_from_ctx(ctx)
+        results = client.edit_users(changes)
+        fmt = resolve_output_format(output, allowed=("json",), default="json")
+        render_raw(results, output_format=fmt)
+    except Exception as e:
+        handle_api_error(e)

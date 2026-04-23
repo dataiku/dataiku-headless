@@ -2338,7 +2338,9 @@ def mock_client():
         "desc": {"pythonInterpreter": "PYTHON39", "corePackagesSet": "PANDAS13"},
     }
     codeenv_mock.delete.return_value = None
-    codeenv_mock.update_packages.return_value = None
+    codeenv_mock.update_packages.return_value = {"messages": {"error": False}}
+    codeenv_mock.set_jupyter_support.return_value = {"messages": {"error": False}}
+    codeenv_mock.update_images.return_value = {"messages": {"error": False}}
     client.get_code_env.return_value = codeenv_mock
 
     # Connections — admin endpoint, returns dict of dicts
@@ -2357,6 +2359,15 @@ def mock_client():
         "type": "Filesystem",
     }
     conn_mock.get_settings.return_value = conn_settings_mock
+    conn_mock.get_definition.return_value = {
+        "name": "filesystem_managed",
+        "type": "Filesystem",
+        "params": {"root": "/srv/dss/managed"},
+        "usableBy": "ALL",
+        "allowedGroups": [],
+        "description": "",
+    }
+    conn_mock.set_definition.return_value = None
     conn_mock.delete.return_value = None
     sync_future_mock = MagicMock()
     sync_future_mock.wait_for_result.return_value = None
@@ -2414,6 +2425,149 @@ def mock_client():
         {"severity": "WARNING", "code": "CHECK_001", "message": "Minor config issue"},
     ]
     client.perform_instance_sanity_check.return_value = sanity_result
+
+    # Admin: license
+    client.get_licensing_status.return_value = {
+        "edition": "ENTERPRISE",
+        "expiresOn": "2026-12-31",
+        "maxUsers": 200,
+    }
+    client.set_license.return_value = None
+
+    # Admin: IAM settings (SSO / LDAP / Azure AD)
+    sso_mock = MagicMock()
+    sso_mock.sso_settings = {"enabled": False, "protocol": "SAML"}
+    sso_mock.save.return_value = None
+    client.get_sso_settings.return_value = sso_mock
+
+    ldap_mock = MagicMock()
+    ldap_mock.ldap_settings = {"enabled": False, "host": "ldap.example.com"}
+    ldap_mock.save.return_value = None
+    client.get_ldap_settings.return_value = ldap_mock
+
+    azure_ad_mock = MagicMock()
+    azure_ad_mock.azure_ad_settings = {"enabled": False, "tenantId": "t1"}
+    azure_ad_mock.save.return_value = None
+    client.get_azure_ad_settings.return_value = azure_ad_mock
+
+    # Admin: general settings (already set above — extend with full raw)
+    general_settings.get_raw.return_value = {
+        "dssVersion": "14.0.2",
+        "impersonation": {"rules": []},
+        "containerSettings": {},
+    }
+    general_settings.settings = {
+        "dssVersion": "14.0.2",
+        "impersonation": {"rules": []},
+        "containerSettings": {},
+    }
+    general_settings.save.return_value = None
+
+    # Admin: external user sync
+    sync_future = MagicMock()
+    sync_future.job_id = "future-123"
+    sync_future.wait_for_result.return_value = [
+        {"login": "ext.alice", "source": "LDAP"},
+    ]
+    client.start_resync_all_users_from_supplier.return_value = sync_future
+    client.start_fetch_external_users.return_value = sync_future
+    client.start_fetch_external_groups.return_value = sync_future
+
+    # Admin: messaging channels
+    msg_item = MagicMock()
+    msg_item._data = {"id": "ops-smtp", "type": "smtp", "family": "mail"}
+    client.list_messaging_channels.return_value = [msg_item]
+    created_channel = MagicMock()
+    created_channel._data = {"id": "ops-smtp", "type": "smtp"}
+    client.create_messaging_channel.return_value = created_channel
+
+    # Admin: infra
+    client.push_base_images.return_value = {"status": "ok"}
+    client.apply_kubernetes_namespaces_policies.return_value = {"status": "ok"}
+
+    # Admin: disk footprint (non-destructive reads)
+    fp_mock = MagicMock()
+    global_fp = {"name": "global", "size": 12345, "nbFiles": 10, "nbFolders": 2}
+    project_fp = {"projectKey": "PROJ1", "size": 6789, "nbFiles": 5, "nbFolders": 1}
+    all_fp = {
+        "name": "dss",
+        "size": 99999,
+        "nbFiles": 100,
+        "nbFolders": 10,
+        "items": [global_fp, project_fp],
+    }
+    unknown_fp = {"name": "unknown", "size": 0, "nbFiles": 0, "nbFolders": 0}
+    fp_mock.compute_global_only_footprint.return_value = global_fp
+    fp_mock.compute_project_footprint.return_value = project_fp
+    fp_mock.compute_all_dss_footprint.return_value = all_fp
+    fp_mock.compute_unknown_footprint.return_value = unknown_fp
+    client.get_data_directories_footprint.return_value = fp_mock
+
+    # Admin: catalog indexing
+    client.catalog_index_connections.return_value = {"status": "ok", "indexed": 2}
+
+    # Admin: enterprise asset library
+    eal_mock = MagicMock()
+    eal_mock.list_collections.return_value = [
+        {"id": "col-1", "name": "Canonical prompts", "description": "core"},
+    ]
+    eal_mock.list_prompts.return_value = [
+        {"id": "p-1", "name": "summarise", "collectionId": "col-1"},
+    ]
+    client.get_enterprise_asset_library.return_value = eal_mock
+
+    # Admin: custom audit log
+    client.log_custom_audit.return_value = None
+
+    # Admin: LLM cost-limiting counters
+    cost_counters = MagicMock()
+    cost_counters.get_raw.return_value = {
+        "counters": [
+            {
+                "id": "global-monthly",
+                "scope": "GLOBAL",
+                "period": "MONTH",
+                "used": 120,
+                "limit": 1000,
+            },
+        ]
+    }
+    cost_counters.get_counter.side_effect = lambda i: (
+        {
+            "id": "global-monthly",
+            "scope": "GLOBAL",
+            "period": "MONTH",
+            "used": 120,
+            "limit": 1000,
+        }
+        if i == "global-monthly"
+        else None
+    )
+    client.get_llm_cost_limiting_counters.return_value = cost_counters
+
+    # Admin: messaging channel object (for get_messaging_channel + delete/send)
+    mail_channel = MagicMock()
+    mail_channel.delete.return_value = None
+    mail_channel.send.return_value = None
+    client.get_messaging_channel.return_value = mail_channel
+
+    # Admin: personal API keys
+    pak_item = {"id": "pak-1", "user": "alice", "label": "my-key", "createdOn": 1700}
+    client.list_personal_api_keys.return_value = [pak_item]
+
+    # Bulk user ops
+    client.create_users.return_value = [
+        {"login": "alice", "status": "SUCCESS", "error": ""},
+        {"login": "bob", "status": "FAILURE", "error": "Login already exists"},
+    ]
+    client.edit_users.return_value = [
+        {"login": "alice", "status": "SUCCESS", "error": ""},
+    ]
+
+    # Admin: code studio templates
+    cst_item = MagicMock()
+    cst_item._data = {"id": "vscode", "label": "VS Code", "description": "Web IDE"}
+    client.list_code_studio_templates.return_value = [cst_item]
 
     # Global API keys
     api_key_list_item = MagicMock()

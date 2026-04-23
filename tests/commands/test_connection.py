@@ -282,3 +282,122 @@ def test_connection_sync_acls_datasets(patch_client):
     assert "datasets" in result.output.lower()
     conn = patch_client.get_connection("hdfs_conn")
     conn.sync_datasets_acls.assert_called_once()
+
+
+# =============================================================================
+# connection set-definition / update
+# =============================================================================
+
+
+def test_connection_set_definition_dry_run(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "set-definition",
+            "filesystem_managed",
+            "-d",
+            '{"name":"filesystem_managed","type":"Filesystem","params":{}}',
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    patch_client.get_connection.return_value.set_definition.assert_not_called()
+
+
+def test_connection_set_definition_yes(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "set-definition",
+            "filesystem_managed",
+            "-d",
+            '{"name":"filesystem_managed","type":"Filesystem","params":{}}',
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0
+    patch_client.get_connection.return_value.set_definition.assert_called_once()
+
+
+def test_connection_update_requires_change(patch_client):
+    result = runner.invoke(app, ["connection", "update", "filesystem_managed"])
+    assert result.exit_code == 1
+    assert "Nothing to update" in result.output
+
+
+def test_connection_update_bad_usable_by(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "update",
+            "filesystem_managed",
+            "--usable-by",
+            "BOGUS",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "ALL" in result.output
+
+
+def test_connection_update_dry_run(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "update",
+            "filesystem_managed",
+            "--params",
+            '{"password":"new"}',
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    patch_client.get_connection.return_value.set_definition.assert_not_called()
+
+
+def test_connection_update_applies_params(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "update",
+            "filesystem_managed",
+            "--params",
+            '{"password":"new-secret"}',
+            "--description",
+            "rotated",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0
+    set_def = patch_client.get_connection.return_value.set_definition
+    set_def.assert_called_once()
+    args, _ = set_def.call_args
+    payload = args[0]
+    assert payload["params"]["password"] == "new-secret"
+    assert payload["description"] == "rotated"
+
+
+def test_connection_update_usable_by_allowed(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "update",
+            "filesystem_managed",
+            "--usable-by",
+            "ALLOWED",
+            "--allowed-groups",
+            "data_team,admin",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0
+    args, _ = patch_client.get_connection.return_value.set_definition.call_args
+    payload = args[0]
+    assert payload["usableBy"] == "ALLOWED"
+    assert payload["allowedGroups"] == ["data_team", "admin"]

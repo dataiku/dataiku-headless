@@ -55,3 +55,18 @@ def test_api_key_delete(patch_client):
     result = runner.invoke(app, ["api-key", "delete", "ak1", "--yes"])
     assert result.exit_code == 0
     assert "Deleted" in result.output
+
+
+def test_api_key_list_personal(patch_client):
+    result = runner.invoke(app, ["api-key", "list-personal"])
+    assert result.exit_code == 0
+    assert "pak-1" in result.output
+
+
+def test_api_key_list_personal_json(patch_client):
+    result = runner.invoke(app, ["api-key", "list-personal", "-o", "json"])
+    assert result.exit_code == 0
+    import json as _json
+
+    data = _json.loads(result.output)
+    assert data[0]["id"] == "pak-1"

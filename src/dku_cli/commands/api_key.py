@@ -124,3 +124,43 @@ def delete(
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+@app.command("list-personal")
+def list_personal(
+    ctx: typer.Context,
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List personal API keys visible to the caller (admin sees all).
+
+    Useful for auditing keys before an offboarding or key-rotation sweep.
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        keys = client.list_personal_api_keys(as_type="listitems")
+        data = []
+        for k in keys:
+            raw = k if isinstance(k, dict) else getattr(k, "_data", {}) or {}
+            data.append(
+                {
+                    "id": raw.get("id", ""),
+                    "user": raw.get("user", ""),
+                    "label": raw.get("label", ""),
+                    "created": raw.get("createdOn", ""),
+                }
+            )
+        if fmt == "json":
+            render_raw(data, output_format="json")
+            return
+        if not data:
+            info("No personal API keys.")
+            return
+        render(
+            data,
+            ["id", "user", "label", "created"],
+            output_format=fmt,
+            title="Personal API Keys",
+        )
+    except Exception as e:
+        handle_api_error(e)
