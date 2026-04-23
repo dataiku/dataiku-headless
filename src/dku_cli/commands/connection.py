@@ -1,4 +1,4 @@
-"""dku connection — list, test, create, get, delete, schemas, tables, sync-acls."""
+"""dku connection — list, test, create, get, update, delete, schemas, tables, sync-acls."""
 
 from __future__ import annotations
 
@@ -179,6 +179,61 @@ def get(
         conn = client.get_connection(name)
         settings = conn.get_settings()
         render_raw(settings.get_raw(), output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def update(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Connection name"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Full connection definition as JSON (literal, @file.json, or - for stdin)",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+) -> None:
+    """Overwrite a connection's definition (admin only). Tier-2 — may break datasets using it.
+
+    Get the current definition, edit it, and pass it back:
+
+      dku connection get my_conn -o json > conn.json
+      # edit conn.json
+      dku connection update my_conn -d @conn.json --yes
+
+    Example:
+      dku connection update my_conn -d '{"host":"new-db.example.com"}' --yes
+    """
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="connection.update",
+        subject=f"connection '{name}' (may break datasets using it)",
+        yes=yes,
+        prompt=f"Overwrite connection '{name}'? This may break datasets using it.",
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        conn = client.get_connection(name)
+        params = read_json_input(definition)
+        if not params:
+            from dku_cli.errors import exit_with_error
+
+            exit_with_error(
+                "Definition is empty or invalid JSON.",
+                code="invalid_input",
+                details=[
+                    f"Get current definition: dku connection get {name} -o json",
+                ],
+            )
+        conn.set_definition(params)
+        success(f"Updated connection '{name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

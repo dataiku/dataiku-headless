@@ -19,6 +19,7 @@ from dku_cli.config import (
     get_default_project,
     get_all_profiles,
     get_profile_config,
+    get_profile_node_type,
     set_active_profile,
     set_default_project,
     set_profile_config,
@@ -102,7 +103,8 @@ def login(
     if not api_key:
         api_key = Prompt.ask("API Key", password=True)
 
-    # Validate connection
+    # Validate connection and detect node type. DSSClient.get_instance_info()
+    # works against every node type (including GOVERN), so it's our probe.
     try:
         import dataikuapi
 
@@ -113,23 +115,32 @@ def login(
         error(f"Could not connect to {url}: {e}")
         raise typer.Exit(1)
 
-    # Get DSS version
+    # Get DSS version + node type
+    version = "unknown"
+    node_type: str | None = None
     try:
-        version = client.get_instance_info().raw.get("dssVersion", "unknown")
+        raw = client.get_instance_info().raw
+        version = raw.get("dssVersion", "unknown")
+        node_type = (
+            raw.get("nodeType") or raw.get("rawNodeType") or ""
+        ).upper() or None
     except Exception:
-        version = "unknown"
+        pass
 
-    # Store credentials
-    set_profile_config(profile, url)
+    # Store credentials (persists node_type alongside url)
+    set_profile_config(profile, url, node_type=node_type)
     storage = store_api_key(profile, api_key)
 
     success(welcome(user, url, version))
+    if node_type:
+        info(f"Node type: {node_type}")
     info(f"Credentials stored in {storage}")
     if profile != "default":
         info(f'Profile "{profile}" is now active')
 
-    # Prompt for default project in interactive mode
-    if interactive:
+    # Prompt for default project in interactive mode — only meaningful on
+    # nodes that actually have projects.
+    if interactive and node_type in (None, "DESIGN", "AUTOMATION"):
         try:
             project_key = Prompt.ask(
                 "Default project? (leave blank to skip)", default=""
@@ -298,7 +309,8 @@ def list_profiles() -> None:
         marker = " *" if name == active else ""
         has_key = "key stored" if get_api_key(name) else "no key"
         url = cfg.get("url", "no url")
-        console.print(f"  {name}{marker}  {url}  ({has_key})")
+        node = cfg.get("node_type", "?")
+        console.print(f"  {name}{marker}  [{node}]  {url}  ({has_key})")
 
 
 @app.command()

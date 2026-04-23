@@ -62,16 +62,34 @@ def get_profile_config(profile: str) -> dict[str, Any]:
     return config.get(profile, {})
 
 
-def set_profile_config(profile: str, url: str) -> None:
+def set_profile_config(profile: str, url: str, node_type: str | None = None) -> None:
     config = get_config()
     profile_cfg = config.get(profile, {})
     if not isinstance(profile_cfg, dict):
         profile_cfg = {}
     profile_cfg["url"] = url
+    if node_type is not None:
+        profile_cfg["node_type"] = node_type
     config[profile] = profile_cfg
     # Track active profile
     config["active_profile"] = profile
     _write_toml(CONFIG_FILE, config)
+
+
+def set_profile_node_type(profile: str, node_type: str) -> None:
+    """Persist the DSS node type (design/automation/govern/deployer/apinode) for a profile."""
+    config = get_config()
+    profile_cfg = config.get(profile, {})
+    if not isinstance(profile_cfg, dict):
+        profile_cfg = {}
+    profile_cfg["node_type"] = node_type
+    config[profile] = profile_cfg
+    _write_toml(CONFIG_FILE, config)
+
+
+def get_profile_node_type(profile: str) -> str | None:
+    """Return the stored node type for a profile, or None if not known."""
+    return get_profile_config(profile).get("node_type")
 
 
 def get_active_profile() -> str:
