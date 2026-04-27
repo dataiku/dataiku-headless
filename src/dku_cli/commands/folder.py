@@ -110,6 +110,27 @@ def create(
                     f"List folders: dku folder list -P {project_key}",
                 ],
             )
+        # Catch both common DSS refusal shapes for managed-folder creation:
+        #   - "You may not create a managed folder on connection X" (permission)
+        #   - "Invalid connection type for managed folders : PostgreSQL" (wrong type)
+        # Either way the recovery is the same: find a connection that accepts folders.
+        msg = str(e)
+        folder_refused = (
+            "may not create a managed folder" in msg
+            or "You are not allowed to create a managed folder" in msg
+            or "Invalid connection type for managed folders" in msg
+        )
+        if folder_refused:
+            exit_with_error(
+                f"Connection '{connection}' cannot host managed folders in {project_key}.",
+                code="connection_not_allowed",
+                details=[
+                    "Find a connection that accepts managed folders:",
+                    f"  dku folder list -P {project_key} -o json | jq -r '.[0].params.connection'  (reuse what an existing folder uses)",
+                    '  dku connection list -o json | jq -r \'.[] | select(.type | IN("Filesystem","S3","GCS","Azure","HDFS")) | .name\'',
+                    f"Then retry with: dku folder create {name} -c <ALLOWED_CONN> -P {project_key}",
+                ],
+            )
         handle_api_error(e)
 
 

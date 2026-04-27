@@ -119,6 +119,16 @@ def inspect(
             {"name": r.get("name", ""), "type": r.get("type", "")} for r in recipes
         ]
 
+        # Managed folders
+        try:
+            folders = proj.list_managed_folders()
+        except Exception as exc:
+            folders = []
+            warn(f"Could not fetch folders: {exc}")
+        folder_info = [
+            {"id": f.get("id", ""), "name": f.get("name", "")} for f in folders
+        ]
+
         # Scenarios
         scenarios = proj.list_scenarios()
         scen_info = []
@@ -186,6 +196,7 @@ def inspect(
                 "description": meta.get("shortDesc", ""),
                 "datasets": ds_info,
                 "recipes": recipe_info,
+                "folders": folder_info,
                 "scenarios": scen_info,
                 "flow_sources": source_nodes,
                 "recent_jobs": job_info,
@@ -194,6 +205,7 @@ def inspect(
                 "counts": {
                     "datasets": len(datasets),
                     "recipes": len(recipes),
+                    "folders": len(folders),
                     "scenarios": len(scenarios),
                     "jobs": len(jobs),
                     "wiki_articles": len(articles),
@@ -213,6 +225,11 @@ def inspect(
                     "section": "Recipes",
                     "detail": f"{len(recipes)}: {', '.join(r['name'] for r in recipe_info[:10])}"
                     + ("..." if len(recipe_info) > 10 else ""),
+                },
+                {
+                    "section": "Folders",
+                    "detail": f"{len(folders)}: {', '.join(f['name'] for f in folder_info[:10])}"
+                    + ("..." if len(folder_info) > 10 else ""),
                 },
                 {
                     "section": "Scenarios",
@@ -419,10 +436,13 @@ def set_metadata(
     description: Optional[str] = typer.Option(
         None, "--description", "-d", help="New short description"
     ),
+    tags: Optional[str] = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
 ) -> None:
-    """Update project name and/or description."""
-    if name is None and description is None:
-        error("Provide --name and/or --description to update.")
+    """Update project name, description, and/or tags."""
+    if name is None and description is None and tags is None:
+        error("Provide --name, --description, and/or --tags to update.")
         raise typer.Exit(1)
     try:
         client = get_client_from_ctx(ctx)
@@ -433,6 +453,8 @@ def set_metadata(
             meta["label"] = name
         if description is not None:
             meta["shortDesc"] = description
+        if tags is not None:
+            meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
 
         proj.set_metadata(meta)
         success(f"Updated metadata for {project_key}")

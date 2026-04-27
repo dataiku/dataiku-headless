@@ -154,7 +154,8 @@ def test_scenario_get_definition(patch_client):
     parsed = json.loads(result.output)
     assert parsed["type"] == "step_based"
     assert parsed["name"] == "Build All"
-    assert parsed["params"] == {}
+    # params.steps comes from get_settings().get_raw(), not the legacy /light endpoint
+    assert parsed["params"] == {"steps": []}
 
 
 def test_scenario_get_definition_with_output_flag(patch_client):
@@ -166,8 +167,36 @@ def test_scenario_get_definition_with_output_flag(patch_client):
     assert parsed["name"] == "Build All"
 
 
-def test_scenario_set_definition(patch_client):
-    new_def = json.dumps({"type": "step_based", "name": "Updated", "params": {"x": 1}})
+def test_scenario_set_definition_persists_steps(patch_client):
+    """Regression: legacy set_definition hit /light and silently dropped params.steps.
+
+    The CLI must now go through DSSScenarioSettings.save() so step-based
+    scenarios actually keep their steps after set-definition.
+    """
+    steps = [
+        {
+            "id": "s1",
+            "name": "Build X",
+            "type": "build_flowitem",
+            "params": {
+                "builds": [{"type": "DATASET", "itemId": "ds_x", "partitionsSpec": ""}],
+                "buildMode": "RECURSIVE_BUILD",
+            },
+        }
+    ]
+    new_def = json.dumps(
+        {"type": "step_based", "name": "Updated", "params": {"steps": steps}}
+    )
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    # Simulate the server persisting what save() pushed.
+    raw = scenario.get_settings().get_raw()
+
+    def _save_side_effect():
+        raw["params"]["steps"] = list(raw["params"].get("steps", []))
+
+    scenario.get_settings().save.side_effect = _save_side_effect
+
     result = runner.invoke(
         app,
         [
@@ -180,13 +209,13 @@ def test_scenario_set_definition(patch_client):
             new_def,
         ],
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "Updated definition" in result.output
-    proj = patch_client.get_project("PROJ1")
-    scenario = proj.get_scenario("scen1")
-    scenario.set_definition.assert_called_once_with(
-        {"type": "step_based", "name": "Updated", "params": {"x": 1}}
-    )
+    scenario.get_settings().save.assert_called()
+    # The legacy header-only endpoint must NOT be called.
+    scenario.set_definition.assert_not_called()
+    assert raw["params"]["steps"] == steps
+    assert raw["name"] == "Updated"
 
 
 def test_scenario_set_definition_from_file(tmp_path, patch_client):
@@ -208,27 +237,67 @@ def test_scenario_set_definition_from_file(tmp_path, patch_client):
     assert "Updated definition" in result.output
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    scenario.set_definition.assert_called_once_with(
-        {"type": "step_based", "name": "FromFile"}
+    scenario.get_settings().save.assert_called()
+    assert scenario.get_settings().get_raw()["name"] == "FromFile"
+
+
+def test_scenario_set_definition_warns_on_step_count_mismatch(patch_client):
+    """If the server silently drops steps (past regression), the CLI must fail loudly."""
+    new_def = json.dumps(
+        {
+            "params": {
+                "steps": [
+                    {"id": "s1", "name": "A", "type": "build_flowitem", "params": {}},
+                    {"id": "s2", "name": "B", "type": "build_flowitem", "params": {}},
+                ]
+            }
+        }
     )
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    raw = scenario.get_settings().get_raw()
+
+    # Simulate the old legacy-endpoint bug: save() accepts the payload but
+    # persists 0 steps (the /light endpoint drops params.steps).
+    def _save_drops_steps():
+        raw["params"]["steps"] = []
+
+    scenario.get_settings().save.side_effect = _save_drops_steps
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-definition",
+            "scen1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Save incomplete" in result.output
+    assert "sent 2 step" in result.output
+    assert "server persisted 0" in result.output
 
 
 # ── run --wait polling tests ─────────────────────────────────────────────
 
 
 def test_scenario_run_wait_polls(patch_client):
-    """--wait polls get_last_runs when trigger lacks wait_for_result."""
+    """--wait polls get_last_runs until run.running() is False."""
     from unittest.mock import patch as mock_patch, MagicMock
 
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    # Trigger has no wait_for_result (spec=[] in conftest)
     trigger = MagicMock(spec=[])
     scenario.run.return_value = trigger
-    # First poll: outcome is None (still running), second: SUCCESS
+    # First poll: still running. Second poll: done with SUCCESS.
     run_in_progress = MagicMock()
-    run_in_progress.outcome = None
+    run_in_progress.running.return_value = True
     run_done = MagicMock()
+    run_done.running.return_value = False
     run_done.outcome = "SUCCESS"
     scenario.get_last_runs.side_effect = [[run_in_progress], [run_done]]
 
@@ -249,6 +318,7 @@ def test_scenario_run_wait_failure(patch_client):
     trigger = MagicMock(spec=[])
     scenario.run.return_value = trigger
     run_done = MagicMock()
+    run_done.running.return_value = False
     run_done.outcome = "FAILED"
     scenario.get_last_runs.return_value = [run_done]
 
@@ -258,6 +328,44 @@ def test_scenario_run_wait_failure(patch_client):
         )
     assert result.exit_code == 0
     assert "FAILED" in result.output
+
+
+def test_scenario_run_wait_survives_transient_outcome_value_error(patch_client):
+    """Regression: DSSScenarioRun.outcome RAISES ValueError until result is populated.
+
+    The poll loop used to call `run.outcome` behind a `hasattr(run, 'outcome')`
+    gate — but the property descriptor exists on the class, so hasattr returned
+    True and the ValueError escaped, turning successful runs into "DSS API
+    error: outcome not available for this scenario run".
+    """
+    from unittest.mock import patch as mock_patch, MagicMock, PropertyMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    trigger = MagicMock(spec=[])
+    scenario.run.return_value = trigger
+
+    # Run #1: still running. .outcome would raise if accessed.
+    run_in_progress = MagicMock()
+    run_in_progress.running.return_value = True
+    type(run_in_progress).outcome = PropertyMock(
+        side_effect=ValueError(
+            "outcome not available for this scenario run. Maybe still running?"
+        )
+    )
+    # Run #2: done, SUCCESS.
+    run_done = MagicMock()
+    run_done.running.return_value = False
+    run_done.outcome = "SUCCESS"
+    scenario.get_last_runs.side_effect = [[run_in_progress], [run_done]]
+
+    with mock_patch("dku_cli.commands.scenario.time.sleep"):
+        result = runner.invoke(
+            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+        )
+    assert result.exit_code == 0, result.output
+    assert "SUCCESS" in result.output
+    assert "outcome not available" not in result.output
 
 
 # ── Trigger commands ────────────────────────────────────────────────────

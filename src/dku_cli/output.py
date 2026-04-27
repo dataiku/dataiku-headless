@@ -102,7 +102,13 @@ def _render_table(
     headers: dict[str, str] | None = None,
 ) -> None:
     headers = headers or {}
-    table = Table(title=title, show_lines=False)
+    # Print the title as a separate line above the table. Rich's built-in
+    # Table(title=...) wraps the title into the table's own content width,
+    # which renders horribly for narrow single-column results where the title
+    # is longer than the data.
+    if title:
+        console.print(title)
+    table = Table(show_lines=False)
     for col in columns:
         table.add_column(headers.get(col, col.upper()))
     for row in data:

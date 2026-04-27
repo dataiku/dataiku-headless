@@ -15,10 +15,11 @@ from dku_cli.commands import (
     agent_tool,
     admin,
     analysis,
-    api_key,
-    app_cmd,
     api_deployer,
+    api_key,
     api_service,
+    app_cmd,
+    app_designer,
     auth_cmd,
     bundle,
     cluster,
@@ -35,6 +36,7 @@ from dku_cli.commands import (
     flow,
     folder,
     git_cmd,
+    govern,
     group,
     insight,
     job,
@@ -75,7 +77,6 @@ app = typer.Typer(
 app.add_typer(admin.app, name="admin")
 app.add_typer(analysis.app, name="analysis")
 app.add_typer(api_key.app, name="api-key")
-app.add_typer(app_cmd.app, name="app")
 app.add_typer(agent.app, name="agent")
 app.add_typer(agent_block.app, name="agent-block")
 app.add_typer(agent_hub.app, name="agent-hub")
@@ -83,6 +84,8 @@ app.add_typer(agent_review.app, name="agent-review")
 app.add_typer(agent_tool.app, name="agent-tool")
 app.add_typer(api_deployer.app, name="api-deployer")
 app.add_typer(api_service.app, name="api-service")
+app.add_typer(app_cmd.app, name="app")
+app.add_typer(app_designer.app, name="app-designer")
 app.add_typer(auth_cmd.app, name="auth")
 app.add_typer(bundle.app, name="bundle")
 app.add_typer(codestudio.app, name="code-studio")
@@ -124,6 +127,7 @@ app.add_typer(git_cmd.app, name="git")
 app.add_typer(wiki.app, name="wiki")
 app.add_typer(workspace.app, name="workspace")
 app.add_typer(sql.app, name="sql")
+app.add_typer(govern.app, name="govern")
 app.add_typer(streaming.app, name="streaming")
 
 

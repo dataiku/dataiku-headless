@@ -30,6 +30,19 @@ dku agent-block set-graph AGENT_ID -d @/tmp/graph.json -P PROJ
 
 **`connect` is a convenience shortcut only.** Use it for simple `LLM_REQUEST -> ROUTING`, `STANDARD_REACT -> EMIT_OUTPUT`, or other direct wiring. For `PYTHON_CODE` blocks, `connect` will error — use `set-graph` with `validNextBlocksFromCode` and `NextBlock()` yield in `process()`.
 
+## VectorStoreSearch Tool — KB Reference
+
+`dku agent-tool create --type VectorStoreSearch --kb NAME_OR_ID` writes the
+knowledge bank ID to `params.knowledgeBankRef`. The CLI resolves the name to
+its ID before saving — DSS expects the ID at runtime; a raw name here breaks
+the tool with "knowledge bank does not exist" at test time. Verify after
+creation:
+
+```bash
+dku agent-tool get TOOL_ID -P PROJ -o json | jq .params.knowledgeBankRef
+# expect the KB id (e.g. "aG2lDxD"), not the display name
+```
+
 ## Plugin-Based Tools
 
 ```bash

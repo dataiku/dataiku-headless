@@ -28,14 +28,55 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 
 `create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS. The evaluation store must also exist — create it first with `dku evaluation-store create NAME --flavor LLM` (or `--flavor AGENT`).
 
-## UI-Only Recipe Types (NOT available via API)
+### `create-embed-docs` + FilesInFolder: known failure → use `create-embed` instead
 
-These recipe types have **no dataikuapi builder classes** — create them in the DSS UI, then manage via `dku recipe get/set-definition/run`:
+`create-embed-docs` on a `FilesInFolder` dataset can fail at build time with
+`managed folder does not exist: PROJ.DATASET_NAME` — DSS resolves the dataset
+name as a folder name internally. When that happens, fall back to:
 
-- **Prompt Recipe** (Prompt, Classify, Summarize, Extract, Simplify, Translate)
-- **RAG Query Recipe**
+1. Materialize folder text into a CSV dataset with a single `content` column
+   (one row per doc). A small Prepare or Python step over the FilesInFolder
+   dataset works — or extract text upstream and upload as CSV.
+2. Run `create-embed` (not `create-embed-docs`) on the text column:
 
-Workaround: create via UI, then `dku recipe get RECIPE -P PROJ -o json > recipe_def.json` to capture the definition, and `dku recipe set-definition RECIPE -P PROJ --definition @recipe_def.json` to modify.
+```bash
+dku recipe create-embed embed_docs \
+  --input docs_text \
+  --output-kb my_kb \
+  --embedding-llm "$LLM_ID" \
+  --text-column content -P PROJ
+```
+
+`create-embed` is stable with CSV text inputs. `create-embed-docs` is best used
+when your input is already a plain dataset of document rows with a text column,
+not a file-backed FilesInFolder dataset.
+
+## Prompt Recipe — Programmatic Creation
+
+See `references/prompt-recipe-payload.md` for the full payload schema.
+
+```bash
+# 0. Discover the LLM ID — do NOT hardcode it (varies per instance)
+LLM_ID=$(dku llm list -P PROJ -o json | jq -r '.[0].id') && \
+
+# 1. Pre-create the output dataset — Prompt Recipes do NOT auto-create outputs
+dku dataset create kpi_results --type Filesystem -c filesystem_managed -P PROJ && \
+# 2. Create the recipe shell
+dku recipe create extract_kpis -t prompt -i input_tasks --output-ds kpi_results -P PROJ && \
+# 3. Configure the payload (substitute $LLM_ID into prompt_settings.template.json first)
+jq --arg llm "$LLM_ID" '.payload.llmId = $llm' prompt_settings.template.json > prompt_settings.json && \
+dku recipe set-settings extract_kpis -P PROJ -s @prompt_settings.json && \
+# 4. First build MUST use --auto-update-schema — `recipe run` alone returns an empty schema
+dku job run --target kpi_results -P PROJ --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait
+```
+
+The recipe appends fixed columns `llm_output, llm_validation_status, llm_raw_response, llm_error_message, llm_raw_query` to the input dataset's columns. `llm_output` is the only one with content by default. To parse it downstream, use a Prepare recipe + JSONFlattener — no Python recipe needed:
+
+```bash
+dku recipe add-step parse_output --type JSONFlattener \
+  --params '{"inCol":"llm_output","flattenArrays":false,"maxDepth":2,"nullAsEmpty":true,"prefixOutputs":true,"separator":"_"}' \
+  -P PROJ
+```
 
 ### Batch Agent Processing via Prompt Recipe
 
@@ -43,10 +84,10 @@ Run an agent over every row in a dataset using a Prompt recipe:
 
 1. Create agent: `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`
 2. Configure block graph, tools, and prompts via CLI
-3. **Create Prompt recipe in DSS UI** (no CLI creation — see above)
-4. Set the Prompt recipe's LLM to `agent:AGENT_ID` (calls agent via LLM Mesh)
-5. Run: `dku recipe run PROMPT_RECIPE -P PROJ --wait`
-6. Verify: `dku dataset head OUTPUT -P PROJ -n 5`
+3. Create Prompt recipe: `dku recipe create batch_agent -t prompt -i input_rows --output-ds agent_outputs -P PROJ`
+4. Set the Prompt recipe's LLM to `agent:AGENT_ID` (calls the agent via LLM Mesh) — patch `payload.llmId = "agent:AGENT_ID"` via `set-settings`
+5. Build: `dku job run --target agent_outputs -P PROJ --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait`
+6. Verify: `dku dataset head agent_outputs -P PROJ -n 5`
 
 Key: `DSSAgent.as_llm()` is the programmatic interface — Prompt recipes accept `agent:AGENT_ID` as the LLM. There is no `run_conversation()` method.
 

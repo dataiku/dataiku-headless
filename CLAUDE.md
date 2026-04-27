@@ -173,6 +173,9 @@ When editing skills, **progressive disclosure is non-negotiable**:
 ### Python Recipe Numeric IDs
 ID columns from external datasets may contain nulls or non-numeric values. Never cast directly with `.astype("int64")`; use `pd.to_numeric(..., errors="coerce")`, `dropna`, then cast, or the recipe will fail with `IntCastingNaNError`.
 
+### Snowflake: concat Aggregation + Bigint Precision
+`--agg "col:concat"` in `create-group` compiles to Snowflake's `LISTAGG()`, which has a per-group result size limit. Large text/JSON columns (200+ chars per row, multiple rows per group) fail with error 300002. Fix: visual group for numeric aggs only, Python recipe downstream for JSON/text merging. Also: pandas loads Snowflake bigints as float64, losing precision for values > 2^53. Visual recipes preserve full precision. Python recipes should cast via string, not `pd.to_numeric().astype("int64")`.
+
 ### Plugin Webapp Backend
 DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app = Flask(__name__)` — it breaks `/__ping`. Import from `dataiku.customwebapp`, not `dataiku.webapp`. Folder is `webapps/`, not `custom-webapps/`. `webapp.json` needs `hasBackend: true`, `noJSSecurity: true`.
 
@@ -180,10 +183,16 @@ DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app
 NEVER use `installCorePackages: true` — installs `pandas==0.23.4` which fails on Python 3.11. Use `installCorePackages: false` + explicit `requirements.txt`: `pandas>=2.0,<3`, `numpy>=1.22,<3`, `python-dateutil>=2.8,<3`, `requests>=2.28,<3`. Include all four even if not used directly. If `create_code_env()` fails, the broken env persists — delete it before retrying.
 
 ### GREL Formula Quirks
-`log()` = base-10 (no `ln()`). `exp()` IS base-e (inconsistent). `numval()`/`val()` don't work — use direct arithmetic. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
+`log()` = base-10, `ln()` = natural log (despite `exp()` being base-e). `numval()`/`strval()`/`val()` require QUOTED column names — `numval("col")` works, bareword `numval(col)` silently returns empty. `replace(s, "pat", ...)` is literal substring; regex needs `/pat/` delimiters. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
 
 ### Agent Tool Patterns
 Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_metadata()`. `invoke()` input is at `input.get("input", {})`, not root. Subprocess tools MUST set `stdin=subprocess.DEVNULL` + `env["CI"] = "true"` + `env["NO_COLOR"] = "1"`.
+
+### SVA Block Graph (DSS 14.5+)
+Agent type MUST be `STRUCTURED_AGENT` for block graphs. `TOOLS_USING_AGENT` silently drops blocks. Every CORE_LOOP/LLM_REQUEST block needs explicit `llmId`. Every SAVE_TO_STATE block needs `outputKey`. Empty string in SET_STATE_ENTRIES `value` crashes CEL — use `"''"`.
+
+### Date Formatting in Prepare Recipes
+`DateFormatter`, `DateTruncate`, `UNIXTimestampParser` **all exist** on DSS 14.5 (verified against `dip/src/.../shaker/processors/time/`). The agent trap is wrong param names: they use `inCol`/`outCol` (NOT `column`/`outputColumn` from older docs), and DSS returns a misleading `Empty column name` error otherwise — the `dku recipe add-step` CLI catches this pre-send. Other traps: `DateTruncate` param is `datePart` (values `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND`) and defaults to `YEAR` if missing. `UNIXTimestampParser` uses `milliseconds` BOOLEAN, not `unit` string. What actually *doesn't* work: GREL `formatDate()` and `toDate()` do not exist; GREL `toString(date, "format")` is a no-op; `DateParser` without `outCol` silently produces all nulls. ISO 8601 DateParser format: use `Z`/`z` pattern, NOT `XXX`.
 
 ### Chart Column Names
 Not validated server-side — wrong column names save but render blank charts. Verify with `dku dataset schema DS -P PROJ` first. Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles`.
@@ -219,6 +228,7 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
 - `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
 - Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
+- Valid scenario step types: `build_flowitem` (builds datasets/folders), `custom_python` (inline script), `exec_sql` (SQL). See `dataikuapi/dss/scenario.py` line 629.
 
 ---
 

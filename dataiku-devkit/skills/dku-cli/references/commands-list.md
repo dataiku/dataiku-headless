@@ -21,13 +21,13 @@ Complete list of all `dku` command groups and verbs.
 | `model` | list, get, versions, set-active-version, metrics, delete-version, delete, usages, **set-metadata, create-mlflow, import-mlflow, create-external** | Yes |
 | `folder` | list, ls, upload, download, create, delete, delete-file, get, create-dataset, **set-metadata** | Yes |
 | `llm` | list, completion, embeddings, **generate-image, rerank** | Yes |
-| `webapp` | list, start, stop, status, get-definition, set-definition | Yes |
+| `webapp` | list, start, **restart**, stop, status, get-definition, set-definition | Yes |
 | `dashboard` | list, get, create, delete, get-definition, set-definition, **set-metadata** | Yes |
 | `evaluation-store` | list, create, get, evaluations, latest, build, delete | Yes |
 | `insight` | list, get, create, delete, validate, get-definition, set-definition, **set-metadata** | Yes |
 | `macro` | list, run | Yes |
 | `flow` | graph, **visualize**, zones, create-zone, **set-zone**, **move**, propagate, check, sources, successors | Yes |
-| `library` | list, read, write, delete, mkdir | Yes |
+| `library` | list, read, write, delete, mkdir, **sync** | Yes |
 | `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, **set-metadata** | Yes |
 | `agent-review` | list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results | Yes |
 | `agent-tool` | list, get, **create** (--dataset, --llm, --kb), set-definition, run, types, delete | Yes (except `types`) |
@@ -38,7 +38,7 @@ Complete list of all `dku` command groups and verbs.
 | `notebook` | list, get, create, delete, sessions, stop, clear-outputs, history | Yes |
 | `discussion` | list, get, create, reply | Yes |
 | `knowledge` | list, create, get, set-definition, build, search, delete | Yes (accepts name or ID) |
-| `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index | Yes (accepts name or ID) |
+| `semantic-model` | list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index, add-entity, remove-entity, add-relationship, remove-relationship, add-glossary-term, remove-glossary-term, list-entities, list-relationships, list-glossary, add-metric, remove-metric, list-metrics, add-filter, remove-filter, list-filters, set-manual-values, add-golden-query, remove-golden-query, list-golden-queries | Yes (accepts name or ID). Splice verbs cover entities, relationships, metrics, filters, manual values, glossary, golden queries. |
 | `agent-hub` | list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop | Yes (auto-detects hub) |
 | `bundle` | list, export, download, import, activate | Yes |
 | `api-service` | list, create, get, create-package, list-packages, **add-endpoint, list-endpoints, publish-package, delete-package** | Yes |
@@ -49,6 +49,7 @@ Complete list of all `dku` command groups and verbs.
 | `model-comparison` | **list, create, get, add-model, remove-model, delete** | Yes |
 | `workspace` | **list, create, get, list-objects, delete** | No |
 | `app` | **list, get, list-instances, create-instance** | No |
+| `app-designer` | **enable, disable, get, set-definition, set-section, list-tiles, add-tile, remove-tile** | Yes |
 | `streaming` | **list, create, get, delete, schema, set-schema** | Yes |
 | `admin` | **logs, get-log, usage, instance-info, sanity-check** | No (admin) |
 | `api-key` | **list, get, create, delete** | No (admin) |

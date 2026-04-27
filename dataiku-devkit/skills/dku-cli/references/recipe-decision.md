@@ -36,7 +36,7 @@ None of the above?                  → THEN use Python: create NAME -t python
 | **Window functions** | `dku recipe create-window NAME -i ds --output-ds out -k grp --order-key date --compute 'rowNumber::rn' -P PROJ` | ~~df.groupby().transform()~~ |
 | **Top N** | `dku recipe create-topn NAME -i ds --output-ds out --n 10 --rank-by col:desc -P PROJ` | ~~df.nlargest()~~ |
 | **Top N per group** | `dku recipe create-topn NAME -i ds --output-ds out --n 1 --rank-by date:desc -k stock -P PROJ` | ~~groupby().first()~~ |
-| **Split by condition** | `dku recipe create-split NAME -i ds --output-ds out -P PROJ` | ~~manual filtering~~ |
+| **Split by condition** | `dku recipe create-split NAME -i ds --output-ds out_a -P PROJ && dku recipe add-output NAME out_b -P PROJ && dku recipe set-definition NAME --payload @split.json -P PROJ` (create-split alone is a stub — attach more outputs and configure split conditions via `set-definition`) | ~~manual filtering~~ |
 | **Pivot (long->wide)** | `dku recipe create-pivot NAME -i ds --output-ds out --row-key id --column-key month --value-column val --agg-type SUM -P PROJ` | ~~df.pivot_table()~~ |
 | **Unpivot (wide->long)** | `dku recipe add-fold PREP --columns "jan,feb,mar" --key-column month --value-column val -P PROJ` | ~~pd.melt()~~ |
 | **Random sample** | `dku recipe create-sampling NAME -i ds --output-ds out --size 1000 -P PROJ` | ~~df.sample()~~ |
@@ -71,6 +71,44 @@ dku recipe create-join enrich_sales \
 
 **Default is INNER.** If task says "enrich", use **LEFT**.
 
+## Scoring a Saved Model
+
+Apply a saved model to a dataset without writing Python:
+
+```bash
+dku recipe create score_it -t clustering_scoring \
+  -i features_ds --output-ds scored \
+  --model SAVED_MODEL_ID -P PROJ && \
+dku dataset build scored -P PROJ --wait && \
+dku dataset head scored -P PROJ -n 5
+```
+
+`-t clustering_scoring` and `-t prediction_scoring` require `--model`. The CLI
+wires the saved model as a `model`-role input after recipe creation. Without
+`--model`, the server errors with `IndexOutOfBoundsException`.
+
+Adding a saved model to an existing recipe (e.g. a custom Python scorer):
+
+```bash
+dku recipe add-input my_scorer SAVED_MODEL_ID --type SAVED_MODEL -P PROJ
+```
+
+The `--type SAVED_MODEL` form defaults `--role` to `model` (what scoring
+recipes expect). For folders, use `--type MANAGED_FOLDER`; the folder name is
+resolved to its ID before being written to the recipe definition.
+
+### Silent failure: folder input written as a dataset ref
+
+Passing a managed folder to a code recipe WITHOUT `--type MANAGED_FOLDER` used
+to silently write the folder name as a dataset ref. Symptom: `dataset build`
+exits 0, but the output is empty/missing and the job log contains
+`Failed to add recipe ... to graph: dataset does not exist: PROJ.FOLDER_NAME`.
+Auto-detect is on now — but for code recipes consuming folders, always:
+
+```bash
+dku recipe add-input my_recipe my_folder --type MANAGED_FOLDER -P PROJ
+```
+
 ## Python Recipe (Last Resort)
 
 ```bash
@@ -100,5 +138,7 @@ Direct `.astype("int64")` on dirty data fails with `IntCastingNaNError`.
 | Prepare recipe without output | Pre-create output dataset |
 | Plugin recipe SELECT wrong case | Values are case-sensitive |
 | GREL for columns with spaces | Use `add-rename` first |
+| `concat` agg on large text (Snowflake) | Split: visual group for numerics, Python for JSON/text merge. See `sql-engines.md` |
+| Python recipe on bigint keys (Snowflake) | Visual recipe preserves precision. Python float64 truncates > 2^53. See `sql-engines.md` |
 
 > For payload schemas, see `dataiku` skill's `references/visual-recipe-payloads.md`.
