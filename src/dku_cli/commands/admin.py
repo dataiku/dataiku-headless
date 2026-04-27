@@ -6,9 +6,8 @@
   `infra push-base-images`, `infra apply-k8s-policies`, `messaging delete`)
   requires ``--yes`` to execute. Without it, the command prints what it WOULD do
   and exits with code 0. This prevents agent-driven lockouts.
-- ``settings set`` is a SHALLOW MERGE on the top-level dict returned by DSS.
-  You cannot partially edit nested fields — always GET first, mutate in memory,
-  then SET. The CLI refuses to save if the payload is missing fields present in
+- ``settings set`` is a FULL REPLACE, not a merge. Always GET → edit → SET.
+  The CLI refuses to save if the payload is missing fields present in
   the live config (fail-closed).
 - ``license upload`` overwrites the active license — there is no rollback.
 - SSO/LDAP mis-config can lock every user out of the instance. The CLI warns
