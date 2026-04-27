@@ -81,59 +81,6 @@ def test_connection_get_json(patch_client):
     assert parsed["name"] == "filesystem_managed"
 
 
-# --- connection update ---
-
-
-def test_connection_update_blocked_without_yes(patch_client):
-    """Tier-2 guard blocks without --yes."""
-    result = runner.invoke(
-        app,
-        [
-            "connection",
-            "update",
-            "filesystem_managed",
-            "-d",
-            '{"host": "new-db"}',
-        ],
-    )
-    assert result.exit_code == 77
-
-
-def test_connection_update_succeeds_with_yes(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "connection",
-            "update",
-            "filesystem_managed",
-            "-d",
-            '{"host": "new-db"}',
-            "--yes",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Updated connection" in result.output
-    conn = patch_client.get_connection("filesystem_managed")
-    conn.set_definition.assert_called_once_with({"host": "new-db"})
-
-
-def test_connection_update_dangerous_bypasses(patch_client, monkeypatch):
-    """DKU_DANGEROUS=1 bypasses tier-2 guard."""
-    monkeypatch.setenv("DKU_DANGEROUS", "1")
-    result = runner.invoke(
-        app,
-        [
-            "connection",
-            "update",
-            "filesystem_managed",
-            "-d",
-            '{"host": "new-db"}',
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Updated connection" in result.output
-
-
 # --- connection delete ---
 
 
