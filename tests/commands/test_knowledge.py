@@ -229,7 +229,7 @@ def test_knowledge_search_max(patch_client):
 
 def test_knowledge_delete(patch_client):
     result = runner.invoke(
-        app, ["knowledge", "delete", "kb1", "--yes", "--project", "PROJ1"]
+        app, ["knowledge", "delete", "kb1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_knowledge_bank(
@@ -278,7 +278,7 @@ def test_knowledge_delete_by_name(patch_client):
     """Delete command resolves by name."""
     proj, kb_mock = _setup_name_resolution(patch_client)
     result = runner.invoke(
-        app, ["knowledge", "delete", "My KB", "--yes", "--project", "PROJ1"]
+        app, ["knowledge", "delete", "My KB", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     kb_mock.delete.assert_called_once()

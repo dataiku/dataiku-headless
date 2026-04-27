@@ -266,6 +266,7 @@ def test_api_service_delete_package(patch_client):
             "pkg1",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0

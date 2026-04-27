@@ -155,6 +155,44 @@ When editing skills, **progressive disclosure is non-negotiable**:
 
 ---
 
+## Safety & Guarded Mode
+
+**`dku` is guarded by default.** Every destructive command calls `safety.guard()`. There is NO other path — adding a new destructive command without calling `guard()` is a bug.
+
+### The primitives
+
+- **`src/dku_cli/safety.py`** — the only module that emits `AGENT INSTRUCTION` blocks and exits 77.
+  - `Tier.READ / WRITE / DELETE / CASCADE / ADMIN` (IntEnum).
+  - `guard(ctx, *, tier, action, subject, yes, target_id=None, confirm_name=None, i_know=False, prompt=None)` — the only call every destructive command makes.
+- **Exit code 77** (`SAFETY_BLOCKED_EXIT`) is reserved for safety blocks. Do NOT reuse it.
+- **Global flag `--dangerous`** + **env `DKU_DANGEROUS=1`** + **`config.toml` `dangerous_mode=true`** all disable tier 2–3 guards. Tier 4 (admin) is never bypassable.
+
+### Tiers — call-site rules
+
+| Tier | Use when the command … | Required flags |
+|---|---|---|
+| `READ` / `WRITE` | Lists, creates, reversible updates | No guard call needed |
+| `DELETE` | Deletes one resource or wipes its data | Pass `yes=yes` |
+| `CASCADE` | Is irreversible, touches many resources, or uses a `--force` override | Pass `yes=yes`, `target_id=<id>`, `confirm_name=confirm_name` |
+| `ADMIN` | Reserved for instance-wide admin mutators | Pass `yes`, `target_id`, `confirm_name`, `i_know` |
+
+### When adding a new destructive command
+
+1. Pick the tier. If in doubt between DELETE and CASCADE, ask: *can this destroy work the user did not explicitly name in the command*? If yes → CASCADE.
+2. Add `yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard")`.
+3. For CASCADE: also add `confirm_name: str = typer.Option(None, "--confirm-name", help="Must match <TARGET> to proceed.")`.
+4. Call `guard(ctx, tier=Tier.X, action="noun.verb", subject="human-readable '{name}' in {scope}", yes=yes, ..., prompt="User-facing question ending in a question mark?")`.
+5. Write the `prompt=` from the user's perspective — it's shown to the human verbatim by the agent. Start with the verb, name the target, end with a question.
+6. Write tests: (a) blocks without `--yes` (exit 77), (b) succeeds with `--yes`, (c) tier-3 rejects mismatched `--confirm-name`, (d) `DKU_DANGEROUS=1` bypasses (tier 2) or still requires `--confirm-name` (tier 3).
+
+### Existing agent-facing artifacts that mention safety
+
+- `dataiku-devkit/skills/dku-cli/SKILL.md` — cheat sheet rule 18 + the "Deletion Commands (Safety Guards)" section.
+- `dataiku-devkit/skills/dku-cli/references/commands.md` — "Safety Modes & Exit Code 77" section.
+- CLI error messages — `AGENT INSTRUCTION:` block emitted from `safety._emit_block` / `_emit_cascade_name_mismatch` / `_emit_admin_refusal`.
+
+---
+
 ## Critical Gotchas
 
 **Rule: Every gotcha below MUST also exist in `dataiku-devkit/skills/dku-cli/SKILL.md` gotchas table AND be caught with a prescriptive error message in the CLI code.**
@@ -208,6 +246,15 @@ All `dku admin` mutations (`license upload`, `sso/ldap/azure-ad/settings set`, `
 
 ### Semantic Model Schema
 `dataikuapi.dss.semantic_model` exposes `entities`, `relationships`, `goldenQueries`, `glossaryTerms`, `glossaryBindings` as **opaque dicts with no inner class definitions** — the schema is nowhere in the SDK or public docs. Relationship shape (verified DSS 14.4.3): `{"firstEntity","secondEntity","pseudoSQLExpression":"left.col = right.col"}` — three fields, no cardinality (inferred from `entity.primaryKey`). `set-version` is a **shallow merge** at the version top level — passing `{"relationships":[...]}` replaces the whole array. Always build one example in the UI → `get-version -o json` → templatize → `set-version @file`. Full schema in `dataiku-devkit/skills/dataiku/references/semantic-models.md`.
+
+### Govern nodes + node-type guard
+`dku auth login` persists `node_type` (DESIGN/AUTOMATION/GOVERN/DEPLOYER/API) into the profile TOML after probing `get_instance_info()`. `helpers.get_client_from_ctx(ctx)` defaults to rejecting GOVERN profiles with exit code **4** and a prescriptive error pointing at `dku govern …`. Cross-node commands (`user`, `group`, `admin`, `whoami`) opt into broader support via `get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)`. Govern-only commands use `get_govern_client_from_ctx(ctx)` which requires `node_type == "GOVERN"`. When adding a new command: project-scoped command → do nothing (default guard applies); cross-node command → pass `allowed_node_types=ALL_NODE_TYPES`; Govern-only → use `get_govern_client_from_ctx`. Legacy profiles without stored `node_type` show `[?]` in `dku auth list` and BYPASS the guard (backwards compatible) — `dku auth login --profile X` refreshes them.
+
+### Govern API payload shapes
+`dataikuapi.GovernClient` lives on its own host, API-key-only auth. List-item payloads nest: `list_blueprints()` items have `{"blueprint": {"id","name",…}}`; blueprint-version list-items have `{"blueprintVersion": {"id": {"blueprintId","versionId"}}, "blueprintVersionTrace": {"status","originVersionId"}}`; artifact search hits have `{"artifact": {"id","name","status","workflow"}, "blueprint": {…}, "blueprintVersion": {"id":{…}}}`. Signoff list items use `signoffId.{artifactId,stepId}` (NOT flat `id`), `approverResponse` (NOT `approval`), `feedbackResponses` (NOT `feedbacks`). Never `.get('id')` on a list-item raw — navigate the nested shape. All workflow/status enum values are UPPERCASE (`APPROVED`, `WAITING_FOR_FEEDBACK`, `MAJOR_ISSUE`, `ACTIVE`). Delegation requires `GovernUserUsersContainer(login).build()` — raw login string fails. `create_*()` on admin handlers takes `new_identifier` as a SEPARATE positional arg: `create_blueprint(new_identifier, payload_dict)`. `save(danger_zone_accepted=True)` on a blueprint-version definition is the schema-breaking escape hatch → maps to tier-3 CASCADE with `--confirm-name` when that CLI command lands.
+
+### Global flag position
+`--errors json`, `--profile`, `--dangerous`, `--url`, `--api-key` are root-app options. They must precede the subcommand: `dku --errors json user delete X` works; `dku user delete X --errors json` fails with "No such option". The AGENT INSTRUCTION block's `rerun_with_confirmation` preserves the correct position automatically — agents should copy it verbatim.
 ---
 
 ## dataikuapi Quirks

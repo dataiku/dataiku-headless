@@ -11,6 +11,7 @@ from dku_cli.config import (
     get_config,
     get_default_output,
     get_default_project,
+    set_dangerous_mode,
     set_default_project,
 )
 from dku_cli.output import error, info, render, render_raw, success
@@ -95,6 +96,44 @@ def list_config() -> None:
 def show_path() -> None:
     """Print config file path."""
     print(CONFIG_FILE)
+
+
+@app.command("set-safety")
+def set_safety(
+    mode: str = typer.Argument(help="Safety mode: guarded or dangerous"),
+) -> None:
+    """Persist the safety mode to config.toml.
+
+    - guarded: destructive commands require --yes (default).
+    - dangerous: skip safety guards for tier 2–3 commands (tier 4 admin never
+      bypassable). Equivalent to setting DKU_DANGEROUS=1 persistently.
+    """
+    mode_lower = mode.strip().lower()
+    if mode_lower not in ("guarded", "dangerous"):
+        error("Safety mode must be 'guarded' or 'dangerous'.")
+        raise typer.Exit(1)
+    set_dangerous_mode(mode_lower == "dangerous")
+    success(f"Set safety mode = {mode_lower}")
+
+
+@app.command("get-safety")
+def get_safety(ctx: typer.Context) -> None:
+    """Show the active safety mode and why it is active.
+
+    Precedence: --dangerous flag > DKU_DANGEROUS env > config.toml > default (guarded).
+    """
+    from dku_cli.safety import is_dangerous_mode
+
+    enabled, reason = is_dangerous_mode(ctx)
+    mode = "dangerous" if enabled else "guarded"
+    reason_map = {
+        "flag": "--dangerous flag",
+        "env": "DKU_DANGEROUS env var",
+        "config": "config.toml (dangerous_mode=true)",
+        "default": "default (guarded is the default mode)",
+    }
+    print(mode)
+    info(f"reason: {reason_map.get(reason, reason)}")
 
 
 @app.command("variables")

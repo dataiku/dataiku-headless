@@ -96,7 +96,7 @@ def test_user_get_json(patch_client):
 
 
 def test_user_delete(patch_client):
-    result = runner.invoke(app, ["user", "delete", "testuser"])
+    result = runner.invoke(app, ["user", "delete", "testuser", "--yes"])
     assert result.exit_code == 0
     assert "Deleted user" in result.output
     user = patch_client.get_user("testuser")

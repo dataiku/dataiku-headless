@@ -157,14 +157,35 @@ def test_plugin_delete_with_confirm(patch_client):
     assert "Deleted plugin 'my-plugin'" in result.output
 
 
-def test_plugin_delete_force(patch_client):
+def test_plugin_delete_force_requires_confirm_name(patch_client):
+    """--force elevates to tier-3; --yes alone is not enough."""
+    plugin_obj = MagicMock()
+    patch_client.get_plugin.return_value = plugin_obj
+
+    result = runner.invoke(app, ["plugin", "delete", "my-plugin", "--yes", "--force"])
+    assert result.exit_code == 77
+    plugin_obj.delete.assert_not_called()
+
+
+def test_plugin_delete_force_with_matching_confirm_name(patch_client):
     plugin_obj = MagicMock()
     future = MagicMock()
     future.wait_for_result.return_value = {}
     plugin_obj.delete.return_value = future
     patch_client.get_plugin.return_value = plugin_obj
 
-    result = runner.invoke(app, ["plugin", "delete", "my-plugin", "--yes", "--force"])
+    result = runner.invoke(
+        app,
+        [
+            "plugin",
+            "delete",
+            "my-plugin",
+            "--yes",
+            "--force",
+            "--confirm-name",
+            "my-plugin",
+        ],
+    )
     assert result.exit_code == 0
     plugin_obj.delete.assert_called_once_with(force=True)
 

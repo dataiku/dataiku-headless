@@ -734,7 +734,7 @@ def delete(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
     drop_data: bool = typer.Option(
         False,
         "--drop-data",
@@ -748,6 +748,16 @@ def delete(
     as input, deleting it will also delete those recipes.
     """
     project_key = resolve_project(project)
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="dataset.delete",
+        subject=f"dataset '{dataset_name}' in project {project_key}",
+        yes=yes,
+        prompt=f"Permanently delete dataset '{dataset_name}' from project {project_key}? This cannot be undone.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -791,14 +801,6 @@ def delete(
             for recipe_id, reason in dependents:
                 warn(f"  - {recipe_id} ({reason})")
 
-        if not yes:
-            prompt_msg = f"Delete dataset '{dataset_name}' from {project_key}" + (
-                f" and {len(dependents)} dependent recipe(s)?" if dependents else "?"
-            )
-            confirm = typer.confirm(prompt_msg)
-            if not confirm:
-                raise typer.Abort()
-
         if drop_data:
             info(
                 "Note: --drop-data is accepted for symmetry with 'project delete'; "
@@ -807,8 +809,6 @@ def delete(
 
         ds.delete()
         success(f"Deleted dataset '{dataset_name}' from {project_key}")
-    except typer.Abort:
-        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -818,9 +818,20 @@ def clear(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Clear all data from a dataset."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="dataset.clear",
+        subject=f"dataset '{dataset_name}' in project {project_key}",
+        yes=yes,
+        prompt=f"Wipe all rows from dataset '{dataset_name}' in project {project_key}? Data cannot be recovered.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)

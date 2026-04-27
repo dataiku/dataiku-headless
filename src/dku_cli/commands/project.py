@@ -358,8 +358,13 @@ def create(
 def delete(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
-    confirm: bool = typer.Option(
-        False, "--confirm", "--yes", "-y", help="Confirm deletion (required)"
+    yes: bool = typer.Option(
+        False, "--yes", "-y", "--confirm", help="Skip safety guard"
+    ),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match PROJECT_KEY literally to proceed (tier-3 guard).",
     ),
     drop_data: bool = typer.Option(
         False,
@@ -368,17 +373,35 @@ def delete(
         help="Also drop the backing storage of managed datasets and managed folders (physical SQL tables, managed folder contents). Without this flag, managed datasets' backing tables are orphaned on the target connection.",
     ),
 ) -> None:
-    """Delete a project. Requires --confirm / --yes flag.
+    """Delete a project. Tier-3 guard: requires --yes and --confirm-name matching the project key.
 
     By default, backing storage of managed datasets (e.g. physical PostgreSQL
     tables for managed SQL datasets) is NOT dropped. Pass --drop-data to also
     clear them.
     """
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.CASCADE,
+        action="project.delete",
+        subject=f"project {project_key}"
+        + (
+            " (WITH --drop-data, managed tables will be destroyed)" if drop_data else ""
+        ),
+        yes=yes,
+        target_id=project_key,
+        confirm_name=confirm_name,
+        prompt=(
+            f"Permanently delete project '{project_key}'"
+            + (
+                " AND drop the backing storage of all managed datasets/folders"
+                if drop_data
+                else ""
+            )
+            + "? This cannot be undone."
+        ),
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -495,10 +518,24 @@ def set_variables(
         "--definition",
         help="Full variables JSON (string, @file.json, or - for stdin)",
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip safety guard (required with --definition)"
+    ),
 ) -> None:
     """Set project variables. Use --set for individual standard vars or --definition to replace all."""
     key = project_key or project
     key = resolve_project(key)
+    if definition is not None:
+        from dku_cli.safety import Tier, guard
+
+        guard(
+            ctx,
+            tier=Tier.DELETE,
+            action="project.set_variables",
+            subject=f"all variables on project {key} (wholesale replace)",
+            yes=yes,
+            prompt=f"Replace ALL variables on project {key}? Existing variables not in the new definition will be removed.",
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)
@@ -558,10 +595,21 @@ def set_permissions(
         "--definition",
         help="Permissions JSON (string, @file.json, or - for stdin)",
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
-    """Set project permissions from JSON definition."""
+    """Set project permissions from JSON definition (wholesale replace)."""
+    from dku_cli.safety import Tier, guard
+
     key = project_key or project
     key = resolve_project(key)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="project.set_permissions",
+        subject=f"permissions on project {key} (wholesale replace)",
+        yes=yes,
+        prompt=f"Replace ALL permissions on project {key}? Users/groups not in the new definition will lose access.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)

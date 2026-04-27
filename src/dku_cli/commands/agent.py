@@ -101,15 +101,28 @@ def delete(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete an agent. Accepts agent ID or name."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent.delete",
+        subject=f"agent '{agent_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete agent '{agent_id}' from project {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
         agent.delete()
         success(f"Deleted agent '{agent_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

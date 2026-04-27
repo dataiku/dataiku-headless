@@ -206,7 +206,15 @@ def test_add_block_auto_mode_switch(patch_client):
 def test_remove_block(patch_client):
     result = runner.invoke(
         app,
-        ["agent-block", "remove", "agent_blocks", "emit_result", "--project", "PROJ1"],
+        [
+            "agent-block",
+            "remove",
+            "agent_blocks",
+            "emit_result",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     assert "Removed" in result.output
@@ -224,7 +232,15 @@ def test_remove_block(patch_client):
 def test_remove_block_not_found(patch_client):
     result = runner.invoke(
         app,
-        ["agent-block", "remove", "agent_blocks", "nonexistent", "--project", "PROJ1"],
+        [
+            "agent-block",
+            "remove",
+            "agent_blocks",
+            "nonexistent",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code != 0
 
@@ -233,7 +249,15 @@ def test_remove_starting_block(patch_client):
     """Removing the starting block should clear startingBlockId."""
     result = runner.invoke(
         app,
-        ["agent-block", "remove", "agent_blocks", "init_state", "--project", "PROJ1"],
+        [
+            "agent-block",
+            "remove",
+            "agent_blocks",
+            "init_state",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
 

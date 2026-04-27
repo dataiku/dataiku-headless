@@ -221,15 +221,28 @@ def delete(
     ctx: typer.Context,
     sm_ref: str = typer.Argument(help="Semantic model ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a semantic model."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.delete",
+        subject=f"semantic model '{sm_ref}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete semantic model '{sm_ref}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         sm = resolve_semantic_model(proj, sm_ref)
         sm.delete()
         success(f"Deleted semantic model '{sm_ref}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

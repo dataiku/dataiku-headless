@@ -39,7 +39,7 @@ def test_codeenv_get_json(patch_client):
 
 
 def test_codeenv_delete(patch_client):
-    result = runner.invoke(app, ["code-env", "delete", "py39"])
+    result = runner.invoke(app, ["code-env", "delete", "py39", "--yes"])
     assert result.exit_code == 0
 
 

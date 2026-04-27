@@ -479,13 +479,21 @@ def test_dataset_delete(patch_client):
     ds.delete.assert_called_once()
 
 
-def test_dataset_delete_prompts_without_yes(patch_client):
-    """Without --yes, delete prompts for confirmation."""
-    result = runner.invoke(
-        app, ["dataset", "delete", "ds1", "--project", "PROJ1"], input="y\n"
-    )
+def test_dataset_delete_blocks_without_yes(patch_client):
+    """Without --yes, guarded mode refuses and emits AGENT INSTRUCTION."""
+    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 77
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.delete.assert_not_called()
+
+
+def test_dataset_delete_dangerous_env_bypasses(patch_client, monkeypatch):
+    """DKU_DANGEROUS=1 skips the guard."""
+    monkeypatch.setenv("DKU_DANGEROUS", "1")
+    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "Deleted dataset" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.delete.assert_called_once()
 
 
 def test_dataset_delete_warns_about_dependent_recipes(patch_client):
@@ -532,8 +540,18 @@ def test_dataset_delete_no_dependents_no_warning(patch_client):
     assert "Deleted dataset" in result.output
 
 
-def test_dataset_clear(patch_client):
+def test_dataset_clear_requires_yes(patch_client):
+    """dataset clear is tier-2 destructive — needs --yes."""
     result = runner.invoke(app, ["dataset", "clear", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 77
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.clear.assert_not_called()
+
+
+def test_dataset_clear_with_yes(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "clear", "ds1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Cleared dataset" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")

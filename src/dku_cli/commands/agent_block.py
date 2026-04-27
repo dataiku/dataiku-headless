@@ -478,8 +478,20 @@ def remove_block(
     version: str | None = typer.Option(
         None, "--version", help="Version ID (default: active)"
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a block from the agent's block graph."""
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent_block.remove",
+        subject=f"block '{block_id}' from agent '{agent_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove block '{block_id}' from agent '{agent_id}'?",
+    )
     try:
         settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version

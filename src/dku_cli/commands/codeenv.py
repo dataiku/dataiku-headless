@@ -161,13 +161,26 @@ def delete(
     ctx: typer.Context,
     name: str = typer.Argument(help="Code environment name"),
     lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a code environment."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="codeenv.delete",
+        subject=f"{lang} code environment '{name}'",
+        yes=yes,
+        prompt=f"Delete {lang} code environment '{name}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         env = client.get_code_env(lang, name)
         env.delete()
         success(f"Deleted code environment '{name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

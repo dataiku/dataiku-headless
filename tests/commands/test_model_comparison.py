@@ -118,6 +118,7 @@ def test_model_comparison_remove_model(patch_client):
             "S-PROJ1-model1-v1",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0

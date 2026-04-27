@@ -166,9 +166,20 @@ def delete(
     ctx: typer.Context,
     path: str = typer.Argument(help="File path in the library"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a file from the project library."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="library.delete",
+        subject=f"library file '{path}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete library file '{path}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -177,6 +188,8 @@ def delete(
         f.delete()
 
         success(f"Deleted {path}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

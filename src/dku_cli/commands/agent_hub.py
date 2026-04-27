@@ -279,9 +279,20 @@ def remove_agent(
         None, "--hub", help="Agent Hub webapp ID (auto-detected if only one exists)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove an enterprise agent from the Agent Hub."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent_hub.remove_agent",
+        subject=f"agent '{agent_id}' from hub in {project_key}",
+        yes=yes,
+        prompt=f"Remove agent '{agent_id}' from Agent Hub in {project_key}?",
+    )
     try:
         webapp, cfg = _resolve_hub(ctx, project_key, hub)
 

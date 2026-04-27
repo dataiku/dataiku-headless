@@ -5,8 +5,49 @@ Full reference for all `dku` commands. Read this when you need exact flags, argu
 Global options available on the root CLI:
 
 ```bash
-dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] COMMAND ...
+dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] [--dangerous] COMMAND ...
 ```
+
+## Safety Modes & Exit Code 77
+
+`dku` runs in **guarded mode** by default. Destructive commands refuse to run without explicit authorization and exit with code **77**, emitting an `AGENT INSTRUCTION:` block on stderr that tells you (the agent) how to proceed.
+
+### Tiers
+
+| Tier | What it covers | Required flags |
+|---|---|---|
+| **2 — delete** | Single-resource deletes (`dataset delete`, `recipe delete`, `folder delete`, `api-key delete`, `cluster delete`, `group delete`, `api-deployer delete-deployment`, `project-deployer delete-deployment`, `rag delete`, `dq delete`, `streaming delete`, `model-comparison delete`, `workspace delete`, `wiki delete`), data wipes (`dataset clear`), wholesale rewrites (`project set-variables --definition`, `project set-permissions`) | `--yes` (or `-y`) |
+| **3 — cascade** | Irreversible multi-resource ops: `project delete` (incl. `--drop-data`), `plugin delete --force`, `git delete-branch --force` | `--yes` AND `--confirm-name <TARGET>` — literal match on the resource identifier |
+| **4 — admin** | Reserved for future admin ops | `--yes` + `--confirm-name` + `--i-know-what-im-doing`. Never bypassable by `--dangerous`. |
+
+### Bypass modes
+
+| Mechanism | Scope | Notes |
+|---|---|---|
+| `--yes` / `-y` per command | That invocation only | The normal path. Always prefer this. |
+| `--dangerous` flag on root | That invocation only | Skips tier 2–3 guards. Still requires `--confirm-name` on tier 3. Prints a warning banner. |
+| `DKU_DANGEROUS=1` env var | Shell session | Equivalent to `--dangerous`. |
+| `dku config set-safety dangerous` | Persistent (config.toml) | Persisted dangerous mode. Inspect with `dku config get-safety`. |
+
+### Reading an AGENT INSTRUCTION block
+
+When a command exits 77, stderr contains:
+
+```
+◆ BLOCKED by guarded mode — tier-2 (delete) blast radius.
+
+AGENT INSTRUCTION:
+  1. Stop. Do not retry automatically.
+  2. Ask the user verbatim:
+       'Permanently delete dataset 'ds1' from project PROJ1? This cannot be undone.'
+  3. If they say yes, run this exact command:
+       dku dataset delete ds1 -P PROJ1 --yes
+  4. To authorise everything for this session, ask the user:
+       export DKU_DANGEROUS=1
+```
+
+With `--errors json`, the same info ships as `error.safety.{prompt_to_user, rerun_with_confirmation, session_bypass, action, tier, ...}`.
+
 
 ## Table of Contents
 
@@ -438,7 +479,7 @@ Admin-only. 403 if non-admin.
 dku connection list [--type TYPE] [-o FORMAT]
 dku connection get CONNECTION_NAME [-o FORMAT]
 dku connection create NAME --type TYPE [--definition JSON]
-dku connection delete CONNECTION_NAME [--yes]
+dku connection delete CONNECTION_NAME --yes --confirm-name CONNECTION_NAME   # tier-3 cascade: orphans every dataset using it
 dku connection test CONNECTION_NAME
 dku connection schemas CONNECTION_NAME [-P PROJECT] [-o FORMAT]    # SQL schemas / Iceberg namespaces
 dku connection tables CONNECTION_NAME [-P PROJECT] [--schema SCHEMA] [-o FORMAT]  # Importable tables

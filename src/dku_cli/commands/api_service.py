@@ -301,18 +301,31 @@ def delete_package(
     service_id: str = typer.Argument(help="API service ID"),
     package_id: str = typer.Option(..., "--package", help="Package ID to delete"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a package from an API service.
 
     Example:
-      dku api-service delete-package myservice --package v1 -P PROJ
+      dku api-service delete-package myservice --package v1 -P PROJ --yes
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="api_service.delete_package",
+        subject=f"package '{package_id}' from API service '{service_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete package '{package_id}' from API service '{service_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         service = proj.get_api_service(service_id)
         service.delete_package(package_id)
         success(f"Deleted package '{package_id}' from API service '{service_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

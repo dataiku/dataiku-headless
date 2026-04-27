@@ -428,7 +428,7 @@ def test_ml_set_algorithm(patch_client):
 
 def test_ml_delete(patch_client):
     result = runner.invoke(
-        app, ["ml", "delete", "a1", "t1", "--yes", "--project", "PROJ1"]
+        app, ["ml", "delete", "a1", "t1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     assert "Deleted ML task" in result.output

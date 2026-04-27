@@ -16,7 +16,6 @@ from dku_cli.config import (
     clear_profile_configs,
     delete_profile_config,
     get_active_profile,
-    get_default_project,
     get_all_profiles,
     get_profile_config,
     set_active_profile,
@@ -44,12 +43,12 @@ def _redact_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, "", "", ""))
 
 
-def _resolve_project_source() -> tuple[str | None, str]:
+def _resolve_project_source(profile: str) -> tuple[str | None, str]:
     if os.environ.get("DKU_PROJECT"):
         return os.environ["DKU_PROJECT"], "env"
-    default_project = get_default_project()
+    default_project = get_profile_config(profile).get("default_project")
     if default_project:
-        return default_project, f"profile:{get_active_profile()}"
+        return default_project, f"profile:{profile}"
     return None, "missing"
 
 
@@ -102,7 +101,8 @@ def login(
     if not api_key:
         api_key = Prompt.ask("API Key", password=True)
 
-    # Validate connection
+    # Validate connection and detect node type. DSSClient.get_instance_info()
+    # works against every node type (including GOVERN), so it's our probe.
     try:
         import dataikuapi
 
@@ -113,23 +113,32 @@ def login(
         error(f"Could not connect to {url}: {e}")
         raise typer.Exit(1)
 
-    # Get DSS version
+    # Get DSS version + node type
+    version = "unknown"
+    node_type: str | None = None
     try:
-        version = client.get_instance_info().raw.get("dssVersion", "unknown")
+        raw = client.get_instance_info().raw
+        version = raw.get("dssVersion", "unknown")
+        node_type = (
+            raw.get("nodeType") or raw.get("rawNodeType") or ""
+        ).upper() or None
     except Exception:
-        version = "unknown"
+        pass
 
-    # Store credentials
-    set_profile_config(profile, url)
+    # Store credentials (persists node_type alongside url)
+    set_profile_config(profile, url, node_type=node_type)
     storage = store_api_key(profile, api_key)
 
     success(welcome(user, url, version))
+    if node_type:
+        info(f"Node type: {node_type}")
     info(f"Credentials stored in {storage}")
     if profile != "default":
         info(f'Profile "{profile}" is now active')
 
-    # Prompt for default project in interactive mode
-    if interactive:
+    # Prompt for default project in interactive mode — only meaningful on
+    # nodes that actually have projects.
+    if interactive and node_type in (None, "DESIGN", "AUTOMATION"):
         try:
             project_key = Prompt.ask(
                 "Default project? (leave blank to skip)", default=""
@@ -199,7 +208,7 @@ def status(
     url_source, api_key_source = _resolve_auth_sources(
         flag_url, flag_api_key, url, api_key, profile
     )
-    project_key, project_source = _resolve_project_source()
+    project_key, project_source = _resolve_project_source(profile)
 
     try:
         client = dataikuapi.DSSClient(url, api_key=api_key)
@@ -254,7 +263,10 @@ def status(
             console.print(f"[bold]Groups:[/bold]   {', '.join(groups)}")
         console.print(f"[bold]DSS:[/bold]      {version} ({node_type})")
         if project_key:
-            console.print(f"[bold]Project:[/bold]  {project_key} [{project_source}]")
+            console.print(
+                f"Project:  {project_key} [{project_source}]",
+                markup=False,
+            )
             if project_ok:
                 console.print(
                     f"[bold]Project OK:[/bold] [green]{ICON} Accessible[/green]"
@@ -298,7 +310,8 @@ def list_profiles() -> None:
         marker = " *" if name == active else ""
         has_key = "key stored" if get_api_key(name) else "no key"
         url = cfg.get("url", "no url")
-        console.print(f"  {name}{marker}  {url}  ({has_key})")
+        node = cfg.get("node_type", "?")
+        console.print(f"  {name}{marker}  [{node}]  {url}  ({has_key})")
 
 
 @app.command()

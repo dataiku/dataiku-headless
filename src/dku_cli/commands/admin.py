@@ -22,7 +22,7 @@ from pathlib import Path
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input
+from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
 from dku_cli.output import (
     info,
     render,
@@ -81,7 +81,7 @@ def logs(
     """List available log files."""
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         log_list = client.list_logs()
 
         if fmt == "json":
@@ -120,7 +120,7 @@ def get_log(
       dku admin get-log backend.log
     """
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         content = client.get_log(name)
         if isinstance(content, str):
             print(content)
@@ -147,7 +147,7 @@ def usage(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         summary = client.get_global_usage_summary(with_per_project=per_project)
         raw = summary.raw
 
@@ -182,7 +182,7 @@ def instance_info(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info_obj = client.get_instance_info()
         raw = info_obj.raw
 
@@ -220,7 +220,7 @@ def sanity_check(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info("Running sanity check...")
         result = client.perform_instance_sanity_check(wait=wait)
 

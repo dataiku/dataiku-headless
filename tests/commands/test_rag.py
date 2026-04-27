@@ -120,12 +120,9 @@ def test_rag_delete(patch_client):
     rag.delete.assert_called_once()
 
 
-def test_rag_delete_prompts_without_yes(patch_client):
-    result = runner.invoke(
-        app, ["rag", "delete", "rag1", "--project", "PROJ1"], input="y\n"
-    )
-    assert result.exit_code == 0
-    assert "Deleted" in result.output
+def test_rag_delete_blocks_without_yes(patch_client):
+    result = runner.invoke(app, ["rag", "delete", "rag1", "--project", "PROJ1"])
+    assert result.exit_code == 77
 
 
 # --- get-definition ---

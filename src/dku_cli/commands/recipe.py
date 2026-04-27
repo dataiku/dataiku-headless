@@ -842,11 +842,17 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete a recipe."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
-    if not yes:
-        confirm = typer.confirm(f"Delete recipe '{recipe_name}' from {project_key}?")
-        if not confirm:
-            raise typer.Abort()
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="recipe.delete",
+        subject=f"recipe '{recipe_name}' in project {project_key}",
+        yes=yes,
+        prompt=f"Delete recipe '{recipe_name}' from project {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(
@@ -1600,13 +1606,24 @@ def remove_step(
         help="Step index to remove (0-based, repeatable). Use 'list-steps' to see indices.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove one or more steps from a prepare recipe by index.
 
     When removing multiple steps, they are removed in descending order
     internally to avoid index shifting.
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="recipe.remove_step",
+        subject=f"step(s) {sorted(index)} from prepare recipe '{recipe_name}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove step(s) {sorted(index)} from prepare recipe '{recipe_name}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

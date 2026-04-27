@@ -1,4 +1,4 @@
-"""dku connection — list, test, create, get, delete, schemas, tables, sync-acls."""
+"""dku connection — list, test, create, get, update, delete, schemas, tables, sync-acls."""
 
 from __future__ import annotations
 
@@ -187,13 +187,33 @@ def get(
 def delete(
     ctx: typer.Context,
     name: str = typer.Argument(help="Connection name"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match CONNECTION name to proceed (tier-3 cascade).",
+    ),
 ) -> None:
-    """Delete a connection (admin only)."""
+    """Delete a connection (admin only). Tier-3 cascade — orphans all datasets using it."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.CASCADE,
+        action="connection.delete",
+        subject=f"connection '{name}' (orphans every dataset that uses it)",
+        yes=yes,
+        target_id=name,
+        confirm_name=confirm_name,
+        prompt=f"Delete connection '{name}'? This orphans every dataset using it.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         conn = client.get_connection(name)
         conn.delete()
         success(f"Deleted connection '{name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

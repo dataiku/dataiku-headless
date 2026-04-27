@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input
+from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS users.")
@@ -21,7 +21,7 @@ def list_users(
     """List DSS users."""
     output = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         users = client.list_users()
 
         data = []
@@ -64,7 +64,7 @@ def create(
 ) -> None:
     """Create a DSS user."""
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         group_list = [g.strip() for g in groups.split(",")] if groups else []
         client.create_user(login, password, display_name, email, groups=group_list)
 
@@ -82,7 +82,7 @@ def get(
     """Get user details."""
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         settings = user.get_settings()
         render_raw(settings.get_raw(), output_format=output)
@@ -94,13 +94,26 @@ def get(
 def delete(
     ctx: typer.Context,
     login: str = typer.Argument(help="User login"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a DSS user."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="user.delete",
+        subject=f"user '{login}'",
+        yes=yes,
+        prompt=f"Delete DSS user '{login}'?",
+    )
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         user.delete()
         success(f"Deleted user '{login}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -118,7 +131,7 @@ def activity(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         act = user.get_activity()
         raw = act.get_raw()
@@ -165,7 +178,7 @@ def add_secret(
       dku user add-secret admin --name MY_TOKEN --value "abc123"
     """
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         settings = user.get_settings()
         settings.add_secret(name, value)

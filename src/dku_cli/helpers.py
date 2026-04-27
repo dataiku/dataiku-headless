@@ -11,15 +11,122 @@ import typer
 
 import dataikuapi
 
-from dku_cli.client import get_client
+from dku_cli.client import (
+    get_client,
+    get_govern_client,
+    probe_node_type,
+    resolve_auth,
+    resolve_node_type,
+)
 from dku_cli.config import get_default_project
 
 
-def resolve_project(project: str | None) -> str:
+# Node types that support project-scoped commands (flow, datasets, recipes…).
+PROJECT_NODE_TYPES = {"DESIGN", "AUTOMATION"}
+
+
+def _has_auth_overrides(opts: dict) -> bool:
+    """Whether the command is targeting auth that may differ from stored profile metadata."""
+    return bool(
+        opts.get("url")
+        or opts.get("api_key")
+        or os.environ.get("DKU_URL")
+        or os.environ.get("DKU_API_KEY")
+    )
+
+
+def _resolve_target_node_type(opts: dict) -> str | None:
+    """Resolve node type for the actual auth target, not just stored profile metadata."""
+    profile = opts.get("profile")
+    if not _has_auth_overrides(opts):
+        return resolve_node_type(profile=profile)
+
+    try:
+        resolved_url, resolved_key = resolve_auth(
+            url=opts.get("url"),
+            api_key=opts.get("api_key"),
+            profile=profile,
+        )
+    except Exception:
+        return None
+
+    probed = probe_node_type(resolved_url, resolved_key)
+    if probed is not None:
+        return probed
+    return resolve_node_type(profile=profile)
+
+
+def require_node_type(
+    ctx: typer.Context | None,
+    allowed: set[str],
+    command_hint: str | None = None,
+) -> None:
+    """Refuse the command if the active profile is the wrong DSS node type.
+
+    Emits a prescriptive error and exits non-zero when the profile's node type
+    is known and not in ``allowed``. If the node type is unknown (legacy profile
+    pre node-type tracking) we let the command proceed — the underlying API
+    will still 404 but that is no worse than today.
+
+    Args:
+        ctx: Typer context — used to resolve the active profile.
+        allowed: Uppercase node types accepted by the caller
+            (e.g. ``{"DESIGN", "AUTOMATION"}`` or ``{"GOVERN"}``).
+        command_hint: Optional alternate command to suggest
+            (e.g. ``"dku govern artifact list"`` for Govern nodes).
+    """
+    opts = (ctx.obj if ctx is not None else {}) or {}
+    nt = _resolve_target_node_type(opts)
+    if nt is None or nt in allowed:
+        return
+
+    from dku_cli.errors import exit_with_error
+
+    nice_allowed = ", ".join(sorted(allowed))
+    details: list[str] = [
+        f"Active profile node type: {nt}",
+        f"This command requires: {nice_allowed}",
+    ]
+    if nt == "GOVERN":
+        details.append("")
+        details.append(
+            "Govern nodes do not have projects, datasets, recipes, or flows."
+        )
+        details.append("Use the dedicated governance surface instead:")
+        details.append(f"  {command_hint}" if command_hint else "  dku govern --help")
+        details.append("")
+        details.append("Or switch profile with: dku auth switch <design-profile>")
+    else:
+        details.append("")
+        details.append(
+            f"Switch profile with: dku auth switch <profile-on-{nice_allowed.lower()}-node>"
+        )
+        if command_hint:
+            details.append(f"Or try: {command_hint}")
+
+    exit_with_error(
+        f"Command not available on {nt} nodes.",
+        code="wrong_node_type",
+        details=details,
+        status=4,
+    )
+
+
+def resolve_project(project: str | None, ctx: typer.Context | None = None) -> str:
     """Resolve project key: --project flag > DKU_PROJECT env > config default.
+
+    Also enforces the node-type guard: project-scoped commands require a
+    DESIGN or AUTOMATION node. Passing ``ctx`` lets the guard read the
+    active profile; legacy callers that omit ``ctx`` still get the env/flag
+    resolution (backwards compatible).
 
     Raises typer.BadParameter if nothing found.
     """
+    # Node-type guard runs before the project lookup so agents see the real
+    # problem ("wrong node type") instead of a spurious "no project set".
+    if ctx is not None:
+        require_node_type(ctx, PROJECT_NODE_TYPES)
+
     if project:
         return project
     env_proj = os.environ.get("DKU_PROJECT")
@@ -33,10 +140,51 @@ def resolve_project(project: str | None) -> str:
     )
 
 
-def get_client_from_ctx(ctx: typer.Context) -> dataikuapi.DSSClient:
-    """Extract global opts from ctx.obj and return authenticated DSSClient."""
+_CLIENT_OPTS = ("url", "api_key", "profile")
+
+
+def get_client_from_ctx(
+    ctx: typer.Context,
+    *,
+    allowed_node_types: set[str] | None = None,
+) -> dataikuapi.DSSClient:
+    """Extract global opts from ctx.obj and return authenticated DSSClient.
+
+    By default refuses GOVERN nodes with a prescriptive error — GOVERN has no
+    projects, datasets, or recipes and a raw 404 from the API tells agents
+    nothing useful. Cross-node commands (whoami, user, group, admin/logs)
+    opt into broader node support via ``allowed_node_types``.
+
+    Args:
+        ctx: Typer context — provides global opts (url, api_key, profile).
+        allowed_node_types: Override the default (``PROJECT_NODE_TYPES``).
+            Pass ``None`` or ``{"DESIGN","AUTOMATION","GOVERN","DEPLOYER","API"}``
+            for commands that work on every node type. Pass a narrower set
+            (e.g. ``{"DESIGN","AUTOMATION"}``) to restrict further.
+
+    Filters to the keys `get_client()` accepts so non-auth globals
+    (e.g. `dangerous`) in ctx.obj don't crash the client constructor.
+    """
+    if allowed_node_types is None:
+        allowed_node_types = PROJECT_NODE_TYPES
+    require_node_type(ctx, allowed_node_types)
     opts = ctx.obj or {}
-    return get_client(**opts)
+    return get_client(**{k: opts[k] for k in _CLIENT_OPTS if k in opts})
+
+
+# Commands that work on every DSS node type (whoami, admin instance-info, etc).
+ALL_NODE_TYPES = {"DESIGN", "AUTOMATION", "GOVERN", "DEPLOYER", "API"}
+
+
+def get_govern_client_from_ctx(ctx: typer.Context):
+    """Extract global opts from ctx.obj and return authenticated GovernClient.
+
+    Also enforces that the active profile is a GOVERN node — commands under
+    ``dku govern`` only make sense against a Govern node.
+    """
+    require_node_type(ctx, {"GOVERN"})
+    opts = ctx.obj or {}
+    return get_govern_client(**{k: opts[k] for k in _CLIENT_OPTS if k in opts})
 
 
 def resolve_agent(project, agent_ref: str):
@@ -125,28 +273,6 @@ def resolve_knowledge_bank(project, kb_ref: str):
         ],
         status=3,
     )
-
-
-def get_govern_client_from_ctx(ctx: typer.Context):
-    """Get GovernClient via DSS's internal Govern integration settings.
-
-    Uses DSSClient.get_govern_client() which requires admin rights.
-    Exits with a prescriptive error if Govern is not configured.
-    """
-    from dku_cli.errors import exit_with_error
-
-    client = get_client_from_ctx(ctx)
-    govern_client = client.get_govern_client()
-    if govern_client is None:
-        exit_with_error(
-            "Govern integration is not enabled on this DSS instance.",
-            code="govern_not_configured",
-            details=[
-                "Ensure Govern is enabled in DSS Administration > Settings > Govern.",
-                "The API key must have admin rights on the DSS instance.",
-            ],
-        )
-    return govern_client
 
 
 def resolve_semantic_model(project, sm_ref: str):

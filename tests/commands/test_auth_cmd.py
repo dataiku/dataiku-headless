@@ -54,7 +54,6 @@ def test_auth_status_shows_sources_and_project(patch_client):
             "dku_cli.commands.auth_cmd.get_profile_config",
             return_value={"url": "https://dss.example.com", "default_project": "PROJ1"},
         ),
-        patch("dku_cli.commands.auth_cmd.get_default_project", return_value="PROJ1"),
         patch(
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),
@@ -88,7 +87,6 @@ def test_auth_status_project_access_error(patch_client):
                 "default_project": "MISSING",
             },
         ),
-        patch("dku_cli.commands.auth_cmd.get_default_project", return_value="MISSING"),
         patch(
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),
@@ -102,6 +100,37 @@ def test_auth_status_project_access_error(patch_client):
     assert result.exit_code == 0
     assert "Project OK:" in result.output
     assert "NotFoundException: Project MISSING does not exist" in result.output
+
+
+def test_auth_status_uses_requested_profile_default_project(patch_client):
+    project = MagicMock()
+    project.get_metadata.return_value = {"label": "Other Project"}
+    patch_client.get_project.return_value = project
+
+    profile_cfgs = {
+        "default": {"url": "https://dss.example.com", "default_project": "PROJ1"},
+        "other": {"url": "https://dss.example.com", "default_project": "PROJ2"},
+    }
+
+    with (
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_profile_config",
+            side_effect=lambda profile: profile_cfgs[profile],
+        ),
+        patch(
+            "dku_cli.commands.auth_cmd.resolve_auth",
+            return_value=("https://dss.example.com", "secret"),
+        ),
+        patch(
+            "dku_cli.commands.auth_cmd.dataikuapi.DSSClient", return_value=patch_client
+        ),
+    ):
+        result = runner.invoke(app, ["--profile", "other", "auth", "status"])
+
+    assert result.exit_code == 0
+    assert "PROJ2 [profile:other]" in result.output
+    patch_client.get_project.assert_called_once_with("PROJ2")
 
 
 def test_auth_switch_exits_zero_on_success():

@@ -74,7 +74,9 @@ def test_get(patch_client):
 
 
 def test_delete(patch_client):
-    result = runner.invoke(app, ["code-studio", "delete", "cs1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["code-studio", "delete", "cs1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted" in result.output
     patch_client.get_project("PROJ1").get_code_studio("cs1").delete.assert_called_once()

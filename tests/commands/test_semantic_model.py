@@ -134,7 +134,7 @@ def test_get_json(patch_client):
 
 def test_delete(patch_client):
     result = runner.invoke(
-        app, ["semantic-model", "delete", "sm1", "--project", "PROJ1"]
+        app, ["semantic-model", "delete", "sm1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_semantic_model(
@@ -425,7 +425,14 @@ def test_delete_by_name(patch_client):
     proj, sm_mock = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app,
-        ["semantic-model", "delete", "My Semantic Model", "--project", "PROJ1"],
+        [
+            "semantic-model",
+            "delete",
+            "My Semantic Model",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     sm_mock.delete.assert_called_once()

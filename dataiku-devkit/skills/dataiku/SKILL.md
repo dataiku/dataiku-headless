@@ -163,6 +163,7 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 | Geospatial | `references/geospatial.md` |
 | Verification & Cost | `references/verification.md` |
 | Govern (runtime: artifacts, signoffs, admin) | `references/govern.md` |
+| Govern (GOVERN node: blueprints, artifacts, signoffs, roles, danger-zone, EU AI Act blueprints) | `references/govern.md` |
 | Govern Blueprint Designer (authoring: versions, fields, workflow, hooks, views) | `references/govern-blueprint-designer.md` |
 | Govern Custom Pages | `references/govern-custom-pages.md` |
 | Semantic Models (text-to-SQL) | `references/semantic-models.md` |

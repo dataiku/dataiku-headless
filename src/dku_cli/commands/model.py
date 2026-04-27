@@ -250,19 +250,33 @@ def delete_version(
         ..., "--version", "-v", help="Version ID(s) to delete (repeatable)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete one or more versions from a saved model.
 
     Pass --version multiple times to delete several at once.
     Use 'dku model versions MODEL_ID' to see available version IDs.
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    version_list = list(version)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="model.delete_version",
+        subject=f"{len(version_list)} version(s) of model '{model_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete {len(version_list)} version(s) from saved model '{model_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         model = proj.get_saved_model(model_id)
-        model.delete_versions(list(version))
-        success(f"Deleted {len(version)} version(s) from model {model_id}")
+        model.delete_versions(version_list)
+        success(f"Deleted {len(version_list)} version(s) from model {model_id}")
+    except typer.Exit:
+        raise
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
@@ -281,18 +295,31 @@ def delete(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a saved model.
 
     Use 'dku model list' to see available model IDs.
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="model.delete",
+        subject=f"saved model '{model_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete saved model '{model_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         sm = proj.get_saved_model(model_id)
         sm.delete()
         success(f"Deleted saved model '{model_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
