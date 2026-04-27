@@ -133,3 +133,122 @@ def test_user_add_secret(patch_client):
     user = patch_client.get_user("admin")
     user.get_settings().add_secret.assert_called_once_with("MY_TOKEN", "abc123")
     user.get_settings().save.assert_called()
+
+
+# =============================================================================
+# Bulk user create / edit
+# =============================================================================
+
+
+def test_user_bulk_create_dry_run(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "user",
+            "bulk-create",
+            "--from",
+            '[{"login":"alice"},{"login":"bob"}]',
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    patch_client.create_users.assert_not_called()
+
+
+def test_user_bulk_create_executes(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "user",
+            "bulk-create",
+            "--from",
+            '[{"login":"alice"},{"login":"bob"}]',
+            "--yes",
+        ],
+    )
+    # bob fails in the mock, so exit code should be 1
+    assert result.exit_code == 1
+    patch_client.create_users.assert_called_once()
+    assert "alice" in result.output
+    assert "FAILURE" in result.output
+
+
+def test_user_bulk_create_csv(patch_client, tmp_path):
+    csv_path = tmp_path / "users.csv"
+    csv_path.write_text(
+        "login,password,displayName,groups\n"
+        "alice,pw1,Alice A,data_team;readers\n"
+        "bob,pw2,Bob B,readers\n"
+    )
+    result = runner.invoke(
+        app, ["user", "bulk-create", "--from-csv", str(csv_path), "--yes"]
+    )
+    assert result.exit_code == 1  # bob fails in mock
+    args, _ = patch_client.create_users.call_args
+    users_sent = args[0]
+    assert users_sent[0]["login"] == "alice"
+    assert users_sent[0]["groups"] == ["data_team", "readers"]
+
+
+def test_user_bulk_create_requires_one_source(patch_client):
+    result = runner.invoke(app, ["user", "bulk-create", "--yes"])
+    assert result.exit_code == 1
+    assert "--from" in result.output
+
+
+def test_user_bulk_edit_dry_run(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "user",
+            "bulk-edit",
+            "--from",
+            '[{"login":"alice","groups":["admin"]}]',
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    patch_client.edit_users.assert_not_called()
+
+
+def test_user_bulk_edit_requires_login(patch_client):
+    result = runner.invoke(
+        app,
+        ["user", "bulk-edit", "--from", '[{"groups":["admin"]}]', "--yes"],
+    )
+    assert result.exit_code == 1
+    assert "login" in result.output.lower()
+
+
+def test_user_bulk_edit_executes(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "user",
+            "bulk-edit",
+            "--from",
+            '[{"login":"alice","groups":["admin"]}]',
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0
+    patch_client.edit_users.assert_called_once()
+
+
+def test_user_bulk_edit_exits_nonzero_on_failures(patch_client):
+    patch_client.edit_users.return_value = [
+        {"login": "alice", "status": "SUCCESS", "error": ""},
+        {"login": "bob", "status": "FAILURE", "error": "User not found"},
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "user",
+            "bulk-edit",
+            "--from",
+            '[{"login":"alice","groups":["admin"]},{"login":"bob","enabled":false}]',
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "1 user(s) failed" in result.output

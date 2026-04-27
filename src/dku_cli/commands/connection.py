@@ -198,6 +198,133 @@ def delete(
         handle_api_error(e)
 
 
+@app.command("set-definition")
+def set_definition(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Connection name"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Full connection definition JSON (from 'connection get')",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Confirm overwrite — breaks datasets if wrong"
+    ),
+) -> None:
+    """Replace a connection's full definition (credential rotation, param changes).
+
+    Workflow:
+      dku connection get CONN -o json > /tmp/conn.json
+      # edit /tmp/conn.json
+      dku connection set-definition CONN -d @/tmp/conn.json --yes
+
+    WARNING: Wrong credentials or URL will break EVERY dataset that uses this
+    connection until fixed. Prefer editing one field at a time.
+    """
+    new_def = read_json_input(definition)
+    if not isinstance(new_def, dict):
+        exit_with_error(
+            "Connection definition must be a JSON object.",
+            code="connection_bad_payload",
+        )
+    if not yes:
+        info(
+            f"Dry run — would replace connection '{name}' definition. "
+            "Pass --yes to execute."
+        )
+        raise typer.Exit(code=0)
+    try:
+        client = get_client_from_ctx(ctx)
+        conn = client.get_connection(name)
+        conn.set_definition(new_def)
+        success(
+            f"Updated connection '{name}'. Run 'dku connection test {name}' to verify."
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def update(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Connection name"),
+    params: str | None = typer.Option(
+        None, "--params", help="JSON patch for params (inline, @file, -)"
+    ),
+    usable_by: str | None = typer.Option(
+        None,
+        "--usable-by",
+        help="ALL | ALLOWED (restrict to --allowed-groups)",
+    ),
+    allowed_groups: str | None = typer.Option(
+        None, "--allowed-groups", help="Comma-separated group names"
+    ),
+    description: str | None = typer.Option(
+        None, "--description", help="New description"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm changes"),
+) -> None:
+    """Patch selected fields on an existing connection. Safer than set-definition.
+
+    Example:
+      # Rotate Snowflake password
+      dku connection update snowflake --params '{"password":"new-secret"}' --yes
+
+      # Restrict to a group
+      dku connection update snowflake --usable-by ALLOWED \\
+        --allowed-groups data_team,admin --yes
+    """
+    if all(v is None for v in (params, usable_by, allowed_groups, description)):
+        exit_with_error(
+            "Nothing to update — pass at least one of --params, --usable-by, "
+            "--allowed-groups, --description.",
+            code="connection_update_noop",
+        )
+    if usable_by is not None and usable_by not in {"ALL", "ALLOWED"}:
+        exit_with_error(
+            f"--usable-by must be ALL or ALLOWED, got '{usable_by}'.",
+            code="connection_bad_usable_by",
+        )
+    params_patch = read_json_input(params) if params else None
+    if params_patch is not None and not isinstance(params_patch, dict):
+        exit_with_error(
+            "--params must be a JSON object.",
+            code="connection_bad_params",
+        )
+
+    if not yes:
+        info(f"Dry run — would update connection '{name}'. Pass --yes to execute.")
+        if params_patch:
+            info(f"  • params keys: {sorted(params_patch.keys())}")
+        if usable_by:
+            info(f"  • usableBy: {usable_by}")
+        if allowed_groups is not None:
+            info(f"  • allowedGroups: {allowed_groups}")
+        if description is not None:
+            info(f"  • description: {description}")
+        raise typer.Exit(code=0)
+
+    try:
+        client = get_client_from_ctx(ctx)
+        conn = client.get_connection(name)
+        current = conn.get_definition()
+        if params_patch:
+            current.setdefault("params", {}).update(params_patch)
+        if usable_by:
+            current["usableBy"] = usable_by
+        if allowed_groups is not None:
+            current["allowedGroups"] = [
+                g.strip() for g in allowed_groups.split(",") if g.strip()
+            ]
+        if description is not None:
+            current["description"] = description
+        conn.set_definition(current)
+        success(f"Updated connection '{name}'. Run 'dku connection test {name}'.")
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command()
 def schemas(
     ctx: typer.Context,

@@ -37,7 +37,8 @@ metadata:
 > 16. **Cross-connection landing is a first-class feature.** `dku recipe create -t sync --connection X` moves data between connections. Never write a Python passthrough. See `references/sql-engines.md`.
 > 17. **SVAs need STRUCTURED_AGENT.** `dku agent create NAME --type STRUCTURED_AGENT -P PROJ`. Every CORE_LOOP block needs `"llmId"`. Every SAVE_TO_STATE block needs `"outputKey"`. Never use `""` in SET_STATE_ENTRIES values (use `"''"` for empty CEL string). See `references/agent-patterns.md`.
 > 18. **`@file` silently uses leftover content.** If your prior Write was rejected ("File has not been read yet"), Bash still runs and `dku <cmd> --body @file` reads whatever was on disk — often stale content from a previous session. Either Read first so Write accepts the overwrite, or use a per-session path like `/tmp/dku_${RANDOM}_X.md`. Applies to every `--body @`, `--code @`, `--content @`, `--definition @`, `--payload @`, `--params @` flag.
-> 19. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
+> 19. **`dku admin` writes can lock users out.** `license upload`, `sso/ldap/azure-ad set`, `settings set`, `infra push-base-images`, `users-sync resync-all`, `messaging create` all dry-run without `--yes`. IAM `set` also requires `--i-understand-lockout-risk`. ALWAYS `get` → edit → `set` (never hand-write IAM payloads). See `references/admin-safety.md`.
+> 20. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
 
 # dku-cli
 
@@ -378,6 +379,11 @@ dku project delete MY_PROJ --yes
 | `llm` | list, completion, embeddings |
 | `app-designer` | enable, set-section, add-tile, list-tiles, get |
 | `app` | list, get, list-instances, create-instance |
+| `admin` | logs, usage, instance-info, sanity-check, **license**, **sso**, **ldap**, **azure-ad**, **settings**, **users-sync**, **messaging** (list/create/delete/send-test), **infra**, **code-studio-template**, **llm-cost**, **disk-footprint** (global/project/all/unknown), **catalog-index** (--all/--connections), **assets** (list-collections/list-prompts), **audit-log** — writes require `--yes`; IAM writes also need `--i-understand-lockout-risk`. See `references/admin-safety.md`. |
+| `code-env` (rebuild) | `jupyter ENV --enable/--disable`, `update ENV --force-rebuild --version X`, `update-images ENV` — all non-destructive; safe to re-run. |
+| `user` (bulk) | `bulk-create --from @users.json` / `--from-csv @users.csv`, `bulk-edit --from @changes.json` — all require `--yes`. CSV groups separator is `;`. |
+| `connection` (admin) | `update --params '{...}' --yes` (credential rotation), `set-definition -d @conn.json --yes` (full replace). Always `connection test CONN -P PROJ` after. |
+| `api-key` (personal) | `list-personal` for admin audit of every user's personal keys before rotation/offboarding. |
 
 ### Dataset Types (CRITICAL)
 
@@ -464,5 +470,6 @@ dku dataset schema SOURCE_DS -P PROJ
 | `references/prepare-steps.md` | Prepare steps with add-step |
 | `references/dashboard-patterns.md` | Charts, dashboards |
 | `references/sql-engines.md` | SQL landing, GREL push-down |
+| `references/admin-safety.md` | Destructive `dku admin` ops, IAM lockout prevention, recovery |
 
 > Also use `dataiku` skill for platform knowledge (recipes, agents, plugins, formulas).

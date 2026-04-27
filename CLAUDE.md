@@ -203,9 +203,11 @@ Not validated server-side — wrong column names save but render blank charts. V
 ### Plugin Structure
 `python-agent-tools/`, `webapps/`, `custom-recipes/`, `python-runnables/`, `python-connectors/`, `python-lib/`, `code-env/`. See `skills/dataiku/references/plugin-structure.md`.
 
+### Admin Writes Require `--yes` + Lockout Acknowledgement
+All `dku admin` mutations (`license upload`, `sso/ldap/azure-ad/settings set`, `users-sync resync-all`, `messaging create`, `infra push-base-images`, `infra apply-k8s-policies`) dry-run without `--yes`. IAM writes additionally require `--i-understand-lockout-risk` — a bad SAML/OIDC/LDAP payload locks every user out and recovery requires filesystem access to `$DATA_DIR/config/general.json`. `admin settings set` is a FULL replace, not a merge: the CLI refuses payloads missing keys present in the live config (fail-closed). Always GET → edit → SET. See `dataiku-devkit/skills/dku-cli/references/admin-safety.md` for the full destructive-verb matrix and recovery steps.
+
 ### Semantic Model Schema
 `dataikuapi.dss.semantic_model` exposes `entities`, `relationships`, `goldenQueries`, `glossaryTerms`, `glossaryBindings` as **opaque dicts with no inner class definitions** — the schema is nowhere in the SDK or public docs. Relationship shape (verified DSS 14.4.3): `{"firstEntity","secondEntity","pseudoSQLExpression":"left.col = right.col"}` — three fields, no cardinality (inferred from `entity.primaryKey`). `set-version` is a **shallow merge** at the version top level — passing `{"relationships":[...]}` replaces the whole array. Always build one example in the UI → `get-version -o json` → templatize → `set-version @file`. Full schema in `dataiku-devkit/skills/dataiku/references/semantic-models.md`.
-
 ---
 
 ## dataikuapi Quirks

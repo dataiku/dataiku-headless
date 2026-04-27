@@ -177,14 +177,75 @@ def update(
     ctx: typer.Context,
     name: str = typer.Argument(help="Code environment name"),
     lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    force_rebuild: bool = typer.Option(
+        False, "--force-rebuild", help="Rebuild the env from scratch"
+    ),
+    version: str | None = typer.Option(
+        None, "--version", help="Env version to rebuild (automation nodes only)"
+    ),
+    wait: bool = typer.Option(True, "--wait/--no-wait", help="Block until complete"),
 ) -> None:
-    """Update packages in a code environment."""
+    """Update packages in a code environment (re-resolve versions, optional rebuild)."""
     try:
         client = get_client_from_ctx(ctx)
         env = client.get_code_env(lang, name)
         info("Updating packages...")
-        env.update_packages()
+        env.update_packages(force_rebuild_env=force_rebuild, version=version, wait=wait)
         success(f"Updated packages for '{name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def jupyter(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Code environment name"),
+    lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    enable: bool = typer.Option(
+        True,
+        "--enable/--disable",
+        help="Enable or disable Jupyter support in this env",
+    ),
+    wait: bool = typer.Option(True, "--wait/--no-wait", help="Block until complete"),
+) -> None:
+    """Toggle Jupyter support for a code environment.
+
+    Non-destructive — existing recipes keep running; only Jupyter notebooks
+    using this env are affected. Disabling frees disk by removing the
+    ipykernel install.
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        env = client.get_code_env(lang, name)
+        env.set_jupyter_support(active=enable, wait=wait)
+        state = "enabled" if enable else "disabled"
+        success(f"Jupyter support {state} for '{name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("update-images")
+def update_images(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Code environment name"),
+    lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    env_version: str | None = typer.Option(
+        None, "--env-version", help="Env version to rebuild (versioned envs only)"
+    ),
+    wait: bool = typer.Option(True, "--wait/--no-wait", help="Block until complete"),
+) -> None:
+    """Rebuild the Docker image for a code env (container-exec).
+
+    Idempotent — safe to re-run. Required after container-exec base image
+    changes or after `codeenv set-packages`. Existing pods keep running the
+    old image until they're recycled.
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+        env = client.get_code_env(lang, name)
+        info(f"Rebuilding container image for '{name}'...")
+        env.update_images(env_version=env_version, wait=wait)
+        success(f"Rebuilt container image(s) for '{name}'")
     except Exception as e:
         handle_api_error(e)
 
