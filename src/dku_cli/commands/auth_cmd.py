@@ -16,10 +16,8 @@ from dku_cli.config import (
     clear_profile_configs,
     delete_profile_config,
     get_active_profile,
-    get_default_project,
     get_all_profiles,
     get_profile_config,
-    get_profile_node_type,
     set_active_profile,
     set_default_project,
     set_profile_config,
@@ -45,12 +43,12 @@ def _redact_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, "", "", ""))
 
 
-def _resolve_project_source() -> tuple[str | None, str]:
+def _resolve_project_source(profile: str) -> tuple[str | None, str]:
     if os.environ.get("DKU_PROJECT"):
         return os.environ["DKU_PROJECT"], "env"
-    default_project = get_default_project()
+    default_project = get_profile_config(profile).get("default_project")
     if default_project:
-        return default_project, f"profile:{get_active_profile()}"
+        return default_project, f"profile:{profile}"
     return None, "missing"
 
 
@@ -210,7 +208,7 @@ def status(
     url_source, api_key_source = _resolve_auth_sources(
         flag_url, flag_api_key, url, api_key, profile
     )
-    project_key, project_source = _resolve_project_source()
+    project_key, project_source = _resolve_project_source(profile)
 
     try:
         client = dataikuapi.DSSClient(url, api_key=api_key)
@@ -265,7 +263,10 @@ def status(
             console.print(f"[bold]Groups:[/bold]   {', '.join(groups)}")
         console.print(f"[bold]DSS:[/bold]      {version} ({node_type})")
         if project_key:
-            console.print(f"[bold]Project:[/bold]  {project_key} [{project_source}]")
+            console.print(
+                f"Project:  {project_key} [{project_source}]",
+                markup=False,
+            )
             if project_ok:
                 console.print(
                     f"[bold]Project OK:[/bold] [green]{ICON} Accessible[/green]"
