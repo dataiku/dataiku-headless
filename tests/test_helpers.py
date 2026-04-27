@@ -94,6 +94,42 @@ def test_require_node_type_refuses_govern():
         assert exc.value.code == 4
 
 
+def test_require_node_type_uses_flag_overrides_target_node():
+    ctx = MagicMock()
+    ctx.obj = {
+        "profile": "design-profile",
+        "url": "https://govern.example.com",
+        "api_key": "abc",
+    }
+    with (
+        patch(
+            "dku_cli.helpers.resolve_auth",
+            return_value=("https://govern.example.com", "abc"),
+        ),
+        patch("dku_cli.helpers.probe_node_type", return_value="GOVERN"),
+        patch("dku_cli.helpers.resolve_node_type", return_value="DESIGN"),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            require_node_type(ctx, PROJECT_NODE_TYPES)
+        assert exc.value.code == 4
+
+
+def test_require_node_type_uses_env_overrides_target_node(monkeypatch):
+    monkeypatch.setenv("DKU_URL", "https://design.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "secret")
+    ctx = MagicMock()
+    ctx.obj = {"profile": "govern-profile"}
+    with (
+        patch(
+            "dku_cli.helpers.resolve_auth",
+            return_value=("https://design.example.com", "secret"),
+        ),
+        patch("dku_cli.helpers.probe_node_type", return_value="DESIGN"),
+        patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"),
+    ):
+        require_node_type(ctx, PROJECT_NODE_TYPES)
+
+
 def test_get_govern_client_from_ctx_refuses_design():
     ctx = MagicMock()
     ctx.obj = {}

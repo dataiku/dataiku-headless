@@ -54,7 +54,6 @@ def test_auth_status_shows_sources_and_project(patch_client):
             "dku_cli.commands.auth_cmd.get_profile_config",
             return_value={"url": "https://dss.example.com", "default_project": "PROJ1"},
         ),
-        patch("dku_cli.commands.auth_cmd.get_default_project", return_value="PROJ1"),
         patch(
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),
@@ -88,7 +87,6 @@ def test_auth_status_project_access_error(patch_client):
                 "default_project": "MISSING",
             },
         ),
-        patch("dku_cli.commands.auth_cmd.get_default_project", return_value="MISSING"),
         patch(
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),

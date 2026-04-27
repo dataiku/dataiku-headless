@@ -11,12 +11,49 @@ import typer
 
 import dataikuapi
 
-from dku_cli.client import get_client, get_govern_client, resolve_node_type
+from dku_cli.client import (
+    get_client,
+    get_govern_client,
+    probe_node_type,
+    resolve_auth,
+    resolve_node_type,
+)
 from dku_cli.config import get_default_project
 
 
 # Node types that support project-scoped commands (flow, datasets, recipes…).
 PROJECT_NODE_TYPES = {"DESIGN", "AUTOMATION"}
+
+
+def _has_auth_overrides(opts: dict) -> bool:
+    """Whether the command is targeting auth that may differ from stored profile metadata."""
+    return bool(
+        opts.get("url")
+        or opts.get("api_key")
+        or os.environ.get("DKU_URL")
+        or os.environ.get("DKU_API_KEY")
+    )
+
+
+def _resolve_target_node_type(opts: dict) -> str | None:
+    """Resolve node type for the actual auth target, not just stored profile metadata."""
+    profile = opts.get("profile")
+    if not _has_auth_overrides(opts):
+        return resolve_node_type(profile=profile)
+
+    try:
+        resolved_url, resolved_key = resolve_auth(
+            url=opts.get("url"),
+            api_key=opts.get("api_key"),
+            profile=profile,
+        )
+    except Exception:
+        return None
+
+    probed = probe_node_type(resolved_url, resolved_key)
+    if probed is not None:
+        return probed
+    return resolve_node_type(profile=profile)
 
 
 def require_node_type(
@@ -39,8 +76,7 @@ def require_node_type(
             (e.g. ``"dku govern artifact list"`` for Govern nodes).
     """
     opts = (ctx.obj if ctx is not None else {}) or {}
-    profile = opts.get("profile")
-    nt = resolve_node_type(profile=profile)
+    nt = _resolve_target_node_type(opts)
     if nt is None or nt in allowed:
         return
 
