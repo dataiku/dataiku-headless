@@ -359,7 +359,7 @@ def license_upload(
 _IAM_DICT_ATTR = {
     "get_sso_settings": "sso_settings",
     "get_ldap_settings": "ldap_settings",
-    "get_azure_ad_settings": "azure_ad_settings",
+    "get_azure_ad_settings": "azuread_settings",
 }
 
 

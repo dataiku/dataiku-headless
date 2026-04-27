@@ -233,3 +233,22 @@ def test_user_bulk_edit_executes(patch_client):
     )
     assert result.exit_code == 0
     patch_client.edit_users.assert_called_once()
+
+
+def test_user_bulk_edit_exits_nonzero_on_failures(patch_client):
+    patch_client.edit_users.return_value = [
+        {"login": "alice", "status": "SUCCESS", "error": ""},
+        {"login": "bob", "status": "FAILURE", "error": "User not found"},
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "user",
+            "bulk-edit",
+            "--from",
+            '[{"login":"alice","groups":["admin"]},{"login":"bob","enabled":false}]',
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "1 user(s) failed" in result.output

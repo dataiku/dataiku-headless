@@ -375,5 +375,11 @@ def bulk_edit(
                 output_format=fmt,
                 title="Bulk User Edit Results",
             )
+        failures = [r for r in results if r.get("status") == "FAILURE"]
+        if failures:
+            info(f"{len(failures)} user(s) failed — see 'error' column.")
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
