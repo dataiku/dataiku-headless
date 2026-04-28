@@ -261,13 +261,13 @@ wheels = [
 
 [[package]]
 name = "dataiku-api-client"
-version = "14.4.2"
+version = "14.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/54/10/93ce6376ce17655d2c8776e52ab08a7f2d5ab208ff3ec8596377fa6e2fd4/dataiku_api_client-14.4.2.tar.gz", hash = "sha256:d8afa6b55ba63e468b742b23722f2b7ab7e12d19686374e2d7f3abc3b5519fd7", size = 395379, upload-time = "2026-03-06T10:31:39.181Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/0d/39970204478aafa3afb8b2f935b114cdf576d08d5d2387f7a89d56ad0211/dataiku_api_client-14.5.1.tar.gz", hash = "sha256:e7944ac5ff024a5cac1ca173b62ca5bbcb4d63838bb153cdd1021f7a7961e147", size = 405571, upload-time = "2026-04-27T10:21:18.018Z" }
 
 [[package]]
 name = "distlib"
@@ -301,7 +301,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dataiku-api-client", specifier = ">=14,<16" },
+    { name = "dataiku-api-client", specifier = ">=14.5,<16" },
     { name = "keyring", specifier = ">=25" },
     { name = "platformdirs", specifier = ">=4" },
     { name = "pre-commit", specifier = ">=4.5.1" },

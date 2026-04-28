@@ -861,6 +861,11 @@ def mock_client():
 
     proj1.get_webapp.side_effect = _get_webapp
 
+    # create_webapp mock
+    created_webapp = MagicMock()
+    created_webapp.webapp_id = "newWebApp1"
+    proj1.create_webapp.return_value = created_webapp
+
     # Dashboards
     proj1.list_dashboards.return_value = [
         {"id": "dashboard1", "name": "Sales Dashboard", "pages": [], "tags": []},

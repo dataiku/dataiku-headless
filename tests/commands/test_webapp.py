@@ -11,6 +11,49 @@ from dku_cli.main import app
 runner = CliRunner()
 
 
+# ── create ─────────────────────────────────────────────────────────────
+
+
+def test_webapp_create_default_type(patch_client):
+    result = runner.invoke(app, ["webapp", "create", "MyApp", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Created STANDARD web app 'MyApp'" in result.output
+    assert "newWebApp1" in result.output
+    patch_client.get_project("PROJ1").create_webapp.assert_called_once_with(
+        "MyApp", webapp_type="STANDARD"
+    )
+
+
+def test_webapp_create_dash(patch_client):
+    result = runner.invoke(
+        app, ["webapp", "create", "DashApp", "--project", "PROJ1", "--type", "DASH"]
+    )
+    assert result.exit_code == 0
+    assert "Created DASH web app 'DashApp'" in result.output
+    patch_client.get_project("PROJ1").create_webapp.assert_called_once_with(
+        "DashApp", webapp_type="DASH"
+    )
+
+
+def test_webapp_create_streamlit(patch_client):
+    result = runner.invoke(
+        app, ["webapp", "create", "StreamApp", "-P", "PROJ1", "-t", "streamlit"]
+    )
+    assert result.exit_code == 0
+    assert "STREAMLIT" in result.output
+
+
+def test_webapp_create_invalid_type(patch_client):
+    result = runner.invoke(
+        app, ["webapp", "create", "BadApp", "--project", "PROJ1", "--type", "INVALID"]
+    )
+    assert result.exit_code != 0
+    assert "Unsupported web app type" in result.output
+
+
+# ── list ───────────────────────────────────────────────────────────────
+
+
 def test_webapp_list(patch_client):
     result = runner.invoke(app, ["webapp", "list", "--project", "PROJ1"])
     assert result.exit_code == 0
