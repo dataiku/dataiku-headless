@@ -23,7 +23,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 - [model](#model) — list, get, versions, set-active-version, metrics, delete-version, delete, usages, set-metadata
 - [folder](#folder) — list, ls, upload, download, create, delete, delete-file, get, create-dataset, set-metadata
 - [llm](#llm) — list, completion, embeddings
-- [webapp](#webapp) — list, start, stop, status, get-definition, set-definition
+- [webapp](#webapp) — list, create, start, stop, status, get-definition, set-definition
 - [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition, set-metadata
 - [insight](#insight) — list, get, create, delete, get-definition, set-definition, validate, set-metadata
 - [macro](#macro) — list, run
@@ -552,10 +552,9 @@ dku llm completion LLM_ID "test" -P PROJ -o json | jq '.total_usage'
 
 ## webapp
 
-No create via API (DSS UI only). But you can read/edit existing webapp code via get-definition/set-definition.
-
 ```bash
 dku webapp list [-P PROJECT] [-o FORMAT]
+dku webapp create NAME [-P PROJECT] [--type TYPE]
 dku webapp start WEBAPP_ID [-P PROJECT]
 dku webapp stop WEBAPP_ID [-P PROJECT]
 dku webapp status WEBAPP_ID [-P PROJECT]
@@ -563,9 +562,11 @@ dku webapp get-definition WEBAPP_ID [-P PROJECT] [-o json]
 dku webapp set-definition WEBAPP_ID --definition JSON [-P PROJECT]
 ```
 
+- `create` supports types: STANDARD (default), BOKEH, DASH, STREAMLIT, SHINY. Case-insensitive.
 - `get-definition` returns full webapp settings including source code in `params` (html, css, js, python)
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
 - To edit webapp code: `get-definition` → modify `params` → `set-definition`
+- No `delete` via API yet (DSS 14.5 returns 405). Delete webapps in the DSS UI.
 
 ## dashboard
 
