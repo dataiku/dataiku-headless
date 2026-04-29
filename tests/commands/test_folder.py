@@ -174,19 +174,9 @@ def test_folder_delete_with_yes(patch_client):
     folder.delete.assert_called_once()
 
 
-def test_folder_delete_prompts(patch_client):
-    result = runner.invoke(
-        app, ["folder", "delete", "folder1", "--project", "PROJ1"], input="y\n"
-    )
-    assert result.exit_code == 0
-    assert "Deleted managed folder" in result.output
-
-
-def test_folder_delete_aborts_on_no(patch_client):
-    result = runner.invoke(
-        app, ["folder", "delete", "folder1", "--project", "PROJ1"], input="n\n"
-    )
-    assert result.exit_code != 0
+def test_folder_delete_blocks_without_yes(patch_client):
+    result = runner.invoke(app, ["folder", "delete", "folder1", "--project", "PROJ1"])
+    assert result.exit_code == 77
     folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
     folder.delete.assert_not_called()
 
@@ -197,7 +187,15 @@ def test_folder_delete_aborts_on_no(patch_client):
 def test_folder_delete_file(patch_client):
     result = runner.invoke(
         app,
-        ["folder", "delete-file", "folder1", "/data.csv", "--project", "PROJ1"],
+        [
+            "folder",
+            "delete-file",
+            "folder1",
+            "/data.csv",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
     )
     assert result.exit_code == 0
     assert "Deleted /data.csv" in result.output
@@ -465,6 +463,7 @@ def test_folder_delete_files(patch_client):
             "/c.txt",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0

@@ -62,16 +62,34 @@ def get_profile_config(profile: str) -> dict[str, Any]:
     return config.get(profile, {})
 
 
-def set_profile_config(profile: str, url: str) -> None:
+def set_profile_config(profile: str, url: str, node_type: str | None = None) -> None:
     config = get_config()
     profile_cfg = config.get(profile, {})
     if not isinstance(profile_cfg, dict):
         profile_cfg = {}
     profile_cfg["url"] = url
+    if node_type is not None:
+        profile_cfg["node_type"] = node_type
     config[profile] = profile_cfg
     # Track active profile
     config["active_profile"] = profile
     _write_toml(CONFIG_FILE, config)
+
+
+def set_profile_node_type(profile: str, node_type: str) -> None:
+    """Persist the DSS node type (design/automation/govern/deployer/apinode) for a profile."""
+    config = get_config()
+    profile_cfg = config.get(profile, {})
+    if not isinstance(profile_cfg, dict):
+        profile_cfg = {}
+    profile_cfg["node_type"] = node_type
+    config[profile] = profile_cfg
+    _write_toml(CONFIG_FILE, config)
+
+
+def get_profile_node_type(profile: str) -> str | None:
+    """Return the stored node type for a profile, or None if not known."""
+    return get_profile_config(profile).get("node_type")
 
 
 def get_active_profile() -> str:
@@ -152,3 +170,14 @@ def set_default_project(project_key: str) -> None:
 def get_default_output() -> str:
     config = get_config()
     return config.get("output", "table")
+
+
+def get_dangerous_mode() -> bool:
+    config = get_config()
+    return bool(config.get("dangerous_mode", False))
+
+
+def set_dangerous_mode(enabled: bool) -> None:
+    config = get_config()
+    config["dangerous_mode"] = bool(enabled)
+    _write_toml(CONFIG_FILE, config)

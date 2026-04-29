@@ -189,8 +189,16 @@ def delete_deployment(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete an API Deployer deployment."""
-    if not yes:
-        typer.confirm(f"Delete API deployment '{deployment_id}'?", abort=True)
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="api_deployer.delete_deployment",
+        subject=f"API deployment '{deployment_id}'",
+        yes=yes,
+        prompt=f"Delete API deployment '{deployment_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()

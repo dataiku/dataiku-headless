@@ -29,7 +29,13 @@ app = typer.Typer(help="Manage DSS scenarios.")
 def _poll_scenario_outcome(
     scenario, poll_interval: float = 3.0, timeout: float = 3600
 ) -> str:
-    """Poll scenario last runs until completion or timeout."""
+    """Poll scenario last runs until completion or timeout.
+
+    DSSScenarioRun.running and DSSScenarioRun.outcome are both @property
+    accessors (not methods). `outcome` RAISES ValueError until the run's
+    `result` dict is populated, so the readiness check must be `running`
+    first — which returns `not "result" in self.run` without raising.
+    """
     elapsed = 0.0
     time.sleep(1)  # Brief wait for new run to register before first poll
     elapsed += 1.0
@@ -37,9 +43,20 @@ def _poll_scenario_outcome(
         runs = scenario.get_last_runs(limit=1)
         if runs:
             run = runs[0]
-            outcome = run.outcome if hasattr(run, "outcome") else run.get("outcome")
-            if outcome is not None:
-                return outcome
+            try:
+                if isinstance(run, dict):
+                    outcome = run.get("result", {}).get("outcome")
+                    if outcome:
+                        return outcome
+                else:
+                    # Property — bool in real dataikuapi, callable in test mocks.
+                    running = run.running
+                    if callable(running):
+                        running = running()
+                    if not running:
+                        return run.outcome
+            except (ValueError, AttributeError):
+                pass  # still running or unexpected shape — keep polling
         time.sleep(poll_interval)
         elapsed += poll_interval
     return "TIMEOUT"
@@ -93,27 +110,17 @@ def run(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        trigger = scenario.run()
+        scenario.run()
 
         success(f"Scenario '{scenario_id}' triggered")
 
         if wait:
             info("Waiting for completion...")
-            # DSSTriggerFire may not have wait_for_result() in all dataikuapi versions.
-            if hasattr(trigger, "wait_for_result") and callable(
-                getattr(trigger, "wait_for_result", None)
-            ):
-                try:
-                    result = trigger.wait_for_result()
-                    outcome = (
-                        result.get("scenarioRun", {})
-                        .get("result", {})
-                        .get("outcome", "unknown")
-                    )
-                except (AttributeError, TypeError):
-                    outcome = _poll_scenario_outcome(scenario)
-            else:
-                outcome = _poll_scenario_outcome(scenario)
+            # Resolve the scenario run from the trigger fire, then poll the run
+            # itself until it exits the running state. DSSScenarioRun.outcome is
+            # a property that raises until the result dict is populated, so we
+            # gate access on run.running() inside _poll_scenario_outcome.
+            outcome = _poll_scenario_outcome(scenario)
 
             if outcome == "SUCCESS":
                 success(f"Scenario completed: {outcome}")
@@ -219,15 +226,28 @@ def delete(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a scenario."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="scenario.delete",
+        subject=f"scenario '{scenario_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete scenario '{scenario_id}' from project {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         scenario.delete()
         success(f"Deleted scenario '{scenario_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -239,16 +259,20 @@ def get_definition(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get the raw definition of a scenario as JSON."""
+    """Get the raw definition of a scenario as JSON.
+
+    Uses the full settings endpoint (DSSScenarioSettings.get_raw) so
+    params.steps, triggers, and reporters are all returned. The legacy
+    DSSScenario.get_definition endpoint hits /scenarios/X/light which
+    omits params.steps — this command deliberately does NOT use it.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        defn = scenario.get_definition()
-        if hasattr(defn, "get_raw"):
-            defn = defn.get_raw()
+        defn = scenario.get_settings().get_raw()
         render_raw(defn, output_format=output)
     except Exception as e:
         handle_api_error(e)
@@ -263,17 +287,54 @@ def set_definition(
         ...,
         "--definition",
         "-d",
-        help="JSON definition (string, @file.json, or - for stdin)",
+        help="JSON definition (string, @file.json, or - for stdin). Supports full settings including params.steps for step-based scenarios.",
     ),
 ) -> None:
-    """Update a scenario's definition from JSON."""
+    """Update a scenario's definition from JSON.
+
+    Uses the full settings endpoint (DSSScenarioSettings.save) so params.steps,
+    triggers, and reporters all persist. The legacy DSSScenario.set_definition
+    endpoint hits /scenarios/X/light which is header-only (active / description /
+    shortDesc / tags / checklists) and silently drops steps — this command
+    deliberately does NOT use it.
+
+    Top-level keys in the input JSON are merged into the existing settings so
+    server-managed fields (lastModifiedOn, etc.) are preserved.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         new_def = read_json_input(definition)
-        scenario.set_definition(new_def)
+
+        # Capture expected_steps count BEFORE mutating — since we merge by
+        # reference, save-time side effects on raw["params"]["steps"] would
+        # otherwise also alias through new_def and mask mismatches.
+        expected_steps = new_def.get("params", {}).get("steps")
+        expected_step_count = (
+            len(expected_steps) if expected_steps is not None else None
+        )
+
+        settings = scenario.get_settings()
+        raw = settings.get_raw()
+        for k, v in new_def.items():
+            raw[k] = v
+        settings.save()
+
+        if expected_step_count is not None:
+            saved_steps = (
+                scenario.get_settings().get_raw().get("params", {}).get("steps", [])
+            )
+            if len(saved_steps) != expected_step_count:
+                exit_with_error(
+                    f"Save incomplete: sent {expected_step_count} step(s), "
+                    f"server persisted {len(saved_steps)}",
+                    details=[
+                        "Verify the step schema against dataikuapi DSSScenarioSettings.raw_steps.",
+                        f"Inspect the saved scenario: dku scenario get-definition {scenario_id} -P {project_key}",
+                    ],
+                )
         success(f"Updated definition for scenario '{scenario_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -808,9 +869,20 @@ def remove_trigger(
         help="Trigger index to remove (0-based, from list-triggers)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a trigger from a scenario by index."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="scenario.remove_trigger",
+        subject=f"trigger index {index} from scenario '{scenario_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove trigger at index {index} from scenario '{scenario_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

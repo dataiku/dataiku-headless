@@ -169,15 +169,22 @@ def delete(
     ctx: typer.Context,
     article_id: str = typer.Argument(help="Article ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    confirm: bool = typer.Option(
-        False, "--confirm", "--yes", "-y", help="Confirm deletion"
+    yes: bool = typer.Option(
+        False, "--yes", "-y", "--confirm", help="Skip safety guard"
     ),
 ) -> None:
-    """Delete a wiki article. Requires --confirm / --yes flag."""
+    """Delete a wiki article."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
-    if not confirm:
-        warn("Deletion requires --confirm (or --yes / -y) flag.")
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="wiki.delete",
+        subject=f"wiki article '{article_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete wiki article '{article_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

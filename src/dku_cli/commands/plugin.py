@@ -318,17 +318,41 @@ def delete(
     force: bool = typer.Option(
         False, "--force", help="Force delete even if plugin is in use"
     ),
-    confirm: bool = typer.Option(
-        False, "--confirm", "--yes", "-y", help="Confirm deletion"
+    yes: bool = typer.Option(
+        False, "--yes", "-y", "--confirm", help="Skip safety guard"
+    ),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="With --force, must match PLUGIN_ID to proceed (tier-3 guard).",
     ),
 ) -> None:
-    """Delete a plugin. Requires --confirm / --yes flag.
+    """Delete a plugin.
 
-    Use --force to delete even if the plugin is used by recipes, agents, etc.
+    Without --force: tier-2 guard, requires --yes.
+    With --force (overrides in-use check): tier-3 guard, requires --yes + --confirm-name PLUGIN_ID.
     """
-    if not confirm:
-        warn("Deletion requires --confirm (or --yes / -y) flag.")
-        raise typer.Exit(1)
+    from dku_cli.safety import Tier, guard
+
+    tier = Tier.CASCADE if force else Tier.DELETE
+    guard(
+        ctx,
+        tier=tier,
+        action="plugin.delete",
+        subject=f"plugin '{plugin_id}'"
+        + (" (FORCE — ignoring in-use recipes/agents)" if force else ""),
+        yes=yes,
+        target_id=plugin_id if force else None,
+        confirm_name=confirm_name,
+        prompt=(
+            f"Delete plugin '{plugin_id}'"
+            + (
+                " even though it may still be in use by recipes/agents?"
+                if force
+                else "?"
+            )
+        ),
+    )
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)

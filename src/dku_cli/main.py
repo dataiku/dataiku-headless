@@ -15,10 +15,11 @@ from dku_cli.commands import (
     agent_tool,
     admin,
     analysis,
-    api_key,
-    app_cmd,
     api_deployer,
+    api_key,
     api_service,
+    app_cmd,
+    app_designer,
     auth_cmd,
     bundle,
     cluster,
@@ -35,6 +36,7 @@ from dku_cli.commands import (
     flow,
     folder,
     git_cmd,
+    govern,
     group,
     insight,
     job,
@@ -75,7 +77,6 @@ app = typer.Typer(
 app.add_typer(admin.app, name="admin")
 app.add_typer(analysis.app, name="analysis")
 app.add_typer(api_key.app, name="api-key")
-app.add_typer(app_cmd.app, name="app")
 app.add_typer(agent.app, name="agent")
 app.add_typer(agent_block.app, name="agent-block")
 app.add_typer(agent_hub.app, name="agent-hub")
@@ -83,6 +84,8 @@ app.add_typer(agent_review.app, name="agent-review")
 app.add_typer(agent_tool.app, name="agent-tool")
 app.add_typer(api_deployer.app, name="api-deployer")
 app.add_typer(api_service.app, name="api-service")
+app.add_typer(app_cmd.app, name="app")
+app.add_typer(app_designer.app, name="app-designer")
 app.add_typer(auth_cmd.app, name="auth")
 app.add_typer(bundle.app, name="bundle")
 app.add_typer(codestudio.app, name="code-studio")
@@ -121,6 +124,7 @@ app.add_typer(meaning.app, name="meaning")
 app.add_typer(user.app, name="user")
 app.add_typer(flow.app, name="flow")
 app.add_typer(git_cmd.app, name="git")
+app.add_typer(govern.app, name="govern")
 app.add_typer(wiki.app, name="wiki")
 app.add_typer(workspace.app, name="workspace")
 app.add_typer(sql.app, name="sql")
@@ -153,6 +157,12 @@ def main(
     errors: str = typer.Option(
         "text", "--errors", help="Error output format (text or json)"
     ),
+    dangerous: Optional[bool] = typer.Option(
+        None,
+        "--dangerous",
+        envvar="DKU_DANGEROUS",
+        help="Disable safety guards for destructive commands (tiers 2–3). Prints a warning banner.",
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -170,6 +180,8 @@ def main(
         ctx.obj["api_key"] = api_key
     if profile:
         ctx.obj["profile"] = profile
+    if dangerous:
+        ctx.obj["dangerous"] = True
     if quiet:
         from dku_cli.output import set_quiet
 
@@ -194,11 +206,12 @@ def main(
 def whoami(ctx: typer.Context) -> None:
     """Show current authenticated user."""
     from dku_cli.brand import ICON
+    from dku_cli.client import resolve_node_type
     from dku_cli.errors import handle_api_error
-    from dku_cli.helpers import get_client_from_ctx
+    from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
 
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         auth_info = client.get_auth_info()
         user_name = auth_info.get("authIdentifier", "unknown")
         groups = auth_info.get("groups", [])
@@ -210,11 +223,16 @@ def whoami(ctx: typer.Context) -> None:
             version = ""
             url = ""
 
+        opts = ctx.obj or {}
+        node_type = resolve_node_type(profile=opts.get("profile"))
+
         parts = [f"{ICON} {user_name}"]
         if url:
             parts.append(f"on {url}")
         if version:
             parts.append(f"(DSS {version})")
+        if node_type:
+            parts.append(f"[{node_type}]")
         if groups:
             parts.append(f"[{', '.join(groups)}]")
 

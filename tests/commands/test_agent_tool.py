@@ -69,7 +69,9 @@ def test_agent_tool_run_no_input(patch_client):
 
 
 def test_agent_tool_delete(patch_client):
-    result = runner.invoke(app, ["agent-tool", "delete", "tool1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["agent-tool", "delete", "tool1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_agent_tool(
         "tool1"
@@ -112,8 +114,14 @@ def test_agent_tool_create_vector_search(patch_client):
         ],
     )
     assert result.exit_code == 0
-    builder = patch_client.get_project("PROJ1").new_agent_tool.return_value
-    builder.with_knowledge_bank.assert_called_once_with("my_kb")
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_agent_tool.return_value
+    # The CLI resolves NAME → ID via resolve_knowledge_bank.
+    # With the default MagicMock, get_knowledge_bank("my_kb").get_settings()
+    # succeeds without raising, so resolution returns the same handle and
+    # with_knowledge_bank is called with that handle's .id attribute.
+    expected_id = proj.get_knowledge_bank("my_kb").id
+    builder.with_knowledge_bank.assert_called_once_with(expected_id)
     builder.create.assert_called_once()
 
 

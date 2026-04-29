@@ -90,15 +90,28 @@ def delete(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a visual analysis."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="analysis.delete",
+        subject=f"analysis '{analysis_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete analysis '{analysis_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         analysis = proj.get_analysis(analysis_id)
         analysis.delete()
         success(f"Deleted analysis {analysis_id}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

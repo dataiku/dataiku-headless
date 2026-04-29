@@ -72,6 +72,12 @@ def test_webapp_start(patch_client):
     assert result.exit_code == 0
 
 
+def test_webapp_restart(patch_client):
+    result = runner.invoke(app, ["webapp", "restart", "webapp1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "Restarted" in result.output
+
+
 def test_webapp_stop(patch_client):
     result = runner.invoke(app, ["webapp", "stop", "webapp1", "--project", "PROJ1"])
     assert result.exit_code == 0

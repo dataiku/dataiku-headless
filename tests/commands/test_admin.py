@@ -188,6 +188,10 @@ def test_admin_ldap_get(patch_client):
 
 
 def test_admin_azure_ad_get(patch_client):
+    patch_client.get_azure_ad_settings.return_value.azuread_settings = {
+        "enabled": False,
+        "tenantId": "t1",
+    }
     result = runner.invoke(app, ["admin", "azure-ad", "get"])
     assert result.exit_code == 0
     assert "tenantId" in result.output

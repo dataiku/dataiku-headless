@@ -214,14 +214,27 @@ def delete(
     ctx: typer.Context,
     store_id: str = typer.Argument(help="Evaluation store ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a model evaluation store."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="evaluation_store.delete",
+        subject=f"evaluation store '{store_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete evaluation store '{store_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         store = proj.get_model_evaluation_store(store_id)
         store.delete()
         success(f"Deleted evaluation store {store_id}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

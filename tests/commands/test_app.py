@@ -34,7 +34,7 @@ def test_app_list_empty(patch_client):
 
 
 def test_app_get(patch_client):
-    result = runner.invoke(app, ["app", "get", "PROJECT_MYAPP"])
+    result = runner.invoke(app, ["app", "get", "PROJECT_MYAPP", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["appId"] == "PROJECT_MYAPP"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 import typer
 
@@ -17,6 +18,38 @@ from dku_cli.output import (
     success,
     warn,
 )
+
+
+def _format_epoch_ms(value) -> str:
+    """Format an epoch-ms timestamp as UTC ISO string. Empty on missing/bad input."""
+    try:
+        ts = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if ts <= 0:
+        return ""
+    return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime(
+        "%Y-%m-%d %H:%M:%S UTC"
+    )
+
+
+def _format_duration_ms(start, end) -> str:
+    """Return human-readable duration between two epoch-ms timestamps."""
+    try:
+        s, e = int(start), int(end)
+    except (TypeError, ValueError):
+        return ""
+    if s <= 0 or e <= 0 or e < s:
+        return ""
+    seconds = (e - s) / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(seconds), 60)
+    if m < 60:
+        return f"{m}m {s}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m}m"
+
 
 app = typer.Typer(help="Manage DSS jobs.")
 
@@ -188,15 +221,28 @@ def status(
         raw = job.get_status()
 
         base = raw.get("baseStatus", {})
+        state = base.get("state", "")
+        start_ms = base.get("jobStartTime")
+        end_ms = base.get("jobEndTime")
+        error_msg = raw.get("errorMessage") or (raw.get("error") or {}).get(
+            "message", ""
+        )
+
         data = [
             {"field": "Job ID", "value": job_id},
-            {"field": "State", "value": base.get("state", "")},
+            {"field": "State", "value": state},
             {"field": "Initiator", "value": base.get("def", {}).get("initiator", "")},
-            {"field": "Start", "value": base.get("timing", {}).get("startTime", "")},
-            {"field": "End", "value": base.get("timing", {}).get("endTime", "")},
+            {"field": "Start", "value": _format_epoch_ms(start_ms)},
+            {"field": "End", "value": _format_epoch_ms(end_ms)},
+            {"field": "Duration", "value": _format_duration_ms(start_ms, end_ms)},
         ]
+        if state == "FAILED" and error_msg:
+            data.append({"field": "Error", "value": error_msg})
 
         render(data, ["field", "value"], output_format=output, title=f"Job: {job_id}")
+
+        if state == "FAILED" and output != "json":
+            info(f"Debug with: dku job log {job_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 

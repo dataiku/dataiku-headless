@@ -100,15 +100,28 @@ def delete(
     ctx: typer.Context,
     code_studio_id: str = typer.Argument(help="Code Studio ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a Code Studio."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="codestudio.delete",
+        subject=f"Code Studio '{code_studio_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete Code Studio '{code_studio_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         cs = proj.get_code_studio(code_studio_id)
         cs.delete()
         success(f"Deleted Code Studio '{code_studio_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

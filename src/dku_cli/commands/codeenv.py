@@ -100,8 +100,28 @@ def create(
         "-t",
         help="Deployment mode (DESIGN_MANAGED, PLUGIN_MANAGED, etc.)",
     ),
+    requirements: str | None = typer.Option(
+        None,
+        "--requirements",
+        "-r",
+        help="Initial package spec: literal string, @requirements.txt, or - for stdin. "
+        "One package per line. Triggers a post-create rebuild.",
+    ),
+    package: list[str] = typer.Option(
+        None,
+        "--package",
+        help="Add a single package (repeatable). Combined with --requirements if both given. "
+        "Triggers a post-create rebuild.",
+    ),
 ) -> None:
-    """Create a new code environment."""
+    """Create a new code environment.
+
+    Examples:
+      dku code-env create my_env
+      dku code-env create my_env --package pandas --package pdfplumber
+      dku code-env create my_env --requirements @requirements.txt
+      cat requirements.txt | dku code-env create my_env --requirements -
+    """
     try:
         client = get_client_from_ctx(ctx)
         definition = {
@@ -111,6 +131,27 @@ def create(
         }
         client.create_code_env(lang, name, deployment_mode, definition)
         success(f"Created code environment '{name}' ({lang})")
+
+        # If packages were specified, apply them via set_definition + rebuild.
+        # This reuses the same path as `dku code-env set-packages` to stay
+        # consistent with that command's behavior.
+        if requirements or package:
+            pkg_lines: list[str] = []
+            if requirements:
+                pkg_lines.append(read_text_input(requirements).strip())
+            if package:
+                pkg_lines.extend(p.strip() for p in package if p.strip())
+            combined = "\n".join(line for line in pkg_lines if line) + "\n"
+
+            env = client.get_code_env(lang, name)
+            env_def = env.get_definition()
+            env_def["specPackageList"] = combined
+            env.set_definition(env_def)
+            info(f"Set {len([p for p in combined.splitlines() if p])} package(s)")
+
+            info("Rebuilding environment...")
+            env.update_packages()
+            success(f"Rebuild complete for '{name}'")
     except Exception as e:
         handle_api_error(e)
 
@@ -120,13 +161,26 @@ def delete(
     ctx: typer.Context,
     name: str = typer.Argument(help="Code environment name"),
     lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a code environment."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="codeenv.delete",
+        subject=f"{lang} code environment '{name}'",
+        yes=yes,
+        prompt=f"Delete {lang} code environment '{name}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         env = client.get_code_env(lang, name)
         env.delete()
         success(f"Deleted code environment '{name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

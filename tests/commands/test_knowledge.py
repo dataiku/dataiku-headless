@@ -228,11 +228,24 @@ def test_knowledge_search_max(patch_client):
 
 
 def test_knowledge_delete(patch_client):
-    result = runner.invoke(app, ["knowledge", "delete", "kb1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["knowledge", "delete", "kb1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     patch_client.get_project("PROJ1").get_knowledge_bank(
         "kb1"
     ).delete.assert_called_once()
+
+
+def test_knowledge_delete_prompts_without_yes(patch_client):
+    """Delete without --yes aborts on no-input (typer.confirm)."""
+    result = runner.invoke(
+        app, ["knowledge", "delete", "kb1", "--project", "PROJ1"], input="\n"
+    )
+    assert result.exit_code != 0
+    patch_client.get_project("PROJ1").get_knowledge_bank(
+        "kb1"
+    ).delete.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +277,9 @@ def test_knowledge_search_by_name(patch_client):
 def test_knowledge_delete_by_name(patch_client):
     """Delete command resolves by name."""
     proj, kb_mock = _setup_name_resolution(patch_client)
-    result = runner.invoke(app, ["knowledge", "delete", "My KB", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["knowledge", "delete", "My KB", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     kb_mock.delete.assert_called_once()
 

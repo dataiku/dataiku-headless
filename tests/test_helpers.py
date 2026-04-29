@@ -7,7 +7,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
-from dku_cli.helpers import resolve_project, get_client_from_ctx
+from dku_cli.helpers import (
+    ALL_NODE_TYPES,
+    PROJECT_NODE_TYPES,
+    get_client_from_ctx,
+    get_govern_client_from_ctx,
+    require_node_type,
+    resolve_project,
+)
 
 
 def test_resolve_project_flag():
@@ -40,7 +47,10 @@ def test_resolve_project_flag_takes_precedence(monkeypatch):
 def test_get_client_from_ctx():
     ctx = MagicMock()
     ctx.obj = {"url": "https://dss.example.com", "api_key": "abc123"}
-    with patch("dku_cli.helpers.get_client") as mock_get:
+    with (
+        patch("dku_cli.helpers.get_client") as mock_get,
+        patch("dku_cli.helpers.resolve_node_type", return_value="DESIGN"),
+    ):
         mock_get.return_value = MagicMock()
         get_client_from_ctx(ctx)
         mock_get.assert_called_once_with(
@@ -51,7 +61,107 @@ def test_get_client_from_ctx():
 def test_get_client_from_ctx_empty_obj():
     ctx = MagicMock()
     ctx.obj = None
-    with patch("dku_cli.helpers.get_client") as mock_get:
+    with (
+        patch("dku_cli.helpers.get_client") as mock_get,
+        patch("dku_cli.helpers.resolve_node_type", return_value=None),
+    ):
         mock_get.return_value = MagicMock()
         get_client_from_ctx(ctx)
         mock_get.assert_called_once_with()
+
+
+def test_require_node_type_allows_matching():
+    ctx = MagicMock()
+    ctx.obj = {}
+    with patch("dku_cli.helpers.resolve_node_type", return_value="DESIGN"):
+        require_node_type(ctx, PROJECT_NODE_TYPES)  # no raise
+
+
+def test_require_node_type_allows_unknown():
+    """Legacy profiles (pre node-type tracking) are not blocked."""
+    ctx = MagicMock()
+    ctx.obj = {}
+    with patch("dku_cli.helpers.resolve_node_type", return_value=None):
+        require_node_type(ctx, PROJECT_NODE_TYPES)  # no raise
+
+
+def test_require_node_type_refuses_govern():
+    ctx = MagicMock()
+    ctx.obj = {}
+    with patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"):
+        with pytest.raises(SystemExit) as exc:
+            require_node_type(ctx, PROJECT_NODE_TYPES)
+        assert exc.value.code == 4
+
+
+def test_require_node_type_uses_flag_overrides_target_node():
+    ctx = MagicMock()
+    ctx.obj = {
+        "profile": "design-profile",
+        "url": "https://govern.example.com",
+        "api_key": "abc",
+    }
+    with (
+        patch(
+            "dku_cli.helpers.resolve_auth",
+            return_value=("https://govern.example.com", "abc"),
+        ),
+        patch("dku_cli.helpers.probe_node_type", return_value="GOVERN"),
+        patch("dku_cli.helpers.resolve_node_type", return_value="DESIGN"),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            require_node_type(ctx, PROJECT_NODE_TYPES)
+        assert exc.value.code == 4
+
+
+def test_require_node_type_uses_env_overrides_target_node(monkeypatch):
+    monkeypatch.setenv("DKU_URL", "https://design.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "secret")
+    ctx = MagicMock()
+    ctx.obj = {"profile": "govern-profile"}
+    with (
+        patch(
+            "dku_cli.helpers.resolve_auth",
+            return_value=("https://design.example.com", "secret"),
+        ),
+        patch("dku_cli.helpers.probe_node_type", return_value="DESIGN"),
+        patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"),
+    ):
+        require_node_type(ctx, PROJECT_NODE_TYPES)
+
+
+def test_get_govern_client_from_ctx_refuses_design():
+    ctx = MagicMock()
+    ctx.obj = {}
+    with patch("dku_cli.helpers.resolve_node_type", return_value="DESIGN"):
+        with pytest.raises(SystemExit):
+            get_govern_client_from_ctx(ctx)
+
+
+def test_get_govern_client_from_ctx_allows_govern():
+    ctx = MagicMock()
+    ctx.obj = {"url": "https://g.example.com", "api_key": "k"}
+    with (
+        patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"),
+        patch("dku_cli.helpers.get_govern_client") as mock_get,
+    ):
+        mock_get.return_value = MagicMock()
+        get_govern_client_from_ctx(ctx)
+        mock_get.assert_called_once_with(url="https://g.example.com", api_key="k")
+
+
+def test_get_client_from_ctx_blocks_wrong_node_type():
+    """GOVERN profile is refused by default (project-scoped commands)."""
+
+    ctx = MagicMock()
+    ctx.obj = {"url": "https://govern.example.com", "api_key": "abc"}
+    with (
+        patch("dku_cli.helpers.get_client") as mock_get,
+        patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"),
+    ):
+        mock_get.return_value = MagicMock()
+        with pytest.raises(SystemExit):
+            get_client_from_ctx(ctx)
+        # Opt-in to ALL_NODE_TYPES lets it through.
+        get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
+        mock_get.assert_called_once()

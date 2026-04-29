@@ -93,15 +93,28 @@ def delete(
     ctx: typer.Context,
     review_id: str = typer.Argument(help="Review ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete an agent review. Accepts review ID or name."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent_review.delete",
+        subject=f"agent review '{review_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete agent review '{review_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
         review.delete()
         success(f"Deleted agent review '{review_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

@@ -85,7 +85,17 @@ def test_connection_get_json(patch_client):
 
 
 def test_connection_delete(patch_client):
-    result = runner.invoke(app, ["connection", "delete", "filesystem_managed"])
+    result = runner.invoke(
+        app,
+        [
+            "connection",
+            "delete",
+            "filesystem_managed",
+            "--yes",
+            "--confirm-name",
+            "filesystem_managed",
+        ],
+    )
     assert result.exit_code == 0
     assert "Deleted connection" in result.output
     conn = patch_client.get_connection("filesystem_managed")

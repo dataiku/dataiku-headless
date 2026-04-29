@@ -6,9 +6,8 @@
   `infra push-base-images`, `infra apply-k8s-policies`, `messaging delete`)
   requires ``--yes`` to execute. Without it, the command prints what it WOULD do
   and exits with code 0. This prevents agent-driven lockouts.
-- ``settings set`` is a SHALLOW MERGE on the top-level dict returned by DSS.
-  You cannot partially edit nested fields — always GET first, mutate in memory,
-  then SET. The CLI refuses to save if the payload is missing fields present in
+- ``settings set`` is a FULL REPLACE, not a merge. Always GET → edit → SET.
+  The CLI refuses to save if the payload is missing fields present in
   the live config (fail-closed).
 - ``license upload`` overwrites the active license — there is no rollback.
 - SSO/LDAP mis-config can lock every user out of the instance. The CLI warns
@@ -23,7 +22,7 @@ from pathlib import Path
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input
+from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
 from dku_cli.output import (
     info,
     render,
@@ -82,7 +81,7 @@ def logs(
     """List available log files."""
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         log_list = client.list_logs()
 
         if fmt == "json":
@@ -121,7 +120,7 @@ def get_log(
       dku admin get-log backend.log
     """
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         content = client.get_log(name)
         if isinstance(content, str):
             print(content)
@@ -148,7 +147,7 @@ def usage(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         summary = client.get_global_usage_summary(with_per_project=per_project)
         raw = summary.raw
 
@@ -183,7 +182,7 @@ def instance_info(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info_obj = client.get_instance_info()
         raw = info_obj.raw
 
@@ -221,7 +220,7 @@ def sanity_check(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info("Running sanity check...")
         result = client.perform_instance_sanity_check(wait=wait)
 
@@ -360,7 +359,7 @@ def license_upload(
 _IAM_DICT_ATTR = {
     "get_sso_settings": "sso_settings",
     "get_ldap_settings": "ldap_settings",
-    "get_azure_ad_settings": "azure_ad_settings",
+    "get_azure_ad_settings": "azuread_settings",
 }
 
 

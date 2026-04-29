@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx
+from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
 from dku_cli.output import render, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS groups.")
@@ -22,7 +22,7 @@ def list_groups(
     """List DSS groups."""
     output = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         groups = client.list_groups()
 
         data = []
@@ -54,7 +54,7 @@ def get(
     """Show group details."""
     output = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         group = client.get_group(name)
         defn = group.get_definition()
 
@@ -93,7 +93,7 @@ def create(
 ) -> None:
     """Create a DSS group."""
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         client.create_group(
             name, description=description or "", source_type=source_type
         )
@@ -109,12 +109,18 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Delete a DSS group."""
-    if not yes:
-        confirm = typer.confirm(f"Delete group '{name}'?")
-        if not confirm:
-            raise typer.Abort()
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="group.delete",
+        subject=f"group '{name}'",
+        yes=yes,
+        prompt=f"Delete DSS group '{name}'? Users in the group lose its associated permissions.",
+    )
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         group = client.get_group(name)
         group.delete()
         success(f"Deleted group '{name}'")

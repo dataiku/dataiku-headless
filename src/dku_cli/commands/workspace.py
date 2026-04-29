@@ -163,10 +163,16 @@ def delete(
     Example:
       dku workspace delete ANALYTICS --yes
     """
-    if not yes:
-        confirm = typer.confirm(f"Delete workspace '{workspace_key}'?")
-        if not confirm:
-            raise typer.Abort()
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="workspace.delete",
+        subject=f"workspace '{workspace_key}'",
+        yes=yes,
+        prompt=f"Delete workspace '{workspace_key}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         ws = client.get_workspace(workspace_key)

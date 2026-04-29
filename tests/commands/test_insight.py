@@ -146,7 +146,9 @@ def test_insight_create_already_exists_fails(patch_client):
 
 
 def test_insight_delete(patch_client):
-    result = runner.invoke(app, ["insight", "delete", "insight1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["insight", "delete", "insight1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Deleted insight" in result.output
     proj = patch_client.get_project("PROJ1")

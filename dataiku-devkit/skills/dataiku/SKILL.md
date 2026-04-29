@@ -44,6 +44,9 @@ triggers:
   - prepare recipe
   - computed column
   - dataiku formula
+  - semantic model
+  - text-to-sql
+  - sql generation agent
 globs:
   - "**/plugin.json"
   - "**/tool.json"
@@ -64,7 +67,7 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 > **Cheat Sheet (read this first)**
 >
 > 1. **Visual recipe > Python recipe.** Join, group, stack, filter, window, topN — use visual. Python ONLY for custom logic.
-> 2. **Purpose-built processor > GREL.** Rename → `add-rename`, dates → `DateParser`, uppercase → `StringTransformer`. ~95 processors exist.
+> 2. **Purpose-built processor > GREL.** Rename → `add-rename`, dates → `DateParser`, uppercase → `StringTransformer` (`mode: TO_UPPER`, not `UPPERCASE`). Full processor catalog in `references/prepare-processors.md`.
 > 3. **Verify everything.** `dku dataset head OUTPUT -P PROJ -n 5`. Exit code 0 ≠ correct data. See `references/verification.md` for per-artifact verification (agents, KB, charts, scenarios) and cost risk table.
 > 4. **Gauge before you grab.** `dku dataset info DS -P PROJ` BEFORE `head`. If >1M rows or >1GB, ask before building. Never trigger `RECURSIVE_BUILD` on Spark/BigQuery/Snowflake without asking.
 > 5. **Join prefixing.** Join recipes prefix columns (customers_name, orders_amount). Plan downstream refs.
@@ -159,6 +162,12 @@ Comprehensive knowledge for building Dataiku plugins, webapps, agents, and autom
 | Styling | `dataiku-internal-branding` skill |
 | Geospatial | `references/geospatial.md` |
 | Verification & Cost | `references/verification.md` |
+| Govern (runtime: artifacts, signoffs, admin) | `references/govern.md` |
+| Govern (GOVERN node: blueprints, artifacts, signoffs, roles, danger-zone, EU AI Act blueprints) | `references/govern.md` |
+| Govern Blueprint Designer (authoring: versions, fields, workflow, hooks, views) | `references/govern-blueprint-designer.md` |
+| Govern Custom Pages | `references/govern-custom-pages.md` |
+| Semantic Models (text-to-SQL) | `references/semantic-models.md` |
+| App Designer | `references/app-designer.md` |
 
 ---
 
@@ -176,6 +185,7 @@ Quick links for common combinations:
 - **Automate retraining** → `scenarios.md` + `mlops.md`
 - **Deploy model** → `mlops.md` + `scenarios.md`
 - **Set up guardrail** → `guardrails.md` + `scaffolding.md`
+- **Turn project into app** → `app-designer.md` + `dku-cli` skill
 
 ---
 

@@ -6,8 +6,8 @@ from typing import Optional
 
 import typer
 
-from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx
+from dku_cli.errors import exit_with_error, handle_api_error
+from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS users.")
@@ -21,7 +21,7 @@ def list_users(
     """List DSS users."""
     output = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         users = client.list_users()
 
         data = []
@@ -64,7 +64,7 @@ def create(
 ) -> None:
     """Create a DSS user."""
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         group_list = [g.strip() for g in groups.split(",")] if groups else []
         client.create_user(login, password, display_name, email, groups=group_list)
 
@@ -82,7 +82,7 @@ def get(
     """Get user details."""
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         settings = user.get_settings()
         render_raw(settings.get_raw(), output_format=output)
@@ -94,13 +94,26 @@ def get(
 def delete(
     ctx: typer.Context,
     login: str = typer.Argument(help="User login"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a DSS user."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="user.delete",
+        subject=f"user '{login}'",
+        yes=yes,
+        prompt=f"Delete DSS user '{login}'?",
+    )
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         user.delete()
         success(f"Deleted user '{login}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -118,7 +131,7 @@ def activity(
     """
     fmt = resolve_output_format(output)
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         act = user.get_activity()
         raw = act.get_raw()
@@ -165,7 +178,7 @@ def add_secret(
       dku user add-secret admin --name MY_TOKEN --value "abc123"
     """
     try:
-        client = get_client_from_ctx(ctx)
+        client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
         settings = user.get_settings()
         settings.add_secret(name, value)
@@ -192,13 +205,22 @@ def _load_users_from_csv(path: str) -> list[dict]:
 
     p = Path(path)
     if not p.exists():
-        raise typer.BadParameter(f"CSV file not found: {path}")
+        exit_with_error(
+            f"CSV file not found: {path}",
+            code="user_bulk_csv_not_found",
+            details=["Check the file path and try again."],
+        )
     users: list[dict] = []
     with p.open(newline="") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None or "login" not in reader.fieldnames:
-            raise typer.BadParameter(
-                f"CSV must have a 'login' column. Found: {reader.fieldnames}"
+            exit_with_error(
+                "CSV must have a 'login' column.",
+                code="user_bulk_csv_missing_login",
+                details=[
+                    f"Found columns: {reader.fieldnames}",
+                    "Required: login",
+                ],
             )
         for row in reader:
             user = {k: v for k, v in row.items() if v != "" and v is not None}
@@ -239,11 +261,7 @@ def bulk_create(
       login,password,displayName,email,groups,userProfile,sourceType
       alice,tempPass,Alice A,alice@example.com,data_team;readers,DATA_SCIENTIST,LOCAL
     """
-    from dku_cli.helpers import read_json_input
-
     if (from_json is None) == (from_csv is None):
-        from dku_cli.errors import exit_with_error
-
         exit_with_error(
             "Pass exactly one of --from or --from-csv.",
             code="user_bulk_input_missing",
@@ -254,8 +272,6 @@ def bulk_create(
     else:
         parsed = read_json_input(from_json)
         if not isinstance(parsed, list):
-            from dku_cli.errors import exit_with_error
-
             exit_with_error(
                 "--from must be a JSON array of user objects.",
                 code="user_bulk_bad_payload",
@@ -331,9 +347,6 @@ def bulk_edit(
         {"login":"clara","enabled":false}
       ]' --yes
     """
-    from dku_cli.errors import exit_with_error
-    from dku_cli.helpers import read_json_input
-
     changes = read_json_input(from_json)
     if not isinstance(changes, list):
         exit_with_error(
@@ -357,7 +370,29 @@ def bulk_edit(
     try:
         client = get_client_from_ctx(ctx)
         results = client.edit_users(changes)
-        fmt = resolve_output_format(output, allowed=("json",), default="json")
-        render_raw(results, output_format=fmt)
+        fmt = resolve_output_format(output)
+        if fmt == "json":
+            render_raw(results, output_format=fmt)
+        else:
+            data = [
+                {
+                    "login": r.get("login", ""),
+                    "status": r.get("status", ""),
+                    "error": (r.get("error") or "")[:80],
+                }
+                for r in results
+            ]
+            render(
+                data,
+                ["login", "status", "error"],
+                output_format=fmt,
+                title="Bulk User Edit Results",
+            )
+        failures = [r for r in results if r.get("status") == "FAILURE"]
+        if failures:
+            info(f"{len(failures)} user(s) failed — see 'error' column.")
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

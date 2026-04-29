@@ -110,15 +110,28 @@ def delete(
     ctx: typer.Context,
     name: str = typer.Argument(help="Jupyter notebook name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a Jupyter notebook."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="notebook.delete",
+        subject=f"notebook '{name}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete notebook '{name}' from project {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         nb = proj.get_jupyter_notebook(name)
         nb.delete()
         success(f"Deleted notebook '{name}' from {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -186,15 +199,28 @@ def clear_outputs(
     ctx: typer.Context,
     name: str = typer.Argument(help="Jupyter notebook name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Clear all outputs from a Jupyter notebook."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="notebook.clear_outputs",
+        subject=f"all outputs in notebook '{name}' ({project_key})",
+        yes=yes,
+        prompt=f"Clear all outputs from notebook '{name}' in {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         nb = proj.get_jupyter_notebook(name)
         nb.clear_outputs()
         success(f"Cleared outputs for notebook '{name}' in {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

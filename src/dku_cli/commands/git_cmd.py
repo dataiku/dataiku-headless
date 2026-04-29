@@ -305,9 +305,39 @@ def delete_branch(
     ),
     remote: bool = typer.Option(False, "--remote", "-r", help="Delete a remote branch"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="With --force, must match BRANCH_NAME to proceed (tier-3 guard).",
+    ),
 ) -> None:
-    """Delete a local or remote branch."""
+    """Delete a local or remote branch.
+
+    Without --force: tier-2 guard, requires --yes.
+    With --force (may destroy unpushed commits): tier-3 guard,
+    requires --yes + --confirm-name BRANCH_NAME.
+    """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    tier = Tier.CASCADE if force else Tier.DELETE
+    guard(
+        ctx,
+        tier=tier,
+        action="git.delete_branch",
+        subject=(
+            f"branch '{branch_name}' in {project_key}"
+            + (" (FORCE — may destroy unpushed commits)" if force else "")
+        ),
+        yes=yes,
+        target_id=branch_name if force else None,
+        confirm_name=confirm_name,
+        prompt=(
+            f"Delete {'remote' if remote else 'local'} branch '{branch_name}' in project {project_key}"
+            + (" even if it has unpushed commits?" if force else "?")
+        ),
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

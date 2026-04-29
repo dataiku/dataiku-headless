@@ -155,6 +155,44 @@ When editing skills, **progressive disclosure is non-negotiable**:
 
 ---
 
+## Safety & Guarded Mode
+
+**`dku` is guarded by default.** Every destructive command calls `safety.guard()`. There is NO other path — adding a new destructive command without calling `guard()` is a bug.
+
+### The primitives
+
+- **`src/dku_cli/safety.py`** — the only module that emits `AGENT INSTRUCTION` blocks and exits 77.
+  - `Tier.READ / WRITE / DELETE / CASCADE / ADMIN` (IntEnum).
+  - `guard(ctx, *, tier, action, subject, yes, target_id=None, confirm_name=None, i_know=False, prompt=None)` — the only call every destructive command makes.
+- **Exit code 77** (`SAFETY_BLOCKED_EXIT`) is reserved for safety blocks. Do NOT reuse it.
+- **Global flag `--dangerous`** + **env `DKU_DANGEROUS=1`** + **`config.toml` `dangerous_mode=true`** all disable tier 2–3 guards. Tier 4 (admin) is never bypassable.
+
+### Tiers — call-site rules
+
+| Tier | Use when the command … | Required flags |
+|---|---|---|
+| `READ` / `WRITE` | Lists, creates, reversible updates | No guard call needed |
+| `DELETE` | Deletes one resource or wipes its data | Pass `yes=yes` |
+| `CASCADE` | Is irreversible, touches many resources, or uses a `--force` override | Pass `yes=yes`, `target_id=<id>`, `confirm_name=confirm_name` |
+| `ADMIN` | Reserved for instance-wide admin mutators | Pass `yes`, `target_id`, `confirm_name`, `i_know` |
+
+### When adding a new destructive command
+
+1. Pick the tier. If in doubt between DELETE and CASCADE, ask: *can this destroy work the user did not explicitly name in the command*? If yes → CASCADE.
+2. Add `yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard")`.
+3. For CASCADE: also add `confirm_name: str = typer.Option(None, "--confirm-name", help="Must match <TARGET> to proceed.")`.
+4. Call `guard(ctx, tier=Tier.X, action="noun.verb", subject="human-readable '{name}' in {scope}", yes=yes, ..., prompt="User-facing question ending in a question mark?")`.
+5. Write the `prompt=` from the user's perspective — it's shown to the human verbatim by the agent. Start with the verb, name the target, end with a question.
+6. Write tests: (a) blocks without `--yes` (exit 77), (b) succeeds with `--yes`, (c) tier-3 rejects mismatched `--confirm-name`, (d) `DKU_DANGEROUS=1` bypasses (tier 2) or still requires `--confirm-name` (tier 3).
+
+### Existing agent-facing artifacts that mention safety
+
+- `dataiku-devkit/skills/dku-cli/SKILL.md` — cheat sheet rule 18 + the "Deletion Commands (Safety Guards)" section.
+- `dataiku-devkit/skills/dku-cli/references/commands.md` — "Safety Modes & Exit Code 77" section.
+- CLI error messages — `AGENT INSTRUCTION:` block emitted from `safety._emit_block` / `_emit_cascade_name_mismatch` / `_emit_admin_refusal`.
+
+---
+
 ## Critical Gotchas
 
 **Rule: Every gotcha below MUST also exist in `dataiku-devkit/skills/dku-cli/SKILL.md` gotchas table AND be caught with a prescriptive error message in the CLI code.**
@@ -173,6 +211,9 @@ When editing skills, **progressive disclosure is non-negotiable**:
 ### Python Recipe Numeric IDs
 ID columns from external datasets may contain nulls or non-numeric values. Never cast directly with `.astype("int64")`; use `pd.to_numeric(..., errors="coerce")`, `dropna`, then cast, or the recipe will fail with `IntCastingNaNError`.
 
+### Snowflake: concat Aggregation + Bigint Precision
+`--agg "col:concat"` in `create-group` compiles to Snowflake's `LISTAGG()`, which has a per-group result size limit. Large text/JSON columns (200+ chars per row, multiple rows per group) fail with error 300002. Fix: visual group for numeric aggs only, Python recipe downstream for JSON/text merging. Also: pandas loads Snowflake bigints as float64, losing precision for values > 2^53. Visual recipes preserve full precision. Python recipes should cast via string, not `pd.to_numeric().astype("int64")`.
+
 ### Plugin Webapp Backend
 DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app = Flask(__name__)` — it breaks `/__ping`. Import from `dataiku.customwebapp`, not `dataiku.webapp`. Folder is `webapps/`, not `custom-webapps/`. `webapp.json` needs `hasBackend: true`, `noJSSecurity: true`.
 
@@ -180,10 +221,16 @@ DSS injects `app` (Flask) globally into `backend.py`. NEVER create your own `app
 NEVER use `installCorePackages: true` — installs `pandas==0.23.4` which fails on Python 3.11. Use `installCorePackages: false` + explicit `requirements.txt`: `pandas>=2.0,<3`, `numpy>=1.22,<3`, `python-dateutil>=2.8,<3`, `requests>=2.28,<3`. Include all four even if not used directly. If `create_code_env()` fails, the broken env persists — delete it before retrying.
 
 ### GREL Formula Quirks
-`log()` = base-10 (no `ln()`). `exp()` IS base-e (inconsistent). `numval()`/`val()` don't work — use direct arithmetic. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
+`log()` = base-10, `ln()` = natural log (despite `exp()` being base-e). `numval()`/`strval()`/`val()` require QUOTED column names — `numval("col")` works, bareword `numval(col)` silently returns empty. `replace(s, "pat", ...)` is literal substring; regex needs `/pat/` delimiters. Formula columns default to STRING — always run `apply-schema` after adding formula steps.
 
 ### Agent Tool Patterns
 Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_metadata()`. `invoke()` input is at `input.get("input", {})`, not root. Subprocess tools MUST set `stdin=subprocess.DEVNULL` + `env["CI"] = "true"` + `env["NO_COLOR"] = "1"`.
+
+### SVA Block Graph (DSS 14.5+)
+Agent type MUST be `STRUCTURED_AGENT` for block graphs. `TOOLS_USING_AGENT` silently drops blocks. Every CORE_LOOP/LLM_REQUEST block needs explicit `llmId`. Every SAVE_TO_STATE block needs `outputKey`. Empty string in SET_STATE_ENTRIES `value` crashes CEL — use `"''"`.
+
+### Date Formatting in Prepare Recipes
+`DateFormatter`, `DateTruncate`, `UNIXTimestampParser` **all exist** on DSS 14.5 (verified against `dip/src/.../shaker/processors/time/`). The agent trap is wrong param names: they use `inCol`/`outCol` (NOT `column`/`outputColumn` from older docs), and DSS returns a misleading `Empty column name` error otherwise — the `dku recipe add-step` CLI catches this pre-send. Other traps: `DateTruncate` param is `datePart` (values `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND`) and defaults to `YEAR` if missing. `UNIXTimestampParser` uses `milliseconds` BOOLEAN, not `unit` string. What actually *doesn't* work: GREL `formatDate()` and `toDate()` do not exist; GREL `toString(date, "format")` is a no-op; `DateParser` without `outCol` silently produces all nulls. ISO 8601 DateParser format: use `Z`/`z` pattern, NOT `XXX`.
 
 ### Chart Column Names
 Not validated server-side — wrong column names save but render blank charts. Verify with `dku dataset schema DS -P PROJ` first. Dashboard tiles at `pages[i].grid.tiles`, not `pages[i].tiles`.
@@ -199,6 +246,15 @@ All `dku admin` mutations (`license upload`, `sso/ldap/azure-ad/settings set`, `
 
 ### Semantic Model Schema
 `dataikuapi.dss.semantic_model` exposes `entities`, `relationships`, `goldenQueries`, `glossaryTerms`, `glossaryBindings` as **opaque dicts with no inner class definitions** — the schema is nowhere in the SDK or public docs. Relationship shape (verified DSS 14.4.3): `{"firstEntity","secondEntity","pseudoSQLExpression":"left.col = right.col"}` — three fields, no cardinality (inferred from `entity.primaryKey`). `set-version` is a **shallow merge** at the version top level — passing `{"relationships":[...]}` replaces the whole array. Always build one example in the UI → `get-version -o json` → templatize → `set-version @file`. Full schema in `dataiku-devkit/skills/dataiku/references/semantic-models.md`.
+
+### Govern nodes + node-type guard
+`dku auth login` persists `node_type` (DESIGN/AUTOMATION/GOVERN/DEPLOYER/API) into the profile TOML after probing `get_instance_info()`. `helpers.get_client_from_ctx(ctx)` defaults to rejecting GOVERN profiles with exit code **4** and a prescriptive error pointing at `dku govern …`. Cross-node commands (`user`, `group`, `admin`, `whoami`) opt into broader support via `get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)`. Govern-only commands use `get_govern_client_from_ctx(ctx)` which requires `node_type == "GOVERN"`. When adding a new command: project-scoped command → do nothing (default guard applies); cross-node command → pass `allowed_node_types=ALL_NODE_TYPES`; Govern-only → use `get_govern_client_from_ctx`. Legacy profiles without stored `node_type` show `[?]` in `dku auth list` and BYPASS the guard (backwards compatible) — `dku auth login --profile X` refreshes them.
+
+### Govern API payload shapes
+`dataikuapi.GovernClient` lives on its own host, API-key-only auth. List-item payloads nest: `list_blueprints()` items have `{"blueprint": {"id","name",…}}`; blueprint-version list-items have `{"blueprintVersion": {"id": {"blueprintId","versionId"}}, "blueprintVersionTrace": {"status","originVersionId"}}`; artifact search hits have `{"artifact": {"id","name","status","workflow"}, "blueprint": {…}, "blueprintVersion": {"id":{…}}}`. Signoff list items use `signoffId.{artifactId,stepId}` (NOT flat `id`), `approverResponse` (NOT `approval`), `feedbackResponses` (NOT `feedbacks`). Never `.get('id')` on a list-item raw — navigate the nested shape. All workflow/status enum values are UPPERCASE (`APPROVED`, `WAITING_FOR_FEEDBACK`, `MAJOR_ISSUE`, `ACTIVE`). Delegation requires `GovernUserUsersContainer(login).build()` — raw login string fails. `create_*()` on admin handlers takes `new_identifier` as a SEPARATE positional arg: `create_blueprint(new_identifier, payload_dict)`. `save(danger_zone_accepted=True)` on a blueprint-version definition is the schema-breaking escape hatch → maps to tier-3 CASCADE with `--confirm-name` when that CLI command lands.
+
+### Global flag position
+`--errors json`, `--profile`, `--dangerous`, `--url`, `--api-key` are root-app options. They must precede the subcommand: `dku --errors json user delete X` works; `dku user delete X --errors json` fails with "No such option". The AGENT INSTRUCTION block's `rerun_with_confirmation` preserves the correct position automatically — agents should copy it verbatim.
 ---
 
 ## dataikuapi Quirks
@@ -219,6 +275,7 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
 - `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
 - Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
+- Valid scenario step types: `build_flowitem` (builds datasets/folders), `custom_python` (inline script), `exec_sql` (SQL). See `dataikuapi/dss/scenario.py` line 629.
 
 ---
 

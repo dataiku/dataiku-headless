@@ -479,17 +479,79 @@ def test_dataset_delete(patch_client):
     ds.delete.assert_called_once()
 
 
-def test_dataset_delete_prompts_without_yes(patch_client):
-    """Without --yes, delete prompts for confirmation."""
-    result = runner.invoke(
-        app, ["dataset", "delete", "ds1", "--project", "PROJ1"], input="y\n"
-    )
+def test_dataset_delete_blocks_without_yes(patch_client):
+    """Without --yes, guarded mode refuses and emits AGENT INSTRUCTION."""
+    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 77
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.delete.assert_not_called()
+
+
+def test_dataset_delete_dangerous_env_bypasses(patch_client, monkeypatch):
+    """DKU_DANGEROUS=1 skips the guard."""
+    monkeypatch.setenv("DKU_DANGEROUS", "1")
+    result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.delete.assert_called_once()
+
+
+def test_dataset_delete_warns_about_dependent_recipes(patch_client):
+    """Dataset delete enumerates recipe dependents via get_usages() and warns
+    about them before proceeding. The default dataset_mock has one RECIPE_INPUT
+    usage on 'compute_output', which should surface in the output."""
+    result = runner.invoke(
+        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "dependent recipe" in result.output
+    assert "compute_output" in result.output
     assert "Deleted dataset" in result.output
 
 
-def test_dataset_clear(patch_client):
+def test_dataset_delete_drop_data_alias_accepted(patch_client):
+    """--drop-data is accepted as a no-op alias for symmetry with project delete."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "delete",
+            "ds1",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--drop-data",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "--drop-data is accepted" in result.output
+    assert "Deleted dataset" in result.output
+
+
+def test_dataset_delete_no_dependents_no_warning(patch_client):
+    """When get_usages() returns an empty list, no cascade warning is shown."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []
+    result = runner.invoke(
+        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "dependent recipe" not in result.output
+    assert "Deleted dataset" in result.output
+
+
+def test_dataset_clear_requires_yes(patch_client):
+    """dataset clear is tier-2 destructive — needs --yes."""
     result = runner.invoke(app, ["dataset", "clear", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 77
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.clear.assert_not_called()
+
+
+def test_dataset_clear_with_yes(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "clear", "ds1", "--project", "PROJ1", "--yes"]
+    )
     assert result.exit_code == 0
     assert "Cleared dataset" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")

@@ -110,6 +110,27 @@ def create(
                     f"List folders: dku folder list -P {project_key}",
                 ],
             )
+        # Catch both common DSS refusal shapes for managed-folder creation:
+        #   - "You may not create a managed folder on connection X" (permission)
+        #   - "Invalid connection type for managed folders : PostgreSQL" (wrong type)
+        # Either way the recovery is the same: find a connection that accepts folders.
+        msg = str(e)
+        folder_refused = (
+            "may not create a managed folder" in msg
+            or "You are not allowed to create a managed folder" in msg
+            or "Invalid connection type for managed folders" in msg
+        )
+        if folder_refused:
+            exit_with_error(
+                f"Connection '{connection}' cannot host managed folders in {project_key}.",
+                code="connection_not_allowed",
+                details=[
+                    "Find a connection that accepts managed folders:",
+                    f"  dku folder list -P {project_key} -o json | jq -r '.[0].params.connection'  (reuse what an existing folder uses)",
+                    '  dku connection list -o json | jq -r \'.[] | select(.type | IN("Filesystem","S3","GCS","Azure","HDFS")) | .name\'',
+                    f"Then retry with: dku folder create {name} -c <ALLOWED_CONN> -P {project_key}",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -134,12 +155,16 @@ def delete(
         folder_name = folder.get_settings().get_raw().get("name", folder_ref)
         folder_id = folder.id if hasattr(folder, "id") else folder_ref
 
-        if not yes:
-            confirm = typer.confirm(
-                f"Delete managed folder '{folder_name}' ({folder_id}) from {project_key}?"
-            )
-            if not confirm:
-                raise typer.Abort()
+        from dku_cli.safety import Tier, guard
+
+        guard(
+            ctx,
+            tier=Tier.DELETE,
+            action="folder.delete",
+            subject=f"managed folder '{folder_name}' ({folder_id}) in {project_key}",
+            yes=yes,
+            prompt=f"Delete managed folder '{folder_name}' ({folder_id}) from {project_key}? (File contents on underlying storage are preserved.)",
+        )
 
         folder.delete()
         success(
@@ -160,18 +185,31 @@ def delete_file(
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     path: str = typer.Argument(help="Path of file to delete within the folder"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete a file from a managed folder.
 
     No error is raised if the file doesn't exist (idempotent).
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="folder.delete_file",
+        subject=f"file '{path}' in folder '{folder_ref}' ({project_key})",
+        yes=yes,
+        prompt=f"Delete file '{path}' from folder '{folder_ref}' in {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
         folder.delete_file(path)
         success(f"Deleted {path} from folder {folder_ref}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -551,12 +589,23 @@ def delete_files(
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     paths: list[str] = typer.Argument(help="Paths of files to delete"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Delete multiple files from a managed folder.
 
     Pass one or more file paths as arguments.
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="folder.delete_files",
+        subject=f"{len(paths)} file(s) in folder '{folder_ref}' ({project_key})",
+        yes=yes,
+        prompt=f"Delete {len(paths)} file(s) from folder '{folder_ref}' in {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -564,6 +613,8 @@ def delete_files(
         for path in paths:
             folder.delete_file(path)
         success(f"Deleted {len(paths)} file(s) from folder {folder_ref}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

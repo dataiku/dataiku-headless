@@ -1,4 +1,4 @@
-"""dku connection — list, test, create, get, delete, schemas, tables, sync-acls."""
+"""dku connection — list, test, create, get, update, delete, schemas, tables, sync-acls."""
 
 from __future__ import annotations
 
@@ -6,7 +6,11 @@ from typing import Optional
 
 import typer
 
-from dku_cli.errors import exit_with_error, handle_api_error
+from dku_cli.errors import (
+    exit_with_error,
+    handle_api_error,
+    is_not_found_error,
+)
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
@@ -106,19 +110,58 @@ def test(
     ctx: typer.Context,
     connection_name: str = typer.Argument(help="Connection name"),
 ) -> None:
-    """Test a connection."""
+    """Test a connection.
+
+    Only works on SQL and cloud connections. Filesystem/LLM connections do not
+    support test and will report the limitation prescriptively.
+    """
     try:
         client = get_client_from_ctx(ctx)
         conn = client.get_connection(connection_name)
-        result = conn.test()
-        ok = result.get("ok", False)
+        try:
+            result = conn.test()
+        except Exception as e:
+            msg = str(e)
+            # "NotImplementedException" is raised for Filesystem etc.
+            if "NotImplementedException" in msg or "Not implemented" in msg:
+                exit_with_error(
+                    f"Connection '{connection_name}' does not support testing.",
+                    code="unsupported_operation",
+                    status=2,
+                    details=[
+                        "Test only works on SQL and cloud connections.",
+                        f"Inspect instead: dku connection get {connection_name}",
+                    ],
+                )
+            if is_not_found_error(e) or "does not exist" in msg:
+                exit_with_error(
+                    f"Connection '{connection_name}' does not exist.",
+                    code="not_found",
+                    status=3,
+                    details=[
+                        "List connections: dku connection list",
+                    ],
+                )
+            raise
+        # DSS returns "connectionOK" (not "ok") for most connection types.
+        ok = result.get("connectionOK", result.get("ok", False))
         if ok:
             success(f"Connection '{connection_name}' is working")
         else:
-            from dku_cli.output import error
-
-            msg = result.get("errorMessage", "Unknown error")
-            error(f"Connection '{connection_name}' test failed: {msg}")
+            msg = (
+                result.get("errorMessage")
+                or result.get("message")
+                or result.get("error")
+                or "DSS returned connectionOK=false but no diagnostic message"
+            )
+            exit_with_error(
+                f"Connection '{connection_name}' test failed.",
+                code="test_failed",
+                status=1,
+                details=[f"DSS: {msg}"],
+            )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -144,13 +187,33 @@ def get(
 def delete(
     ctx: typer.Context,
     name: str = typer.Argument(help="Connection name"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match CONNECTION name to proceed (tier-3 cascade).",
+    ),
 ) -> None:
-    """Delete a connection (admin only)."""
+    """Delete a connection (admin only). Tier-3 cascade — orphans all datasets using it."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.CASCADE,
+        action="connection.delete",
+        subject=f"connection '{name}' (orphans every dataset that uses it)",
+        yes=yes,
+        target_id=name,
+        confirm_name=confirm_name,
+        prompt=f"Delete connection '{name}'? This orphans every dataset using it.",
+    )
     try:
         client = get_client_from_ctx(ctx)
         conn = client.get_connection(name)
         conn.delete()
         success(f"Deleted connection '{name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

@@ -294,6 +294,12 @@ Places a chart or table insight on the dashboard:
 
 ### Text/HTML Tile
 
+> **DSS may normalize `tileParams.htmlContent` away on save.** Writing a `TEXT`
+> tile via `dku dashboard set-definition` can persist the tile but drop `htmlContent`,
+> keeping only fields like `verticalAlign`. Always re-read with
+> `dku dashboard get-definition` after writing and diff — if the HTML was dropped,
+> prefer a chart insight with a large title instead of a scripted header.
+
 ```json
 {
   "tileType": "TEXT",
@@ -320,33 +326,47 @@ Places a chart or table insight on the dashboard:
 
 ## Dataset Table Insight
 
-For showing raw data in a dashboard:
+> **Do NOT hand-write the full `dataset_table` payload.** The nested `shakerScript`
+> schema varies across DSS versions. In particular, `shakerScript.columnOrder` can
+> expect an array of **objects**, not bare column-name strings — passing strings
+> fails with `Expected BEGIN_OBJECT but was STRING at path $.shakerScript.columnOrder[0]`.
+> Use the **clone-then-narrow** pattern instead: create the insight with `--dataset`,
+> pull the live default via `get-definition`, and only touch the safe fields below.
 
-```json
-{
-  "id": "INSIGHT_ID",
-  "projectKey": "PROJ",
-  "type": "dataset_table",
-  "name": "Data Table",
-  "listed": true,
-  "owner": "dataiku",
-  "params": {
-    "datasetSmartName": "my_dataset",
-    "shakerScript": {
-      "steps": [],
-      "columnsSelection": {
-        "mode": "SELECTED",
-        "selectedColumnNames": ["col1", "col2", "col3"]
-      },
-      "columnOrder": [],
-      "columnWidthsByName": {},
-      "coloring": {"scheme": "MEANING_AND_STATUS", "individualColumns": [], "valueColoringMode": "HASH"},
-      "sorting": [{"column": "col1", "ascending": true}],
-      "previewMode": "ALL_ROWS"
-    }
-  }
-}
+```bash
+# 1. Create the insight with default DSS-native scaffolding
+dku insight create "Data Table" --type dataset_table --dataset my_dataset -P PROJ
+# (capture INSIGHT_ID from the output)
+
+# 2. Pull the live default payload DSS generated for this instance/version
+dku insight get-definition INSIGHT_ID -P PROJ -o json > table.json
+
+# 3. Narrow visible columns — ONLY touch columnsSelection (safe across versions)
+jq '.params.shakerScript.columnsSelection = {
+      "mode": "SELECTED",
+      "selectedColumnNames": ["col1", "col2", "col3"]
+    }' table.json > table-updated.json
+
+# 4. Write back
+dku insight set-definition INSIGHT_ID -d @table-updated.json -P PROJ
+
+# 5. Verify — re-read and diff to confirm nothing was normalized away
+dku insight get-definition INSIGHT_ID -P PROJ -o json > table.after.json
+diff <(jq -S . table-updated.json) <(jq -S . table.after.json) || true
 ```
+
+**Safe to edit in `params.shakerScript`** (stable across DSS versions):
+- `columnsSelection` — `{mode: "SELECTED"|"ALL_EXCEPT"|"ALL", selectedColumnNames: [...]}`
+- `sorting` — `[{column: "col1", ascending: true}]`
+- `previewMode` — `"ALL_ROWS"` or `"FIRST_N_ROWS"`
+
+**Leave alone unless you've read the exact object shape for your DSS version:**
+- `columnOrder` — may expect objects, not strings
+- `columnWidthsByName`
+- `coloring.individualColumns`
+
+If you need to reference the full structure for debugging, pull a live example from
+the running DSS instance via `dku insight get-definition` rather than copying from docs.
 
 ---
 
@@ -448,3 +468,6 @@ dku dashboard set-definition DASHBOARD_ID -d @dashboard.json -P PROJ
 | Wrong column name in dimension/measure | Chart renders blank, no error from API | Use `dku insight validate` to check columns, or `dku dataset schema DS -P PROJ` |
 | Missing `engineType: "LINO"` | Chart may fail to render | Always include `"engineType": "LINO"` in params |
 | Using `type: "bar"` instead of `type: "multi_columns_lines"` | Invalid chart type | See chart type table above |
+| Hand-written `dataset_table.shakerScript.columnOrder = ["col1",...]` | `Expected BEGIN_OBJECT but was STRING at path $.shakerScript.columnOrder[0]` | Don't hand-write the shakerScript — clone the live default via `dku insight get-definition` first and only edit `columnsSelection` |
+| `TEXT` tile `htmlContent` missing after `dashboard set-definition` | Tile renders empty / no header | DSS may normalize it away. Always re-read with `dku dashboard get-definition` and diff. If dropped, use a chart insight with large titleOptions instead of a scripted TEXT header |
+| Filter page has no dataset even though UI shows one bound | `pages[].filtersParams.datasetSmartName` was checked as the filter insight | Filter dataset can live at `pages[i].filtersParams.datasetSmartName` — check both paths |

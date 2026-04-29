@@ -176,11 +176,17 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
     """Delete a RAG LLM."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
-    if not yes:
-        confirm = typer.confirm(f"Delete RAG LLM '{rag_id}' from {project_key}?")
-        if not confirm:
-            raise typer.Abort()
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="rag.delete",
+        subject=f"RAG LLM '{rag_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete RAG LLM '{rag_id}' from {project_key}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

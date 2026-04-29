@@ -418,11 +418,16 @@ def delete_rule(
             )
 
         rule = match[0]
-        if not yes:
-            typer.confirm(
-                f"Delete rule '{rule.name}' ({rule_id}) from {dataset_name}?",
-                abort=True,
-            )
+        from dku_cli.safety import Tier, guard
+
+        guard(
+            ctx,
+            tier=Tier.DELETE,
+            action="dq.delete",
+            subject=f"rule '{rule.name}' ({rule_id}) on {dataset_name}",
+            yes=yes,
+            prompt=f"Delete data quality rule '{rule.name}' ({rule_id}) from dataset {dataset_name}?",
+        )
 
         rule.delete()
         success(f"Deleted rule '{rule.name}' ({rule_id}) from {dataset_name}")

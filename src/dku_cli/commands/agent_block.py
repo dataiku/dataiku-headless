@@ -181,12 +181,87 @@ def _validate_routing_block(block: dict) -> list[str]:
     return errors
 
 
+def _validate_set_state_entries_block(block: dict) -> list[str]:
+    """Validate SET_STATE_ENTRIES / SET_SCRATCHPAD_ENTRIES for empty CEL values."""
+    errors = []
+    if block.get("type") not in ("SET_STATE_ENTRIES", "SET_SCRATCHPAD_ENTRIES"):
+        return errors
+    for i, entry in enumerate(block.get("entriesToSet", [])):
+        value = entry.get("value")
+        if isinstance(value, str) and not value.strip():
+            errors.append(
+                f"{block.get('type')} block '{block.get('id', '?')}' entry {i} "
+                f"(key='{entry.get('key', '?')}') has an EMPTY CEL value. "
+                "This causes 'Micro-CEL Evaluation Error: unexpected EOF'. "
+                'Use a CEL literal: "\'\'" (empty string), "0" (number), or "[]" (empty list).'
+            )
+    return errors
+
+
+def _validate_output_key(block: dict) -> list[str]:
+    """Validate that SAVE_TO_STATE/SAVE_TO_SCRATCHPAD blocks have an output key."""
+    errors = []
+    output_mode = block.get("outputMode", "")
+    if output_mode not in ("SAVE_TO_STATE", "SAVE_TO_SCRATCHPAD"):
+        return errors
+    has_key = (
+        block.get("outputKey")
+        or block.get("outputStateKey")
+        or block.get("outputScratchpadKey")
+    )
+    if not has_key:
+        target = "state" if "STATE" in output_mode else "scratchpad"
+        errors.append(
+            f"Block '{block.get('id', '?')}' (type={block.get('type', '?')}) has "
+            f"outputMode={output_mode} but no output key. "
+            f'LLM output will be lost. Add "outputKey": "my_field" to save to {target}.'
+        )
+    return errors
+
+
+# Block types that require an LLM to function
+_LLM_BLOCK_TYPES = frozenset(
+    {
+        "STANDARD_REACT",
+        "CORE_LOOP",
+        "LLM_REQUEST",
+        "MANDATORY_TOOL_CALL",
+        "REFLECTION",
+        "EDIT_LAST_USER_MESSAGE",
+    }
+)
+
+
+def _validate_llm_blocks(block: dict) -> list[str]:
+    """Warn when LLM-dependent blocks lack llmId (warning, not error)."""
+    warnings = []
+    if block.get("type") not in _LLM_BLOCK_TYPES:
+        return warnings
+    if not block.get("llmId"):
+        warnings.append(
+            f"Block '{block.get('id', '?')}' (type={block.get('type')}) has no llmId. "
+            "On DSS 14.5+, each LLM block needs its own llmId or it fails with "
+            "'Please select a valid LLM'. Discover models: dku llm list -P PROJ"
+        )
+    return warnings
+
+
 def _validate_blocks(blocks: list[dict]) -> list[str]:
     """Validate all blocks. Returns list of error messages."""
     errors = []
     for block in blocks:
         errors.extend(_validate_routing_block(block))
+        errors.extend(_validate_set_state_entries_block(block))
+        errors.extend(_validate_output_key(block))
     return errors
+
+
+def _collect_block_warnings(blocks: list[dict]) -> list[str]:
+    """Collect non-fatal warnings across all blocks."""
+    warnings: list[str] = []
+    for block in blocks:
+        warnings.extend(_validate_llm_blocks(block))
+    return warnings
 
 
 def _fetch_settings(
@@ -359,14 +434,18 @@ def add_block(
         if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:
             agent_cfg["blocks"] = []
 
-        # Validate block (e.g. ROUTING blocks with empty CEL expressions)
-        block_errors = _validate_routing_block(new_block)
+        # Validate block — routing CEL, SET_STATE_ENTRIES CEL, SAVE_TO_STATE output key
+        block_errors = _validate_blocks([new_block])
         if block_errors:
             exit_with_error(
                 block_errors[0],
                 code="invalid_block",
                 status=1,
             )
+
+        # Non-fatal warnings (e.g. LLM blocks without llmId on DSS 14.5+)
+        for w in _collect_block_warnings([new_block]):
+            warn(w)
 
         # Check duplicate ID
         if _find_block(agent_cfg, block_id) is not None:
@@ -399,8 +478,20 @@ def remove_block(
     version: str | None = typer.Option(
         None, "--version", help="Version ID (default: active)"
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a block from the agent's block graph."""
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent_block.remove",
+        subject=f"block '{block_id}' from agent '{agent_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove block '{block_id}' from agent '{agent_id}'?",
+    )
     try:
         settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
@@ -639,7 +730,8 @@ def set_graph(
             )
 
         # Validate all blocks before saving
-        block_errors = _validate_blocks(new_agent_cfg.get("blocks", []))
+        all_blocks = new_agent_cfg.get("blocks", [])
+        block_errors = _validate_blocks(all_blocks)
         if block_errors:
             exit_with_error(
                 block_errors[0],
@@ -647,6 +739,10 @@ def set_graph(
                 status=1,
                 details=block_errors[1:] if len(block_errors) > 1 else None,
             )
+
+        # Non-fatal warnings (e.g. LLM blocks without llmId on DSS 14.5+)
+        for w in _collect_block_warnings(all_blocks):
+            warn(w)
 
         project_key = resolve_project(project)
         client = get_client_from_ctx(ctx)

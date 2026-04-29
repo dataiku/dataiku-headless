@@ -11,15 +11,122 @@ import typer
 
 import dataikuapi
 
-from dku_cli.client import get_client
+from dku_cli.client import (
+    get_client,
+    get_govern_client,
+    probe_node_type,
+    resolve_auth,
+    resolve_node_type,
+)
 from dku_cli.config import get_default_project
 
 
-def resolve_project(project: str | None) -> str:
+# Node types that support project-scoped commands (flow, datasets, recipes…).
+PROJECT_NODE_TYPES = {"DESIGN", "AUTOMATION"}
+
+
+def _has_auth_overrides(opts: dict) -> bool:
+    """Whether the command is targeting auth that may differ from stored profile metadata."""
+    return bool(
+        opts.get("url")
+        or opts.get("api_key")
+        or os.environ.get("DKU_URL")
+        or os.environ.get("DKU_API_KEY")
+    )
+
+
+def _resolve_target_node_type(opts: dict) -> str | None:
+    """Resolve node type for the actual auth target, not just stored profile metadata."""
+    profile = opts.get("profile")
+    if not _has_auth_overrides(opts):
+        return resolve_node_type(profile=profile)
+
+    try:
+        resolved_url, resolved_key = resolve_auth(
+            url=opts.get("url"),
+            api_key=opts.get("api_key"),
+            profile=profile,
+        )
+    except Exception:
+        return None
+
+    probed = probe_node_type(resolved_url, resolved_key)
+    if probed is not None:
+        return probed
+    return resolve_node_type(profile=profile)
+
+
+def require_node_type(
+    ctx: typer.Context | None,
+    allowed: set[str],
+    command_hint: str | None = None,
+) -> None:
+    """Refuse the command if the active profile is the wrong DSS node type.
+
+    Emits a prescriptive error and exits non-zero when the profile's node type
+    is known and not in ``allowed``. If the node type is unknown (legacy profile
+    pre node-type tracking) we let the command proceed — the underlying API
+    will still 404 but that is no worse than today.
+
+    Args:
+        ctx: Typer context — used to resolve the active profile.
+        allowed: Uppercase node types accepted by the caller
+            (e.g. ``{"DESIGN", "AUTOMATION"}`` or ``{"GOVERN"}``).
+        command_hint: Optional alternate command to suggest
+            (e.g. ``"dku govern artifact list"`` for Govern nodes).
+    """
+    opts = (ctx.obj if ctx is not None else {}) or {}
+    nt = _resolve_target_node_type(opts)
+    if nt is None or nt in allowed:
+        return
+
+    from dku_cli.errors import exit_with_error
+
+    nice_allowed = ", ".join(sorted(allowed))
+    details: list[str] = [
+        f"Active profile node type: {nt}",
+        f"This command requires: {nice_allowed}",
+    ]
+    if nt == "GOVERN":
+        details.append("")
+        details.append(
+            "Govern nodes do not have projects, datasets, recipes, or flows."
+        )
+        details.append("Use the dedicated governance surface instead:")
+        details.append(f"  {command_hint}" if command_hint else "  dku govern --help")
+        details.append("")
+        details.append("Or switch profile with: dku auth switch <design-profile>")
+    else:
+        details.append("")
+        details.append(
+            f"Switch profile with: dku auth switch <profile-on-{nice_allowed.lower()}-node>"
+        )
+        if command_hint:
+            details.append(f"Or try: {command_hint}")
+
+    exit_with_error(
+        f"Command not available on {nt} nodes.",
+        code="wrong_node_type",
+        details=details,
+        status=4,
+    )
+
+
+def resolve_project(project: str | None, ctx: typer.Context | None = None) -> str:
     """Resolve project key: --project flag > DKU_PROJECT env > config default.
+
+    Also enforces the node-type guard: project-scoped commands require a
+    DESIGN or AUTOMATION node. Passing ``ctx`` lets the guard read the
+    active profile; legacy callers that omit ``ctx`` still get the env/flag
+    resolution (backwards compatible).
 
     Raises typer.BadParameter if nothing found.
     """
+    # Node-type guard runs before the project lookup so agents see the real
+    # problem ("wrong node type") instead of a spurious "no project set".
+    if ctx is not None:
+        require_node_type(ctx, PROJECT_NODE_TYPES)
+
     if project:
         return project
     env_proj = os.environ.get("DKU_PROJECT")
@@ -33,10 +140,51 @@ def resolve_project(project: str | None) -> str:
     )
 
 
-def get_client_from_ctx(ctx: typer.Context) -> dataikuapi.DSSClient:
-    """Extract global opts from ctx.obj and return authenticated DSSClient."""
+_CLIENT_OPTS = ("url", "api_key", "profile")
+
+
+def get_client_from_ctx(
+    ctx: typer.Context,
+    *,
+    allowed_node_types: set[str] | None = None,
+) -> dataikuapi.DSSClient:
+    """Extract global opts from ctx.obj and return authenticated DSSClient.
+
+    By default refuses GOVERN nodes with a prescriptive error — GOVERN has no
+    projects, datasets, or recipes and a raw 404 from the API tells agents
+    nothing useful. Cross-node commands (whoami, user, group, admin/logs)
+    opt into broader node support via ``allowed_node_types``.
+
+    Args:
+        ctx: Typer context — provides global opts (url, api_key, profile).
+        allowed_node_types: Override the default (``PROJECT_NODE_TYPES``).
+            Pass ``None`` or ``{"DESIGN","AUTOMATION","GOVERN","DEPLOYER","API"}``
+            for commands that work on every node type. Pass a narrower set
+            (e.g. ``{"DESIGN","AUTOMATION"}``) to restrict further.
+
+    Filters to the keys `get_client()` accepts so non-auth globals
+    (e.g. `dangerous`) in ctx.obj don't crash the client constructor.
+    """
+    if allowed_node_types is None:
+        allowed_node_types = PROJECT_NODE_TYPES
+    require_node_type(ctx, allowed_node_types)
     opts = ctx.obj or {}
-    return get_client(**opts)
+    return get_client(**{k: opts[k] for k in _CLIENT_OPTS if k in opts})
+
+
+# Commands that work on every DSS node type (whoami, admin instance-info, etc).
+ALL_NODE_TYPES = {"DESIGN", "AUTOMATION", "GOVERN", "DEPLOYER", "API"}
+
+
+def get_govern_client_from_ctx(ctx: typer.Context):
+    """Extract global opts from ctx.obj and return authenticated GovernClient.
+
+    Also enforces that the active profile is a GOVERN node — commands under
+    ``dku govern`` only make sense against a Govern node.
+    """
+    require_node_type(ctx, {"GOVERN"})
+    opts = ctx.obj or {}
+    return get_govern_client(**{k: opts[k] for k in _CLIENT_OPTS if k in opts})
 
 
 def resolve_agent(project, agent_ref: str):
@@ -256,6 +404,164 @@ def resolve_folder(project, folder_ref: str):
         ],
         status=3,
     )
+
+
+def resolve_saved_model(project, model_ref: str):
+    """Resolve a saved model by ID or name.
+
+    Tries get_saved_model(ref).get_settings() first (by ID). If that raises,
+    falls back to listing saved models and matching by name.
+    Returns a DSSSavedModel handle.
+    """
+    try:
+        model = project.get_saved_model(model_ref)
+        model.get_settings()
+        return model
+    except Exception as e:
+        if (
+            "not found" not in str(e).lower()
+            and "NotFoundException" not in str(e)
+            and "does not exist" not in str(e)
+        ):
+            raise
+    models = project.list_saved_models()
+    for m in models:
+        if m.get("name", "") == model_ref:
+            return project.get_saved_model(m.get("id"))
+    from dku_cli.errors import exit_with_error
+
+    model_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
+    exit_with_error(
+        f"Saved model '{model_ref}' not found (checked as both ID and name).",
+        code="not_found",
+        details=[
+            "Available saved models:",
+            *model_names,
+            "Use the saved model ID (left column) or exact name.",
+        ]
+        if model_names
+        else [
+            "No saved models found in this project.",
+            "Train one with: dku ml create-prediction / create-clustering + train + deploy.",
+        ],
+        status=3,
+    )
+
+
+def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None):
+    """Resolve a recipe input ref to (kind, resolved_ref) where kind is one of
+    "DATASET", "MANAGED_FOLDER", "SAVED_MODEL".
+
+    If explicit_type is given, only that kind is tried (and resolution failure
+    aborts via exit_with_error with prescriptive guidance).
+
+    With no explicit_type, tries dataset → folder → saved model in order and
+    returns the first match. If more than one kind matches, aborts with an
+    ambiguity error so the caller can disambiguate via --type.
+    """
+    from dku_cli.errors import exit_with_error
+
+    kind = (explicit_type or "").upper() or None
+
+    def _try_dataset():
+        # Dataset names are the canonical dataset ref — no ID/name distinction.
+        try:
+            project.get_dataset(ref).get_definition()
+            return ref
+        except Exception as e:
+            if (
+                "not found" in str(e).lower()
+                or "NotFoundException" in str(e)
+                or "does not exist" in str(e)
+            ):
+                return None
+            raise
+
+    def _try_folder():
+        # Use list-match — folders have distinct ID/name; get_managed_folder is
+        # lazy and get_settings() doesn't reliably raise on MagicMocks/tests.
+        for f in project.list_managed_folders():
+            if f.get("id") == ref or f.get("name", "") == ref:
+                return f.get("id")
+        return None
+
+    def _try_model():
+        for m in project.list_saved_models():
+            if m.get("id") == ref or m.get("name", "") == ref:
+                return m.get("id")
+        return None
+
+    if kind == "DATASET":
+        resolved = _try_dataset()
+        if resolved is None:
+            exit_with_error(
+                f"Dataset '{ref}' not found in this project.",
+                code="not_found",
+                details=[
+                    "List datasets: dku dataset list -P PROJ",
+                    "If this is a folder, pass --type MANAGED_FOLDER.",
+                    "If this is a saved model, pass --type SAVED_MODEL.",
+                ],
+                status=3,
+            )
+        return "DATASET", resolved
+    if kind == "MANAGED_FOLDER":
+        resolved = _try_folder()
+        if resolved is None:
+            exit_with_error(
+                f"Managed folder '{ref}' not found in this project.",
+                code="not_found",
+                details=["List folders: dku folder list -P PROJ"],
+                status=3,
+            )
+        return "MANAGED_FOLDER", resolved
+    if kind == "SAVED_MODEL":
+        resolved = _try_model()
+        if resolved is None:
+            exit_with_error(
+                f"Saved model '{ref}' not found in this project.",
+                code="not_found",
+                details=["List saved models: dku ml models -P PROJ"],
+                status=3,
+            )
+        return "SAVED_MODEL", resolved
+
+    # Auto-detect
+    matches = []
+    ds = _try_dataset()
+    if ds is not None:
+        matches.append(("DATASET", ds))
+    fd = _try_folder()
+    if fd is not None:
+        matches.append(("MANAGED_FOLDER", fd))
+    sm = _try_model()
+    if sm is not None:
+        matches.append(("SAVED_MODEL", sm))
+
+    if not matches:
+        exit_with_error(
+            f"'{ref}' is not a dataset, managed folder, or saved model in this project.",
+            code="not_found",
+            details=[
+                "List candidates:",
+                "  dku dataset list -P PROJ",
+                "  dku folder list -P PROJ",
+                "  dku ml models -P PROJ",
+                "Folders and saved models must be referenced by their ID (or unique name).",
+            ],
+            status=3,
+        )
+    if len(matches) > 1:
+        exit_with_error(
+            f"'{ref}' is ambiguous — matches multiple object types: "
+            f"{', '.join(k for k, _ in matches)}.",
+            code="ambiguous",
+            details=[
+                "Disambiguate with --type DATASET|MANAGED_FOLDER|SAVED_MODEL.",
+            ],
+            status=3,
+        )
+    return matches[0]
 
 
 def update_taggable_metadata(
