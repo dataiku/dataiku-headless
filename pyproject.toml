@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Developer CLI for Dataiku DSS — kubectl for your DSS instance"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [{ name = "Dataiku" }]
 keywords = ["dataiku", "dss", "cli", "genai", "mlops"]
 classifiers = [
