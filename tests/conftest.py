@@ -3152,15 +3152,18 @@ def mock_client():
 
 @pytest.fixture
 def patch_client(mock_client):
-    """Patch get_client everywhere it's imported.
+    """Patch get_client and get_govern_client everywhere they're imported.
 
     Also stubs resolve_node_type so the node-type guard in
     ``get_client_from_ctx`` does not block tests based on whatever profile
     the developer has configured locally.
     """
+    govern_client = mock_client.get_govern_client.return_value
     with (
         patch("dku_cli.client.get_client", return_value=mock_client),
         patch("dku_cli.helpers.get_client", return_value=mock_client),
+        patch("dku_cli.client.get_govern_client", return_value=govern_client),
+        patch("dku_cli.helpers.get_govern_client", return_value=govern_client),
         patch("dku_cli.helpers.resolve_node_type", return_value=None),
     ):
         yield mock_client
