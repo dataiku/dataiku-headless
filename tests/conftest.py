@@ -2619,10 +2619,17 @@ def mock_client():
         {"login": "alice", "status": "SUCCESS", "error": ""},
     ]
 
-    # Admin: code studio templates
+    # Admin: code studio templates (as_type="listitems" path used by admin command)
     cst_item = MagicMock()
     cst_item._data = {"id": "vscode", "label": "VS Code", "description": "Web IDE"}
-    client.list_code_studio_templates.return_value = [cst_item]
+    _cs_tpl_regular = client.list_code_studio_templates.return_value
+
+    def _list_cs_templates(as_type=None):
+        if as_type == "listitems":
+            return [cst_item]
+        return _cs_tpl_regular
+
+    client.list_code_studio_templates.side_effect = _list_cs_templates
 
     # Global API keys
     api_key_list_item = MagicMock()
