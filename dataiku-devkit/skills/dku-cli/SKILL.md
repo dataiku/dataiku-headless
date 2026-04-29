@@ -379,6 +379,7 @@ dku project delete MY_PROJ --yes
 | `scenario` | list, run, status, runs |
 | `agent` | list, create, add-tool, set-llm |
 | `knowledge` | list, create, build, search |
+| `webapp` | list, create, start, stop, status, get-definition, set-definition |
 | `insight` | list, create, validate |
 | `llm` | list, completion, embeddings |
 | `app-designer` | enable, set-section, add-tile, list-tiles, get |

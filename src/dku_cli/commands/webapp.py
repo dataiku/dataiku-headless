@@ -1,10 +1,10 @@
-"""dku webapp — list, start, stop, status, get/set-definition."""
+"""dku webapp — list, create, start, stop, status, get/set-definition."""
 
 from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
@@ -43,6 +43,45 @@ def list_webapps(
             output_format=output,
             title=f"Web Apps ({project_key})",
         )
+    except Exception as e:
+        handle_api_error(e)
+
+
+WEBAPP_TYPES = ("STANDARD", "BOKEH", "DASH", "STREAMLIT", "SHINY")
+
+
+@app.command()
+def create(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Name for the new web app"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    webapp_type: str = typer.Option(
+        "STANDARD",
+        "--type",
+        "-t",
+        help=f"Web app type: {', '.join(WEBAPP_TYPES)}",
+    ),
+) -> None:
+    """Create a new web application.
+
+    Supported types: STANDARD (HTML/CSS/JS + Python backend),
+    BOKEH, DASH, STREAMLIT, SHINY.
+    """
+    project_key = resolve_project(project)
+    upper_type = webapp_type.upper()
+    if upper_type not in WEBAPP_TYPES:
+        exit_with_error(
+            f"Unsupported web app type: '{webapp_type}'",
+            details=[
+                f"Supported types: {', '.join(WEBAPP_TYPES)}",
+                "Example: dku webapp create MyApp -P PROJ --type DASH",
+            ],
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        webapp = proj.create_webapp(name, webapp_type=upper_type)
+        success(f"Created {upper_type} web app '{name}' (id={webapp.webapp_id})")
     except Exception as e:
         handle_api_error(e)
 

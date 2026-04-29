@@ -879,6 +879,11 @@ def mock_client():
 
     proj1.get_webapp.side_effect = _get_webapp
 
+    # create_webapp mock
+    created_webapp = MagicMock()
+    created_webapp.webapp_id = "newWebApp1"
+    proj1.create_webapp.return_value = created_webapp
+
     # Dashboards
     proj1.list_dashboards.return_value = [
         {"id": "dashboard1", "name": "Sales Dashboard", "pages": [], "tags": []},
@@ -2614,10 +2619,17 @@ def mock_client():
         {"login": "alice", "status": "SUCCESS", "error": ""},
     ]
 
-    # Admin: code studio templates
+    # Admin: code studio templates (as_type="listitems" path used by admin command)
     cst_item = MagicMock()
     cst_item._data = {"id": "vscode", "label": "VS Code", "description": "Web IDE"}
-    client.list_code_studio_templates.return_value = [cst_item]
+    _cs_tpl_regular = client.list_code_studio_templates.return_value
+
+    def _list_cs_templates(as_type=None):
+        if as_type == "listitems":
+            return [cst_item]
+        return _cs_tpl_regular
+
+    client.list_code_studio_templates.side_effect = _list_cs_templates
 
     # Global API keys
     api_key_list_item = MagicMock()
@@ -3147,15 +3159,18 @@ def mock_client():
 
 @pytest.fixture
 def patch_client(mock_client):
-    """Patch get_client everywhere it's imported.
+    """Patch get_client and get_govern_client everywhere they're imported.
 
     Also stubs resolve_node_type so the node-type guard in
     ``get_client_from_ctx`` does not block tests based on whatever profile
     the developer has configured locally.
     """
+    govern_client = mock_client.get_govern_client.return_value
     with (
         patch("dku_cli.client.get_client", return_value=mock_client),
         patch("dku_cli.helpers.get_client", return_value=mock_client),
+        patch("dku_cli.client.get_govern_client", return_value=govern_client),
+        patch("dku_cli.helpers.get_govern_client", return_value=govern_client),
         patch("dku_cli.helpers.resolve_node_type", return_value=None),
     ):
         yield mock_client
