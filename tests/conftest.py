@@ -67,13 +67,25 @@ def mock_client():
             },
         ],
     }
-    proj1.list_datasets.return_value = [
+    _ds_local = [
         {
             "name": "ds1",
             "type": "UploadedFiles",
+            "projectKey": "PROJ1",
             "schema": {"columns": [{"name": "col1", "type": "string"}]},
         },
     ]
+    _ds_shared = [
+        {
+            "name": "shared_ds",
+            "type": "Snowflake",
+            "projectKey": "OTHER_PROJ",
+            "schema": {"columns": [{"name": "id", "type": "bigint"}]},
+        },
+    ]
+    proj1.list_datasets.side_effect = lambda *a, **kw: (
+        _ds_local + _ds_shared if kw.get("include_shared") else list(_ds_local)
+    )
     proj1.list_recipes.return_value = [
         {"name": "recipe1", "type": "python", "tags": ["etl"]},
     ]
@@ -1479,9 +1491,25 @@ def mock_client():
     proj1.create_agent.return_value = new_agent_mock
 
     # Agent tools
-    proj1.list_agent_tools.return_value = [
-        {"id": "tool1", "name": "My Tool", "type": "DatasetRowLookup"}
+    _at_local = [
+        {
+            "id": "tool1",
+            "name": "My Tool",
+            "type": "DatasetRowLookup",
+            "projectKey": "PROJ1",
+        }
     ]
+    _at_shared = [
+        {
+            "id": "shared_tool",
+            "name": "Shared Tool",
+            "type": "VectorStoreSearch",
+            "projectKey": "OTHER_PROJ",
+        }
+    ]
+    proj1.list_agent_tools.side_effect = lambda *a, **kw: (
+        _at_local + _at_shared if kw.get("include_shared") else list(_at_local)
+    )
     tool_mock = MagicMock()
     tool_raw = {
         "id": "tool1",

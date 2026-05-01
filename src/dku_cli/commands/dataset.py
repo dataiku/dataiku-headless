@@ -32,31 +32,47 @@ def list_datasets(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    own_only: bool = typer.Option(
+        False,
+        "--own-only",
+        help="Exclude foreign datasets shared from other projects.",
+    ),
 ) -> None:
-    """List datasets in a project."""
+    """List datasets in a project (includes foreign/shared datasets by default).
+
+    Foreign datasets show their source project in the SHARED FROM column. Reference
+    them in cross-project recipes as PROJECT_KEY.DATASET_NAME.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        datasets = proj.list_datasets()
+        datasets = proj.list_datasets(include_shared=not own_only)
 
         data = []
         for ds in datasets:
+            ds_project = ds.get("projectKey", "") or project_key
             data.append(
                 {
                     "name": ds.get("name", ""),
                     "type": ds.get("type", ""),
                     "schema_count": str(len(ds.get("schema", {}).get("columns", []))),
+                    "projectKey": ds_project,
                 }
             )
 
         render(
             data,
-            ["name", "type", "schema_count"],
+            ["name", "type", "schema_count", "projectKey"],
             output_format=output,
             title=f"Datasets ({project_key})",
-            headers={"name": "NAME", "type": "TYPE", "schema_count": "COLUMNS"},
+            headers={
+                "name": "NAME",
+                "type": "TYPE",
+                "schema_count": "COLUMNS",
+                "projectKey": "PROJECT",
+            },
         )
     except Exception as e:
         handle_api_error(e)

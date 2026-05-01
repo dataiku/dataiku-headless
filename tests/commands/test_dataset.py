@@ -12,13 +12,30 @@ runner = CliRunner()
 
 
 def test_dataset_list_table(patch_client):
+    """Default list includes both local and foreign/shared datasets."""
     result = runner.invoke(app, ["dataset", "list", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "ds1" in result.output
+    assert "shared_ds" in result.output
+    assert "OTHER_PROJ" in result.output
 
 
 def test_dataset_list_json(patch_client):
+    """JSON output exposes projectKey so agents can detect foreign datasets."""
     result = runner.invoke(app, ["dataset", "list", "--project", "PROJ1", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    names = {row["name"]: row for row in parsed}
+    assert names["ds1"]["projectKey"] == "PROJ1"
+    assert names["shared_ds"]["projectKey"] == "OTHER_PROJ"
+
+
+def test_dataset_list_own_only(patch_client):
+    """--own-only excludes shared datasets."""
+    result = runner.invoke(
+        app, ["dataset", "list", "--project", "PROJ1", "--own-only", "-o", "json"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1

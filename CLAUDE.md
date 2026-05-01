@@ -197,6 +197,9 @@ When editing skills, **progressive disclosure is non-negotiable**:
 
 **Rule: Every gotcha below MUST also exist in `dataiku-devkit/skills/dku-cli/SKILL.md` gotchas table AND be caught with a prescriptive error message in the CLI code.**
 
+### Foreign / Shared Datasets in `list_datasets`
+`dataikuapi.DSSProject.list_datasets()` defaults `include_shared=False` — the `?foreign=False` API param silently drops datasets shared in from other projects, so `dku dataset list` would return 0 even when the UI shows foreign datasets at `/projects/X/foreigndatasets/...`. The CLI now defaults to `include_shared=True` and exposes `--own-only` to opt out; output includes a `projectKey` column so agents can spot foreign rows. Same fix applied to `dku agent-tool list` (its SDK method has the same `include_shared` parameter). When adding any new list command, check whether `dataikuapi.DSSProject.list_*` exposes `include_shared` — if yes, default it on and surface `projectKey` in output.
+
 ### Dataset Create + Upload
 `dku dataset create` defaults to Filesystem, which does NOT support `dku dataset upload`. Use `--type UploadedFiles` for anything being uploaded via CLI.
 
