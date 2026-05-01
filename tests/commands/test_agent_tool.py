@@ -12,9 +12,11 @@ runner = CliRunner()
 
 
 def test_agent_tool_list(patch_client):
+    """Default list includes shared tools from other projects."""
     result = runner.invoke(app, ["agent-tool", "list", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "tool1" in result.output
+    assert "shared_tool" in result.output
 
 
 def test_agent_tool_list_json(patch_client):
@@ -23,9 +25,21 @@ def test_agent_tool_list_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
+    assert len(parsed) == 2
+    by_id = {row["id"]: row for row in parsed}
+    assert by_id["tool1"]["projectKey"] == "PROJ1"
+    assert by_id["shared_tool"]["projectKey"] == "OTHER_PROJ"
+
+
+def test_agent_tool_list_own_only(patch_client):
+    result = runner.invoke(
+        app,
+        ["agent-tool", "list", "--project", "PROJ1", "--own-only", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
     assert parsed[0]["id"] == "tool1"
-    assert parsed[0]["name"] == "My Tool"
-    assert parsed[0]["type"] == "DatasetRowLookup"
 
 
 def test_agent_tool_get(patch_client):

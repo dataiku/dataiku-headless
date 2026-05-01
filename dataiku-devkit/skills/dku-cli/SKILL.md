@@ -300,9 +300,11 @@ dku dataset get-definition ANY_DATASET -P PROJ -o json | jq -r '.params.connecti
 
 #### Cross-Project Inputs
 
-Recipes can read datasets from another project by referencing them as `PROJECT_KEY.DATASET_NAME` in recipe inputs:
+`dku dataset list -P PROJ` includes both local AND foreign/shared datasets by default — the `PROJECT` column shows the source. A row whose `PROJECT` differs from `-P` is a foreign dataset shared into this project. Reference foreign datasets in recipes as `PROJECT_KEY.DATASET_NAME`:
 
 ```bash
+dku dataset list -P PRICING_ANALYTICS -o json | jq '.[] | select(.projectKey != "PRICING_ANALYTICS")'
+
 dku recipe create compute_metrics -t python \
   -i EDP_GOLD_DATASETS.account_base \
   --output-ds account_metrics \
@@ -310,7 +312,7 @@ dku recipe create compute_metrics -t python \
   -P PROJ
 ```
 
-This cross-project reference works in recipe inputs even when `dku dataset head PROJECT_KEY.DATASET_NAME` does not.
+Pass `--own-only` to `dku dataset list` to see only datasets owned by the project. This cross-project reference works in recipe inputs even when `dku dataset head PROJECT_KEY.DATASET_NAME` does not.
 
 #### Python ID Casting Pattern
 

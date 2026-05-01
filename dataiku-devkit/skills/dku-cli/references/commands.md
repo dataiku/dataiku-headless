@@ -160,7 +160,7 @@ dku project timeline [-P PROJECT] [--limit N] [-o FORMAT]
 All commands require project (`-P KEY` / `DKU_PROJECT` / config default).
 
 ```bash
-dku dataset list [-P PROJECT] [-o FORMAT]
+dku dataset list [-P PROJECT] [-o FORMAT] [--own-only]   # Includes foreign/shared datasets by default; PROJECT column shows source
 dku dataset schema DATASET_NAME [-P PROJECT] [-o FORMAT]
 dku dataset info DATASET_NAME [-P PROJECT] [-o FORMAT] [--recompute]  # Row count, size, type, connection, last build
 dku dataset head DATASET_NAME [-P PROJECT] [-n ROWS] [-C COLUMNS] [-o FORMAT]
@@ -891,7 +891,7 @@ dku agent-review results REVIEW_ID --run RUN_ID [-P PROJECT] [-o FORMAT]
 Manage agent tools (create, configure, run, inspect).
 
 ```bash
-dku agent-tool list [-P PROJECT] [-o FORMAT]
+dku agent-tool list [-P PROJECT] [-o FORMAT] [--own-only]   # Includes foreign/shared tools by default; PROJECT column shows source
 dku agent-tool get TOOL_ID [-P PROJECT] [-o FORMAT]
 dku agent-tool create NAME --type TYPE [--knowledge-bank KB_ID] [--dataset DS] [--llm LLM_ID] [-P PROJECT]
 dku agent-tool set-definition TOOL_ID --definition JSON [-P PROJECT]

@@ -31,30 +31,43 @@ def list_agent_tools(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    own_only: bool = typer.Option(
+        False,
+        "--own-only",
+        help="Exclude tools shared from other projects.",
+    ),
 ) -> None:
-    """List agent tools in a project."""
+    """List agent tools in a project (includes shared tools by default)."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        tools = proj.list_agent_tools()
+        tools = proj.list_agent_tools(include_shared=not own_only)
 
         data = []
         for t in tools:
+            t_project = t.get("projectKey", "") or project_key
             data.append(
                 {
                     "id": t.get("id", ""),
                     "name": t.get("name", ""),
                     "type": t.get("type", ""),
+                    "projectKey": t_project,
                 }
             )
 
         render(
             data,
-            ["id", "name", "type"],
+            ["id", "name", "type", "projectKey"],
             output_format=output,
             title=f"Agent Tools ({project_key})",
+            headers={
+                "id": "ID",
+                "name": "NAME",
+                "type": "TYPE",
+                "projectKey": "PROJECT",
+            },
         )
     except Exception as e:
         handle_api_error(e)
