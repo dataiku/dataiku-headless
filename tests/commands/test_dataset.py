@@ -12,30 +12,13 @@ runner = CliRunner()
 
 
 def test_dataset_list_table(patch_client):
-    """Default list includes both local and foreign/shared datasets."""
     result = runner.invoke(app, ["dataset", "list", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "ds1" in result.output
-    assert "shared_ds" in result.output
-    assert "OTHER_PROJ" in result.output
 
 
 def test_dataset_list_json(patch_client):
-    """JSON output exposes projectKey so agents can detect foreign datasets."""
     result = runner.invoke(app, ["dataset", "list", "--project", "PROJ1", "-o", "json"])
-    assert result.exit_code == 0
-    parsed = json.loads(result.output)
-    assert len(parsed) == 2
-    names = {row["name"]: row for row in parsed}
-    assert names["ds1"]["projectKey"] == "PROJ1"
-    assert names["shared_ds"]["projectKey"] == "OTHER_PROJ"
-
-
-def test_dataset_list_own_only(patch_client):
-    """--own-only excludes shared datasets."""
-    result = runner.invoke(
-        app, ["dataset", "list", "--project", "PROJ1", "--own-only", "-o", "json"]
-    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -211,6 +194,22 @@ def test_dataset_create_basic(patch_client):
     assert call_args[0][1] == "SQL"
 
 
+def test_dataset_create_success_is_last_line(patch_client):
+    """Agents using `dku dataset create … | tail -1` must see the success verdict.
+
+    Regression: the trailing "Tip: code recipes …" info block was the last line
+    in batch loops, making every iteration look like a failure.
+    """
+    result = runner.invoke(
+        app, ["dataset", "create", "new_ds", "--type", "SQL", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    last_nonblank = [line for line in result.output.splitlines() if line.strip()][-1]
+    assert "Created dataset" in last_nonblank, (
+        f"last line was: {last_nonblank!r}; full output:\n{result.output}"
+    )
+
+
 def test_dataset_create_with_connection(patch_client):
     result = runner.invoke(
         app,
@@ -293,6 +292,199 @@ def test_dataset_create_with_definition_format_fields(patch_client, tmp_path):
     assert call_kwargs["formatParams"] == {"separator": ","}
 
 
+def test_dataset_create_databricks_with_catalog(patch_client):
+    """--catalog wires up Databricks Unity Catalog 3-level namespace."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "sales",
+            "--type",
+            "Databricks",
+            "--connection",
+            "dbk",
+            "--catalog",
+            "prod_catalog",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["catalog"] == "prod_catalog"
+
+
+def test_dataset_create_jobsdb_with_view(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "metrics",
+            "--type",
+            "JobsDB",
+            "--view",
+            "METRICS_HISTORY",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["view"] == "METRICS_HISTORY"
+
+
+def test_dataset_create_jobsdb_invalid_view(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "metrics",
+            "--type",
+            "JobsDB",
+            "--view",
+            "FOO",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --view" in result.output
+
+
+def test_dataset_create_redshift_dist_and_sort(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "events",
+            "--type",
+            "Redshift",
+            "--connection",
+            "redshift_prod",
+            "--dist-style",
+            "key",
+            "--dist-key",
+            "user_id",
+            "--sort-key",
+            "compound",
+            "--sort-key-columns",
+            "ts,event_type",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["redshiftDistStyle"] == "KEY"
+    assert params["redshiftDistKey"] == "user_id"
+    assert params["redshiftSortKey"] == "COMPOUND"
+    assert params["redshiftSortKeyColumns"] == ["ts", "event_type"]
+
+
+def test_dataset_create_bigquery_partitioning(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "events",
+            "--type",
+            "BigQuery",
+            "--connection",
+            "bq",
+            "--use-bigquery-partitioning",
+            "--bigquery-partitioning-type",
+            "TIME",
+            "--bigquery-partitioning-period",
+            "DAY",
+            "--require-partition-filter",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["useBigQueryPartitioning"] is True
+    assert params["bigQueryPartitioningType"] == "TIME"
+    assert params["bigQueryPartitioningPeriod"] == "DAY"
+    assert params["requirePartitionFilter"] is True
+
+
+def test_dataset_create_s3_with_globs_and_metastore(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "raw_files",
+            "--type",
+            "S3",
+            "--connection",
+            "s3_prod",
+            "--include-glob",
+            "*.csv",
+            "--include-glob",
+            "*.tsv",
+            "--exclude-glob",
+            "_temp_*",
+            "--metastore-sync",
+            "--metastore-database",
+            "prod",
+            "--metastore-table",
+            "raw_files",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    sel = params["filesSelectionRules"]
+    assert {r["expr"] for r in sel["includeRules"]} == {"*.csv", "*.tsv"}
+    assert sel["excludeRules"][0]["expr"] == "_temp_*"
+    assert params["metastoreSynchronizationEnabled"] is True
+    assert params["metastoreDatabase"] == "prod"
+    assert params["metastoreTable"] == "raw_files"
+
+
+def test_dataset_create_csv_format_flags(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "rows",
+            "--type",
+            "S3",
+            "--connection",
+            "s3_prod",
+            "--with-header",
+            "--csv-dialect",
+            "excel",
+            "--compress",
+            "GZIP",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    kwargs = proj.create_dataset.call_args[1]
+    fmt = kwargs["formatParams"]
+    assert fmt["parseHeaderRow"] is True
+    assert fmt["style"] == "excel"
+    params = kwargs["params"]
+    assert params["compress"] == "GZIP"
+
+
 def test_dataset_create_postgresql_auto_populates_mode_and_table(patch_client):
     """--type PostgreSQL -c rds (no --definition) should inject mode=table +
     table=${projectKey}_<name> so the dataset is writable by recipes."""
@@ -317,6 +509,95 @@ def test_dataset_create_postgresql_auto_populates_mode_and_table(patch_client):
     assert params["mode"] == "table"
     assert params["table"] == "${projectKey}_orders"
     assert params["tableCreationMode"] == "auto"
+
+
+def test_dataset_create_inline_basic(patch_client):
+    """--type Inline creates an editable in-DSS dataset (no connection needed)."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "lookup_table",
+            "--type",
+            "Inline",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.create_dataset.call_args
+    assert call_args[0][1] == "Inline"
+    params = call_args[1]["params"]
+    # Inline must not carry a connection param
+    assert "connection" not in params
+
+
+def test_dataset_create_inline_with_audit_and_clipboard(patch_client):
+    """--keep-track-of-changes + --enable-clipboard-api populate Inline params."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "scoring_rules",
+            "--type",
+            "Inline",
+            "--keep-track-of-changes",
+            "--enable-clipboard-api",
+            "--import-source",
+            "CLIPBOARD",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    params = proj.create_dataset.call_args[1]["params"]
+    assert params["keepTrackOfChanges"] is True
+    assert params["enableClipboardApi"] is True
+    assert params["importSourceType"] == "CLIPBOARD"
+
+
+def test_dataset_create_inline_invalid_import_source(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "x",
+            "--type",
+            "Inline",
+            "--import-source",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --import-source" in result.output
+
+
+def test_dataset_create_rejects_inline_flags_on_other_types(patch_client):
+    """--keep-track-of-changes on a non-Inline dataset should error."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "create",
+            "x",
+            "--type",
+            "PostgreSQL",
+            "--connection",
+            "rds",
+            "--keep-track-of-changes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Inline-dataset flags" in result.output
 
 
 def test_dataset_create_snowflake_auto_populates_mode_and_table(patch_client):
@@ -696,8 +977,8 @@ def test_dataset_create_default_type_is_filesystem(patch_client):
     builder.with_store_into.assert_called_once_with("filesystem_managed")
 
 
-def test_dataset_create_shows_recipe_tip(patch_client):
-    """Filesystem create shows tip about --output-ds auto-creation."""
+def test_dataset_create_filesystem_success_is_last_line(patch_client):
+    """Filesystem create — success verdict is the last printed line."""
     result = runner.invoke(
         app,
         [
@@ -709,7 +990,8 @@ def test_dataset_create_shows_recipe_tip(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "recipe create --output-ds" in result.output
+    last_nonblank = [line for line in result.output.splitlines() if line.strip()][-1]
+    assert "Created dataset" in last_nonblank
 
 
 def test_dataset_create_already_exists_shows_hint(patch_client):
@@ -918,6 +1200,113 @@ def test_dataset_set_schema_plain_array(patch_client):
     call_arg = ds.set_definition.call_args[0][0]
     assert call_arg["schema"]["columns"][0]["name"] == "arr_col"
     assert call_arg["schema"]["columns"][0]["type"] == "double"
+
+
+def test_dataset_set_schema_shorthand_single(patch_client):
+    """set-schema accepts 'col type' shorthand for one column."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            "id int",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    call_arg = ds.set_definition.call_args[0][0]
+    assert call_arg["schema"]["columns"] == [{"name": "id", "type": "int"}]
+
+
+def test_dataset_set_schema_shorthand_multi(patch_client):
+    """set-schema accepts 'col1 type1, col2 type2, ...' shorthand."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            "id int, name string, amount double",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    call_arg = ds.set_definition.call_args[0][0]
+    assert call_arg["schema"]["columns"] == [
+        {"name": "id", "type": "int"},
+        {"name": "name", "type": "string"},
+        {"name": "amount", "type": "double"},
+    ]
+
+
+def test_dataset_set_schema_shorthand_with_extra_whitespace(patch_client):
+    """Whitespace within and around chunks is forgiving."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            "  id   bigint ,  flag boolean  ",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    call_arg = ds.set_definition.call_args[0][0]
+    assert call_arg["schema"]["columns"] == [
+        {"name": "id", "type": "bigint"},
+        {"name": "flag", "type": "boolean"},
+    ]
+
+
+def test_dataset_set_schema_shorthand_falls_through_on_three_tokens(patch_client):
+    """A chunk that doesn't match 'col type' shape falls through to JSON
+    parsing and produces a clean error."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            "id int extra, name string",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid JSON" in result.output or "JSON" in result.output
+
+
+def test_dataset_set_schema_json_preferred_when_present(patch_client):
+    """JSON-shaped input always parses as JSON, not shorthand."""
+    schema = '{"columns": [{"name": "x", "type": "string"}]}'
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--definition",
+            schema,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    call_arg = ds.set_definition.call_args[0][0]
+    assert call_arg["schema"]["columns"] == [{"name": "x", "type": "string"}]
 
 
 # --- rename ---
@@ -1352,7 +1741,12 @@ def test_dataset_usages_table(patch_client):
 
 
 def test_dataset_usages_json(patch_client):
-    """Usages JSON output returns raw list from dataikuapi."""
+    """Usages JSON output returns a normalized {type,id,project,name,kind} list.
+
+    Since --include-charts adds INSIGHT and DASHBOARD_TILE rows whose shape
+    differs from the raw RECIPE/ANALYSIS rows, we normalize all rows to one
+    shape regardless of source — JSON consumers can always filter on `type`.
+    """
     result = runner.invoke(
         app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
     )
@@ -1360,7 +1754,7 @@ def test_dataset_usages_json(patch_client):
     parsed = json.loads(result.output)
     assert len(parsed) == 2
     assert parsed[0]["type"] == "RECIPE_INPUT"
-    assert parsed[0]["objectId"] == "compute_output"
+    assert parsed[0]["id"] == "compute_output"
 
 
 def test_dataset_usages_empty(patch_client):

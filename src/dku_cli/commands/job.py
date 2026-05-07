@@ -207,11 +207,16 @@ def last(
 @app.command()
 def status(
     ctx: typer.Context,
-    job_id: str = typer.Argument(help="Job ID"),
+    job_id: str = typer.Argument(
+        help="Job ID (positional — pass it as the first argument, not via -j)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show job status details."""
+    """Show job status details.
+
+    Job ID is positional. Example: `dku job status 2026-04-27-123 -P PROJ`.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:

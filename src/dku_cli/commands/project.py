@@ -64,12 +64,30 @@ def get(
     project_key: str = typer.Argument(help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get project details."""
+    """Get project details.
+
+    Output contract:
+      - Text/table: human-friendly Field/Value summary.
+      - JSON: the canonical project dict from `proj.get_metadata()` merged
+        with `key` and entity counts (datasets, recipes, scenarios). Lets
+        callers pipe through `jq` without a second `dataikuapi` call.
+    """
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         meta = proj.get_metadata()
+
+        if output == "json":
+            payload = dict(meta)
+            payload["key"] = project_key
+            payload["counts"] = {
+                "datasets": len(proj.list_datasets()),
+                "recipes": len(proj.list_recipes()),
+                "scenarios": len(proj.list_scenarios()),
+            }
+            render_raw(payload, output_format="json")
+            return
 
         data = [
             {"field": "Key", "value": project_key},
@@ -486,13 +504,15 @@ def set_metadata(
 
 
 @app.command()
+@app.command("get-variables")
 def variables(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show project variables."""
+    """Show project variables. Aliased as ``get-variables`` for parity with
+    set-variables and the get/set convention used elsewhere in the CLI."""
     key = project_key or project
     key = resolve_project(key)
     output = resolve_output_format(output)
@@ -698,6 +718,225 @@ def ai_describe(
             msg = result.get("msg", "")
             if msg:
                 info(msg)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _scan_text_for_column(text: str, column: str) -> bool:
+    """True if `column` appears as a token in `text`. Word-boundary check
+    on letters/digits/underscore — avoids matching 'price' inside 'prices'.
+    """
+    import re
+
+    if not isinstance(text, str) or not text:
+        return False
+    pattern = rf"(?<![A-Za-z0-9_]){re.escape(column)}(?![A-Za-z0-9_])"
+    return re.search(pattern, text) is not None
+
+
+def _walk_recipe_payload_columns(payload, column: str) -> list[str]:
+    """Walk a parsed recipe payload looking for `column` references.
+
+    Returns a list of human-readable JSON-paths where the column appeared.
+    Handles the common visual recipe shapes: Group `values[]`, Prepare
+    `columnsSelection.list[]` + `columnWidthsByName` keys, Window
+    `partitioningColumns`/`orderingColumns`, Join `joinConditions`/
+    `eqConditions`, Sort `orderingColumns`, Pivot `aggregations`/`rowKey`,
+    plus a generic fallback that scans every leaf string for word-boundary
+    matches.
+    """
+    hits: list[str] = []
+
+    def _walk(node, path: str) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                # Dict KEY itself can be a column name (e.g. columnWidthsByName).
+                if isinstance(k, str) and k == column:
+                    hits.append(f"{path}.{k}")
+                _walk(v, f"{path}.{k}" if path else k)
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                _walk(item, f"{path}[{i}]")
+        elif isinstance(node, str):
+            # A bare string that exactly equals the column name OR contains
+            # it as a token (formula expressions, GREL code).
+            if node == column or _scan_text_for_column(node, column):
+                hits.append(path or "<root>")
+
+    _walk(payload, "")
+    return hits
+
+
+@app.command("find-column-refs")
+def find_column_refs(
+    ctx: typer.Context,
+    column: str = typer.Argument(help="Column name to search for"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    types: str = typer.Option(
+        "recipe,insight,scenario,dataset",
+        "--types",
+        "-t",
+        help="Comma-separated kinds to scan: recipe, insight, scenario, dataset (chart configs).",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Find every reference to a column name across the project.
+
+    Walks recipe payloads (Python body strings, visual recipe configs),
+    insight params (chart `columnsSelection`), dataset embedded charts,
+    and scenario `custom_python` step bodies. Closes the recurring "is
+    this column still used?" question that previously needed 6+ ad-hoc
+    Python walkers.
+
+    Performance: O(recipes + insights + scenarios + datasets) API calls.
+    Run only when you actually need the trace — for an "any consumers?"
+    yes/no check, prefer `dataset usages --include-charts`.
+
+    Example:
+      dku project find-column-refs projects_count -P SOL_SAS_INVENTORY_SCORER
+      dku project find-column-refs price -P PROJ -t recipe -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    kinds = {k.strip().lower() for k in types.split(",") if k.strip()}
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        rows: list[dict] = []
+
+        if "recipe" in kinds:
+            try:
+                recipes = proj.list_recipes() or []
+            except Exception:
+                recipes = []
+            for r in recipes:
+                rname = r.get("name") or r.get("id")
+                if not rname:
+                    continue
+                try:
+                    recipe = proj.get_recipe(rname)
+                    rs = recipe.get_settings()
+                    raw_def = rs.get_recipe_raw_definition()
+                except Exception:
+                    continue
+                # Visual payload (dict) or text payload (string).
+                paths: list[str] = []
+                # First try str_payload (text body for python/sql/r recipes).
+                str_payload = getattr(rs, "_str_payload", None)
+                if str_payload and _scan_text_for_column(str_payload, column):
+                    paths.append("payload (text)")
+                # Then visual payload as dict.
+                try:
+                    obj_payload = rs.obj_payload
+                    if isinstance(obj_payload, dict):
+                        paths.extend(_walk_recipe_payload_columns(obj_payload, column))
+                except Exception:
+                    pass
+                if paths:
+                    rows.append(
+                        {
+                            "kind": "RECIPE",
+                            "id": rname,
+                            "type": raw_def.get("type", "")
+                            if isinstance(raw_def, dict)
+                            else "",
+                            "where": "; ".join(sorted(set(paths))[:5]),
+                        }
+                    )
+
+        if "insight" in kinds:
+            try:
+                insights = proj.list_insights() or []
+            except Exception:
+                insights = []
+            for i in insights:
+                iid = i.get("id", "")
+                if not iid:
+                    continue
+                try:
+                    raw = proj.get_insight(iid).get_settings().get_raw()
+                except Exception:
+                    continue
+                paths = _walk_recipe_payload_columns(raw, column)
+                if paths:
+                    rows.append(
+                        {
+                            "kind": "INSIGHT",
+                            "id": iid,
+                            "type": raw.get("type", ""),
+                            "where": "; ".join(sorted(set(paths))[:5]),
+                        }
+                    )
+
+        if "scenario" in kinds:
+            try:
+                scenarios = proj.list_scenarios() or []
+            except Exception:
+                scenarios = []
+            for s in scenarios:
+                sid = s.get("id", "")
+                if not sid:
+                    continue
+                try:
+                    sraw = proj.get_scenario(sid).get_settings().get_raw()
+                except Exception:
+                    continue
+                paths = _walk_recipe_payload_columns(sraw, column)
+                if paths:
+                    rows.append(
+                        {
+                            "kind": "SCENARIO",
+                            "id": sid,
+                            "type": sraw.get("type", ""),
+                            "where": "; ".join(sorted(set(paths))[:5]),
+                        }
+                    )
+
+        if "dataset" in kinds:
+            try:
+                datasets = proj.list_datasets() or []
+            except Exception:
+                datasets = []
+            for d in datasets:
+                dname = d.get("name") or d.get("id")
+                if not dname:
+                    continue
+                try:
+                    raw = proj.get_dataset(dname).get_definition()
+                except Exception:
+                    continue
+                # Embedded chart configs only — skip schema (we look for
+                # USES of the column, not its definition).
+                charts = raw.get("charts") if isinstance(raw, dict) else None
+                if not charts:
+                    continue
+                paths = _walk_recipe_payload_columns({"charts": charts}, column)
+                if paths:
+                    rows.append(
+                        {
+                            "kind": "DATASET_CHART",
+                            "id": dname,
+                            "type": raw.get("type", ""),
+                            "where": "; ".join(sorted(set(paths))[:5]),
+                        }
+                    )
+
+        if fmt == "json":
+            render_raw(rows, output_format="json")
+            return
+
+        if not rows:
+            info(f"No references to column '{column}' found in {project_key}.")
+            return
+        render(
+            rows,
+            ["kind", "id", "type", "where"],
+            output_format=fmt,
+            title=f"References to '{column}' in {project_key}",
+        )
     except typer.Exit:
         raise
     except Exception as e:

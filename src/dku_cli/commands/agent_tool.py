@@ -31,43 +31,30 @@ def list_agent_tools(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
-    own_only: bool = typer.Option(
-        False,
-        "--own-only",
-        help="Exclude tools shared from other projects.",
-    ),
 ) -> None:
-    """List agent tools in a project (includes shared tools by default)."""
+    """List agent tools in a project."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        tools = proj.list_agent_tools(include_shared=not own_only)
+        tools = proj.list_agent_tools()
 
         data = []
         for t in tools:
-            t_project = t.get("projectKey", "") or project_key
             data.append(
                 {
                     "id": t.get("id", ""),
                     "name": t.get("name", ""),
                     "type": t.get("type", ""),
-                    "projectKey": t_project,
                 }
             )
 
         render(
             data,
-            ["id", "name", "type", "projectKey"],
+            ["id", "name", "type"],
             output_format=output,
             title=f"Agent Tools ({project_key})",
-            headers={
-                "id": "ID",
-                "name": "NAME",
-                "type": "TYPE",
-                "projectKey": "PROJECT",
-            },
         )
     except Exception as e:
         handle_api_error(e)
@@ -209,8 +196,17 @@ def set_definition(
 def types(
     ctx: typer.Context,
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        "-P",
+        help="Accepted and ignored. This command is instance-scoped — tool types are global, not project-scoped.",
+    ),
 ) -> None:
     """List known built-in agent tool types.
+
+    Instance-scoped: tool type names are global. Pass `-P PROJ` if your shell
+    pipeline sets it; the flag is accepted and ignored.
 
     These are the type names accepted by 'dku agent-tool create --type TYPE'.
     For custom Python tools, build a plugin with python-agent-tools/ and use
@@ -219,6 +215,7 @@ def types(
     Example: plugin 'my-tools' with tool folder 'web-search' →
       dku agent-tool create "Web Search" --type Custom_agent_tool_my-tools_web-search -P PROJ
     """
+    del project  # accepted for ergonomic parity with project-scoped commands
     output = resolve_output_format(output)
     data = [{"type": t, "description": d} for t, d in BUILTIN_TOOL_TYPES.items()]
     data.append(

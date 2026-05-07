@@ -251,28 +251,188 @@ def get(
         handle_api_error(e)
 
 
+@app.command("get-definition")
+def get_definition(
+    ctx: typer.Context,
+    folder_ref: str = typer.Argument(help="Managed folder ID or name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the full managed-folder definition as JSON.
+
+    Returns the raw settings dict (id, name, type, params, metrics, checks).
+    Parallel to `dku dataset get-definition` and `dku recipe get-definition`.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = resolve_folder(proj, folder_ref)
+        raw = folder.get_settings().get_raw()
+        render_raw(raw, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-definition")
+def set_definition(
+    ctx: typer.Context,
+    folder_ref: str = typer.Argument(help="Managed folder ID or name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Definition JSON (string, @file.json, or '-' for stdin)",
+    ),
+) -> None:
+    """Replace the managed-folder definition from JSON.
+
+    Always GET → edit → SET. Pass the full settings dict; the underlying
+    DSS endpoint refuses changes to `id` and `projectKey`.
+    """
+    from dku_cli.helpers import read_json_input
+
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        folder = resolve_folder(proj, folder_ref)
+        new_def = read_json_input(definition)
+        folder.set_definition(new_def)
+        success(f"Updated definition for folder '{folder_ref}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command("create-dataset")
 def create_dataset(
     ctx: typer.Context,
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     dataset_name: str = typer.Argument(help="Name for the new FilesInFolder dataset"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    format: str | None = typer.Option(
+        None,
+        "--format",
+        help="Format type (csv, excel, parquet, json, avro, ...). Default: autodetect from files.",
+    ),
+    no_autodetect: bool = typer.Option(
+        False,
+        "--no-autodetect",
+        help="Skip format autodetection (creates dataset with no format set; CSV will be assumed at read time)",
+    ),
+    sheet: str | None = typer.Option(
+        None,
+        "--sheet",
+        help=(
+            "Excel only: sheet name to read. Implies --format excel. Repeatable "
+            "syntax not supported (one sheet per dataset; use one dataset per "
+            "sheet for multi-sheet Excel files)."
+        ),
+    ),
+    sheet_index: int | None = typer.Option(
+        None,
+        "--sheet-index",
+        help=(
+            "Excel only: 0-based sheet index alternative to --sheet. Implies "
+            "--format excel."
+        ),
+    ),
+    skip_rows_before: int | None = typer.Option(
+        None,
+        "--skip-rows-before",
+        help=(
+            "Excel/CSV: number of rows to skip BEFORE the header row (when the "
+            "header is not on row 0 — common with banner/title rows in Excel)."
+        ),
+    ),
+    no_header: bool = typer.Option(
+        False,
+        "--no-header",
+        help="CSV/Excel: file has no header row; auto-name columns col_0, col_1, …",
+    ),
 ) -> None:
     """Create a FilesInFolder dataset from a managed folder.
 
     This creates a dataset that reads files from the managed folder, useful for
-    feeding document files (PDFs, images) into embed-docs or extract recipes.
+    feeding document files (PDFs, images) into embed-docs or extract recipes,
+    OR ingesting structured Excel/CSV/Parquet/JSON files.
+
+    By default the dataset's format is autodetected from the folder contents
+    (`autodetect_settings`). Pass --format to override (e.g. when the folder
+    holds .xlsx files but autodetect picks up an unrelated .csv first), or
+    --no-autodetect to skip detection entirely.
+
+    For Excel files, prefer the typed Excel flags over a raw set-definition:
+      dku folder create-dataset INV xls_inv --format excel --sheet "FY24" \\
+        --skip-rows-before 3 -P PROJ
 
     Workflow: folder create → folder upload → folder create-dataset → recipe create-embed-docs
     """
     project_key = resolve_project(project)
+    if (sheet or sheet_index is not None) and format and format.lower() != "excel":
+        exit_with_error(
+            f"--sheet/--sheet-index is only valid with --format excel (got '{format}').",
+            code="invalid_argument",
+        )
+    if sheet and sheet_index is not None:
+        exit_with_error(
+            "Pass either --sheet NAME or --sheet-index N, not both.",
+            code="invalid_argument",
+        )
+    excel_implied = bool(sheet or sheet_index is not None)
+    if excel_implied and not format:
+        format = "excel"
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
-        folder.create_dataset_from_files(dataset_name)
+        ds = folder.create_dataset_from_files(dataset_name)
+        format_msg = ""
+        if format:
+            settings = ds.get_settings()
+            raw = settings.get_raw()
+            raw["formatType"] = format
+            params = raw.setdefault("formatParams", {})
+            if format.lower() == "excel":
+                if sheet:
+                    params["sheets"] = sheet
+                    params["sheetSelectionMode"] = "NAMES"
+                elif sheet_index is not None:
+                    params["sheets"] = str(sheet_index)
+                    params["sheetSelectionMode"] = "INDICES"
+                if skip_rows_before is not None:
+                    params["skipRowsBeforeHeader"] = skip_rows_before
+                if no_header:
+                    params["parseHeaderRow"] = False
+            elif format.lower() == "csv":
+                if skip_rows_before is not None:
+                    params["skipRowsBeforeHeader"] = skip_rows_before
+                if no_header:
+                    params["parseHeaderRow"] = False
+            settings.save()
+            extras = []
+            if sheet:
+                extras.append(f"sheet={sheet}")
+            elif sheet_index is not None:
+                extras.append(f"sheet-index={sheet_index}")
+            if skip_rows_before is not None:
+                extras.append(f"skip-rows-before={skip_rows_before}")
+            extra_str = (", " + ", ".join(extras)) if extras else ""
+            format_msg = f" (format={format}, explicit{extra_str})"
+        elif not no_autodetect:
+            try:
+                detected = ds.autodetect_settings()
+                detected.save()
+                format_msg = f" (format={detected.get_raw().get('formatType', '?')}, autodetected)"
+            except Exception as detect_err:  # noqa: BLE001
+                warn(
+                    f"Autodetect failed ({detect_err}); dataset created with default format. "
+                    f"Re-run with --format <type> if reads break."
+                )
         success(
-            f"Created FilesInFolder dataset '{dataset_name}' from folder {folder_ref} in {project_key}"
+            f"Created FilesInFolder dataset '{dataset_name}' from folder {folder_ref} in {project_key}{format_msg}"
         )
         info(
             f"Tip: dku recipe create-embed-docs RECIPE --input {dataset_name} "

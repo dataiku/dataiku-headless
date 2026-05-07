@@ -32,47 +32,31 @@ def list_datasets(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
-    own_only: bool = typer.Option(
-        False,
-        "--own-only",
-        help="Exclude foreign datasets shared from other projects.",
-    ),
 ) -> None:
-    """List datasets in a project (includes foreign/shared datasets by default).
-
-    Foreign datasets show their source project in the SHARED FROM column. Reference
-    them in cross-project recipes as PROJECT_KEY.DATASET_NAME.
-    """
+    """List datasets in a project."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        datasets = proj.list_datasets(include_shared=not own_only)
+        datasets = proj.list_datasets()
 
         data = []
         for ds in datasets:
-            ds_project = ds.get("projectKey", "") or project_key
             data.append(
                 {
                     "name": ds.get("name", ""),
                     "type": ds.get("type", ""),
                     "schema_count": str(len(ds.get("schema", {}).get("columns", []))),
-                    "projectKey": ds_project,
                 }
             )
 
         render(
             data,
-            ["name", "type", "schema_count", "projectKey"],
+            ["name", "type", "schema_count"],
             output_format=output,
             title=f"Datasets ({project_key})",
-            headers={
-                "name": "NAME",
-                "type": "TYPE",
-                "schema_count": "COLUMNS",
-                "projectKey": "PROJECT",
-            },
+            headers={"name": "NAME", "type": "TYPE", "schema_count": "COLUMNS"},
         )
     except Exception as e:
         handle_api_error(e)
@@ -520,13 +504,13 @@ def create(
         "Filesystem",
         "--type",
         "-t",
-        help="Dataset type: Filesystem, UploadedFiles, PostgreSQL, MySQL, Snowflake, Redshift, BigQuery, Oracle, SQLServer, S3, ... Use the concrete DB name for SQL connections — 'SQL' is rejected by the DSS license system on most instances. Default: Filesystem",
+        help="Dataset type: Filesystem, UploadedFiles, Inline, PostgreSQL, MySQL, Snowflake, Redshift, BigQuery, Oracle, SQLServer, S3, ... Use the concrete DB name for SQL connections — 'SQL' is rejected by the DSS license system on most instances. Inline = editable spreadsheet-like dataset stored in DSS itself (no connection needed). Default: Filesystem",
     ),
     connection: str | None = typer.Option(
         None,
         "--connection",
         "-c",
-        help="Connection name (defaults to filesystem_managed for Filesystem; required for SQL/S3)",
+        help="Connection name (defaults to filesystem_managed for Filesystem; required for SQL/S3; ignored for Inline)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     if_not_exists: bool = typer.Option(
@@ -537,6 +521,186 @@ def create(
         "--definition",
         "-d",
         help="Dataset definition JSON. Supported create-time fields: type, params, formatType, formatParams",
+    ),
+    keep_track_of_changes: bool = typer.Option(
+        False,
+        "--keep-track-of-changes",
+        help="Inline only: store every edit in an audit log (params.keepTrackOfChanges).",
+    ),
+    enable_clipboard_api: bool = typer.Option(
+        False,
+        "--enable-clipboard-api",
+        help="Inline only: allow paste-in via DSS UI clipboard API (params.enableClipboardApi).",
+    ),
+    import_source: str | None = typer.Option(
+        None,
+        "--import-source",
+        help="Inline only: seed source — NONE (default), CLIPBOARD, CSV, FILE. Sets params.importSourceType.",
+    ),
+    catalog: str | None = typer.Option(
+        None,
+        "--catalog",
+        help="Databricks Unity Catalog name. Sets params.catalog (3-level: catalog.schema.table).",
+    ),
+    view: str | None = typer.Option(
+        None,
+        "--view",
+        help="JobsDB only: live view to expose. METRICS_HISTORY | CHECK_HISTORY | JOBS_HISTORY. Sets params.view.",
+    ),
+    with_header: bool | None = typer.Option(
+        None,
+        "--with-header/--no-header",
+        help="CSV/TSV: file has a header row. Sets formatParams.parseHeaderRow.",
+    ),
+    csv_dialect: str | None = typer.Option(
+        None,
+        "--csv-dialect",
+        help="CSV dialect (excel, unix, etc.). Sets formatParams.style.",
+    ),
+    compress: str | None = typer.Option(
+        None,
+        "--compress",
+        help="File compression for write: NONE | GZIP | BZIP2 | SNAPPY (filesystem-style outputs). Sets params.compress.",
+    ),
+    parquet_compression: str | None = typer.Option(
+        None,
+        "--parquet-compression",
+        help="Parquet write codec: SNAPPY (default) | UNCOMPRESSED | GZIP | LZO. Sets formatParams.compressionCodec.",
+    ),
+    parquet_flavor: str | None = typer.Option(
+        None,
+        "--parquet-flavor",
+        help="Parquet flavor: HIVE (default) | SPARK. Sets formatParams.flavor.",
+    ),
+    parquet_block_size_mb: int | None = typer.Option(
+        None,
+        "--parquet-block-size-mb",
+        help="Parquet block (row-group) size in MB. Sets formatParams.blockSizeMB.",
+    ),
+    read_temporal_mode: str | None = typer.Option(
+        None,
+        "--read-temporal-mode",
+        help="Parquet timestamp read mode: TIMESTAMP_NTZ | TIMESTAMP_TZ | LEGACY. Sets formatParams.readTemporalMode.",
+    ),
+    write_bad_data_behavior: str | None = typer.Option(
+        None,
+        "--write-bad-data-behavior",
+        help="SQL write: DISCARD_ROW | NULL_VALUE | FAIL. Sets params.writeBadDataBehavior.",
+    ),
+    write_batch_size: int | None = typer.Option(
+        None,
+        "--write-batch-size",
+        help="SQL bulk-load batch size. Sets params.writeBatchSize.",
+    ),
+    table_creation_mode: str | None = typer.Option(
+        None,
+        "--table-creation-mode",
+        help="SQL table-creation behavior: auto | use_existing | fail_if_missing. Sets params.tableCreationMode.",
+    ),
+    no_drop_on_schema_mismatch: bool = typer.Option(
+        False,
+        "--no-drop-on-schema-mismatch",
+        help="SQL: do NOT drop and recreate the table when the input schema diverges. Sets params.dropOnSchemaMismatch=false.",
+    ),
+    write_descriptions_as_comment: bool = typer.Option(
+        False,
+        "--write-descriptions-as-comment",
+        help="SQL: emit column descriptions as DB column comments. Sets params.writeDescriptionsAsComment=true.",
+    ),
+    num_partitions: int | None = typer.Option(
+        None,
+        "--num-partitions",
+        help="SQL/HDFS write parallelism. Sets params.numPartitions.",
+    ),
+    datetime_notz_read_mode: str | None = typer.Option(
+        None,
+        "--datetime-notz-read-mode",
+        help="SQL date+time-without-tz read interpretation. Sets params.dateTimeNoTZReadMode.",
+    ),
+    dateonly_read_mode: str | None = typer.Option(
+        None,
+        "--dateonly-read-mode",
+        help="SQL date-only read interpretation. Sets params.dateOnlyReadMode.",
+    ),
+    dist_style: str | None = typer.Option(
+        None,
+        "--dist-style",
+        help="Redshift distribution style: AUTO | KEY | ALL | EVEN. Sets params.redshiftDistStyle.",
+    ),
+    dist_key: str | None = typer.Option(
+        None,
+        "--dist-key",
+        help="Redshift KEY-style distribution column. Sets params.redshiftDistKey.",
+    ),
+    sort_key: str | None = typer.Option(
+        None,
+        "--sort-key",
+        help="Redshift sort-key kind: COMPOUND | INTERLEAVED. Sets params.redshiftSortKey.",
+    ),
+    sort_key_columns: str | None = typer.Option(
+        None,
+        "--sort-key-columns",
+        help="Redshift sort-key columns (comma-separated). Sets params.redshiftSortKeyColumns[].",
+    ),
+    use_bigquery_partitioning: bool = typer.Option(
+        False,
+        "--use-bigquery-partitioning",
+        help="BigQuery: enable native time partitioning. Sets params.useBigQueryPartitioning=true.",
+    ),
+    bigquery_partitioning_type: str | None = typer.Option(
+        None,
+        "--bigquery-partitioning-type",
+        help="BigQuery partitioning type: TIME | INTEGER_RANGE. Sets params.bigQueryPartitioningType.",
+    ),
+    bigquery_partitioning_period: str | None = typer.Option(
+        None,
+        "--bigquery-partitioning-period",
+        help="BigQuery partitioning period: DAY | HOUR | MONTH | YEAR. Sets params.bigQueryPartitioningPeriod.",
+    ),
+    require_partition_filter: bool = typer.Option(
+        False,
+        "--require-partition-filter",
+        help="BigQuery: require a partition filter in queries. Sets params.requirePartitionFilter=true.",
+    ),
+    upload_provider: str | None = typer.Option(
+        None,
+        "--upload-provider",
+        help="UploadedFiles backend: LOCAL | S3 | AZURE | GCS. Sets params.uploadProvider.",
+    ),
+    metastore_sync: bool = typer.Option(
+        False,
+        "--metastore-sync",
+        help="S3/Azure/GCS: synchronise to the Hive metastore on build. Sets params.metastoreSynchronizationEnabled=true.",
+    ),
+    metastore_database: str | None = typer.Option(
+        None,
+        "--metastore-database",
+        help="Hive metastore database name. Sets params.metastoreDatabase.",
+    ),
+    metastore_table: str | None = typer.Option(
+        None,
+        "--metastore-table",
+        help="Hive metastore table name. Sets params.metastoreTable.",
+    ),
+    include_glob: list[str] | None = typer.Option(
+        None,
+        "--include-glob",
+        help="File-selection include glob (repeatable). Adds to params.filesSelectionRules.includeRules[].",
+    ),
+    exclude_glob: list[str] | None = typer.Option(
+        None,
+        "--exclude-glob",
+        help="File-selection exclude glob (repeatable). Adds to params.filesSelectionRules.excludeRules[].",
+    ),
+    explicit_files: list[str] | None = typer.Option(
+        None,
+        "--explicit-files",
+        help="Explicit file path (repeatable). Adds to params.filesSelectionRules.explicitFiles[].",
+    ),
+    variable_loop: str | None = typer.Option(
+        None,
+        "--variable-loop",
+        help="Variable expansion loop config: literal JSON, @file.json, or '-' stdin. Sets params.variablesExpansionLoopConfig.",
     ),
 ) -> None:
     """Create a new dataset.
@@ -576,6 +740,140 @@ def create(
             params.setdefault("mode", "table")
             params.setdefault("table", "${projectKey}_" + dataset_name)
             params.setdefault("tableCreationMode", "auto")
+
+        # Reject Inline-only flags on non-Inline datasets so agents get a clear
+        # error instead of a silent payload-shape mismatch.
+        if dataset_type != "Inline" and (
+            keep_track_of_changes or enable_clipboard_api or import_source is not None
+        ):
+            exit_with_error(
+                "--keep-track-of-changes / --enable-clipboard-api / --import-source "
+                "are Inline-dataset flags.",
+                code="invalid_argument",
+                details=[
+                    f"Use --type Inline (got '{dataset_type}'), or drop these flags."
+                ],
+            )
+
+        format_params: dict = dataset_definition.get("formatParams") or {}
+
+        # Connection-specific params: catalog (Databricks), view (JobsDB).
+        if catalog is not None:
+            params["catalog"] = catalog
+        if view is not None:
+            _VALID_JOBSDB_VIEWS = {"METRICS_HISTORY", "CHECK_HISTORY", "JOBS_HISTORY"}
+            if view.upper() not in _VALID_JOBSDB_VIEWS:
+                exit_with_error(
+                    f"Invalid --view '{view}'.",
+                    code="invalid_argument",
+                    details=[f"Valid: {', '.join(sorted(_VALID_JOBSDB_VIEWS))}"],
+                )
+            params["view"] = view.upper()
+
+        # CSV/format flags.
+        if with_header is not None:
+            format_params["parseHeaderRow"] = bool(with_header)
+        if csv_dialect is not None:
+            format_params["style"] = csv_dialect
+        if compress is not None:
+            params["compress"] = compress
+        if parquet_compression is not None:
+            format_params["compressionCodec"] = parquet_compression
+        if parquet_flavor is not None:
+            format_params["flavor"] = parquet_flavor
+        if parquet_block_size_mb is not None:
+            format_params["blockSizeMB"] = parquet_block_size_mb
+        if read_temporal_mode is not None:
+            format_params["readTemporalMode"] = read_temporal_mode
+
+        # SQL write knobs.
+        if write_bad_data_behavior is not None:
+            params["writeBadDataBehavior"] = write_bad_data_behavior
+        if write_batch_size is not None:
+            params["writeBatchSize"] = write_batch_size
+        if table_creation_mode is not None:
+            params["tableCreationMode"] = table_creation_mode
+        if no_drop_on_schema_mismatch:
+            params["dropOnSchemaMismatch"] = False
+        if write_descriptions_as_comment:
+            params["writeDescriptionsAsComment"] = True
+        if num_partitions is not None:
+            params["numPartitions"] = num_partitions
+        if datetime_notz_read_mode is not None:
+            params["dateTimeNoTZReadMode"] = datetime_notz_read_mode
+        if dateonly_read_mode is not None:
+            params["dateOnlyReadMode"] = dateonly_read_mode
+
+        # Redshift-specific knobs.
+        if dist_style is not None:
+            params["redshiftDistStyle"] = dist_style.upper()
+        if dist_key is not None:
+            params["redshiftDistKey"] = dist_key
+        if sort_key is not None:
+            params["redshiftSortKey"] = sort_key.upper()
+        if sort_key_columns is not None:
+            params["redshiftSortKeyColumns"] = [
+                c.strip() for c in sort_key_columns.split(",") if c.strip()
+            ]
+
+        # BigQuery partitioning.
+        if use_bigquery_partitioning:
+            params["useBigQueryPartitioning"] = True
+        if bigquery_partitioning_type is not None:
+            params["bigQueryPartitioningType"] = bigquery_partitioning_type.upper()
+        if bigquery_partitioning_period is not None:
+            params["bigQueryPartitioningPeriod"] = bigquery_partitioning_period.upper()
+        if require_partition_filter:
+            params["requirePartitionFilter"] = True
+
+        # UploadedFiles upload provider.
+        if upload_provider is not None:
+            params["uploadProvider"] = upload_provider.upper()
+
+        # Metastore (S3/Azure/GCS).
+        if metastore_sync:
+            params["metastoreSynchronizationEnabled"] = True
+        if metastore_database is not None:
+            params["metastoreDatabase"] = metastore_database
+        if metastore_table is not None:
+            params["metastoreTable"] = metastore_table
+
+        # File selection (filesystem-style datasets).
+        if include_glob or exclude_glob or explicit_files:
+            sel = params.setdefault("filesSelectionRules", {})
+            if include_glob:
+                sel.setdefault("includeRules", []).extend(
+                    [{"expr": g} for g in include_glob]
+                )
+            if exclude_glob:
+                sel.setdefault("excludeRules", []).extend(
+                    [{"expr": g} for g in exclude_glob]
+                )
+            if explicit_files:
+                sel.setdefault("explicitFiles", []).extend(explicit_files)
+            sel.setdefault("mode", "ALL")
+
+        # Variable-expansion loop config (time/wildcard-based file loops).
+        if variable_loop is not None:
+            params["variablesExpansionLoopConfig"] = read_json_input(variable_loop)
+
+        # Inline datasets (editable spreadsheet-like, stored in DSS itself).
+        # No connection needed; the data lives in the dataset definition.
+        if dataset_type == "Inline":
+            params.pop("connection", None)
+            if keep_track_of_changes:
+                params.setdefault("keepTrackOfChanges", True)
+            if enable_clipboard_api:
+                params.setdefault("enableClipboardApi", True)
+            if import_source is not None:
+                _VALID_INLINE_IMPORT = {"NONE", "CLIPBOARD", "CSV", "FILE"}
+                if import_source.upper() not in _VALID_INLINE_IMPORT:
+                    exit_with_error(
+                        f"Invalid --import-source '{import_source}'.",
+                        code="invalid_argument",
+                        details=[f"Valid: {', '.join(sorted(_VALID_INLINE_IMPORT))}"],
+                    )
+                params.setdefault("importSourceType", import_source.upper())
 
         # UploadedFiles uses "uploadConnection" param, not "connection".
         # Map --connection to the correct param for this type.
@@ -618,7 +916,8 @@ def create(
                     dataset_type,
                     params=params,
                     formatType=dataset_definition.get("formatType"),
-                    formatParams=dataset_definition.get("formatParams"),
+                    formatParams=format_params
+                    or dataset_definition.get("formatParams"),
                 )
             except Exception as create_err:
                 msg = str(create_err).lower()
@@ -649,10 +948,6 @@ def create(
                 raise
         success(
             f"Created dataset '{dataset_name}' (type={dataset_type}) in {project_key}"
-        )
-        info(
-            "Tip: 'dku recipe create --output-ds NAME' auto-creates the output dataset. "
-            "You only need 'dku dataset create' for input/source datasets."
         )
     except typer.Exit:
         raise
@@ -909,28 +1204,87 @@ def set_schema(
         ...,
         "--definition",
         "-d",
-        help="Schema JSON (string, @file.json, or '-' for stdin)",
+        help=(
+            "Schema as JSON (string, @file.json, '-' for stdin) OR shorthand "
+            "'col type, col type, ...' (e.g. 'id int, name string, amount double')"
+        ),
     ),
 ) -> None:
-    """Set the schema of a dataset from JSON.
+    """Set the schema of a dataset from JSON or shorthand.
 
     Accepts either {"columns": [{name, type}, ...]} or a plain
     [{name, type}, ...] array (auto-wrapped). The array form lets you
     round-trip with 'dku dataset schema -o json'.
+
+    Shorthand: pass 'col1 type1, col2 type2' directly to -d for quick
+    edits without a temp file. Example:
+      dku dataset set-schema my_ds -d 'id int, name string, amount double' -P PROJ
     """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         current_def = ds.get_definition()
-        schema_input = read_json_input(definition)
-        if isinstance(schema_input, list):
-            schema_input = {"columns": schema_input}
+        schema_input = _parse_schema_input(definition)
         current_def["schema"] = schema_input
         ds.set_definition(current_def)
         success(f"Updated schema for dataset '{dataset_name}'")
     except Exception as e:
         handle_api_error(e)
+
+
+def _parse_schema_input(value: str) -> dict:
+    """Parse a schema definition from JSON, file, stdin, or shorthand.
+
+    Shorthand form is 'col type, col type' — e.g. 'id int, amount double'.
+    JSON forms accepted: {"columns": [...]}, plain [...] array, @file.json, '-'.
+    """
+    shorthand = _parse_schema_shorthand(value)
+    if shorthand is not None:
+        return shorthand
+    try:
+        schema_input = read_json_input(value)
+    except typer.BadParameter as exc:
+        raise typer.BadParameter(
+            f"{exc}\n--definition accepts: JSON literal, @file.json, '-' for "
+            "stdin, OR shorthand 'col1 type1, col2 type2'."
+        ) from exc
+    if isinstance(schema_input, list):
+        return {"columns": schema_input}
+    if isinstance(schema_input, dict):
+        return schema_input
+    raise typer.BadParameter(
+        "--definition must be a JSON object, JSON array, or shorthand "
+        "'col type, col type'."
+    )
+
+
+def _parse_schema_shorthand(value: str) -> dict | None:
+    """Try to parse 'col type, col type' shorthand. Returns None if not shorthand.
+
+    Bails out (returns None) on any structural ambiguity so the caller falls
+    through to JSON parsing. Strict matching: every comma-separated chunk must
+    be exactly two whitespace-separated tokens.
+    """
+    if not value:
+        return None
+    stripped = value.strip()
+    # JSON / file / stdin always wins — never try shorthand on those
+    if stripped.startswith(("{", "[", "@", '"')) or stripped == "-":
+        return None
+    cols = []
+    for chunk in stripped.split(","):
+        parts = chunk.strip().split()
+        if len(parts) != 2:
+            return None
+        name, ctype = parts
+        # Reject obviously non-identifier names (basic sanity)
+        if not name or any(c in name for c in '{}[]"\\'):
+            return None
+        cols.append({"name": name, "type": ctype})
+    if not cols:
+        return None
+    return {"columns": cols}
 
 
 @app.command()
@@ -1177,58 +1531,185 @@ def exists(
         handle_api_error(e)
 
 
+def _scan_insight_consumers(proj, dataset_name: str) -> list[dict]:
+    """Walk every insight in the project; return rows for those whose
+    `params.datasetSmartName` matches `dataset_name`.
+
+    Closes the recurring deletion-safety question — bare get_usages()
+    only returns recipe / analysis / model bindings, not chart-insight
+    bindings. Without this, "is this dataset orphaned?" required a
+    hand-rolled jq pipeline across two endpoints.
+    """
+    rows: list[dict] = []
+    try:
+        insights = proj.list_insights() or []
+    except Exception:
+        return rows
+    for ins in insights:
+        iid = ins.get("id", "")
+        if not iid:
+            continue
+        try:
+            raw = proj.get_insight(iid).get_settings().get_raw()
+        except Exception:
+            continue
+        params = raw.get("params") or {}
+        smart_name = params.get("datasetSmartName") or params.get("datasetName")
+        if smart_name and (
+            smart_name == dataset_name or smart_name.endswith(f".{dataset_name}")
+        ):
+            rows.append(
+                {
+                    "type": "INSIGHT",
+                    "id": iid,
+                    "project": raw.get("projectKey", ""),
+                    "name": raw.get("name", ""),
+                    "kind": raw.get("type", ""),
+                }
+            )
+    return rows
+
+
+def _scan_dashboard_tile_consumers(
+    proj, dataset_name: str, insight_ids_using: set[str]
+) -> list[dict]:
+    """Walk every dashboard's pages[*].grid.tiles[*]; report tiles whose
+    `tileParams.insightId` references an insight that consumes the dataset.
+
+    Insight IDs already known to bind the dataset are passed in via
+    `insight_ids_using` so we don't refetch each insight. Direct dataset
+    bindings on tiles (rare — most tiles route through insights) are also
+    surfaced via `tileParams.datasetSmartName` if present.
+    """
+    rows: list[dict] = []
+    try:
+        dashboards = proj.list_dashboards() or []
+    except Exception:
+        return rows
+    for d in dashboards:
+        did = d.get("id") if isinstance(d, dict) else None
+        if not did:
+            continue
+        try:
+            raw = proj.get_dashboard(did).get_settings().get_raw()
+        except Exception:
+            continue
+        for page in raw.get("pages") or []:
+            for tile in (page.get("grid") or {}).get("tiles") or []:
+                params = tile.get("tileParams") or {}
+                ref_iid = params.get("insightId")
+                ref_ds = params.get("datasetSmartName") or params.get("datasetName")
+                if (ref_iid and ref_iid in insight_ids_using) or (
+                    ref_ds
+                    and (ref_ds == dataset_name or ref_ds.endswith(f".{dataset_name}"))
+                ):
+                    rows.append(
+                        {
+                            "type": "DASHBOARD_TILE",
+                            "id": did,
+                            "project": raw.get("projectKey", ""),
+                            "name": raw.get("name", ""),
+                            "kind": tile.get("tileType", ""),
+                        }
+                    )
+                    # Don't double-count if both fields point at it
+                    break
+    return rows
+
+
 @app.command()
 def usages(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    include_charts: bool = typer.Option(
+        False,
+        "--include-charts",
+        help="Also scan insights and dashboard tiles for references "
+        "(N+1 calls — only for deletion-safety checks).",
+    ),
 ) -> None:
     """Show what recipes, analyses, or models use this dataset.
 
     Use to investigate the flow graph: which downstream recipes consume
     this dataset, and which upstream recipes produce it.
 
+    Pass --include-charts to ALSO scan every insight (`params.datasetSmartName`)
+    and every dashboard tile (`tileParams.insightId` chained to a matching
+    insight). This costs O(insights + dashboards) extra API calls but
+    closes the deletion-safety question that bare `usages` can't answer.
+
     Example:
       dku dataset usages my_data -P PROJ
+      dku dataset usages my_data -P PROJ --include-charts
       dku dataset usages my_data -P PROJ -o json
     """
     project_key = resolve_project(project)
     fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        ds = client.get_project(project_key).get_dataset(dataset_name)
-        usage_list = ds.get_usages()
+        proj = client.get_project(project_key)
+        ds = proj.get_dataset(dataset_name)
+        usage_list = ds.get_usages() or []
+
+        rows: list[dict] = []
+        for u in usage_list:
+            rows.append(
+                {
+                    "type": u.get("type", u.get("objectType", "")),
+                    "id": u.get("objectId", u.get("id", "")),
+                    "project": u.get(
+                        "objectProjectKey", u.get("projectKey", project_key)
+                    ),
+                    "name": "",
+                    "kind": "",
+                }
+            )
+
+        if include_charts:
+            insight_rows = _scan_insight_consumers(proj, dataset_name)
+            rows.extend(insight_rows)
+            insight_ids_using = {r["id"] for r in insight_rows}
+            rows.extend(
+                _scan_dashboard_tile_consumers(proj, dataset_name, insight_ids_using)
+            )
 
         if fmt == "json":
-            render_raw(usage_list, output_format="json")
-        else:
-            if not usage_list:
-                info(
-                    f"No usages found for dataset '{dataset_name}' in {project_key}. "
-                    "This dataset is not referenced by any recipe or analysis."
-                )
-                return
+            render_raw(rows, output_format="json")
+            return
 
-            data = []
-            for u in usage_list:
-                data.append(
-                    {
-                        "type": u.get("type", u.get("objectType", "")),
-                        "id": u.get("objectId", u.get("id", "")),
-                        "project": u.get(
-                            "objectProjectKey", u.get("projectKey", project_key)
-                        ),
-                    }
-                )
-
-            render(
-                data,
-                ["type", "id", "project"],
-                output_format=fmt,
-                title=f"Usages of {dataset_name}",
-                headers={"type": "TYPE", "id": "ID", "project": "PROJECT"},
+        if not rows:
+            scope = (
+                "any recipe, analysis, model, insight, or dashboard tile"
+                if include_charts
+                else "any recipe, analysis, or model"
             )
+            info(
+                f"No usages found for dataset '{dataset_name}' in {project_key}. "
+                f"This dataset is not referenced by {scope}."
+            )
+            if not include_charts:
+                info(
+                    "  Pass --include-charts to also scan insights and "
+                    "dashboard tiles before deleting."
+                )
+            return
+
+        columns = ["type", "id", "name", "kind", "project"]
+        render(
+            rows,
+            columns,
+            output_format=fmt,
+            title=f"Usages of {dataset_name}",
+            headers={
+                "type": "TYPE",
+                "id": "ID",
+                "name": "NAME",
+                "kind": "KIND",
+                "project": "PROJECT",
+            },
+        )
     except typer.Exit:
         raise
     except Exception as e:
@@ -1514,4 +1995,499 @@ def unshare(
     except typer.Exit:
         raise
     except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# dku dataset metrics — list configured probes, compute, fetch values, history.
+# ---------------------------------------------------------------------------
+
+metrics_app = typer.Typer(
+    help=(
+        "Inspect and compute dataset metrics (row count, size, custom SQL probes). "
+        "DSS does NOT auto-recompute metrics on build. Run `dku dataset metrics run` "
+        "after a recipe rebuild, otherwise downstream checks see stale numbers."
+    )
+)
+app.add_typer(metrics_app, name="metrics")
+
+
+@metrics_app.command("list")
+def metrics_list(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    partition: str = typer.Option(
+        "",
+        "--partition",
+        help="Partition identifier. 'ALL' for the whole dataset; default reads the non-partitioned partition.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List configured probes and their last computed values.
+
+    Reads the probe list from `dataset.metrics.probes` (the
+    `dataset get-definition` view) and joins it with the cached last
+    metric values. A row marked '(not computed)' means the probe is
+    configured but hasn't run since the last build — fix with
+    `dku dataset metrics run`.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        defn = ds.get_definition()
+        probes = defn.get("metrics", {}).get("probes", [])
+
+        cached = None
+        try:
+            cached = ds.get_last_metric_values(partition=partition)
+        except Exception:
+            cached = None
+
+        rows = []
+        seen_ids: set[str] = set()
+        if cached is not None:
+            for m in cached.get_raw().get("metrics", []):
+                meta = m.get("metric", {})
+                metric_id = meta.get("id", "")
+                seen_ids.add(metric_id)
+                last_values = m.get("lastValues") or []
+                if last_values:
+                    target = last_values[0]
+                    for v in last_values:
+                        if v.get("partition") in ("NP", "ALL"):
+                            target = v
+                            break
+                    value = target.get("value", "")
+                    computed_at = target.get("computed", 0)
+                else:
+                    value = "(not computed)"
+                    computed_at = 0
+                rows.append(
+                    {
+                        "metric_id": metric_id,
+                        "type": meta.get("metricType", ""),
+                        "value": value,
+                        "computed_at": computed_at,
+                    }
+                )
+        for probe in probes:
+            ptype = probe.get("type", "")
+            if not probe.get("enabled", True):
+                continue
+            if ptype in ("basic", "records"):
+                continue
+            probe_id = probe.get("meta", {}).get("name", ptype)
+            if probe_id in seen_ids:
+                continue
+            rows.append(
+                {
+                    "metric_id": probe_id,
+                    "type": ptype,
+                    "value": "(not computed)",
+                    "computed_at": 0,
+                }
+            )
+
+        render(
+            rows,
+            ["metric_id", "type", "value", "computed_at"],
+            output_format=output,
+            title=f"Metrics: {dataset_name}",
+            headers={
+                "metric_id": "METRIC ID",
+                "type": "TYPE",
+                "value": "VALUE",
+                "computed_at": "COMPUTED AT",
+            },
+        )
+        if not rows:
+            info("No metrics configured. Add probes via the dataset's Metrics tab.")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+@metrics_app.command("get")
+def metrics_get(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    metric_id: str = typer.Argument(
+        help="Metric ID (e.g. records:COUNT_RECORDS, basic:SIZE)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    partition: str = typer.Option(
+        "",
+        "--partition",
+        help="Partition identifier. 'ALL' for the whole dataset.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the cached value of a single metric.
+
+    Use `dku dataset metrics list` first to find the metric ID. Returns
+    `(not computed)` if the probe is configured but hasn't run since the
+    last build — re-run with `dku dataset metrics run`.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json", "table"), default="table")
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        cached = ds.get_last_metric_values(partition=partition)
+        try:
+            data = cached.get_metric_by_id(metric_id)
+        except Exception:
+            exit_with_error(
+                f"Metric '{metric_id}' is not computed for dataset '{dataset_name}'.",
+                code="metric_not_found",
+                details=[
+                    f"List metrics: dku dataset metrics list {dataset_name} -P {project_key}",
+                    f"Compute metrics first: dku dataset metrics run {dataset_name} -P {project_key}",
+                ],
+            )
+        if output == "json":
+            render_raw(data, output_format="json")
+        else:
+            last_values = data.get("lastValues") or []
+            if not last_values:
+                info("(no values computed)")
+                return
+            rows = []
+            for v in last_values:
+                rows.append(
+                    {
+                        "partition": v.get("partition", ""),
+                        "value": v.get("value", ""),
+                        "data_type": v.get("dataType", ""),
+                        "computed_at": v.get("computed", 0),
+                    }
+                )
+            render(
+                rows,
+                ["partition", "value", "data_type", "computed_at"],
+                output_format=output,
+                title=f"Metric: {metric_id}",
+                headers={
+                    "partition": "PARTITION",
+                    "value": "VALUE",
+                    "data_type": "TYPE",
+                    "computed_at": "COMPUTED AT",
+                },
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+@metrics_app.command("run")
+def metrics_run(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    partition: str = typer.Option(
+        "",
+        "--partition",
+        help="Partition identifier. 'ALL' to compute on the whole dataset.",
+    ),
+    metric_ids: list[str] = typer.Option(
+        [],
+        "--metric-id",
+        help="Restrict computation to these metric IDs (repeatable). Default: every configured probe.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Recompute metrics on the dataset.
+
+    DSS does NOT auto-refresh metric values on rebuild — call this after
+    every build that should produce fresh row-count / size numbers.
+
+    Example:
+        dku dataset metrics run my_data -P PROJ
+        dku dataset metrics run my_data --metric-id records:COUNT_RECORDS -P PROJ
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ids = list(metric_ids) if metric_ids else None
+        report = ds.compute_metrics(partition=partition, metric_ids=ids)
+        if output == "json":
+            render_raw(report, output_format="json")
+            return
+        success(f"Computed metrics on dataset '{dataset_name}'")
+        n_computed = len(report.get("computed", []))
+        n_errors = len(report.get("errors", []))
+        info(f"Probes computed: {n_computed}, errors: {n_errors}")
+        for err in report.get("errors", [])[:5]:
+            warn(f"  {err.get('message', err)}")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+@metrics_app.command("history")
+def metrics_history(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    metric_id: str = typer.Argument(help="Metric ID (e.g. records:COUNT_RECORDS)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    partition: str = typer.Option(
+        "",
+        "--partition",
+        help="Partition identifier. 'ALL' for the whole dataset.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show the time-series history of a metric value.
+
+    Useful for spotting drift — e.g. tracking `records:COUNT_RECORDS` over
+    several builds to confirm a join hasn't started silently dropping rows.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        history = ds.get_metric_history(metric_id, partition=partition)
+        render_raw(history, output_format=output)
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# dku dataset checks — modern data-quality rules (DSSDataQualityRuleSet).
+# ---------------------------------------------------------------------------
+
+checks_app = typer.Typer(
+    help=(
+        "Inspect and compute data-quality rules. Modern API "
+        "(DSSDataQualityRuleSet) — `compute_rules`, `list_rules`, "
+        "`get_status`, `get_last_rules_results`. The legacy `runChecks` "
+        "endpoint exposed pre-DSS-12 is intentionally NOT wired up here."
+    )
+)
+app.add_typer(checks_app, name="checks")
+
+
+@checks_app.command("list")
+def checks_list(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    partition: str = typer.Option(
+        "NP",
+        "--partition",
+        help="Partition identifier. Default 'NP' (non-partitioned). 'ALL' for full dataset.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List data-quality rules with their last results.
+
+    Pulls the rule definitions then joins the last run's outcome
+    (OK / WARNING / ERROR / EMPTY). Rules with no recent run show
+    outcome='(no result)'.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ruleset = ds.get_data_quality_rules()
+        rules = ruleset.list_rules(as_type="dict")
+        results_by_id: dict[str, object] = {}
+        try:
+            last_results = ruleset.get_last_rules_results(partition=partition)
+            results_by_id = {r.id: r for r in last_results}
+        except Exception:
+            pass
+
+        rows = []
+        for r in rules:
+            rid = r.get("id", "")
+            outcome = "(no result)"
+            message = ""
+            if rid in results_by_id:
+                outcome = results_by_id[rid].outcome or "(no result)"
+                message = results_by_id[rid].message or ""
+            rows.append(
+                {
+                    "id": rid,
+                    "name": r.get("displayName", ""),
+                    "metric": r.get("metricId", "") or r.get("type", ""),
+                    "outcome": outcome,
+                    "message": (message[:60] + "…") if len(message) > 60 else message,
+                }
+            )
+
+        render(
+            rows,
+            ["id", "name", "metric", "outcome", "message"],
+            output_format=output,
+            title=f"Data Quality Rules: {dataset_name}",
+            headers={
+                "id": "ID",
+                "name": "NAME",
+                "metric": "METRIC",
+                "outcome": "OUTCOME",
+                "message": "MESSAGE",
+            },
+        )
+        if not rows:
+            info("No data-quality rules configured.")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+@checks_app.command("status")
+def checks_status(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show the overall data-quality status of the dataset.
+
+    For partitioned datasets this is the worst result of the last
+    computed partitions.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json", "table"), default="table")
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ruleset = ds.get_data_quality_rules()
+        try:
+            status = ruleset.get_status()
+        except Exception as inner:
+            # DSS returns 404 'There is no result for this dataset' both when
+            # the dataset itself doesn't exist AND when no rules have ever
+            # been computed. Disambiguate by re-checking the dataset.
+            if is_not_found_error(inner):
+                try:
+                    ds.get_definition()
+                except Exception:
+                    exit_with_error(
+                        f"Dataset '{dataset_name}' not found in {project_key}.",
+                        code="not_found",
+                        status=3,
+                        details=[f"List datasets: dku dataset list -P {project_key}"],
+                    )
+                if output == "json":
+                    render_raw({"status": "NO_RESULT"}, output_format="json")
+                    return
+                info(
+                    "No data-quality results yet. Run rules first: "
+                    f"dku dataset checks run {dataset_name} -P {project_key}"
+                )
+                return
+            raise
+        if output == "json":
+            render_raw(status, output_format="json")
+            return
+        rows = []
+        if isinstance(status, dict):
+            for k, v in status.items():
+                rows.append({"field": k, "value": str(v)})
+        else:
+            rows.append({"field": "status", "value": str(status)})
+        render(
+            rows,
+            ["field", "value"],
+            output_format=output,
+            title=f"Data Quality Status: {dataset_name}",
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+@checks_app.command("run")
+def checks_run(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    partition: str = typer.Option(
+        "NP",
+        "--partition",
+        help="Partition identifier. Default 'NP' (non-partitioned). 'ALL' for full dataset.",
+    ),
+    wait: bool = typer.Option(
+        False, "--wait", "-w", help="Wait for the rule computation to finish."
+    ),
+) -> None:
+    """Compute every enabled data-quality rule on the dataset.
+
+    Returns a DSSFuture immediately; pass --wait to block until done. After
+    completion, fetch results via `dku dataset checks list <DS>`.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ruleset = ds.get_data_quality_rules()
+        future = ruleset.compute_rules(partition=partition)
+        success(f"Started data-quality computation on '{dataset_name}'")
+        if hasattr(future, "job_id") and future.job_id:
+            info(f"Future ID: {future.job_id}")
+        if wait:
+            info("Waiting for computation to finish...")
+            future.wait_for_result()
+            success("Computation finished")
+            info(
+                f"Inspect results: dku dataset checks list {dataset_name} -P {project_key}"
+            )
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Dataset '{dataset_name}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List datasets: dku dataset list -P {project_key}"],
+            )
         handle_api_error(e)

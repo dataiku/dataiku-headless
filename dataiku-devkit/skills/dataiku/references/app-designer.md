@@ -723,3 +723,21 @@ Add a logo or diagram at the top:
 | MODAL behavior for frequent edits | Use `INLINE_AUTO_SAVE` instead |
 | Upload with `GO_TO_DATASET` | Use `INLINE_UPLOAD_REDETECT_AND_INFER` |
 | Hardcoded text that should reflect variables | Use `VARIABLE_DISPLAY` with `${var}` |
+
+---
+
+## See also
+
+- **`manifest-section-style.md`** — canonical Solutions style for `sectionTitle` /
+  body markdown / icon palette / `visibilityCondition` collapse-expand pattern.
+  Read before authoring sections by hand.
+
+---
+
+## Critical gotchas
+
+### App-manifest GET/PUT asymmetry on REGULAR projects
+`proj.get_app_manifest()` raises `IllegalArgumentException: Project … is neither an app template nor an app instance` on REGULAR projects, even when `useAppHomepage: True` and `homepageSections` are populated server-side. The same error fires on raw `GET /projects/X/app-manifest`. But raw `PUT /projects/X/app-manifest` accepts writes regardless of `projectAppType` — asymmetric, and the foot-gun: a `PUT {}` to "probe" the endpoint silently wipes the entire `homepageSections` array on a Project Setup, returning 200 OK. The CLI's `app-designer get` falls back to reading `project_config/app-manifest.json` from `/export` ZIP for REGULAR projects; `set-definition` writes via raw PUT and gates section-wipes (`current.homepageSections` non-empty → new manifest has zero) behind tier-3 CASCADE (`--yes --confirm-name <PROJECT_KEY>`). `hasSetupSection: True` does NOT mean sections exist — it tracks `useAppHomepage`. Verify section count via `dku app-designer get -P PROJ -o json | jq '.homepageSections | length'`. App-instance clones (`*_1`, `*_2`) preserve their source's manifest at clone time — useful disaster recovery if the source got wiped.
+
+### App-designer enable: Project Setup vs App Template
+`dku app-designer enable` defaults to `--mode setup` (Project Setup — keeps `projectAppType=REGULAR`, sets `useAppHomepage=True`). `--mode template` flips the project to `APP_TEMPLATE` so it can be instantiated as a Dataiku App. Two distinct product surfaces with the same manifest schema — pick the wrong mode and a Solutions reference project becomes an instantiable App (or vice versa). Reverting `template` → `setup` requires manual `proj.get_settings().get_raw()['projectAppType'] = 'REGULAR'` then `.save()` — the CLI does not expose a verb for this.

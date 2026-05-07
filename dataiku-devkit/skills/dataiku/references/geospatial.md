@@ -105,10 +105,12 @@ dku recipe create-fuzzy-join addr_match \
 ## Computing Distances
 
 ```bash
-# Add distance column between two geopoint columns
+# Add distance column between two geopoint columns. Default unit is MILES;
+# pass --unit KILOMETERS for km. Both inputs must be geopoint or geometry —
+# use add-geopoint upstream to convert lat/lon pairs.
 dku recipe add-geodistance prep1 \
   --from-column origin --to-column destination \
-  --output-column distance_m -P PROJ
+  --output-column distance_mi -P PROJ
 ```
 
 ---
@@ -120,10 +122,10 @@ All available via `dku recipe add-step --type TYPE --params '...'`:
 | Processor | Purpose | Key Params |
 |-----------|---------|------------|
 | `GeoPointCreator` | lat/lon to geopoint | `lat_column`, `lon_column`, `out_column` |
-| `GeoDistanceProcessor` | Distance between points | `input1_column`, `input2_column`, `output_column` |
+| `GeoDistanceProcessor` | Distance between points | `input1`, `input2`, `output`, `outputUnit` (`MILES` / `KILOMETERS`), `compareTo` (`COLUMN`). NOT `*_column` suffixes — the `_column` form apply-schema-fails as `Empty column name`. CLI shortcut: `dku recipe add-geodistance --from A --to B --unit MILES -c dist` produces the right shape. |
 | `ReverseGeocoder` | Coordinates to admin area | `inputColumn`, `outputColumn` |
 | `GeoPointBufferCreator` | Buffer polygon around point | `column`, `radius`, `radiusUnit` |
-| `GeoIPResolver` | IP address to geo info | `inputColumn`, `outputColumn` |
+| `GeoIPResolver` | IP address to geo info | **`inCol`** (NOT `inputColumn`), **`outColPrefix`** (NOT `outputColumn` — DSS adds `<prefix>_country`/`_region`/`_city`/etc. columns), and 10 `extract_*` boolean toggles: `extract_country`, `extract_country_code`, `extract_continent`, `extract_continent_code`, `extract_region`, `extract_city`, `extract_postal_code`, `extract_latitude`, `extract_longitude`, `extract_timezone`. Wrong field names are silently ignored — the step looks accepted but produces no extra columns. |
 | `ChangeCRSProcessor` | Reproject coordinate system | `inputColumn`, `outputCRS` |
 
 ---

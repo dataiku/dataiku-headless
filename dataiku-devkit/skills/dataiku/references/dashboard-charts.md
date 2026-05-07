@@ -31,7 +31,8 @@ dku insight validate INSIGHT_ID -P PROJ
 |------|-------------|-------------|
 | `lines` | Line chart (single series) | Time series trends |
 | `multi_columns_lines` | Multi-series bars + optional lines | Comparison across categories |
-| `stacked_bars` | Stacked bar chart | Part-to-whole over categories |
+| `stacked_bars` | Stacked bar chart (HORIZONTAL bars) | Part-to-whole over categories |
+| `stacked_columns` | Stacked column chart (VERTICAL stacks — distinct from `stacked_bars`) | Part-to-whole on a categorical x-axis |
 | `grouped_columns` | Side-by-side grouped columns | Category comparison |
 | `stacked_area` | Stacked area chart | Cumulative trends |
 | `pie` | Pie / donut chart | Proportions |
@@ -41,6 +42,18 @@ dku insight validate INSIGHT_ID -P PROJ
 | `pivot_table` | Pivot table | Tabular aggregation |
 | `binned_xy` | 2D binned heatmap | Density |
 | `bubble` | Bubble chart | 3-variable scatter |
+| `kpi` | Single-number KPI tile (`def.genericMeasures[0]` is the value, no dimensions) | Most-popular dashboard tile — "current revenue", "active users" |
+| `gauge` | Radial gauge with `def.gaugeOptions` | Bounded metric vs target |
+| `geom_map` | Choropleth on a geometry column with `def.geoLayers[]` | Region-shaded maps |
+| `scatter_map` | Point map (`def.uaXDimension`/`uaYDimension` for lat/lon, `def.mapOptions`) | Geo points / clusters |
+| `radar` | Radar chart with `def.radarOptions` | Multi-dimensional comparison |
+| `sankey` | Sankey diagram with `def.sankeyOptions` | Flow / transition between states |
+| `waterfall` | Waterfall chart with `def.waterfallOptions` | Cumulative variance over steps |
+| `density_2d` | 2D density estimate | Distribution heatmap |
+| `numerical_heatmap` | Numeric heatmap | Correlation / matrix view |
+| `lift_curve` | ML lift curve | Model evaluation tile |
+
+DSS accepts these `def.type` values via `dku insight set-definition`. The `dku insight create -t` whitelist intentionally lists the most common types — others work via `set-definition` even if not advertised by `--help`.
 
 ---
 
@@ -290,15 +303,91 @@ Places a chart or table insight on the dashboard:
 - `width` — tile width in columns (max 36)
 - `height` — tile height in rows
 
-**`insightType` values:** `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`.
+**`insightType` values:** `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`, `eda` (Statistics worksheet), `web_app` (embedded webapp), `jupyter` (notebook output), `saved-model_report`, `managed-folder_content`, `scenario_run_button` (one-click trigger), `filters` (interactive dashboard filters), `discussions`. The CLI's `dku insight create -t` whitelist matches this set.
 
-### Text/HTML Tile
+**`clickAction` values:** `DO_NOTHING` (default), `OPEN_INSIGHT` (drill into source chart), `OPEN_DASHBOARD` (jump to another dashboard — needs paired `clickActionDashboardId`), `OPEN_DATASET`, `OPEN_FOLDER`, `OPEN_SCENARIO`, `RUN_SCENARIO`. Configures click-through navigation on a tile.
+
+**Per-insight tile-level overrides via `tileParams`** (when `tileType: INSIGHT` wraps a chart insight):
+- `showXAxis`, `showXAxisTitle`, `showYAxis`, `showYAxisTitle`, `showLegend`, `showBrush`, `showBreadcrumb`, `inheritLegendPlacement`, `legendPlacement` (`"OUTER_RIGHT"` / `"OUTER_BOTTOM"` / `"INNER_TOP_RIGHT"` / …), `showTooltips`, `autoPlayAnimation`, `useInsightTheme` — override the source chart-insight's display config without forking the insight (e.g. hide a legend that's redundant inside a GROUP tile).
+- For `web_app` insights: `loadTimeoutInSeconds` (per-tile webapp load timeout).
+
+**Per-`dataset_table` insight tile params:**
+- `viewKind` (`"EXPLORE"` / …), `showName`, `showDescription`, `showCustomFields`, `showStorageType`, `showMeaning`, `showProgressBar` — toggle which dataset metadata appears in the tile header.
+
+**Per-`scenario_run_button` insight tile params:**
+- `buttonText` (default: scenario name), `showLastRun` (bool, default true — shows "last run X minutes ago" footer). Permission: tile users need `RUN_SCENARIOS` on the project — without it the button renders disabled with no error.
+
+### GROUP Tile (recursive container)
+
+Groups multiple tiles under a titled border (the visual equivalent of `<fieldset>` in HTML). Common in Solutions for clustering 3-5 KPIs under a shared header.
+
+```json
+{
+  "tileType": "GROUP",
+  "box": {"top": 0, "left": 0, "width": 18, "height": 12},
+  "clickAction": "DO_NOTHING",
+  "displayMode": "INSIGHT",
+  "backgroundOpacity": 1.0,
+  "backgroundColor": "#ffffff",
+  "autoLoad": true,
+  "locked": false,
+  "isDisplacing": false,
+  "borderOptions": {"color": "#D9D9D9", "radius": 4, "size": 1},
+  "titleOptions": {
+    "showTitle": "YES",
+    "title": "By number of jobs",
+    "displayedTitle": "By number of jobs",
+    "fontColor": "#333",
+    "fontSize": 14
+  },
+  "grid": {
+    "tiles": [
+      { "tileType": "INSIGHT", "insightId": "...", "box": {"top": 0, "left": 0, "width": 9, "height": 6}, ... },
+      { "tileType": "INSIGHT", "insightId": "...", "box": {"top": 0, "left": 9, "width": 9, "height": 6}, ... }
+    ]
+  }
+}
+```
+
+**Important:** nested `box` coordinates are RELATIVE to the GROUP's own box (not the page's). The recursive `grid.tiles[]` can hold INSIGHT, TEXT, and further GROUP tiles.
+
+### Text/Markdown Tile (canonical form — reliably persists)
+
+The reliable form uses **markdown** in `tileParams.{text, displayedText, textAlign, verticalAlign}`. DSS persists this verbatim across saves and the markdown renders with header/bold/italic/list support.
+
+```json
+{
+  "tileType": "TEXT",
+  "box": {"top": 0, "left": 0, "width": 36, "height": 3},
+  "clickAction": "DO_NOTHING",
+  "tileParams": {
+    "text": "# Dashboard Title\n\nLast refreshed **today**.",
+    "displayedText": "# Dashboard Title\n\nLast refreshed **today**.",
+    "textAlign": "LEFT",
+    "verticalAlign": "TOP"
+  },
+  "backgroundOpacity": 1.0,
+  "backgroundColor": "#06312E",
+  "autoLoad": true,
+  "locked": false,
+  "isDisplacing": false,
+  "borderOptions": {"color": "#06312E", "radius": 4, "size": 0},
+  "titleOptions": {"showTitle": "NO", "fontColor": "#fff", "fontSize": 14},
+  "useDashboardSpacing": true,
+  "tileSpacing": 8,
+  "padding": 16,
+  "resizeImageMode": "FIT_SIZE"
+}
+```
+
+`textAlign ∈ {"LEFT", "CENTER", "RIGHT"}`, `verticalAlign ∈ {"TOP", "MIDDLE", "BOTTOM"}`. Always set both `text` and `displayedText` to the same content.
+
+### Text/HTML Tile (alternate — may not persist)
 
 > **DSS may normalize `tileParams.htmlContent` away on save.** Writing a `TEXT`
-> tile via `dku dashboard set-definition` can persist the tile but drop `htmlContent`,
-> keeping only fields like `verticalAlign`. Always re-read with
-> `dku dashboard get-definition` after writing and diff — if the HTML was dropped,
-> prefer a chart insight with a large title instead of a scripted header.
+> tile via `dku dashboard set-definition` with HTML can persist the tile but drop `htmlContent`,
+> keeping only structural fields. Prefer the markdown form above; use HTML only when
+> you need raw embedding (custom CSS / scripts) and accept the persistence risk.
 
 ```json
 {
@@ -471,3 +560,10 @@ dku dashboard set-definition DASHBOARD_ID -d @dashboard.json -P PROJ
 | Hand-written `dataset_table.shakerScript.columnOrder = ["col1",...]` | `Expected BEGIN_OBJECT but was STRING at path $.shakerScript.columnOrder[0]` | Don't hand-write the shakerScript — clone the live default via `dku insight get-definition` first and only edit `columnsSelection` |
 | `TEXT` tile `htmlContent` missing after `dashboard set-definition` | Tile renders empty / no header | DSS may normalize it away. Always re-read with `dku dashboard get-definition` and diff. If dropped, use a chart insight with large titleOptions instead of a scripted TEXT header |
 | Filter page has no dataset even though UI shows one bound | `pages[].filtersParams.datasetSmartName` was checked as the filter insight | Filter dataset can live at `pages[i].filtersParams.datasetSmartName` — check both paths |
+
+---
+
+## Critical gotcha
+
+### Chart column names are not validated server-side
+Wrong column names save without error but render blank charts. Verify with `dku dataset schema DS -P PROJ` first. Dashboard tiles live at `pages[i].grid.tiles`, not `pages[i].tiles`.
