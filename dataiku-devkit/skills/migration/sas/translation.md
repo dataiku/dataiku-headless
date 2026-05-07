@@ -1,6 +1,6 @@
 # SAS → Dataiku Translation
 
-Recipe mapping, function/PROC translations, and the enterprise passthrough workflow. Read the `sas-migration` SKILL.md first for the migration phases; read `semantics.md` before translating any DATA step or MERGE that may silently change values.
+Recipe mapping, function/PROC translations, and the enterprise passthrough workflow. Read the `migration` SKILL.md and `sas/overview.md` first for migration phases; read `semantics.md` before translating any DATA step or MERGE that may silently change values.
 
 Priority is always **Visual → SQL → Python**. Python is the last resort, not the default.
 
@@ -24,12 +24,17 @@ Priority is always **Visual → SQL → Python**. Python is the last resort, not
 | Running total / cumulative | SQL recipe | Code | `SUM() OVER (ORDER BY ...)` |
 | Hash object lookup | Join | Visual | Hash = in-memory lookup with equality keys |
 | Multiple outputs (IF/OUTPUT) | Multiple Prepare filters | Visual | One filter per output |
-| DO loop generating rows | Python recipe | Code | Loops that create rows from nothing |
-| Array processing | Prepare (formula) | Visual | Column-wise → formula per column |
-| UPDATE statement | Prepare + Join | Visual | Applies only non-missing values from transaction |
-| MODIFY (in-place) | Python recipe | Code | No Dataiku equivalent — write a new dataset |
-| `DATA _NULL_` (compute/log only) | Python recipe (no output) | Code | |
-| `SELECT/WHEN` | Prepare (FindReplace or formula) | Visual | Multi-branch conditional |
+| `DO i = 1 TO n` generating rows | Python recipe | Code | Loops that create rows from nothing — see § DO loops & SELECT |
+| `DO WHILE` / `DO UNTIL` | Python recipe | Code | State-dependent row generation |
+| `ARRAY` + `do over` (column-wise) | Prepare (one step per column) | Visual | Unroll the loop — see § ARRAY + `do over` |
+| `ARRAY` with index-dependent expression | Prepare, N `add-formula` steps | Visual | Unroll |
+| `ARRAY` cross-column shift (`a[i] = a[i-1]`) | Python recipe | Code | Needs state |
+| `UPDATE` statement | Prepare + Join | Visual | Applies only non-missing values from transaction |
+| `MODIFY` (in-place) | Python recipe | Code | No Dataiku equivalent — write a new dataset |
+| `DATA _NULL_` (compute/log only) | Python recipe (no output) | Code | Or drop if the body was `put` / `file log` only |
+| `SELECT/WHEN/OTHERWISE` | Prepare (FindReplace or nested `if()` formula) | Visual | Multi-branch conditional — see § DO loops & SELECT |
+| `INFILE` + `INPUT` statement (external file) | Dataset upload + `sync` | — | See § External-file I/O |
+| `FILE` + `PUT` statement (write external file) | Dataset download / Export | — | See § External-file I/O |
 
 ## PROC → recipe
 
@@ -44,19 +49,56 @@ Priority is always **Visual → SQL → Python**. Python is the last resort, not
 | `PROC SQL` (ODBC passthrough) | SQL recipe on a Dataiku SQL connection | Code | See Enterprise driver scripts below |
 | `PROC MEANS` / `PROC SUMMARY` | Group | Visual | Only `n/mean/std/min/max/sum/count` — percentile/median/mode need SQL or Python |
 | `PROC UNIVARIATE` | SQL recipe first, Python as fallback | SQL / Code | SQL recipe with `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col)` preserves push-down. Python only when the engine has no percentile function |
-| `PROC FREQ` | Group | Visual | Cross-tabs → Group with count |
+| `PROC FREQ` | Group (+ Pivot for multi-dim) | Visual | One-way frequencies → Group with count. Two-way cross-tabs (`TABLES a*b`) → Group by `(a, b)` then Pivot with `a` as row key, `b` as column key |
 | `PROC TRANSPOSE` | Pivot | Visual | `ID` → pivot column, `VAR` → value. Unmatched cells become `.` (missing), not 0 |
 | `PROC LOGISTIC` / `PROC REG` / `PROC GLM` | AutoML | Visual | Binary classification / regression |
 | `PROC CLUSTER` / `PROC FASTCLUS` | AutoML | Visual | Clustering |
 | `PROC IMPORT` | Dataset upload | — | `--type UploadedFiles` |
 | `PROC EXPORT` | Dataset download / Sync | — | |
-| `PROC SURVEYSELECT` | Sample | Visual | Random/stratified |
+| `PROC SURVEYSELECT` | Sample (or train/test split in AutoML) | Visual | Random/stratified; for `samprate=0.7 outall` use the Sample recipe's train/test mode |
 | `PROC FORMAT value …` | Prepare (formula with nested `if`) | Visual | Inline into a single formula — don't create a separate format artifact |
 | `PROC APPEND` | Stack | Visual | |
 | `PROC RANK` | Prepare (formula) or Window | Visual | |
-| `PROC STDIZE` | Prepare (rescale) | Visual | |
+| `PROC STDIZE` / `PROC STANDARD` | Prepare (Rescale processor) | Visual | Z-score / min-max / range standardisation. `STANDARD` uses sample stddev (`n-1`); `STDIZE` defaults to `method=STD` — same result |
+| `PROC TRANSREG` | AutoML preprocessing (one-hot, impact, flag-miss) or Python (`category_encoders`) | Visual / Code | Most SAS uses are categorical encoding — let AutoML handle it. Spline / Box-Cox transforms need `patsy` or `statsmodels` in a Python recipe |
+| `PROC PRINCOMP` | AutoML preprocessing (PCA reduction) or Python (`sklearn.decomposition.PCA`) | Visual / Code | Reach for AutoML when PCA feeds a downstream model; Python when the scores need to feed a downstream recipe (AutoML's PCA is internal to the training pipeline) |
 | `LIBNAME` | Connection | Config | `dku connection list` |
 | `%LET` | Project variable | Config | `dku project set-variable` |
+
+### Statistical PROCs
+
+Most stats PROCs land in Python. Group what's actually a **visual stat** (means/medians/correlations) from what needs a library. The Statistics recipe handles basic univariate/bivariate descriptives without code — reach for it before Python.
+
+| PROC | Recipe | Python library (when needed) |
+|---|---|---|
+| `PROC TTEST` | Statistics recipe (paired / independent) | `scipy.stats.ttest_ind` / `ttest_rel` / `ttest_1samp` |
+| `PROC CORR` | Statistics recipe (correlation matrix) | `pandas.DataFrame.corr` (methods: pearson/spearman/kendall) |
+| `PROC ANOVA` / `PROC GLM` | Python recipe | `statsmodels.formula.api.ols` + `anova_lm` |
+| `PROC GENMOD` | Python recipe | `statsmodels.genmod.GLM` (Poisson, Gamma, Binomial links) |
+| `PROC MIXED` | Python recipe | `statsmodels.MixedLM` |
+| `PROC GLIMMIX` | Python recipe | `statsmodels.BinomialBayesMixedGLM` / `GEE` / `MixedLM` with link fn. No one-liner — match the distribution + link + random-effects spec from the SAS call |
+| `PROC PHREG` / `PROC LIFETEST` | Python recipe | `lifelines` (Cox, Kaplan-Meier) |
+| `PROC SURVEYMEANS` / `SURVEYREG` / `SURVEYLOGISTIC` | Python recipe | `statsmodels.survey` (or bespoke weighted IQR/variance) |
+| `PROC FACTOR` | Python recipe | `factor_analyzer` |
+| `PROC DISCRIM` | AutoML (classification) or Python | `sklearn.discriminant_analysis.LinearDiscriminantAnalysis` |
+| `PROC NPAR1WAY` | Python recipe | `scipy.stats.wilcoxon` / `mannwhitneyu` / `kruskal` |
+| `PROC ARIMA` | Time Series Preparation plugin (basic) or Python | `statsmodels.tsa.arima.ARIMA` / `SARIMAX` |
+| `PROC ESM` | Time Series Preparation plugin | `statsmodels.tsa.holtwinters` as fallback |
+
+Note: Statistics recipe results are a summary object on the dataset, not an output dataset — downstream recipes can't consume them. If the SAS program feeds p-values or coefficients into a later step, write the Python recipe and emit a results dataset.
+
+### PROCs that are NOT recipes
+
+Some PROCs migrate to Dataiku features outside the Flow. Don't force them into a recipe.
+
+| PROC | Dataiku answer | Why it's not a recipe |
+|---|---|---|
+| `PROC SGPLOT` / `SGPANEL` / `SGSCATTER` | Dataiku **Chart** on the output dataset, or **Dashboard tile** | Plots don't produce data. Migrate to a chart definition (`dku chart create`) or a dashboard insight, not a Python recipe that writes a PNG |
+| `PROC TEMPLATE` (ODS graphics templates) | Dashboard styling / shared chart config | Presentation layer, not a pipeline step |
+| `PROC REPORT` / `PROC TABULATE` | Dashboard with **pivot-table insight** + cross-tab Group/Pivot recipes for the data | These are reporting, not transformation. Migrate the *data prep* as Group + Pivot; migrate the *layout* as a dashboard |
+| `PROC COMPARE` | **Phase 4 verification**, not a migrated step | A parity/QA tool. Replace with `dku dataset head -o json` on both sides during integration test (see SKILL.md § Phase 4) |
+| `PROC PRINT` | Implicit (DSS shows data in the Explore tab) | Not a migration target |
+| `PROC CONTENTS` | `dku dataset schema DS -P PROJ` | Metadata lookup, not a recipe |
 
 ### Display-only `format` is NOT a value assignment
 
@@ -114,6 +156,109 @@ Most RETAIN patterns are group aggregations or window functions. Classify before
 - `retain total 0; total = total + x;` — when `x` is missing, `total` becomes `.` permanently. Dangerous.
 
 Migration must check which pattern the SAS code uses. If SUM statement → `COALESCE(val, 0)` in SQL.
+
+---
+
+## ARRAY + `do over`
+
+SAS arrays apply the same expression to many columns. Most patterns are column-wise and unroll into Prepare — the loop is SAS's way of spelling out "apply the formula to each of these columns".
+
+```sas
+array nums{*} x1-x10;
+do over nums;
+    nums[_i_] = coalesce(nums[_i_], 0);
+end;
+```
+→ a single `fill-empty` step on `x1..x10`, or ten `add-formula` steps if the expression varies per column.
+
+| SAS pattern | Recipe | Note |
+|---|---|---|
+| `array a{*} c1-c10; do over a; a[_i_] = f(a[_i_]); end;` | Prepare, one step per column | Unroll the loop |
+| `array a{*} x1-x10; do i = 1 to 10; total + a[i]; end;` | Prepare formula `coalesce(x1,0)+…+coalesce(x10,0)` | Row-sum across columns. `NumericalCombinator` (op: `ADD`) handles the common case |
+| `array out{10} y1-y10; do i = 1 to 10; out[i] = input * coef[i]; end;` | Prepare, N `add-formula` steps | Index-dependent expressions — unroll |
+| `array history{*} h1-h60; do i = 60 to 2 by -1; history[i] = history[i-1]; end;` | Python recipe | Cross-column shift needs state |
+| Variable-size array driven by `&count` macro | Python recipe with dynamic column list | Column count resolved at runtime |
+
+**Array gotchas:**
+- `_i_` is the automatic index inside `do over`. Regular `do i = ...` uses `i`.
+- `array _numeric_` / `array _character_` take every numeric / character variable currently in the PDV — resolve to an explicit column list before migrating, then treat as a normal array.
+- Array subscripts are 1-based and SAS raises `Array subscript out of range` at runtime. GREL silently returns missing on out-of-range list access — if the SAS code relied on the error, document the bound explicitly.
+
+## DO loops & SELECT/WHEN in the DATA step
+
+Non-macro `DO` blocks inside a DATA step usually reduce to a visual recipe — most of the time the loop is a row-wise aggregation or a column-wise array walk. Python is only needed when the loop generates rows from nothing or carries state across iterations.
+
+| SAS pattern | Recipe | Note |
+|---|---|---|
+| `do i = 1 to 10; output; end;` (generate rows) | Python recipe | Explode from one row to N — no visual equivalent |
+| `do i = 1 to n; sum + x[i]; end;` (reduce over array) | Prepare formula or Group | Column-wise reduce — see § ARRAY + `do over` |
+| `do while (balance > 0); balance = balance - pmt; end;` | Python recipe | Iterative state per row |
+| `do until (converged); …; end;` | Python recipe | Same — needs cross-iteration state |
+| `do i = 1 to n by 2;` | Unroll in Prepare, or Python if n is data-driven | `by` step controls the subset |
+
+`DO WHILE` checks at the **top** — may not execute. `DO UNTIL` checks at the **bottom** — always runs at least once. Preserve the check order when translating.
+
+### `SELECT/WHEN/OTHERWISE`
+
+```sas
+select (region);
+    when ('EMEA')            rate = 0.18;
+    when ('NA', 'LATAM')     rate = 0.12;
+    when ('APAC')            rate = 0.09;
+    otherwise                rate = 0.15;
+end;
+```
+→ Prepare with either a `FindReplace` step (best when the mapping is key→value only) or a formula:
+```bash
+dku recipe add-formula prep --column rate \
+    --expr 'if(region == "EMEA", 0.18, if(region == "NA" || region == "LATAM", 0.12, if(region == "APAC", 0.09, 0.15)))' \
+    -P PROJ
+```
+
+Block-form `when` with multiple statements → one `add-formula` per target column, each wrapping the same `if(region == ..., …)` branches. Don't try to emulate a multi-statement `when` block with a single step — unroll per output column.
+
+The value-less form `select; when (cond) ...; otherwise ...;` is a chain of conditionals — identical translation.
+
+## Log, debug & control-flow statements (drop these)
+
+A cluster of DATA-step statements exist only to write to the SAS log, mutate internal state flags, or do intra-step `GOTO`. None of them have a recipe equivalent and most shouldn't be preserved — they're implementation detail of how a SAS program reports itself, not business logic.
+
+| SAS statement | Purpose | What to do |
+|---|---|---|
+| `ABORT` | End DATA step, job, or session with a return code | Drop. Pre-run data validation moves to scenario checks (§ Scheduling) |
+| `ERROR 'msg';` | Sets `_ERROR_=1` and writes to log | Drop. A recipe that encounters bad data should either fail (raise in Python) or filter the bad rows (Prepare) |
+| `PUTLOG 'msg' var=;` | Write to SAS log | Drop. For a Python recipe, `print()` goes to DSS job logs. For visual recipes, there's no log writer — that's not a failure, just not a thing |
+| `LIST;` | Dump the current input record to the log | Drop. Debugging aid only |
+| `LOSTCARD;` | Resynchronize multi-line input when a record is missing | Drop. Upload the file, Prepare/Python to reshape if layout is irregular |
+| `REDIRECT;` | Reassign input/output datasets at runtime for stored programs | Drop. Stored DATA step programs don't migrate as-is |
+| `DESCRIBE;` | Extract source code from a stored compiled program | Drop. Metadata utility |
+| `EXECUTE;` (DATA-step) | Run a stored compiled program | Drop. Migrate the underlying program as its own recipe |
+| `REMOVE;` / `REPLACE;` (with MODIFY) | Delete / replace in-place in a SAS data set | See § DATA step → recipe row for `MODIFY` — migrate as a Python recipe writing a new dataset |
+| `DISPLAY windowname;` / `WINDOW name ...;` | Pop up interactive character-mode windows (legacy SAS/AF) | Drop. Not a batch-pipeline concept |
+| `LABEL var='...';` (statement) | Assign a descriptive label | Drop during migration — or, if the label matters for reporting, set `--long-desc` on the output dataset. The column-level label isn't exposed via `dku dataset set-schema` today |
+| `Label:` (colon, line label) + `GOTO Label;` / `LINK Label;` | Intra-step jumps | Drop. Refactor the logic into `if/else` + `return` when translating. A `LINK … RETURN` pair is a reusable subroutine → extract into a Python helper |
+| `LEAVE;` / `CONTINUE;` | Break out of / skip a DO loop iteration | Drop. When unrolling a `do` loop into Prepare steps, the control flow disappears; when translating to Python, the native `break` / `continue` works directly |
+| `DATA _NULL_;` with only `file log`/`put` | Log-only DATA step | Drop the entire step |
+
+Why drop instead of translate: these statements encode how the SAS program debugs or steers itself. Their presence does not imply the surrounding logic is non-migratable — read through them to the actual computation and migrate that. Flag in Phase 1 inventory as *"step N contains log/debug statements only — no output"* so the user confirms before you drop.
+
+## External-file I/O (INFILE / INPUT statement, FILE / PUT statement)
+
+The `INPUT()` and `PUT()` *functions* (covered in § Function mapping) convert between strings and numerics in memory. The `INPUT` / `PUT` *statements* and their companions `INFILE` / `FILE` read and write external files — they're how SAS does ingest and export.
+
+| SAS statement | What it does | Dataiku equivalent |
+|---|---|---|
+| `infile '/path/file.csv' dsd firstobs=2;` + `input a $ b c;` | Read delimited external file | Upload → `--type UploadedFiles`, then `sync` to the target connection. Set schema after upload (defaults to all STRING) |
+| `infile 'file.dat' column=@c1-c9 @10 d 8.;` | Read fixed-width | Upload as raw, then Prepare with `SplitColumn` / `substring()` per field, or a Python recipe if the layout is dense |
+| `infile datalines; input ...; datalines; ...;` | Inline test data | Not migrated — treat as test fixture; write the inline rows to a CSV and upload only if the pipeline actually needs them |
+| `infile 'file' missover / truncover / stopover` | Missing-field behavior | Upload then Prepare — pad with `fill-empty` for MISSOVER / TRUNCOVER; raise via schema validation for STOPOVER |
+| `infile '&path' filevar=f end=eof;` | Loop over many files | Dataset with file pattern (`path/*.csv`) or a Python recipe iterating a managed folder |
+| `file '/path/out.dat';` + `put a $ b c;` | Write formatted external file | Dataset download, or Sync recipe to a Filesystem / cloud connection. For fixed-width output, a Python recipe building the line and writing to a managed folder |
+| `file log;` + `put ...;` | Log diagnostic | DSS job logs capture `print()` from a Python recipe — don't migrate as a pipeline step |
+| `file print;` + `put ...;` | Printed report | Dashboard tile or `PROC REPORT`-style aggregate — not a recipe output |
+| `%include 'config.sas';` pointing at a data file | Not I/O — macro include | See SKILL.md § `%include` chains |
+
+**Inventory rule:** during Phase 1, list every `INFILE` / `FILE` statement and map each to an upload / sync / download step before planning the downstream DATA steps. Getting the ingest wrong silently casts columns to STRING and breaks every downstream filter.
 
 ---
 
@@ -185,7 +330,7 @@ dku recipe create appl_tenure -t prepare \
     -i appl_tenure_joined --output-ds appl_tenure -P PROJ
 
 dku recipe add-formula appl_tenure --column tenure_m \
-    --expr 'dateDifference(parseDate(account_creation_date, "yyyy-MM-dd"), parseDate("2025-12-31", "yyyy-MM-dd"), "months") + 1' -P PROJ
+    --expr 'diff(asDateOnly(account_creation_date, "yyyy-MM-dd"), asDateOnly("2025-12-31", "yyyy-MM-dd"), "months") + 1' -P PROJ
 
 dku recipe add-formula appl_tenure --column tenure_y \
     --expr 'round(numval(tenure_m) / 12 * 10) / 10' -P PROJ
@@ -411,6 +556,10 @@ GREL function names are **case-sensitive**. See the `dataiku` skill's `reference
 | `INTCK('month', d1, d2)` | `diff(d1, d2, 'months')` | SAS counts boundary crossings, not elapsed |
 | `LOG(n)` | `ln(n)` | SAS `LOG` = natural log; GREL `log` = base-10 |
 | `EXP(n)` | `exp(n)` | Both base-e — consistent |
+| `NMISS(a, b, c)` / `CMISS(a, b, c)` | `if(isBlank(a),1,0) + if(isBlank(b),1,0) + if(isBlank(c),1,0)` | Count of missing across columns, per row. Returns integer. No ternary operator in GREL — use `if()` |
+| `DATDIF(d1, d2, 'act/act')` | `diff(d1, d2, "days")` | Verify dates are parsed (`asDateOnly(s, "yyyy-MM-dd")`), not raw strings — `diff` on strings throws "Unknown function" |
+| `YRDIF(d1, d2, 'act/act')` | `diff(d1, d2, "years")` | SAS `YRDIF` has a `basis` arg (`'30/360'`, `'actual'`, `'act/365'`, `'act/360'`) — `diff` is always actual. For non-actual basis, compute in days and divide |
+| `RANUNI(seed)` / `RANNOR(seed)` | Python recipe: `random.seed(seed); random.random()` / `random.gauss(0, 1)` | No GREL RNG. Seeded reproducibility needs Python |
 
 ### String
 
@@ -433,8 +582,25 @@ GREL function names are **case-sensitive**. See the `dataiku` skill's `reference
 | `LENGTH(s)` | `length(s)` | |
 | `IFC(cond, t, f)` | `if(cond, t, f)` | Inline character |
 | `IFN(cond, t, f)` | `if(cond, t, f)` | Inline numeric |
+| `COMPBL(s)` | `replace(s, /\s+/, " ")` | Collapse runs of whitespace to one space. No dedicated processor — the `StringTransformer` NORMALIZE mode does more than this (lowercase + accent strip) |
+| `COUNT(s, sub)` | `(length(s) - length(replace(s, sub, ""))) / length(sub)` | Counts substring occurrences. Returns a double (`2.0`, not `2`) — wrap in `toInt(...)` if integer type needed downstream |
+| `COUNTC(s, chars)` | Chained `length(s) - length(replace(s, c, ""))` per char, summed | One subtraction per character class. For large char sets use a Python recipe |
+| `TRANSLATE(s, to, from)` | Chained `replace(replace(s, from_ch1, to_ch1), from_ch2, to_ch2)` | **SAS arg order is `(s, to, from)`, not `(s, from, to)`** — silent source of wrong values if copied blindly |
+| `REVERSE(s)` | Python recipe: `df["rev"] = df["col"].str[::-1]` | No GREL string reverse. `arrayReverse` exists but takes an array, not a string |
 
 `COMPRESS` modifiers: `k` = keep (instead of remove), `d` = digits, `a` = alpha, `s` = spaces, `p` = punct. `compress(s, , 'kd')` = keep only digits.
+
+### Geography / reference-data lookups
+
+SAS ships reference tables (`SASHELP.ZIPCODE`, `SASHELP.US_DATA`) and functions (`STFIPS`, `STNAME`, `ZIPSTATE`) that don't exist in Dataiku. The SKILL.md non-migratable patterns table flags this; at the function level:
+
+| SAS | Dataiku answer |
+|---|---|
+| `STFIPS(state)` / `STNAME(fips)` / `ZIPSTATE(zip)` | Join against a reference dataset (user-provided CSV of state ↔ FIPS ↔ ZIP mappings). No Dataiku function or plugin ships this data |
+| `ZIPCITYDISTANCE(zip1, zip2)` | Resolve each ZIP to lat/lon via reference join, then `GeoPointCreator` + `GeoDistanceProcessor` (or `dku recipe add-geopoint` + `add-geodistance`) |
+| `GEODIST(lat1, lon1, lat2, lon2)` | Two processors: `GeoPointCreator` on each lat/lon pair, then `GeoDistanceProcessor` between the two geopoint columns. Not available as a one-line GREL function |
+
+Prompt the user for the reference CSV during Phase 1 inventory — don't silently drop these functions.
 
 ### Dates (SQL recipe equivalents — engine-specific)
 
@@ -682,6 +848,52 @@ LEFT JOIN counts cnt ON ac.customer_id = cnt.customer_id
 
 Use `"${projectKey}_tablename"` as the table reference — DSS substitutes `${projectKey}` at run time and Postgres is case-sensitive on identifiers.
 
+#### Visual-only fallback (no SQL connection available)
+
+When the flow runs on a Filesystem connection (DSS engine, no SQL push-down), the SQL recipe above is unavailable. The state machine still maps to **all-visual recipes** — Python is NOT the answer. The pattern is a **four-recipe pipeline using a composite "date|prev_value" marker** to recover `prev_plan` at the latest change row per partition:
+
+1. **Window-lag** — partition customer_id, order by date asc; `--compute 'lag:plan_family_name:1'`. Output adds `plan_family_name_lag1` per row.
+
+2. **Prepare-markers** — adds `change_flag` (0/1 derived from lag vs current) and a composite text marker that encodes `last_update_date|plan_family_name_lag1` only on change rows:
+
+```bash
+dku recipe add-formula prepare_plan_state_markers --column change_flag \
+    --expr 'if(isBlank(plan_family_name_lag1) || plan_family_name == plan_family_name_lag1, 0, 1)'
+dku recipe add-formula prepare_plan_state_markers --column change_composite \
+    --expr 'if(change_flag == 1, last_update_date + "|" + plan_family_name_lag1, "")'
+# Then: dku dataset set-schema OUTPUT -d '... change_flag: bigint ...'
+# (GREL formula columns default to STRING; downstream Window's sum:change_flag fails on STRING.)
+```
+
+3. **Window-aggregate** — partition customer_id, order asc; aggregate over the partition with `sum:change_flag` (cumulative count of transitions = `nb_plan_changes`) and `max:change_composite` (lexicographic max of `YYYY-MM-DD|plan` picks the LATEST change's marker because ISO date prefixes sort chronologically):
+
+```bash
+dku recipe create-window window_plan_state_agg \
+    -i plan_state_markers --output-ds plan_state_aggregated \
+    -k customer_id --order-key 'last_update_date' \
+    --compute 'sum:change_flag:' --compute 'max:change_composite:' \
+    --compute 'rowNumber::' --compute 'count:customer_id:' \
+    --rename 'change_flag_sum:nb_plan_changes' \
+    --rename 'change_composite_max:composite_max' \
+    --rename 'rownumber:rn' --rename 'customer_id_count:cnt' \
+    --post-filter 'rn == cnt' -P PROJ
+```
+
+4. **Prepare-final** — split the composite back into `last_change_date` + `plan_before_change`, compute `time_since_last_change`, and bin:
+
+```bash
+dku recipe add-formula prepare_plan_state_final --column last_change_date \
+    --expr 'if(composite_max == "", "", split(composite_max, "|")[0])'
+dku recipe add-formula prepare_plan_state_final --column plan_before_change \
+    --expr 'if(composite_max == "", "No change", split(composite_max, "|")[1])'
+dku recipe add-formula prepare_plan_state_final --column time_since_last_change \
+    --expr 'if(isBlank(last_change_date), "", "" + diff(asDateOnly(last_change_date, "yyyy-MM-dd"), asDateOnly("2024-12-01", "yyyy-MM-dd"), "months"))'
+```
+
+**Why the composite marker.** `max(date)` over the partition gives the latest change date, but the Window aggregation can't read `prev_plan` AT that latest-change row directly — `last_value` on a string returns the value at the partition's last row regardless of the change_flag. Encoding `(date, prev_plan)` as a single sortable string lets `max` pick the row chronologically and the post-pivot Prepare splits it back. Same trick applies to any "value of column Y at the row where condition X is last true per partition" SAS pattern.
+
+**`firstLastNotNull` alternative** — DSS Window has a `firstLastNotNull` aggregation that picks the first non-null in ordering. With order DESC and an empty-string-elsewhere marker treated as null, this gives the same answer without the composite. The composite approach is more portable across DSS versions and handles ties deterministically.
+
 ---
 
 ## AutoML
@@ -694,11 +906,29 @@ Use `"${projectKey}_tablename"` as the table reference — DSS substitutes `${pr
 | No target | Clustering | `PROC CLUSTER` |
 | Imputation, OHE, train/test | AutoML handles automatically | `SimpleImputer`, `OneHotEncoder`, `dm_traindf` |
 
+### SAS Viya / Enterprise Miner ML PROCs
+
+SAS Viya HP PROCs are all tree/ensemble/neural algorithms available in AutoML. Migrate to AutoML with the matching algorithm enabled — don't rewrite in Python unless the SAS call uses an option AutoML can't express (custom loss, monotonic constraints, etc.).
+
+| SAS PROC | Dataiku | Algorithm / note |
+|---|---|---|
+| `PROC GRADBOOST` (Viya) / `PROC TREEBOOST` (EM) | AutoML | Gradient Boosted Trees (XGBoost / LightGBM backend) |
+| `PROC HPFOREST` / `PROC FOREST` | AutoML | Random Forest |
+| `PROC HPSPLIT` | AutoML | Decision Tree |
+| `PROC HPSVM` / `PROC SVMACHINE` | AutoML | SVM (kernel from SAS `kernel=` option) |
+| `PROC PLS` | Python recipe | `sklearn.cross_decomposition.PLSRegression` — no AutoML equivalent |
+| Neural / `PROC NEURAL` / `PROC HPNEURAL` | AutoML (MLP) or Python (`keras`/`pytorch`) | AutoML MLP for shallow nets; Python for bespoke architectures |
+| k-NN (`PROC DISCRIM method=npar k=`) | AutoML (K-Nearest Neighbors) | Distance metric usually euclidean — verify SAS `METRIC=` option |
+| `PROC HPCLUS` | AutoML (clustering) | K-means / hierarchical |
+| `PROC FACTMAC` (factorization machines) | Python recipe | `lightfm` or `xlearn` |
+
 ```bash
 dku ml create analysis -d dataset -t TARGET --task-type BINARY_CLASSIFICATION -P PROJ && \
 dku ml train analysis -P PROJ --wait && \
 dku ml deploy analysis -P PROJ
 ```
+
+**Hyperparameter mapping:** SAS `ntrees= maxdepth= minleafsize=` → AutoML GBT / RF grid. Translate the search space, don't pin single values — AutoML tunes across the grid and picks the best.
 
 ---
 
@@ -714,6 +944,65 @@ dku ml deploy analysis -P PROJ
 3. **`dateonly` JSON quirk** — `dku dataset head -o json` renders as `"2026-02-06 00:00:00"` (trailing midnight). Cosmetic; strip the time component in parity checks.
 4. **SAS missing date (`.`) → Dataiku null.** In LEFT JOINs with no match, SAS emits `.`, Dataiku emits `null`. Normalize both to `None` in parity checks.
 5. **Force `yymmdd10` display format in SAS goldens** used for string parity: change `format=date9.` to `format=yymmdd10.` on any SQL alias you'll compare.
+
+---
+
+## Scheduling, checks, reporting → DSS scenarios
+
+Most SAS installs orchestrate their jobs outside the `.sas` files: a batch scheduler (cron, Control-M, Autosys, LSF, SAS Enterprise Scheduler) runs programs on a calendar; `PUT` / `PUTLOG` lines plus `PROC COMPARE` / custom macros act as checks; `FILENAME EMAIL` or `PROC REPORT` produce reports. In Dataiku, all three collapse into a **scenario**: one scenario per pipeline, with steps, triggers, checks, and reporters.
+
+### Scheduling trigger
+
+| SAS side | DSS equivalent | Command |
+|---|---|---|
+| Cron line `0 6 * * 1-5 sas program.sas` | Scenario `time_trigger` | `dku scenario add-trigger NAME -t time_trigger --params '{"repeatFrequency":"DAY","hour":6,"minute":0,"daysOfWeek":["MON","TUE","WED","THU","FRI"]}' -P PROJ` |
+| Cron `*/15 * * * *` (every 15 min) | `time_trigger` with `repeatFrequency=MINUTE`, `intervalMinutes=15` | — |
+| Control-M / Autosys dependency ("after job X succeeds") | Upstream scenario's reporter runs downstream via `run_scenario` step, or downstream uses a `dataset_modified` trigger on the upstream's output | Avoid cross-scenario success polling |
+| Event-driven: "run when file lands" | `dataset_modified` trigger on the ingest dataset | `-t dataset_modified --params '{"datasetsToMonitor":[...]}'` |
+| On-demand button | No trigger — run manually via `dku scenario run NAME -P PROJ` | — |
+
+### Pipeline orchestration
+
+| SAS side | DSS scenario step | Notes |
+|---|---|---|
+| `%include 'build_step1.sas';` ... `'build_step2.sas';` in order | One `build_flowitem` step per output dataset, in order | DSS infers the build order from the flow DAG — usually one step building the terminal dataset is enough |
+| `if &rc. ne 0 then %abort;` after each step | Scenario step `onFailure: "FAIL"` (default) | Scenarios stop on first failure unless the step is marked non-blocking |
+| Retry loop around a failing step | Step `onFailure: "CONTINUE"` + a downstream `check_dataset` | Don't replicate the retry loop — let the scheduler re-fire the scenario |
+| Per-month expansion (`%do m = 1 %to 12`) running the same pipeline 12× | Scenario with a `custom_python` step looping and invoking each build | `project.get_scenario().run(variables={...})` from the Python step |
+| `%JOB_CONTROL_UPDT` writing run metadata | Scenario run history — automatic | `dku scenario last-run NAME -P PROJ -o json` returns start/end/status |
+
+### Checks (QA / data quality)
+
+SAS programs often include ad-hoc checks: `if nobs = 0 then abort;`, `proc compare base=expected compare=actual;`, custom macros counting nulls. In Dataiku, attach checks to the relevant dataset (metrics + checks) and reference them from the scenario.
+
+| SAS check pattern | DSS equivalent |
+|---|---|
+| `proc sql; select count(*) from ds; …if 0 then abort;` | Dataset metric `Record count` + check `Record count > 0` + scenario `check_dataset` step |
+| `proc freq data=ds; tables status / missing;` used for null audits | Metric `Column values count (not empty)` per column + check |
+| `proc compare base=expected compare=actual;` | Two datasets + a Prepare recipe producing a diff, plus a `check_dataset` on `count == 0` |
+| Custom threshold (e.g. `avg(revenue) > 1000`) | Metric `Column statistics` (avg) + check `value > 1000` |
+| Schema drift (SAS `var_exist` macro) | Metric + check on `Record count` per column type, or a Python-coded check |
+
+`dku scenario add-step` supports `check_dataset` and `compute_metrics`. Set these on the *input* dataset to the step they guard, not the output — guarding the output means the check runs after the expensive build.
+
+### Reporting / notifications
+
+| SAS side | DSS reporter |
+|---|---|
+| `FILENAME mail EMAIL ...; data _null_; file mail; put ...;` | Email reporter on scenario — `dku scenario add-reporter NAME -t mail --params '{"recipient":"ops@x","subject":"…"}'` |
+| Slack via custom macro / webhook | Webhook reporter (`msteams-webhook`, `slack-webhook`) |
+| `PROC REPORT` → PDF attached | Dashboard export via reporter (attach dashboard PDF to email) |
+| Per-step logs mailed on failure | Default scenario behavior: mail reporter with `onSuccess: false, onFailure: true` |
+
+### Dispatching reminder
+
+Not every `.sas` file is a scenario step. Inventory SAS jobs into three piles before writing recipes:
+
+1. **Transformation** (DATA/PROC producing a dataset) → recipe in the flow
+2. **Orchestration** (master driver calling transformation files) → scenario with `build_flowitem` steps
+3. **Checks / reports** (no new dataset, just audits or emails) → scenario check/reporter, not a recipe
+
+Misclassifying reports as Python recipes is the most common scheduling-migration error. A Python recipe writes a dataset; if there's no dataset to produce, it's a reporter.
 
 ---
 
