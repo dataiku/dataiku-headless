@@ -2233,11 +2233,19 @@ def metrics_run(
             render_raw(report, output_format="json")
             return
         success(f"Computed metrics on dataset '{dataset_name}'")
-        n_computed = len(report.get("computed", []))
-        n_errors = len(report.get("errors", []))
-        info(f"Probes computed: {n_computed}, errors: {n_errors}")
-        for err in report.get("errors", [])[:5]:
-            warn(f"  {err.get('message', err)}")
+        # compute_metrics() returns {hasResult, aborted, ..., result: {computed,
+        # skipped, ...}}. Older shapes flatten to the top level, so check both.
+        body = (
+            report.get("result") if isinstance(report.get("result"), dict) else report
+        )
+        computed = body.get("computed") or []
+        skipped = body.get("skipped") or []
+        errors = body.get("errors") or report.get("errors") or []
+        info(
+            f"Probes computed: {len(computed)}, skipped: {len(skipped)}, errors: {len(errors)}"
+        )
+        for err in errors[:5]:
+            warn(f"  {err.get('message', err) if isinstance(err, dict) else err}")
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
@@ -2397,28 +2405,32 @@ def checks_status(
         try:
             status = ruleset.get_status()
         except Exception as inner:
-            # DSS returns 404 'There is no result for this dataset' both when
-            # the dataset itself doesn't exist AND when no rules have ever
-            # been computed. Disambiguate by re-checking the dataset.
-            if is_not_found_error(inner):
-                try:
-                    ds.get_definition()
-                except Exception:
+            # DSS's no-result response is unstructured: sometimes a 404 with the
+            # 'There is no result for this dataset' body, sometimes an empty body
+            # that surfaces as a JSON-decode error inside dataikuapi. Either way,
+            # if the dataset itself exists, treat it as 'no result yet'.
+            try:
+                ds.get_definition()
+                dataset_exists = True
+            except Exception:
+                dataset_exists = False
+            if not dataset_exists:
+                if is_not_found_error(inner):
                     exit_with_error(
                         f"Dataset '{dataset_name}' not found in {project_key}.",
                         code="not_found",
                         status=3,
                         details=[f"List datasets: dku dataset list -P {project_key}"],
                     )
-                if output == "json":
-                    render_raw({"status": "NO_RESULT"}, output_format="json")
-                    return
-                info(
-                    "No data-quality results yet. Run rules first: "
-                    f"dku dataset checks run {dataset_name} -P {project_key}"
-                )
+                raise
+            if output == "json":
+                render_raw({"status": "NO_RESULT"}, output_format="json")
                 return
-            raise
+            info(
+                "No data-quality results yet. Run rules first: "
+                f"dku dataset checks run {dataset_name} -P {project_key}"
+            )
+            return
         if output == "json":
             render_raw(status, output_format="json")
             return

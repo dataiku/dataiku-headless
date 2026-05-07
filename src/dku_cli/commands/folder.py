@@ -391,26 +391,48 @@ def create_dataset(
         ds = folder.create_dataset_from_files(dataset_name)
         format_msg = ""
         if format:
+            # Always run autodetect first so the dataset has the full set of
+            # format defaults (separator, quoteChar, parseHeaderRow, ...).
+            # Without this, an explicit --format csv produces a dataset DSS
+            # can't read ("Missing parameters for CSV"). Detection failures
+            # are tolerated — we'll fall back to a hand-rolled minimum below.
+            try:
+                ds.autodetect_settings().save()
+            except Exception:
+                pass
             settings = ds.get_settings()
             raw = settings.get_raw()
+            detected_format = (raw.get("formatType") or "").lower()
+            target = format.lower()
             raw["formatType"] = format
+            # If the detected format differs from the requested one, the
+            # detected formatParams keys are wrong for the new format. Reset
+            # so we don't carry CSV defaults into an Excel dataset.
+            if detected_format != target:
+                raw["formatParams"] = {}
             params = raw.setdefault("formatParams", {})
-            if format.lower() == "excel":
+            if target == "csv":
+                # Sane CSV defaults for the case where detection failed or
+                # picked a different format. autodetect-on-CSV usually fills
+                # these — these defaults are the safety net.
+                params.setdefault("separator", ",")
+                params.setdefault("style", "excel")
+                params.setdefault("charset", "utf8")
+                params.setdefault("quoteChar", '"')
+                params.setdefault("parseHeaderRow", True)
+            elif target == "excel":
+                params.setdefault("parseHeaderRow", True)
+                params.setdefault("xlsxRowOverflowStrategy", "FAIL")
                 if sheet:
                     params["sheets"] = sheet
                     params["sheetSelectionMode"] = "NAMES"
                 elif sheet_index is not None:
                     params["sheets"] = str(sheet_index)
                     params["sheetSelectionMode"] = "INDICES"
-                if skip_rows_before is not None:
-                    params["skipRowsBeforeHeader"] = skip_rows_before
-                if no_header:
-                    params["parseHeaderRow"] = False
-            elif format.lower() == "csv":
-                if skip_rows_before is not None:
-                    params["skipRowsBeforeHeader"] = skip_rows_before
-                if no_header:
-                    params["parseHeaderRow"] = False
+            if skip_rows_before is not None:
+                params["skipRowsBeforeHeader"] = skip_rows_before
+            if no_header:
+                params["parseHeaderRow"] = False
             settings.save()
             extras = []
             if sheet:
