@@ -140,6 +140,72 @@ def _handle_invalid_api_key(msg: str) -> tuple[str, list[str]] | None:
     )
 
 
+def _handle_pivot_modality_scan(msg: str) -> tuple[str, list[str]] | None:
+    """Detect a Pivot recipe modality-scan failure and prescribe restructuring.
+
+    DSS only populates the output dataset's modality cache during a UI-driven
+    scan; `dku` exposes no command for it, and even setting
+    ``pivots[0].explicitValues`` in the recipe payload doesn't populate the
+    cache. The build then fails with this exact error. The fix is rarely "set
+    the modalities harder" — it's "redesign the flow to skip the pivot".
+
+    Returns (message, details) or None if the error doesn't match.
+    """
+    if "Modality lists stored in output schema are not up-to-date" not in msg:
+        return None
+
+    return (
+        "Pivot recipe modality scan is UI-only — `dku` cannot trigger it.",
+        [
+            "DSS populates the output dataset's modality cache only during a",
+            "UI-driven scan. Setting `pivots[0].explicitValues` via",
+            "`dku recipe set-settings` updates the recipe payload but NOT the",
+            "output's modality cache, so the build still fails.",
+            "",
+            "Fix: redesign the flow to skip the pivot. If the pivot exists to",
+            "fan a column-keyed value into N output columns for a downstream",
+            "join, compute those N columns inline upstream with `add-formula`",
+            "(one per modality) and skip the pivot entirely.",
+            "",
+            "See: dku-cli skill cheat-sheet rule 15 +",
+            "skills/dku-cli/references/common-gotchas.md +",
+            "skills/migration/ayx/translation.md § CrossTab.",
+        ],
+    )
+
+
+def _handle_fold_plugin_missing(msg: str) -> tuple[str, list[str]] | None:
+    """Detect the FoldColumnsByName plugin-missing error.
+
+    Older `dku` versions emitted `FoldColumnsByName` (plugin) from `add-fold`.
+    Recent versions emit stock `MultiColumnFold`. If a user hits the plugin
+    error, the immediate fix is to reinstall the global CLI; falling back to
+    `pd.melt` is never the right answer.
+
+    Returns (message, details) or None if the error doesn't match.
+    """
+    if "FoldColumnsByName" not in msg or "plugin that is not installed" not in msg:
+        return None
+
+    return (
+        "`FoldColumnsByName` is a plugin processor not installed on this DSS.",
+        [
+            "Recent `dku` versions emit the stock `MultiColumnFold` processor",
+            "from `add-fold` instead of the plugin variant. Reinstall the",
+            "global CLI to pick up that fix:",
+            "",
+            "  uv tool install --from . dku-cli --force --reinstall",
+            "",
+            "Do NOT fall back to a Python `pd.melt` recipe. If the unpivot is",
+            "still in your way after reinstalling, consider whether you need",
+            "the unpivot at all — most are eliminated by computing per-group",
+            "aggregates *before* the reshape.",
+            "",
+            "See: dku-cli skill cheat-sheet rule 15.",
+        ],
+    )
+
+
 def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
     """Parse Govern ValidationException messages into prescriptive guidance.
 
@@ -224,6 +290,26 @@ def handle_api_error(e: Exception) -> None:
             govern_result[0],
             code="govern_validation",
             details=govern_result[1],
+            status=1,
+        )
+
+    # Pivot recipe modality scan — UI-only, restructure to fix
+    pivot_result = _handle_pivot_modality_scan(msg)
+    if pivot_result:
+        exit_with_error(
+            pivot_result[0],
+            code="pivot_modality_scan",
+            details=pivot_result[1],
+            status=1,
+        )
+
+    # FoldColumnsByName plugin missing — reinstall CLI; never pd.melt
+    fold_result = _handle_fold_plugin_missing(msg)
+    if fold_result:
+        exit_with_error(
+            fold_result[0],
+            code="fold_plugin_missing",
+            details=fold_result[1],
             status=1,
         )
 

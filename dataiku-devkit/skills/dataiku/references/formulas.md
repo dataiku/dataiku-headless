@@ -26,7 +26,8 @@ GREL function names use inconsistent casing. Getting one letter wrong produces `
 | `toNumber(o)` | ~~`int(o)`~~, ~~`float(o)`~~ |
 | `isNonBlank()` | ~~`isNotBlank()`~~ |
 | `isNotNull()` | ~~`isNonNull()`~~ |
-| `diff(d1, d2, unit)` | ~~`dateDiff()`~~ (does not exist) |
+| `diff(d1, d2, unit)` | ~~`dateDiff()`~~, ~~`monthsBetween(d1, d2)`~~, ~~`daysBetween(d1, d2)`~~ (none exist — `diff` with unit string is the only form) |
+| `asDateOnly("YYYY-MM-DD", "yyyy-MM-dd")` to construct a date constant | ~~`date("YYYY-MM-DD")`~~ (no bare `date()` constructor in GREL — parse the literal with `asDateOnly`) |
 
 ## Core syntax reference
 
@@ -37,7 +38,17 @@ GREL function names use inconsistent casing. Getting one letter wrong produces `
 - `strval("column", default)` — string value with fallback
 - `val("column", [default], [offset])` — generic accessor with optional default and row offset
 
-**CRITICAL:** `val`/`numval`/`strval` require a **quoted** column name. The bareword form `numval(column)` silently returns empty string — DSS parses `column` as an undefined variable instead of a column reference. Use `numval("column")` or drop the wrapper and rely on bareword `column` + arithmetic (GREL auto-coerces).
+**CRITICAL:** `val`/`numval`/`strval` require a **quoted** column name. The bareword form `numval(column)` silently returns empty string — DSS parses `column` as an undefined variable instead of a column reference. Use `numval("column")` or drop the wrapper and rely on bareword `column` + arithmetic (GREL auto-coerces). Same rule applies when the first argument is any non-literal expression: `numval(split(s,"-")[0], 0)` is silently empty. Use `toNumber(split(s,"-")[0])` for string→number conversion of an expression.
+
+**Column names with spaces:** bareword access only works when the name is a valid identifier. For `Sales Rep`, `Postal Area`, etc., use `numval("Sales Rep")` / `strval("Postal Area")` — DO NOT use `` `Sales Rep` `` (backtick). The GREL parser in prepare filter/formula rejects backticked identifiers with `ParsingException at offset 0`.
+
+**`CreateColumnWithGREL` output type inference:** `apply-schema` infers the output type from the expression. `toNumber(…)` is inferred as `bigint`/`double`; `split(…)[i]` stays `string`; conditional expressions fall back to `string` when the branches disagree. Two pitfalls that make the inferred type *silently* `string`:
+1. An expression that evaluates to empty (e.g. `numval(split(Range,"-")[0], 0)` — `numval` expects a column NAME as its first arg, not an expression, so every row is empty). Fix: use `toNumber()` for expression-based conversions.
+2. Changing the formula after the output dataset schema is already locked in. `apply-schema` reports "no updates needed" because the output dataset already has the column as `string`. Fix: re-run `dku dataset set-schema OUT -P PROJ -d '[…]'` or delete + recreate the output dataset.
+
+**Reverse pitfall: string-typed expression auto-cast to `bigint` because all sampled values are digit-only.** `replace(strval(col), /^0+/, "")` strips leading zeros and returns a string from GREL's perspective, but if every sample value is digit-only (e.g. `"1234"`, `"123456"`), `apply-schema` infers `bigint` for the output column. Symptom: downstream reads come back as integers (`1234` not `"1234"`), key-exact comparison against an expected-string dataset fails. Fix: either (a) wrap with `concat("", replace(...))` to defeat the digit-only sample, or (b) `dku dataset set-schema OUT -P PROJ -d '[…,{"name":"Trimmed","type":"string"}]'` after `apply-schema` to lock the column as STRING and re-run.
+
+**`numval(int_col)` returns a `double`, not a `bigint` — string concatenation produces `"X.0"`.** GREL has no separate integer accessor; `numval("rank")` on a `bigint` column returns the value as a Java `Double`, so `"Author" + numval("rank")` produces `"Author1.0"`, `"Author2.0"`, etc. — useless as a column-key for downstream Pivot/Group recipes. Fix: strip the trailing `.0` with `replace("Author" + numval("rank"), /\.0$/, "")` (regex form, NOT `replace(s, ".0", "")` — that would also strip a literal `.0` in the middle of a value). For arbitrary numeric → integer-string cast, use the same pattern: `replace(strval_or_numval_expr + "", /\.0$/, "")`. Verified on Challenge_036 (PubMed authors pivot, 264 modalities of `Author{N}` keys). The bareword `concat("Author", rank)` form has the same problem and is generally less reliable.
 
 ### Conditionals & logic
 
@@ -60,6 +71,16 @@ isNonBlank(x)                    // opposite of isBlank
 isNotNull(x)                     // opposite of isNull
 isError(expr)                    // true if expr throws (e.g., division by zero)
 ```
+
+> **GREL null testing trap.** `col == null` does NOT detect missing values reliably — the comparison silently evaluates to a falsy non-true result, so `if(col == null, fallback, col)` unconditionally takes the *else* branch and propagates the null/empty value downstream (`null * 1.07 → null`, then arithmetic collapses to 0). Always use `isBlank(col)` (or `isNull(col)` if whitespace must NOT count as missing). Worked example:
+>
+> ```
+> // WRONG — silently returns the original null and downstream FCF goes to 0
+> if(prev_nwc == null, 8980, prev_nwc)
+>
+> // RIGHT
+> if(isBlank(prev_nwc), 8980, prev_nwc)
+> ```
 
 ### String operations
 
@@ -113,6 +134,11 @@ rand()                           // random double [0,1) or long
 PI()                             // π constant
 ```
 
+**No trigonometric functions.** GREL has no `sin`, `cos`, `tan`, `asin`, `atan2`, or `radians`. Haversine / great-circle distance therefore cannot be expressed in a Prepare formula. Three options when an Alteryx `Distance` or `FindNearest` migration needs trig:
+1. **Visual path:** `add-geopoint` (Prepare) on both inputs → `create-geojoin` recipe with `WITHIN_DISTANCE` → **`add-geodistance --from pt1 --to pt2 --output-column dist --unit MILES`** in a downstream Prepare. **Avoid the GREL `geoDistance(pt1, pt2, "MILES")` function for any trip-distance/accumulation pattern** — GREL `geoDistance` rounds its output to 2 decimal places (silent precision loss) AND uses a different spheroid model than the `add-geodistance` Prepare processor. The Prepare processor returns full-precision doubles. Verified on Challenge_032 (5-point route): GREL gave per-leg `36.45, 3.55, 12.67, 29.02` (sum 81.69, +0.06% vs Alteryx); Prepare gave `36.375807100548414, 3.5480203538343713, 12.643350855533372, 28.94970912502732` (sum 81.52, -0.15% vs Alteryx). For a single ad-hoc per-row distance with 2-decimal precision tolerance, GREL is fine.
+2. **SQL path:** when the data is (or can be synced to) a SQL connection, write the haversine inline in a `sql_query` recipe (`radians`, `sin`, `cos`, `asin` are standard in PostgreSQL, DuckDB, Snowflake).
+3. **Python path:** last resort; only when the spatial calculation is impossible to express via the visual or SQL paths.
+
 ### Date operations
 
 ```
@@ -160,6 +186,21 @@ match(s, /pattern/)                      // returns array of capture groups (pat
 replace(s, /pattern/, replacement)       // regex replace
 ```
 
+**`match()` requires the regex to match the WHOLE string** — Java `Matcher.matches()` semantics, NOT `find()` / `re.search()`. Agents trained on Python/JavaScript regex reach for `match(s, /(\d{3}-\d{3}-\d{4})/)` to find a phone embedded in `"P.O. Box ... 334-288-3900"`, get null, and silently produce empty extractions.
+
+To extract a pattern from anywhere in the string, anchor with prefix/suffix consumption:
+
+```
+// WRONG — returns null because regex doesn't span the whole string
+match("P.O. Box ... 334-288-3900", /(\d{3}-\d{3}-\d{4})/)
+
+// RIGHT — non-greedy prefix consumes "P.O. Box ... " before the capture
+match("P.O. Box ... 334-288-3900", /.*?(\d{3}-\d{3}-\d{4}).*/)
+// → ["334-288-3900"]
+```
+
+`replace(s, /pat/, ...)` does NOT have this restriction — it substitutes every match. Only `match()` requires whole-string coverage.
+
 ### JSON & object operations
 
 ```
@@ -186,7 +227,7 @@ uuid()                                   // random UUID string
 ### Geo functions
 
 ```
-geoDistance(pt1, pt2, "KILOMETERS"|"MILES")  // distance between GeoJSON points
+geoDistance(pt1, pt2, "KILOMETERS"|"MILES")  // distance — ROUNDED TO 2 DECIMALS
 geoContains(outer, inner)                // containment test
 geoBuffer(geometry, distance)            // buffer zone
 geoEnvelope(geometry)                    // bounding box
@@ -262,3 +303,10 @@ htmlAttr(e, "href")                      // attribute value
 
 **User:** "Handle division by zero gracefully"
 **Formula:** `if(isError(a / b), 0, a / b)` or `if(b == 0, 0, a / b)`
+
+---
+
+## Critical gotcha
+
+### GREL formula quirks
+`log()` is base-10, `ln()` is natural log (despite `exp()` being base-e). `numval()` / `strval()` / `val()` require QUOTED column names — `numval("col")` works, bareword `numval(col)` silently returns empty. `replace(s, "pat", ...)` is literal substring; regex needs `/pat/` delimiters. Formula columns default to STRING — always run `apply-schema` after adding formula steps.

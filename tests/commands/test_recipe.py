@@ -181,6 +181,86 @@ def test_recipe_run_auto_update_schema(patch_client):
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
 
 
+def test_recipe_run_shaker_with_rename_emits_apply_schema_hint(patch_client):
+    """A successful Prepare run with rename/formula steps emits a hint pointing
+    at apply-schema. The first run propagates upstream schema only — agents
+    routinely see stale output schemas until a second apply-schema + re-run."""
+    _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {
+                "type": "ColumnRenamer",
+                "params": {"renamings": [{"from": "a", "to": "b"}]},
+            },
+        ],
+    )
+    result = runner.invoke(
+        app, ["recipe", "run", "prep1", "--wait", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "apply-schema" in result.output
+    assert "prep1" in result.output
+
+
+def test_recipe_run_shaker_with_formula_emits_apply_schema_hint(patch_client):
+    _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {
+                "type": "CreateColumnWithGREL",
+                "params": {"column": "x", "expression": "1"},
+            },
+        ],
+    )
+    result = runner.invoke(
+        app, ["recipe", "run", "prep1", "--wait", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "apply-schema" in result.output
+
+
+def test_recipe_run_shaker_no_schema_steps_no_hint(patch_client):
+    """Prepare with non-schema-changing steps (e.g. FilterOnCustomFormula) → no hint."""
+    _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {"type": "FilterOnCustomFormula", "params": {"expression": "x > 0"}},
+        ],
+    )
+    result = runner.invoke(
+        app, ["recipe", "run", "prep1", "--wait", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "apply-schema" not in result.output
+
+
+def test_recipe_run_with_auto_update_schema_no_hint(patch_client):
+    """Hint is suppressed when --auto-update-schema is already passed."""
+    _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {
+                "type": "ColumnRenamer",
+                "params": {"renamings": [{"from": "a", "to": "b"}]},
+            },
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "run",
+            "prep1",
+            "--wait",
+            "--auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "apply-schema" not in result.output
+
+
 def test_recipe_run_failure_prints_log_command(patch_client):
     """When the recipe run fails, the CLI must print the job ID and a
     copy-paste 'dku job log' command so the agent can inspect the failure
@@ -998,6 +1078,228 @@ def test_recipe_add_output(patch_client):
     settings.save.assert_called()
 
 
+def test_recipe_create_download_basic(patch_client):
+    """create-download writes payload-less raw recipe with sources[]."""
+    proj = patch_client.get_project("PROJ1")
+    proj.list_managed_folders.return_value = [{"id": "FF1", "name": "raw_csvs"}]
+    recipe_handle = MagicMock()
+    raw_def = {}
+    recipe_handle.get_settings.return_value.get_recipe_raw_definition.return_value = (
+        raw_def
+    )
+    proj.create_recipe.return_value = recipe_handle
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-download",
+            "fetch",
+            "--output-folder",
+            "raw_csvs",
+            "--source",
+            "HTTPS:https://example.com/a.csv",
+            "--source",
+            "S3:s3://bucket/key.parquet",
+            "--delete-extra",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    params = raw_def["params"]
+    assert params["deleteExtraFiles"] is True
+    assert params["copyEvenUpToDateFiles"] is False
+    assert params["sources"][0] == {
+        "providerType": "HTTPS",
+        "params": {"url": "https://example.com/a.csv"},
+    }
+    assert params["sources"][1]["providerType"] == "S3"
+    assert params["sources"][1]["params"]["url"] == "s3://bucket/key.parquet"
+
+
+def test_recipe_create_download_invalid_provider(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_managed_folders.return_value = [{"id": "FF1", "name": "f"}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-download",
+            "x",
+            "--output-folder",
+            "f",
+            "--source",
+            "GOPHER:gopher://...",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --source provider" in result.output
+
+
+def test_recipe_create_download_malformed_source(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_managed_folders.return_value = [{"id": "FF1", "name": "f"}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-download",
+            "x",
+            "--output-folder",
+            "f",
+            "--source",
+            "no-colon-here",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Expected 'PROVIDER:URL'" in result.output
+
+
+def test_recipe_create_export_basic(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_managed_folders.return_value = [{"id": "FF1", "name": "exports"}]
+    recipe_handle = MagicMock()
+    raw_def = {}
+    recipe_handle.get_settings.return_value.get_recipe_raw_definition.return_value = (
+        raw_def
+    )
+    proj.create_recipe.return_value = recipe_handle
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-export",
+            "to_csv",
+            "-i",
+            "sales",
+            "--output-folder",
+            "exports",
+            "--format",
+            "csv",
+            "--apply-exploration-filters",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    ep = raw_def["params"]["exportParams"]
+    assert ep["format"] == "csv"
+    assert ep["applyExplorationFilters"] is True
+    assert ep["applyColoring"] is False
+
+
+def test_recipe_create_export_invalid_format(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-export",
+            "x",
+            "-i",
+            "sales",
+            "--output-folder",
+            "out",
+            "--format",
+            "xml",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --format" in result.output
+
+
+def test_recipe_replace_input(patch_client):
+    """replace-input swaps inputs[role].items[i].ref where ref matches old."""
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe.return_value
+    settings = recipe.get_settings.return_value
+    raw = {"inputs": {"main": {"items": [{"ref": "old_ds"}, {"ref": "other_ds"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw
+    settings.obj_payload = {
+        "virtualInputs": [
+            {"index": 0, "dataset": "old_ds"},
+            {"index": 1, "dataset": "other_ds"},
+        ]
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-input",
+            "recipe1",
+            "old_ds",
+            "new_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    items = raw["inputs"]["main"]["items"]
+    assert items[0]["ref"] == "new_ds"
+    assert items[1]["ref"] == "other_ds"
+    # Visual recipe virtualInputs should also be patched.
+    assert settings.obj_payload["virtualInputs"][0]["dataset"] == "new_ds"
+    assert settings.obj_payload["virtualInputs"][1]["dataset"] == "other_ds"
+    settings.save.assert_called()
+
+
+def test_recipe_replace_input_not_found(patch_client):
+    """replace-input must error when OLD_REF isn't an input — never silently no-op."""
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe.return_value
+    settings = recipe.get_settings.return_value
+    raw = {"inputs": {"main": {"items": [{"ref": "real_ds"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-input",
+            "recipe1",
+            "ghost_ds",
+            "new_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "no input 'ghost_ds'" in result.output
+
+
+def test_recipe_replace_input_unknown_role(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe.return_value
+    settings = recipe.get_settings.return_value
+    raw = {"inputs": {"main": {"items": [{"ref": "x"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-input",
+            "recipe1",
+            "x",
+            "y",
+            "--role",
+            "lookup",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "no input role 'lookup'" in result.output
+
+
 def test_recipe_add_input_custom_role(patch_client):
     result = runner.invoke(
         app,
@@ -1166,6 +1468,46 @@ def test_recipe_create_embed_with_embed_column(patch_client):
     assert "description" in result.output
     assert settings_mock.obj_payload["knowledgeColumn"] == "description"
     settings_mock.save.assert_called_once()
+
+
+def test_recipe_create_embed_with_metadata_cols(patch_client):
+    """--metadata-col is repeatable and writes payload.metadataColumns[]."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_knowledge_bank.side_effect = Exception("not found")
+    recipe_mock = proj.get_recipe.return_value
+    settings_mock = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--embed-column",
+            "body",
+            "--metadata-col",
+            "title",
+            "--metadata-col",
+            "url",
+            "--chunk-size",
+            "1500",
+            "--chunk-overlap",
+            "150",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings_mock.obj_payload["knowledgeColumn"] == "body"
+    assert settings_mock.obj_payload["metadataColumns"] == ["title", "url"]
+    assert settings_mock.obj_payload["chunkSizeCharacters"] == 1500
+    assert settings_mock.obj_payload["chunkOverlapCharacters"] == 150
 
 
 def test_recipe_create_embed_without_embed_column_warns(patch_client):
@@ -2236,6 +2578,87 @@ def test_recipe_create_sampling_with_method_and_size(patch_client):
     settings.save.assert_called()
 
 
+def test_recipe_create_sampling_full_with_filter(patch_client):
+    """--method FULL + --filter-condition writes uiData.expression onto the payload."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    raw_def = {"params": {}}
+    settings.get_recipe_raw_definition.return_value = raw_def
+    settings.obj_payload = {}
+    settings.payload = "{}"
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-sampling",
+            "fil",
+            "-i",
+            "rows",
+            "--output-ds",
+            "active",
+            "--method",
+            "FULL",
+            "--filter-condition",
+            'status=="active"',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw_def["params"]["selection"]["samplingMethod"] == "FULL"
+    assert settings.obj_payload["uiData"]["expression"] == 'status=="active"'
+
+
+def test_recipe_create_sampling_invalid_method(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-sampling",
+            "x",
+            "-i",
+            "a",
+            "--output-ds",
+            "b",
+            "--method",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --method" in result.output
+
+
+# ── Visual recipe: create-prepare shortcut ──────────────────────────
+
+
+def test_recipe_create_prepare_basic(patch_client):
+    """create-prepare auto-creates output dataset and builds a shaker recipe."""
+    proj = patch_client.get_project("PROJ1")
+    # Force the auto-create path: output dataset doesn't exist yet.
+    proj.get_dataset.return_value.get_definition.side_effect = Exception("Not found")
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-prepare",
+            "clean_step",
+            "-i",
+            "raw",
+            "--output-ds",
+            "cleaned",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created prepare recipe" in result.output
+    # Internal type must be `shaker`, not `prepare` — `dataikuapi` rejects `prepare`.
+    proj.new_recipe.assert_called_with("shaker", "clean_step")
+
+
 # ── Visual recipe: create-sort with --sort-col ────────────────────────
 
 
@@ -2553,6 +2976,92 @@ def test_recipe_create_pivot_invalid_value_limit(patch_client):
     assert "Unknown --value-limit" in result.output
 
 
+def test_recipe_create_pivot_explicit_values(patch_client):
+    """--value-limit EXPLICIT + --explicit-values whitelists modalities and stores them as nested arrays."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--value-limit",
+            "EXPLICIT",
+            "--explicit-values",
+            "2024",
+            "--explicit-values",
+            "2025",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pivots = settings.obj_payload["pivots"]
+    assert pivots[0]["valueLimit"] == "EXPLICIT"
+    # DSS stores explicitValues as an array of single-element arrays
+    assert pivots[0]["explicitValues"] == [["2024"], ["2025"]]
+
+
+def test_recipe_create_pivot_explicit_requires_values(patch_client):
+    """--value-limit EXPLICIT without --explicit-values must error before write."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--value-limit",
+            "EXPLICIT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "EXPLICIT requires" in result.output
+
+
+def test_recipe_create_pivot_explicit_values_without_explicit_mode(patch_client):
+    """--explicit-values without --value-limit EXPLICIT must error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "my_pivot",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_wide",
+            "--explicit-values",
+            "2024",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--explicit-values requires --value-limit EXPLICIT" in result.output
+
+
 def test_recipe_create_pivot_no_global_count(patch_client):
     """--no-global-count should flip pivots[0].globalCount to False."""
     proj = patch_client.get_project("PROJ1")
@@ -2608,6 +3117,105 @@ def test_recipe_create_pivot_invalid_agg_type(patch_client):
     )
     assert result.exit_code == 1
     assert "Unknown aggregation type" in result.output
+
+
+def test_recipe_create_pivot_other_column_last(patch_client):
+    """--other-column writes payload.otherColumns[]."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "p",
+            "-i",
+            "sensors",
+            "--output-ds",
+            "out",
+            "--row-key",
+            "sensor_id",
+            "--column-key",
+            "metric",
+            "--value-column",
+            "value",
+            "--agg-type",
+            "AVG",
+            "--other-column",
+            "equipment_id:LAST:timestamp",
+            "--other-column",
+            "model:LAST:timestamp",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    others = settings.obj_payload["otherColumns"]
+    assert len(others) == 2
+    assert others[0]["column"] == "equipment_id"
+    assert others[0]["last"] is True
+    assert others[0]["orderColumn"] == "timestamp"
+
+
+def test_recipe_create_pivot_other_column_last_requires_order(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "p",
+            "-i",
+            "sensors",
+            "--output-ds",
+            "out",
+            "--column-key",
+            "metric",
+            "--value-column",
+            "value",
+            "--other-column",
+            "equipment_id:LAST",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "ORDER_COL" in result.output
+
+
+def test_recipe_create_pivot_modality_slugification_and_no_sort(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "p",
+            "-i",
+            "sales",
+            "--output-ds",
+            "out",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--modality-slugification",
+            "SOFT_SLUGIFY",
+            "--no-sort-modalities",
+            "--identifier-mode",
+            "AUTO",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["modalitySlugification"] == "SOFT_SLUGIFY"
+    assert settings.obj_payload["sortModalities"] is False
+    assert settings.obj_payload["identifierColumnsSelection"] == "AUTO"
 
 
 # ── Window recipe: --compute flag ─────────────────────────────────────
@@ -2784,6 +3392,93 @@ def test_recipe_create_window_compute_missing_column(patch_client):
     )
     assert result.exit_code == 1
     assert "requires a source column" in result.output
+
+
+def test_recipe_create_window_lag_diff(patch_client):
+    """--compute lagDiff enables lagDiff on the column in values[]."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "transactions",
+            "--output-ds",
+            "windowed",
+            "--partition-key",
+            "stock",
+            "--order-key",
+            "date",
+            "--compute",
+            "lagDiff:price:price_lagDiff",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    values = settings.obj_payload["values"]
+    price_entry = next(v for v in values if v["column"] == "price")
+    assert price_entry["lagDiff"] is True
+
+
+def test_recipe_create_window_lag_date_unit(patch_client):
+    """--lag-date-unit MONTH writes dateDiffUnit on entries with lag flagged."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "my_window",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--partition-key",
+            "stock",
+            "--order-key",
+            "date",
+            "--compute",
+            "lag:date:date_lag",
+            "--lag-date-unit",
+            "MONTH",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    values = settings.obj_payload["values"]
+    date_entry = next(v for v in values if v["column"] == "date")
+    assert date_entry["dateDiffUnit"] == "MONTH"
+
+
+def test_recipe_create_window_lag_date_unit_invalid(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--lag-date-unit",
+            "DECADE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "DECADE" in result.output
 
 
 # ── set-definition --payload flag ─────────────────────────────────────
@@ -3157,6 +3852,148 @@ def test_recipe_create_group_multiple_agg(patch_client):
     )
     assert result.exit_code == 0
     assert settings.set_column_aggregations.call_count == 2
+
+
+def test_recipe_create_group_prunes_empty_values(patch_client):
+    """The dataikuapi grouping builder seeds payload.values[] with one
+    entry per input column (all aggregation flags False). The CLI must
+    prune entries with no aggregation flags set so the recipe's
+    Aggregate tab in the UI shows only columns that are actually
+    aggregated — not 14 dead rows on a recipe with one --agg.
+
+    Verified on Challenge_032 (sum_dist Group recipe): a single
+    `--agg dist_miles:sum` left 14 empty values[] entries cluttering
+    the UI; pruning leaves exactly the one aggregated column."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    flags_off = {
+        "sum": False,
+        "avg": False,
+        "min": False,
+        "max": False,
+        "count": False,
+        "countDistinct": False,
+        "concat": False,
+        "concatDistinct": False,
+        "stddev": False,
+        "first": False,
+        "last": False,
+        "firstLastNotNull": False,
+        "sum2": False,
+        "median": False,
+    }
+    # Mimic the dataikuapi builder seed: an entry per input column,
+    # all flags off. Then the CLI's `cs[flag] = True` writes the
+    # truthy flag into the matching entry — simulate that on `amount`.
+    amount_entry = {"column": "amount", **flags_off, "sum": True}
+    settings.obj_payload = {
+        "keys": [{"column": "region"}],
+        "values": [
+            {"column": "region", **flags_off},
+            {"column": "store_id", **flags_off},
+            amount_entry,
+            {"column": "discount", **flags_off},
+        ],
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "g",
+            "-i",
+            "sales",
+            "--output-ds",
+            "out",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    final_values = settings.obj_payload["values"]
+    assert len(final_values) == 1, (
+        f"Expected only the aggregated column to remain, got {len(final_values)}: "
+        f"{[v['column'] for v in final_values]}"
+    )
+    assert final_values[0]["column"] == "amount"
+    assert final_values[0]["sum"] is True
+
+
+def test_recipe_create_group_pre_filter_uses_canonical_shape(patch_client):
+    """`--pre-filter` GREL must end up at the top-level ``expression`` field with
+    ``uiData.mode == "CUSTOM"``. Putting the expression only inside ``uiData``
+    makes DSS evaluate the empty ``conditions[]`` array and silently match all
+    rows (filter becomes a no-op). Verified empirically on AYX011 — the buggy
+    shape returned all groups including the empty-key bucket; the canonical
+    shape correctly excludes it."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {"keys": [{"column": "region"}]}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "filtered_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "out",
+            "-k",
+            "region",
+            "--pre-filter",
+            'region != ""',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pre = settings.obj_payload["preFilter"]
+    assert pre["enabled"] is True
+    assert pre["expression"] == 'region != ""'
+    assert pre["uiData"]["mode"] == "CUSTOM"
+    # conditions[] must be present (even empty) so DSS doesn't choke on the
+    # visual-mode path.
+    assert pre["uiData"]["conditions"] == []
+
+
+def test_recipe_create_group_no_key_clears_default_keys(patch_client):
+    """Without -k, the dataikuapi builder leaves a `[{}]` placeholder in
+    payload.keys that crashes DSS at run time. The CLI must reset keys to []
+    to express the global-aggregate use case (one output row)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {"keys": [{}]}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "global_agg",
+            "-i",
+            "sales",
+            "--output-ds",
+            "totals",
+            "--agg",
+            "amount:sum",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["keys"] == []
+    settings.save.assert_called()
 
 
 def test_recipe_create_group_invalid_agg_format(patch_client):
@@ -3760,6 +4597,53 @@ def test_recipe_add_step_unixtimestampparser_wrong_param_names_rejected(patch_cl
     settings.save.assert_not_called()
 
 
+def test_recipe_add_step_create_column_with_grel_expr_typo_rejected(patch_client):
+    """CreateColumnWithGREL with params.expr (typo for params.expression) must be
+    caught before save. DSS silently ignores unknown processor params, so the
+    formula becomes a no-op without any error — only surfaces when real data
+    arrives. The shortcut add-formula --expr maps to params.expression."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "CreateColumnWithGREL",
+            "--params",
+            '{"column":"x","expr":"toNumber(duration)"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "expression" in result.output
+    assert "expr" in result.output
+    settings.save.assert_not_called()
+
+
+def test_recipe_add_step_create_column_with_grel_expression_accepted(patch_client):
+    """CreateColumnWithGREL with the correct 'expression' key passes validation."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "CreateColumnWithGREL",
+            "--params",
+            '{"column":"x","expression":"toNumber(duration)"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings.save.assert_called_once()
+
+
 def test_recipe_add_step_dateformatter_correct_params_accepted(patch_client):
     """DateFormatter with correct inCol/outCol params must pass CLI validation."""
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
@@ -3908,6 +4792,206 @@ def test_recipe_remove_step_out_of_range(patch_client):
     )
     assert result.exit_code != 0
     assert "out of range" in result.output
+
+
+# -- replace-step --
+
+
+def test_recipe_replace_step_with_type_and_params(patch_client):
+    """replace-step swaps the step at --index for the new type+params, atomic."""
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {"metaType": "PROCESSOR", "type": "Step0", "params": {"v": 0}},
+            {"metaType": "PROCESSOR", "type": "Step1", "params": {"v": 1}},
+            {"metaType": "PROCESSOR", "type": "Step2", "params": {"v": 2}},
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "1",
+            "--type",
+            "ColumnRenamer",
+            "--params",
+            '{"renamings":[{"from":"a","to":"b"}]}',
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 3  # surrounding steps preserved
+    assert steps[0]["type"] == "Step0"
+    assert steps[1]["type"] == "ColumnRenamer"
+    assert steps[1]["params"] == {"renamings": [{"from": "a", "to": "b"}]}
+    assert steps[1]["metaType"] == "PROCESSOR"
+    assert steps[2]["type"] == "Step2"
+    settings.save.assert_called_once()
+
+
+def test_recipe_replace_step_with_definition(patch_client):
+    """--definition replaces the step with a full JSON object."""
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {"metaType": "PROCESSOR", "type": "Old", "params": {}},
+        ],
+    )
+    full = json.dumps(
+        {"type": "FillEmptyWithValue", "params": {"column": "x", "value": "0"}}
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "0",
+            "--definition",
+            full,
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FillEmptyWithValue"
+    assert step["params"] == {"column": "x", "value": "0"}
+    # metaType auto-defaulted
+    assert step["metaType"] == "PROCESSOR"
+
+
+def test_recipe_replace_step_preserves_name_when_provided(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Old", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "0",
+            "--type",
+            "ColumnRenamer",
+            "--params",
+            "{}",
+            "--name",
+            "Renamed step",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["steps"][0]["name"] == "Renamed step"
+
+
+def test_recipe_replace_step_blocks_without_yes(patch_client):
+    """Safety guard fires without --yes (exit 77)."""
+    _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Old", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "0",
+            "--type",
+            "ColumnRenamer",
+            "--params",
+            "{}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 77
+
+
+def test_recipe_replace_step_out_of_range(patch_client):
+    _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Step0", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "5",
+            "--type",
+            "ColumnRenamer",
+            "--params",
+            "{}",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+
+
+def test_recipe_replace_step_requires_type_or_definition(patch_client):
+    _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Old", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "0",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "either --definition or both --type and --params" in result.output
+
+
+def test_recipe_replace_step_definition_must_be_object(patch_client):
+    _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Old", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "0",
+            "--definition",
+            "[1, 2, 3]",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "JSON object" in result.output
 
 
 # -- get-step --
@@ -4171,6 +5255,27 @@ def test_recipe_add_filter_rows_by_formula(patch_client):
     step = settings.obj_payload["steps"][0]
     assert step["type"] == "FilterOnCustomFormula"
     assert step["params"]["expression"] == "price > 100"
+    assert step["params"]["action"] == "KEEP_ROW"
+
+
+def test_recipe_add_filter_rows_explicit_remove(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-filter-rows",
+            "prep1",
+            "--formula",
+            "price > 100",
+            "--action",
+            "REMOVE_ROW",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
     assert step["params"]["action"] == "REMOVE_ROW"
 
 
@@ -4193,8 +5298,80 @@ def test_recipe_add_fill_empty(patch_client):
     assert result.exit_code == 0
     step = settings.obj_payload["steps"][0]
     assert step["type"] == "FillEmptyWithValue"
+    assert step["params"]["appliesTo"] == "SINGLE_COLUMN"
     assert step["params"]["columns"] == ["age"]
     assert step["params"]["value"] == "0"
+
+
+def test_recipe_add_fill_empty_repeatable_column(patch_client):
+    """Multiple --column flags produce ONE step covering all columns with appliesTo=COLUMNS."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-fill-empty",
+            "prep1",
+            "--column",
+            "HBO",
+            "--column",
+            "Netflix",
+            "--column",
+            "ESPN",
+            "--value",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert len(settings.obj_payload["steps"]) == 1
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["appliesTo"] == "COLUMNS"
+    assert step["params"]["columns"] == ["HBO", "Netflix", "ESPN"]
+
+
+def test_recipe_add_fill_empty_csv_columns(patch_client):
+    """--columns CSV alternative produces ONE multi-column step."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-fill-empty",
+            "prep1",
+            "--columns",
+            "HBO,Netflix,ESPN",
+            "--value",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert len(settings.obj_payload["steps"]) == 1
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["appliesTo"] == "COLUMNS"
+    assert step["params"]["columns"] == ["HBO", "Netflix", "ESPN"]
+
+
+def test_recipe_add_fill_empty_no_columns_errors(patch_client):
+    """Neither --column nor --columns provided → prescriptive error."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-fill-empty",
+            "prep1",
+            "--value",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    settings.save.assert_not_called()
 
 
 def test_recipe_add_delete_columns(patch_client):
@@ -4460,6 +5637,341 @@ def test_recipe_create_window_multiple_keys(patch_client):
         {"column": "date", "desc": False},
         {"column": "amount", "desc": True},
     ]
+
+
+def test_recipe_create_window_lag_offsets(patch_client):
+    """--lag-offsets COL:1,2,3 writes lagValues comma-list and lag=true."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "mw",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "-k",
+            "stock",
+            "--order-key",
+            "date",
+            "--lag-offsets",
+            "price:1,2,3,4,5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    values = settings.obj_payload["values"]
+    price_entry = next(v for v in values if v["column"] == "price")
+    assert price_entry["lag"] is True
+    assert price_entry["lagValues"] == "1,2,3,4,5"
+
+
+def test_recipe_create_window_lead_offsets(patch_client):
+    """--lead-offsets COL:1,2 writes leadValues."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "mw",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--lead-offsets",
+            "y:1,2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    values = settings.obj_payload["values"]
+    y_entry = next(v for v in values if v["column"] == "y")
+    assert y_entry["lead"] is True
+    assert y_entry["leadValues"] == "1,2"
+
+
+def test_recipe_create_window_rename(patch_client):
+    """--rename SRC:DST writes outputColumnNameOverrides dict."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--rename",
+            "Value_lag1:lag1_3",
+            "--rename",
+            "Value_lag2:lag2_3",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["outputColumnNameOverrides"] == {
+        "Value_lag1": "lag1_3",
+        "Value_lag2": "lag2_3",
+    }
+
+
+def test_recipe_create_window_frame(patch_client):
+    """--frame-preceding/--frame-following set windows[0] frame fields."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "-k",
+            "stock",
+            "--order-key",
+            "date",
+            "--frame-preceding",
+            "2",
+            "--frame-following",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enableLimits"] is True
+    assert win0["limitPreceding"] is True
+    assert win0["precedingRows"] == 2
+    assert win0["limitFollowing"] is True
+    assert win0["followingRows"] == 0
+
+
+def test_recipe_create_window_frame_unbounded(patch_client):
+    """--frame-unbounded sets the unbounded full-partition frame.
+
+    The DSS Window default is cumulative within partition (UNBOUNDED PRECEDING
+    TO CURRENT ROW). --frame-unbounded must produce a true full-partition
+    aggregate — same value for every row in the partition. That requires both
+    enableLimits=True with both limit flags cleared AND the payload-level
+    legacyUnboundedWindowStreamBehavior=True flag (without the legacy flag
+    DSS still streams cumulatively).
+    """
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--frame-unbounded",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    win0 = settings.obj_payload["windows"][0]
+    assert win0["enableLimits"] is True
+    assert win0["limitPreceding"] is False
+    assert win0["limitFollowing"] is False
+    assert settings.obj_payload["legacyUnboundedWindowStreamBehavior"] is True
+
+
+def test_recipe_create_window_cume_dist_and_ntile(patch_client):
+    """--enable-cume-dist + --enable-ntile N set top-level booleans + ntileValues."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--enable-cume-dist",
+            "--enable-ntile",
+            "10",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["cumeDist"] is True
+    assert settings.obj_payload["ntile"] is True
+    assert settings.obj_payload["ntileValues"] == 10
+
+
+def test_recipe_create_group_extended_aggs_first_last_concat_distinct(patch_client):
+    """Extended aggs (first, last, first_last_not_null, concat_distinct, sum2) patch the column dict."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    cs = {}
+    settings.set_column_aggregations.return_value = cs
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "g",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "-k",
+            "k",
+            "--agg",
+            "x:first,last,first_last_not_null,concat_distinct,sum2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert cs["first"] is True
+    assert cs["last"] is True
+    assert cs["firstLastNotNull"] is True
+    assert cs["concatDistinct"] is True
+    assert cs["sum2"] is True
+
+
+def test_recipe_create_group_rename(patch_client):
+    """--rename writes outputColumnNameOverrides on the Group payload."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "g",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "-k",
+            "k",
+            "--agg",
+            "x:count",
+            "--rename",
+            "Customer_ID_count:Count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["outputColumnNameOverrides"] == {
+        "Customer_ID_count": "Count"
+    }
+
+
+def test_recipe_create_group_rename_group_key(patch_client):
+    """--rename also renames the group-key column, not only aggregates.
+
+    Verified live on Challenge_019 (Alteryx Excel-record-locator migration):
+    `--rename FileName:'XLS File'` produced an output dataset with the group-key
+    column renamed in place — no downstream Prepare add-rename required.
+    """
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "g",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "-k",
+            "FileName",
+            "--agg",
+            "v:max",
+            "--rename",
+            "FileName:XLS File",
+            "--rename",
+            "v_max:Value",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["outputColumnNameOverrides"] == {
+        "FileName": "XLS File",
+        "v_max": "Value",
+    }
+
+
+def test_recipe_create_topn_bottom_columns_rename_and_rank_flags(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-topn",
+            "worst",
+            "-i",
+            "sales",
+            "--output-ds",
+            "worst3",
+            "--bottom",
+            "3",
+            "--sort-col",
+            "revenue",
+            "--rank",
+            "--row-number",
+            "--columns",
+            "id,revenue,rank",
+            "--rename",
+            "rank:rk",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    p = settings.obj_payload
+    assert p["topN"] == 3
+    assert p["firstRows"] == 0
+    assert p["lastRows"] == 3
+    assert p["rank"] is True
+    assert p["rowNumber"] is True
+    assert p["retrievedColumnsSelectionMode"] == "SELECTED"
+    assert p["retrievedColumns"] == ["id", "revenue", "rank"]
+    assert p["outputColumnNameOverrides"] == {"rank": "rk"}
 
 
 # ── Plugin recipe tests ────────────────────────────────────────────
@@ -4730,6 +6242,109 @@ def test_recipe_get_settings_sql_query_recipe_with_code(patch_client):
     del type(settings).obj_payload
 
 
+def test_recipe_get_settings_visual_payload_always_dict(patch_client):
+    """For visual recipes, payload must always be a parsed dict — never a
+    JSON-encoded string. Regression for AYX028 where some visual recipes
+    returned payload as a string and others as a dict."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "join",
+        "name": "j1",
+    }
+    # Simulate the failure mode: obj_payload returns a JSON string (some
+    # dataikuapi paths do this for stack/group/etc. depending on engine).
+    type(settings).obj_payload = property(
+        lambda self: '{"virtualInputs":[{"index":0}]}'
+    )
+
+    result = runner.invoke(
+        app, ["recipe", "get-settings", "j1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert isinstance(parsed["payload"], dict), (
+        f"payload must be dict, got {type(parsed['payload']).__name__}"
+    )
+    assert parsed["payload"]["virtualInputs"] == [{"index": 0}]
+
+    del type(settings).obj_payload
+
+
+def test_recipe_get_settings_visual_payload_dict_passthrough(patch_client):
+    """When obj_payload is already a dict, it passes through unchanged."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "grouping",
+        "name": "g1",
+    }
+    type(settings).obj_payload = property(
+        lambda self: {"keys": [{"column": "country"}], "values": []}
+    )
+
+    result = runner.invoke(
+        app, ["recipe", "get-settings", "g1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert isinstance(parsed["payload"], dict)
+    assert parsed["payload"]["keys"] == [{"column": "country"}]
+
+    del type(settings).obj_payload
+
+
+def test_recipe_get_settings_visual_payload_falls_back_to_raw_params(patch_client):
+    """When obj_payload raises, the raw_params['payload'] fallback parses
+    a JSON string into a dict."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "vstack",
+        "name": "s1",
+    }
+    type(settings).obj_payload = property(
+        lambda self: (_ for _ in ()).throw(AttributeError("no obj_payload"))
+    )
+    settings.raw_params = {"payload": '{"mode":"UNION","virtualInputs":[]}'}
+
+    result = runner.invoke(
+        app, ["recipe", "get-settings", "s1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert isinstance(parsed["payload"], dict)
+    assert parsed["payload"]["mode"] == "UNION"
+
+    del type(settings).obj_payload
+
+
+def test_recipe_get_settings_visual_empty_payload_returns_empty_dict(patch_client):
+    """When no payload is available at all, return an empty dict (not None,
+    not missing) so consumers can rely on the type."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "shaker",
+        "name": "p1",
+    }
+    type(settings).obj_payload = property(lambda self: None)
+    settings.raw_params = {}
+
+    result = runner.invoke(
+        app, ["recipe", "get-settings", "p1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["payload"] == {}
+
+    del type(settings).obj_payload
+
+
 def test_recipe_set_settings_updates_definition(patch_client):
     """set-settings updates raw definition keys."""
     settings_json = json.dumps({"engineType": "DSS"})
@@ -4767,6 +6382,32 @@ def test_recipe_set_settings_updates_payload(patch_client):
         ],
     )
     assert result.exit_code == 0
+
+
+def test_recipe_set_settings_rejects_stringified_payload(patch_client):
+    """set-settings emits prescriptive error when payload was re-stringified."""
+    # User error: ran `get-settings -o json | jq '.payload |= tostring'`
+    # then `set-settings` — payload becomes a JSON string, not a dict.
+    settings_json = json.dumps(
+        {"payload": json.dumps({"orders": [{"column": "price", "desc": True}]})}
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "recipe1",
+            "--settings",
+            settings_json,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    # The error message must point at the actual problem so the agent
+    # doesn't re-paste the same broken payload.
+    assert "JSON object" in result.output or "must be a JSON" in result.output
+    assert "json.dumps" in result.output or "re-stringify" in result.output
 
 
 def test_recipe_create_filter_with_formula(patch_client):
@@ -5415,7 +7056,14 @@ def test_recipe_add_geopoint_default_column(patch_client):
 
 
 def test_recipe_add_geodistance(patch_client):
-    """add-geodistance creates GeoDistanceProcessor step."""
+    """add-geodistance creates GeoDistanceProcessor step.
+
+    GeoDistanceProcessor's actual params are `input1`, `input2`, `output`
+    (NOT `*_column` suffixes — that was a longstanding CLI bug that
+    silently produced an "Empty column name" apply-schema error).
+    Also requires `compareTo="COLUMN"` and an explicit `outputUnit`
+    (MILES or KILOMETERS — defaults to MILES).
+    """
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
@@ -5428,7 +7076,7 @@ def test_recipe_add_geodistance(patch_client):
             "--to-column",
             "destination",
             "--output-column",
-            "dist_km",
+            "dist_mi",
             "--project",
             "PROJ1",
         ],
@@ -5436,9 +7084,11 @@ def test_recipe_add_geodistance(patch_client):
     assert result.exit_code == 0
     step = settings.obj_payload["steps"][0]
     assert step["type"] == "GeoDistanceProcessor"
-    assert step["params"]["input1_column"] == "origin"
-    assert step["params"]["input2_column"] == "destination"
-    assert step["params"]["output_column"] == "dist_km"
+    assert step["params"]["input1"] == "origin"
+    assert step["params"]["input2"] == "destination"
+    assert step["params"]["output"] == "dist_mi"
+    assert step["params"]["outputUnit"] == "MILES"
+    assert step["params"]["compareTo"] == "COLUMN"
     settings.save.assert_called_once()
 
 
@@ -5461,7 +7111,54 @@ def test_recipe_add_geodistance_default_output(patch_client):
     )
     assert result.exit_code == 0
     step = settings.obj_payload["steps"][0]
-    assert step["params"]["output_column"] == "geo_distance"
+    assert step["params"]["output"] == "geo_distance"
+
+
+def test_recipe_add_geodistance_kilometers(patch_client):
+    """--unit KILOMETERS sets outputUnit accordingly."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-geodistance",
+            "prep1",
+            "--from-column",
+            "a",
+            "--to-column",
+            "b",
+            "--unit",
+            "KILOMETERS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["outputUnit"] == "KILOMETERS"
+
+
+def test_recipe_add_geodistance_invalid_unit(patch_client):
+    """Bad --unit value exits non-zero."""
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-geodistance",
+            "prep1",
+            "--from-column",
+            "a",
+            "--to-column",
+            "b",
+            "--unit",
+            "FURLONGS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "MILES or KILOMETERS" in result.output
 
 
 def test_recipe_add_input_folder_by_name_resolves_to_id(patch_client):
@@ -5627,3 +7324,1546 @@ def test_agent_tool_create_kb_resolves_name_to_id(patch_client):
     assert result.exit_code == 0, result.output
     builder = proj.new_agent_tool.return_value
     builder.with_knowledge_bank.assert_called_once_with("kb_id_123")
+
+
+# ── Visual recipe: create-stack ───────────────────────────────────────
+
+
+def test_recipe_create_stack_basic(patch_client):
+    """Basic stack recipe creation with 2 inputs, no origin column."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created stack recipe" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_called_once_with("vstack", "merge")
+    builder = proj.new_recipe.return_value
+    assert builder.with_input.call_count == 2
+    builder.with_existing_output.assert_called_once_with("all")
+    builder.build.assert_called_once()
+
+
+def test_recipe_create_stack_requires_two_inputs(patch_client):
+    """Stack needs >= 2 inputs."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "only_one",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "at least 2" in result.output
+
+
+def test_recipe_create_stack_with_origin_column(patch_client):
+    """--origin-column calls settings.add_origin_column with empty label map."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "customers",
+            "-i",
+            "prospects",
+            "--output-ds",
+            "people",
+            "--origin-column",
+            "source",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.add_origin_column.assert_called_once_with("source", {})
+    settings.save.assert_called()
+    assert "Origin column: source" in result.output
+
+
+def test_recipe_create_stack_with_origin_labels(patch_client):
+    """--origin-label INDEX:VALUE builds the dataset_origin_mapping dict."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "customers",
+            "-i",
+            "prospects",
+            "--output-ds",
+            "people",
+            "--origin-column",
+            "source",
+            "--origin-label",
+            "0:active",
+            "--origin-label",
+            "1:lead",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.add_origin_column.assert_called_once_with(
+        "source", {0: "active", 1: "lead"}
+    )
+
+
+def test_recipe_create_stack_origin_label_without_column_errors(patch_client):
+    """--origin-label without --origin-column is a prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--origin-label",
+            "0:foo",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--origin-label requires --origin-column" in result.output
+
+
+def test_recipe_create_stack_origin_label_bad_format(patch_client):
+    """--origin-label without ':' separator is rejected."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--origin-column",
+            "src",
+            "--origin-label",
+            "no_colon",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --origin-label" in result.output
+
+
+def test_recipe_create_stack_origin_label_index_out_of_range(patch_client):
+    """--origin-label index beyond inputs count is rejected with guidance."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--origin-column",
+            "src",
+            "--origin-label",
+            "5:foo",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "out of range" in result.output
+
+
+def test_recipe_create_stack_mode_intersect(patch_client):
+    """--mode INTERSECT calls set_intersection_input_schema_mode."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "INTERSECT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.set_intersection_input_schema_mode.assert_called_once()
+    settings.save.assert_called()
+
+
+def test_recipe_create_stack_mode_from_dataset(patch_client):
+    """--mode FROM_DATASET:NAME calls set_from_dataset_input_schema_mode."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "FROM_DATASET:a",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.set_from_dataset_input_schema_mode.assert_called_once_with("a")
+
+
+def test_recipe_create_stack_mode_from_dataset_must_be_input(patch_client):
+    """FROM_DATASET must reference one of the input dataset names."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "FROM_DATASET:missing",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "not an input" in result.output
+
+
+def test_recipe_create_stack_mode_invalid(patch_client):
+    """Unknown --mode value is rejected with guidance."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "bogus",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --mode" in result.output
+
+
+def test_recipe_create_stack_mode_union_rejects_suffix(patch_client):
+    """UNION and INTERSECT don't accept FROM_DATASET-style suffixes."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "UNION:a",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Only FROM_DATASET / FROM_INDEX accept" in result.output
+
+
+def test_recipe_create_stack_mode_intersect_rejects_suffix(patch_client):
+    """INTERSECT doesn't accept a dataset suffix."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "INTERSECT:a",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Only FROM_DATASET / FROM_INDEX accept" in result.output
+
+
+def test_recipe_create_stack_mode_remap(patch_client):
+    """--mode REMAP sets payload mode + selectedColumns + per-input columnsMatch."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {"virtualInputs": [{"index": 0}, {"index": 1}]}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "orders",
+            "-i",
+            "sales",
+            "--output-ds",
+            "all",
+            "--mode",
+            "REMAP",
+            "--columns",
+            "id,amount,date",
+            "--columns-match",
+            "0:order_id,total,order_date",
+            "--columns-match",
+            "1:sale_id,price,sold_at",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["mode"] == "REMAP"
+    assert settings.obj_payload["selectedColumns"] == ["id", "amount", "date"]
+    vi = settings.obj_payload["virtualInputs"]
+    assert vi[0]["columnsMatch"] == ["order_id", "total", "order_date"]
+    assert vi[1]["columnsMatch"] == ["sale_id", "price", "sold_at"]
+    settings.save.assert_called()
+
+
+def test_recipe_create_stack_remap_requires_columns(patch_client):
+    """REMAP without --columns fails with prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "REMAP",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "REMAP requires --columns" in result.output
+
+
+def test_recipe_create_stack_remap_columns_match_length_must_equal_columns(
+    patch_client,
+):
+    """--columns-match length must equal --columns length."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--mode",
+            "REMAP",
+            "--columns",
+            "id,amount,date",
+            "--columns-match",
+            "0:x,y",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--columns-match 0: got 2 source columns" in result.output
+
+
+def test_recipe_create_stack_columns_match_rejected_outside_remap(patch_client):
+    """--columns-match outside REMAP mode is rejected."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--columns-match",
+            "0:x,y",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--columns-match is only valid with --mode REMAP" in result.output
+
+
+def test_recipe_create_stack_columns_projection_in_union(patch_client):
+    """--columns alone (no REMAP) sets selectedColumns for downstream projection."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {
+        "virtualInputs": [{"index": 0}, {"index": 1}],
+        "mode": "UNION",
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--columns",
+            "id,amount",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["selectedColumns"] == ["id", "amount"]
+
+
+def test_recipe_create_stack_input_filter_and_post_filter(patch_client):
+    """--input-filter and --post-filter set preFilter on virtualInput and top-level postFilter."""
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+    settings.obj_payload = {
+        "virtualInputs": [{"index": 0}, {"index": 1}],
+        "mode": "UNION",
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-stack",
+            "merge",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "all",
+            "--input-filter",
+            '0:status=="active"',
+            "--post-filter",
+            "amount > 0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pre = settings.obj_payload["virtualInputs"][0]["preFilter"]
+    assert pre["enabled"] is True
+    # DSS reads the top-level ``expression`` when ``uiData.mode == "CUSTOM"``;
+    # placing it inside uiData silently disables the filter (see
+    # dataiku/references/visual-conditions.md § Formula Mode).
+    assert pre["expression"] == 'status=="active"'
+    assert pre["uiData"]["mode"] == "CUSTOM"
+    post = settings.obj_payload["postFilter"]
+    assert post["enabled"] is True
+    assert post["expression"] == "amount > 0"
+    assert post["uiData"]["mode"] == "CUSTOM"
+
+
+# ── Visual recipe: create-split ──────────────────────────────────────
+
+
+def test_recipe_create_split_values_mode(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "route",
+            "-i",
+            "orders",
+            "--output-ds",
+            "active",
+            "--output-ds",
+            "lapsed",
+            "--mode",
+            "VALUES",
+            "--column",
+            "status",
+            "--value-split",
+            "active=0",
+            "--value-split",
+            "lapsed=1",
+            "--default-output",
+            "1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = settings.obj_payload
+    assert payload["mode"] == "VALUES"
+    assert payload["column"] == "status"
+    assert payload["valueSplits"] == [
+        {"outputIndex": 0, "value": "active"},
+        {"outputIndex": 1, "value": "lapsed"},
+    ]
+    assert payload["defaultOutputIndex"] == 1
+
+
+def test_recipe_create_split_random_mode(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "tt",
+            "-i",
+            "rows",
+            "--output-ds",
+            "train",
+            "--output-ds",
+            "test",
+            "--mode",
+            "RANDOM",
+            "--random-share",
+            "0:70",
+            "--random-share",
+            "1:30",
+            "--seed",
+            "42",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = settings.obj_payload
+    assert payload["mode"] == "RANDOM"
+    assert payload["seed"] == 42
+    assert payload["randomSplits"] == [
+        {"outputIndex": 0, "share": 70.0},
+        {"outputIndex": 1, "share": 30.0},
+    ]
+
+
+def test_recipe_create_split_filter_mode(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "tag",
+            "-i",
+            "rows",
+            "--output-ds",
+            "vip",
+            "--output-ds",
+            "rest",
+            "--mode",
+            "FILTER",
+            "--filter-split",
+            "spend>1000=0",
+            "--default-output",
+            "1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = settings.obj_payload
+    # dataikuapi writes "FILTERS" (plural) into payload; CLI keeps user-facing --mode FILTER
+    assert payload["mode"] == "FILTERS"
+    assert payload["filterSplits"][0]["filter"]["uiData"]["expression"] == "spend>1000"
+    assert payload["filterSplits"][0]["outputIndex"] == 0
+
+
+def test_recipe_create_split_range_mode(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "bin",
+            "-i",
+            "rows",
+            "--output-ds",
+            "low",
+            "--output-ds",
+            "high",
+            "--mode",
+            "RANGE",
+            "--column",
+            "price",
+            "--range-split",
+            "..100=0",
+            "--range-split",
+            "100..=1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    splits = settings.obj_payload["rangeSplits"]
+    assert splits[0] == {
+        "outputIndex": 0,
+        "include_min": True,
+        "include_max": False,
+        "max": "100",
+    }
+    assert splits[1] == {
+        "outputIndex": 1,
+        "include_min": True,
+        "include_max": False,
+        "min": "100",
+    }
+
+
+def test_recipe_create_split_requires_two_outputs(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "x",
+            "-i",
+            "rows",
+            "--output-ds",
+            "only",
+            "--mode",
+            "VALUES",
+            "--column",
+            "c",
+            "--value-split",
+            "v=0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "at least 2 output datasets" in result.output
+
+
+def test_recipe_create_split_values_requires_column(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "x",
+            "-i",
+            "rows",
+            "--output-ds",
+            "a",
+            "--output-ds",
+            "b",
+            "--mode",
+            "VALUES",
+            "--value-split",
+            "v=0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "VALUES requires --column" in result.output
+
+
+def test_recipe_create_split_invalid_mode(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "x",
+            "-i",
+            "rows",
+            "--output-ds",
+            "a",
+            "--output-ds",
+            "b",
+            "--mode",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Invalid --mode" in result.output
+
+
+# ── --engine flag (top-level payload.engineType, separate from engineParams) ──
+
+
+def test_recipe_create_group_engine_sql(patch_client):
+    """--engine SQL writes payload.engineType=SQL for Snowflake/Postgres pushdown."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "g",
+            "-i",
+            "sales",
+            "--output-ds",
+            "agg",
+            "-k",
+            "store",
+            "--engine",
+            "SQL",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload.get("engineType") == "SQL"
+
+
+def test_recipe_create_pivot_engine_spark(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-pivot",
+            "p",
+            "-i",
+            "sales",
+            "--output-ds",
+            "wide",
+            "--row-key",
+            "product",
+            "--column-key",
+            "month",
+            "--value-column",
+            "revenue",
+            "--agg-type",
+            "SUM",
+            "--engine",
+            "SPARK_SQL",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload.get("engineType") == "SPARK_SQL"
+
+
+def test_recipe_create_split_engine(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-split",
+            "s",
+            "-i",
+            "rows",
+            "--output-ds",
+            "a",
+            "--output-ds",
+            "b",
+            "--mode",
+            "RANDOM",
+            "--random-share",
+            "0:50",
+            "--random-share",
+            "1:50",
+            "--engine",
+            "SQL",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload.get("engineType") == "SQL"
+
+
+def test_recipe_create_window_engine_invalid(patch_client):
+    """Unknown --engine value gives a prescriptive error before any API call."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "ranked",
+            "--engine",
+            "DOOM",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Unknown --engine" in result.output
+
+
+def test_recipe_create_join_engine(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [
+        {
+            "table1": 0,
+            "table2": 1,
+            "conditionsMode": "AND",
+            "type": "LEFT",
+            "outerJoinOnTheLeft": True,
+            "on": [],
+        }
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--engine",
+            "SQL",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload.get("engineType") == "SQL"
+
+
+# ── Join advanced match modes ────────────────────────────────────────
+
+
+def test_recipe_create_join_case_insensitive_normalize_text(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "name",
+            "--case-insensitive",
+            "--normalize-text",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cond = settings.raw_joins[0]["on"][0]
+    assert cond["caseInsensitive"] is True
+    assert cond["normalizeText"] is True
+
+
+def test_recipe_create_join_max_distance_max_matches(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "name",
+            "--max-distance",
+            "2",
+            "--max-matches",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cond = settings.raw_joins[0]["on"][0]
+    assert cond["maxDistance"] == 2
+    assert cond["maxMatches"] == 5
+
+
+def test_recipe_create_join_date_window(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--date-window",
+            "-7:7:DAY",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cond = settings.raw_joins[0]["on"][0]
+    assert cond["windowFrom"] == -7
+    assert cond["windowTo"] == 7
+    assert cond["dateDiffUnit"] == "DAY"
+
+
+def test_recipe_create_join_date_window_default_unit(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--date-window",
+            "0:30",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cond = settings.raw_joins[0]["on"][0]
+    assert cond["windowFrom"] == 0
+    assert cond["windowTo"] == 30
+    assert cond["dateDiffUnit"] == "DAY"
+
+
+def test_recipe_create_join_date_window_invalid_format(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--date-window",
+            "abc",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "FROM:TO" in result.output
+
+
+def test_recipe_create_join_date_window_invalid_unit(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--date-window",
+            "0:7:WIBBLE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "WIBBLE" in result.output
+
+
+def test_recipe_create_join_outer_join_on_right(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [
+        {
+            "table1": 0,
+            "table2": 1,
+            "type": "LEFT",
+            "outerJoinOnTheLeft": True,
+            "on": [],
+        }
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--outer-join-on-right",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.raw_joins[0]["outerJoinOnTheLeft"] is False
+
+
+def test_recipe_create_join_right_limit_keep_largest(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--right-limit-max-matches",
+            "1",
+            "--right-limit-decision-column",
+            "record_date",
+            "--right-limit-keep",
+            "KEEP_LARGEST",
+            "--right-limit-strict",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rl = settings.raw_joins[0]["rightLimit"]
+    assert rl["enabled"] is True
+    assert rl["maxMatches"] == 1
+    assert rl["type"] == "KEEP_LARGEST"
+    assert rl["decisionColumn"] == {"name": "record_date", "table": 1}
+    assert rl["strict"] is True
+
+
+def test_recipe_create_join_right_limit_largest_requires_decision_column(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--right-limit-keep",
+            "KEEP_LARGEST",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--right-limit-decision-column" in result.output
+
+
+def test_recipe_create_join_right_limit_keep_first_no_decision_column(patch_client):
+    """KEEP_FIRST does NOT require a decision column."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--right-limit-keep",
+            "KEEP_FIRST",
+            "--right-limit-max-matches",
+            "1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rl = settings.raw_joins[0]["rightLimit"]
+    assert rl["type"] == "KEEP_FIRST"
+    assert rl["maxMatches"] == 1
+    assert "decisionColumn" not in rl
+
+
+# ── New recipe verbs (eda_univariate, sql_script, generate_features, llm-classify)
+
+
+def test_recipe_create_eda_univariate_basic(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.create_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-eda-univariate",
+            "stats",
+            "-i",
+            "clinical",
+            "--output-ds",
+            "stats_out",
+            "--analyse",
+            "VISIT:CATEGORICAL",
+            "--analyse",
+            "AVAL:NUMERICAL",
+            "--with-frequency-table",
+            "--with-quantile-table",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = settings.obj_payload
+    assert payload["withFrequencyTable"] is True
+    assert payload["withQuantileTable"] is True
+    assert payload["withSummaryStats"] is True
+    analyses = payload["analyses"]
+    assert len(analyses) == 2
+    assert analyses[0]["column"] == {"name": "VISIT", "type": "CATEGORICAL"}
+    assert analyses[0]["frequencyTable"] is True
+    assert analyses[0]["quantileTable"] is False
+    assert analyses[1]["column"] == {"name": "AVAL", "type": "NUMERICAL"}
+    assert analyses[1]["quantileTable"] is True
+    assert analyses[1]["frequencyTable"] is False
+
+
+def test_recipe_create_eda_univariate_invalid_type(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-eda-univariate",
+            "stats",
+            "-i",
+            "clinical",
+            "--output-ds",
+            "out",
+            "--analyse",
+            "VISIT:WIBBLE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "WIBBLE" in result.output
+
+
+def test_recipe_create_sql_script_basic(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = ""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-sql-script",
+            "setup",
+            "--connection",
+            "prod_pg",
+            "--sql",
+            "CREATE TABLE foo (id INT); INSERT INTO foo VALUES (1);",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_recipe_create_generate_features(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-generate-features",
+            "autof",
+            "-i",
+            "raw",
+            "--output-ds",
+            "raw_with_features",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj.new_recipe.assert_called_with("generate_features", "autof")
+
+
+def test_recipe_create_llm_classify_basic(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    # _raw_create_recipe returns proj.create_recipe(...), not proj.get_recipe
+    settings = proj.create_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-classify",
+            "classify_orders",
+            "-i",
+            "orders",
+            "--output-ds",
+            "orders_classified",
+            "--completion-llm",
+            "openai:gpt-4o-mini",
+            "--input-col",
+            "description",
+            "--class",
+            "urgent",
+            "--class",
+            "routine",
+            "--class",
+            "scheduled",
+            "--explain-output",
+            "--example",
+            "Replace the conveyor belt motor immediately||urgent",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = settings.obj_payload
+    # DSS expects possibleClasses as [{"label": ...}], not flat strings
+    assert payload["possibleClasses"] == [
+        {"label": "urgent"},
+        {"label": "routine"},
+        {"label": "scheduled"},
+    ]
+    assert payload["completionLLMId"] == "openai:gpt-4o-mini"
+    assert payload["inputColumnName"] == "description"
+    assert payload["explainOutput"] is True
+    assert len(payload["examples"]) == 1
+    assert payload["examples"][0]["input"].startswith("Replace the conveyor")
+    assert payload["examples"][0]["output"] == "urgent"
+
+
+def test_recipe_create_llm_classify_requires_two_classes(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-classify",
+            "classify",
+            "-i",
+            "in_ds",
+            "--output-ds",
+            "out",
+            "--completion-llm",
+            "x",
+            "--input-col",
+            "txt",
+            "--class",
+            "one",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "two --class" in result.output or "at least two" in result.output
+
+
+def test_recipe_create_prompt_structured(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.create_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-prompt",
+            "summarise",
+            "-i",
+            "articles",
+            "--output-ds",
+            "summaries",
+            "--completion-llm",
+            "openai:gpt-4o-mini",
+            "--structured-prefix",
+            "Summarize: {body}",
+            "--input-var",
+            "body=article_body",
+            "--response-format",
+            "json",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    p = settings.obj_payload
+    assert p["promptMode"] == "STRUCTURED"
+    assert p["completionLLMId"] == "openai:gpt-4o-mini"
+    assert p["prompt"]["structuredPromptPrefix"] == "Summarize: {body}"
+    assert p["inputs"][0] == {
+        "name": "body",
+        "column": "article_body",
+        "type": "STRING",
+    }
+    assert p["completionSettings"]["responseFormat"] == {"type": "json"}
+
+
+def test_recipe_create_prompt_text_mode_requires_prompt(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-prompt",
+            "p",
+            "-i",
+            "in_ds",
+            "--output-ds",
+            "out",
+            "--completion-llm",
+            "x",
+            "--prompt-mode",
+            "TEXT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "TEXT mode requires --prompt" in result.output
+
+
+def test_recipe_create_prompt_invalid_mode(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-prompt",
+            "p",
+            "-i",
+            "in_ds",
+            "--output-ds",
+            "out",
+            "--completion-llm",
+            "x",
+            "--prompt-mode",
+            "WIBBLE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "WIBBLE" in result.output
+
+
+def test_recipe_create_llm_classify_invalid_example_format(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-llm-classify",
+            "classify",
+            "-i",
+            "in_ds",
+            "--output-ds",
+            "out",
+            "--completion-llm",
+            "x",
+            "--input-col",
+            "txt",
+            "--class",
+            "a",
+            "--class",
+            "b",
+            "--example",
+            "no-separator",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "TEXT||LABEL" in result.output
+
+
+def test_recipe_create_join_right_limit_invalid_keep(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--right-limit-keep",
+            "KEEP_RANDOM",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "KEEP_RANDOM" in result.output
