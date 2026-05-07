@@ -4796,7 +4796,11 @@ def create_list_folder_contents(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     folder: str = typer.Option(
-        ..., "--folder", help="Source managed folder ID or name"
+        ...,
+        "--folder",
+        "--input",
+        "-i",
+        help="Source managed folder ID or name (also accepts --input/-i for parity with other create-* verbs).",
     ),
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset (1 row per file)"
@@ -5749,6 +5753,15 @@ def create_prepare(
     output_ds: str = typer.Option(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
+    engine: str | None = typer.Option(
+        None,
+        "--engine",
+        help=(
+            "payload.engineType: DSS (default), SQL, SPARK_SQL, IMPALA, HIVE. "
+            "Set SQL for Snowflake/Postgres pushdown — Prepare runs in-DB without "
+            "shuttling rows through the DSS engine."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create an empty Prepare recipe (auto-creates output dataset).
@@ -5764,8 +5777,12 @@ def create_prepare(
     Example:
       dku recipe create-prepare clean -i raw --output-ds cleaned -P PROJ \\
         && dku recipe add-formula clean --output total --expr 'price * qty' -P PROJ
+
+    SQL pushdown:
+      dku recipe create-prepare clean -i raw --output-ds cleaned --engine SQL -P PROJ
     """
     project_key = resolve_project(project)
+    engine_upper = _validate_engine_type(engine)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -5774,6 +5791,12 @@ def create_prepare(
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
         builder.build()
+        if engine_upper:
+            recipe_obj = proj.get_recipe(recipe_name)
+            settings = recipe_obj.get_settings()
+            payload = _get_recipe_payload(settings)
+            _apply_engine_type(payload, engine_upper)
+            settings.save()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created prepare recipe '{recipe_name}' in {project_key}")
     except Exception as e:
@@ -6057,21 +6080,38 @@ _VALID_LAG_DATE_UNITS = frozenset(
 
 
 def _parse_compute_specs(specs: list[str]) -> list[dict]:
-    """Parse --compute specs like 'TYPE:column:output' into computation dicts.
+    """Parse --compute specs into computation dicts. Three accepted shapes:
 
-    For rank/denseRank/rowNumber, source column is optional: 'rank::output' or 'rank:output'.
-    For other types, source column is required: 'lag:price:price_lag1'.
+    - 'TYPE:column'                — source-required types (sum/avg/lag/...).
+      Output column auto-named '<column>_<type>' to match DSS's default.
+    - 'TYPE:column:output_column'  — explicit rename.
+    - 'TYPE::output_column' or 'TYPE:output_column' — top-level types
+      (rank/denseRank/rowNumber) where the source column is meaningless.
     """
     parsed = []
     for comp_spec in specs:
         parts = comp_spec.split(":")
+        comp_type = parts[0]
+        if comp_type not in _VALID_WINDOW_TYPES:
+            exit_with_error(
+                f"Unknown window computation type: '{comp_type}'.",
+                code="invalid_argument",
+                details=[f"Valid types: {', '.join(sorted(_VALID_WINDOW_TYPES))}"],
+            )
         if len(parts) == 2:
-            # TYPE:output_column (no source column)
-            comp_type, output_col = parts
-            source_col = None
+            # 'TYPE:second' — meaning depends on whether the type takes a column.
+            second = parts[1]
+            if comp_type in _TOP_LEVEL_WINDOW_TYPES:
+                # rank/denseRank/rowNumber: second is the output name.
+                source_col = None
+                output_col = second
+            else:
+                # sum/avg/lag/...: second is the source column.
+                # Auto-name the output as DSS would (<col>_<type>).
+                source_col = second
+                output_col = f"{second}_{comp_type.lower()}"
         elif len(parts) == 3:
             # TYPE:column:output_column (empty column OK for rank types)
-            comp_type = parts[0]
             source_col = parts[1] or None
             output_col = parts[2]
         else:
@@ -6079,21 +6119,21 @@ def _parse_compute_specs(specs: list[str]) -> list[dict]:
                 f"Invalid --compute format: '{comp_spec}'.",
                 code="invalid_argument",
                 details=[
-                    "Expected: 'TYPE:column:output_column' or 'TYPE::output_column' (for rank/rowNumber).",
-                    "Examples: --compute 'lag:price:price_lag1' --compute 'rank::row_rank'",
+                    "Expected forms:",
+                    "  'TYPE:column'                  — sum/avg/lag/... (output auto-named '<col>_<type>')",
+                    "  'TYPE:column:output_column'    — explicit output name",
+                    "  'TYPE::output_column'          — rank/denseRank/rowNumber",
+                    "Examples: --compute 'sum:amount' --compute 'lag:price:price_lag1' --compute 'rank::row_rank'",
                 ],
-            )
-        if comp_type not in _VALID_WINDOW_TYPES:
-            exit_with_error(
-                f"Unknown window computation type: '{comp_type}'.",
-                code="invalid_argument",
-                details=[f"Valid types: {', '.join(sorted(_VALID_WINDOW_TYPES))}"],
             )
         if comp_type not in _TOP_LEVEL_WINDOW_TYPES and not source_col:
             exit_with_error(
                 f"Computation type '{comp_type}' requires a source column.",
                 code="invalid_argument",
-                details=[f"Use: --compute '{comp_type}:COLUMN:OUTPUT_COLUMN'"],
+                details=[
+                    f"Use: --compute '{comp_type}:COLUMN' (output auto-named) or "
+                    f"--compute '{comp_type}:COLUMN:OUTPUT_COLUMN' (explicit)."
+                ],
             )
         entry: dict = {"type": comp_type, "outputColumn": output_col}
         if source_col:
@@ -6256,8 +6296,11 @@ def create_window(
         None,
         "--compute",
         help=(
-            "Window computation. Format: TYPE:column[:output_column]. "
-            "Column optional for rank/denseRank/rowNumber (use TYPE::output). "
+            "Window computation. Three accepted forms: "
+            "(1) 'TYPE:column' for sum/avg/lag/etc. — output auto-named "
+            "'<column>_<type>' to match DSS's default. "
+            "(2) 'TYPE:column:output_column' — explicit output rename. "
+            "(3) 'TYPE::output' for rank/denseRank/rowNumber (no source column). "
             "Types: lag, lead, lagDiff, leadDiff, rank, denseRank, rowNumber, "
             "sum, avg, min, max, count, countDistinct, first, last, "
             "firstLastNotNull, stddev, concat, concatDistinct. "
@@ -6696,9 +6739,12 @@ def create_split(
         None,
         "--value-split",
         help=(
-            "VALUES mode: 'VAL=OUT_INDEX' — rows where --column == VAL go to "
-            "output at OUT_INDEX. Repeatable. Example: --value-split active=0 "
-            "--value-split lapsed=1."
+            "VALUES mode. Format: 'COLUMN_VALUE=OUT_INDEX'. "
+            "LEFT side is the value found in --column; RIGHT side is the "
+            "0-based index of the --output-ds you listed (in order). So "
+            "with --output-ds active --output-ds lapsed, "
+            '--value-split active=0 means \'rows where --column == "active" '
+            "go to the FIRST output (active)'. Repeatable."
         ),
     ),
     random_shares: list[str] | None = typer.Option(
