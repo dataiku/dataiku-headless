@@ -33,6 +33,32 @@ ZIP archive. Extract with `unzip project.egp`. Inside:
 
 JSON, not XML. `json.load(f)`. `flow['nodes']` → sub-flows; each node has `dataFlowAndBindings.dataFlow.{nodes,connections}`. Node `nodeType`: `step`, `table`, `outputTable`.
 
+### `.sas7bdat` source tables
+
+DSS does not upload `.sas7bdat` directly — convert to CSV first via pandas, then upload. **The id-column gotcha is silent and high-impact:** SAS stores all numerics as `double`, so pandas `read_sas` returns `id=1077430.0` (float). If you `to_csv` and then `dku dataset set-schema id:bigint`, every value becomes `null` without error and downstream joins produce zero rows. Cast id-like columns to nullable `Int64` before writing the CSV:
+
+```python
+import pandas as pd, numpy as np
+df = pd.read_sas('source.sas7bdat')
+# datetime first (must run before Int64 cast — np.issubdtype rejects pandas extension dtypes)
+for c in df.columns:
+    try:
+        if np.issubdtype(df[c].dtype, np.datetime64):
+            df[c] = df[c].dt.strftime('%Y-%m-%d')
+    except TypeError:
+        pass
+# nullable int for join keys / class targets
+for c in ['id', 'member_id', 'loan_status']:
+    if c in df.columns:
+        df[c] = df[c].astype('Int64')   # capital I — pandas nullable int
+# bytes → str
+for c in df.select_dtypes(include=['object']).columns:
+    df[c] = df[c].apply(lambda v: v.decode('utf-8','replace') if isinstance(v, bytes) else v)
+df.to_csv('source.csv', index=False)
+```
+
+After `dku dataset upload + set-schema`, sanity-check with `dku dataset head <ds> -P PROJ -n 3 -o json` and confirm the id values are populated (not `null`). If they're null, the float-formatted-to-bigint silent cast happened — re-run the conversion with the `Int64` cast in place.
+
 ### Python-in-SAS
 
 `proc python; submit; ... endsubmit;` blocks. Extract the code between `submit;` / `endsubmit;`, migrate to a Python recipe. Ignore the SAS-side bridge.
@@ -139,6 +165,7 @@ Cross-source CLI / Dataiku gotchas live in `dku-cli/references/common-gotchas.md
 | `.flw` files are JSON | `json.load()` — nodes + connections define the DAG |
 | SASHELP tables don't exist in Dataiku | User must provide equivalent reference data |
 | `%include` chains may pull in thousands of macro lines | Follow every include, or recognize as a driver script |
+| `.sas7bdat` numeric IDs export as `1077430.0` (float) → bigint cast silently NULLs every value, downstream joins produce 0 rows | Cast to nullable `Int64` in pandas before `to_csv` (see § `.sas7bdat` source tables above). Sanity-check `dku dataset head` after `set-schema`. |
 
 ### Source-specific verification
 
@@ -151,6 +178,7 @@ After Phase 3 build, compare row count against the SAS log: `NOTE: Table WORK.X 
 | Value mismatch on `.5` boundaries | Rounding mode — SAS is half-away-from-zero for any sign; Python/pandas/PG DOUBLE are banker's; DSS in-memory `round()` is Java round-half-up (matches SAS for positives, not for negatives). See `translation.md` § Rounding parity |
 | Filter dropped more rows than SAS | SAS `where` treats missing as smallest value; DSS GREL `isnull()` must be explicit. SAS `if x > 0` keeps `x = .` as false; equivalent GREL is `x > 0` (NULLs do not pass filters in DSS, same as SAS) |
 | MERGE produced different rows than Join recipe | `merge` semantics are *not* a left/inner join — see `semantics.md` § MERGE |
+| Migrated `MEAN(col)` / `STD(col)` per row produced per-row identity values, not the global aggregate | SAS PROC SQL silently auto-remerges (log: `NOTE: The query requires remerging summary statistics back with the original data`). DSS Window does NOT do global-only aggregates even with unbounded frame. Use Group(no key) + CROSS Join + Prepare — see `translation.md` § PROC SQL auto-remerge |
 
 ---
 

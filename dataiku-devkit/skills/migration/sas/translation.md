@@ -67,23 +67,28 @@ Priority is always **Visual → SQL → Python**. Python is the last resort, not
 
 ### Statistical PROCs
 
-Most stats PROCs land in Python. Group what's actually a **visual stat** (means/medians/correlations) from what needs a library. The Statistics recipe handles basic univariate/bivariate descriptives without code — reach for it before Python.
+Many SAS stats PROCs land in Python — but the regression / classification family (LOGISTIC / REG / GLM-as-regression / HPLOGISTIC / GENMOD-as-GLM) are **Visual ML**, not Python. See § Visual ML below for the canonical `dku ml` chain. The Statistics recipe handles basic univariate/bivariate descriptives (means / medians / correlations) without code — reach for it before Python.
 
 | PROC | Recipe | Python library (when needed) |
 |---|---|---|
 | `PROC TTEST` | Statistics recipe (paired / independent) | `scipy.stats.ttest_ind` / `ttest_rel` / `ttest_1samp` |
 | `PROC CORR` | Statistics recipe (correlation matrix) | `pandas.DataFrame.corr` (methods: pearson/spearman/kendall) |
-| `PROC ANOVA` / `PROC GLM` | Python recipe | `statsmodels.formula.api.ols` + `anova_lm` |
-| `PROC GENMOD` | Python recipe | `statsmodels.genmod.GLM` (Poisson, Gamma, Binomial links) |
+| `PROC LOGISTIC` / `PROC HPLOGISTIC` | **Visual ML** (`LOGISTIC_REGRESSION`) | — (see § Visual ML) |
+| `PROC REG` (linear regression with prediction) | **Visual ML** (`LEASTSQUARE_REGRESSION` / `RIDGE_REGRESSION`) | — |
+| `PROC GLM` for regression (`MODEL y = x1 x2;` with `PREDICT`) | **Visual ML** (regression) | — |
+| `PROC GLM` for ANOVA / `PROC ANOVA` (no prediction, just F-test) | Python recipe | `statsmodels.formula.api.ols` + `anova_lm` |
+| `PROC GENMOD` (binomial link → classification; gaussian link → regression with prediction) | **Visual ML** (classification or regression) | `statsmodels.genmod.GLM` only when the link function isn't supported (Poisson / Gamma) |
 | `PROC MIXED` | Python recipe | `statsmodels.MixedLM` |
 | `PROC GLIMMIX` | Python recipe | `statsmodels.BinomialBayesMixedGLM` / `GEE` / `MixedLM` with link fn. No one-liner — match the distribution + link + random-effects spec from the SAS call |
 | `PROC PHREG` / `PROC LIFETEST` | Python recipe | `lifelines` (Cox, Kaplan-Meier) |
 | `PROC SURVEYMEANS` / `SURVEYREG` / `SURVEYLOGISTIC` | Python recipe | `statsmodels.survey` (or bespoke weighted IQR/variance) |
 | `PROC FACTOR` | Python recipe | `factor_analyzer` |
-| `PROC DISCRIM` | AutoML (classification) or Python | `sklearn.discriminant_analysis.LinearDiscriminantAnalysis` |
+| `PROC DISCRIM` | **Visual ML** (classification) or Python | `sklearn.discriminant_analysis.LinearDiscriminantAnalysis` |
 | `PROC NPAR1WAY` | Python recipe | `scipy.stats.wilcoxon` / `mannwhitneyu` / `kruskal` |
 | `PROC ARIMA` | Time Series Preparation plugin (basic) or Python | `statsmodels.tsa.arima.ARIMA` / `SARIMAX` |
 | `PROC ESM` | Time Series Preparation plugin | `statsmodels.tsa.holtwinters` as fallback |
+
+**Rule: ML setup is NEVER a Python recipe in the Flow.** Recipes produce data; ML configuration / training is a *visual* workflow. The Flow representation is `train_*` recipe → Saved Model → Predict (`prediction_scoring`) recipe — produced via the `dku ml` namespace, not by writing Python that calls `dataikuapi`. If you find yourself drafting a Python recipe whose output is `{status: "ok"}` or any non-data row, stop and use § Visual ML below.
 
 Note: Statistics recipe results are a summary object on the dataset, not an output dataset — downstream recipes can't consume them. If the SAS program feeds p-values or coefficients into a later step, write the Python recipe and emit a results dataset.
 
@@ -347,6 +352,50 @@ dku dataset info appl_tenure -P PROJ --recompute
 When the SAS step has `if cond then x = round(x * a / b);` (conditional rescaling), fold it into a single GREL formula: `if(numval(m) < 12, round(numval(n) * 12 / numval(m)), numval(n))`. Still Join + Prepare.
 
 **When this pattern genuinely needs SQL** — rare: the formula calls a function with no GREL equivalent (regex back-references, hyperbolic trig, crypto) or the step needs `LAG`/`LEAD` across rows.
+
+### PROC SQL auto-remerge (`MEAN(col)` per row) → Group(no key) + CROSS Join + Prepare (NOT Window)
+
+SAS PROC SQL silently auto-remerges aggregates back to row level when an unaggregated column is selected alongside an aggregate function:
+
+```sas
+proc sql;
+    create table out as
+    select id, annual_inc,
+           MEAN(annual_inc) as mean_inc,
+           STD(annual_inc)  as std_inc,
+           ABS((annual_inc - MEAN(annual_inc)) / STD(annual_inc)) as std_from_mean
+      from src;
+quit;
+/* NOTE: The query requires remerging summary statistics back with the original data. */
+```
+
+This is **not** a Window aggregate. The DSS Window recipe (`create-window`) does not produce a global mean/stddev attached per row even with unbounded frame settings — empirically, with no partition + `enableLimits=true, limitPreceding=false, limitFollowing=false`, each row still gets its own value as the aggregate. Reach for the three-recipe pattern instead:
+
+```bash
+# 1. Group with no key → 1-row global stats (drop the auto count column)
+dku recipe create-group global_stats -i src --output-ds global_stats \
+    --no-global-count \
+    --agg 'annual_inc:avg,stddev' \
+    --rename 'annual_inc_avg:mean_inc' \
+    --rename 'annual_inc_stddev:std_inc' \
+    -P PROJ
+
+# 2. CROSS join the original with the 1-row global_stats → mean_inc / std_inc
+#    on every row.
+dku recipe create-join src_with_stats -i src -i global_stats \
+    --output-ds src_with_stats -j CROSS -P PROJ
+
+# 3. Prepare for the row-level derived column (and to drop unwanted carry-overs)
+dku recipe create std_from_mean -t prepare -i src_with_stats --output-ds std_from_mean -P PROJ
+dku recipe add-formula std_from_mean -c std_from_mean \
+    -e 'abs((annual_inc - mean_inc) / std_inc)' -P PROJ
+dku recipe apply-schema std_from_mean -P PROJ
+dku recipe run std_from_mean -P PROJ --wait
+```
+
+**Rule of thumb:** if the SAS PROC SQL log says `NOTE: The query requires remerging summary statistics back with the original data`, the migration is Group + CROSS Join + Prepare. Three recipes, all visual. This is also the right pattern for SAS PROC MEANS output joined back to the input via a manual `proc sql`.
+
+**When Window IS the right call:** the aggregate is per-partition or windowed by ordering (`MEAN(x) OVER (PARTITION BY k ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)`), not global. Use Window with `--partition-key k --order-key date` and the appropriate frame.
 
 ### PROC TRANSPOSE → Pivot + Prepare
 
@@ -896,39 +945,106 @@ dku recipe add-formula prepare_plan_state_final --column time_since_last_change 
 
 ---
 
-## AutoML
+## Visual ML
+
+The Flow representation of an ML model in DSS is **always** the chain *training recipe → Saved Model → Predict recipe* — never a Python recipe configuring a model in the Lab. Use the `dku ml` namespace for setup and `dku recipe create-prediction-scoring` for the in-Flow scorer.
+
+### Concept mapping
 
 | SAS ML concept | Dataiku | Identify in SAS |
 |---|---|---|
-| Target variable | AutoML target | `dm_dec_target`, `target=`, `response` |
-| Binary target (0/1) | Two-class classification | `BAD`, `CHURN`, `DEFAULT` |
-| Continuous target | Regression | `PROC REG`, `PROC GLM` |
+| Target variable | Visual ML target | `dm_dec_target`, `target=`, `response` |
+| Binary target (0/1) | Two-class classification (`BINARY_CLASSIFICATION`) | `BAD`, `CHURN`, `DEFAULT` |
+| Multi-class target | Multi-class (`MULTICLASS`) | discrete `CLASS` target with >2 levels |
+| Continuous target | Regression (`REGRESSION`) | `PROC REG`, `PROC GLM` with continuous outcome |
 | No target | Clustering | `PROC CLUSTER` |
-| Imputation, OHE, train/test | AutoML handles automatically | `SimpleImputer`, `OneHotEncoder`, `dm_traindf` |
+| Imputation, OHE, train/test | Visual ML handles automatically | `SimpleImputer`, `OneHotEncoder`, `dm_traindf` |
+
+### Canonical chain — PROC LOGISTIC / PROC REG / PROC GLM (regression) / PROC HPLOGISTIC / PROC GENMOD (with prediction)
+
+```bash
+# 1. Create the prediction ML task (auto-creates the Lab analysis + waits for feature guessing)
+dku ml create-prediction joined_applicants loan_status \
+    -t BINARY_CLASSIFICATION -P PROJ
+# → returns analysis_id and mltask_id (e.g. bdZayVvy / WQ26griH)
+
+# 2. Lock to the SAS-equivalent algorithm. After create-prediction the default
+#    leaves both LOGISTIC_REGRESSION and RANDOM_FOREST enabled — without
+#    --disable-all you ship two algorithms when SAS specified one.
+dku ml set-algorithm <ANALYSIS> <MLTASK> \
+    --disable-all --enable LOGISTIC_REGRESSION -P PROJ
+# Algorithm names — match the SAS PROC:
+#   PROC LOGISTIC, PROC HPLOGISTIC, binomial PROC GENMOD → LOGISTIC_REGRESSION
+#   PROC REG, gaussian PROC GLM/GENMOD                    → LEASTSQUARE_REGRESSION
+#                                                          (or RIDGE_REGRESSION
+#                                                          for `lasso`/`ridge`
+#                                                          options)
+#   PROC GRADBOOST, PROC TREEBOOST                        → GBT_CLASSIFICATION
+#                                                          / GBT_REGRESSION
+#   PROC HPFOREST, PROC FOREST                            → RANDOM_FOREST_*
+#   PROC HPSPLIT                                          → DECISION_TREE_*
+#   PROC HPSVM                                            → SVM_CLASSIFICATION
+# `dku ml algorithms <ANALYSIS> <MLTASK> -P PROJ` lists everything available.
+
+# 3. Reject features outside the SAS MODEL spec. Repeat per non-spec column.
+#    In a SAS PROC LOGISTIC `MODEL y = a b c;` only a/b/c are in scope; every
+#    other column on the input dataset is implicitly excluded. DSS guess-time
+#    accepts every column — you must reject the extras explicitly.
+for col in $(dku dataset schema joined_applicants -P PROJ -o json \
+              | jq -r '.[].name' \
+              | grep -vxE 'annual_inc|dti|delinq_2yrs|inq_last_6mths|open_acc|total_acc|total_pymnt|home_ownership|initial_list_status|loan_status'); do
+    dku ml set-feature <ANALYSIS> <MLTASK> "$col" --role REJECT -P PROJ
+done
+
+# 4. Train (waits for completion)
+dku ml train <ANALYSIS> <MLTASK> -P PROJ --wait
+# `dku ml models <ANALYSIS> <MLTASK> -P PROJ` lists the trained model IDs;
+# pick the latest session (s2-pp1-m1 etc.).
+
+# 5. Deploy the trained model into the Flow → creates a Saved Model + the
+#    visual training recipe.
+dku ml deploy <ANALYSIS> <MLTASK> <MODEL_ID> \
+    --name "Loan Status (Logistic Regression)" \
+    --train-dataset joined_applicants -P PROJ
+# → returns savedModelId (e.g. du1rCRhU) and trainRecipeName.
+
+# 6. Score new (or held-out) data — the in-Flow Predict recipe.
+dku recipe create-prediction-scoring score_loan_status \
+    -i joined_applicants \
+    --output-ds joined_applicants_scored \
+    --model <SAVED_MODEL_ID> -P PROJ
+dku recipe apply-schema score_loan_status -P PROJ
+dku recipe run score_loan_status -P PROJ --wait
+```
+
+After step 6 the Flow contains: source dataset → `train_*` (visual training recipe) → Saved Model → `score_*` (visual Predict recipe) → `*_scored` dataset (with `prediction`, `proba_0`, `proba_1` columns appended). Zero Python recipes.
+
+### Known frictions in the chain (workarounds, not blockers)
+
+| Friction | Workaround |
+|---|---|
+| `dku ml set-algorithm --enable X` (without `--disable-all`) leaves Random Forest enabled alongside the explicit algo | Always pair `--disable-all` with `--enable X` to lock to one algorithm |
+| `dku recipe create-prediction-scoring NAME …` reports `DSS API error: 'recipe'` *on success* (response parser bug); auto-names the recipe `score_<input_dataset>` ignoring the `NAME` arg | Ignore the error — the recipe and output ARE created. Then `dku recipe rename score_<input> --name <wanted> -P PROJ` |
+| `dku flow move <SAVED_MODEL_NAME> -t SAVED_MODEL` falls through to "no managed folders" | Pass the saved-model ID with `-t AUTO`: `dku flow move <SAVED_MODEL_ID> -t AUTO -z ML -P PROJ` |
+| `dku analysis tasks <id>` may crash with `'str' object has no attribute 'get'` | Use `dku ml status <ANALYSIS> <MLTASK>` and `dku ml models <ANALYSIS> <MLTASK>` instead |
 
 ### SAS Viya / Enterprise Miner ML PROCs
 
-SAS Viya HP PROCs are all tree/ensemble/neural algorithms available in AutoML. Migrate to AutoML with the matching algorithm enabled — don't rewrite in Python unless the SAS call uses an option AutoML can't express (custom loss, monotonic constraints, etc.).
+SAS Viya HP PROCs are all tree/ensemble/neural algorithms available in Visual ML. Migrate via the same chain above, swapping the `--enable` algorithm name. Don't rewrite in Python unless the SAS call uses an option Visual ML can't express (custom loss, monotonic constraints, etc.).
 
 | SAS PROC | Dataiku | Algorithm / note |
 |---|---|---|
-| `PROC GRADBOOST` (Viya) / `PROC TREEBOOST` (EM) | AutoML | Gradient Boosted Trees (XGBoost / LightGBM backend) |
-| `PROC HPFOREST` / `PROC FOREST` | AutoML | Random Forest |
-| `PROC HPSPLIT` | AutoML | Decision Tree |
-| `PROC HPSVM` / `PROC SVMACHINE` | AutoML | SVM (kernel from SAS `kernel=` option) |
-| `PROC PLS` | Python recipe | `sklearn.cross_decomposition.PLSRegression` — no AutoML equivalent |
-| Neural / `PROC NEURAL` / `PROC HPNEURAL` | AutoML (MLP) or Python (`keras`/`pytorch`) | AutoML MLP for shallow nets; Python for bespoke architectures |
-| k-NN (`PROC DISCRIM method=npar k=`) | AutoML (K-Nearest Neighbors) | Distance metric usually euclidean — verify SAS `METRIC=` option |
-| `PROC HPCLUS` | AutoML (clustering) | K-means / hierarchical |
+| `PROC GRADBOOST` (Viya) / `PROC TREEBOOST` (EM) | Visual ML | Gradient Boosted Trees (XGBoost / LightGBM backend) — `--enable GBT_CLASSIFICATION` / `GBT_REGRESSION` |
+| `PROC HPFOREST` / `PROC FOREST` | Visual ML | Random Forest — `--enable RANDOM_FOREST_CLASSIFICATION` / `RANDOM_FOREST_REGRESSION` |
+| `PROC HPSPLIT` | Visual ML | Decision Tree — `--enable DECISION_TREE_CLASSIFICATION` |
+| `PROC HPSVM` / `PROC SVMACHINE` | Visual ML | SVM — `--enable SVM_CLASSIFICATION` (kernel from SAS `kernel=` option) |
+| `PROC PLS` | Python recipe | `sklearn.cross_decomposition.PLSRegression` — no Visual ML equivalent |
+| Neural / `PROC NEURAL` / `PROC HPNEURAL` | Visual ML (MLP) or Python (`keras`/`pytorch`) | Visual ML MLP (`--enable NEURAL_NETWORK`) for shallow nets; Python for bespoke architectures |
+| k-NN (`PROC DISCRIM method=npar k=`) | Visual ML (K-Nearest Neighbors) | `--enable KNN`. Distance metric usually euclidean — verify SAS `METRIC=` option |
+| `PROC HPCLUS` | Visual ML clustering (`dku ml create-clustering`) | K-means / hierarchical |
 | `PROC FACTMAC` (factorization machines) | Python recipe | `lightfm` or `xlearn` |
 
-```bash
-dku ml create analysis -d dataset -t TARGET --task-type BINARY_CLASSIFICATION -P PROJ && \
-dku ml train analysis -P PROJ --wait && \
-dku ml deploy analysis -P PROJ
-```
-
-**Hyperparameter mapping:** SAS `ntrees= maxdepth= minleafsize=` → AutoML GBT / RF grid. Translate the search space, don't pin single values — AutoML tunes across the grid and picks the best.
+**Hyperparameter mapping:** SAS `ntrees= maxdepth= minleafsize=` → Visual ML GBT / RF grid. Translate the search space, don't pin single values — Visual ML tunes across the grid and picks the best. Tune via `dku ml settings <ANALYSIS> <MLTASK> -P PROJ` to inspect the grid; edit and re-`set-settings` if the defaults don't match the SAS call.
 
 ---
 

@@ -91,6 +91,9 @@ Full catalog in `dku-cli/references/common-gotchas.md`. Source-specific gotchas 
 | Group recipe adds an extra `count` column | Pass `--no-global-count` |
 | `dku dataset info` row count is stale after build | Pass `--recompute` |
 | `apply-schema` required before first run | Otherwise computed columns silently missing |
+| ML setup as a Python recipe in the Flow (PROC LOGISTIC / PROC REG / PROC GLM landed as `dataiku.api_client()` script) | Anti-pattern. Recipes produce data, not status. Use the `dku ml` namespace: `create-prediction → set-algorithm → train → deploy → recipe create-prediction-scoring`. See `sas/translation.md` § Visual ML for the canonical chain. |
+| Window recipe doesn't produce global aggregates per row (`MEAN(col)` over the whole table → still per-row identity) | Use Group(no key) + CROSS Join + Prepare instead. See `sas/translation.md` § PROC SQL auto-remerge. |
+| `.sas7bdat` numeric IDs export as `1077430.0` (float) — `set-schema id:bigint` silently nulls every value, joins produce 0 rows | Cast to nullable `Int64` in pandas before `to_csv`. See `sas/overview.md` § `.sas7bdat` source tables. |
 
 ## Reference map
 
