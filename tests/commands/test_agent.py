@@ -378,3 +378,212 @@ def test_agent_set_metadata_no_args(patch_client):
         app, ["agent", "set-metadata", "agent1", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# ── Versioning: list-versions, create-version, set-active-version ──────
+
+
+def test_agent_list_versions(patch_client):
+    result = runner.invoke(
+        app, ["agent", "list-versions", "agent1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "v1" in result.output
+
+
+def test_agent_list_versions_json(patch_client):
+    result = runner.invoke(
+        app, ["agent", "list-versions", "agent1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["version_id"] == "v1"
+    assert parsed[0]["active"] == "✓"
+
+
+def test_agent_create_version(patch_client):
+    """create-version deep-copies the active version, picks next vN, persists."""
+    result = runner.invoke(
+        app, ["agent", "create-version", "agent1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Created version 'v2'" in result.output
+
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    raw = settings.get_raw()
+    vids = [v["versionId"] for v in raw["versions"]]
+    assert vids == ["v1", "v2"]
+    # New version inherits config from v1
+    v2 = next(v for v in raw["versions"] if v["versionId"] == "v2")
+    assert v2["toolsUsingAgentSettings"]["llmId"] == "llm1"
+    settings.save.assert_called()
+
+
+def test_agent_create_version_activate(patch_client):
+    """--activate calls saved_model.set_active_version with the new vid."""
+    result = runner.invoke(
+        app,
+        ["agent", "create-version", "agent1", "--activate", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "Created version 'v2'" in result.output
+    assert "now active" in result.output
+    patch_client.get_project("PROJ1").get_saved_model(
+        "agent1"
+    ).set_active_version.assert_called_with("v2")
+
+
+def test_agent_set_active_version(patch_client):
+    """set-active-version uses the saved-model API (not raw activeVersion)."""
+    # Seed a v2 first so the validation passes
+    runner.invoke(app, ["agent", "create-version", "agent1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app,
+        ["agent", "set-active-version", "agent1", "v2", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "set to 'v2'" in result.output
+    patch_client.get_project("PROJ1").get_saved_model(
+        "agent1"
+    ).set_active_version.assert_called_with("v2")
+
+
+def test_agent_set_active_version_bad_id(patch_client):
+    """Asking to activate a missing version produces a prescriptive error."""
+    result = runner.invoke(
+        app,
+        ["agent", "set-active-version", "agent1", "v999", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "v999" in result.output
+    assert "v1" in result.output  # lists existing
+
+
+def test_agent_set_prompt_new_version(patch_client):
+    """--new-version creates a fresh version with the new prompt; v1 prompt stays untouched."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "agent1",
+            "--prompt",
+            "Version 2 prompt",
+            "--new-version",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "version 'v2'" in result.output
+
+    raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
+    v2 = next(v for v in raw["versions"] if v["versionId"] == "v2")
+    assert v2["toolsUsingAgentSettings"]["systemPrompt"] == "Version 2 prompt"
+    # Inherits LLM from v1
+    assert v2["toolsUsingAgentSettings"]["llmId"] == "llm1"
+    # set-active-version was NOT called (no --activate)
+    patch_client.get_project("PROJ1").get_saved_model(
+        "agent1"
+    ).set_active_version.assert_not_called()
+
+
+def test_agent_set_prompt_new_version_activate(patch_client):
+    """--activate flips active to the new version."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "agent1",
+            "--prompt",
+            "v2 prompt",
+            "--new-version",
+            "--activate",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "now active" in result.output
+    patch_client.get_project("PROJ1").get_saved_model(
+        "agent1"
+    ).set_active_version.assert_called_with("v2")
+
+
+def test_agent_set_prompt_activate_requires_new_version(patch_client):
+    """--activate without --new-version errors out (prevents silent in-place + no-op)."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "agent1",
+            "--prompt",
+            "x",
+            "--activate",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--activate requires --new-version" in result.output
+
+
+def test_agent_set_llm_new_version(patch_client):
+    """--new-version on set-llm preserves tools + prompt from active version."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-llm",
+            "agent1",
+            "--llm-id",
+            "gpt-5",
+            "--new-version",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
+    v2 = next(v for v in raw["versions"] if v["versionId"] == "v2")
+    assert v2["toolsUsingAgentSettings"]["llmId"] == "gpt-5"
+    # Tools from v1 are carried over
+    assert any(
+        t.get("toolRef") == "existing_tool"
+        for t in v2["toolsUsingAgentSettings"]["tools"]
+    )
+
+
+def test_agent_add_tool_new_version(patch_client):
+    """--new-version on add-tool appends to a fresh version, leaves v1 unchanged."""
+    v1_tools_before = list(
+        patch_client.get_project("PROJ1")
+        .get_agent("agent1")
+        .get_settings()
+        .get_raw()["versions"][0]["toolsUsingAgentSettings"]["tools"]
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-tool",
+            "agent1",
+            "--tool",
+            "fresh_tool",
+            "--new-version",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
+    v1 = raw["versions"][0]
+    v2 = next(v for v in raw["versions"] if v["versionId"] == "v2")
+    # v1 tools unchanged
+    assert v1["toolsUsingAgentSettings"]["tools"] == v1_tools_before
+    # v2 has the new tool
+    assert any(
+        t.get("toolRef") == "fresh_tool" for t in v2["toolsUsingAgentSettings"]["tools"]
+    )
