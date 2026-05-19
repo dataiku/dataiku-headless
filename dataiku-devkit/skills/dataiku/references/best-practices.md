@@ -836,27 +836,21 @@ llm = project.get_llm(llm_id)
 
 ### Editing Agent Versions In-Place
 
-```python
-# WRONG — mutating active version corrupts the agent, no rollback possible
-settings = agent.get_settings()
-raw = settings.get_raw()
-active_vid = raw['activeVersion']
-active_version = next(v for v in raw['versions'] if v['versionId'] == active_vid)
-active_version['toolsUsingAgentSettings']['systemPromptAppend'] = "new prompt"
-settings.save()
+```bash
+# WRONG — mutates active version in place, no rollback possible
+dku agent set-prompt AGENT_ID --prompt @sys.txt -P PROJ
 
-# RIGHT — deep-copy active version, create new version, then activate
-import copy
-new_version = copy.deepcopy(active_version)
-new_version['versionId'] = f"v{next_version_number}"
-# ... modify new_version ...
-raw['versions'].append(new_version)
-settings.save()
-sm = project.get_saved_model("AGENT_ID")
-sm.set_active_version(new_version['versionId'])
+# RIGHT — publish a new version and activate atomically (CLI handles deep-copy + saved-model flip)
+dku agent set-prompt AGENT_ID --prompt @sys.txt --new-version --activate -P PROJ
+
+# Roll back any time
+dku agent list-versions AGENT_ID -P PROJ
+dku agent set-active-version AGENT_ID v1 -P PROJ
 ```
 
-**Why:** Agent settings use a version array. Mutations to the active version break the versioning model and prevent rollback.
+Same `--new-version --activate` flags apply to `dku agent set-llm` and `dku agent add-tool`. If you must do it from Python: deep-copy the active version, set a fresh `versionId`, refresh `versionTag`/`creationTag`, append to `raw['versions']`, `settings.save()`, then `project.get_saved_model(agent_id).set_active_version(new_vid)` (setting `activeVersion` in raw alone does not persist).
+
+**Why:** Agent settings use a version array. Mutating the active version breaks the versioning model and prevents rollback — every prompt iteration is lost.
 
 ### Deleting Plugins Without Checking Usages
 

@@ -72,7 +72,7 @@ With `--errors json`, the same info ships as `error.safety.{prompt_to_user, reru
 - [user](#user) — list, get, create, delete
 - [flow](#flow) — graph, visualize, zones, create-zone, set-zone, move, propagate, check, sources, successors
 - [library](#library) — list, read, write, delete, mkdir
-- [agent](#agent) — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, set-metadata
+- [agent](#agent) — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, set-metadata, list-versions, create-version, set-active-version
 - [agent-review](#agent-review) — list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results
 - [agent-tool](#agent-tool) — list, get, create, set-definition, run, types, delete
 - [code-studio](#code-studio) — list, create, get, delete, status, start, stop, change-owner, templates
@@ -804,18 +804,24 @@ dku agent delete AGENT_ID [-P PROJECT]
 dku agent wake-up AGENT_ID [-P PROJECT]
 dku agent shutdown AGENT_ID [-P PROJECT]
 dku agent status AGENT_ID [-P PROJECT] [-o FORMAT]
-dku agent add-tool AGENT_ID --tool TOOL_ID [-P PROJECT]
-dku agent set-llm AGENT_ID --llm-id LLM_ID [-P PROJECT]
-dku agent set-prompt AGENT_ID --prompt PROMPT [-P PROJECT]
+dku agent add-tool AGENT_ID --tool TOOL_ID [--new-version] [--activate] [-P PROJECT]
+dku agent set-llm AGENT_ID --llm-id LLM_ID [--new-version] [--activate] [-P PROJECT]
+dku agent set-prompt AGENT_ID --prompt PROMPT [--new-version] [--activate] [-P PROJECT]
 dku agent test AGENT_ID QUERY [-P PROJECT] [-o text|json]
 dku agent set-metadata AGENT_REF [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
+dku agent list-versions AGENT_ID [-P PROJECT] [-o FORMAT]
+dku agent create-version AGENT_ID [--from VERSION_ID] [--activate] [-P PROJECT]
+dku agent set-active-version AGENT_ID VERSION_ID [-P PROJECT]
 ```
 
 - `create --type` defaults to TOOLS_USING_AGENT. Options: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT
-- `set-llm` and `add-tool` operate on the active version
-- `set-prompt` sets the system prompt on the active version. `--prompt` accepts literal string, `@file.txt`, or `-` for stdin. Auto-detects agent type: uses `systemPrompt` for simple agents, `systemPromptAppend` for structured agents
+- `set-llm`, `add-tool`, and `set-prompt` operate on the active version by default. Pass `--new-version` to publish the change as a fresh version (reversible, preserves history); add `--activate` to make the new version active immediately. Without these flags the active version is mutated in place — fine for trivial edits, but not for prompt iteration where you may want to roll back.
+- `set-prompt --prompt` accepts literal string, `@file.txt`, or `-` for stdin. Auto-detects agent type: uses `systemPrompt` for simple agents, `systemPromptAppend` for structured agents
 - `test` sends a query to the agent and displays the response. ALWAYS test agents after creation or modification. `-o json` returns agent_id, query, response, and success status
-- `set-metadata` updates description, short description, and/or tags. Accepts agent ID or name. Provide at least one of `--description`, `--short-desc`, `--tags`
+- `set-metadata` updates description, short description, and/or tags. Accepts agent ID or name. Provide at least one of `--description`, `--short-desc`, `--tags`. Metadata is agent-level (not per-version), so it has no `--new-version` flag
+- `list-versions` shows all versions with the active one marked. Use before `set-active-version` to confirm the target version id exists
+- `create-version` deep-copies the source version (active by default, or `--from VID`). The new id is `vN` where N is the next integer not in use. With `--activate`, flips active via the saved-model API
+- `set-active-version` validates the version id exists, then uses `proj.get_saved_model(agent_id).set_active_version(vid)`. Setting `activeVersion` in raw settings does not persist on the server — this is the only working path
 
 ## agent-block
 
