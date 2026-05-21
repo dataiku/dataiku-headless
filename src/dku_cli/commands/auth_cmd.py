@@ -9,7 +9,13 @@ import dataikuapi
 import typer
 from rich.prompt import Prompt
 
-from dku_cli.auth import delete_api_key, get_api_key, store_api_key
+from dku_cli.auth import (
+    KeyStatus,
+    delete_api_key,
+    get_api_key_with_status,
+    infer_api_key_kind,
+    store_api_key,
+)
 from dku_cli.brand import ICON, print_logo, welcome
 from dku_cli.client import resolve_auth
 from dku_cli.config import (
@@ -86,9 +92,21 @@ def _resolve_auth_sources(
 def login(
     profile: str = typer.Option("default", "--profile", "-p", help="Profile name"),
     url: str = typer.Option(None, "--url", help="DSS instance URL"),
-    api_key: str = typer.Option(None, "--api-key", help="API key (omit for prompt)"),
+    api_key: str = typer.Option(
+        None,
+        "--api-key",
+        help=(
+            "DSS API key (omit for prompt). Supported formats: Personal "
+            "(dkuaps-...), Global (32-char alphanumeric), Deployer (dkuapdp-...), "
+            "Automation (dkuapau-...), API-node (dkuapan-...). All are accepted."
+        ),
+    ),
 ) -> None:
-    """Authenticate with a DSS instance."""
+    """Authenticate with a DSS instance.
+
+    Accepts any DSS API key format — Personal, Global, Deployer, Automation,
+    or API-node. The detected kind is shown after a successful login.
+    """
     interactive = not api_key
 
     if interactive:
@@ -132,6 +150,7 @@ def login(
     success(welcome(user, url, version))
     if node_type:
         info(f"Node type: {node_type}")
+    info(f"API key kind: {infer_api_key_kind(api_key)}")
     info(f"Credentials stored in {storage}")
     if profile != "default":
         info(f'Profile "{profile}" is now active')
@@ -233,6 +252,7 @@ def status(
                 project_ok = False
                 project_error = str(exc)
 
+        api_key_kind = infer_api_key_kind(api_key)
         if fmt == "json":
             render_raw(
                 {
@@ -240,6 +260,7 @@ def status(
                     "url": url,
                     "url_source": url_source,
                     "api_key_source": api_key_source,
+                    "api_key_kind": api_key_kind,
                     "user": user,
                     "groups": groups,
                     "dss_version": version,
@@ -258,6 +279,7 @@ def status(
         console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
         console.print(f"[bold]URL Src:[/bold]  {url_source}")
         console.print(f"[bold]Key Src:[/bold]  {api_key_source}")
+        console.print(f"[bold]Key Kind:[/bold] {api_key_kind}")
         console.print(f"[bold]User:[/bold]     {user}")
         if groups:
             console.print(f"[bold]Groups:[/bold]   {', '.join(groups)}")
@@ -308,10 +330,22 @@ def list_profiles() -> None:
 
     for name, cfg in profiles.items():
         marker = " *" if name == active else ""
-        has_key = "key stored" if get_api_key(name) else "no key"
+        result = get_api_key_with_status(name)
+        if result.status == KeyStatus.OK:
+            key_state = "key stored"
+        elif result.status == KeyStatus.DENIED:
+            # Don't say "no key" — the entry is likely still there. Tell the
+            # user the truth so they don't waste time re-running `auth login`.
+            key_state = (
+                "keychain access denied (entry may exist; re-prompt may be required)"
+            )
+        elif result.status == KeyStatus.BACKEND_ERROR:
+            key_state = f"keychain error ({result.detail})"
+        else:
+            key_state = "no key"
         url = cfg.get("url", "no url")
         node = cfg.get("node_type", "?")
-        console.print(f"  {name}{marker}  [{node}]  {url}  ({has_key})")
+        console.print(f"  {name}{marker}  [{node}]  {url}  ({key_state})")
 
 
 @app.command()

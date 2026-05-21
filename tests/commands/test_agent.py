@@ -94,6 +94,34 @@ def test_agent_status_json(patch_client):
     assert parsed["state"] == "RUNNING"
 
 
+def test_agent_add_tool_idempotent(patch_client):
+    """Re-adding the same tool is a no-op — no duplicates, exit 0.
+
+    Regression: prior behavior silently created duplicate toolRef entries.
+    """
+    # The fixture pre-populates one tool with toolRef='existing_tool'.
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-tool",
+            "agent1",
+            "--tool",
+            "existing_tool",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "already attached" in result.output
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    settings.save.assert_not_called()
+    raw = settings.get_version_settings("v1").get_raw()
+    tool_refs = [t["toolRef"] for t in raw["toolsUsingAgentSettings"]["tools"]]
+    # Should not have duplicate
+    assert tool_refs.count("existing_tool") == 1
+
+
 def test_agent_add_tool(patch_client):
     result = runner.invoke(
         app, ["agent", "add-tool", "agent1", "--tool", "new_tool", "--project", "PROJ1"]
@@ -136,13 +164,14 @@ def test_agent_set_prompt(patch_client):
     )
     assert result.exit_code == 0
     assert "Set system prompt" in result.output
-    # Verify prompt was set on version settings
+    # Verify prompt was set on version settings (systemPromptAppend on DSS 14.5+)
     settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
     settings.save.assert_called()
     ver_settings = settings.get_version_settings("v1")
     raw = ver_settings.get_raw()
     assert (
-        raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a helpful analyst."
+        raw["toolsUsingAgentSettings"]["systemPromptAppend"]
+        == "You are a helpful analyst."
     )
 
 
@@ -166,7 +195,8 @@ def test_agent_set_prompt_from_file(patch_client, tmp_path):
     ver_settings = settings.get_version_settings("v1")
     raw = ver_settings.get_raw()
     assert (
-        raw["toolsUsingAgentSettings"]["systemPrompt"] == "You are a financial analyst."
+        raw["toolsUsingAgentSettings"]["systemPromptAppend"]
+        == "You are a financial analyst."
     )
 
 
@@ -223,8 +253,12 @@ def test_agent_set_prompt_structured_agent(patch_client):
     )
 
 
-def test_agent_set_prompt_simple_agent(patch_client):
-    """Simple agents use systemPrompt in toolsUsingAgentSettings."""
+def test_agent_set_prompt_simple_agent_uses_systemPromptAppend(patch_client):
+    """TOOLS_USING_AGENT writes to systemPromptAppend (not systemPrompt) on DSS 14.5+.
+
+    Regression: writing to `systemPrompt` made the runtime ignore the prompt — agents
+    would respond as if the prompt were empty. Both agent types use the same field name.
+    """
     result = runner.invoke(
         app,
         [
@@ -238,11 +272,15 @@ def test_agent_set_prompt_simple_agent(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert "systemPrompt" in result.output
+    assert "systemPromptAppend" in result.output
 
     settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
     ver_raw = settings.get_version_settings("v1").get_raw()
-    assert ver_raw["toolsUsingAgentSettings"]["systemPrompt"] == "New simple prompt"
+    assert (
+        ver_raw["toolsUsingAgentSettings"]["systemPromptAppend"] == "New simple prompt"
+    )
+    # The legacy field must not be set — DSS reads systemPromptAppend.
+    assert "systemPrompt" not in ver_raw["toolsUsingAgentSettings"]
 
 
 def test_agent_set_llm_structured_agent(patch_client):
@@ -479,7 +517,8 @@ def test_agent_set_prompt_new_version(patch_client):
 
     raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
     v2 = next(v for v in raw["versions"] if v["versionId"] == "v2")
-    assert v2["toolsUsingAgentSettings"]["systemPrompt"] == "Version 2 prompt"
+    # DSS 14.5+: both agent types use systemPromptAppend (was: systemPrompt).
+    assert v2["toolsUsingAgentSettings"]["systemPromptAppend"] == "Version 2 prompt"
     # Inherits LLM from v1
     assert v2["toolsUsingAgentSettings"]["llmId"] == "llm1"
     # set-active-version was NOT called (no --activate)

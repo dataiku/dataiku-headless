@@ -8138,7 +8138,9 @@ def create_embed_docs(
     ),
     embedding_llm: str = typer.Option(..., "--embedding-llm", help="Embedding LLM ID"),
     vlm: str = typer.Option(
-        None, "--vlm", help="Vision LLM ID for document understanding"
+        None,
+        "--vlm",
+        help="Vision LLM ID for document understanding (recommended when input is a folder of PDFs/images)",
     ),
     vector_store_type: str = typer.Option(
         "CHROMA", "--vector-store-type", help="Vector store type (default: CHROMA)"

@@ -94,7 +94,8 @@ def completion(
         completion_obj = llm.new_completion()
 
         if system:
-            completion_obj.with_system_message(system)
+            # SDK has no `with_system_message`; system messages use `with_message(role="system")`
+            completion_obj.with_message(system, role="system")
 
         actual_message = message
         if json_schema:

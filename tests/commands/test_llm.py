@@ -75,11 +75,14 @@ def test_llm_completion_with_system(patch_client):
     )
     assert result.exit_code == 0
     assert "Hello from LLM" in result.output
-    # Verify system message was passed through the builder chain
+    # System messages go through with_message(role="system") — the SDK has no
+    # with_system_message() method; calling it raised AttributeError at runtime.
     proj = patch_client.get_project("PROJ1")
     llm = proj.get_llm("llm1")
     completion_obj = llm.new_completion()
-    completion_obj.with_system_message.assert_called_with("You are a helpful assistant")
+    completion_obj.with_message.assert_any_call(
+        "You are a helpful assistant", role="system"
+    )
 
 
 def test_llm_completion_with_json_output_flag(patch_client):

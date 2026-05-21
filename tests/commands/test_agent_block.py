@@ -1185,3 +1185,171 @@ def test_add_block_to_tools_using_agent_errors(patch_client):
     )
     assert result.exit_code != 0
     assert "STRUCTURED_AGENT" in result.output
+
+
+# ── DSS 14.5.1+ silent-failure auto-fixes ─────────────────────────────────
+
+
+def test_add_block_python_code_auto_injects_function_name(patch_client):
+    """PYTHON_CODE blocks without functionName get 'process' injected.
+
+    Regression: DSS 14.5.1+ fails fast with `RequestFailedException: 'functionName'`
+    BEFORE any block runs, with no hint about which block is the culprit.
+    """
+    block = json.dumps(
+        {
+            "type": "PYTHON_CODE",
+            "id": "dispatch",
+            "code": "def process(trace):\n    return {'next': 'classify'}",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "functionName='process'" in result.output  # warned
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    dispatch = next(b for b in blocks if b["id"] == "dispatch")
+    assert dispatch["functionName"] == "process"
+
+
+def test_add_block_python_code_preserves_explicit_function_name(patch_client):
+    """If the user supplied a non-default functionName, don't overwrite it."""
+    block = json.dumps(
+        {
+            "type": "PYTHON_CODE",
+            "id": "custom_dispatch",
+            "code": "def custom_fn(trace):\n    return {}",
+            "functionName": "custom_fn",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    custom = next(b for b in blocks if b["id"] == "custom_dispatch")
+    assert custom["functionName"] == "custom_fn"
+
+
+def test_add_block_renames_legacy_output_scratchpad_key(patch_client):
+    """outputScratchpadKey (DSS 13) is renamed to outputKey (DSS 14.5+).
+
+    Regression: DSS 14.5+ rejects the legacy field with 'SAVE_TO_SCRATCHPAD
+    output mode requires an outputKey'.
+    """
+    block = json.dumps(
+        {
+            "type": "LLM_REQUEST",
+            "id": "save_to_pad",
+            "llmId": "llm1",
+            "outputMode": "SAVE_TO_SCRATCHPAD",
+            "outputScratchpadKey": "result",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "renamed to 'outputKey'" in result.output
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    save_block = next(b for b in blocks if b["id"] == "save_to_pad")
+    assert save_block["outputKey"] == "result"
+    assert "outputScratchpadKey" not in save_block
+
+
+def test_set_graph_applies_normalizations(patch_client):
+    """set-graph applies the same auto-fixes as add: functionName + outputKey rename."""
+    graph = json.dumps(
+        {
+            "blocks": [
+                {
+                    "type": "PYTHON_CODE",
+                    "id": "dispatch",
+                    "code": "def process(trace):\n    return {}",
+                },
+                {
+                    "type": "LLM_REQUEST",
+                    "id": "save",
+                    "llmId": "llm1",
+                    "outputMode": "SAVE_TO_SCRATCHPAD",
+                    "outputScratchpadKey": "out",
+                },
+            ],
+            "startingBlockId": "dispatch",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "set-graph",
+            "structured_agent",
+            "--definition",
+            graph,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    dispatch = next(b for b in blocks if b["id"] == "dispatch")
+    save = next(b for b in blocks if b["id"] == "save")
+    assert dispatch["functionName"] == "process"
+    assert save["outputKey"] == "out"
+    assert "outputScratchpadKey" not in save

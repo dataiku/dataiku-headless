@@ -16,7 +16,14 @@ from dku_cli.helpers import (
     resolve_project,
     update_taggable_metadata,
 )
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    error,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS agents.")
 
@@ -440,20 +447,28 @@ def add_tool(
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
 
-        # Try dataikuapi's version settings API (works for TOOLS_USING_AGENT only)
+        # Idempotency check — bail early if the tool is already attached.
         ver_settings = settings.get_version_settings(active_ver_id)
+        ver_raw = ver_settings.get_raw()
+        agent_raw = settings.get_raw()
+        cfg_key = (
+            "structuredAgentSettings"
+            if agent_raw.get("type") == "STRUCTURED_AGENT"
+            else "toolsUsingAgentSettings"
+        )
+        existing_tools = ver_raw.get(cfg_key, {}).get("tools", []) or []
+        if any(t.get("toolRef") == tool_id for t in existing_tools):
+            info(
+                f"Tool '{tool_id}' already attached to agent '{agent_id}' — no change."
+            )
+            return
+
+        # Try dataikuapi's version settings API (works for TOOLS_USING_AGENT only)
         try:
             ver_settings.add_tool(tool_id)
         except (ValueError, AttributeError):
             # Structured agent — add tool to raw settings directly.
-            # Use agent type (not key presence) — newly-created STRUCTURED_AGENT
-            # may lack the structuredAgentSettings key.
-            ver_raw = ver_settings.get_raw()
-            cfg_key = (
-                "structuredAgentSettings"
-                if agent_raw.get("type") == "STRUCTURED_AGENT"
-                else "toolsUsingAgentSettings"
-            )
+            # cfg_key and ver_raw were resolved above for the idempotency check.
             if cfg_key not in ver_raw:
                 ver_raw[cfg_key] = {}
             tools = ver_raw[cfg_key].setdefault("tools", [])
@@ -515,12 +530,14 @@ def set_prompt(
 
         # Detect agent settings key using agent type (not key presence —
         # newly-created STRUCTURED_AGENT may lack the key).
+        # Both STRUCTURED_AGENT and TOOLS_USING_AGENT use `systemPromptAppend`
+        # on DSS 14.5+. Writing to `systemPrompt` on TOOLS_USING_AGENT silently
+        # fails — the agent runtime ignores it and runs with an empty prompt.
         if agent_raw.get("type") == "STRUCTURED_AGENT":
             cfg_key = "structuredAgentSettings"
-            prompt_field = "systemPromptAppend"
         else:
             cfg_key = "toolsUsingAgentSettings"
-            prompt_field = "systemPrompt"
+        prompt_field = "systemPromptAppend"
         target_ver_raw.setdefault(cfg_key, {})[prompt_field] = prompt_text
         settings.save()
         if new_version and activate:

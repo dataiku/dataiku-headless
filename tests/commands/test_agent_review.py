@@ -167,6 +167,63 @@ def test_add_trait_with_llm(patch_client):
     assert trait_arg["llmId"] == "openai:gpt-4o"
 
 
+def test_add_trait_inherits_helper_llm(patch_client):
+    """add-trait without --llm defaults llmId to the review's helper_llm_id.
+
+    Regression: traits with null llmId crash DSS 14.5.1+ review runs with
+    NullPointerException ("Cannot invoke String.startsWith because id is null").
+    """
+    # Fixture sets review_mock.helper_llm_id = "llm1"
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "add-trait",
+            "review1",
+            "--name",
+            "Helpfulness",
+            "--criteria",
+            "Is the answer helpful?",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    trait_arg = (
+        patch_client.get_project("PROJ1")
+        .get_agent_review("review1")
+        .add_trait.call_args[0][0]
+    )
+    assert trait_arg["llmId"] == "llm1"
+
+
+def test_set_llm_backfills_null_trait_llmId(patch_client):
+    """set-llm populates llmId on traits that lack one — prevents DSS 14.5.1 NPE."""
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    # Seed two traits, one with explicit llmId, one without.
+    review.data["traits"] = [
+        {"id": "t1", "name": "Accuracy", "llmId": "anthropic:claude-4"},
+        {"id": "t2", "name": "Tone"},  # null llmId
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "set-llm",
+            "review1",
+            "--llm",
+            "openai:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # Trait with null llmId got backfilled; trait with explicit llmId preserved.
+    assert review.data["traits"][0]["llmId"] == "anthropic:claude-4"
+    assert review.data["traits"][1]["llmId"] == "openai:gpt-4o"
+    assert "auto-populated 1 trait" in result.output
+
+
 # --- list-tests ---
 
 

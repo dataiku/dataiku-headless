@@ -6,7 +6,7 @@ import os
 
 import dataikuapi
 
-from dku_cli.auth import get_api_key
+from dku_cli.auth import KeyStatus, get_api_key_with_status
 from dku_cli.config import (
     get_active_profile,
     get_profile_config,
@@ -36,17 +36,41 @@ def resolve_auth(
         resolved_key = os.environ.get("DKU_API_KEY")
 
     # 3. Profile-based config
+    key_status = KeyStatus.OK
+    key_detail: str | None = None
     if not resolved_url or not resolved_key:
         active = profile or get_active_profile()
         profile_cfg = get_profile_config(active)
         if not resolved_url:
             resolved_url = profile_cfg.get("url")
         if not resolved_key:
-            resolved_key = get_api_key(active)
+            result = get_api_key_with_status(active)
+            resolved_key = result.key
+            key_status = result.status
+            key_detail = result.detail
 
     if not resolved_url:
         raise AuthError("No DSS URL configured. Run 'dku auth login' or set DKU_URL.")
     if not resolved_key:
+        if key_status == KeyStatus.DENIED:
+            # The entry likely still exists — re-running `dku auth login` is
+            # the WRONG advice. Tell the user to grant access instead.
+            raise AuthError(
+                "Keychain access denied for stored API key"
+                + (f" ({key_detail})" if key_detail else "")
+                + ". The credential is likely still present but the OS refused "
+                "access (rate limit, ACL whitelist mismatch, or a prompt that "
+                "timed out). Try again interactively from a real terminal and "
+                "choose 'Always Allow' when prompted, or set DKU_API_KEY for "
+                "this session. Do NOT re-run 'dku auth login' — it may "
+                "overwrite a working entry."
+            )
+        if key_status == KeyStatus.BACKEND_ERROR:
+            raise AuthError(
+                "Keyring backend error"
+                + (f" ({key_detail})" if key_detail else "")
+                + ". Set DKU_API_KEY for this session, or re-run 'dku auth login'."
+            )
         raise AuthError(
             "No API key configured. Run 'dku auth login' or set DKU_API_KEY."
         )
