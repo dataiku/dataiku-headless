@@ -20,7 +20,7 @@ metadata:
 > **Agent Cheat Sheet (read this first)**
 >
 > 1. **STOP — DO NOT write Python for joins, aggregations, dedup, sort, filter, stack, or window ops.** Use `create-join`, `create-group`, `create-stack`, `create-distinct`, `create-sort`, `create-filter`, `create-window`, `create-topn`. Python is ONLY for custom logic. See `references/recipe-decision.md`.
-> 2. **Use `dku ml` for ML — not Python.** `dku ml create-prediction` + `dku ml train` + `dku ml deploy` covers prediction, clustering, timeseries, and causal. Python ONLY for custom model architectures.
+> 2. **Use `dku ml` for ML — not Python.** Full visual chain: `dku ml create-prediction` → `dku ml set-algorithm --disable-all --enable X` → `dku ml set-feature ... --role REJECT` (per non-spec column) → `dku ml train` → `dku ml deploy --train-dataset DS` → `dku recipe create-prediction-scoring` for the in-Flow scorer. Python recipes whose only output is `{status: ok, ml_task_id: …}` are an anti-pattern — recipes produce data, not bookkeeping. ML namespace is `dku ml` (NOT `dku analysis`); scoring lives in `dku recipe create-prediction-scoring`. Same chain applies to clustering / timeseries / causal.
 > 3. **Visual recipes auto-apply schema.** `create-join`/`create-group`/etc. auto-propagate output schemas. For manual control: `dku recipe apply-schema RECIPE -P PROJ`, or `--auto-update-schema` on build.
 > 4. **Upload = UploadedFiles.** `dku dataset create NAME --type UploadedFiles -P PROJ`. Never Filesystem for uploads.
 > 5. **Code recipes need `--connection`** when project has no default managed connection. Visual recipe shortcuts auto-create outputs and apply schema.
