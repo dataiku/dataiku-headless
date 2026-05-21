@@ -39,7 +39,7 @@ def list_datasets(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        datasets = proj.list_datasets()
+        datasets = proj.list_datasets(include_shared=True)
 
         data = []
         for ds in datasets:

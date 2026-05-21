@@ -38,7 +38,7 @@ def list_agent_tools(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        tools = proj.list_agent_tools()
+        tools = proj.list_agent_tools(include_shared=True)
 
         data = []
         for t in tools:

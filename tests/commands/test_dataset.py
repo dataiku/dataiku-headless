@@ -21,8 +21,9 @@ def test_dataset_list_json(patch_client):
     result = runner.invoke(app, ["dataset", "list", "--project", "PROJ1", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert len(parsed) == 1
-    assert parsed[0]["name"] == "ds1"
+    names = [d["name"] for d in parsed]
+    assert "ds1" in names
+    assert "shared_ds" in names  # foreign datasets included by default
 
 
 def test_dataset_list_with_env(patch_client, monkeypatch):
