@@ -1,4 +1,14 @@
-"""Tests for agent-hub commands."""
+"""Tests for agent-hub commands.
+
+Scope is intentionally narrow: list / config / set-config / start / stop.
+
+The pre-existing `set-llm`, `add-agent`, `remove-agent`, `set-agent`,
+`list-agents` verbs were removed because they wrote/read schema keys
+(`default_llm_id`, `agents_ids`, `tool_agent_configurations`, ...) that
+the agent-hub plugin does NOT actually read on real DSS — the plugin
+stores its UI configuration in a private SQLite store, not the webapp
+`config` field. Verified live against DSS 14.5.1 + agent-hub v1.2.4 / v1.3.2.
+"""
 
 from __future__ import annotations
 
@@ -36,14 +46,15 @@ def test_list_json(patch_client):
 
 
 # ---------------------------------------------------------------------------
-# config
+# config — real schema is just {log_level, storage_type}
 # ---------------------------------------------------------------------------
 
 
 def test_config(patch_client):
     result = runner.invoke(app, ["agent-hub", "config", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "gpt-4o" in result.output
+    # The output shows the plugin-runtime config keys only.
+    assert "log_level" in result.output
 
 
 def test_config_json(patch_client):
@@ -52,8 +63,9 @@ def test_config_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert parsed["default_llm_id"] == "openai:conn:gpt-4o"
-    assert "tool_agent_configurations" in parsed
+    # Real hubs (verified on DSS 14.5.1) expose exactly these two keys here.
+    assert "log_level" in parsed
+    assert "storage_type" in parsed
 
 
 def test_config_explicit_hub(patch_client):
@@ -62,11 +74,11 @@ def test_config_explicit_hub(patch_client):
         app, ["agent-hub", "config", "--hub", "hub1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    assert "gpt-4o" in result.output
+    assert "log_level" in result.output
 
 
 # ---------------------------------------------------------------------------
-# set-config
+# set-config — only useful for plugin-runtime knobs (log_level, storage_type)
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +89,7 @@ def test_set_config(patch_client):
             "agent-hub",
             "set-config",
             "--definition",
-            '{"enable_quick_agents": false}',
+            '{"log_level": "DEBUG"}',
             "--project",
             "PROJ1",
         ],
@@ -88,251 +100,6 @@ def test_set_config(patch_client):
 
 
 # ---------------------------------------------------------------------------
-# list-agents
-# ---------------------------------------------------------------------------
-
-
-def test_list_agents(patch_client):
-    result = runner.invoke(app, ["agent-hub", "list-agents", "--project", "PROJ1"])
-    assert result.exit_code == 0
-    assert "Sales Agent" in result.output
-    assert "PROJ1:agent:a1" in result.output
-
-
-def test_list_agents_json(patch_client):
-    result = runner.invoke(
-        app, ["agent-hub", "list-agents", "--project", "PROJ1", "-o", "json"]
-    )
-    assert result.exit_code == 0
-    parsed = json.loads(result.output)
-    assert parsed[0]["agent_id"] == "PROJ1:agent:a1"
-    assert parsed[0]["name"] == "Sales Agent"
-
-
-# ---------------------------------------------------------------------------
-# add-agent
-# ---------------------------------------------------------------------------
-
-
-def test_add_agent(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "add-agent",
-            "--agent-id",
-            "PROJ2:agent:b1",
-            "--name",
-            "Support Agent",
-            "--description",
-            "Handles support tickets",
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Added agent" in result.output
-
-    # Verify config was updated
-    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
-    settings = hub.get_settings()
-    raw = settings.get_raw()
-    config = raw["config"]
-    assert "PROJ2:agent:b1" in config["agents_ids"]
-    assert "PROJ2" in config["projects_keys"]
-    configs = config["tool_agent_configurations"]
-    added = [c for c in configs if c["agent_id"] == "PROJ2:agent:b1"]
-    assert len(added) == 1
-    assert added[0]["tool_agent_display_name"] == "Support Agent"
-    settings.save.assert_called()
-
-
-def test_add_agent_already_exists(patch_client):
-    """Adding an agent that's already in the hub warns and skips."""
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "add-agent",
-            "--agent-id",
-            "PROJ1:agent:a1",
-            "--name",
-            "Sales Agent",
-            "--description",
-            "Duplicate",
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "already in" in result.output.lower()
-
-
-# ---------------------------------------------------------------------------
-# remove-agent
-# ---------------------------------------------------------------------------
-
-
-def test_remove_agent(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "remove-agent",
-            "--agent-id",
-            "PROJ1:agent:a1",
-            "--project",
-            "PROJ1",
-            "--yes",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "Removed" in result.output
-
-    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
-    settings = hub.get_settings()
-    raw = settings.get_raw()
-    config = raw["config"]
-    assert "PROJ1:agent:a1" not in config["agents_ids"]
-    remaining = [
-        c
-        for c in config["tool_agent_configurations"]
-        if c["agent_id"] == "PROJ1:agent:a1"
-    ]
-    assert len(remaining) == 0
-    settings.save.assert_called()
-
-
-def test_remove_agent_not_found(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "remove-agent",
-            "--agent-id",
-            "PROJ1:agent:nonexistent",
-            "--project",
-            "PROJ1",
-            "--yes",
-        ],
-    )
-    assert result.exit_code != 0
-    assert "not found" in result.output.lower()
-
-
-# ---------------------------------------------------------------------------
-# set-agent
-# ---------------------------------------------------------------------------
-
-
-def test_set_agent_description(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "set-agent",
-            "--agent-id",
-            "PROJ1:agent:a1",
-            "--description",
-            "Updated description",
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code == 0
-
-    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
-    config = hub.get_settings().get_raw()["config"]
-    agent_cfg = config["tool_agent_configurations"][0]
-    assert agent_cfg["tool_agent_description"] == "Updated description"
-
-
-def test_set_agent_name(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "set-agent",
-            "--agent-id",
-            "PROJ1:agent:a1",
-            "--name",
-            "Renamed Agent",
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code == 0
-
-    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
-    config = hub.get_settings().get_raw()["config"]
-    agent_cfg = config["tool_agent_configurations"][0]
-    assert agent_cfg["tool_agent_display_name"] == "Renamed Agent"
-
-
-def test_set_agent_examples(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "set-agent",
-            "--agent-id",
-            "PROJ1:agent:a1",
-            "--examples",
-            '["Q1 revenue?", "Top customers"]',
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code == 0
-
-    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
-    config = hub.get_settings().get_raw()["config"]
-    agent_cfg = config["tool_agent_configurations"][0]
-    assert agent_cfg["agent_example_queries"] == ["Q1 revenue?", "Top customers"]
-
-
-def test_set_agent_not_found(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "set-agent",
-            "--agent-id",
-            "PROJ1:agent:nonexistent",
-            "--description",
-            "test",
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code != 0
-    assert "not found" in result.output.lower()
-
-
-# ---------------------------------------------------------------------------
-# set-llm
-# ---------------------------------------------------------------------------
-
-
-def test_set_llm(patch_client):
-    result = runner.invoke(
-        app,
-        [
-            "agent-hub",
-            "set-llm",
-            "openai:conn:gpt-4o-mini",
-            "--project",
-            "PROJ1",
-        ],
-    )
-    assert result.exit_code == 0
-
-    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
-    config = hub.get_settings().get_raw()["config"]
-    assert config["default_llm_id"] == "openai:conn:gpt-4o-mini"
-
-
-# ---------------------------------------------------------------------------
 # start / stop
 # ---------------------------------------------------------------------------
 
@@ -340,26 +107,24 @@ def test_set_llm(patch_client):
 def test_start(patch_client):
     result = runner.invoke(app, ["agent-hub", "start", "--project", "PROJ1"])
     assert result.exit_code == 0
-    patch_client.get_project("PROJ1").get_webapp(
-        "hub1"
-    ).start_or_restart_backend.assert_called_once()
+    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
+    hub.start_or_restart_backend.assert_called()
 
 
 def test_stop(patch_client):
     result = runner.invoke(app, ["agent-hub", "stop", "--project", "PROJ1"])
     assert result.exit_code == 0
-    patch_client.get_project("PROJ1").get_webapp(
-        "hub1"
-    ).stop_backend.assert_called_once()
+    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
+    hub.stop_backend.assert_called()
 
 
 # ---------------------------------------------------------------------------
-# Auto-resolve edge cases
+# hub resolution edge cases
 # ---------------------------------------------------------------------------
 
 
 def test_no_hub_found(patch_client):
-    """Error when no Agent Hub webapp exists in project."""
+    """Error when no Agent Hub webapp exists in the project."""
     proj = patch_client.get_project("PROJ1")
     proj.list_webapps.return_value = [
         {"id": "webapp1", "name": "Dashboard", "type": "STANDARD"},

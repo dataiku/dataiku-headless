@@ -844,7 +844,14 @@ def mock_client():
     webapp_settings.save.return_value = None
     webapp_mock.get_settings.return_value = webapp_settings
 
-    # Agent Hub webapp mock
+    # Agent Hub webapp mock.
+    # Real Agent Hub webapps on DSS 14.5.1 expose ONLY {log_level, storage_type}
+    # in their webapp config — verified live across hubs on emirates, cloud, and
+    # solutions instances. The plugin's UI configuration (LLMs, enrolled agents,
+    # branding, tools, etc.) lives in a private SQLite store reachable only via
+    # the webapp's Flask backend (`/web-apps-backends/PROJ/HUB/...`) with
+    # session-cookie auth, which the public DSS SDK cannot use. The fixture
+    # mirrors that real schema to keep tests honest.
     hub_webapp = MagicMock()
     hub_settings = MagicMock()
     hub_settings.get_raw.return_value = {
@@ -852,29 +859,8 @@ def mock_client():
         "id": "hub1",
         "projectKey": "PROJ1",
         "config": {
-            "default_llm_id": "openai:conn:gpt-4o",
-            "globalSystemPrompt": "",
-            "enable_agents_as_tools": True,
-            "projects_keys": ["PROJ1"],
-            "agents_ids": ["PROJ1:agent:a1"],
-            "tool_agent_configurations": [
-                {
-                    "agent_id": "PROJ1:agent:a1",
-                    "tool_agent_display_name": "Sales Agent",
-                    "tool_agent_description": "Handles sales queries",
-                    "agent_system_instructions": "",
-                    "agent_example_queries": ["What are Q4 sales?"],
-                    "enable_stories": False,
-                },
-            ],
-            "augmented_llms_ids": [],
-            "augmented_llms_configurations": [],
-            "enable_quick_agents": True,
-            "LLMs": [{"llm_id": "openai:conn:gpt-4o"}],
-            "embedding_llm": "openai:conn:text-embedding-3-small",
-            "tools": ["tool1"],
-            "visualization_generation_mode": "AUTO",
-            "logLevel": "INFO",
+            "log_level": "INFO",
+            "storage_type": "LOCAL",
         },
     }
     hub_settings.save.return_value = None
