@@ -255,49 +255,23 @@ elif raw['type'] == 'RAG_LLM':
 
 ### Creating a New Agent Version
 
-Always create a new version when modifying agent settings — never edit in place.
+Always create a new version when modifying agent settings — never edit in place. The CLI handles deep-copy, next-id selection, and the saved-model activation step in one verb:
 
-```python
-import copy, time
+```bash
+# Just publish a new prompt as v(N+1) and flip active in one call
+dku agent set-prompt AGENT_ID --prompt @sys.txt --new-version --activate -P PROJ
 
-settings = agent.get_settings()
-raw = settings.get_raw()
+# Or do it explicitly: copy then mutate
+dku agent create-version AGENT_ID --activate -P PROJ
+dku agent list-versions AGENT_ID -P PROJ
 
-# Determine next version ID
-versions = raw.get('versions', [])
-version_nums = [int(v['versionId'].replace('v', '')) for v in versions if v['versionId'].startswith('v')]
-new_vid = f"v{max(version_nums) + 1 if version_nums else 1}"
-
-# Deep-copy active version as base
-active_vid = raw['activeVersion']
-active_version = next(v for v in versions if v['versionId'] == active_vid)
-new_version = copy.deepcopy(active_version)
-new_version['versionId'] = new_vid
-now_ms = int(time.time() * 1000)
-new_version['versionTag'] = {'versionNumber': 0, 'lastModifiedBy': {'login': 'api'}, 'lastModifiedOn': now_ms}
-new_version['creationTag'] = {'versionNumber': 0, 'lastModifiedBy': {'login': 'api'}, 'lastModifiedOn': now_ms}
-
-# Apply changes
-if raw['type'] == 'TOOLS_USING_AGENT':
-    new_version['toolsUsingAgentSettings']['systemPromptAppend'] = "New prompt here"
-elif raw['type'] == 'RAG_LLM':
-    new_version['ragllmSettings']['contextMessage'] = "New context message"
-
-raw['versions'].append(new_version)
-settings.save()
+# Roll back
+dku agent set-active-version AGENT_ID v1 -P PROJ
 ```
 
-### Activating a Version
+`set-llm` and `add-tool` accept the same `--new-version --activate` flags. Without these flags the CLI mutates the active version in place (legacy default; kept for backwards compatibility, not recommended for prompt iteration).
 
-Agents are saved models — use the saved model API to change the active version (setting `activeVersion` in raw does not work).
-
-```python
-sm = project.get_saved_model("AGENT_ID")
-sm.set_active_version(new_vid)
-
-# Verify
-print(sm.get_active_version()['id'])
-```
+If you need to do this from Python instead of the CLI (e.g. inside a recipe), the recipe is: deep-copy the active version, set a fresh `versionId`, refresh `versionTag` / `creationTag`, append to `raw['versions']`, `settings.save()`, then `project.get_saved_model(agent_id).set_active_version(new_vid)` — setting `activeVersion` in raw alone does not persist on the server.
 
 ## Guardrails
 

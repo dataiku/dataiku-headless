@@ -41,6 +41,7 @@ metadata:
 > 20. **`dku admin` writes can lock users out.** `license upload`, `sso/ldap/azure-ad set`, `settings set`, `infra push-base-images`, `users-sync resync-all`, `messaging create` all dry-run without `--yes`. IAM `set` also requires `--i-understand-lockout-risk`. ALWAYS `get` → edit → `set` (never hand-write IAM payloads). See `references/admin-safety.md`.
 > 19. **Profile node type matters.** `dku` refuses project-scoped commands on a GOVERN profile with exit **4** and a hint to use `dku govern …`. Govern nodes have no projects, datasets, or recipes — only blueprints, artifacts, signoffs, and roles. Check `dku whoami` (shows `[GOVERN]` / `[DESIGN]` / …) before running a command that targets the wrong node type. If an older profile shows `[?]` in `dku auth list`, re-run `dku auth login --profile X` to refresh it.
 > 20. **Global flags go BEFORE the subcommand.** `--errors json`, `--profile`, `--dangerous`, `--url`, `--api-key` are options on the root `dku` app. Pass them before the noun: `dku --errors json user delete X` ✓, NOT `dku user delete X --errors json` ✗.
+> 22. **Agent prompt/LLM/tool changes default to in-place — pass `--new-version --activate` for reversibility.** `dku agent set-prompt AGENT --prompt @sys.txt --new-version --activate -P PROJ` publishes a new version and flips active so you can roll back with `dku agent set-active-version AGENT v1 -P PROJ`. Same flags work on `set-llm` and `add-tool`. `dku agent list-versions AGENT -P PROJ` shows history. Without the flags the active version is mutated in place — lossy and not what you want for prompt iteration.
 > 21. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
 
 # dku-cli
@@ -379,7 +380,7 @@ dku project delete MY_PROJ --yes
 | `recipe` | list, get-definition, run, create, delete, create-join, create-group, create-stack |
 | `job` | run, status, log |
 | `scenario` | list, run, status, runs |
-| `agent` | list, create, add-tool, set-llm |
+| `agent` | list, create, add-tool, set-llm, set-prompt, **list-versions**, **create-version**, **set-active-version** (mutators take `--new-version --activate`) |
 | `knowledge` | list, create, build, search |
 | `webapp` | list, create, start, stop, status, get-definition, set-definition |
 | `insight` | list, create, validate |

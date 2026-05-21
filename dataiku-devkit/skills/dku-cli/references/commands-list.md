@@ -28,7 +28,7 @@ Complete list of all `dku` command groups and verbs.
 | `macro` | list, run | Yes |
 | `flow` | graph, **visualize**, zones, create-zone, **set-zone**, **move**, propagate, check, sources, successors | Yes |
 | `library` | list, read, write, delete, mkdir, **sync** | Yes |
-| `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, **set-metadata** | Yes |
+| `agent` | list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, test, set-metadata, **list-versions**, **create-version**, **set-active-version** | Yes |
 | `agent-review` | list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results | Yes |
 | `agent-tool` | list, get, **create** (--dataset, --llm, --kb), set-definition, run, types, delete | Yes (except `types`) |
 | `code-studio` | list, create, get, delete, status, start, stop, change-owner, templates | Yes (except `templates`) |

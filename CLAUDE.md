@@ -229,6 +229,9 @@ NEVER use `installCorePackages: true` — installs `pandas==0.23.4` which fails 
 ### Agent Tool Patterns
 Trace API: `trace.attributes[key] = value` — NOT `set_attribute()` or `add_metadata()`. `invoke()` input is at `input.get("input", {})`, not root. Subprocess tools MUST set `stdin=subprocess.DEVNULL` + `env["CI"] = "true"` + `env["NO_COLOR"] = "1"`.
 
+### Agent Versioning: Active Version + saved-model API
+Agent settings live in `raw['versions']` (a list of dicts). The legacy CLI behavior of `set-prompt`/`set-llm`/`add-tool` was to mutate the dict whose `versionId` matches `raw['activeVersion']` and PUT the whole agent. That works, but is lossy — every prompt iteration overwrites the previous one with no rollback. Project mission rule: prompt iteration is a top failure mode for agents, so the CLI now offers `--new-version` (deep-copies the active version and appends as `vN+1`) and `--activate` (flips the pointer). Also surfaces `list-versions`, `create-version`, `set-active-version` as standalone verbs that mirror `dku semantic-model`. **Hard gotcha:** setting `raw['activeVersion'] = new_vid` and saving does NOT persist on the server. The only path that flips active is `project.get_saved_model(agent_id).set_active_version(new_vid)` — agents are saved models server-side. `_activate_version()` in `commands/agent.py` is the canonical helper; never write `raw['activeVersion'] = X` from CLI code. When adding a new agent mutator command, default to in-place for backwards compatibility, accept `--new-version`/`--activate`, validate that `--activate` requires `--new-version` (else silent no-op).
+
 ### SVA Block Graph (DSS 14.5+)
 Agent type MUST be `STRUCTURED_AGENT` for block graphs. `TOOLS_USING_AGENT` silently drops blocks. Every CORE_LOOP/LLM_REQUEST block needs explicit `llmId`. Every SAVE_TO_STATE block needs `outputKey`. Empty string in SET_STATE_ENTRIES `value` crashes CEL — use `"''"`.
 
@@ -276,6 +279,7 @@ Quirks are annotated inline in each `commands/*.py` file. Key patterns:
 - `DSSScenario.get_last_finished_run()` returns None when no runs exist (not an error)
 - `folder.list_contents()` returns `{"items": [...]}`, not a flat list
 - `DSSAgent.as_llm()` returns `DSSLLM` — the only way to call an agent programmatically (no `run_conversation()`)
+- `DSSAgentSettings` exposes `get_version_ids()`, `active_version`, `get_version_settings(vid)` — but NO `new_version()` (unlike `DSSSemanticModel.new_version()`). Create a new agent version by appending to `raw['versions']` and calling `settings.save()`. To activate: `project.get_saved_model(agent_id).set_active_version(vid)` — setting `raw['activeVersion']` and saving does not persist.
 - `project.create_evaluation_store(name, flavor)` — `flavor` must be `'LLM'` for LLM eval stores
 - Prompt recipe creation requires output dataset in `creationSettings`, not `recipe_proto` (internal API, not exposed via `dataikuapi`)
 - Valid scenario step types: `build_flowitem` (builds datasets/folders), `custom_python` (inline script), `exec_sql` (SQL). See `dataikuapi/dss/scenario.py` line 629.
