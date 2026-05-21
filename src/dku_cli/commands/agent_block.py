@@ -219,6 +219,46 @@ def _validate_output_key(block: dict) -> list[str]:
     return errors
 
 
+def _normalize_blocks(blocks: list[dict]) -> list[str]:
+    """Apply silent-failure fixes in-place. Returns warnings about what was fixed.
+
+    1. PYTHON_CODE without `functionName` → inject `"functionName": "process"` when the
+       code defines `def process(`. DSS 14.5.1+ NPEs with a bare 'functionName' KeyError
+       before any block runs if this field is missing.
+    2. Legacy `outputScratchpadKey` → rename to `outputKey`. DSS 14.5+ rejects the
+       legacy field with "SAVE_TO_SCRATCHPAD output mode requires an outputKey".
+    """
+    warnings: list[str] = []
+    for block in blocks:
+        bid = block.get("id", "?")
+
+        # Fix 1: PYTHON_CODE auto-inject functionName="process"
+        if block.get("type") == "PYTHON_CODE" and not block.get("functionName"):
+            code = block.get("code", "") or ""
+            if "def process(" in code:
+                block["functionName"] = "process"
+                warnings.append(
+                    f"Block '{bid}' (PYTHON_CODE) was missing functionName; "
+                    "auto-injected functionName='process'. DSS 14.5.1+ requires this field."
+                )
+
+        # Fix 2: rename legacy outputScratchpadKey -> outputKey
+        if "outputScratchpadKey" in block and "outputKey" not in block:
+            block["outputKey"] = block.pop("outputScratchpadKey")
+            warnings.append(
+                f"Block '{bid}' used legacy 'outputScratchpadKey'; renamed to 'outputKey'. "
+                "DSS 14.5+ rejects the legacy field."
+            )
+        elif "outputScratchpadKey" in block:
+            # Both present — drop the legacy one to avoid confusion downstream.
+            block.pop("outputScratchpadKey")
+            warnings.append(
+                f"Block '{bid}' had both 'outputKey' and legacy 'outputScratchpadKey'; "
+                "dropped the legacy field."
+            )
+    return warnings
+
+
 # Block types that require an LLM to function
 _LLM_BLOCK_TYPES = frozenset(
     {
@@ -433,6 +473,11 @@ def add_block(
         # Ensure blocks list exists (on DSS 14.5+ mode is implicit, not a field)
         if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:
             agent_cfg["blocks"] = []
+
+        # Silent-failure fixes: inject functionName on PYTHON_CODE, rename
+        # outputScratchpadKey -> outputKey. Warn loudly so agents see the fix.
+        for w in _normalize_blocks([new_block]):
+            warn(w)
 
         # Validate block — routing CEL, SET_STATE_ENTRIES CEL, SAVE_TO_STATE output key
         block_errors = _validate_blocks([new_block])
@@ -729,8 +774,13 @@ def set_graph(
                 "Definition JSON cannot be empty.", code="invalid_input", status=1
             )
 
-        # Validate all blocks before saving
+        # Silent-failure fixes: inject functionName on PYTHON_CODE, rename
+        # outputScratchpadKey -> outputKey. Warn loudly so agents see the fix.
         all_blocks = new_agent_cfg.get("blocks", [])
+        for w in _normalize_blocks(all_blocks):
+            warn(w)
+
+        # Validate all blocks before saving
         block_errors = _validate_blocks(all_blocks)
         if block_errors:
             exit_with_error(

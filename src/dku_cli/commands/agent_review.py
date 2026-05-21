@@ -150,15 +150,32 @@ def set_llm(
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Set the helper LLM used for trait evaluation."""
+    """Set the helper LLM used for trait evaluation.
+
+    Also auto-populates per-trait llmId on any trait that lacks one — DSS 14.5.1+
+    rejects runs with a NullPointerException if a trait has null llmId, even when
+    the review-level helperLLMId is set.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
         review.helper_llm_id = llm
+        # Backfill per-trait llmId so DSS 14.5.1+ runs don't NPE on null traits.
+        raw = review.get_raw()
+        patched = 0
+        for trait in raw.get("traits", []):
+            if not trait.get("llmId"):
+                trait["llmId"] = llm
+                patched += 1
         review.save()
-        success(f"Set helper LLM '{llm}' on review '{review_id}'")
+        if patched:
+            success(
+                f"Set helper LLM '{llm}' on review '{review_id}' (auto-populated {patched} trait(s))"
+            )
+        else:
+            success(f"Set helper LLM '{llm}' on review '{review_id}'")
     except Exception as e:
         handle_api_error(e)
 
@@ -202,8 +219,12 @@ def add_trait(
             "criteria": criteria,
             "enabled": True,
         }
+        # Default trait llmId to the review's helper LLM so DSS 14.5.1+ doesn't
+        # NPE at run time. Explicit --llm takes precedence.
         if llm:
             trait["llmId"] = llm
+        elif review.helper_llm_id:
+            trait["llmId"] = review.helper_llm_id
 
         review.add_trait(trait)
         review.save()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from typing import NamedTuple
 
 from platformdirs import user_config_dir
 from pathlib import Path
@@ -16,6 +17,56 @@ else:
 SERVICE_NAME = "dku-cli"
 CONFIG_DIR = Path(user_config_dir("dku", ensure_exists=True))
 CREDENTIALS_FILE = CONFIG_DIR / "credentials.toml"
+
+
+class KeyStatus:
+    """Status codes returned by get_api_key_with_status."""
+
+    OK = "ok"  # Key found.
+    MISSING = "missing"  # No key stored for this profile (not an error).
+    DENIED = "denied"  # OS denied keychain access — the entry may still exist.
+    BACKEND_ERROR = "backend_error"  # Other keyring backend failure.
+
+
+class KeyResult(NamedTuple):
+    """Result of a keychain lookup. `key` is None unless status == OK."""
+
+    key: str | None
+    status: str
+    detail: str | None = None  # Human-readable error detail when status != OK.
+
+
+def infer_api_key_kind(api_key: str | None) -> str:
+    """Classify a DSS API key by its visible format.
+
+    DSS supports multiple API key types and all are interchangeable for
+    most client operations. Used in CLI output to help users (and the
+    keychain owner) recognize what kind of credential they hold.
+
+    Returns one of:
+      - "personal"   — starts with "dkuaps-" (Personal API Key, user-scoped)
+      - "global"     — 32-char alphanumeric, no prefix (Global API Key, admin)
+      - "deployer"   — starts with "dkuapdp-" (API Deployer key)
+      - "automation" — starts with "dkuapau-" (Automation node key)
+      - "api-node"   — starts with "dkuapan-" (API node key)
+      - "unknown"    — doesn't match any known pattern
+    """
+    if not api_key:
+        return "unknown"
+    key = api_key.strip()
+    if key.startswith("dkuaps-"):
+        return "personal"
+    if key.startswith("dkuapdp-"):
+        return "deployer"
+    if key.startswith("dkuapau-"):
+        return "automation"
+    if key.startswith("dkuapan-"):
+        return "api-node"
+    # Global API Keys are bare alphanumeric, conventionally 32 chars (the user
+    # we asked about saw "K4972T02QMfDslQUtmm7ryS4RnFbuQRZ" — 32 alphanumerics).
+    if 24 <= len(key) <= 64 and key.isalnum():
+        return "global"
+    return "unknown"
 
 
 def _keyring_available() -> bool:
@@ -50,10 +101,35 @@ def store_api_key(profile: str, api_key: str) -> str:
 
 
 def get_api_key(profile: str) -> str | None:
-    """Retrieve API key for a profile."""
+    """Retrieve API key for a profile. Returns None on any failure (including
+    keychain access denial — use `get_api_key_with_status` to distinguish).
+    """
+    return get_api_key_with_status(profile).key
+
+
+def get_api_key_with_status(profile: str) -> KeyResult:
+    """Retrieve API key + status. Distinguishes 'missing' from 'access denied'.
+
+    On macOS, the keychain may deny access (e.g. ACL whitelist mismatch, rate
+    limit, prompt timeout) instead of returning a missing entry. Conflating
+    'denied' with 'missing' misleads users into re-running `dku auth login`
+    when the credential is actually present — they just lost permission to read
+    it temporarily.
+
+    Returns:
+        KeyResult(key, status, detail) where:
+          - status == OK            → key is present
+          - status == MISSING       → no key configured for this profile
+          - status == DENIED        → OS refused keychain access (entry may exist)
+          - status == BACKEND_ERROR → other keyring failure
+    """
     credential_store = get_profile_credential_store(profile)
     if credential_store == "file":
-        return _get_file_fallback(profile)
+        file_key = _get_file_fallback(profile)
+        return KeyResult(
+            file_key,
+            KeyStatus.OK if file_key else KeyStatus.MISSING,
+        )
 
     # Try keyring first
     if _keyring_available():
@@ -62,11 +138,39 @@ def get_api_key(profile: str) -> str | None:
         try:
             key = keyring.get_password(SERVICE_NAME, profile)
             if key:
-                return key
-        except keyring.errors.KeyringError:
-            pass
-    # Fallback to file
-    return _get_file_fallback(profile)
+                return KeyResult(key, KeyStatus.OK)
+            # Keyring returned None — fall through to file fallback below.
+        except keyring.errors.KeyringError as e:
+            # Distinguish access-denied (recoverable) from other errors.
+            msg = str(e).lower()
+            is_denied = any(
+                hint in msg
+                for hint in (
+                    "denied",
+                    "not allowed",
+                    "no access",
+                    "errsecauthfailed",
+                    "user canceled",
+                    "user cancelled",
+                    "interaction is not allowed",
+                    "-25293",
+                    "-128",
+                )
+            )
+            status = KeyStatus.DENIED if is_denied else KeyStatus.BACKEND_ERROR
+            # Try file fallback before giving up — but if file has no entry,
+            # report the keychain error rather than 'missing'.
+            file_key = _get_file_fallback(profile)
+            if file_key:
+                return KeyResult(file_key, KeyStatus.OK)
+            return KeyResult(None, status, str(e))
+
+    # Keyring unavailable or returned None — fall back to file.
+    file_key = _get_file_fallback(profile)
+    return KeyResult(
+        file_key,
+        KeyStatus.OK if file_key else KeyStatus.MISSING,
+    )
 
 
 def delete_api_key(profile: str) -> bool:
