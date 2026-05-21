@@ -33,7 +33,7 @@ Before writing a GREL formula, check this table. The processors below are stock 
 | Reorder columns | `ColumnReorder` | `add-step --type ColumnReorder` |
 | Coalesce (first non-null) | `Coalesce` | `add-step --type Coalesce` |
 | Fill nulls/blanks (fixed value) | `FillEmptyWithValue` | `add-fill-empty --column col --value "0"` |
-| Fill all rows with constant | `FillColumn` | `add-step --type FillColumn` |
+| Set every row to a constant | `FillColumn` | `add-step --type FillColumn --params '{"column":"col","value":"X"}'` — `{column, value}` shape; sets EVERY row of `column` to `value` (overwrites non-null AND fills nulls). Verified against localhost. Omit `value` (or pass empty string) to clear the column. For "fill nulls only, leave existing values" use `FillEmptyWithValue` instead. |
 | Fill down/up | `UpDownFiller` | `add-step --type UpDownFiller` |
 | Concatenate columns | `ColumnsConcat` | `add-step --type ColumnsConcat` |
 | Uppercase/lowercase/trim | `StringTransformer` | `add-step --type StringTransformer` |
@@ -82,7 +82,8 @@ Before writing a GREL formula, check this table. The processors below are stock 
 | Nest columns into JSON | `NestProcessor` | `add-step --type NestProcessor` |
 | Extract from array | `ArrayExtractProcessor` | `add-step --type ArrayExtractProcessor` |
 | Sort array | `ArraySortProcessor` | `add-step --type ArraySortProcessor` |
-| Unfold array | `ArrayUnfold` | `add-step --type ArrayUnfold` |
+| Unfold array to columns | `ArrayUnfold` | `add-step --type ArrayUnfold` |
+| Fold array to rows | `ArrayFold` | `add-step --type ArrayFold` |
 | Create geopoint | `GeoPointCreator` | `add-geopoint --lat-column lat --lon-column lon` |
 | Compute geo distance | GREL `geoDistance()` | `add-geodistance --from A --to B` |
 | Extract lat/lon from geopoint | `GeoPointExtractor` | `add-step --type GeoPointExtractor` |
@@ -167,6 +168,35 @@ Each entry: type ID, when to use, key params, canonical JSON for `add-step --par
 ```json
 {"appliesTo": "COLUMNS", "columns": ["debug_col", "temp_id"], "keep": false}
 ```
+
+> **`keep: true` does NOT reorder.** It filters the schema to the listed columns and preserves their on-disk order, which is the input order — not the order in your `columns` array. To impose a final column order, use `ColumnReorder` below. Verified empirically: a `ColumnsSelector keep:true` step with columns listed in a custom order leaves the output schema in input order.
+
+---
+
+### ColumnReorder
+
+**When:** Force a specific column order in the output schema. Use after a `ColumnsSelector keep:true` if you also want to reorder, or anywhere you need to pin a column to a specific position.
+**CLI shortcut:** `dku recipe add-reorder RECIPE -c col1 -c col2 --mode BEFORE_COLUMN --anchor existing_col -P PROJ` (auto-fills `appliesTo` based on column count — see gotcha below).
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `appliesTo` | Yes | `SINGLE_COLUMN` (one column) or `COLUMNS` (multiple columns). **Required** — the UI shows "Applies mode not selected" / "Move columns invalid" when missing, and the step renders as a no-op. |
+| `columns` | Yes | Array of column names to move (in the order you want) |
+| `referenceColumn` | When `reorderAction ∈ {BEFORE_COLUMN, AFTER_COLUMN}` | Anchor column — `columns` are placed relative to this one |
+| `reorderAction` | Yes | `AT_THE_BEGINNING` / `AT_THE_END` / `BEFORE_COLUMN` / `AFTER_COLUMN` |
+
+```json
+{
+  "appliesTo": "COLUMNS",
+  "columns": ["customer_id", "order_date", "total"],
+  "referenceColumn": "",
+  "reorderAction": "AT_THE_BEGINNING"
+}
+```
+
+For `BEFORE_COLUMN` / `AFTER_COLUMN`, set `referenceColumn` to the anchor; for `AT_THE_BEGINNING` / `AT_THE_END`, leave it empty. The processor moves the listed columns as a group, preserving their relative order. Run `dku recipe apply-schema RECIPE -P PROJ` after adding to propagate the new order downstream.
+
+**`appliesTo` is required.** Without it, the UI shows "Applies mode not selected" / "Move columns invalid" and the step is silently a no-op on save. Set `SINGLE_COLUMN` for one column, `COLUMNS` for multi-column moves. **Multi-column moves work correctly** when `appliesTo: COLUMNS` is set — earlier diagnoses claiming "BEFORE_COLUMN only moves the first column" were caused by missing `appliesTo`, not a server bug. The `dku recipe add-reorder` shortcut auto-fills the right value based on `--column` count, so prefer that over raw `add-step --type ColumnReorder`.
 
 ---
 
@@ -503,6 +533,8 @@ Note: The CLI shortcut `add-filter-rows --formula` uses `FilterOnCustomFormula` 
 {"appliesTo": "SINGLE_COLUMN", "columns": ["signup_date"], "formats": ["yyyy-MM-dd"], "lang": "auto", "outCol": "signup_parsed", "outType": {"name": "out", "type": "date"}, "timezone_id": "UTC"}
 ```
 
+**Format ordering — `yy` MUST precede `yyyy` when both apply.** DateParser tries formats in list order and uses the first one that consumes the input. `yyyy` is permissive: it matches any digit run, so against `27-JUN-70` the pattern `dd-MMM-yyyy` will succeed and produce year `0070` instead of letting `dd-MMM-yy` (with the SimpleDateFormat 80-year pivot) fire. Symptom: dates with 2-digit years come out as years `0006`, `0070`, `0007` etc. Fix: list 2-digit-year patterns first — `["dd-MMM-yy", "d-MMM-yy", "dd-MMM-yyyy", "d-MMM-yyyy", ...]`. Same trap with `M` vs `MM`, `d` vs `dd`: most-restrictive (or shortest-year) variant first.
+
 ---
 
 ### DateComponentsExtractor
@@ -639,6 +671,7 @@ Output column type is `date` (ISO-8601). Use downstream `DateFormatter` / `DateT
 | `bins` | Cond | Array of `{"inf": 0, "sup": 25}` (for `CUSTOM` mode) |
 | `useMin`/`min` | No | Enforce minimum bound |
 | `useMax`/`max` | No | Enforce maximum bound |
+| `useDecimalSeparatorFromLocale` | No | When true, render bin labels using the user's locale decimal separator (e.g. `,` in fr_FR). Display only |
 
 ```json
 {"input": "age", "output": "age_group", "mode": "WIDTH", "width": 10.0, "bins": [], "useMin": false, "min": 0.0, "useMax": false, "max": 0.0}
@@ -717,6 +750,234 @@ Output column type is `date` (ISO-8601). Use downstream `DateFormatter` / `DateT
 
 **Before using this, check:** Could `VisualIfRule`, `StringTransformer`, `DateParser`, `ColumnsConcat`, `BinnerProcessor`, or another processor do this instead?
 
+### MemoryEquiJoiner
+
+**When:** Lookup-style equi-join inside a Prepare recipe — pulls a small `rightInput` dataset into memory and joins on `leftCol = rightCol`. Replaces a separate Join recipe when the right side is < ~100K rows. Optional Levenshtein-based fuzziness.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `leftCol` | Yes | Column from the Prepare-recipe input |
+| `rightCol` | Yes | Column from `rightInput` |
+| `rightInput` | Yes | Name of the small lookup dataset (must already exist) |
+| `copyColumns` | Yes | Array of column names from `rightInput` to copy into the output |
+| `copyPrefix` | No | Prefix added to copied column names (avoids collisions) |
+| `fuzzy` | No | `true` enables Levenshtein matching |
+| `maxLevenshtein` | No | Max edit distance when `fuzzy: true` |
+| `normalize`, `stem`, `clearStopWords`, `sortAlphabetically`, `language`, `forceRawLevenshteinEngine` | No | Fuzzy-mode tuning (text normalization, language model) |
+
+```json
+{
+  "leftCol": "country_code",
+  "rightCol": "iso2",
+  "rightInput": "country_lookup",
+  "copyColumns": ["country_name", "region"],
+  "copyPrefix": "lookup_"
+}
+```
+
+### DateIncrement
+
+**When:** Add a fixed time delta to a date column (anonymization, projection scenarios).
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `inCol` | Yes | Input date column |
+| `outCol` | Yes | Output column |
+| `datePart` | Yes | `YEAR` / `MONTH` / `DAY` / `HOUR` / `MINUTE` / `SECOND` |
+| `incrementBy` | Yes | `STATIC` (constant offset) or `COLUMN` (per-row offset from `incrementCol`) |
+| `increment` | If `STATIC` | Integer offset |
+| `incrementCol` | If `COLUMN` | Column holding the per-row offset |
+
+```json
+{"inCol": "start_date", "outCol": "anon_start", "datePart": "YEAR", "incrementBy": "STATIC", "increment": 5}
+```
+
+### Unfold
+
+**When:** Long → wide spread of a repeated value into N suffixed columns. Distinct from `Pivot` (no aggregation, no key column) and `SplitUnfold` (no separator splitting).
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `column` | Yes | Source column to unfold |
+| `prefix` | No | Output column prefix (defaults to `<column>_`) |
+| `limit` | No | Max number of output columns. Required guard against unbounded fan-out |
+| `overflowAction` | No | `ERROR` (default — fail at build) or `TRUNCATE` (silently drop overflow values) |
+
+```json
+{"column": "trucks_needed", "prefix": "truck_", "limit": 10, "overflowAction": "ERROR"}
+```
+
+### FlagOnNumericalRange
+
+**When:** Add a boolean flag column when a numeric value falls in `[min, max]`. Pair with downstream Window/Group: e.g. `uptime_ratio = sum(machine_idle_flag) / count`.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `appliesTo`, `columns` | Yes | Standard scope params |
+| `min`, `max` | Yes | Numeric bounds |
+| `action` | Yes | `FLAG` (write a boolean column) — distinct from `FilterOnNumericalRange` whose action is `KEEP_ROW` / `REMOVE_ROW` |
+| `flagColumn` | Yes | Name of the boolean column to write |
+| `booleanMode` | No | `AND` / `OR` when multiple columns are scoped |
+| `includeEmptyValues` | No | Whether nulls count as in-range |
+
+```json
+{
+  "appliesTo": "SINGLE_COLUMN",
+  "columns": ["Floatvalue"],
+  "min": -5.0,
+  "max": 5.0,
+  "action": "FLAG",
+  "flagColumn": "machine_idle",
+  "booleanMode": "AND",
+  "includeEmptyValues": false
+}
+```
+
+### NumericalFormatConverter
+
+**When:** Convert numerals between FR/US locales (decimal `,` ↔ `.`, thousand separator). Common Alteryx Multi-Field Formula replacement.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `appliesTo`, `columns` | Yes | Standard scope params |
+| `outCol` | No | Output column (omit to overwrite input column) |
+| `inFormat` | Yes | `FR`, `US`, or `RAW` |
+| `outFormat` | Yes | `FR`, `US`, or `RAW` |
+
+```json
+{"appliesTo": "SINGLE_COLUMN", "columns": ["price_str"], "outCol": "price_us", "inFormat": "FR", "outFormat": "US"}
+```
+
+### GeometryInfoExtractor
+
+**When:** Extract geometry metadata (centroid GeoPoint, area) from a WKT or `the_geom` column. Pairs with `GeoPointCreator` / `GeoDistanceProcessor` / `CityLevelReverseGeocoder`.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `inputCol` | Yes | Geometry column (WKT or DSS `geometry` type) |
+| `centroidCol` | No | Output column name for the centroid GeoPoint |
+| `areaCol` | No | Output column name for the area (square units of the geometry's CRS) |
+
+```json
+{"inputCol": "the_geom", "centroidCol": "centroid", "areaCol": "area_m2"}
+```
+
+### CityLevelReverseGeocoder
+
+**When:** Resolve admin-hierarchy levels (country / region / city / …) from a GeoPoint without hitting an external geocoding service. Distinct from forward `Geocoder` (address → point) and from the `forward_geocoding` plugin recipe.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `inputCol` | Yes | GeoPoint column |
+| `l1OutCol` … `l8OutCol` | No | Output columns for admin levels 1–8. Common bindings: `l4OutCol="country"`, `l8OutCol="city"`. Omit unwanted levels |
+
+```json
+{"inputCol": "centroid", "l4OutCol": "country", "l6OutCol": "region", "l8OutCol": "city"}
+```
+
+### ZipCodeGeocoder
+
+**When:** Cheap geocoding for postal-code-only data — emits a GeoPoint from a `(country, ZIP)` pair without hitting the full address geocoder.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `countryCol` | Yes | ISO country code column |
+| `zipCodeCol` | Yes | Postal code column |
+| `outputCol` | Yes | Output GeoPoint column |
+
+```json
+{"countryCol": "country", "zipCodeCol": "postal_code", "outputCol": "centroid"}
+```
+
+### ArraySortProcessor
+
+**When:** Sort the contents of an array column.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `input` | Yes | Array column to sort |
+| `sortingType` | No | `NUM` (numeric) or `ALPHANUM` (string). Default: ALPHANUM |
+| `descending` | No | `true` for descending order |
+
+```json
+{"input": "proba_array", "sortingType": "NUM", "descending": true}
+```
+
+> **Wrong-param trap:** Older docs claim `column` / `order` — those names are silently dropped. Use `input` / `sortingType` / `descending`.
+
+### PythonUDF
+
+**When:** Inline a Python row-by-row or cell-by-cell transformation inside a Prepare recipe — instead of creating a separate Python recipe for a one-off transformation. Common case: parse a JSON column into multiple output columns; apply a custom regex; classify a row using arbitrary Python logic.
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `mode` | Yes | `ROW` (function takes a row dict, returns a row dict) or `CELL` (function takes a cell, returns a scalar — set `column`) |
+| `pythonSourceCode` | Yes | Python source. ROW mode defines `def process(row): ... return row`. CELL mode defines `def process(cell): ... return val`. |
+| `column` | CELL only | Column the cell function operates on |
+| `sourceColumnsList` | No | Restrict the row dict to these columns (perf optimisation) |
+| `useKernel` | No | `true` runs in a fresh Python process per recipe (slower start, full library access). `false` (default) embeds in the in-process interpreter. |
+| `vectorize` | No | `true` switches `process()` to receive a pandas `Series`/`DataFrame` chunk. Pair with `vectorSize`. |
+| `vectorSize` | No | Chunk size for vectorized mode. Default 256. |
+| `envSelection` | No | `{envMode: INHERIT|USE_BUILTIN_MODE|EXPLICIT, envName?}` — code env. Default INHERIT. |
+| `stopOnError` | No | `true` (default) raises on first row error; `false` skips and continues. |
+
+```json
+{
+  "mode": "ROW",
+  "pythonSourceCode": "import json\ndef process(row):\n    meta = json.loads(row.get('meta') or '{}')\n    row['distance'] = meta.get('distance')\n    return row",
+  "envSelection": {"envMode": "INHERIT"},
+  "stopOnError": false
+}
+```
+
+> **When to prefer this over a separate Python recipe:** PythonUDF runs as one step inside a Prepare recipe — avoids creating a 30-line Python recipe for a row-level transformation. Migration target: SAS DATA-step custom logic, Alteryx Multi-Row Formula, pandas `apply()` chains.
+
+> **When NOT to use:** aggregations, joins, reshapes — those need their own visual recipe (Group/Join/Pivot). PythonUDF is row-local.
+
+### EnrichWithBuildContextProcessor
+
+**When:** Stamp every row with a build-time timestamp so downstream queries can answer "as of when was this data computed?".
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `buildDateColumn` | Yes | Output column name for the build timestamp |
+
+```json
+{"buildDateColumn": "build_ts"}
+```
+
+### ExtractNumbers
+
+**When:** Extract numeric values out of free-text columns (e.g. pull every number from a description, optionally normalising "1.2k" → 1200).
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `input` | Yes | Source column |
+| `output` | Yes | Output column |
+| `multipleValues` | No | `true` returns ALL numbers concatenated by `delimiter`; `false` returns the first match only |
+| `delimiter` | No | Separator for multiple values. Default `","` |
+| `replaceMultipliers` | No | `true` parses `1.2k` → `1200`, `3M` → `3000000` |
+| `extractToJson` | No | `true` emits a JSON array string instead of a delimiter-joined string |
+
+```json
+{"input": "description", "output": "amounts", "multipleValues": true, "replaceMultipliers": true, "extractToJson": true}
+```
+
+### ArrayUnfold
+
+**When:** Explode an array column into one row per element (like `df.explode()`).
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `column` | Yes | Array column to unfold |
+| `keepEmptyArrays` | No | If `true`, keep rows whose array was empty (with null in the unfolded column) |
+| `delete` | No | If `true`, drop the original array column from the output |
+| `countVal` | No | If `true`, emit a `<column>_count` column with the original array length (fifth param, observed in live recipes; legacy `appendCount` is silently ignored) |
+
+```json
+{"column": "tags", "keepEmptyArrays": false, "delete": true, "countVal": true}
+```
+
 ### GREL Critical Gotchas
 
 | Trap | What happens | Fix |
@@ -744,15 +1005,15 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 | Processor | Type ID | Key Params |
 |-----------|---------|------------|
 | Reorder columns | `ColumnReorder` | `columns`, `referenceColumn`, `reorderAction` |
-| Fill with prev/next | `UpDownFiller` | `column`, `direction` |
+| Fill with prev/next | `UpDownFiller` | `columns: List<String>`, `up: bool` (`true`=fill from next, `false`=fill from previous). Only NULL triggers fill — empty string `""` is treated as a value. To trigger a fill from a formula, return `null`, not `""` |
 | Coalesce (first non-null) | `Coalesce` | `appliesTo`, `columns`, `outputColumn`, `defaultValue`, `useDefaultValue` |
 
 ### Numeric
 
 | Processor | Type ID | Key Params |
 |-----------|---------|------------|
-| Round numbers | `RoundProcessor` | `column`, `precision`, `mode` |
-| Force range (clip) | `MinMaxProcessor` | `columns`, `min`, `max`, `action` |
+| Round numbers | `RoundProcessor` | **`columns`** (PLURAL array — NOT `column`), `appliesTo` (`COLUMNS`/`PATTERN`/`ALL` — REQUIRED), `mode` (`ROUND`/`CEILING`/`FLOOR`/`TRUNCATE`), `precision` (decimal places, 0 = integer rounding), `places` (round to nearest 10/100; only meaningful with CEILING/FLOOR), `useDecimalSeparatorFromLocale` (bool). Singular `column` + missing `appliesTo` silently produces a no-op step (DSS skips processors with bad param names) |
+| Force range (clip) | `MinMaxProcessor` | `columns`, **`lowerBound`**, **`upperBound`**, **`clear`** (boolean — `true` empties out-of-range cells, `false` clamps them). NOT `min`/`max`/`action` — those names are silently ignored. |
 | Convert number format | `NumericalFormatConverter` | `appliesTo`, `columns`, `outCol`, `inFormat`, `outFormat` |
 | Combine columns (add/sub/mul) | `NumericalCombinator` | `columns`, `output`, `operation` |
 | Compute mean of columns | `MeanProcessor` | `appliesTo`, `columns`, `outputColumn` |
@@ -763,7 +1024,7 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 
 | Processor | Type ID | Key Params |
 |-----------|---------|------------|
-| Extract with regex | `RegexpExtractor` | `column`, `pattern`, `extractAllOccurrences` |
+| Extract with regex | `RegexpExtractor` | `column` (SINGULAR — NOT `columns: [list]` + `appliesTo: SINGLE_COLUMN` like DateParser; that shape errors with the misleading `Empty column name`), `pattern`, `extractAllOccurrences`. **Output cols are named after capture-group index (`1`, `2`, …)** — rename with `ColumnRenamer` (`{"renamings":[{"from":"1","to":"Name"}, …]}`) immediately after, or downstream steps will reference the cryptic numeric name |
 | Tokenize text | `Tokenizer` | `column`, `outputColumn`, `operation` |
 | Count occurrences | `MatchCounter` | `input`, `output`, `pattern` |
 
@@ -793,7 +1054,7 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 |-----------|---------|------------|
 | Extract from array | `ArrayExtractProcessor` | `column`, `index` |
 | Fold array to rows | `ArrayFold` | `column` |
-| Sort array | `ArraySortProcessor` | `column`, `order` |
+| Sort array | `ArraySortProcessor` | `input`, `sortingType` (NUM/ALPHANUM), `descending` |
 | JSONPath extract | `JSONPathExtractor` | `column`, `expression`, `output` |
 | Nest columns to JSON | `NestProcessor` | `columns`, `output` |
 | Zip arrays | `ZipArrays` | `inputColumns`, `outputColumn` |
@@ -810,7 +1071,7 @@ For processors not covered in detail above, use `add-step --type TYPE --params J
 
 | Processor | Type ID | Key Params |
 |-----------|---------|------------|
-| Geo point buffer | `GeoPointBufferProcessor` | `column`, `radius`, `unit` |
+| Geo point buffer | `GeoPointBufferProcessor` | **`inputColumn`** (NOT `column`), `outputColumn`, `shapeMode` (`CIRCLE` uses `radius`; `RECTANGLE` uses `width`+`height`), `unitMode` (`METERS`/`KILOMETERS`/`MILES`/`FEET`/`YARDS`/`NAUTICAL_MILES` — NOT `unit`), `radius`, `width`, `height`. Following the legacy doc names (`column`/`unit`) silently produces a no-op buffer step |
 | Reverse geocode | `ReverseGeocoder` | `column`, `outputColumn` |
 | Change CRS | `ChangeCRSProcessor` | `column`, `inputCRS`, `outputCRS` |
 
@@ -835,3 +1096,23 @@ Every step follows this format:
 ```
 
 Steps can be disabled with `"disabled": true` and named with `"name": "My step"`. Use `"metaType": "GROUP"` with a nested `"steps": [...]` for step folders.
+
+---
+
+## Critical gotchas
+
+### Date formatting in Prepare recipes
+`DateFormatter`, `DateTruncate`, `UNIXTimestampParser` all exist on DSS 14.5. The agent trap is wrong param names: they use `inCol` / `outCol` (NOT `column` / `outputColumn` from older docs), and DSS returns a misleading `Empty column name` error otherwise — the `dku recipe add-step` CLI catches this pre-send. Other traps:
+- `DateTruncate` param is `datePart` (values `YEAR` / `MONTH` / `DAY` / `HOUR` / `MINUTE` / `SECOND`) and defaults to `YEAR` if missing.
+- `UNIXTimestampParser` uses `milliseconds` BOOLEAN, not `unit` string.
+- GREL `formatDate()` and `toDate()` do not exist; GREL `toString(date, "format")` is a no-op.
+- `DateParser` without `outCol` silently produces all nulls.
+- ISO 8601 `DateParser` format: use `Z` / `z` pattern, NOT `XXX`.
+
+### Processor field-name traps (silent no-ops)
+DSS silently ignores unknown processor params — wrong field names produce a step that looks accepted but does nothing. The traps:
+- `MinMaxProcessor`: `lowerBound` / `upperBound` / `clear` (NOT `min` / `max` / `action`).
+- `GeoIPResolver`: `inCol` / `outColPrefix` + 10 boolean `extract_*` toggles (`extract_country` / `_country_code` / `_continent` / `_continent_code` / `_region` / `_city` / `_postal_code` / `_latitude` / `_longitude` / `_timezone`) — NOT `inputColumn` / `outputColumn`.
+- `FillColumn`: `{column, value}` — sets EVERY row of `column` to `value` (overwrites non-null AND fills nulls). For "fill nulls only, leave existing values" use `FillEmptyWithValue`.
+- `ArrayUnfold`: `countVal: true` emits the `<col>_count` length column (legacy `appendCount` is silently ignored).
+- `PythonUDF`: requires `mode: ROW|CELL` — CELL needs `column`. Missing `mode` produces a no-op.

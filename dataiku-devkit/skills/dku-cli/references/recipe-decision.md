@@ -30,6 +30,7 @@ None of the above?                  → THEN use Python: create NAME -t python
 | **Join datasets** | `dku recipe create-join NAME -i ds1 -i ds2 --output-ds out -P PROJ` | ~~pd.merge()~~ |
 | **Aggregate/group by** | `dku recipe create-group NAME -i ds --output-ds out -k col1 -k col2 --agg 'amount:sum,avg' -P PROJ` | ~~df.groupby()~~ |
 | **Stack/union** | `dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out -P PROJ` | ~~pd.concat()~~ |
+| **Stack + tag source** | `dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out --origin-column source -P PROJ` (optional `--origin-label 0:active --origin-label 1:lead`) | ~~Per-input prepare recipe just to add a `source` column~~ |
 | **Deduplicate** | `dku recipe create-distinct NAME -i ds --output-ds out -P PROJ` | ~~df.drop_duplicates()~~ |
 | **Sort** | `dku recipe create-sort NAME -i ds --output-ds out -P PROJ` | ~~df.sort_values()~~ |
 | **Filter rows** | `dku recipe create-filter NAME -i ds --output-ds out -P PROJ` | ~~df[df.x > y]~~ |
@@ -130,6 +131,7 @@ Direct `.astype("int64")` on dirty data fails with `IntCastingNaNError`.
 
 | Mistake | Fix |
 |--------|-----|
+| Prepare recipe per input just to tag source | `create-stack --origin-column source` (optional `--origin-label INDEX:VALUE`) — 1 recipe instead of N+1 |
 | Cascading joins | One `create-join -i A -i B -i C` |
 | LEFT join when INNER needed | `--join-type INNER` |
 | Python `groupby` | Use `create-group -k col --agg` |

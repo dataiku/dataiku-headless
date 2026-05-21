@@ -51,6 +51,34 @@ dku recipe create-embed embed_docs \
 when your input is already a plain dataset of document rows with a text column,
 not a file-backed FilesInFolder dataset.
 
+### `create-embed-docs` rule filters: synthetic columns use SPACES, not underscores
+
+When a `embed_documents` recipe has per-file rules (`params.rules[]`) gating which
+extraction or VLM strategy applies, the `filter.uiData.conditions[].col` fields
+that target file metadata are **synthetic columns named with spaces**:
+
+- `"file name"` (not `file_name`)
+- `"file extension"` (not `file_extension`)
+- `"last modified"` (not `last_modified`)
+- `"file size"` (not `file_size`)
+
+Guess the underscore form and DSS silently never matches the rule — the file
+falls through to `params.allOtherRule` with no warning. If a sweep "applies VLM
+to PDFs only" is silently scanning every file, this is almost always why.
+Verify by `dku recipe get-settings RECIPE -o json | jq '.params.rules'` and
+checking the actual `conditions[].col` strings.
+
+### `create-embed-docs` payload knobs (DSS 14.5)
+
+The vector-store sync field is `payload.vectorStoreUpdateMethod` on DSS 14.5+
+(replaces older `syncMode`). Patching `syncMode` is a no-op on current
+instances. Other top-level knobs:
+
+- `documentSplittingMode` ∈ `{"NONE", "RECURSIVE", "PARAGRAPH", "SENTENCE"}`
+- `chunkSizeCharacters`, `chunkOverlapCharacters` — chunker config
+- `params.extractionMode`, `params.defaultVlmId`, `params.allOtherRule` — global defaults
+- `params.rules[]` — per-pattern overrides; each rule has `filter.uiData.conditions[]` (see above) and its own `extractionMode` / `vlmId` / `prompt`
+
 ## Prompt Recipe — Programmatic Creation
 
 See `references/prompt-recipe-payload.md` for the full payload schema.

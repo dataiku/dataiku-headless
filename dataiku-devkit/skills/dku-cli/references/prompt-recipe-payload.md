@@ -176,3 +176,13 @@ Then diff against the minimal payload above to see what changed, and copy the ne
 | Recipe created but `--output-ds` complained that output doesn't exist | Unlike visual recipes (`create-join`, `create-group`), Prompt Recipes don't auto-create outputs. | Pre-create: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ` before `recipe create -t prompt`. If the project already has a default managed connection, you can omit `-c`. |
 | `{{variable}}` renders literally in the LLM prompt | Placeholder name doesn't match any entry in `textPromptTemplateInputs`, OR the referenced `datasetColumnName` doesn't exist in the input dataset schema. | Verify both with `dku dataset schema INPUT -P PROJ` and cross-check the `name` field in `textPromptTemplateInputs`. |
 | All rows come back with the same generic answer | The prompt template doesn't actually vary per row — either no `{{variable}}` placeholders, or all placeholders reference the same static column. | Add row-varying placeholders. Use `dku dataset head INPUT -n 5` to confirm the input rows actually differ on the referenced columns. |
+
+---
+
+## Critical gotchas
+
+### `prompt` recipe body lives in `prompt.structuredPromptPrefix`, NOT `payload.prompt`
+The obvious key produces an empty no-op recipe. STRUCTURED mode (the canonical few-shot mode) uses single-brace `{var}` placeholders in `structuredPromptPrefix`; TEXT mode uses double-brace `{{var}}` in `prompt`. Different modes, different syntax, different storage paths. `responseFormat: {"type":"json"}` (on `payload.completionSettings`) is distinct from `resultValidation.expectedFormat: "JSON"` — that second form crashes at build time.
+
+### Prompt recipe modes have different storage paths
+`create-prompt --prompt-mode STRUCTURED` (default) writes `payload.prompt.structuredPromptPrefix`; TEXT mode writes `payload.prompt` as a string. Single-brace `{var}` for STRUCTURED, double-brace `{{var}}` for TEXT. Mixing them silently produces an empty no-op recipe. Use `--input-var name=column[:type]` for placeholder bindings; `--response-format json` sets `payload.completionSettings.responseFormat={"type":"json"}` — distinct from `resultValidation.expectedFormat:JSON` which crashes builds.

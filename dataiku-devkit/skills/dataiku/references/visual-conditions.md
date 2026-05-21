@@ -210,4 +210,48 @@ Filters can also use formula mode instead of visual conditions:
 }
 ```
 
-When `expression` is set, it takes precedence over `uiData.conditions`. Use Dataiku formula syntax (see `references/formulas.md`).
+**Which field DSS evaluates depends entirely on `uiData.mode`:**
+
+| `uiData.mode` | What DSS evaluates | Syntax in `expression` | Use when |
+|---|---|---|---|
+| `"&&"` or `"\|\|"` | `uiData.conditions[]` (visual mode) | n/a — ignored | Single- or multi-column comparisons composable as AND/OR |
+| `"CUSTOM"` | `expression` (formula mode) | GREL — `val("col") != 0`, `isnull(col)`, etc. | Multi-column formulas, GREL functions, computed-column references; works on every engine |
+| `"SQL"` | `expression` (SQL mode) | Raw SQL — `"order_id" != 0` (column names quoted as SQL identifiers) | SQL-only constructs (subqueries, SQL-flavor regex, vendor-specific functions). Requires a SQL engine — won't run on the in-memory DSS engine |
+
+**This is the gotcha.** If you set `expression` but leave `uiData.mode: "&&"` (or `"||"`), DSS evaluates the visual-conditions array (which is probably empty) and ignores your formula. The filter becomes a no-op with no error. Empirically verified on Group recipe pre/postFilter — `mode: "&&"` + populated `expression` + empty `conditions: []` returned all input rows; switching to `mode: "CUSTOM"` (with the same `expression`) honored the formula.
+
+**Canonical formula-mode shape (matches what the DSS UI saves):**
+
+```json
+{
+  "enabled": true,
+  "distinct": false,
+  "uiData": {
+    "mode": "CUSTOM",
+    "$latestOperator": "&&",
+    "$filterOptions": "CUSTOM",
+    "conditions": []
+  },
+  "expression": "amount_sum >= 300 && status == 'A'"
+}
+```
+
+**Canonical SQL-mode shape:**
+
+```json
+{
+  "enabled": true,
+  "distinct": false,
+  "uiData": {
+    "mode": "SQL",
+    "$latestOperator": "&&",
+    "$filterOptions": "SQL",
+    "conditions": []
+  },
+  "expression": "\"order_id\" != 0 AND \"status\" = 'A'"
+}
+```
+
+In SQL mode, `expression` is raw SQL: identifier quoting (double quotes around column names) and SQL operators (`=` not `==`, `AND` not `&&`, `IS NULL` not `isnull(col)`). **`fullyTranslated: false` is expected** when SQL mode references constructs the engine-fallback layer can't reproduce — that's fine if your flow is SQL-pinned (rule 2), but it's a problem on a flow that may execute in the in-memory engine.
+
+The `$latestOperator` and `$filterOptions` are UI metadata for round-tripping when the user toggles between modes — preserve them if you read-modify-write, but they're not required for evaluation. The `conditions[]` array can be empty in `CUSTOM` or `SQL` mode.
