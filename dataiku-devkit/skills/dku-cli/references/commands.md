@@ -83,7 +83,7 @@ With `--errors json`, the same info ships as `error.safety.{prompt_to_user, reru
 - [discussion](#discussion) — list, get, create, reply
 - [knowledge](#knowledge) — list, create, get, set-definition, build, search, delete
 - [semantic-model](#semantic-model) — list, create, get, delete, versions, get-version, create-version, set-version, set-active-version, distinct-values, update-index
-- [agent-hub](#agent-hub) — list, config, set-config, list-agents, add-agent, remove-agent, set-agent, set-llm, start, stop
+- [agent-hub](#agent-hub) — list, config, set-config, start, stop (UI config is NOT exposed — see notes)
 - [app-designer](#app-designer) — get, set-definition, list-tiles, add-tile, remove-tile, set-section, enable, disable
 - [app](#app) — list, get, list-instances, create-instance
 - [bundle](#bundle) — list, export, download, import, activate
@@ -1169,31 +1169,45 @@ dku semantic-model list-golden-queries SM_REF [--version VID] [-P PROJECT] [-o F
 
 ## agent-hub
 
-Manage Agent Hub plugin webapp instances. Agent Hub is Dataiku's multi-agent chat platform (DSS 14.2+).
+Manage Agent Hub plugin webapp instances (limited surface — see notes).
 
 ```bash
 dku agent-hub list [-P PROJECT] [-o FORMAT]
 dku agent-hub config [--hub HUB_ID] [-P PROJECT] [-o FORMAT]
 dku agent-hub set-config --definition JSON|@file.json|- [--hub HUB_ID] [-P PROJECT]
-dku agent-hub list-agents [--hub HUB_ID] [-P PROJECT] [-o FORMAT]
-dku agent-hub add-agent --agent-id PROJECT:agent:ID --name NAME --description DESC [--hub HUB_ID] [-P PROJECT]
-dku agent-hub remove-agent --agent-id PROJECT:agent:ID [--hub HUB_ID] [-P PROJECT]
-dku agent-hub set-agent --agent-id PROJECT:agent:ID [--name NAME] [--description DESC] [--examples JSON_ARRAY] [--hub HUB_ID] [-P PROJECT]
-dku agent-hub set-llm LLM_ID [--hub HUB_ID] [-P PROJECT]
 dku agent-hub start [--hub HUB_ID] [-P PROJECT]
 dku agent-hub stop [--hub HUB_ID] [-P PROJECT]
 ```
 
-- **Cannot create Agent Hub via CLI** — it's a plugin webapp, must be created in DSS UI first
-- `--hub` auto-detects if exactly one Agent Hub exists in the project; required when multiple exist
-- `list` filters webapps by type `webapp_agent-hub_agent-hub`
-- `config` shows the full Agent Hub config (LLMs, agents, orchestration mode, My Agents settings, etc.)
-- `set-config` merges JSON into current config (shallow merge). Get current: `dku agent-hub config -o json`
-- `add-agent` manages both `agents_ids` and `tool_agent_configurations` atomically
-- `--agent-id` format is `PROJECT:agent:ID` — find IDs with `dku agent list -P PROJ -o json`
-- `set-agent --examples` accepts a JSON array string, e.g. `'["Q4 sales?", "Revenue by region"]'`
-- `set-llm` sets the orchestrating LLM (must support tool calling for Tools mode)
-- `start`/`stop` control the webapp backend (same as `dku webapp start/stop`)
+### What's possible from the CLI
+
+- `list` — enumerate Agent Hub webapps in a project
+- `config` — read the webapp's plugin-runtime config (typically just `{log_level, storage_type}`)
+- `set-config` — shallow-merge `log_level` / `storage_type` updates
+- `start` / `stop` — control the hub's Flask backend
+
+### What is NOT possible from the CLI (UI-only today)
+
+**Verified live on DSS 14.5.1 with agent-hub plugin v1.2.4 and v1.3.2.** None of the following can be configured via the CLI / public DSS SDK. Use the DSS UI:
+
+- Creating a new Agent Hub instance (DSS server rejects plugin webapp types on the public `/webapps/` POST endpoint)
+- Setting the orchestrating LLM
+- Enrolling / removing / configuring enterprise agents
+- Logos and RGB branding
+- Quick Agents (My Agents)
+- Tools attached to the hub
+- Embedding LLM (for RAG)
+- Augmented LLMs
+
+**Why**: the agent-hub plugin stores its UI configuration in a private SQLite store accessed via the webapp's Flask backend at `/web-apps-backends/{proj}/{hub}/...`. That endpoint exists but requires session-cookie auth — not the API key the public DSS SDK uses. The webapp `config` field that the SDK CAN write to holds only plugin-runtime knobs (`log_level`, `storage_type`); writing other keys appears to succeed but the plugin never reads them.
+
+Earlier `set-llm` / `add-agent` / `remove-agent` / `set-agent` / `list-agents` verbs were removed because they wrote phantom keys with no effect — that misled agents into believing they had configured the hub. Until the plugin exposes a public REST API, hub setup remains a DSS-UI task.
+
+### Detail notes
+
+- `--hub` auto-detects when exactly one Agent Hub exists in the project; required when multiple exist
+- `list` filters webapps by any type containing `agent-hub` (covers both `webapp_agent-hub_agent-hub` and `webapp_agent-hub_agent-hub-light`)
+- `start` / `stop` are convenience wrappers around `dku webapp start/stop`
 
 ## app-designer
 
