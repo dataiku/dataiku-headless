@@ -32,17 +32,38 @@ def test_project_get(patch_client):
 
 
 def test_project_get_json(patch_client):
+    """JSON returns the canonical project dict (metadata + key + counts), not
+    a re-shaped {field, value} list."""
     result = runner.invoke(app, ["project", "get", "PROJ1", "-o", "json"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
-    assert any(d["field"] == "Key" and d["value"] == "PROJ1" for d in parsed)
+    assert isinstance(parsed, dict)
+    # Canonical metadata keys preserved
+    assert parsed["key"] == "PROJ1"
+    assert parsed["label"] == "Project One"
+    assert parsed["shortDesc"] == "First project"
 
 
 def test_project_get_shows_counts(patch_client):
+    """Counts come back as a typed `counts` sub-dict in JSON output."""
     result = runner.invoke(app, ["project", "get", "PROJ1", "-o", "json"])
     parsed = json.loads(result.output)
-    datasets_row = next(d for d in parsed if d["field"] == "Datasets")
-    assert datasets_row["value"] == "1"
+    assert parsed["counts"] == {
+        "datasets": 1,
+        "recipes": 1,
+        "scenarios": 1,
+    }
+
+
+def test_project_get_text_keeps_field_value_layout(patch_client):
+    """Default text output preserves the human Field/Value summary."""
+    result = runner.invoke(app, ["project", "get", "PROJ1"])
+    assert result.exit_code == 0
+    # Smoke-check the human layout — labels and values appear
+    assert "Key" in result.output
+    assert "PROJ1" in result.output
+    assert "Project One" in result.output
+    assert "Datasets" in result.output
 
 
 def test_project_list_uses_config_default_output(patch_client):

@@ -8,6 +8,7 @@ from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import get_client_from_ctx, resolve_folder, resolve_project
 from dku_cli.output import (
     error,
+    info,
     render,
     render_dag,
     render_raw,
@@ -180,8 +181,16 @@ def set_zone(
         handle_api_error(e)
 
 
-def _resolve_zone(flow, zone_ref: str, project_key: str):
-    """Resolve a zone by name (case-insensitive) or ID. Returns the zone object."""
+def _resolve_zone(
+    flow, zone_ref: str, project_key: str, *, create_if_missing: bool = False
+):
+    """Resolve a zone by name (case-insensitive) or ID.
+
+    When ``create_if_missing`` is True and the zone is not found, create a new
+    zone using ``zone_ref`` as the name (only if ``zone_ref`` is not an id-style
+    value with no spaces but unmatched in the existing list — we still treat it
+    as a name). Returns the zone object.
+    """
     zones = flow.list_zones()
     # Try exact ID match first
     for z in zones:
@@ -191,7 +200,11 @@ def _resolve_zone(flow, zone_ref: str, project_key: str):
     for z in zones:
         if z.name.lower() == zone_ref.lower():
             return z
-    # Not found — prescriptive error
+    # Not found
+    if create_if_missing:
+        new_zone = flow.create_zone(zone_ref)
+        info(f"Created zone '{zone_ref}' (id: {new_zone.id})")
+        return new_zone
     zone_list = ", ".join(f"'{z.name}' (id: {z.id})" for z in zones)
     exit_with_error(
         f"Zone '{zone_ref}' not found in project '{project_key}'.",
@@ -212,11 +225,44 @@ _ITEM_RESOLVERS = {
 }
 
 
+def _try_resolve_item(proj, name: str, item_type: str):
+    """Resolve a single item by name+type, returning (obj, None) on success
+    or (None, exception) on lookup failure."""
+    try:
+        if item_type == "MANAGED_FOLDER":
+            return resolve_folder(proj, name), None
+        method = _ITEM_RESOLVERS[item_type]
+        obj = getattr(proj, method)(name)
+        # For datasets and recipes, lazy handles need a confirming call.
+        if item_type == "DATASET":
+            obj.get_definition()
+        elif item_type == "RECIPE":
+            obj.get_settings()
+        elif item_type == "SAVED_MODEL":
+            obj.get_settings()
+        return obj, None
+    except Exception as exc:
+        return None, exc
+
+
+def _detect_item_type(proj, name: str) -> str | None:
+    """Try every known item type; return the first that resolves, or None.
+
+    Used by `flow move --type AUTO` so agents can drop a mixed dataset +
+    recipe + folder list into one call without pre-classifying each name.
+    """
+    for kind in ("DATASET", "RECIPE", "MANAGED_FOLDER", "SAVED_MODEL"):
+        obj, exc = _try_resolve_item(proj, name, kind)
+        if obj is not None and exc is None:
+            return kind
+    return None
+
+
 @app.command()
 def move(
     ctx: typer.Context,
     items: list[str] = typer.Argument(
-        help="Item names to move (datasets by default). Use --type for other item types."
+        help="Item names to move. Use --type AUTO for mixed lists; otherwise --type sets the type for all items."
     ),
     zone: str = typer.Option(
         ...,
@@ -228,61 +274,104 @@ def move(
         "DATASET",
         "--type",
         "-t",
-        help="Item type: DATASET, RECIPE, MANAGED_FOLDER, SAVED_MODEL",
+        help="Item type for ALL items: DATASET (default), RECIPE, MANAGED_FOLDER, SAVED_MODEL, or AUTO to auto-detect each item.",
+    ),
+    create_zone: bool = typer.Option(
+        True,
+        "--create-zone/--no-create-zone",
+        help="Auto-create the zone if it doesn't exist (default: true). Use --no-create-zone to fail when the zone is missing.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Move items to a flow zone. Use instead of manually organizing in the DSS UI.
 
-    Move datasets, recipes, folders, or models to a named zone.
-    Zones help organize complex flows into logical sections.
+    Move datasets, recipes, folders, or models to a named zone. Pass
+    ``--type AUTO`` to mix all four item types in a single call —
+    each name is resolved against every kind and the first match wins.
+    By default, creates the target zone if it does not yet exist —
+    pass --no-create-zone to fail instead.
+
+    When the explicit --type misses, the error suggests the right type
+    instead of a dead-end "not found".
 
     Examples:
       dku flow move my_dataset --zone Processing -P PROJ
       dku flow move ds1 ds2 ds3 --zone Analytics -P PROJ
       dku flow move my_recipe --zone ETL --type RECIPE -P PROJ
+      dku flow move ds_a recipe_b folder_c --type AUTO --zone Mixed -P PROJ
+      dku flow move ds1 --zone Existing --no-create-zone -P PROJ
     """
     project_key = resolve_project(project)
     item_type_upper = item_type.upper()
-    if item_type_upper not in _ITEM_RESOLVERS:
+    if item_type_upper != "AUTO" and item_type_upper not in _ITEM_RESOLVERS:
         exit_with_error(
             f"Unknown item type '{item_type}'.",
             code="invalid_argument",
-            details=[f"Valid types: {', '.join(sorted(_ITEM_RESOLVERS))}"],
+            details=[f"Valid types: {', '.join(sorted(_ITEM_RESOLVERS))}, AUTO"],
         )
-    resolver_method = _ITEM_RESOLVERS[item_type_upper]
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         flow = proj.get_flow()
 
-        target_zone = _resolve_zone(flow, zone, project_key)
+        target_zone = _resolve_zone(
+            flow, zone, project_key, create_if_missing=create_zone
+        )
 
         # Resolve item objects
         resolved = []
         for name in items:
-            try:
-                if item_type_upper == "MANAGED_FOLDER":
-                    obj = resolve_folder(proj, name)
-                else:
-                    obj = getattr(proj, resolver_method)(name)
-                resolved.append(obj)
-            except Exception as e:
-                if is_not_found_error(e):
-                    list_cmd = {
-                        "DATASET": "dataset list",
-                        "RECIPE": "recipe list",
-                        "MANAGED_FOLDER": "folder list",
-                        "SAVED_MODEL": "model list",
-                    }
+            if item_type_upper == "AUTO":
+                detected = _detect_item_type(proj, name)
+                if detected is None:
                     exit_with_error(
-                        f"{item_type_upper} '{name}' not found in project '{project_key}'.",
+                        f"'{name}' is not a dataset, recipe, managed folder, "
+                        f"or saved model in '{project_key}'.",
                         code="not_found",
                         details=[
-                            f"List available: dku {list_cmd.get(item_type_upper, 'dataset list')} -P {project_key}"
+                            "Verify the name exists:",
+                            f"  dku dataset list -P {project_key}",
+                            f"  dku recipe list -P {project_key}",
+                            f"  dku folder list -P {project_key}",
+                            f"  dku model list -P {project_key}",
                         ],
                     )
-                raise
+                obj, _ = _try_resolve_item(proj, name, detected)
+                resolved.append(obj)
+                continue
+
+            obj, exc = _try_resolve_item(proj, name, item_type_upper)
+            if obj is not None:
+                resolved.append(obj)
+                continue
+
+            if not exc or not is_not_found_error(exc):
+                raise exc
+
+            # Cross-type miss: probe other kinds and tell the agent which
+            # --type would have worked. Closes the recurring footgun where
+            # `flow move ds_a recipe_b -z X` died with a useless error.
+            other = _detect_item_type(proj, name)
+            list_cmd = {
+                "DATASET": "dataset list",
+                "RECIPE": "recipe list",
+                "MANAGED_FOLDER": "folder list",
+                "SAVED_MODEL": "model list",
+            }.get(item_type_upper, "dataset list")
+            details = [
+                f"List available: dku {list_cmd} -P {project_key}",
+            ]
+            if other:
+                details.insert(
+                    0,
+                    f"'{name}' is a {other} — re-run with --type {other} "
+                    f"or --type AUTO for mixed lists.",
+                )
+            exit_with_error(
+                f"{item_type_upper} '{name}' not found in project '{project_key}'.",
+                code="not_found",
+                details=details,
+            )
 
         # Move: batch for multiple, single for one
         if len(resolved) == 1:

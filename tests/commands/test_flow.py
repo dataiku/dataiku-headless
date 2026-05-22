@@ -188,16 +188,40 @@ def test_flow_move_by_zone_id(patch_client):
     assert "Moved" in result.output
 
 
-def test_flow_move_zone_not_found(patch_client):
-    """Prescriptive error when zone doesn't exist."""
+def test_flow_move_zone_not_found_no_create(patch_client):
+    """Prescriptive error when zone doesn't exist and --no-create-zone is set."""
     result = runner.invoke(
-        app, ["flow", "move", "ds1", "--zone", "NonExistent", "--project", "PROJ1"]
+        app,
+        [
+            "flow",
+            "move",
+            "ds1",
+            "--zone",
+            "NonExistent",
+            "--no-create-zone",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code != 0
     assert (
         "not found" in result.output.lower()
         or "not found" in (result.stderr or "").lower()
     )
+
+
+def test_flow_move_auto_creates_missing_zone(patch_client):
+    """By default, missing zones are created on the fly."""
+    proj = patch_client.get_project("PROJ1")
+    flow = proj.get_flow()
+
+    result = runner.invoke(
+        app,
+        ["flow", "move", "ds1", "--zone", "BrandNewZone", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Moved" in result.output
+    flow.create_zone.assert_called_with("BrandNewZone")
 
 
 def test_flow_move_recipe_type(patch_client):

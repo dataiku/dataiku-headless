@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 
 import typer
 
@@ -13,18 +15,115 @@ from dku_cli.helpers import (
     read_text_input,
     resolve_project,
 )
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success, warn
+
+
+_REGULAR_MANIFEST_ERROR = "neither an app template nor an app instance"
+
+
+def _is_regular_manifest_error(exc: Exception) -> bool:
+    """True when DSS rejects a manifest read because the project is REGULAR.
+
+    Server raises `IllegalArgumentException: Project ... is neither an app
+    template nor an app instance` for `proj.get_app_manifest()` and
+    `_perform_json("GET", "/projects/X/app-manifest")` on REGULAR projects,
+    even when manifest data exists server-side (PUT works regardless).
+    """
+    return _REGULAR_MANIFEST_ERROR in str(exc)
+
+
+def _read_manifest_via_export(client, project_key: str) -> dict:
+    """Read the app manifest of a REGULAR project via /export ZIP.
+
+    Falls back to this path when `proj.get_app_manifest()` raises because
+    the project is REGULAR. Loads the project archive into memory, opens
+    `project_config/app-manifest.json`, returns the parsed dict (empty
+    dict if the file is missing — meaning the project never had setup
+    data).
+    """
+    response = client._perform_raw("POST", f"/projects/{project_key}/export", body={})
+    raw_bytes = b"".join(
+        chunk for chunk in response.iter_content(chunk_size=32768) if chunk
+    )
+    with zipfile.ZipFile(io.BytesIO(raw_bytes)) as zf:
+        try:
+            with zf.open("project_config/app-manifest.json") as fh:
+                return json.loads(fh.read().decode("utf-8"))
+        except KeyError:
+            return {}
+
+
+def _read_manifest(client, project_key: str) -> dict:
+    """Read the project's app manifest, with REGULAR-project fallback.
+
+    Returns the raw manifest dict. Tries `proj.get_app_manifest()` first
+    (the canonical SDK path). On REGULAR-project rejection, falls back
+    to the project export ZIP.
+    """
+    proj = client.get_project(project_key)
+    try:
+        manifest = proj.get_app_manifest()
+        return manifest.get_raw()
+    except Exception as exc:
+        if _is_regular_manifest_error(exc):
+            return _read_manifest_via_export(client, project_key)
+        raise
+
+
+def _write_manifest(client, project_key: str, raw: dict) -> None:
+    """Write the project's app manifest, with REGULAR-project fallback.
+
+    Tries `manifest.save()` first (works for APP_TEMPLATE / APP_INSTANCE).
+    If that fails because the project is REGULAR, transparently routes
+    through APP_TEMPLATE: temporarily promotes the project, writes via
+    the SDK, then restores the original `projectAppType`. The round-trip
+    preserves the caller's surface so setup-mode (REGULAR) callers keep
+    their project type unchanged.
+    """
+    proj = client.get_project(project_key)
+    try:
+        manifest = proj.get_app_manifest()
+        manifest.raw_data = raw
+        manifest.save()
+        return
+    except Exception as exc:
+        if not _is_regular_manifest_error(exc):
+            raise
+
+    # REGULAR-project path: round-trip through APP_TEMPLATE
+    settings = proj.get_settings()
+    original_settings_raw = settings.get_raw()
+    original_type = original_settings_raw.get("projectAppType", "REGULAR")
+
+    original_settings_raw["projectAppType"] = "APP_TEMPLATE"
+    settings.save()
+
+    try:
+        manifest = proj.get_app_manifest()
+        manifest.raw_data = raw
+        manifest.save()
+    finally:
+        # Always restore the original projectAppType, even on failure,
+        # so a partial error does not leave the project converted.
+        settings = proj.get_settings()
+        rollback_raw = settings.get_raw()
+        if rollback_raw.get("projectAppType") != original_type:
+            rollback_raw["projectAppType"] = original_type
+            settings.save()
 
 
 def _handle_app_error(e: Exception, project_key: str) -> None:
     """Wrap handle_api_error with app-designer-specific guidance."""
-    msg = str(e)
-    if "neither an app template nor an app instance" in msg:
+    if _is_regular_manifest_error(e):
         exit_with_error(
-            f"Project {project_key} is not an app template",
+            f"Project {project_key} is REGULAR — cannot read its app manifest "
+            "via the SDK helper.",
             details=[
-                f'Enable it first: dku app-designer enable -P {project_key} --label "My App"',
-                "Then retry the command.",
+                "REGULAR projects can hold a Project Setup manifest (useAppHomepage=True).",
+                "Use `dku app-designer get -P "
+                f"{project_key}` to read via the export-ZIP fallback,",
+                "or convert to an App Template first: "
+                f"`dku app-designer enable -P {project_key} --mode template`.",
             ],
         )
     handle_api_error(e)
@@ -134,14 +233,18 @@ def get(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Get the full app manifest."""
+    """Get the full app manifest.
+
+    Works for both APP_TEMPLATE / APP_INSTANCE projects (canonical SDK path)
+    and REGULAR projects with `useAppHomepage=True` Project Setup data
+    (export-ZIP fallback). Empty dict means the project has no manifest.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output, allowed=("json",), default="json")
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        manifest = proj.get_app_manifest()
-        render_raw(manifest.get_raw(), output_format=output)
+        raw = _read_manifest(client, project_key)
+        render_raw(raw, output_format=output)
     except Exception as e:
         _handle_app_error(e, project_key)
 
@@ -156,17 +259,60 @@ def set_definition(
         "-d",
         help="JSON definition (string, @file.json, or - for stdin)",
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    confirm_name: str | None = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match the project key when wiping all homepage sections.",
+    ),
 ) -> None:
-    """Set/replace the full app manifest from JSON."""
+    """Set/replace the full app manifest from JSON.
+
+    Safety: if the current manifest has homepage sections and the new
+    payload would result in zero (or omits the key), the write is gated
+    behind tier-3 CASCADE — pass `--yes --confirm-name <PROJECT_KEY>` to
+    proceed. Prevents the `PUT {}` foot-gun that silently wipes a
+    Project Setup's section list.
+    """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    new_def = read_json_input(definition)
+    if not isinstance(new_def, dict):
+        exit_with_error("--definition must be a JSON object (the manifest dict).")
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        new_def = read_json_input(definition)
-        manifest = proj.get_app_manifest()
-        manifest.raw_data = new_def
-        manifest.save()
+        try:
+            current = _read_manifest(client, project_key)
+        except Exception:
+            # Couldn't read current state — be conservative, fall through
+            # to write anyway. The agent should know what it's doing.
+            current = {}
+
+        current_sections = current.get("homepageSections") or []
+        new_sections = new_def.get("homepageSections")
+        if current_sections and (new_sections is None or len(new_sections) == 0):
+            guard(
+                ctx,
+                tier=Tier.CASCADE,
+                action="app_designer.wipe_sections",
+                subject=(
+                    f"app manifest for project '{project_key}' "
+                    f"(replaces {len(current_sections)} homepageSection(s) with 0)"
+                ),
+                yes=yes,
+                target_id=project_key,
+                confirm_name=confirm_name,
+                prompt=(
+                    f"Replace project '{project_key}' app manifest? "
+                    f"This wipes all {len(current_sections)} homepage section(s)."
+                ),
+            )
+
+        _write_manifest(client, project_key, new_def)
         success(f"Updated app manifest for project {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         _handle_app_error(e, project_key)
 
@@ -182,9 +328,7 @@ def list_tiles(
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        manifest = proj.get_app_manifest()
-        raw = manifest.get_raw()
+        raw = _read_manifest(client, project_key)
 
         rows = []
         for si, section in enumerate(raw.get("homepageSections", [])):
@@ -305,9 +449,7 @@ def add_tile(
             )
 
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        manifest = proj.get_app_manifest()
-        raw = manifest.get_raw()
+        raw = _read_manifest(client, project_key)
         sections = raw.setdefault("homepageSections", [])
 
         # Ensure target section exists
@@ -315,7 +457,7 @@ def add_tile(
             sections.append({"tiles": []})
 
         sections[section].setdefault("tiles", []).append(tile)
-        manifest.save()
+        _write_manifest(client, project_key, raw)
         tile_idx = len(sections[section]["tiles"]) - 1
         success(
             f"Added {tile.get('type', 'unknown')} tile at section {section}, index {tile_idx}"
@@ -337,9 +479,7 @@ def remove_tile(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        manifest = proj.get_app_manifest()
-        raw = manifest.get_raw()
+        raw = _read_manifest(client, project_key)
         sections = raw.get("homepageSections", [])
 
         if section < 0 or section >= len(sections):
@@ -356,7 +496,7 @@ def remove_tile(
             )
 
         removed = tiles.pop(index)
-        manifest.save()
+        _write_manifest(client, project_key, raw)
         success(
             f"Removed {removed.get('type', 'unknown')} tile at section {section}, index {index}"
         )
@@ -372,33 +512,79 @@ def enable(
     description: str | None = typer.Option(
         None, "--description", help="App short description"
     ),
+    mode: str = typer.Option(
+        "setup",
+        "--mode",
+        "-m",
+        help=(
+            "What to enable: 'setup' (default — Project Setup, keeps "
+            "projectAppType=REGULAR + sets useAppHomepage=True) OR "
+            "'template' (converts the project to APP_TEMPLATE for use "
+            "as a Dataiku App that can be instantiated)."
+        ),
+    ),
 ) -> None:
-    """Enable the app homepage (set useAppHomepage=true).
+    """Enable the app homepage on a project.
 
-    If the project is not yet an app template, converts it first by setting
-    projectAppType to APP_TEMPLATE in the project settings.
+    Two modes — they look identical in the manifest schema but produce
+    very different product surfaces:
+
+    \b
+    - --mode setup (default): adds a "Project Setup" homepage to a
+      REGULAR project. Setup pages are first-party DSS UI for guided
+      configuration; the project keeps `projectAppType=REGULAR`. This
+      is what every Dataiku Solutions reference project uses.
+    - --mode template: converts the project to APP_TEMPLATE so it can
+      be instantiated as a Dataiku App. Sets `projectAppType=APP_TEMPLATE`
+      AND `useAppHomepage=True`. NOT reversible without manual
+      `projectAppType=REGULAR` reset via `proj.get_settings().save()`.
+
+    If you are unsure, pick `setup` — converting to template is a
+    semantic change that affects how the project is consumed.
     """
     project_key = resolve_project(project)
+    mode_normalised = (mode or "setup").strip().lower()
+    if mode_normalised not in {"setup", "template"}:
+        exit_with_error(
+            f"--mode must be 'setup' or 'template' (got {mode!r}).",
+            details=[
+                "setup    — Project Setup on a REGULAR project (default)",
+                "template — converts the project to APP_TEMPLATE",
+            ],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
 
-        # Convert to APP_TEMPLATE if needed (REGULAR projects can't have manifests)
-        settings = proj.get_settings()
-        raw_settings = settings.get_raw()
-        if raw_settings.get("projectAppType") != "APP_TEMPLATE":
-            raw_settings["projectAppType"] = "APP_TEMPLATE"
-            settings.save()
+        if mode_normalised == "template":
+            settings = proj.get_settings()
+            raw_settings = settings.get_raw()
+            if raw_settings.get("projectAppType") != "APP_TEMPLATE":
+                raw_settings["projectAppType"] = "APP_TEMPLATE"
+                settings.save()
+                warn(
+                    f"Project {project_key} converted to APP_TEMPLATE — "
+                    "no longer a REGULAR project."
+                )
 
-        manifest = proj.get_app_manifest()
-        raw = manifest.get_raw()
+        # Always read+write through the helpers so REGULAR projects work too.
+        raw = _read_manifest(client, project_key)
         raw["useAppHomepage"] = True
         if label:
             raw["label"] = label
         if description:
             raw["shortDesc"] = description
-        manifest.save()
-        success(f"App homepage enabled for project {project_key}")
+        _write_manifest(client, project_key, raw)
+
+        if mode_normalised == "setup":
+            success(
+                f"Project Setup enabled for {project_key} "
+                f"(projectAppType remains REGULAR)"
+            )
+        else:
+            success(
+                f"App template enabled for {project_key} (projectAppType=APP_TEMPLATE)"
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -412,11 +598,9 @@ def disable(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        manifest = proj.get_app_manifest()
-        raw = manifest.get_raw()
+        raw = _read_manifest(client, project_key)
         raw["useAppHomepage"] = False
-        manifest.save()
+        _write_manifest(client, project_key, raw)
         success(f"App homepage disabled for project {project_key}")
     except Exception as e:
         _handle_app_error(e, project_key)
@@ -438,9 +622,7 @@ def set_section(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        manifest = proj.get_app_manifest()
-        raw = manifest.get_raw()
+        raw = _read_manifest(client, project_key)
         sections = raw.setdefault("homepageSections", [])
 
         # Ensure target section exists
@@ -451,7 +633,7 @@ def set_section(
             sections[section]["sectionTitle"] = title
         if text is not None:
             sections[section]["sectionText"] = text
-        manifest.save()
+        _write_manifest(client, project_key, raw)
         success(f"Updated section {section} in project {project_key}")
     except Exception as e:
         _handle_app_error(e, project_key)

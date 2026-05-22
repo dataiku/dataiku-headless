@@ -4,6 +4,165 @@
 
 ---
 
+## Built-in Dataset Types (`dku dataset create --type`)
+
+Before considering a custom Python connector, check whether one of the
+built-in DSS dataset types fits. The full enumerated `--type` catalog:
+
+### Filesystem-backed
+| Type | Storage | Notable params |
+|---|---|---|
+| `Filesystem` | Local managed file storage | `connection`, `path`, `formatType`, `formatParams`, `filesSelectionRules.{mode, includeRules[], excludeRules[], explicitFiles[]}` |
+| `UploadedFiles` | DSS-managed uploaded files (also S3/Azure/GCS-backed via `uploadFSProviderType`) | `uploadFSProviderType`, `uploadedConfig.{bucket, connection, path, metastore*}`, `formatType`, `formatParams.{parseHeaderRow, style: "excel"\|"unix"}` |
+| `FilesInFolder` | Reads file content via a sibling managed folder | `folderSmartId`, `explicitFiles[]`, `formatType: "excel"\|"csv"\|"json"\|"parquet"\|...`, `formatParams` |
+| `S3` / `Azure` / `GCS` / `HDFS` | Object/file-store cloud datasets | Same Filesystem-style format params plus `bucket` (S3/GCS) / `container` (Azure), `metastoreSynchronizationEnabled`, `metastoreDatabaseName`, `metastoreTableName`, `filesSelectionRules`, `variablesExpansionLoopConfig` |
+
+### Editable / In-DSS
+| Type | Storage | Notable params |
+|---|---|---|
+| `Inline` | Editable spreadsheet-like dataset (rows hand-typed in the UI grid) | `keepTrackOfChanges`, `enableClipboardApi`, `notReadyIfEmpty`, `importSourceType: NONE\|CLIPBOARD\|CSV`, `formatType: "json"`, `formatParams.{maxExpansionDepth, nestedArraysHandling, headerRow}`, `featureGroup` |
+
+`Inline` is the canonical small-editable lookup-table type. Pairs with the Visual Edit plugin (which uses `keepTrackOfChanges: true` to replay edits as a flow recipe). Set `featureGroup: true` to surface it in the Feature Store UI.
+
+### SQL connections
+| Type | Notable params |
+|---|---|
+| `PostgreSQL` / `Snowflake` / `Redshift` / `BigQuery` / `Synapse` / `SQLServer` / `MySQL` / `Oracle` | `connection`, `table`, `mode: "table"\|"query"`, `query` (when query mode), `schema` (2-level qualifier), **`catalog`** (Snowflake / Databricks Unity Catalog — the 3-level namespace; required when the connection's default DB differs from the working DB; CLI: `--catalog`), `tableCreationMode`, `writeInsertBatchSize`, `writeJDBCBadDataBehavior: NOVERIFY_ERROR\|VERIFY\|DISCARD_ROW`, `noDropOnSchemaMismatch`, `writeDescriptionsAsSQLComment`, `numPartitions`, `sparkJdbcAccess`, `datetimenotzReadMode`, `dateonlyReadMode`, `normalizeBooleans`, `normalizeDoubles` |
+
+BigQuery additionally carries `useBigQueryPartitioning`, `bigQueryPartitioningType`, `bigQueryPartitioningPeriod`, `bigQueryRequirePartitionFilter`, `forbidPreviewFallbackToSelect`, `forbidPartitionsWriteToNonPartitionedTable`. Snowflake/PostgreSQL/Redshift share the same write-knob set — adding `--write-bad-data-behavior` etc. flags on `dataset create` registers them on every JDBC-style connector.
+
+Table names support DSS variable interpolation: `"EAD_${TENANT}_${NODE}_${projectKey}"` is resolved at build time from project + instance variables.
+
+### DSS-internal "live view" types
+| Type | Purpose | Notable params |
+|---|---|---|
+| `JobsDB` | Materialized view of another DSS object's metric/check/job history | `view: METRICS_HISTORY\|CHECK_HISTORY\|JOBS_HISTORY`, `scope: SINGLE_OBJECT\|PROJECT`, `smartName: "<object>"`, `partition`, `filter` |
+
+Use `JobsDB` to expose data-quality results into the flow for downstream analysis (Alteryx-style data-quality dashboards).
+
+### Plugin connector types
+| Type | Purpose |
+|---|---|
+| `CustomPython_<plugin-recipe-id>` | Datasets sourced via a `python-connectors/` plugin component (Airtable, Salesforce, Stripe, …) |
+
+`params.customConfig.<plugin>.inlinedConfig.*` carries connector credentials. **Plugin connector dataset definitions can leak inline secrets through `dku dataset get-definition -o json`** — if the plugin uses `mode: INLINE` for credentials (vs `PRESET` / `FILE`), the secret appears verbatim in the output. Treat plugin-typed dataset definitions as sensitive.
+
+### Format-specific knobs
+
+CSV (`formatType: "csv"`):
+- `parseHeaderRow`, `separator`, `quoteChar`, `escapeChar`, `charset`, `style: "excel"\|"unix"`, `dateSerializationFormat`, `arrayMapFormat`
+- `readAdditionalColumnsBehavior`, `readMissingColumnsBehavior`, `readDataTypeMismatchBehavior`, `writeDataTypeMismatchBehavior`, `fileReadFailureBehavior`
+- `normalizeBooleans`, `normalizeDoubles`, `skipRowsBeforeHeader`, `skipRowsAfterHeader`
+
+Parquet (`formatType: "parquet"`):
+- `parquetCompressionMethod` (`snappy` / `gzip` / `zstd` / ...), `parquetFlavor`, `parquetBlockSizeMB`, `parquetLowerCaseIdentifiers`, `readTemporalMode`
+
+Excel (`formatType: "excel"`, common on `FilesInFolder`):
+- `sheets` (single sheet name OR comma-separated names — `sheetSelectionMode: NAMES\|INDICES\|REGEX`), `skipRowsBeforeHeader`, `skipRowsAfterHeader`, `parseHeaderRow`, `preserveNumberFormatting`, `parseDatesToISO`, `passwordRequired`, `rowOverflowStrategy: NEW_SHEET\|FAIL\|TRUNCATE`, `cellOverflowStrategy`, `invalidCellStrategy`, `applyColoring`, `sheetsToColumn`
+
+JSON (e.g. used by `Inline`):
+- `maxExpansionDepth`, `nestedArraysHandling`, `extractFromSingleElement`, `nestedArraysMaxElements`, `nestedArraysMaxContentSize`, `headerRow`
+
+### Common envelope fields
+
+Every dataset (regardless of type) can carry:
+- `customFields.{gdpr_contains_personal_data, ...}` — instance-managed metadata.
+- `flowOptions.{virtualizable, rebuildBehavior: NORMAL\|WRITE_PROTECT\|EXPLICIT_REBUILD, crossProjectBuildBehavior, ignoreErrorStatusOnBuild}`.
+- `metrics.{probes[], engineConfig}` and `metricsChecks` / `checks` — see `dq` skill.
+- `partitioning.{dimensions[], filePathPattern, ...}` — partition spec.
+
+### Pass non-trivial params via `--definition`
+
+`dku dataset create` exposes only `--type` and `--connection` as typed flags;
+everything in the tables above is reached through `--definition @file.json`.
+Keep the JSON minimal — DSS auto-fills defaults — and pass exactly the keys
+you intend to override.
+
+S3 with metastore sync, glob-filtered Parquet inputs:
+```json
+{
+  "type": "S3",
+  "params": {
+    "connection": "s3_lake",
+    "bucket": "data-eng-prod",
+    "path": "/curated/orders/",
+    "metastoreSynchronizationEnabled": true,
+    "metastoreDatabaseName": "analytics",
+    "metastoreTableName": "orders_curated",
+    "filesSelectionRules": {
+      "mode": "ALL",
+      "includeRules": [{"path": "*.parquet"}],
+      "excludeRules": [{"path": "*_tmp.parquet"}]
+    }
+  },
+  "formatType": "parquet",
+  "formatParams": {
+    "parquetCompressionMethod": "snappy",
+    "parquetLowerCaseIdentifiers": true,
+    "readTemporalMode": "TIMESTAMP_LTZ"
+  }
+}
+```
+Then: `dku dataset create orders_curated -t S3 -c s3_lake -d @s3_orders.json -P PROJ`.
+
+CSV with strict schema mismatch behavior + gzip compression:
+```json
+{
+  "type": "S3",
+  "params": {"connection": "s3_lake", "bucket": "raw", "path": "/events/"},
+  "formatType": "csv",
+  "formatParams": {
+    "parseHeaderRow": true,
+    "compress": "gz",
+    "readAdditionalColumnsBehavior": "FAIL",
+    "readMissingColumnsBehavior": "FAIL",
+    "readDataTypeMismatchBehavior": "FAIL",
+    "fileReadFailureBehavior": "FAIL"
+  }
+}
+```
+The four `read*Behavior` knobs together give SQL-strict semantics on CSV reads —
+DSS errors instead of silently coercing or skipping rows.
+
+UploadedFiles backed by S3 (vs the default local disk):
+```json
+{
+  "type": "UploadedFiles",
+  "params": {
+    "uploadFSProviderType": "S3",
+    "uploadedConfig": {"connection": "s3_uploads", "bucket": "uploads", "path": "/${projectKey}/"}
+  }
+}
+```
+Trap: `dku dataset upload` resolves the local-FS path and may fail when the
+provider is `S3`/`Azure`/`GCS` — upload via the DSS UI's Upload tile, or use
+`folder upload` + `folder create-dataset` instead.
+
+Variables-expansion loop (one dataset row per `$VAR` substitution, useful
+when a folder holds files like `metric_${region}_${year}.csv`):
+```json
+{
+  "type": "S3",
+  "params": {
+    "connection": "s3_lake",
+    "bucket": "metrics",
+    "path": "/metric_${region}_${year}.csv",
+    "variablesExpansionLoopConfig": {
+      "enabled": true,
+      "mode": "VARIABLE",
+      "variables": [
+        {"name": "region", "values": ["us", "eu", "apac"]},
+        {"name": "year", "values": ["2023", "2024", "2025"]}
+      ]
+    }
+  },
+  "formatType": "csv",
+  "formatParams": {"parseHeaderRow": true}
+}
+```
+
+---
+
 ## Overview
 
 Dataset connectors (also called "Python connectors") allow Dataiku to read from and write to external data sources. Use cases include:

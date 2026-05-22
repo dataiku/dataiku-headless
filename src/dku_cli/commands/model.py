@@ -78,24 +78,46 @@ def get(
         raw = settings.get_raw()
         active = model.get_active_version()
 
+        # Saved-model settings raw dict has no top-level "type"; pull it from the project list.
+        model_type = raw.get("type") or ""
+        if not model_type:
+            for m in proj.list_saved_models():
+                if m.get("id") == model_id:
+                    model_type = m.get("type", "")
+                    break
+
+        # Surface ML-specific structure when present so `model get` is
+        # informative for PREDICTION/CLUSTERING/TIMESERIES_FORECAST without
+        # forcing the caller to fall back to `get-definition`.
+        prediction_type = raw.get("predictionType") or ""
+        algorithm = raw.get("miniTask", {}).get("modeling", {}).get("algorithm") or ""
+
         if output == "json":
             detail = {
                 "id": model_id,
                 "name": raw.get("name", ""),
-                "type": raw.get("type", ""),
+                "type": model_type,
                 "active_version": active.get("id", "") if active else None,
             }
+            if prediction_type:
+                detail["prediction_type"] = prediction_type
+            if algorithm:
+                detail["algorithm"] = algorithm
             print(json.dumps(detail, indent=2, default=str))
         else:
             data = [
                 {"field": "ID", "value": model_id},
                 {"field": "Name", "value": raw.get("name", "")},
-                {"field": "Type", "value": raw.get("type", "")},
+                {"field": "Type", "value": model_type},
                 {
                     "field": "Active version",
                     "value": active.get("id", "") if active else "(none)",
                 },
             ]
+            if prediction_type:
+                data.append({"field": "Prediction type", "value": prediction_type})
+            if algorithm:
+                data.append({"field": "Algorithm", "value": algorithm})
             render(
                 data,
                 ["field", "value"],
@@ -103,6 +125,80 @@ def get(
                 title=f"Model: {model_id}",
             )
     except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-definition")
+def get_definition(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get the full saved-model settings as JSON.
+
+    Returns the raw settings dict (miniTask, prediction type, metrics config, etc.).
+    Use this to inspect or template a model's training/scoring configuration.
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        raw = model.get_settings().get_raw()
+        render_raw(raw, output_format=output)
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Saved model '{model_id}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[
+                    f"List models: dku model list -P {project_key}",
+                ],
+            )
+        handle_api_error(e)
+
+
+@app.command("set-definition")
+def set_definition(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    definition: str = typer.Option(
+        ...,
+        "--definition",
+        "-d",
+        help="Definition JSON (string, @file.json, or '-' for stdin)",
+    ),
+) -> None:
+    """Replace the saved-model settings from JSON.
+
+    Always GET → edit → SET. Pass the full settings dict; this is a full
+    replace, not a merge.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        new_def = read_json_input(definition)
+        settings = model.get_settings()
+        settings.settings.clear()
+        settings.settings.update(new_def)
+        settings.save()
+        success(f"Updated definition for saved model '{model_id}'")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Saved model '{model_id}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[
+                    f"List models: dku model list -P {project_key}",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -139,6 +235,245 @@ def versions(
             title=f"Model Versions: {model_id}",
         )
     except Exception as e:
+        handle_api_error(e)
+
+
+_VALID_REBUILD_BEHAVIOR = {"NORMAL", "WRITE_PROTECT", "EXPLICIT_REBUILD"}
+_VALID_CROSS_PROJECT_BEHAVIOR = {
+    "DEFAULT",
+    "AUTO_BUILD",
+    "DO_NOT_BUILD",
+    "EXPLICIT_REBUILD",
+}
+
+
+@app.command("set-flow-options")
+def set_flow_options(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    virtualizable: bool | None = typer.Option(
+        None,
+        "--virtualizable/--no-virtualizable",
+        help="Allow this model to be virtualized in downstream flow zones (settings.flowOptions.virtualizable).",
+    ),
+    rebuild_behavior: str | None = typer.Option(
+        None,
+        "--rebuild-behavior",
+        help=f"Rebuild behavior: {', '.join(sorted(_VALID_REBUILD_BEHAVIOR))}. Sets settings.flowOptions.rebuildBehavior.",
+    ),
+    cross_project_build_behavior: str | None = typer.Option(
+        None,
+        "--cross-project-build-behavior",
+        help=f"Cross-project rebuild: {', '.join(sorted(_VALID_CROSS_PROJECT_BEHAVIOR))}. Sets settings.flowOptions.crossProjectBuildBehavior.",
+    ),
+    ignore_error_status_on_build: bool | None = typer.Option(
+        None,
+        "--ignore-error-status-on-build/--respect-error-status-on-build",
+        help="settings.flowOptions.ignoreErrorStatusOnBuild — when true, builds proceed even if upstream is in ERROR.",
+    ),
+) -> None:
+    """Patch a saved model's flow options (virtualizable, rebuild behavior, ...).
+
+    Reads → patches → writes the saved-model settings. Lets you avoid hand-rolling
+    raw `dataikuapi.DSSSavedModelSettings.save()` from Python for these knobs.
+
+    Example:
+        dku model set-flow-options 7bdMB26q --virtualizable \\
+            --rebuild-behavior NORMAL --ignore-error-status-on-build -P PROJ
+    """
+    if rebuild_behavior and rebuild_behavior.upper() not in _VALID_REBUILD_BEHAVIOR:
+        exit_with_error(
+            f"Invalid --rebuild-behavior '{rebuild_behavior}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_REBUILD_BEHAVIOR))}"],
+        )
+    if (
+        cross_project_build_behavior
+        and cross_project_build_behavior.upper() not in _VALID_CROSS_PROJECT_BEHAVIOR
+    ):
+        exit_with_error(
+            f"Invalid --cross-project-build-behavior '{cross_project_build_behavior}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_CROSS_PROJECT_BEHAVIOR))}"],
+        )
+    if (
+        virtualizable is None
+        and rebuild_behavior is None
+        and cross_project_build_behavior is None
+        and ignore_error_status_on_build is None
+    ):
+        exit_with_error(
+            "Pass at least one flow-option flag.",
+            code="invalid_argument",
+            details=[
+                "Examples: --virtualizable, --rebuild-behavior NORMAL, --cross-project-build-behavior DEFAULT"
+            ],
+        )
+
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        settings = model.get_settings()
+        raw = settings.get_raw()
+        flow = raw.setdefault("flowOptions", {})
+        if virtualizable is not None:
+            flow["virtualizable"] = bool(virtualizable)
+        if rebuild_behavior is not None:
+            flow["rebuildBehavior"] = rebuild_behavior.upper()
+        if cross_project_build_behavior is not None:
+            flow["crossProjectBuildBehavior"] = cross_project_build_behavior.upper()
+        if ignore_error_status_on_build is not None:
+            flow["ignoreErrorStatusOnBuild"] = bool(ignore_error_status_on_build)
+        settings.save()
+        success(f"Updated flowOptions on saved model '{model_id}'")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Saved model '{model_id}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List models: dku model list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+_VALID_PUBLISH_POLICIES = {"UNCONDITIONAL", "CONDITIONAL", "EXPLICIT"}
+
+
+@app.command("set-publish-policy")
+def set_publish_policy(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    policy: str = typer.Option(
+        ...,
+        "--policy",
+        help=f"Publish policy: {', '.join(sorted(_VALID_PUBLISH_POLICIES))}. Sets settings.publishPolicy.",
+    ),
+) -> None:
+    """Set the publish policy on a saved model.
+
+    UNCONDITIONAL = newly-trained versions become active immediately.
+    CONDITIONAL  = only when newer version beats current on chosen metric.
+    EXPLICIT     = no auto-activation; manual `set-active-version` only.
+    """
+    if policy.upper() not in _VALID_PUBLISH_POLICIES:
+        exit_with_error(
+            f"Invalid --policy '{policy}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_PUBLISH_POLICIES))}"],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        settings = model.get_settings()
+        raw = settings.get_raw()
+        raw["publishPolicy"] = policy.upper()
+        settings.save()
+        success(f"Set publishPolicy={policy.upper()} on saved model '{model_id}'")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Saved model '{model_id}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List models: dku model list -P {project_key}"],
+            )
+        handle_api_error(e)
+
+
+@app.command("diagnostics")
+def diagnostics(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    list_only: bool = typer.Option(
+        False,
+        "--list",
+        help="List configured diagnostics with their enabled status (no mutation).",
+    ),
+    enable: list[str] | None = typer.Option(
+        None,
+        "--enable",
+        help="Diagnostic key to enable (repeatable). Sets matching entry's enabled=true.",
+    ),
+    disable: list[str] | None = typer.Option(
+        None,
+        "--disable",
+        help="Diagnostic key to disable (repeatable). Sets matching entry's enabled=false.",
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List, enable, or disable model-level diagnostics.
+
+    Diagnostics live at settings.miniTask.diagnosticsSettings.diagnostics[].
+    Each entry has {type, enabled} where type is the diagnostic key (e.g.
+    LEAKAGE_DETECTION, OVERFITTING_DETECTION).
+
+    Example — list:
+        dku model diagnostics 7bdMB26q --list -P PROJ
+    Example — toggle:
+        dku model diagnostics 7bdMB26q --enable LEAKAGE_DETECTION --disable OVERFITTING_DETECTION -P PROJ
+    """
+    if not (list_only or enable or disable):
+        exit_with_error(
+            "Pass --list, --enable, or --disable.",
+            code="invalid_argument",
+        )
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+        settings = model.get_settings()
+        raw = settings.get_raw()
+        mini = raw.get("miniTask", {})
+        diag_settings = mini.setdefault("diagnosticsSettings", {})
+        diags = diag_settings.setdefault("diagnostics", [])
+
+        if list_only:
+            data = [
+                {"type": d.get("type", ""), "enabled": str(d.get("enabled", False))}
+                for d in diags
+            ]
+            render(
+                data,
+                ["type", "enabled"],
+                output_format=output,
+                title=f"Diagnostics: {model_id}",
+            )
+            return
+
+        # Apply --enable / --disable mutations
+        diag_by_type = {d.get("type"): d for d in diags}
+        for t in enable or []:
+            if t in diag_by_type:
+                diag_by_type[t]["enabled"] = True
+            else:
+                diags.append({"type": t, "enabled": True})
+                diag_by_type[t] = diags[-1]
+        for t in disable or []:
+            if t in diag_by_type:
+                diag_by_type[t]["enabled"] = False
+            else:
+                diags.append({"type": t, "enabled": False})
+                diag_by_type[t] = diags[-1]
+        settings.save()
+        success(f"Updated diagnostics on saved model '{model_id}'")
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                f"Saved model '{model_id}' not found in {project_key}.",
+                code="not_found",
+                status=3,
+                details=[f"List models: dku model list -P {project_key}"],
+            )
         handle_api_error(e)
 
 

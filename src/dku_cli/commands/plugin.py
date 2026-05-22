@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx
 from dku_cli.output import (
     error,
@@ -640,14 +640,43 @@ def get_file(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
     path: str = typer.Option(..., "--path", help="File path within plugin"),
+    output_file: str | None = typer.Option(
+        None,
+        "--output-file",
+        "-O",
+        help="Write raw bytes to this path (use for binary files like .zip/.gz/.png)",
+    ),
 ) -> None:
-    """Get the contents of a file in a dev plugin."""
+    """Get the contents of a file in a dev plugin.
+
+    Text files are printed to stdout. Binary files (.zip, .gz, .png, …) require
+    --output-file PATH so bytes are written verbatim instead of decoded as UTF-8.
+    """
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
         with plugin.get_file(path) as fp:
             content = fp.read()
-        print(content.decode("utf-8") if isinstance(content, bytes) else content)
+        if output_file:
+            from pathlib import Path
+
+            data = content if isinstance(content, bytes) else content.encode("utf-8")
+            Path(output_file).write_bytes(data)
+            success(f"Wrote {len(data)} bytes to {output_file}")
+            return
+        if isinstance(content, bytes):
+            try:
+                print(content.decode("utf-8"))
+            except UnicodeDecodeError:
+                exit_with_error(
+                    f"File is binary (UTF-8 decode failed at byte {content[:64].hex()}…).",
+                    code="binary_file",
+                    details=[
+                        f"Re-run with: dku plugin get-file {plugin_id} --path {path} --output-file <local-path>",
+                    ],
+                )
+        else:
+            print(content)
     except Exception as e:
         handle_api_error(e)
 

@@ -240,6 +240,81 @@ def test_folder_create_dataset(patch_client):
     folder.create_dataset_from_files.assert_called_once_with("my_files_ds")
 
 
+def test_folder_create_dataset_excel_sheet(patch_client):
+    """--sheet implies --format excel and writes sheets/sheetSelectionMode."""
+    from unittest.mock import MagicMock
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    ds = MagicMock()
+    settings = MagicMock()
+    raw: dict = {}
+    settings.get_raw.return_value = raw
+    ds.get_settings.return_value = settings
+    folder.create_dataset_from_files.return_value = ds
+
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "create-dataset",
+            "folder1",
+            "xls_inv",
+            "--sheet",
+            "FY24",
+            "--skip-rows-before",
+            "3",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["formatType"] == "excel"
+    assert raw["formatParams"]["sheets"] == "FY24"
+    assert raw["formatParams"]["sheetSelectionMode"] == "NAMES"
+    assert raw["formatParams"]["skipRowsBeforeHeader"] == 3
+
+
+def test_folder_create_dataset_sheet_with_wrong_format_errors(patch_client):
+    """--sheet on a non-excel format must reject."""
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "create-dataset",
+            "folder1",
+            "ds",
+            "--format",
+            "csv",
+            "--sheet",
+            "S1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "excel" in result.output.lower()
+
+
+def test_folder_create_dataset_sheet_and_index_mutex(patch_client):
+    """--sheet and --sheet-index are mutually exclusive."""
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "create-dataset",
+            "folder1",
+            "ds",
+            "--sheet",
+            "S1",
+            "--sheet-index",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
 def test_folder_create_dataset_already_exists(patch_client):
     folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
     folder.create_dataset_from_files.side_effect = Exception(
