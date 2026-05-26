@@ -66,8 +66,8 @@ With `--errors json`, the same info ships as `error.safety.{prompt_to_user, reru
 - [folder](#folder) — list, ls, upload, download, create, delete, delete-file, get, create-dataset, set-metadata
 - [llm](#llm) — list, completion, embeddings
 - [webapp](#webapp) — list, create, start, stop, status, get-definition, set-definition
-- [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition, set-metadata
-- [insight](#insight) — list, get, create, delete, get-definition, set-definition, validate, set-metadata
+- [dashboard](#dashboard) — list, get, create, delete, get-definition, set-definition, set-metadata, list-tiles, add-tile, remove-tile
+- [insight](#insight) — list (`--type`/`--dataset`), get, create, delete, get-definition, set-definition, validate, set-metadata, head, set-chart-type, add-dimension, add-measure, clear-columns
 - [macro](#macro) — list, run
 - [user](#user) — list, get, create, delete
 - [flow](#flow) — graph, visualize, zones, create-zone, set-zone, move, propagate, check, sources, successors
@@ -666,10 +666,15 @@ dku dashboard delete DASHBOARD_ID [-P PROJECT]
 dku dashboard get-definition DASHBOARD_ID [-P PROJECT] [-o json]
 dku dashboard set-definition DASHBOARD_ID --definition JSON [-P PROJECT]
 dku dashboard set-metadata DASHBOARD_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
+dku dashboard list-tiles DASHBOARD_ID [-P PROJECT] [-o FORMAT]
+dku dashboard add-tile DASHBOARD_ID --insight INSIGHT_ID [-P PROJECT] [--page N] [--width W] [--height H]
+dku dashboard remove-tile DASHBOARD_ID --insight INSIGHT_ID [-P PROJECT] [--page N]
 ```
 
+- `list-tiles` — shows all tiles across all pages: page index, page id, insight_id, display_mode
+- `add-tile` — appends a tile to page N (default 0); stacks below existing tiles automatically. Width/height in grid units (default 6×4)
+- `remove-tile` — removes all tiles referencing the insight from all pages (or `--page N` to scope to one page). Exits with error if not found
 - `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
-- No create via API for individual tiles/charts — manage via the raw JSON definition
 - `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
 - Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
 - **URL anatomy:** `/dashboards/<dashboardId>_<slug>/view/<pageId>` maps to `dashboard.id` and `pages[].id`. Paste the URL path to locate a specific page in `get-definition` output
@@ -714,7 +719,7 @@ dku recipe run rag_eval -P PROJ --wait
 ## insight
 
 ```bash
-dku insight list [-P PROJECT] [-o FORMAT]
+dku insight list [-P PROJECT] [-o FORMAT] [--type TYPE] [--dataset DS]
 dku insight get INSIGHT_ID [-P PROJECT] [-o FORMAT]
 dku insight create NAME [--type TYPE] [--dataset DS] [-P PROJECT] [--definition JSON] [--if-not-exists]
 dku insight delete INSIGHT_ID [-P PROJECT]
@@ -722,14 +727,45 @@ dku insight get-definition INSIGHT_ID [-P PROJECT] [-o json]
 dku insight set-definition INSIGHT_ID --definition JSON [-P PROJECT]
 dku insight validate INSIGHT_ID [-P PROJECT]
 dku insight set-metadata INSIGHT_ID [-P PROJECT] [--description DESC] [--short-desc DESC] [--tags TAGS]
+dku insight head INSIGHT_ID [-P PROJECT] [-n ROWS] [-o FORMAT]
+dku insight set-chart-type INSIGHT_ID TYPE [-P PROJECT]
+dku insight add-dimension INSIGHT_ID --column COL [-P PROJECT] [--slot 0|1]
+dku insight add-measure INSIGHT_ID --column COL [-P PROJECT] [--agg AGG]
+dku insight clear-columns INSIGHT_ID [-P PROJECT]
 ```
 
+- `list --type TYPE` — filters by insight type (`chart`, `dataset_table`, `report`, etc.)
+- `list --dataset DS` — filters to insights bound to that dataset (fetches each insight's params; use with `--type chart` to narrow)
+- `head` — resolves the insight's bound dataset and returns sample rows; no need to look up `datasetSmartName` separately
+- `set-chart-type` — sets `params.def.type`. Valid: `lines`, `multi_columns_lines`, `stacked_bars`, `grouped_columns`, `pie`, `scatter`, `boxplots`, `treemap`, `pivot_table`, `stacked_area`
+- `add-dimension` — appends `{"column": COL}` to `genericDimension0` (slot 0, default) or `genericDimension1` (slot 1)
+- `add-measure` — appends `{"column": COL, "type": AGG}` to `genericMeasures`. Valid aggs: `AVG` (default), `SUM`, `COUNT`, `MIN`, `MAX`, `COUNT_DISTINCT`
+- `clear-columns` — zeroes `genericDimension0`, `genericDimension1`, `genericMeasures`. Use before reconfiguring a chart from scratch
 - `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `create` defaults to `--type dataset_table`. Common types: `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`, `eda`, `jupyter`
 - `--dataset` / `--ds` binds the insight to a dataset (sets `params.datasetSmartName`). Required for chart/dataset_table types
-- `--definition` overrides/extends creation info (merged with `--type` and name)
-- `validate` checks chart column references against the dataset schema (client-side). Reports mismatches with fuzzy suggestions
+- `validate` checks chart column references against the dataset schema (client-side). Reports mismatches with fuzzy suggestions. **Always run after `add-dimension`/`add-measure`**
 - **Never hand-write a full `dataset_table` payload.** DSS's `shakerScript` schema has nested objects that vary across versions (e.g. `columnOrder` expects objects, not strings). Clone the live default first: `dku insight create NAME --type dataset_table --dataset DS -P PROJ && dku insight get-definition ID -P PROJ -o json > table.json`, then only edit `params.shakerScript.columnsSelection` / `sorting` / `previewMode` before `set-definition`. See `skills/dataiku/references/dashboard-charts.md` for the safe-to-edit field list
+
+**Dashboard build pattern (create insight → add to dashboard):**
+```bash
+# 1. Find dataset columns
+dku dataset schema my_dataset -P PROJ
+
+# 2. Create chart insight
+dku insight create "Revenue by Region" --type chart --dataset my_dataset -P PROJ
+# → note the insight ID
+
+# 3. Configure chart
+dku insight set-chart-type INSIGHT_ID grouped_columns -P PROJ
+dku insight add-dimension INSIGHT_ID --column region -P PROJ
+dku insight add-measure INSIGHT_ID --column revenue --agg SUM -P PROJ
+dku insight validate INSIGHT_ID -P PROJ  # always validate before adding to dashboard
+
+# 4. Add to dashboard
+dku dashboard list-tiles DASH_ID -P PROJ  # check current state
+dku dashboard add-tile DASH_ID --insight INSIGHT_ID -P PROJ
+```
 
 ## macro
 

@@ -383,7 +383,8 @@ dku project delete MY_PROJ --yes
 | `agent` | list, create, add-tool, set-llm, set-prompt, **list-versions**, **create-version**, **set-active-version** (mutators take `--new-version --activate`) |
 | `knowledge` | list, create, build, search |
 | `webapp` | list, create, start, stop, status, get-definition, set-definition |
-| `insight` | list, create, validate |
+| `insight` | list (`--type`/`--dataset` filters), create, validate, head, set-chart-type, add-dimension, add-measure, clear-columns |
+| `dashboard` | list, create, get-definition, set-definition, **list-tiles**, **add-tile**, **remove-tile** |
 | `llm` | list, completion, embeddings |
 | `app-designer` | enable, set-section, add-tile, list-tiles, get |
 | `app` | list, get, list-instances, create-instance |

@@ -242,3 +242,150 @@ def set_metadata(
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+@app.command("list-tiles")
+def list_tiles(
+    ctx: typer.Context,
+    dashboard_id: str = typer.Argument(help="Dashboard ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List tiles across all pages of a dashboard.
+
+    dku dashboard list-tiles DASH_ID -P PROJ
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        raw = proj.get_dashboard(dashboard_id).get_settings().get_raw()
+        data = []
+        for page_idx, page in enumerate(raw.get("pages", [])):
+            for tile in page.get("grid", {}).get("tiles", []):
+                data.append(
+                    {
+                        "page": page_idx,
+                        "page_id": page.get("id", ""),
+                        "insight_id": tile.get("insightId", ""),
+                        "display_mode": tile.get("displayMode", ""),
+                        "show_title": tile.get("showTitle", ""),
+                    }
+                )
+        render(
+            data,
+            ["page", "page_id", "insight_id", "display_mode", "show_title"],
+            output_format=output,
+            title=f"Tiles in dashboard {dashboard_id}",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-tile")
+def add_tile(
+    ctx: typer.Context,
+    dashboard_id: str = typer.Argument(help="Dashboard ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    insight_id: str = typer.Option(..., "--insight", "-i", help="Insight ID to add"),
+    page: int = typer.Option(0, "--page", help="Page index (0-based)"),
+    width: int = typer.Option(6, "--width", "-w", help="Tile width (grid units, 1-12)"),
+    height: int = typer.Option(4, "--height", help="Tile height (grid units)"),
+) -> None:
+    """Add an insight tile to a dashboard page.
+
+    dku dashboard add-tile DASH_ID --insight INSIGHT_ID -P PROJ
+    dku dashboard add-tile DASH_ID --insight INSIGHT_ID --page 1 --width 12 -P PROJ
+    """
+    from dku_cli.errors import exit_with_error
+
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        dashboard = proj.get_dashboard(dashboard_id)
+        settings = dashboard.get_settings()
+        raw = settings.get_raw()
+        pages = raw.get("pages", [])
+        if page >= len(pages):
+            exit_with_error(
+                f"Page index {page} out of range (dashboard has {len(pages)} page(s))",
+                details=[
+                    f"dku dashboard get {dashboard_id} -P {project_key}  # check page count"
+                ],
+            )
+        tiles = pages[page].setdefault("grid", {}).setdefault("tiles", [])
+        top = max(
+            (
+                t.get("box", {}).get("top", 0) + t.get("box", {}).get("height", 4)
+                for t in tiles
+            ),
+            default=0,
+        )
+        tiles.append(
+            {
+                "insightId": insight_id,
+                "box": {"left": 0, "top": top, "width": width, "height": height},
+                "displayMode": "insight",
+                "showTitle": True,
+                "resizeMode": "FIT_INSIGHT",
+            }
+        )
+        settings.save()
+        success(
+            f"Added insight '{insight_id}' to page {page} of dashboard '{dashboard_id}'"
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("remove-tile")
+def remove_tile(
+    ctx: typer.Context,
+    dashboard_id: str = typer.Argument(help="Dashboard ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    insight_id: str = typer.Option(..., "--insight", "-i", help="Insight ID to remove"),
+    page: int = typer.Option(
+        None, "--page", help="Page index to limit removal to (default: all pages)"
+    ),
+) -> None:
+    """Remove all tiles referencing an insight from a dashboard.
+
+    dku dashboard remove-tile DASH_ID --insight INSIGHT_ID -P PROJ
+    dku dashboard remove-tile DASH_ID --insight INSIGHT_ID --page 0 -P PROJ
+    """
+    from dku_cli.errors import exit_with_error
+
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        dashboard = proj.get_dashboard(dashboard_id)
+        settings = dashboard.get_settings()
+        raw = settings.get_raw()
+        removed = 0
+        for page_idx, pg in enumerate(raw.get("pages", [])):
+            if page is not None and page_idx != page:
+                continue
+            tiles = pg.get("grid", {}).get("tiles", [])
+            before = len(tiles)
+            pg["grid"]["tiles"] = [t for t in tiles if t.get("insightId") != insight_id]
+            removed += before - len(pg["grid"]["tiles"])
+        if removed == 0:
+            exit_with_error(
+                f"Insight '{insight_id}' not found in dashboard '{dashboard_id}'",
+                details=[
+                    f"dku dashboard list-tiles {dashboard_id} -P {project_key}  # check tile insight IDs"
+                ],
+            )
+        settings.save()
+        success(
+            f"Removed {removed} tile(s) referencing '{insight_id}' from dashboard '{dashboard_id}'"
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)

@@ -223,3 +223,206 @@ def test_dashboard_set_metadata_no_args(patch_client):
         app, ["dashboard", "set-metadata", "dashboard1", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# --- list-tiles ---
+
+
+def test_dashboard_list_tiles(patch_client):
+    result = runner.invoke(
+        app, ["dashboard", "list-tiles", "dashboard1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "i1" in result.output
+    assert "0" in result.output  # page index
+
+
+def test_dashboard_list_tiles_json(patch_client):
+    result = runner.invoke(
+        app,
+        ["dashboard", "list-tiles", "dashboard1", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["insight_id"] == "i1"
+    assert parsed[0]["page"] == 0
+
+
+def test_dashboard_list_tiles_empty(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    settings.get_raw.return_value = {
+        "id": "dashboard1",
+        "name": "Empty",
+        "pages": [{"id": "p1", "grid": {"tiles": []}}],
+    }
+    result = runner.invoke(
+        app, ["dashboard", "list-tiles", "dashboard1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+
+
+# --- add-tile ---
+
+
+def test_dashboard_add_tile(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    raw = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [{"id": "p1", "grid": {"tiles": []}}],
+    }
+    settings.get_raw.return_value = raw
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "add-tile",
+            "dashboard1",
+            "--insight",
+            "insight1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added insight" in result.output
+    settings.save.assert_called_once()
+    assert raw["pages"][0]["grid"]["tiles"][0]["insightId"] == "insight1"
+
+
+def test_dashboard_add_tile_stacks_below_existing(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    raw = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [
+            {
+                "id": "p1",
+                "grid": {
+                    "tiles": [
+                        {
+                            "insightId": "i1",
+                            "box": {"left": 0, "top": 0, "width": 6, "height": 4},
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    settings.get_raw.return_value = raw
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "add-tile",
+            "dashboard1",
+            "--insight",
+            "insight2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    new_tile = raw["pages"][0]["grid"]["tiles"][1]
+    assert new_tile["box"]["top"] == 4  # stacked below first tile
+
+
+def test_dashboard_add_tile_invalid_page(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "add-tile",
+            "dashboard1",
+            "--insight",
+            "insight1",
+            "--page",
+            "99",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+
+
+# --- remove-tile ---
+
+
+def test_dashboard_remove_tile(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    raw = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [{"id": "p1", "grid": {"tiles": [{"insightId": "insight1"}]}}],
+    }
+    settings.get_raw.return_value = raw
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "remove-tile",
+            "dashboard1",
+            "--insight",
+            "insight1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Removed 1 tile" in result.output
+    assert raw["pages"][0]["grid"]["tiles"] == []
+    settings.save.assert_called_once()
+
+
+def test_dashboard_remove_tile_not_found(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "remove-tile",
+            "dashboard1",
+            "--insight",
+            "NONEXISTENT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output
+
+
+def test_dashboard_remove_tile_scoped_to_page(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    raw = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [
+            {"id": "p0", "grid": {"tiles": [{"insightId": "insight1"}]}},
+            {"id": "p1", "grid": {"tiles": [{"insightId": "insight1"}]}},
+        ],
+    }
+    settings.get_raw.return_value = raw
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "remove-tile",
+            "dashboard1",
+            "--insight",
+            "insight1",
+            "--page",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["pages"][0]["grid"]["tiles"] == []
+    assert len(raw["pages"][1]["grid"]["tiles"]) == 1  # page 1 untouched
