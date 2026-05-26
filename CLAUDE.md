@@ -229,6 +229,6 @@ Dataiku DevKit skills:
 | `benchmark/README.md` | Benchmark framework |
 | `dataiku-devkit/skills/dku-cli/SKILL.md` | CLI execution router |
 | `dataiku-devkit/skills/dataiku/SKILL.md` | DSS platform router |
-| `dataiku-devkit/skills/dku-cli/references/commands.md` | Full command syntax |
+| `dataiku-devkit/skills/dku-cli/references/commands.md` | Command reference entrypoint and split-reference map |
 | `dataiku-devkit/skills/dku-cli/references/common-gotchas.md` | Operational gotchas |
 | `dataiku-devkit/skills/dataiku/references/` | Platform design and payload references |

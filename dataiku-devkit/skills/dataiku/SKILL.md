@@ -61,6 +61,7 @@ Use this skill to decide **what DSS capability to use** and which platform refer
 | Task | Read |
 |---|---|
 | Plugin architecture or folder structure | `references/plugin-architecture.md`, `references/plugin-structure.md`, `references/plugin-production-patterns.md` |
+| Plugin lifecycle and production quality | `references/plugin-workflow.md`, `references/best-practices.md`, `references/plugin-production-patterns.md` |
 | Scaffold plugin components | `references/scaffolding.md` |
 | Custom recipes | `references/recipes.md` |
 | Agent tools | `references/llm-tools.md`, `references/agent-tool-patterns.md` |
