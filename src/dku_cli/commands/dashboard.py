@@ -23,6 +23,24 @@ from dku_cli.output import (
 app = typer.Typer(help="Manage DSS dashboards.")
 
 
+def _default_page() -> dict:
+    return {
+        "id": "page1",
+        "title": "Page 1",
+        "displayedTitle": "Page 1",
+        "show": True,
+        "showTitle": False,
+        "titleAlign": "CENTER",
+        "titleFontColor": "#333",
+        "titleFontSize": 28,
+        "enableCrossFilters": True,
+        "backgroundColor": "#FFFEF9",
+        "showFilterPanel": False,
+        "filtersParams": {"panelPosition": "TOP"},
+        "grid": {"tiles": []},
+    }
+
+
 @app.command("list")
 def list_dashboards(
     ctx: typer.Context,
@@ -100,6 +118,7 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Dashboard name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     definition: str | None = typer.Option(
         None,
         "--definition",
@@ -112,6 +131,7 @@ def create(
 ) -> None:
     """Create a new dashboard."""
     project_key = resolve_project(project)
+    output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -119,8 +139,16 @@ def create(
         kwargs: dict = {"dashboard_name": name}
         if settings is not None:
             kwargs["settings"] = settings
+        else:
+            kwargs["settings"] = {"pages": [_default_page()]}
         dashboard = proj.create_dashboard(**kwargs)
-        success(f"Created dashboard '{name}' (id={dashboard.dashboard_id})")
+        if output == "json":
+            render_raw(
+                {"id": dashboard.dashboard_id, "name": name},
+                output_format=output,
+            )
+        else:
+            success(f"Created dashboard '{name}' (id={dashboard.dashboard_id})")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Dashboard '{name}' already exists in {project_key}, skipping create")

@@ -63,7 +63,20 @@ def test_dashboard_create(patch_client):
     assert "Created dashboard" in result.output
     assert "new_dashboard_1" in result.output
     proj = patch_client.get_project("PROJ1")
-    proj.create_dashboard.assert_called_once_with(dashboard_name="New Dashboard")
+    call_kwargs = proj.create_dashboard.call_args[1]
+    assert call_kwargs["dashboard_name"] == "New Dashboard"
+    assert call_kwargs["settings"]["pages"][0]["id"] == "page1"
+    assert call_kwargs["settings"]["pages"][0]["grid"]["tiles"] == []
+
+
+def test_dashboard_create_json(patch_client):
+    result = runner.invoke(
+        app,
+        ["dashboard", "create", "New Dashboard", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed == {"id": "new_dashboard_1", "name": "New Dashboard"}
 
 
 def test_dashboard_create_with_definition(patch_client):

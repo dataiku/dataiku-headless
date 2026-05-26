@@ -55,6 +55,19 @@ def test_insight_create(patch_client):
     )
 
 
+def test_insight_create_json(patch_client):
+    result = runner.invoke(
+        app, ["insight", "create", "My Insight", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed == {
+        "id": "new_insight_1",
+        "name": "My Insight",
+        "type": "dataset_table",
+    }
+
+
 def test_insight_create_with_type(patch_client):
     result = runner.invoke(
         app,
@@ -585,7 +598,30 @@ def test_insight_add_measure(patch_client):
     )
     assert result.exit_code == 0
     assert raw["params"]["def"]["genericMeasures"] == [
-        {"column": "revenue", "type": "SUM"}
+        {"column": "revenue", "function": "SUM"}
+    ]
+    settings.save.assert_called_once()
+
+
+def test_insight_add_measure_count_distinct_uses_dss_function_name(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "--column",
+            "customer_id",
+            "--agg",
+            "COUNT_DISTINCT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericMeasures"] == [
+        {"column": "customer_id", "function": "COUNTD"}
     ]
     settings.save.assert_called_once()
 
@@ -616,7 +652,7 @@ def test_insight_add_measure_invalid_agg(patch_client):
 def test_insight_clear_columns(patch_client):
     raw, settings = _chart_insight_mock(patch_client)
     raw["params"]["def"]["genericDimension0"] = [{"column": "date"}]
-    raw["params"]["def"]["genericMeasures"] = [{"column": "rev", "type": "SUM"}]
+    raw["params"]["def"]["genericMeasures"] = [{"column": "rev", "function": "SUM"}]
 
     result = runner.invoke(
         app, ["insight", "clear-columns", "insight1", "--project", "PROJ1"]

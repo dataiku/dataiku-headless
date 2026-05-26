@@ -123,6 +123,7 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Insight name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     insight_type: str = typer.Option(
         "dataset_table",
         "--type",
@@ -152,6 +153,7 @@ def create(
     grouped_columns, pie, scatter, boxplots, treemap, pivot_table, stacked_area.
     """
     project_key = resolve_project(project)
+    output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -162,7 +164,17 @@ def create(
             creation_info.setdefault("params", {})
             creation_info["params"]["datasetSmartName"] = dataset
         insight = proj.create_insight(creation_info)
-        success(f"Created insight '{name}' (id={insight.insight_id})")
+        if output == "json":
+            render_raw(
+                {
+                    "id": insight.insight_id,
+                    "name": creation_info.get("name", name),
+                    "type": creation_info.get("type", insight_type),
+                },
+                output_format=output,
+            )
+        else:
+            success(f"Created insight '{name}' (id={insight.insight_id})")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Insight '{name}' already exists in {project_key}, skipping create")
@@ -386,7 +398,7 @@ def head(
     rows: int = typer.Option(10, "-n", "--rows", help="Number of rows"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Preview rows from the dataset bound to a chart insight.
+    """Preview rows from the dataset bound to an insight.
 
     Resolves the insight's dataset and proxies to dataset head — no need to
     look up the dataset name separately:
@@ -551,6 +563,7 @@ def add_measure(
     from dku_cli.errors import exit_with_error
 
     valid_aggs = {"AVG", "SUM", "COUNT", "MIN", "MAX", "COUNT_DISTINCT"}
+    dss_aggs = {"COUNT_DISTINCT": "COUNTD"}
     agg = aggregation.upper()
     if agg not in valid_aggs:
         exit_with_error(
@@ -570,7 +583,7 @@ def add_measure(
             )
         chart_def = raw.setdefault("params", {}).setdefault("def", {})
         chart_def.setdefault("genericMeasures", []).append(
-            {"column": column, "type": agg}
+            {"column": column, "function": dss_aggs.get(agg, agg)}
         )
         settings.save()
         success(f"Added measure '{column}' ({agg}) to insight '{insight_id}'")

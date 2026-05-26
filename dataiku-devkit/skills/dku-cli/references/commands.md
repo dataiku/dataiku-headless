@@ -661,7 +661,7 @@ dku webapp set-definition WEBAPP_ID --definition JSON [-P PROJECT]
 ```bash
 dku dashboard list [-P PROJECT] [-o FORMAT]
 dku dashboard get DASHBOARD_ID [-P PROJECT] [-o FORMAT]
-dku dashboard create NAME [-P PROJECT] [--definition JSON] [--if-not-exists]
+dku dashboard create NAME [-P PROJECT] [-o FORMAT] [--definition JSON] [--if-not-exists]
 dku dashboard delete DASHBOARD_ID [-P PROJECT]
 dku dashboard get-definition DASHBOARD_ID [-P PROJECT] [-o json]
 dku dashboard set-definition DASHBOARD_ID --definition JSON [-P PROJECT]
@@ -674,6 +674,7 @@ dku dashboard remove-tile DASHBOARD_ID --insight INSIGHT_ID [-P PROJECT] [--page
 - `list-tiles` — shows all tiles across all pages: page index, page id, insight_id, display_mode
 - `add-tile` — appends a tile to page N (default 0); stacks below existing tiles automatically. Width/height in grid units (default 6×4)
 - `remove-tile` — removes all tiles referencing the insight from all pages (or `--page N` to scope to one page). Exits with error if not found
+- `create` creates a default first page unless `--definition` supplies pages, so `add-tile --page 0` works immediately
 - `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `get-definition` returns full dashboard JSON including `pages` array with embedded tiles
 - Tiles live at `pages[i].grid.tiles` (NOT `pages[i].tiles`). Uses 36-column grid: `box: {top, left, width, height}`
@@ -721,7 +722,7 @@ dku recipe run rag_eval -P PROJ --wait
 ```bash
 dku insight list [-P PROJECT] [-o FORMAT] [--type TYPE] [--dataset DS]
 dku insight get INSIGHT_ID [-P PROJECT] [-o FORMAT]
-dku insight create NAME [--type TYPE] [--dataset DS] [-P PROJECT] [--definition JSON] [--if-not-exists]
+dku insight create NAME [--type TYPE] [--dataset DS] [-P PROJECT] [-o FORMAT] [--definition JSON] [--if-not-exists]
 dku insight delete INSIGHT_ID [-P PROJECT]
 dku insight get-definition INSIGHT_ID [-P PROJECT] [-o json]
 dku insight set-definition INSIGHT_ID --definition JSON [-P PROJECT]
@@ -736,14 +737,15 @@ dku insight clear-columns INSIGHT_ID [-P PROJECT]
 
 - `list --type TYPE` — filters by insight type (`chart`, `dataset_table`, `report`, etc.)
 - `list --dataset DS` — filters to insights bound to that dataset (fetches each insight's params; use with `--type chart` to narrow)
-- `head` — resolves the insight's bound dataset and returns sample rows; no need to look up `datasetSmartName` separately
+- `head` — resolves any insight's bound dataset and returns sample rows; no need to look up `datasetSmartName` separately
 - `set-chart-type` — sets `params.def.type`. Valid: `lines`, `multi_columns_lines`, `stacked_bars`, `grouped_columns`, `pie`, `scatter`, `boxplots`, `treemap`, `pivot_table`, `stacked_area`
 - `add-dimension` — appends `{"column": COL}` to `genericDimension0` (slot 0, default) or `genericDimension1` (slot 1)
-- `add-measure` — appends `{"column": COL, "type": AGG}` to `genericMeasures`. Valid aggs: `AVG` (default), `SUM`, `COUNT`, `MIN`, `MAX`, `COUNT_DISTINCT`
+- `add-measure` — appends `{"column": COL, "function": AGG}` to `genericMeasures`; `COUNT_DISTINCT` is saved as DSS's `COUNTD`. Valid aggs: `AVG` (default), `SUM`, `COUNT`, `MIN`, `MAX`, `COUNT_DISTINCT`
 - `clear-columns` — zeroes `genericDimension0`, `genericDimension1`, `genericMeasures`. Use before reconfiguring a chart from scratch
 - `set-metadata` updates description, short description, and/or tags. Provide at least one of `--description`, `--short-desc`, `--tags`
 - `create` defaults to `--type dataset_table`. Common types: `chart`, `dataset_table`, `report`, `scenario_last_runs`, `metrics`, `eda`, `jupyter`
 - `--dataset` / `--ds` binds the insight to a dataset (sets `params.datasetSmartName`). Required for chart/dataset_table types
+- `set-chart-type`, `add-dimension`, `add-measure`, and `clear-columns` only apply to `--type chart` insights
 - `validate` checks chart column references against the dataset schema (client-side). Reports mismatches with fuzzy suggestions. **Always run after `add-dimension`/`add-measure`**
 - **Never hand-write a full `dataset_table` payload.** DSS's `shakerScript` schema has nested objects that vary across versions (e.g. `columnOrder` expects objects, not strings). Clone the live default first: `dku insight create NAME --type dataset_table --dataset DS -P PROJ && dku insight get-definition ID -P PROJ -o json > table.json`, then only edit `params.shakerScript.columnsSelection` / `sorting` / `previewMode` before `set-definition`. See `skills/dataiku/references/dashboard-charts.md` for the safe-to-edit field list
 
