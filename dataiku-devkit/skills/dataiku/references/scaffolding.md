@@ -63,7 +63,7 @@ The `python-lib/{plugin_id_underscored}/` package is where core business logic l
 
 ### `code-env/python/desc.json`
 
-**CRITICAL**: NEVER use `"installCorePackages": true` — the `LEGACY_PANDAS023` core set installs `pandas==0.23.4` which fails on Python 3.11+. The `PANDAS1` set also fails. Always use `installCorePackages: false` with explicit dependencies.
+Use the canonical plugin code-environment policy in `code-environments.md`.
 
 ```json
 {

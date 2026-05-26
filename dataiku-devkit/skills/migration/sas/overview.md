@@ -91,7 +91,7 @@ The project variable serves as documentation + a single source of truth for scen
 
 ### `%include` chains
 
-Small codebase (<5 includes, <500 lines): parse everything. Large codebase with macros-of-macros: you are likely dealing with a driver script — read `translation.md` § Enterprise driver scripts. Shared utility macros (`%mf_*`, `%mp_*`): migrate call sites only, never the macro library itself.
+Small codebase (<5 includes, <500 lines): parse everything. Large codebase with macros-of-macros: you are likely dealing with a driver script — read `flow-patterns.md`. Shared utility macros (`%mf_*`, `%mp_*`): migrate call sites only, never the macro library itself.
 
 ### Inventory shape
 
@@ -116,7 +116,7 @@ These have no recipe equivalent. Flag them; do not silently drop.
 | `SASHELP.ZIPCODE`, `SASHELP.US_DATA`, ... | Built-in SAS reference data | User must provide equivalent |
 | `PROC DATASETS` (delete) | WORK cleanup | DSS manages datasets differently |
 | `PROC PWENCODE` | Password encoding for LIBNAME | Dataiku connection credentials |
-| `ABORT`, `ERROR`, `LIST`, `LOSTCARD`, `PUTLOG`, `REDIRECT`, `DESCRIBE`, `EXECUTE` (DATA-step), `DISPLAY`, `WINDOW`, `LABEL`/`Label:`/`GOTO`/`LINK`/`LEAVE`/`CONTINUE` | Log / debug / interactive / intra-step control flow | Drop — see `translation.md` § Log, debug & control-flow statements |
+| `ABORT`, `ERROR`, `LIST`, `LOSTCARD`, `PUTLOG`, `REDIRECT`, `DESCRIBE`, `EXECUTE` (DATA-step), `DISPLAY`, `WINDOW`, `LABEL`/`Label:`/`GOTO`/`LINK`/`LEAVE`/`CONTINUE` | Log / debug / interactive / intra-step control flow | Drop — see `data-step.md` |
 
 Tell the user: *"Steps #N are SAS infrastructure — no recipe equivalent. Dataiku equivalents: [connections / project variables / scenarios]."*
 
@@ -137,7 +137,7 @@ Each row below describes a pattern that appears in nearly every analytic SAS pro
 | `proc sort + data; by k; retain counter; counter+1; if last.k then output;` | One Group recipe (count + max date per key); follow with one Prepare for the `_cat` binning | 2-3 → 1-2 |
 | Multiple in-place rewrites of the same dataset (`data X; set X; ...; run;` repeated 2–5× — e.g. one block to clean names, the next to recode payment, the next to fix IDs) | One Prepare with N steps | N → 1 |
 | **Per-dim fan-in to a customer reference table.** Multiple `data appl_X (keep=customer_id …); merge appl_reference_table(in=a) manip_X(in=b); by customer_id; if a; if X1=. then X1=0; …; run;` blocks — one per dimension (tenure, options, devices, claims, …) | **One multi-input Join (LEFT) of `ref + manip_*`** + **one Prepare doing all the fill-empty defaults at once.** This is the single biggest collapse in any SAS analytical migration — the per-dim `appl_X` intermediates exist purely as SAS DATA-step ergonomics. | 2N → 2 (e.g. 11 dims → 2 recipes instead of 22) |
-| Single DATA step doing `merge X(in=a) Y(in=b); by k; if a; <compute>; <bin>; run;` | Join (LEFT) + Prepare. NOT a SQL recipe — see `translation.md` § Merge + compute + bin → Join + Prepare. | 1 → 2 (expansion — flag the trap; agents often reach for SQL here, which is wrong) |
+| Single DATA step doing `merge X(in=a) Y(in=b); by k; if a; <compute>; <bin>; run;` | Join (LEFT) + Prepare. NOT a SQL recipe — see `data-step.md`. | 1 → 2 (expansion — flag the trap; agents often reach for SQL here, which is wrong) |
 | Multi-output `data A B C; set X; if c1 then output A; else if c2 then output B; ...;` | One Split recipe with N output filters | N+1 → 1 |
 | Pre-merge rename via `(rename=(old=new))` in the merge | Fold the rename into the Join recipe's column-renaming flag, or drop the rename if the only reason was BY-key alignment | 2 → 1 |
 | Same lookup table joined twice under different aliases (e.g. `plan_levels_list` joined as `_before` then `_after` to attach two level columns) | Either one SQL recipe with two CTE joins, or two visual Joins (no Prepare aliasing step needed) | 4-5 → 1-2 |
@@ -146,7 +146,7 @@ Each row below describes a pattern that appears in nearly every analytic SAS pro
 | `%macro foo(ds); ...; %mend; %foo(a); %foo(b); %foo(c);` where the macro body is identical and the inputs share a key | One Stack of the inputs + one Prepare (or one Window if the body needs per-group ordering); not three separate recipes | 3 macro expansions → 1-2 |
 | `proc sql; create table X as select ...; quit;` doing only `WHERE` + `GROUP BY` + simple aggregates | Filter + Group (visual, two recipes) — but if the surrounding flow is on SQL anyway, leaving as a SQL recipe is also fine. Do NOT translate trivial PROC SQL to a Python recipe. | 1 → 1-2 |
 | Per-feature blocks (tenure, consumption, elapsed, …) that ONLY need a column already present in `appl_reference_table` or trivially join-able from one extra extract | Skip the dedicated `appl_X` checkpoint — add the extract as another input to the master Join, compute the feature columns inline in the master Prepare alongside categorize + default-fill | 4-5 per block → 0 (folded into the existing master pair) |
-| **DATA-step BY-group state machine** (RETAIN + first./last. + multiple conditional updates that propagate state across rows) | **Does NOT collapse to one Window.** Realistic count is a four-recipe visual pipeline: Window-lag → Prepare-markers → Window-aggregate → Prepare-final. See `translation.md` § RETAIN state machines § Visual-only fallback. Reach for Python only after exhausting this pattern. | 1 SAS step → 4 DSS recipes (expansion — flag in plan) |
+| **DATA-step BY-group state machine** (RETAIN + first./last. + multiple conditional updates that propagate state across rows) | **Does NOT collapse to one Window.** Realistic count is a four-recipe visual pipeline: Window-lag → Prepare-markers → Window-aggregate → Prepare-final. See `data-step.md`. Reach for Python only after exhausting this pattern. | 1 SAS step → 4 DSS recipes (expansion — flag in plan) |
 
 **Where the ratio actually matters.** The two heavy hitters are *in-place rewrites* (item 4) and *per-dim fan-in* (item 5). On a typical SAS analytics program these two alone account for 60–80% of the collapse. If your plan retains separate `appl_*` datasets for each dimension or has multiple Prepare recipes that all rewrite the same dataset, re-walk these triggers before presenting.
 
@@ -175,10 +175,10 @@ After Phase 3 build, compare row count against the SAS log: `NOTE: Table WORK.X 
 
 | Symptom | Likely cause |
 |---|---|
-| Value mismatch on `.5` boundaries | Rounding mode — SAS is half-away-from-zero for any sign; Python/pandas/PG DOUBLE are banker's; DSS in-memory `round()` is Java round-half-up (matches SAS for positives, not for negatives). See `translation.md` § Rounding parity |
+| Value mismatch on `.5` boundaries | Rounding mode — SAS is half-away-from-zero for any sign; Python/pandas/PG DOUBLE are banker's; DSS in-memory `round()` is Java round-half-up (matches SAS for positives, not for negatives). See `functions-formats.md` |
 | Filter dropped more rows than SAS | SAS `where` treats missing as smallest value; DSS GREL `isnull()` must be explicit. SAS `if x > 0` keeps `x = .` as false; equivalent GREL is `x > 0` (NULLs do not pass filters in DSS, same as SAS) |
 | MERGE produced different rows than Join recipe | `merge` semantics are *not* a left/inner join — see `semantics.md` § MERGE |
-| Migrated `MEAN(col)` / `STD(col)` per row produced per-row identity values, not the global aggregate | SAS PROC SQL silently auto-remerges (log: `NOTE: The query requires remerging summary statistics back with the original data`). DSS Window does NOT do global-only aggregates even with unbounded frame. Use Group(no key) + CROSS Join + Prepare — see `translation.md` § PROC SQL auto-remerge |
+| Migrated `MEAN(col)` / `STD(col)` per row produced per-row identity values, not the global aggregate | SAS PROC SQL silently auto-remerges (log: `NOTE: The query requires remerging summary statistics back with the original data`). DSS Window does NOT do global-only aggregates even with unbounded frame. Use Group(no key) + CROSS Join + Prepare — see `procs.md` |
 
 ---
 
@@ -187,7 +187,12 @@ After Phase 3 build, compare row count against the SAS log: `NOTE: Table WORK.X 
 | Reference | When to read |
 |---|---|
 | `semantics.md` | Any time you need to understand *why* a SAS program produces a given value — PDV, MERGE semantics, missing value rules, macro scoping, LAG trap, PROC UNIVARIATE defaults |
-| `translation.md` | DATA / PROC → recipe mapping, canonical Join+Prepare patterns, PROC FORMAT, rounding parity, enterprise ODBC passthrough workflow, SAS function → GREL/SQL tables, SAS → Postgres translations |
+| `translation.md` | SAS translation entrypoint and focused reference map |
+| `data-step.md` | DATA step, RETAIN, ARRAY, DO, SELECT/WHEN, external file I/O |
+| `procs.md` | PROC mapping, SQL, transpose, univariate, formats, stats |
+| `functions-formats.md` | Function mapping, GREL/SQL equivalents, rounding, dates |
+| `ml-scenarios.md` | Visual ML, scheduling, checks, reporting, scenarios |
+| `flow-patterns.md` | Enterprise driver scripts, passthrough extracts, fan-in/split, parity checks |
 | `../references/workflow.md` | Phase-by-phase mechanics |
 | `dku-cli/references/recipe-survey.md` | Picking a recipe type |
 | `dku-cli/references/common-gotchas.md` | Cross-source Dataiku/CLI gotchas |

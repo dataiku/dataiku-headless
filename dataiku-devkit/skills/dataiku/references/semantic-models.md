@@ -303,7 +303,7 @@ Observed: `{}` (empty). Likely contains per-model SQL dialect hints. Shape to be
 
 ---
 
-## Gotchas (dev-facing → agent-facing in `dku-cli/SKILL.md`)
+## Semantic Model Gotchas
 
 | Symptom | Root cause | Fix |
 |---|---|---|

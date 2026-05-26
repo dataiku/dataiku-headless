@@ -893,22 +893,13 @@ def invoke(self, input, trace):
 | Timeout issues | Optimize tool execution, add progress indicators |
 | Permission errors | Verify plugin/tool has required DSS permissions |
 | `'SpanBuilder' has no attribute 'set_attribute'` | Use `trace.attributes[key] = value` (dict assignment), not `trace.set_attribute()` |
-| `No module 'dateutil'` / `No module 'numpy'` | Code env needs explicit deps -- see note below |
+| `No module 'dateutil'` / `No module 'numpy'` | Code env needs explicit deps -- see `code-environments.md` |
 | Subprocess tool hangs | Set `stdin=subprocess.DEVNULL` + `env["CI"]="true"` + `env["TERM"]="dumb"` |
 | Tool works via SSH but not in DSS | DSS runs as `dssuser_dataiku` (not `dataiku`). Check file perms and HOME dir. |
 
 ### Code Environment for Agent Tools
 
-On Python 3.11, **do not use `installCorePackages: true`** -- the legacy pandas set fails. Instead set `installCorePackages: false` in `desc.json` and add these to `requirements.txt`:
-
-```
-pandas>=2.0,<3
-numpy>=1.22,<3
-python-dateutil>=2.8,<3
-requests>=2.28,<3
-```
-
-The `dataiku` module imports numpy/pandas/dateutil at load time, so they are required even if your tool does not use them.
+Agent tools need an explicit plugin code environment. Use the canonical Python package policy in `code-environments.md`.
 
 ### Subprocess-Based Agent Tools
 

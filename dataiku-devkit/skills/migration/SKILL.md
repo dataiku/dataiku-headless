@@ -53,7 +53,7 @@ Read the source-specific overview the moment you know what you're migrating.
 
 ## Rules (apply to every source)
 
-1. **Visual → SQL → Python.** SQL only for `LAG`/`ROW_NUMBER`/`PERCENTILE_CONT`/range joins/multi-CTE push-down, or when an engine constraint rules visual out (customer SQL mandate, push-down perf budget, CTAS/hint/partition tuning the visual recipe doesn't expose). Python is the last resort, never the tidy default. When a visual recipe seems blocked (`FoldColumnsByName` plugin missing, `create-pivot` modality scan, **BY-group state machine ("RETAIN + first./last.") feels like a Python-only problem**, weird CLI error), the fix is reinstall-the-CLI or restructure-the-flow — not Python. State machines decompose into a four-recipe Window-lag → Prepare-markers → Window-aggregate → Prepare-final pipeline (composite "date|prev_value" marker + max + split); see `migration/sas/translation.md` § RETAIN state machines § Visual-only fallback. Pivots/Unpivots whose only consumer re-aggregates → compute per-group aggregates *before* the reshape, the Pivot disappears. See `dku-cli/references/recipe-survey.md` and `dku-cli/references/common-gotchas.md`.
+1. **Visual → SQL → Python.** SQL only for `LAG`/`ROW_NUMBER`/`PERCENTILE_CONT`/range joins/multi-CTE push-down, or when an engine constraint rules visual out (customer SQL mandate, push-down perf budget, CTAS/hint/partition tuning the visual recipe doesn't expose). Python is the last resort, never the tidy default. When a visual recipe seems blocked (`FoldColumnsByName` plugin missing, `create-pivot` modality scan, **BY-group state machine ("RETAIN + first./last.") feels like a Python-only problem**, weird CLI error), the fix is reinstall-the-CLI or restructure-the-flow — not Python. State machines decompose into a four-recipe Window-lag → Prepare-markers → Window-aggregate → Prepare-final pipeline (composite "date|prev_value" marker + max + split); see `migration/sas/data-step.md`. Pivots/Unpivots whose only consumer re-aggregates → compute per-group aggregates *before* the reshape, the Pivot disappears. See `dku-cli/references/recipe-survey.md` and `dku-cli/references/common-gotchas.md`.
 2. **One engine per flow.** If the sources live on a SQL connection, every intermediate dataset (extracts, lookups, reference CSVs, fan-ins) must live on the same connection. A single Python recipe in the middle forces every upstream row through DSS memory and destroys push-down for the rest of the flow.
 3. **Build incrementally, in functional units.** A unit is one recipe, or a small group of independent recipes that share no dependencies. Per unit: configure → check `$status.ok` → `apply-schema` → run → verify (`head` + row count). Independent branches can be built concurrently; what to avoid is cascading 10+ unverified recipes where one bad upstream silently propagates. See `dku-cli/references/recipe-survey.md` § Validate before you run.
 4. **Prefer the `dku` CLI for every step.** It's composable in shell, error messages are agent-friendly, and outputs are uniform. Drop to `dataikuapi` only when no `dku` verb fits and the workaround would be heavier than ~5 lines of Python — when you do, note the noun + verb that *would have* helped so the gap can be filed later.
@@ -91,8 +91,8 @@ Full catalog in `dku-cli/references/common-gotchas.md`. Source-specific gotchas 
 | Group recipe adds an extra `count` column | Pass `--no-global-count` |
 | `dku dataset info` row count is stale after build | Pass `--recompute` |
 | `apply-schema` required before first run | Otherwise computed columns silently missing |
-| ML setup as a Python recipe in the Flow (PROC LOGISTIC / PROC REG / PROC GLM landed as `dataiku.api_client()` script) | Anti-pattern. Recipes produce data, not status. Use the `dku ml` namespace: `create-prediction → set-algorithm → train → deploy → recipe create-prediction-scoring`. See `sas/translation.md` § Visual ML for the canonical chain. |
-| Window recipe doesn't produce global aggregates per row (`MEAN(col)` over the whole table → still per-row identity) | Use Group(no key) + CROSS Join + Prepare instead. See `sas/translation.md` § PROC SQL auto-remerge. |
+| ML setup as a Python recipe in the Flow (PROC LOGISTIC / PROC REG / PROC GLM landed as `dataiku.api_client()` script) | Anti-pattern. Recipes produce data, not status. Use the `dku ml` namespace: `create-prediction → set-algorithm → train → deploy → recipe create-prediction-scoring`. See `sas/ml-scenarios.md`. |
+| Window recipe doesn't produce global aggregates per row (`MEAN(col)` over the whole table → still per-row identity) | Use Group(no key) + CROSS Join + Prepare instead. See `sas/procs.md`. |
 | `.sas7bdat` numeric IDs export as `1077430.0` (float) — `set-schema id:bigint` silently nulls every value, joins produce 0 rows | Cast to nullable `Int64` in pandas before `to_csv`. See `sas/overview.md` § `.sas7bdat` source tables. |
 
 ## Reference map
@@ -103,10 +103,20 @@ Full catalog in `dku-cli/references/common-gotchas.md`. Source-specific gotchas 
 |---|---|
 | `references/workflow.md` | Phase-by-phase mechanics — the source-agnostic Phase 0–4 playbook |
 | `sas/overview.md` | SAS-specific entrypoint — file parsing, source-specific rules, non-migratable patterns |
-| `sas/translation.md` | SAS DATA/PROC → recipe mapping, function tables, Postgres SQL forms, rounding parity |
+| `sas/translation.md` | SAS translation entrypoint and focused reference map |
+| `sas/data-step.md` | DATA step, RETAIN, ARRAY, DO, SELECT/WHEN, and external file I/O |
+| `sas/procs.md` | PROC mapping, SQL, transpose, univariate, formats, and stats |
+| `sas/functions-formats.md` | Function mapping, GREL/SQL equivalents, rounding, and dates |
+| `sas/ml-scenarios.md` | Visual ML, scheduling, checks, reporting, and scenarios |
+| `sas/flow-patterns.md` | Enterprise driver scripts, passthrough extracts, fan-in/split, and parity checks |
 | `sas/semantics.md` | PDV, MERGE semantics, missing values, macro patterns — read when a value disagrees |
 | `ayx/overview.md` | Alteryx-specific entrypoint — file parsing, source-specific rules, non-migratable patterns |
-| `ayx/translation.md` | Alteryx tool → DSS recipe mapping, with config XML and Prepare-step JSON |
+| `ayx/translation.md` | Alteryx translation entrypoint and focused reference map |
+| `ayx/tools-core.md` | TextInput, DbFile, Formula, Select, Filter, Sort, Sample, and Unique |
+| `ayx/tools-join-reshape.md` | Join, JoinMultiple, AppendFields, Union, Summarize, CrossTab, and Transpose |
+| `ayx/tools-state-parsing.md` | MultiRowFormula, RunningTotal, RecordID, TextToColumns, RegEx, and DateTime |
+| `ayx/tools-io-apps-ml.md` | Download, FindReplace, spatial, macros, dynamic input, yxdb, email, Excel, apps, and predictive tools |
+| `ayx/workflow-patterns.md` | Range joins, reroutes, component-stat chains, correlation, and recurring collapse patterns |
 | `ayx/semantics.md` | Alteryx data types, null/join semantics, MultiRowFormula boundary rules |
 | `ayx/frictions.md` | DSS-vs-Alteryx onboarding pushbacks (intermediate datasets, previews, layout) |
 | `xlsx/overview.md` | Excel-specific entrypoint |

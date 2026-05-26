@@ -1,6 +1,6 @@
 # Recipe Examples & Data Reshaping
 
-Detailed examples for visual recipes, plugin recipes, and data reshaping patterns. For the recipe decision tree and selection guide, see the main SKILL.md.
+Detailed examples for visual recipes, plugin recipes, and data reshaping patterns. For the recipe decision tree and selection guide, see `recipe-decision.md`; for build and verification flow, see `recipe-operations.md`.
 
 ## Join Example (replaces Python merge)
 

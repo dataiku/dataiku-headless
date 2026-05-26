@@ -64,4 +64,4 @@ Complete list of all `dku` command groups and verbs.
 - `dku semantic-model` — Only active version is used by agents. Always `update-index --wait` after changing entities/attributes.
 - `dku agent-hub` — Cannot create via CLI (it's a plugin webapp). Create in DSS UI first.
 
-> For exact command syntax and flags, see `commands.md`.
+For exact command syntax and flags, start at `commands.md`, then load the focused split reference for the relevant command family.

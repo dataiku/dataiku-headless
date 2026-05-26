@@ -74,7 +74,7 @@ Alteryx aggregation tools (`Summarize`, `PearsonCorrelation`, sometimes `Running
   SELECT CORR(COALESCE("col_a", 0), COALESCE("col_b", 0)) AS "Result"
   FROM ${projectKey}_input_db
   ```
-- The divergence is large enough to be obvious — Challenge_030 (253 rows, 104 nulls in one column): pairwise-complete returned `-0.0337`, Alteryx-equivalent (`COALESCE(.,0)`) returned `-0.0181`. Different magnitude AND different decay pattern, not a rounding difference. Tested-and-fixed pattern; document the COALESCE in any SQL recipe replacing a PearsonCorrelation tool. See `ayx/translation.md` § PearsonCorrelation.
+- The divergence is large enough to be obvious — Challenge_030 (253 rows, 104 nulls in one column): pairwise-complete returned `-0.0337`, Alteryx-equivalent (`COALESCE(.,0)`) returned `-0.0181`. Different magnitude AND different decay pattern, not a rounding difference. Tested-and-fixed pattern; document the COALESCE in any SQL recipe replacing a PearsonCorrelation tool. See `tools-io-apps-ml.md`.
 
 ### 3. The general principle (always verify aggregation parity)
 
@@ -219,4 +219,4 @@ When the migrated output disagrees with the Alteryx ground truth, check in this 
 6. **DateParser produced all nulls** — the `outCol` param was missing, or the format doesn't match. Re-check format tokens (Java, not C strftime).
 7. **Group recipe added a `count` column you didn't ask for** — pass `--no-global-count`.
 8. **Stack recipe produced nulls or dropped columns** — column names disagree, or the stack was set to `INTERSECT` / `FROM_DATASET`. Use `dku recipe create-stack --mode UNION` to keep the union of columns, and add a ColumnRenamer upstream when differently named columns are semantically the same.
-9. **Rounding** — Alteryx `Round(1.5)` is half-away-from-zero; GREL `round(1.5)` is half-up; pandas/Python default is banker's. See `../sas/translation.md` § Rounding parity.
+9. **Rounding** — Alteryx `Round(1.5)` is half-away-from-zero; GREL `round(1.5)` is half-up; pandas/Python default is banker's. See `../sas/functions-formats.md`.
