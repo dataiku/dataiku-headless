@@ -55,6 +55,19 @@ def test_insight_create(patch_client):
     )
 
 
+def test_insight_create_json(patch_client):
+    result = runner.invoke(
+        app, ["insight", "create", "My Insight", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed == {
+        "id": "new_insight_1",
+        "name": "My Insight",
+        "type": "dataset_table",
+    }
+
+
 def test_insight_create_with_type(patch_client):
     result = runner.invoke(
         app,
@@ -348,3 +361,304 @@ def test_insight_set_metadata_no_args(patch_client):
         app, ["insight", "set-metadata", "insight1", "--project", "PROJ1"]
     )
     assert result.exit_code != 0
+
+
+# --- list filters ---
+
+
+def test_insight_list_filter_by_type(patch_client):
+    result = runner.invoke(
+        app, ["insight", "list", "--project", "PROJ1", "--type", "chart"]
+    )
+    assert result.exit_code == 0
+    assert "insight1" in result.output
+
+
+def test_insight_list_filter_by_type_no_match(patch_client):
+    result = runner.invoke(
+        app, ["insight", "list", "--project", "PROJ1", "--type", "report"]
+    )
+    assert result.exit_code == 0
+    assert "insight1" not in result.output
+
+
+def test_insight_list_filter_by_dataset(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    insight_settings = MagicMock()
+    insight_settings.get_raw.return_value = {
+        "id": "insight1",
+        "type": "chart",
+        "params": {"datasetSmartName": "sales"},
+    }
+    insight_mock = MagicMock()
+    insight_mock.get_settings.return_value = insight_settings
+    proj.get_insight.return_value = insight_mock
+
+    result = runner.invoke(
+        app, ["insight", "list", "--project", "PROJ1", "--dataset", "sales"]
+    )
+    assert result.exit_code == 0
+    assert "insight1" in result.output
+
+
+def test_insight_list_filter_by_dataset_no_match(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    insight_settings = MagicMock()
+    insight_settings.get_raw.return_value = {
+        "id": "insight1",
+        "type": "chart",
+        "params": {"datasetSmartName": "other_ds"},
+    }
+    insight_mock = MagicMock()
+    insight_mock.get_settings.return_value = insight_settings
+    proj.get_insight.return_value = insight_mock
+
+    result = runner.invoke(
+        app, ["insight", "list", "--project", "PROJ1", "--dataset", "sales"]
+    )
+    assert result.exit_code == 0
+    assert "insight1" not in result.output
+
+
+# --- head ---
+
+
+def test_insight_head(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    insight_settings = MagicMock()
+    insight_settings.get_raw.return_value = {
+        "id": "insight1",
+        "type": "chart",
+        "params": {"datasetSmartName": "sales"},
+    }
+    insight_mock = MagicMock()
+    insight_mock.get_settings.return_value = insight_settings
+    proj.get_insight.return_value = insight_mock
+
+    result = runner.invoke(
+        app, ["insight", "head", "insight1", "--project", "PROJ1", "-n", "3"]
+    )
+    assert result.exit_code == 0
+    proj.get_dataset.assert_called_with("sales")
+
+
+def test_insight_head_no_dataset_binding(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    insight_settings = MagicMock()
+    insight_settings.get_raw.return_value = {
+        "id": "insight1",
+        "type": "chart",
+        "params": {},
+    }
+    insight_mock = MagicMock()
+    insight_mock.get_settings.return_value = insight_settings
+    proj.get_insight.return_value = insight_mock
+
+    result = runner.invoke(app, ["insight", "head", "insight1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "datasetSmartName" in result.output
+
+
+# --- set-chart-type ---
+
+
+def _chart_insight_mock(patch_client, chart_type="chart"):
+    proj = patch_client.get_project("PROJ1")
+    raw = {
+        "id": "insight1",
+        "type": chart_type,
+        "params": {
+            "def": {"type": "lines", "genericDimension0": [], "genericMeasures": []}
+        },
+    }
+    insight_settings = MagicMock()
+    insight_settings.get_raw.return_value = raw
+    insight_mock = MagicMock()
+    insight_mock.get_settings.return_value = insight_settings
+    proj.get_insight.return_value = insight_mock
+    return raw, insight_settings
+
+
+def test_insight_set_chart_type(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "set-chart-type",
+            "insight1",
+            "grouped_columns",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "grouped_columns" in result.output
+    assert raw["params"]["def"]["type"] == "grouped_columns"
+    settings.save.assert_called_once()
+
+
+def test_insight_set_chart_type_invalid(patch_client):
+    _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app, ["insight", "set-chart-type", "insight1", "donut", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "donut" in result.output
+
+
+def test_insight_set_chart_type_wrong_insight_type(patch_client):
+    _chart_insight_mock(patch_client, chart_type="dataset_table")
+    result = runner.invoke(
+        app, ["insight", "set-chart-type", "insight1", "pie", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "dataset_table" in result.output
+
+
+# --- add-dimension ---
+
+
+def test_insight_add_dimension(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "--column",
+            "order_date",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericDimension0"] == [{"column": "order_date"}]
+    settings.save.assert_called_once()
+
+
+def test_insight_add_dimension_slot1(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "--column",
+            "region",
+            "--slot",
+            "1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericDimension1"] == [{"column": "region"}]
+
+
+def test_insight_add_dimension_invalid_slot(patch_client):
+    _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "--column",
+            "x",
+            "--slot",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+# --- add-measure ---
+
+
+def test_insight_add_measure(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "--column",
+            "revenue",
+            "--agg",
+            "SUM",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericMeasures"] == [
+        {"column": "revenue", "function": "SUM"}
+    ]
+    settings.save.assert_called_once()
+
+
+def test_insight_add_measure_count_distinct_uses_dss_function_name(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "--column",
+            "customer_id",
+            "--agg",
+            "COUNT_DISTINCT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericMeasures"] == [
+        {"column": "customer_id", "function": "COUNTD"}
+    ]
+    settings.save.assert_called_once()
+
+
+def test_insight_add_measure_invalid_agg(patch_client):
+    _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "--column",
+            "x",
+            "--agg",
+            "MEDIAN",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "MEDIAN" in result.output
+
+
+# --- clear-columns ---
+
+
+def test_insight_clear_columns(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    raw["params"]["def"]["genericDimension0"] = [{"column": "date"}]
+    raw["params"]["def"]["genericMeasures"] = [{"column": "rev", "function": "SUM"}]
+
+    result = runner.invoke(
+        app, ["insight", "clear-columns", "insight1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericDimension0"] == []
+    assert raw["params"]["def"]["genericDimension1"] == []
+    assert raw["params"]["def"]["genericMeasures"] == []
+    settings.save.assert_called_once()
