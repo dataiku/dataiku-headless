@@ -171,11 +171,15 @@ dku git switch BRANCH [-P PROJECT] [-o FORMAT]
 dku git tags [-P PROJECT] [-o FORMAT]
 dku git create-tag NAME [--ref REF] [-m MESSAGE] [-P PROJECT]
 dku git remote [--set URL] [--name NAME] [-P PROJECT] [-o FORMAT]
+dku git reset-to-upstream [-P PROJECT] --yes
+dku git reset-to-head [-P PROJECT] --yes
 ```
 
 - `commit`: DSS auto-adds untracked files before committing
 - `remote`: reads remote URL by default; use `--set URL` to update
 - `branches --remote`: lists remote tracking branches
+- `reset-to-upstream`: hard-resets the current branch to its remote — drops uncommitted changes and local-only commits. Requires the current branch to track a remote (push it or `switch` to a tracking branch first); fails on local-only branches.
+- `reset-to-head`: drops only uncommitted changes; local commits are kept.
 - All commands require `--project` since git is per-project in DSS
 
 ---
