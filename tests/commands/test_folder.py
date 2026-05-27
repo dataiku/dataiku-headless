@@ -482,9 +482,71 @@ def test_folder_upload_dir(patch_client, tmp_path):
         ],
     )
     assert result.exit_code == 0
-    assert "Uploaded 2 file(s)" in result.output
+    # New summary format: "Uploaded N/M from <dir> → <prefix>". N is the
+    # count successfully uploaded, M is the total attempted.
+    assert "Uploaded 2/2" in result.output
     folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
     assert folder.put_file.call_count == 2
+
+
+def test_folder_upload_dir_partial_failure_tallies(patch_client, tmp_path):
+    """One transient failure per-file is recovered via retry; permanent failures
+    are tallied in a non-zero exit summary instead of aborting the batch."""
+    (tmp_path / "a.txt").write_text("a")
+    (tmp_path / "b.txt").write_text("b")
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+
+    call_log: list[str] = []
+
+    def _put(remote_path, _fh):
+        call_log.append(remote_path)
+        # 'b.txt' fails permanently across all retries (3 attempts default).
+        if remote_path.endswith("b.txt"):
+            raise RuntimeError("permanent: DSS proxy timeout")
+
+    folder.put_file.side_effect = _put
+
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "upload-dir",
+            "folder1",
+            str(tmp_path),
+            "--project",
+            "PROJ1",
+        ],
+    )
+    # Permanent failure on one file → non-zero exit, but the other uploaded.
+    assert result.exit_code != 0
+    assert "1/2" in result.output  # 1 succeeded out of 2 attempted
+    assert "failed: 1" in result.output
+
+
+def test_folder_upload_dir_fail_fast(patch_client, tmp_path):
+    """--fail-fast aborts on the first hard failure."""
+    (tmp_path / "a.txt").write_text("a")
+    (tmp_path / "b.txt").write_text("b")
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    folder.put_file.side_effect = RuntimeError("boom")
+
+    result = runner.invoke(
+        app,
+        [
+            "folder",
+            "upload-dir",
+            "folder1",
+            str(tmp_path),
+            "--fail-fast",
+            "--retry",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
 
 
 def test_folder_upload_dir_not_directory(patch_client, tmp_path):

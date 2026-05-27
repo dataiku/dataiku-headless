@@ -31,8 +31,21 @@ def list_insights(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    dataset: str | None = typer.Option(
+        None, "--dataset", "--ds", help="Filter by bound dataset name"
+    ),
+    insight_type: str | None = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Filter by insight type (chart, dataset_table, report, etc.)",
+    ),
 ) -> None:
-    """List insights in a project."""
+    """List insights in a project.
+
+    Use --dataset and --type to narrow results when building dashboards:
+      dku insight list --dataset Branch_Orders --type chart -P PROJ
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -42,6 +55,17 @@ def list_insights(
 
         data = []
         for i in insights:
+            if insight_type and i.get("type", "") != insight_type:
+                continue
+            if dataset:
+                # dataset filter requires fetching each insight's params — only apply if flag set
+                try:
+                    raw = proj.get_insight(i.get("id", "")).get_settings().get_raw()
+                    ds_name = raw.get("params", {}).get("datasetSmartName", "")
+                    if ds_name != dataset:
+                        continue
+                except Exception:
+                    continue
             data.append(
                 {
                     "id": i.get("id", ""),
@@ -99,6 +123,7 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Insight name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     insight_type: str = typer.Option(
         "dataset_table",
         "--type",
@@ -128,6 +153,7 @@ def create(
     grouped_columns, pie, scatter, boxplots, treemap, pivot_table, stacked_area.
     """
     project_key = resolve_project(project)
+    output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -138,7 +164,17 @@ def create(
             creation_info.setdefault("params", {})
             creation_info["params"]["datasetSmartName"] = dataset
         insight = proj.create_insight(creation_info)
-        success(f"Created insight '{name}' (id={insight.insight_id})")
+        if output == "json":
+            render_raw(
+                {
+                    "id": insight.insight_id,
+                    "name": creation_info.get("name", name),
+                    "type": creation_info.get("type", insight_type),
+                },
+                output_format=output,
+            )
+        else:
+            success(f"Created insight '{name}' (id={insight.insight_id})")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Insight '{name}' already exists in {project_key}, skipping create")
@@ -348,6 +384,245 @@ def set_metadata(
         settings = insight.get_settings()
         update_taggable_metadata(settings, description, short_desc, tags)
         success(f"Updated metadata for insight '{insight_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def head(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    rows: int = typer.Option(10, "-n", "--rows", help="Number of rows"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Preview rows from the dataset bound to an insight.
+
+    Resolves the insight's dataset and proxies to dataset head — no need to
+    look up the dataset name separately:
+      dku insight head INSIGHT_ID -P PROJ -n 5
+    """
+    from dku_cli.errors import exit_with_error
+
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        raw = proj.get_insight(insight_id).get_settings().get_raw()
+        ds_name = raw.get("params", {}).get("datasetSmartName")
+        if not ds_name:
+            exit_with_error(
+                f"Insight '{insight_id}' has no dataset binding (params.datasetSmartName missing)",
+                details=[
+                    f"dku insight get {insight_id} -P {project_key}  # check insight type/params"
+                ],
+            )
+        ds = proj.get_dataset(ds_name)
+        ds_def = ds.get_definition()
+        columns = [
+            c.get("name", f"col_{i}")
+            for i, c in enumerate(ds_def.get("schema", {}).get("columns", []))
+        ]
+        data = []
+        for i, row in enumerate(ds.iter_rows()):
+            if i >= rows:
+                break
+            data.append(dict(zip(columns, row)))
+        if not data:
+            from dku_cli.output import warn
+
+            warn(f"Dataset '{ds_name}' has 0 rows")
+            return
+        render(
+            data,
+            columns,
+            output_format=output,
+            title=f"Insight {insight_id} → {ds_name} (first {len(data)} rows)",
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-chart-type")
+def set_chart_type(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    chart_type: str = typer.Argument(
+        help="Chart type: lines, multi_columns_lines, stacked_bars, grouped_columns, pie, scatter, boxplots, treemap, pivot_table, stacked_area"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the chart type of a chart insight.
+
+    dku insight set-chart-type INSIGHT_ID grouped_columns -P PROJ
+    """
+    from dku_cli.errors import exit_with_error
+
+    valid_types = {
+        "lines",
+        "multi_columns_lines",
+        "stacked_bars",
+        "grouped_columns",
+        "pie",
+        "scatter",
+        "boxplots",
+        "treemap",
+        "pivot_table",
+        "stacked_area",
+    }
+    if chart_type not in valid_types:
+        exit_with_error(
+            f"Unknown chart type '{chart_type}'",
+            details=[f"Valid types: {', '.join(sorted(valid_types))}"],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        settings = insight.get_settings()
+        raw = settings.get_raw()
+        if raw.get("type") != "chart":
+            exit_with_error(
+                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+            )
+        raw.setdefault("params", {}).setdefault("def", {})["type"] = chart_type
+        settings.save()
+        success(f"Chart type set to '{chart_type}' for insight '{insight_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-dimension")
+def add_dimension(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    column: str = typer.Option(
+        ..., "--column", "-c", help="Column name to add as dimension"
+    ),
+    slot: int = typer.Option(
+        0, "--slot", help="Dimension slot: 0 (X axis / first) or 1 (second)"
+    ),
+) -> None:
+    """Add a dimension column to a chart insight.
+
+    Appends to genericDimension0 (slot 0, default) or genericDimension1 (slot 1):
+      dku insight add-dimension INSIGHT_ID --column order_date -P PROJ
+    """
+    from dku_cli.errors import exit_with_error
+
+    if slot not in (0, 1):
+        exit_with_error("--slot must be 0 or 1")
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        settings = insight.get_settings()
+        raw = settings.get_raw()
+        if raw.get("type") != "chart":
+            exit_with_error(
+                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+            )
+        chart_def = raw.setdefault("params", {}).setdefault("def", {})
+        key = f"genericDimension{slot}"
+        dims = chart_def.setdefault(key, [])
+        dims.append({"column": column})
+        settings.save()
+        success(f"Added dimension '{column}' to slot {slot} of insight '{insight_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-measure")
+def add_measure(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    column: str = typer.Option(
+        ..., "--column", "-c", help="Column name to add as measure"
+    ),
+    aggregation: str = typer.Option(
+        "AVG", "--agg", help="Aggregation: AVG, SUM, COUNT, MIN, MAX, COUNT_DISTINCT"
+    ),
+) -> None:
+    """Add a measure column to a chart insight.
+
+    dku insight add-measure INSIGHT_ID --column revenue --agg SUM -P PROJ
+    """
+    from dku_cli.errors import exit_with_error
+
+    valid_aggs = {"AVG", "SUM", "COUNT", "MIN", "MAX", "COUNT_DISTINCT"}
+    dss_aggs = {"COUNT_DISTINCT": "COUNTD"}
+    agg = aggregation.upper()
+    if agg not in valid_aggs:
+        exit_with_error(
+            f"Unknown aggregation '{aggregation}'",
+            details=[f"Valid: {', '.join(sorted(valid_aggs))}"],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        settings = insight.get_settings()
+        raw = settings.get_raw()
+        if raw.get("type") != "chart":
+            exit_with_error(
+                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+            )
+        chart_def = raw.setdefault("params", {}).setdefault("def", {})
+        chart_def.setdefault("genericMeasures", []).append(
+            {"column": column, "function": dss_aggs.get(agg, agg)}
+        )
+        settings.save()
+        success(f"Added measure '{column}' ({agg}) to insight '{insight_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("clear-columns")
+def clear_columns(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Clear all dimension and measure column bindings from a chart insight.
+
+    Use before reconfiguring columns to start fresh:
+      dku insight clear-columns INSIGHT_ID -P PROJ
+    """
+    from dku_cli.errors import exit_with_error
+
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        settings = insight.get_settings()
+        raw = settings.get_raw()
+        if raw.get("type") != "chart":
+            exit_with_error(
+                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+            )
+        chart_def = raw.setdefault("params", {}).setdefault("def", {})
+        chart_def["genericDimension0"] = []
+        chart_def["genericDimension1"] = []
+        chart_def["genericMeasures"] = []
+        settings.save()
+        success(f"Cleared all column bindings for insight '{insight_id}'")
     except typer.Exit:
         raise
     except Exception as e:

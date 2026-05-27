@@ -565,6 +565,34 @@ def ls(
         handle_api_error(e)
 
 
+def _put_file_with_retry(
+    folder, remote_path: str, local_path: Path, retries: int
+) -> int:
+    """Upload one file to a managed folder with bounded retry.
+
+    Returns the number of retries actually used (0 if first attempt succeeded).
+    Raises the last exception if all attempts fail. ``retries`` is the number
+    of EXTRA attempts after the first — so retries=2 means up to 3 total tries.
+    """
+    import time
+
+    attempts = max(1, retries + 1)
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with local_path.open("rb") as f:
+                folder.put_file(remote_path, f)
+            return attempt
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < attempts:
+                # Brief linear backoff. Server-side hiccups (DSS proxy timeout,
+                # rate limits, transient socket) usually clear within a few s.
+                time.sleep(1.0 + attempt)
+    assert last_exc is not None
+    raise last_exc
+
+
 @app.command()
 def upload(
     ctx: typer.Context,
@@ -572,6 +600,16 @@ def upload(
     local_path: Path = typer.Argument(help="Local file to upload"),
     remote_path: str = typer.Option(
         None, "--path", help="Remote path (defaults to filename)"
+    ),
+    retry: int = typer.Option(
+        2,
+        "--retry",
+        help=(
+            "Number of retries after the first attempt (default 2 ⇒ up to 3 "
+            "tries). DSS proxies occasionally return transient errors mid-stream."
+        ),
+        min=0,
+        max=10,
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -590,10 +628,14 @@ def upload(
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
 
-        with local_path.open("rb") as f:
-            folder.put_file(target, f)
+        retries_used = _put_file_with_retry(folder, target, local_path, retry)
 
-        success(f"Uploaded {local_path.name} → {target}")
+        if retries_used:
+            success(
+                f"Uploaded {local_path.name} → {target} (recovered after {retries_used} retry/retries)"
+            )
+        else:
+            success(f"Uploaded {local_path.name} → {target}")
     except Exception as e:
         handle_api_error(e)
 
@@ -733,11 +775,33 @@ def upload_dir(
     remote_prefix: str = typer.Option(
         "/", "--prefix", help="Remote path prefix (default: /)"
     ),
+    retry: int = typer.Option(
+        2,
+        "--retry",
+        help=(
+            "Number of retries per file after the first attempt (default 2 ⇒ "
+            "up to 3 tries). Batch uploads in particular hit transient DSS "
+            "proxy errors mid-stream; the CLI tallies recoveries and continues."
+        ),
+        min=0,
+        max=10,
+    ),
+    fail_fast: bool = typer.Option(
+        False,
+        "--fail-fast",
+        help=(
+            "Stop on the first file that fails after retries. Default is to "
+            "keep uploading the rest and report a summary at the end."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Upload an entire local directory to a managed folder.
 
-    All files are uploaded preserving the directory structure.
+    All files are uploaded preserving the directory structure. Each file is
+    retried independently on transient errors. With --fail-fast the upload
+    stops on the first hard failure; otherwise failed files are tallied and
+    surfaced in the summary so you can retry only the misses.
     """
     project_key = resolve_project(project)
     if not local_dir.is_dir():
@@ -748,17 +812,36 @@ def upload_dir(
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
 
-        count = 0
+        uploaded = 0
+        retries_total = 0
+        failed: list[tuple[Path, str]] = []  # (path, last_error_msg)
         for root, _dirs, files in os.walk(local_dir):
             for filename in files:
                 local_path = Path(root) / filename
                 relative = local_path.relative_to(local_dir)
                 remote_path = f"{remote_prefix.rstrip('/')}/{relative}"
-                with local_path.open("rb") as f:
-                    folder.put_file(remote_path, f)
-                count += 1
+                try:
+                    retries_total += _put_file_with_retry(
+                        folder, remote_path, local_path, retry
+                    )
+                    uploaded += 1
+                except Exception as exc:
+                    failed.append((local_path, str(exc)))
+                    if fail_fast:
+                        raise
 
-        success(f"Uploaded {count} file(s) from {local_dir} → {remote_prefix}")
+        # Build a single-line summary the agent can grep on.
+        summary = f"Uploaded {uploaded}/{uploaded + len(failed)} from {local_dir} → {remote_prefix}"
+        if retries_total:
+            summary += f" (retries used: {retries_total})"
+        if failed:
+            summary += f"; failed: {len(failed)}"
+            warn(summary)
+            # Per-file diagnostics so retries are scriptable.
+            for path, msg in failed:
+                error(f"  failed: {path} — {msg}")
+            raise typer.Exit(1)
+        success(summary)
     except typer.Exit:
         raise
     except Exception as e:

@@ -180,6 +180,68 @@ def latest(
         handle_api_error(e)
 
 
+_EVAL_SYNTAX_HINT_TRIPLE_QUOTE = (
+    r"unexpected character after line continuation character"
+)
+
+
+def _extract_eval_error_summary(log_text: str) -> list[str]:
+    """Pull the most useful lines from a failed evaluation-store job log.
+
+    Aim: surface the actual root cause (SyntaxError, ImportError, custom metric
+    crash) within the first ~20 lines of output so agents don't have to
+    `dku job log` separately. Recognises the canonical `\"\"\"` JSON-escape
+    trap in custom metric code and tags it with a prescriptive fix line.
+    """
+    if not log_text:
+        return []
+    lines = log_text.splitlines()
+    # Look for the most informative anchor: the first traceback or the first
+    # line matching "Error|Exception|SyntaxError|Failed". If found, emit a
+    # window of up to 20 lines around it.
+    anchor = -1
+    keywords = (
+        "Traceback",
+        "SyntaxError",
+        "NameError",
+        "TypeError",
+        "ValueError",
+        "ImportError",
+        "ModuleNotFoundError",
+        "AttributeError",
+        "ERROR",
+        "FAILED",
+    )
+    for i, line in enumerate(lines):
+        if any(k in line for k in keywords):
+            anchor = i
+            break
+
+    excerpt: list[str]
+    if anchor == -1:
+        # No obvious anchor — just take the tail. Agents will still get signal.
+        excerpt = lines[-20:]
+    else:
+        start = max(0, anchor - 2)
+        excerpt = lines[start : start + 20]
+
+    out = ["", "Last activity-log excerpt:"] + [f"  {line}" for line in excerpt]
+
+    # Heuristic: the canonical `"""` JSON-escape trap (custom metric code with
+    # docstrings that survived `set_payload` JSON-encoding). Surface a
+    # prescriptive fix when we see it.
+    if any(_EVAL_SYNTAX_HINT_TRIPLE_QUOTE in line for line in lines) or any(
+        '\\"\\"\\"' in line for line in lines
+    ):
+        out += [
+            "",
+            "Hint: this SyntaxError pattern usually means a custom metric's",
+            'docstring used """ inside a JSON-encoded payload, which round-trips',
+            "as \\\"\\\"\\\" — invalid Python. Replace with ''' triple-strings or # comments.",
+        ]
+    return out
+
+
 @app.command()
 def build(
     ctx: typer.Context,
@@ -191,20 +253,53 @@ def build(
 ) -> None:
     """Build a model evaluation store.
 
-    Runs the evaluation pipeline and waits for completion by default.
+    Runs the evaluation pipeline and waits for completion by default. On
+    failure, automatically pulls the activity log excerpt so the agent can act
+    without a separate `dku job log` call. Detects the common `\"\"\"` JSON-
+    escape trap in custom metric code and suggests the fix.
     """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         store = proj.get_model_evaluation_store(store_id)
-        job = store.build(wait=wait)
+        # Pass no_fail=True so we can pull the log ourselves and surface a
+        # richer error message. Without this, dataikuapi raises a bare
+        # DataikuException("Job run did not finish. Status: FAILED") and the
+        # agent has to chase the activity log manually.
         if wait:
+            job = store.build(wait=True, no_fail=True)
+            status = {}
+            try:
+                status = job.get_status() or {}
+            except Exception:
+                pass
+            state = (status.get("baseStatus", {}) or {}).get("state", "DONE")
+            if state in ("FAILED", "ABORTED"):
+                log_text = ""
+                try:
+                    log_text = job.get_log() or ""
+                except Exception:
+                    pass
+                details = [
+                    f"Job ID: {job.id}",
+                    f"Status: {state}",
+                    f"Full log: dku job log {job.id} -P {project_key}",
+                ]
+                details.extend(_extract_eval_error_summary(log_text))
+                exit_with_error(
+                    f"Build failed for evaluation store '{store_id}'.",
+                    code="job_failed",
+                    details=details,
+                )
             success(f"Build complete for evaluation store {store_id} (job: {job.id})")
         else:
+            job = store.build(wait=False)
             success(
                 f"Build started. Check progress: dku job status {job.id} -P {project_key}"
             )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
