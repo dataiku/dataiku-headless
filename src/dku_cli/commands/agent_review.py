@@ -466,22 +466,112 @@ def list_runs(
         handle_api_error(e)
 
 
+def _trait_id_to_name(review) -> dict[str, str]:
+    """Build a trait-id → trait-name map from a review's raw definition.
+
+    Per-result aiStatusPerTraitId keys are trait IDs. The CLI surfaces names
+    for human/agent readability.
+    """
+    raw = review.get_raw() if hasattr(review, "get_raw") else {}
+    out: dict[str, str] = {}
+    for t in raw.get("traits", []) or []:
+        if isinstance(t, dict):
+            tid = t.get("id") or t.get("traitId") or ""
+            tname = t.get("name") or tid or ""
+            if tid:
+                out[tid] = tname
+    return out
+
+
+def _result_per_trait_status(result_obj) -> dict[str, str]:
+    """Extract trait_id → status from one DSSAgentReviewRunResult.
+
+    ``aiStatusPerTraitId`` lives on the raw dict, not the typed object. Each
+    value is either a string ("PASSED"/"FAILED"/...) or a dict with a
+    ``status`` key (DSS 14.5+ added per-trait justifications).
+    """
+    raw = result_obj.get_raw() if hasattr(result_obj, "get_raw") else {}
+    by_trait = raw.get("aiStatusPerTraitId", {}) or {}
+    out: dict[str, str] = {}
+    for tid, val in by_trait.items():
+        if isinstance(val, dict):
+            out[tid] = val.get("status", "OTHER")
+        else:
+            out[tid] = str(val) if val is not None else "OTHER"
+    return out
+
+
+def _result_per_trait_justifications(result_obj) -> dict[str, str]:
+    """Extract trait_id → justification from one DSSAgentReviewRunResult.
+
+    DSS 14.5+ stores justifications under
+    ``traitStatusJustificationPerTraitId`` (top-level on the raw result, not
+    nested under aiStatusPerTraitId — verified DSS 14.5.0-beta3). Older / dict-
+    shaped status entries with `justification` keys are also picked up as a
+    fallback so this works across DSS versions.
+    """
+    raw = result_obj.get_raw() if hasattr(result_obj, "get_raw") else {}
+    out: dict[str, str] = {}
+    # DSS 14.5+ canonical location.
+    sidecar = raw.get("traitStatusJustificationPerTraitId", {}) or {}
+    for tid, val in sidecar.items():
+        if isinstance(val, str) and val:
+            out[tid] = val
+        elif isinstance(val, dict):
+            j = val.get("justification") or val.get("reason") or ""
+            if j:
+                out[tid] = j
+    # Fallback: older shape where the dict was inside aiStatusPerTraitId.
+    by_trait = raw.get("aiStatusPerTraitId", {}) or {}
+    for tid, val in by_trait.items():
+        if isinstance(val, dict):
+            j = val.get("justification") or val.get("reason") or ""
+            if j and tid not in out:
+                out[tid] = j
+    return out
+
+
 @app.command("results")
 def results(
     ctx: typer.Context,
     review_id: str = typer.Argument(help="Review ID or name"),
     run: str = typer.Option(..., "--run", help="Run ID to get results from"),
+    by_trait: bool = typer.Option(
+        False,
+        "--by-trait",
+        help=(
+            "Pivot results to a trait×test grid with PASS/FAIL/OTHER cells. "
+            "Reads per-trait status from each result's aiStatusPerTraitId raw field."
+        ),
+    ),
+    show_justifications: bool = typer.Option(
+        False,
+        "--show-justifications",
+        help=(
+            "Include per-trait LLM-judge justifications (DSS 14.5+). Implies "
+            "--by-trait. Best with -o json — table mode truncates."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show results of a review run — per-test trait evaluations.
 
+    By default, shows one row per test: id, test_id, query, overall status.
+    Use --by-trait to pivot to a trait×test grid (PASS/FAIL/OTHER cells per trait).
+    Use --show-justifications to add LLM-judge reasoning (DSS 14.5+, JSON-friendly).
+
     Examples:
       dku agent-review results REV1 --run RUN_ID -P PROJ
-      dku agent-review results REV1 --run RUN_ID -P PROJ -o json
+      dku agent-review results REV1 --run RUN_ID --by-trait -P PROJ
+      dku agent-review results REV1 --run RUN_ID --show-justifications -P PROJ -o json
     """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
+    # --show-justifications implies --by-trait (pivot is the only structure
+    # that has a meaningful place to surface them).
+    if show_justifications:
+        by_trait = True
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -489,22 +579,217 @@ def results(
         run_obj = review.get_run(run)
         result_items = run_obj.list_results(as_type="objects")
 
-        data = []
-        for r in result_items:
-            data.append(
-                {
-                    "id": r.id,
-                    "test_id": r.test_id,
-                    "query": (r.query or "")[:60],
-                    "status": r.status or "",
-                }
+        if not by_trait:
+            data = []
+            for r in result_items:
+                data.append(
+                    {
+                        "id": r.id,
+                        "test_id": r.test_id,
+                        "query": (r.query or "")[:60],
+                        "status": r.status or "",
+                    }
+                )
+            render(
+                data,
+                ["id", "test_id", "query", "status"],
+                output_format=output,
+                title=f"Results (run={run})",
             )
+            return
+
+        # --by-trait: pivot trait×test. Columns: id, test_id, query, status,
+        # then one column per trait (display name). JSON mode preserves
+        # additional metadata (justifications).
+        trait_names = _trait_id_to_name(review)
+        # Stable column order: traits in the order they appear in the review.
+        ordered_trait_ids = list(trait_names.keys())
+        # Fallback: any trait IDs found in results but missing from the review
+        # definition (defensive — should not happen for healthy reviews).
+        seen_ids: set[str] = set()
+        for r in result_items:
+            seen_ids.update(_result_per_trait_status(r).keys())
+        for tid in seen_ids:
+            if tid not in trait_names:
+                ordered_trait_ids.append(tid)
+                trait_names[tid] = tid
+
+        data: list[dict] = []
+        for r in result_items:
+            statuses = _result_per_trait_status(r)
+            row: dict = {
+                "id": r.id,
+                "test_id": r.test_id,
+                "query": (r.query or "")[:60],
+                "status": r.status or "",
+            }
+            for tid in ordered_trait_ids:
+                row[trait_names[tid]] = statuses.get(tid, "OTHER")
+            if show_justifications:
+                row["justifications"] = _result_per_trait_justifications(r)
+            data.append(row)
+
+        base_cols = ["id", "test_id", "query", "status"]
+        trait_cols = [trait_names[tid] for tid in ordered_trait_ids]
+        columns = base_cols + trait_cols
+        if show_justifications:
+            columns = columns + ["justifications"]
 
         render(
             data,
-            ["id", "test_id", "query", "status"],
+            columns,
             output_format=output,
-            title=f"Results (run={run})",
+            title=f"Results by trait (run={run})",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("compare")
+def compare_runs(
+    ctx: typer.Context,
+    review_id: str = typer.Argument(help="Review ID or name"),
+    runs: str = typer.Option(
+        ...,
+        "--runs",
+        help="Comma-separated run IDs to compare (e.g. RUN_A,RUN_B,RUN_C)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Compare trait pass/fail across multiple runs of the same review.
+
+    Builds a trait×run matrix of pass rates. Each cell is "PASSED/TOTAL (PCT%)"
+    in table mode or {passed, total, pct} in JSON mode.
+
+    Use this to drive the agent iteration loop: baseline → prompt iter →
+    architectural fix → re-eval, watching how each trait's pass rate moves.
+
+    Examples:
+      dku agent-review compare REV1 --runs RUN_A,RUN_B,RUN_C -P PROJ
+      dku agent-review compare REV1 --runs RUN_A,RUN_B -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    run_ids = [r.strip() for r in runs.split(",") if r.strip()]
+    if len(run_ids) < 2:
+        from dku_cli.errors import exit_with_error
+
+        exit_with_error(
+            "Compare needs at least two runs.",
+            code="bad_args",
+            details=[
+                "Pass comma-separated run IDs, e.g.:",
+                f"  dku agent-review compare {review_id} --runs RUN_A,RUN_B -P {project_key}",
+                f"List runs first: dku agent-review list-runs {review_id} -P {project_key}",
+            ],
+        )
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        review = resolve_agent_review(proj, review_id)
+        trait_names = _trait_id_to_name(review)
+
+        # For each run, aggregate per-trait PASSED/TOTAL.
+        per_run_per_trait: dict[str, dict[str, dict]] = {}
+        # also track any unknown trait IDs surfaced by results
+        unknown_trait_ids: set[str] = set()
+        for rid in run_ids:
+            try:
+                run_obj = review.get_run(rid)
+            except Exception as exc:
+                from dku_cli.errors import exit_with_error
+
+                exit_with_error(
+                    f"Run '{rid}' not found on review '{review_id}'.",
+                    code="not_found",
+                    details=[
+                        f"List runs: dku agent-review list-runs {review_id} -P {project_key}",
+                        f"Underlying error: {exc}",
+                    ],
+                )
+            counts: dict[str, dict] = {}
+            for r in run_obj.list_results(as_type="objects"):
+                statuses = _result_per_trait_status(r)
+                for tid, st in statuses.items():
+                    if tid not in trait_names:
+                        unknown_trait_ids.add(tid)
+                    bucket = counts.setdefault(tid, {"passed": 0, "total": 0})
+                    # DSS surfaces three states per trait: PASS, FAIL, SKIP
+                    # ("SKIPPED" in some older shapes). SKIP runs shouldn't
+                    # count toward the denominator — they were skipped, not
+                    # judged. Anything else that isn't a clear PASS counts
+                    # as not-passed but DOES increment total.
+                    st_norm = str(st).upper().strip()
+                    if st_norm in ("SKIP", "SKIPPED"):
+                        continue
+                    bucket["total"] += 1
+                    if st_norm in ("PASS", "PASSED"):
+                        bucket["passed"] += 1
+            per_run_per_trait[rid] = counts
+
+        # Build ordered trait list (review-defined first, then any unknowns).
+        ordered_tids = list(trait_names.keys())
+        for tid in sorted(unknown_trait_ids):
+            ordered_tids.append(tid)
+            trait_names[tid] = tid
+
+        if output == "json":
+            payload = {
+                "review_id": review.id,
+                "runs": run_ids,
+                "traits": [
+                    {
+                        "trait_id": tid,
+                        "trait_name": trait_names[tid],
+                        "per_run": {
+                            rid: {
+                                "passed": per_run_per_trait[rid]
+                                .get(tid, {})
+                                .get("passed", 0),
+                                "total": per_run_per_trait[rid]
+                                .get(tid, {})
+                                .get("total", 0),
+                                "pct": (
+                                    100.0
+                                    * per_run_per_trait[rid]
+                                    .get(tid, {})
+                                    .get("passed", 0)
+                                    / per_run_per_trait[rid]
+                                    .get(tid, {})
+                                    .get("total", 0)
+                                )
+                                if per_run_per_trait[rid].get(tid, {}).get("total", 0)
+                                else None,
+                            }
+                            for rid in run_ids
+                        },
+                    }
+                    for tid in ordered_tids
+                ],
+            }
+            render_raw(payload, output_format="json")
+            return
+
+        # Table mode: trait rows, run columns.
+        data: list[dict] = []
+        for tid in ordered_tids:
+            row = {"trait": trait_names[tid]}
+            for rid in run_ids:
+                bucket = per_run_per_trait[rid].get(tid, {"passed": 0, "total": 0})
+                if bucket["total"]:
+                    pct = 100.0 * bucket["passed"] / bucket["total"]
+                    row[rid] = f"{bucket['passed']}/{bucket['total']} ({pct:.0f}%)"
+                else:
+                    row[rid] = "—"
+            data.append(row)
+
+        render(
+            data,
+            ["trait"] + run_ids,
+            output_format=output,
+            title=f"Trait pass-rate comparison ({review.id})",
         )
     except Exception as e:
         handle_api_error(e)

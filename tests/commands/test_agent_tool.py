@@ -251,6 +251,77 @@ def test_agent_tool_create_with_llm_wrong_type(patch_client):
     assert result.exit_code != 0
 
 
+def test_agent_tool_create_with_params_plugin_type(patch_client):
+    """--params merges arbitrary fields into a plugin tool's settings.params."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "sm_query",
+            "--type",
+            "Custom_agent_tool_semantic-models-lab_semantic-model-query",
+            "--params",
+            '{"semanticModelId":"sm123","activeVersionOnly":true}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
+    settings = new_tool.get_settings.return_value
+    assert settings.params["semanticModelId"] == "sm123"
+    assert settings.params["activeVersionOnly"] is True
+    settings.save.assert_called()
+
+
+def test_agent_tool_create_with_params_invalid_json(patch_client):
+    """Bad --params payload rejected up-front so no orphan tool is created."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "sm_query",
+            "--type",
+            "Custom_agent_tool_x_y",
+            "--params",
+            "not json",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    # No tool was created — the rejection happens before new_agent_tool().
+    patch_client.get_project("PROJ1").new_agent_tool.assert_not_called()
+
+
+def test_agent_tool_create_atomic_cleanup_on_params_failure(patch_client):
+    """If --params save raises, the orphan tool is deleted before the error propagates."""
+    proj = patch_client.get_project("PROJ1")
+    new_tool = proj.new_agent_tool.return_value.create()
+    settings = new_tool.get_settings.return_value
+    settings.save.side_effect = RuntimeError("server rejected params")
+
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "sm_query",
+            "--type",
+            "Custom_agent_tool_x_y",
+            "--params",
+            '{"foo": "bar"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    # Tool was deleted on failure so the user can re-run with the same name.
+    new_tool.delete.assert_called()
+
+
 def test_agent_tool_types_no_python_function(patch_client):
     """PythonFunction, SQLQuery, RetrieveDatasetSchema should NOT be in types."""
     result = runner.invoke(app, ["agent-tool", "types"])

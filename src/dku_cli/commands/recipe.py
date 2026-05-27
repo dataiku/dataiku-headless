@@ -1566,6 +1566,36 @@ def set_settings_cmd(
                     ],
                     status=2,
                 )
+            # Some recipe types hard-pin fields server-side (the value silently
+            # reverts after save with no error). Detect the common case
+            # (`nlp_agent_evaluation.outputColumnName`) up-front so the user
+            # doesn't waste 30 min wondering why their custom metric still
+            # sees `llm_raw_response` after `set-settings`.
+            recipe_type = (raw.get("type") or "").lower()
+            if (
+                recipe_type == "nlp_agent_evaluation"
+                and "outputColumnName" in new_payload
+            ):
+                exit_with_error(
+                    "Cannot change `outputColumnName` on a `nlp_agent_evaluation` recipe.",
+                    code="immutable_field",
+                    details=[
+                        "DSS hard-pins this field to `llm_raw_response` and silently",
+                        "reverts edits at save time — your update would appear to",
+                        "succeed but the value would not persist.",
+                        "",
+                        "Heads up: the column it produces is a JSON envelope —",
+                        '  `{"ok": true, "text": "..."}` — not plain text. Custom',
+                        "metrics that regex the output must first unwrap the `text`",
+                        'field via `json.loads(raw).get("text")`.',
+                        "",
+                        "If you really need a different column name, use",
+                        "`nlp_llm_evaluation` instead and configure `outputColumnName`",
+                        "via `dku recipe create-llm-eval ... --output-col`.",
+                    ],
+                    status=2,
+                )
+
             payload = _get_recipe_payload(settings)
             payload.update(new_payload)
 
@@ -8127,11 +8157,15 @@ def create_embed(
 def create_embed_docs(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    input_ds: str = typer.Option(
-        ...,
+    input_ds: str | None = typer.Option(
+        None,
         "--input",
         "-i",
-        help="Input FilesInFolder dataset wrapping a managed folder of documents (build one with `dku folder create-dataset`).",
+        help=(
+            "Input FilesInFolder dataset wrapping a managed folder of documents "
+            "(build one with `dku folder create-dataset`). Either --input or "
+            "--input-folder is required."
+        ),
     ),
     output_kb: str = typer.Option(
         ..., "--output-kb", help="Output knowledge bank name"
@@ -8186,7 +8220,12 @@ def create_embed_docs(
     input_folder: str | None = typer.Option(
         None,
         "--input-folder",
-        help="Optional managed-folder ID to attach as 'documents' input role (in addition to the FilesInFolder dataset).",
+        help=(
+            "Managed-folder ID to use as the recipe's main input — the canonical "
+            "DSS 14.5+ folder→KB pattern, no FilesInFolder wrapper needed. If "
+            "--input is ALSO given, the folder is attached as a 'documents' role "
+            "(legacy DSS 14.4-compatible behavior)."
+        ),
     ),
     output_images_folder: str | None = typer.Option(
         None,
@@ -8232,10 +8271,19 @@ def create_embed_docs(
 ) -> None:
     """Create an Embed Documents recipe (extracts + chunks + embeds documents into a KB).
 
-    The input must be a FilesInFolder dataset that points at a managed folder
-    of documents — `dku folder create-dataset` builds that wrapper. Pass `--vlm`
-    only when documents contain figures/tables that warrant a vision pass; for
-    pure text the default text extractor is faster and cheaper.
+    Two input shapes are supported:
+      1. **Folder direct (canonical DSS 14.5+)**: pass --input-folder FOLDER_ID
+         alone. The recipe reads the managed folder directly — no FilesInFolder
+         wrapper needed. This is what CHATTERBOX and modern RAG flows use.
+      2. **Legacy (DSS 14.4-)**: pass --input FILESINFOLDER_DATASET. Build the
+         wrapper dataset first via `dku folder create-dataset`. If you ALSO
+         pass --input-folder, the folder is attached as a 'documents' role on
+         top of the main dataset.
+
+    Exactly one of --input or --input-folder is required.
+
+    Pass --vlm only when documents contain figures/tables that warrant a vision
+    pass; for pure text the default text extractor is faster and cheaper.
 
     Knob mapping (recipe payload fields):
       --chunk-size                  → payload.chunkSizeCharacters
@@ -8245,18 +8293,50 @@ def create_embed_docs(
       --document-splitting-mode     → payload.documentSplittingMode
       --extraction-mode             → params.extractionMode
 
-    Example:
+    Examples:
+        # Canonical folder→KB pattern (DSS 14.5+)
+        dku recipe create-embed-docs index_pdfs --input-folder PDF_FOLDER_ID \\
+            --output-kb pdf_kb --embedding-llm openai:openai:text-embedding-3-small -P PROJ
+
+        # Legacy FilesInFolder dataset path
         dku recipe create-embed-docs index_pdfs -i pdf_files \\
             --output-kb pdf_kb --embedding-llm openai:openai:text-embedding-3-small \\
             --chunk-size 1500 --chunk-overlap 150 \\
             --vector-store-update-method SMART_OVERWRITE -P PROJ
     """
     project_key = resolve_project(project)
+    # Validate input shape: exactly one of --input or --input-folder.
+    if not input_ds and not input_folder:
+        exit_with_error(
+            "create-embed-docs requires either --input or --input-folder.",
+            code="missing_argument",
+            details=[
+                "Folder-direct (canonical):",
+                f"  dku recipe create-embed-docs {recipe_name} --input-folder FOLDER_ID \\",
+                "      --output-kb KB_NAME --embedding-llm LLM_ID -P PROJ",
+                "",
+                "Legacy FilesInFolder dataset:",
+                f"  dku recipe create-embed-docs {recipe_name} -i FILES_DATASET \\",
+                "      --output-kb KB_NAME --embedding-llm LLM_ID -P PROJ",
+            ],
+        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
+
+        # Folder-direct path needs to bypass the builder's required with_input.
+        # When only --input-folder is provided we build a stub recipe via the
+        # creator (so DSS provisions the KB output and creation_settings), then
+        # rewire inputs.main to point at the folder. dataikuapi has no
+        # with_input_folder() for embed_documents — this is the canonical
+        # workaround for the gap.
         builder = proj.new_recipe("embed_documents", recipe_name)
-        builder.with_input(input_ds)
+        if input_ds:
+            builder.with_input(input_ds)
+        else:
+            # No dataset input — use the folder ref directly so the creator's
+            # input validation passes. We re-wire below.
+            builder.with_input(input_folder)
         if vlm:
             builder.with_vlm(vlm)
         builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
@@ -8306,7 +8386,11 @@ def create_embed_docs(
             effective_extraction_mode is not None or parsed_rules is not None
         )
         any_io_change = input_folder is not None or output_images_folder is not None
-        if any_payload_change or any_params_change or any_io_change:
+        # Folder-only path requires we rewrite inputs.main even when no other
+        # knobs are set, otherwise the recipe stays wired to the (non-existent
+        # or wrong) dataset placeholder.
+        folder_only = bool(input_folder) and not input_ds
+        if any_payload_change or any_params_change or any_io_change or folder_only:
             recipe_obj = proj.get_recipe(recipe_name)
             settings = recipe_obj.get_settings()
             if any_payload_change:
@@ -8342,9 +8426,16 @@ def create_embed_docs(
                     params["extractionMode"] = effective_extraction_mode
                 if parsed_rules is not None:
                     params["rules"] = parsed_rules
-            if any_io_change:
+            if any_io_change or folder_only:
                 raw_def = settings.get_recipe_raw_definition()
-                if input_folder is not None:
+                if folder_only:
+                    # Rewire main input to the folder (canonical DSS 14.5+
+                    # folder→KB shape, what CHATTERBOX/ATU use).
+                    inputs = raw_def.setdefault("inputs", {})
+                    inputs["main"] = {"items": [{"ref": input_folder}]}
+                elif input_folder is not None:
+                    # Legacy path: attach folder as 'documents' role on top of
+                    # the main FilesInFolder dataset input.
                     inputs = raw_def.setdefault("inputs", {})
                     inputs.setdefault("documents", {"items": []})["items"].append(
                         {"ref": input_folder}

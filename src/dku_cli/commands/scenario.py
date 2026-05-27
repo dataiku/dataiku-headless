@@ -167,11 +167,16 @@ def status(
         data = []
         for r in runs:
             trigger = r.trigger or {}
+            # Same ValueError trap as `runs` and `last-run`.
+            try:
+                outcome_val = r.outcome or ""
+            except (ValueError, AttributeError):
+                outcome_val = "RUNNING"
             data.append(
                 {
                     "run_id": r.id,
                     "start": str(r.start_time) if r.start_time else "",
-                    "outcome": r.outcome or "",
+                    "outcome": outcome_val,
                     "trigger": trigger.get("type", ""),
                 }
             )
@@ -419,11 +424,15 @@ def last_run(
             run = scenario.get_last_successful_run()
         else:
             run = scenario.get_last_finished_run()
-        run_data = (
-            run.get_info()
-            if hasattr(run, "get_info")
-            else {"id": run.id, "state": run.outcome}
-        )
+        if hasattr(run, "get_info"):
+            run_data = run.get_info()
+        else:
+            # Same ValueError trap as `runs` — fresh runs raise on .outcome.
+            try:
+                state = run.outcome
+            except (ValueError, AttributeError):
+                state = "RUNNING"
+            run_data = {"id": run.id, "state": state}
         render_raw(run_data, output_format=output)
     except ValueError:
         msg = "No successful runs found." if successful else "No finished runs found."
@@ -488,10 +497,19 @@ def runs(
                     duration = f"{dur_secs:.1f}s"
             except Exception:
                 pass
+            # DSSScenarioRun.outcome is a property that RAISES ValueError on
+            # fresh runs ("outcome not available for this scenario run. Maybe
+            # still running?"). getattr's default only catches AttributeError,
+            # so we must guard explicitly — otherwise the whole command crashes
+            # (and -o json emits a partial/invalid stream).
+            try:
+                state = r.outcome or "RUNNING"
+            except (ValueError, AttributeError):
+                state = "RUNNING"
             data.append(
                 {
                     "id": r.id,
-                    "state": getattr(r, "outcome", "RUNNING"),
+                    "state": state,
                     "start": start,
                     "duration": duration,
                 }

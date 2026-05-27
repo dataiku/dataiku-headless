@@ -1550,7 +1550,10 @@ def mock_client():
         "agentSmartId": "agent1",
         "owner": "testuser",
         "helperLLMId": "llm1",
-        "traits": [],
+        "traits": [
+            {"id": "trait_accuracy", "name": "Accuracy"},
+            {"id": "trait_tone", "name": "Tone"},
+        ],
     }
     review_mock.get_raw.return_value = review_mock.data
     review_mock.save.return_value = review_mock
@@ -1582,15 +1585,65 @@ def mock_client():
     review_run_mock.agent_id = "agent1"
     review_mock.list_runs.return_value = [review_run_mock]
     review_mock.perform_run.return_value = review_run_mock
-    review_mock.get_run.return_value = review_run_mock
 
-    # Review results
+    # Review results — per-trait status lives on the raw dict, not the object.
     review_result_mock = MagicMock()
     review_result_mock.id = "result1"
     review_result_mock.test_id = "test1"
     review_result_mock.query = "What is 2+2?"
     review_result_mock.status = "PASSED"
+    review_result_mock.get_raw.return_value = {
+        "id": "result1",
+        "testId": "test1",
+        "query": "What is 2+2?",
+        "status": "PASSED",
+        # Mix dict-shaped (DSS older / per-trait justifications inline) and
+        # plain-string (DSS 14.5+ canonical) to exercise both extraction paths.
+        "aiStatusPerTraitId": {
+            "trait_accuracy": {
+                "status": "PASSED",
+                "justification": "The answer 4 matches the reference",
+            },
+            "trait_tone": "FAILED",
+        },
+        # DSS 14.5+ surfaces justifications under this separate top-level key.
+        "traitStatusJustificationPerTraitId": {
+            "trait_accuracy": "The answer 4 matches the reference",
+        },
+    }
     review_run_mock.list_results.return_value = [review_result_mock]
+
+    # Second run (for compare tests) — same shape, different pass counts.
+    review_run_mock_b = MagicMock()
+    review_run_mock_b.id = "run2"
+    review_run_mock_b.name = "after-prompt-iter"
+    review_run_mock_b.status = "COMPLETED"
+    review_run_mock_b.agent_id = "agent1"
+    review_result_mock_b = MagicMock()
+    review_result_mock_b.id = "result_b"
+    review_result_mock_b.test_id = "test1"
+    review_result_mock_b.query = "What is 2+2?"
+    review_result_mock_b.status = "PASSED"
+    review_result_mock_b.get_raw.return_value = {
+        "id": "result_b",
+        "testId": "test1",
+        "query": "What is 2+2?",
+        "status": "PASSED",
+        "aiStatusPerTraitId": {
+            "trait_accuracy": "PASSED",
+            "trait_tone": "PASSED",
+        },
+    }
+    review_run_mock_b.list_results.return_value = [review_result_mock_b]
+
+    def _get_run(run_id):
+        if run_id == "run1":
+            return review_run_mock
+        if run_id == "run2":
+            return review_run_mock_b
+        raise Exception(f"NotFoundException: Run {run_id} does not exist")
+
+    review_mock.get_run.side_effect = _get_run
 
     def _get_agent_review(review_id):
         if review_id == "review1":
@@ -1991,6 +2044,9 @@ def mock_client():
     mes_mock.get_latest_model_evaluation.return_value = eval_mock
     build_job_mock = MagicMock()
     build_job_mock.id = "job_mes_build"
+    # Default to DONE so build tests pass; failure-path tests override this.
+    build_job_mock.get_status.return_value = {"baseStatus": {"state": "DONE"}}
+    build_job_mock.get_log.return_value = ""
     mes_mock.build.return_value = build_job_mock
     mes_mock.delete.return_value = None
 
@@ -2096,7 +2152,10 @@ def mock_client():
         "agentSmartId": "agent1",
         "owner": "testuser",
         "helperLLMId": "llm1",
-        "traits": [],
+        "traits": [
+            {"id": "trait_accuracy", "name": "Accuracy"},
+            {"id": "trait_tone", "name": "Tone"},
+        ],
     }
     review_mock.get_raw.return_value = review_mock.data
     review_mock.save.return_value = review_mock
@@ -2128,15 +2187,65 @@ def mock_client():
     review_run_mock.agent_id = "agent1"
     review_mock.list_runs.return_value = [review_run_mock]
     review_mock.perform_run.return_value = review_run_mock
-    review_mock.get_run.return_value = review_run_mock
 
-    # Review results
+    # Review results — per-trait status lives on the raw dict, not the object.
     review_result_mock = MagicMock()
     review_result_mock.id = "result1"
     review_result_mock.test_id = "test1"
     review_result_mock.query = "What is 2+2?"
     review_result_mock.status = "PASSED"
+    review_result_mock.get_raw.return_value = {
+        "id": "result1",
+        "testId": "test1",
+        "query": "What is 2+2?",
+        "status": "PASSED",
+        # Mix dict-shaped (DSS older / per-trait justifications inline) and
+        # plain-string (DSS 14.5+ canonical) to exercise both extraction paths.
+        "aiStatusPerTraitId": {
+            "trait_accuracy": {
+                "status": "PASSED",
+                "justification": "The answer 4 matches the reference",
+            },
+            "trait_tone": "FAILED",
+        },
+        # DSS 14.5+ surfaces justifications under this separate top-level key.
+        "traitStatusJustificationPerTraitId": {
+            "trait_accuracy": "The answer 4 matches the reference",
+        },
+    }
     review_run_mock.list_results.return_value = [review_result_mock]
+
+    # Second run (for compare tests) — same shape, different pass counts.
+    review_run_mock_b = MagicMock()
+    review_run_mock_b.id = "run2"
+    review_run_mock_b.name = "after-prompt-iter"
+    review_run_mock_b.status = "COMPLETED"
+    review_run_mock_b.agent_id = "agent1"
+    review_result_mock_b = MagicMock()
+    review_result_mock_b.id = "result_b"
+    review_result_mock_b.test_id = "test1"
+    review_result_mock_b.query = "What is 2+2?"
+    review_result_mock_b.status = "PASSED"
+    review_result_mock_b.get_raw.return_value = {
+        "id": "result_b",
+        "testId": "test1",
+        "query": "What is 2+2?",
+        "status": "PASSED",
+        "aiStatusPerTraitId": {
+            "trait_accuracy": "PASSED",
+            "trait_tone": "PASSED",
+        },
+    }
+    review_run_mock_b.list_results.return_value = [review_result_mock_b]
+
+    def _get_run(run_id):
+        if run_id == "run1":
+            return review_run_mock
+        if run_id == "run2":
+            return review_run_mock_b
+        raise Exception(f"NotFoundException: Run {run_id} does not exist")
+
+    review_mock.get_run.side_effect = _get_run
 
     def _get_agent_review(review_id):
         if review_id == "review1":

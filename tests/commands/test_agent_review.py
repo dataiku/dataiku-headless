@@ -453,3 +453,138 @@ def test_results_json(patch_client):
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "result1"
     assert parsed[0]["status"] == "PASSED"
+
+
+def test_results_by_trait(patch_client):
+    """--by-trait pivots per-trait pass/fail from aiStatusPerTraitId."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "results",
+            "review1",
+            "--run",
+            "run1",
+            "--by-trait",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # Trait column headers are surfaced from the review definition.
+    assert "Accuracy" in result.output or "ACCURACY" in result.output
+    assert "Tone" in result.output or "TONE" in result.output
+
+
+def test_results_by_trait_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "results",
+            "review1",
+            "--run",
+            "run1",
+            "--by-trait",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    # Each result row has per-trait status. Dict-shaped trait value unwraps to status.
+    assert parsed[0]["Accuracy"] == "PASSED"
+    assert parsed[0]["Tone"] == "FAILED"
+
+
+def test_results_show_justifications_implies_by_trait(patch_client):
+    """--show-justifications adds the justifications field and forces pivot."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "results",
+            "review1",
+            "--run",
+            "run1",
+            "--show-justifications",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "justifications" in parsed[0]
+    # The dict-shaped trait carried a justification.
+    assert "matches the reference" in parsed[0]["justifications"]["trait_accuracy"]
+
+
+# --- compare ---
+
+
+def test_compare_runs(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "compare",
+            "review1",
+            "--runs",
+            "run1,run2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    # Both run IDs appear as column headers.
+    assert "run1" in result.output.lower() or "RUN1" in result.output
+    assert "run2" in result.output.lower() or "RUN2" in result.output
+    # Trait names appear as row labels.
+    assert "Accuracy" in result.output
+
+
+def test_compare_runs_json(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "compare",
+            "review1",
+            "--runs",
+            "run1,run2",
+            "--project",
+            "PROJ1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["review_id"] == "review1"
+    assert parsed["runs"] == ["run1", "run2"]
+    # Tone trait: run1 = 0/1 = 0%, run2 = 1/1 = 100%
+    tone = next(t for t in parsed["traits"] if t["trait_name"] == "Tone")
+    assert tone["per_run"]["run1"]["passed"] == 0
+    assert tone["per_run"]["run1"]["total"] == 1
+    assert tone["per_run"]["run2"]["passed"] == 1
+
+
+def test_compare_requires_two_runs(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "compare",
+            "review1",
+            "--runs",
+            "run1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "at least two runs" in result.output or "Compare needs" in result.output

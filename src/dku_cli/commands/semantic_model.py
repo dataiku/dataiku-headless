@@ -297,6 +297,11 @@ def get_version(
     """Show version settings (entities, relationships, glossary, etc.).
 
     Defaults to the active version. Use --version to inspect a specific one.
+
+    Note: freshly `create-version`'d versions exist in the version list but
+    return a 404 here until something is written (DSS lazy-materialises the
+    version settings doc on first write). This command surfaces that case with
+    a prescriptive next-step instead of a bare "not found".
     """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
@@ -305,7 +310,42 @@ def get_version(
         proj = client.get_project(project_key)
         sm = resolve_semantic_model(proj, sm_ref)
         version_id = _resolve_version_id(sm, version)
-        settings = sm.get_version(version_id).get_settings()
+        try:
+            settings = sm.get_version(version_id).get_settings()
+        except Exception as fetch_exc:
+            msg_lower = str(fetch_exc).lower()
+            is_not_found = (
+                "not found" in msg_lower
+                or "notfoundexception" in msg_lower
+                or "does not exist" in msg_lower
+                or "404" in msg_lower
+            )
+            # If the version appears in `list_versions_ids()` we know it was
+            # created but is empty — surface a useful hint. Otherwise, fall
+            # through to the generic error handler.
+            if is_not_found:
+                try:
+                    known_ids = sm.list_versions_ids()
+                except Exception:
+                    known_ids = []
+                if version_id in known_ids:
+                    exit_with_error(
+                        f"Version '{version_id}' exists but has no settings yet.",
+                        code="version_uninitialized",
+                        details=[
+                            "Newly-created semantic-model versions lazy-materialise",
+                            "the settings doc on first write. Add at least one entity",
+                            "or glossary term so the version becomes inspectable.",
+                            "",
+                            "Examples:",
+                            f"  dku semantic-model add-entity {sm_ref} ENTITY_NAME \\",
+                            f"      --dataset DS --version {version_id} -P {project_key}",
+                            f"  dku semantic-model set-version {sm_ref} \\",
+                            f"      --version {version_id} -d '{{}}' -P {project_key}",
+                        ],
+                        status=3,
+                    )
+            raise
         render_raw(settings.get_raw(), output_format=output)
     except SystemExit:
         raise
@@ -328,6 +368,8 @@ def create_version(
     """Create a new version of a semantic model.
 
     Creates a blank version, or duplicates an existing one with --duplicate-of.
+    The new version's settings doc is materialised immediately so that
+    `dku semantic-model get-version` works without an intermediate write.
     """
     project_key = resolve_project(project)
     try:
@@ -336,6 +378,15 @@ def create_version(
         sm = resolve_semantic_model(proj, sm_ref)
         version_settings = sm.new_version(version_id, duplicate_of=duplicate_of)
         version_settings.save()
+        # Best-effort second-touch: some DSS builds leave the version's
+        # settings endpoint returning 404 until a downstream write happens.
+        # Re-fetch and re-save initialises the doc so `get-version` returns
+        # an empty settings dict instead of a confusing not-found error.
+        try:
+            settings = sm.get_version(version_id).get_settings()
+            settings.save()
+        except Exception:
+            pass
         success(f"Created version '{version_id}' on semantic model '{sm_ref}'")
     except Exception as e:
         handle_api_error(e)

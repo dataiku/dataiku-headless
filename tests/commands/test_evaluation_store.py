@@ -215,6 +215,50 @@ def test_evaluation_store_build_no_wait(patch_client):
     assert "Build started" in result.output
 
 
+def test_evaluation_store_build_failed_surfaces_log_excerpt(patch_client):
+    """A FAILED build should pull the activity log and surface the relevant lines."""
+    proj = patch_client.get_project("PROJ1")
+    store = proj.get_model_evaluation_store("mes1")
+    job = store.build.return_value
+    job.get_status.return_value = {"baseStatus": {"state": "FAILED"}}
+    job.get_log.return_value = (
+        "INFO: Starting evaluation\n"
+        "INFO: Loading custom metric\n"
+        "Traceback (most recent call last):\n"
+        '  File "<custom_metric>", line 1\n'
+        '    """\n'
+        "       ^\n"
+        "SyntaxError: unexpected character after line continuation character\n"
+    )
+
+    result = runner.invoke(
+        app, ["evaluation-store", "build", "mes1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "Build failed" in result.output
+    # Log excerpt is surfaced inline.
+    assert "SyntaxError" in result.output
+    # The """ JSON-escape hint fires for this canonical error.
+    assert "''' triple-strings" in result.output
+
+
+def test_evaluation_store_build_failed_no_log_still_useful(patch_client):
+    """Even without log text, the user still gets the job ID and a `dku job log` hint."""
+    proj = patch_client.get_project("PROJ1")
+    store = proj.get_model_evaluation_store("mes1")
+    job = store.build.return_value
+    job.get_status.return_value = {"baseStatus": {"state": "FAILED"}}
+    job.get_log.return_value = ""
+
+    result = runner.invoke(
+        app, ["evaluation-store", "build", "mes1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "Build failed" in result.output
+    assert "job_mes_build" in result.output
+    assert "dku job log" in result.output
+
+
 # ── delete ───────────────────────────────────────────────────────────
 
 

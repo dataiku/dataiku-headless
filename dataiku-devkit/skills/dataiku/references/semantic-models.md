@@ -2,6 +2,17 @@
 
 > Semantic models map business context onto datasets so that the **Semantic Model Query** agent tool can turn natural-language questions into SQL. DSS 14.4+.
 
+> **Critical prerequisite: entities MUST point at SQL-backed datasets** (Snowflake, Postgres, Redshift, BigQuery, etc.). Filesystem and UploadedFiles datasets fail at query time with a polite English error — "the dataset isn't accessible via SQL in this environment" — that's easy to miss in a long trace. If your source data lives on Filesystem, **sync it to a SQL connection first** before pointing the entity at it:
+>
+> ```bash
+> dku recipe create -t sync --input my_fs_dataset --output-ds my_sql_dataset \
+>   --connection Snowflake-Internal -P PROJ
+> dku recipe run my_fs_dataset_sync --wait --auto-update-schema -P PROJ
+> # Then point the entity's datasetRef at my_sql_dataset, not my_fs_dataset.
+> ```
+>
+> Symptom of getting this wrong: the agent answers questions with polite refusals like *"the contracts dataset isn't accessible via SQL in this environment (marked non-SQL-backed)"* instead of returning the count. Easy to mistake for a prompt issue. Fix is the sync, not more prompt engineering.
+
 ## Why this doc exists
 
 `dataikuapi.dss.semantic_model` exposes entities/relationships/golden queries/glossary as **opaque `dict`s** with no inner class definitions. The DSS public docs describe these concepts but do not publish the JSON schema. This file captures the verified shapes so agents don't have to guess.
