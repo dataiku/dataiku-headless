@@ -386,11 +386,14 @@ dku library list [-P PROJECT] [--path PATH] [-o FORMAT]
 dku library read PATH [-P PROJECT]
 dku library write PATH [-P PROJECT] --content CONTENT
 dku library delete PATH [-P PROJECT]
+dku library delete-folder PATH [-P PROJECT] --yes --confirm-name PATH
 dku library mkdir PATH [-P PROJECT]
 dku library sync LOCAL_DIR [REMOTE_DIR] [-P PROJECT] [--delete] [--dry-run/-n] [--exclude/-e PATTERN]
 ```
 
 - `write --content @file.py` reads from local file
+- `delete` is files-only — handed a folder it errors and points you to `delete-folder`
+- `delete-folder` recursively deletes a folder and everything inside. Tier-3 cascade: needs `--yes` **and** `--confirm-name` matching the folder PATH
 - `sync` uploads all files from a local directory to the project library, creating directories as needed. Skips `.git`, `__pycache__`, `.DS_Store`, `*.pyc`, `.venv`, `node_modules` by default. `--exclude` adds extra glob patterns. `--delete` removes remote files not present locally. `--dry-run` shows what would happen without uploading
 
 ## sql

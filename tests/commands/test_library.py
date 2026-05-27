@@ -148,6 +148,116 @@ def test_library_delete(patch_client):
     f.delete.assert_called_once()
 
 
+# ── delete-folder (tier-3 cascade) ────────────────────────────────────────
+
+
+def test_library_delete_folder_without_yes_blocks(patch_client):
+    result = runner.invoke(
+        app, ["library", "delete-folder", "python/temp", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 77
+
+
+def test_library_delete_folder_without_confirm_name_blocks(patch_client):
+    """Tier-3 cascade needs both --yes and --confirm-name."""
+    result = runner.invoke(
+        app,
+        ["library", "delete-folder", "python/temp", "--project", "PROJ1", "--yes"],
+    )
+    assert result.exit_code == 77
+
+
+def test_library_delete_folder_with_wrong_confirm_name_blocks(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete-folder",
+            "python/temp",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "wrong_folder",
+        ],
+    )
+    assert result.exit_code == 77
+
+
+def test_library_delete_folder_with_matching_confirm_name(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete-folder",
+            "python/temp",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "python/temp",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    lib = proj.get_library()
+    folder = lib.get_folder("python/temp")
+    folder.delete.assert_called_once()
+
+
+def test_library_delete_folder_not_found(patch_client):
+    """A missing folder (get_folder returns None) errors with guidance."""
+    lib = patch_client.get_project("PROJ1").get_library()
+    lib.get_folder.return_value = None
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete-folder",
+            "python/missing",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "python/missing",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output
+
+
+def test_library_delete_folder_refuses_root(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete-folder",
+            "/",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "/",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "root" in result.output
+
+
+def test_library_delete_on_folder_points_to_delete_folder(patch_client):
+    """`delete` on a folder path should steer the agent to `delete-folder`."""
+    lib = patch_client.get_project("PROJ1").get_library()
+    lib.get_file.side_effect = Exception(
+        "The item python/temp is a folder, not a file "
+    )
+    result = runner.invoke(
+        app,
+        ["library", "delete", "python/temp", "--project", "PROJ1", "--yes"],
+    )
+    assert result.exit_code != 0
+    assert "delete-folder" in result.output
+
+
 def test_library_mkdir(patch_client):
     result = runner.invoke(
         app, ["library", "mkdir", "python/mylib/subdir", "--project", "PROJ1"]
