@@ -474,4 +474,4 @@ The `dss-plugin-aws-bedrock-agentcore-resources` plugin is the reference impleme
 
 ### Code Environment
 - [ ] Blocks run in AGENT's code env, not plugin's — document required packages
-- [ ] `installCorePackages: false` in plugin's desc.json
+- [ ] Plugin code env follows `code-environments.md`

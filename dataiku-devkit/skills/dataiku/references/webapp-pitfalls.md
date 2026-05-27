@@ -283,7 +283,7 @@ The plugin ID in `plugin.json` appears in: Vite base path, `body.html` script/li
 **Plugin webapps (additional checks):**
 - [ ] `app.js` and `meta.json` exist in webapp directory
 - [ ] `webapp.json` has `"codeEnv": { "envMode": "PLUGIN_MANAGED" }`
-- [ ] `desc.json` has `"installCorePackages": false`
+- [ ] Plugin code env follows `code-environments.md`
 - [ ] Backend does NOT define `app = Flask(__name__)` — DSS injects it
 - [ ] `getWebAppBackendUrl` checks both `window` and `window.parent`
 - [ ] Vite `base` path matches `/plugins/{id}/resource/dist/` in production

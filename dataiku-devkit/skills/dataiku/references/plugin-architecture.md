@@ -432,26 +432,9 @@ from dataiku.customwebapp import get_webapp_config
 
 **Impact:** ImportError at runtime. Confusing because both modules exist.
 
-### AP3: installCorePackages on Python 3.11+
+### AP3: Code environments on Python 3.11+
 
-```json
-// WRONG — installs pandas 0.23.4, fails on Python 3.11
-{ "installCorePackages": true, "corePackagesSet": "LEGACY_PANDAS023" }
-
-// ALSO WRONG — PANDAS1 also fails on 3.11
-{ "installCorePackages": true, "corePackagesSet": "PANDAS1" }
-
-// RIGHT — explicit deps, always works
-{ "installCorePackages": false }
-```
-
-With `requirements.txt`:
-```
-pandas>=2.0,<3
-numpy>=1.22,<3
-python-dateutil>=2.8,<3
-requests>=2.28,<3
-```
+Use explicit plugin code-environment dependencies on Python 3.11+. The canonical package policy and `desc.json` shape live in `code-environments.md`.
 
 **Impact:** Code env creation fails. Broken env persists — must delete before retry.
 
@@ -810,7 +793,7 @@ When building a new plugin:
 2. Browse on GitHub (`github.com/dataiku/<repo-name>`) or clone locally
 3. Study the `plugin.json`, component JSON configs, and code patterns
 4. Pay attention to: folder structure, parameter types, code-env setup, test patterns
-5. **Prefer repos updated 2025+** — older repos may use deprecated patterns (`get_definition()`, `installCorePackages: true`, etc.)
+5. **Prefer repos updated 2025+** — older repos may use deprecated patterns. Check code environment policy in `code-environments.md`.
 
 ---
 

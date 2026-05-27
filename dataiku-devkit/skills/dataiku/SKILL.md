@@ -1,56 +1,31 @@
 ---
 name: dataiku
-description: Dataiku DSS platform knowledge — plugin development, formulas, LLM Mesh, agents, webapps, scenarios, MLOps, Python API, and styling. Use when building FOR Dataiku (plugins, recipes, tools, webapps, guardrails, automations) or when understanding DSS platform concepts. For querying a live DSS instance via shell commands, use the `dku-cli` skill instead.
+description: Dataiku DSS platform knowledge for choosing the right built-in capability and designing plugins, recipes, agents, webapps, Govern assets, LLM Mesh flows, scenarios, MLOps workflows, formulas, and dashboards. Use when building for Dataiku or reasoning about DSS concepts. For live DSS operations through shell commands, use the `dku-cli` skill.
 triggers:
   - dataiku plugin
   - dss plugin
   - dataiku webapp
   - dataiku recipe
+  - dataiku formula
+  - prepare recipe
+  - visual recipe
   - agent tool
-  - agent block
   - visual agent
   - structured visual agent
   - SVA
-  - block graph
-  - code agent
-  - python agent
-  - build agent
-  - create agent
-  - agent type
-  - guardrail
   - llm mesh
   - knowledge bank
+  - guardrail
   - dataiku scenario
-  - dataiku formula
-  - dataiku macro
-  - dataset connector
-  - dataiku styling
-  - plugin review
-  - new plugin
-  - scaffold plugin
-  - create plugin
-  - add tool
-  - add recipe
-  - add webapp
-  - add guardrail
-  - deploy plugin
-  - push plugin
-  - review plugin
-  - mlops
-  - model deployment
-  - model scoring
-  - model retraining
-  - scoring pipeline
-  - prepare recipe
-  - computed column
-  - dataiku formula
   - semantic model
   - text-to-sql
-  - sql generation agent
+  - dataiku govern
+  - dataiku app designer
+  - mlops
 globs:
   - "**/plugin.json"
-  - "**/tool.json"
   - "**/recipe.json"
+  - "**/tool.json"
   - "**/guardrail.json"
   - "**/webapp.json"
   - "**/block.json"
@@ -60,144 +35,82 @@ metadata:
   tags: dataiku, dss, plugins, genai, mlops, webapps, agents, recipes
 ---
 
-# Dataiku Platform Reference
+# Dataiku Platform Router
 
-Comprehensive knowledge for building Dataiku plugins, webapps, agents, and automations.
+Use this skill to decide **what DSS capability to use** and which platform reference to read. Use `dku-cli` for **how to execute** the decision against a live DSS instance.
 
-> **Cheat Sheet (read this first)**
->
-> 1. **Visual recipe > Python recipe.** Join, group, stack, filter, window, topN — use visual. Python ONLY for custom logic.
-> 2. **Purpose-built processor > GREL.** Rename → `add-rename`, dates → `DateParser`, uppercase → `StringTransformer` (`mode: TO_UPPER`, not `UPPERCASE`). Full processor catalog in `references/prepare-processors.md`.
-> 3. **Verify everything.** `dku dataset head OUTPUT -P PROJ -n 5`. Exit code 0 ≠ correct data. See `references/verification.md` for per-artifact verification (agents, KB, charts, scenarios) and cost risk table.
-> 4. **Gauge before you grab.** `dku dataset info DS -P PROJ` BEFORE `head`. If >1M rows or >1GB, ask before building. Never trigger `RECURSIVE_BUILD` on Spark/BigQuery/Snowflake without asking.
-> 5. **Join prefixing.** Join recipes prefix columns (customers_name, orders_amount). Plan downstream refs.
-> 6. **LEFT join for enrichment.** Default is INNER. For lookups, use LEFT to keep source rows.
-> 7. **Code env on Python 3.11:** Use `installCorePackages: false` + explicit `requirements.txt`. NOT `true`.
-> 8. **Webapp backend ≠ Flask.** Import from `dataiku.customwebapp`, NOT `flask`. Folder is `webapps/`, not `custom-webapps/`.
-> 9. **GREL log() = base-10.** No `ln()`, `exp()` is base-e. Formula cols default to STRING — run `apply-schema`.
-> 10. **Agent tool input at input.get().** NOT root. Trace at `trace.attributes` NOT `set_attribute`.
+## Operating Principles
 
-> **Boundary:** This skill covers *development patterns*. For *live operations* via CLI (list, create, build), use `dku-cli`.
+1. Prefer DSS-native features over custom code: visual recipes, GenAI recipes, AutoML, Knowledge Banks, agents, scenarios, and dashboards.
+2. Use Python only when the built-in recipe or platform feature cannot express the logic cleanly.
+3. Prefer purpose-built Prepare processors over raw GREL when a processor exists.
+4. Verify outcomes through `dku-cli`; a successful API call does not prove the artifact is correct.
+5. Keep platform design separate from command syntax. This skill routes to DSS concepts; `../dku-cli/references/commands.md` owns command flags.
 
----
+## Boundary With `dku-cli`
 
-## Companion Skill: `dku-cli`
+| Need | Use |
+|---|---|
+| Choose between visual recipe, SQL, Python, AutoML, agent, KB, or scenario | `dataiku` |
+| Create/list/update/build/test DSS objects from shell | `dku-cli` |
+| Understand plugin structure, payload JSON, processor schemas, DSS behavior | `dataiku` |
+| Find exact command flags, chaining, safety, or CLI gotchas | `dku-cli` |
 
-**This skill and `dku-cli` are a pair. Always use both.**
+## Task Router
 
-- **This skill** tells you *what* to build and *how* DSS works
-- **`dku-cli`** tells you *how to execute* — create, configure, build, verify
-
-**Typical workflow:**
-1. Read this skill to understand the right DSS approach
-2. Use `dku-cli` commands to create and verify
-3. Verify every outcome — see cheat sheet rule #3
-
----
-
-## Agent Type Selection
-
-```
-1. VISUAL AGENT (TOOLS_USING_AGENT, mode: SIMPLE)
-   └─ Default. LLM + tools. 80% of use cases.
-
-2. STRUCTURED VISUAL AGENT (TOOLS_USING_AGENT, mode: BLOCKS_GRAPH)
-   └─ When you need deterministic control flow.
-
-3. CODE AGENT (PYTHON_AGENT)
-   └─ Last resort. Custom orchestration only.
-```
-
-### When to Use Each
-
-| Agent Type | Use When |
-|------------|----------|
-| **Visual Agent** | Q&A, conversational, simple RAG, exploratory |
-| **SVA** | Multi-step pipeline, guaranteed processing, conditional branching, audit trails |
-| **Code Agent** | LangGraph, CrewAI, non-standard inference loops |
-
-> For full SVA design (13 block types), see `references/structured-agents.md`.
-
----
-
-## Quick Router
-
-### Plugin Development
-
-| Topic | Reference |
-|-------|-----------|
-| Plugin Structure | `references/plugin-structure.md` |
-| Custom Recipes | `references/recipes.md` |
-| Agent Tools | `references/llm-tools.md` |
-| Webapps | `references/webapps.md` |
-| Webapp Pitfalls | `references/webapp-pitfalls.md` |
-| Parameters | `references/parameters.md` |
-| Dataset Connectors | `references/datasets.md` |
-| Macros | `references/macros.md` |
-| Code Environments | `references/code-environments.md` |
-| Testing | `references/testing.md` |
-| Best Practices | `references/best-practices.md` |
-| Plugin Workflow | `references/plugin-workflow.md` |
-| Plugin Architecture | `references/plugin-architecture.md` |
-| Visual Agent Blocks | `references/visual-agent-blocks.md` |
-| Webapp Patterns | `references/webapp-patterns.md` |
-| Agent Tool Patterns | `references/agent-tool-patterns.md` |
-| Plugin Review | `references/plugin-review-checklist.md` |
-| Scaffolding | `references/scaffolding.md` |
+| Task | Read |
+|---|---|
+| Plugin architecture or folder structure | `references/plugin-architecture.md`, `references/plugin-structure.md`, `references/plugin-production-patterns.md` |
+| Plugin lifecycle and production quality | `references/plugin-workflow.md`, `references/best-practices.md`, `references/plugin-production-patterns.md` |
+| Scaffold plugin components | `references/scaffolding.md` |
+| Custom recipes | `references/recipes.md` |
+| Agent tools | `references/llm-tools.md`, `references/agent-tool-patterns.md` |
+| Webapps | `references/webapps.md`, `references/webapp-backends.md`, `references/webapp-frontends.md`, `references/webapp-local-dev-deploy.md`, `references/webapp-patterns.md`, `references/webapp-pitfalls.md` |
+| Parameters and forms | `references/parameters.md`, `references/parameters-types.md`, `references/parameters-dynamic.md`, `references/parameters-access.md` |
+| Dataset connectors | `references/datasets.md` |
+| Macros and runnables | `references/macros.md` |
+| Code environments | `references/code-environments.md` |
+| Plugin tests and review | `references/testing.md`, `references/plugin-review-checklist.md` |
+| Prepare processors | `references/prepare-processors.md`, `references/prepare-processors-core.md`, `references/prepare-processors-dates.md`, `references/prepare-processors-reshape-json-geo.md` |
+| GREL formulas | `references/formulas.md` |
+| Visual recipe payloads | `references/visual-recipe-payloads.md`, `references/visual-conditions.md` |
+| LLM Mesh and Knowledge Banks | `references/llm-mesh.md` |
+| Structured Visual Agents | `references/structured-agents.md`, `references/visual-agent-blocks.md` |
 | Guardrails | `references/guardrails.md` |
-| Dashboard & Charts | `references/dashboard-charts.md` |
-
-### Platform Knowledge
-
-| Topic | Reference |
-|-------|-----------|
-| Formulas | `references/formulas.md` |
-| Prepare Processors | `references/prepare-processors.md` |
-| Visual Recipe JSON | `references/visual-recipe-payloads.md` + `references/visual-conditions.md` |
-| LLM Mesh | `references/llm-mesh.md` |
-| Structured Visual Agents | `references/structured-agents.md` |
 | Scenarios | `references/scenarios.md` |
 | MLOps | `references/mlops.md` |
-| Python API | `references/python-api.md` |
-| Styling | `dataiku-internal-branding` skill |
-| Geospatial | `references/geospatial.md` |
-| Verification & Cost | `references/verification.md` |
-| Govern (runtime: artifacts, signoffs, admin) | `references/govern.md` |
-| Govern (GOVERN node: blueprints, artifacts, signoffs, roles, danger-zone, EU AI Act blueprints) | `references/govern.md` |
-| Govern Blueprint Designer (authoring: versions, fields, workflow, hooks, views) | `references/govern-blueprint-designer.md` |
-| Govern Custom Pages | `references/govern-custom-pages.md` |
-| Semantic Models (text-to-SQL) | `references/semantic-models.md` |
+| Python API usage | `references/python-api.md` |
+| Dashboard and charts | `references/dashboard-charts.md` |
 | App Designer | `references/app-designer.md` |
+| Semantic models / text-to-SQL | `references/semantic-models.md` |
+| Govern runtime/admin | `references/govern.md` |
+| Govern blueprint authoring | `references/govern-blueprint-designer.md`, `references/govern-field-types.md`, `references/govern-workflow-and-signoffs.md`, `references/govern-ui-views.md` |
+| Govern custom pages | `references/govern-custom-pages.md` |
+| Geospatial | `references/geospatial.md` |
+| Verification patterns | `references/verification.md` |
 
----
+## Capability Selection
 
-## Cross-Cutting Patterns
+| User intent | Default DSS capability |
+|---|---|
+| Join, group, filter, sort, stack, distinct, window, top N, pivot | Visual recipe |
+| Rename, parse dates, format dates, fill, split, normalize strings | Prepare recipe processor |
+| Classification, regression, clustering, forecasting | Visual ML / `dku ml` |
+| RAG over documents | Knowledge Bank + embed recipe |
+| LLM transformation over rows | GenAI recipe |
+| Conversational tool use | Visual agent |
+| Deterministic multi-step agent flow | Structured Visual Agent |
+| Scheduled or conditional rebuild | Scenario |
+| Reusable packaged capability | Plugin |
+| Instance governance workflow | Govern |
 
-Quick links for common combinations:
+## Workflow
 
-- **Scaffold plugin** → `scaffolding.md` + `plugin-structure.md`
-- **Add agent tool** → `scaffolding.md` + `llm-tools.md`
-- **Add recipe** → `scaffolding.md` + `recipes.md`
-- **Add webapp** → `scaffolding.md` + `webapps.md`
-- **Build RAG** → `llm-mesh.md`
-- **Build SVA** → `structured-agents.md`
-- **Style dashboard** → `dataiku-internal-branding` skill + `webapps.md`
-- **Automate retraining** → `scenarios.md` + `mlops.md`
-- **Deploy model** → `mlops.md` + `scenarios.md`
-- **Set up guardrail** → `guardrails.md` + `scaffolding.md`
-- **Turn project into app** → `app-designer.md` + `dku-cli` skill
+1. Identify the DSS capability family from the task.
+2. Read the narrow reference file listed above.
+3. Use `dku-cli` to inspect existing objects and execute changes.
+4. Verify the artifact using the verification reference or the relevant `dku-cli` workflow.
 
----
+## Reference Ownership
 
-## Instructions
-
-1. Identify topic(s) — check Quick Router above
-2. Use `dku-cli` commands to execute
-3. For scaffolding, read `references/scaffolding.md` first
-4. For new plugins, read `references/plugin-architecture.md` first
-5. Read relevant reference file(s)
-6. Apply patterns
-7. For webapps, also check `references/webapp-pitfalls.md`
-8. **Verify every outcome** — run and check output
-
-> For full documentation, see official Dataiku docs: https://developer.dataiku.com/
+Platform references own DSS behavior, payload shapes, schemas, and design patterns. CLI references own exact commands, flags, guarded mode, shell chaining, and operational gotchas. If a detail is both a DSS behavior and a CLI recovery pattern, keep the full explanation in one reference and link to it from the other.

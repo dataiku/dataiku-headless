@@ -282,7 +282,7 @@ After `dku plugin push`, verify types are registered with `dku plugin recipes`. 
 }
 ```
 
-**CRITICAL:** `installCorePackages` must be `false`. If `true`, DSS installs its own packages (pandas, scikit-learn) which conflict with your pinned versions on Python 3.11+.
+Use the canonical code-environment package policy in `code-environments.md`.
 
 ## Common Patterns Across Plugins
 

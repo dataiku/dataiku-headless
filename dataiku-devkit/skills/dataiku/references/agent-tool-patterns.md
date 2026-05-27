@@ -141,22 +141,7 @@ Tests in `tests/python/unit/` import from `python-lib/` directly — no DSS mock
 
 ## Code Environment
 
-```json
-{
-    "acceptedPythonInterpreters": ["PYTHON311", "PYTHON312", "PYTHON313"],
-    "installCorePackages": false,
-    "installJupyterSupport": false
-}
-```
-
-**NEVER `installCorePackages: true` on Python 3.11+** — installs `pandas==0.23.4` which fails. Always explicit deps:
-
-```
-pandas>=2.0,<3
-numpy>=1.22,<3
-python-dateutil>=2.8,<3
-requests>=2.28,<3
-```
+Use the canonical plugin code-environment policy in `code-environments.md`.
 
 The `dataiku` runtime imports numpy/pandas/dateutil at module load — include them even if your plugin doesn't use them directly.
 
@@ -458,6 +443,6 @@ Without this, Quick Test shows an empty input field. With it, users can immediat
 - [ ] `resolve_tool_user()` for audit logging
 
 ### Code Environment
-- [ ] `installCorePackages: false`
+- [ ] Code environment follows `code-environments.md`
 - [ ] Explicit pandas/numpy/dateutil/requests
 - [ ] Python version matches target DSS instance

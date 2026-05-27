@@ -382,11 +382,13 @@ envs = client.list_code_envs()
 env = client.get_code_env("PYTHON", "my-env")
 
 definition = env.get_definition()
-definition["desc"]["installCorePackages"] = True
+definition["desc"]["installCorePackages"] = False
 env.set_definition(definition)
 
 env.update_packages()
 ```
+
+On Python 3.11+, use the canonical code-environment package policy in `code-environments.md`.
 
 ## Common Patterns
 

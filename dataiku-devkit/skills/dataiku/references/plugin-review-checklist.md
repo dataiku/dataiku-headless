@@ -61,7 +61,7 @@ Reference: `recipes.md`
 Reference: `webapps.md`, `webapp-pitfalls.md`
 
 ## Code Environment
-- [ ] `desc.json` uses `"installCorePackages": false` (NEVER `true`)
+- [ ] `desc.json` follows `code-environments.md`
 - [ ] `requirements.txt` includes base deps: pandas, numpy, python-dateutil, requests
 - [ ] Python interpreter matches target DSS version
 
