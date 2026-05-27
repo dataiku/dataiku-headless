@@ -219,6 +219,32 @@ def test_get_version_explicit(patch_client):
     ).get_version.assert_called_with("v1")
 
 
+def test_get_version_uninitialized_existing_version(patch_client):
+    """A listed version with missing settings gets a prescriptive error."""
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    sm.get_version.return_value.get_settings.side_effect = Exception(
+        "NotFoundException: Version v2 not found"
+    )
+    sm.list_versions_ids.return_value = ["v1", "v2"]
+
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "get-version",
+            "sm1",
+            "--version",
+            "v2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+
+    assert result.exit_code == 3
+    assert "exists but has no settings yet" in result.output
+    sm.list_versions_ids.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # create-version
 # ---------------------------------------------------------------------------

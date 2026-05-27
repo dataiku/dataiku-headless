@@ -320,14 +320,12 @@ def get_version(
                 or "does not exist" in msg_lower
                 or "404" in msg_lower
             )
-            # If the version appears in `list_versions()` we know it was
+            # If the version appears in `list_versions_ids()` we know it was
             # created but is empty — surface a useful hint. Otherwise, fall
             # through to the generic error handler.
             if is_not_found:
                 try:
-                    known_ids = [
-                        v.get("id") or v.get("versionId") for v in sm.list_versions()
-                    ]
+                    known_ids = sm.list_versions_ids()
                 except Exception:
                     known_ids = []
                 if version_id in known_ids:
