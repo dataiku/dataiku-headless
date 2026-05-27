@@ -28,11 +28,44 @@ Use the returned ID for `--embedding-llm` flags on `recipe create-embed`, `recip
 
 `create-llm-eval` and `create-agent-eval` do not create datasets for you. If you pass `--output-ds` or `--output-metrics`, those datasets must already exist in DSS. The evaluation store must also exist — create it first with `dku evaluation-store create NAME --flavor LLM` (or `--flavor AGENT`).
 
-### `create-embed-docs` + FilesInFolder: known failure → use `create-embed` instead
+### `create-embed-docs`: prefer `--input-folder` for DSS 14.5+ (canonical folder→KB pattern)
 
-`create-embed-docs` on a `FilesInFolder` dataset can fail at build time with
+DSS 14.5+ wires the `embed_documents` recipe's `inputs.main` to a managed folder
+ref directly — no FilesInFolder wrapper dataset needed. The CLI exposes this
+via `--input-folder FOLDER_ID`. This is what CHATTERBOX, ATU_CONTRACTS and other
+modern RAG flows use.
+
+```bash
+# Capture the folder ID once:
+FOLDER_ID=$(dku folder list -P PROJ -o json | jq -r '.[] | select(.name=="pdf_inbox").id')
+
+dku recipe create-embed-docs embed_pdfs \
+  --input-folder "$FOLDER_ID" \
+  --output-kb my_kb \
+  --embedding-llm "$EMBED_LLM" \
+  --vlm "$VLM_LLM" -P PROJ
+```
+
+For DSS 14.4 and earlier, or if you already have a FilesInFolder dataset, the
+legacy `--input DATASET` path still works:
+
+```bash
+dku folder create-dataset pdf_inbox --dataset pdf_files -P PROJ
+dku recipe create-embed-docs embed_pdfs \
+  --input pdf_files \
+  --output-kb my_kb \
+  --embedding-llm "$EMBED_LLM" -P PROJ
+```
+
+If neither `--input` nor `--input-folder` is given, the CLI exits with a
+prescriptive error showing both invocation shapes.
+
+### `create-embed-docs` + FilesInFolder: known failure (DSS 14.4 / legacy path) → use `create-embed` instead
+
+On DSS 14.4 with a `FilesInFolder` dataset, the build can fail with
 `managed folder does not exist: PROJ.DATASET_NAME` — DSS resolves the dataset
-name as a folder name internally. When that happens, fall back to:
+name as a folder name internally. The fix is now `--input-folder FOLDER_ID`
+(no dataset wrapper). If you're stuck on legacy versions, fall back to:
 
 1. Materialize folder text into a CSV dataset with a single `content` column
    (one row per doc). A small Prepare or Python step over the FilesInFolder
@@ -50,6 +83,80 @@ dku recipe create-embed embed_docs \
 `create-embed` is stable with CSV text inputs. `create-embed-docs` is best used
 when your input is already a plain dataset of document rows with a text column,
 not a file-backed FilesInFolder dataset.
+
+### Custom-metric authoring on `nlp_agent_evaluation`: unwrap the JSON envelope FIRST
+
+`nlp_agent_evaluation` hard-pins its `outputColumnName` to `llm_raw_response`,
+and that column is **not** plain text — it's a JSON envelope:
+
+```json
+{"ok": true, "text": "## 1. Summary\n## 4. Action items\n..."}
+```
+
+A regex-based metric that targets the agent's actual output **must** unwrap the
+`text` field first. Otherwise the `##` and `\n` characters are JSON-escaped
+(`\\#\\#` etc.) and your regex matches nothing — silently. (Symptom: pass-rates
+stuck at ~10–20% even when the agent's outputs look perfect.)
+
+Boilerplate every custom metric should start with:
+
+```python
+import json
+import re
+
+def _extract_text(raw):
+    """Unwrap nlp_agent_evaluation's JSON envelope. Returns plain text or raw."""
+    if not raw:
+        return ""
+    try:
+        decoded = json.loads(raw)
+        if isinstance(decoded, dict) and "text" in decoded:
+            return decoded["text"]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return raw
+
+# Example: "agent specified an action in Section 4"
+_PAT = re.compile(r"##\s*4\.")
+
+def score(row):
+    text = _extract_text(row.get("llm_raw_response", ""))
+    return 1.0 if _PAT.search(text) else 0.0
+```
+
+Two more `nlp_agent_evaluation` traps — both now surface as CLI errors instead
+of silent breakage:
+
+1. **You cannot change `outputColumnName`** via `dku recipe set-settings`. DSS
+   silently reverts the edit at save time. The CLI catches that pattern
+   pre-send and exits with a prescriptive error pointing here.
+2. **The `"""` JSON-escape trap.** If you build metric Python via a JSON
+   payload (`set_payload(json.dumps(...))`), `"""docstrings"""` round-trip as
+   `\"\"\"` — invalid Python. Use `'''` triple-strings or `# comments`. When
+   `dku evaluation-store build` fails, the CLI auto-extracts the activity log
+   and tags this pattern when it sees `unexpected character after line
+   continuation character`.
+
+### Agent-review runtime semantics (DSS 14.5+)
+
+`dku agent-review run REV --wait` **re-executes the agent fresh** per test case.
+It does NOT re-score a pre-computed `agent_answers` dataset. Implications:
+
+- A slow agent → a slow review. A 20-test × 8-trait review against a semantic-
+  model-query agent that takes 30 s per test will take ~10 minutes.
+- If your test set hits remote APIs, every review run consumes API quota.
+- For iteration, prefer `--no-wait` and poll via `dku agent-review list-runs`:
+
+```bash
+dku agent-review run REV --no-wait -P PROJ
+# Then later:
+dku agent-review list-runs REV -P PROJ
+dku agent-review results REV --run RUN_ID --by-trait -P PROJ
+```
+
+Use `dku agent-review compare REV --runs RUN_A,RUN_B,RUN_C -P PROJ` to drive
+the 4-stage iteration loop (baseline → prompt iter → architectural fix →
+re-eval). See `references/iteration-loop.md` for the canonical workflow.
 
 ### `create-embed-docs` rule filters: synthetic columns use SPACES, not underscores
 

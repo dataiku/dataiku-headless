@@ -42,7 +42,11 @@ metadata:
 > 21. **Profile node type matters.** `dku` refuses project-scoped commands on a GOVERN profile with exit **4** and a hint to use `dku govern …`. Govern nodes have no projects, datasets, or recipes — only blueprints, artifacts, signoffs, and roles. Check `dku whoami` (shows `[GOVERN]` / `[DESIGN]` / …) before running a command that targets the wrong node type. If an older profile shows `[?]` in `dku auth list`, re-run `dku auth login --profile X` to refresh it.
 > 22. **Global flags go BEFORE the subcommand.** `--errors json`, `--profile`, `--dangerous`, `--url`, `--api-key` are options on the root `dku` app. Pass them before the noun: `dku --errors json user delete X` ✓, NOT `dku user delete X --errors json` ✗.
 > 23. **Agent prompt/LLM/tool changes default to in-place — pass `--new-version --activate` for reversibility.** `dku agent set-prompt AGENT --prompt @sys.txt --new-version --activate -P PROJ` publishes a new version and flips active so you can roll back with `dku agent set-active-version AGENT v1 -P PROJ`. Same flags work on `set-llm` and `add-tool`. `dku agent list-versions AGENT -P PROJ` shows history. Without the flags the active version is mutated in place — lossy and not what you want for prompt iteration.
-> 24. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. See `dataiku` skill's `references/semantic-models.md`.
+> 24. **Semantic models: use splice verbs for everything.** `add-entity --from-dataset DS` auto-maps columns to attributes. `add-relationship --from A --to B --on COL` builds join predicate. `add-metric` / `add-filter` for pseudoSQL aggregates and predicates. `set-manual-values --values "Low,Medium,High"` flips an attribute to curated enum + enables fuzzy resolution. `add-golden-query` for NL→SQL few-shot examples (biggest quality lever). Never hand-write entity/relationship JSON — schema isn't in `dataikuapi`. `set-version` is a **shallow merge** — use splice verbs instead. **Entities MUST point at SQL-backed datasets** (Snowflake/Postgres/etc.) — Filesystem/UploadedFiles fail at runtime with a polite English error easy to miss in a trace. Sync first: `dku recipe create -t sync -c <SQL_CONN>`. See `dataiku` skill's `references/semantic-models.md`.
+> 25. **Folder → KB: `dku recipe create-embed-docs --input-folder FOLDER_ID`.** Canonical DSS 14.5+ RAG pattern — folder direct, no FilesInFolder wrapper. Pair: `dku folder upload-dir … --retry 2` (transient DSS proxy errors get retried; failures are tallied, not silently skipped) → `dku recipe create-embed-docs … --input-folder F --output-kb KB` → `dku knowledge build KB --wait`. The legacy `--input DATASET` path still works for DSS 14.4-. See `references/genai-recipes.md`.
+> 26. **`nlp_agent_evaluation`'s `outputColumnName` is hard-pinned to `llm_raw_response`** — and that column is a JSON envelope `{"ok":true,"text":"..."}`, **not plain text**. `dku recipe set-settings` refuses to change it; custom-metric regexes must `json.loads(raw).get("text")` first. `dku evaluation-store build` auto-extracts log excerpts on FAILED and flags the `"""` → `'''` JSON-escape trap when present. See `references/genai-recipes.md`.
+> 27. **Agent-review iteration: `--by-trait` + `compare --runs A,B,C` are the canonical iteration-loop verbs.** `dku agent-review results REV --run RUN_ID --by-trait` pivots per-trait pass/fail (the *only* signal that matters for fixing the agent). `dku agent-review compare REV --runs RUN_A,RUN_B,RUN_C -P PROJ` builds the trait×run pass-rate matrix for the 4-stage iteration story (baseline → prompt iter → architectural fix → re-eval). Add `--show-justifications` for LLM-judge reasoning. Note: review runs **re-execute the agent fresh** per test, so a slow agent makes the review slow.
+> 28. **Keychain ACL denial ≠ "no key configured".** macOS Keychain can deny access mid-session (rapid alternation between `dku` and `uv run python` triggers ACL re-prompt). `dku auth list` distinguishes `keychain access denied` from `no key`. **Workaround:** `export DKU_API_KEY=… DKU_URL=…` for the session — `dku` checks env vars before keychain.
 
 # dku-cli
 
@@ -465,26 +469,27 @@ dku recipe create-join enrich -i raw -i lookup --output-ds out --join-key id -P 
 
 ### Folder → Knowledge Bank (RAG with PDFs/images)
 
-`create-embed-docs` requires a FilesInFolder dataset as input — use `dku folder create-dataset` to wrap a managed folder of PDFs/images. Do NOT write Python for this — it's a built-in DSS GenAI recipe with a sophisticated payload (chunking, OCR, VLM rules, vector-store update modes).
+`create-embed-docs` accepts the managed folder directly via `--input-folder FOLDER_ID` — the canonical DSS 14.5+ pattern, no FilesInFolder wrapper needed. (Legacy `--input DATASET` path still works for DSS 14.4-.) Do NOT write Python for this — it's a built-in DSS GenAI recipe with a sophisticated payload (chunking, OCR, VLM rules, vector-store update modes).
 
 ```bash
-# Folder of PDFs/images → FilesInFolder dataset → knowledge bank (with VLM)
+# Folder of PDFs/images → knowledge bank (with VLM)
 dku folder create pdf_inbox --connection dataiku-managed-storage -P PROJ && \
-dku folder upload-dir pdf_inbox ./local_pdfs -P PROJ && \
-dku folder create-dataset pdf_inbox --dataset pdf_files -P PROJ && \
+dku folder upload-dir pdf_inbox ./local_pdfs --retry 2 -P PROJ && \
 dku knowledge create policy_kb --vector-store-type CHROMA \
   --embedding-llm openai:conn:text-embedding-3-small -P PROJ && \
+# Capture the folder ID — `dku folder list -P PROJ -o json | jq -r '.[] | select(.name=="pdf_inbox").id'`
+FOLDER_ID=$(dku folder list -P PROJ -o json | jq -r '.[] | select(.name=="pdf_inbox").id') && \
 dku recipe create-embed-docs embed_policies \
-  --input pdf_files \
+  --input-folder "$FOLDER_ID" \
   --output-kb policy_kb \
   --embedding-llm openai:conn:text-embedding-3-small \
   --vlm openai:conn:gpt-4o \
   --chunk-size 1500 --chunk-overlap 150 \
   --vector-store-update-method SMART_OVERWRITE -P PROJ && \
-dku job run --target policy_kb -P PROJ --wait
+dku knowledge build policy_kb --wait -P PROJ
 ```
 
-For pure-text documents (no figures/scans), omit `--vlm` — the default text extractor is faster and cheaper. See `dku recipe create-embed-docs --help` for the full knob list (extraction-mode, document-splitting-mode, OCR, etc.).
+For pure-text documents (no figures/scans), omit `--vlm` — the default text extractor is faster and cheaper. `upload-dir --retry 2` (default) recovers from transient DSS proxy errors mid-batch and tallies any permanent failures so you can retry just the misses. See `dku recipe create-embed-docs --help` for the full knob list (extraction-mode, document-splitting-mode, OCR, etc.).
 
 > For complete templates, see `references/workflow-templates.md`.
 
@@ -513,7 +518,8 @@ dku dataset schema SOURCE_DS -P PROJ
 | `references/recipe-decision.md` | Recipe decision tree + examples |
 | `references/recipe-examples.md` | Detailed visual recipe code |
 | `references/agent-patterns.md` | Agent + tool creation |
-| `references/genai-recipes.md` | Embedding, RAG, KB, LLM |
+| `references/genai-recipes.md` | Embedding, RAG, KB, LLM, agent-eval custom metrics |
+| `references/iteration-loop.md` | 4-stage agent iteration loop (baseline → prompt → architectural fix → re-eval) with `agent-review compare` |
 | `references/prompt-recipe-payload.md` | Full payload schema for `dku recipe create -t prompt` |
 | `references/prepare-steps.md` | Prepare steps with add-step |
 | `references/dashboard-patterns.md` | Charts, dashboards |

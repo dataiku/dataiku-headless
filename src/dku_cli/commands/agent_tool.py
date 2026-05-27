@@ -84,6 +84,17 @@ def create(
         "--llm",
         help="LLM ID e.g. openai:conn:gpt-4o (sets llmId for LLMMeshLLMQuery)",
     ),
+    params: str | None = typer.Option(
+        None,
+        "--params",
+        help=(
+            "Tool params JSON: literal, @file.json, or '-' for stdin. Merged "
+            "into the new tool's settings.params on create (atomic — if the "
+            "params write fails, the tool is deleted so you don't leave "
+            "orphans). Required for plugin tool types like "
+            "`Custom_agent_tool_<plugin>_<tool>` that have no dedicated flag."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Create a new agent tool.
@@ -92,13 +103,34 @@ def create(
     For custom Python tools, build a plugin and use Custom_agent_tool_<plugin>_<tool>.
     Run 'dku agent-tool types' to see built-in types.
 
+    Use `--params @config.json` for plugin tool types that need configuration
+    that has no dedicated flag (e.g. semantic-model-query, google-search-tool).
+    The params write is atomic: if it fails, the half-built tool is deleted so
+    you don't leave orphans.
+
     Examples:
       dku agent-tool create my_lookup --type DatasetRowLookup --dataset customers -P PROJ
       dku agent-tool create my_search --type VectorStoreSearch --kb my_kb -P PROJ
       dku agent-tool create my_llm --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P PROJ
       dku agent-tool create "Web Search" --type Custom_agent_tool_google-search-tool_google-search-tool -P PROJ
+      dku agent-tool create sm_query --type Custom_agent_tool_semantic-models-lab_semantic-model-query \\
+          --params '{"semanticModelId":"sm123","activeVersionOnly":true}' -P PROJ
     """
     project_key = resolve_project(project)
+    # Validate --params up front so we don't half-create the tool on bad JSON.
+    parsed_params: dict | None = None
+    if params is not None:
+        parsed_params = read_json_input(params)
+        if not isinstance(parsed_params, dict):
+            exit_with_error(
+                "--params must be a JSON object.",
+                code="bad_argument",
+                details=[
+                    'Pass a JSON object, e.g. \'{"key":"value"}\', @file.json, '
+                    "or '-' for stdin.",
+                ],
+            )
+
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -123,41 +155,70 @@ def create(
 
         tool = builder.create()
 
-        # Post-creation param configuration for built-in types
-        if dataset and tool_type == "DatasetRowLookup":
-            settings = tool.get_settings()
-            # Detect which field the server uses (datasetRef in DSS 14.5+,
-            # datasetSmartName in older versions). Write to existing field,
-            # or both if fresh tool for version compatibility.
-            if "datasetRef" in settings.params:
-                settings.params["datasetRef"] = dataset
-            elif "datasetSmartName" in settings.params:
-                settings.params["datasetSmartName"] = dataset
-            else:
-                settings.params["datasetSmartName"] = dataset
-                settings.params["datasetRef"] = dataset
-            settings.save()
-        elif dataset:
-            exit_with_error(
-                f"--dataset is only for DatasetRowLookup tools, not {tool_type}.",
-                code="invalid_param",
-                details=[
-                    f"Example: dku agent-tool create {name} --type DatasetRowLookup --dataset my_ds -P {project_key}",
-                ],
-            )
+        # From here on, every error path must delete the tool we just created;
+        # otherwise a half-configured plugin tool stays in the project and the
+        # next `agent-tool create` with the same name fails with "already
+        # exists" — exactly the orphan-tool footgun the user reported.
+        def _cleanup_orphan() -> None:
+            try:
+                tool.delete()
+            except Exception:
+                pass  # Best-effort — the original error is more informative.
 
-        if llm and tool_type == "LLMMeshLLMQuery":
-            settings = tool.get_settings()
-            settings.params["llmId"] = llm
-            settings.save()
-        elif llm:
-            exit_with_error(
-                f"--llm is only for LLMMeshLLMQuery tools, not {tool_type}.",
-                code="invalid_param",
-                details=[
-                    f"Example: dku agent-tool create {name} --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P {project_key}",
-                ],
-            )
+        try:
+            # Post-creation param configuration for built-in types
+            if dataset and tool_type == "DatasetRowLookup":
+                settings = tool.get_settings()
+                # Detect which field the server uses (datasetRef in DSS 14.5+,
+                # datasetSmartName in older versions). Write to existing field,
+                # or both if fresh tool for version compatibility.
+                if "datasetRef" in settings.params:
+                    settings.params["datasetRef"] = dataset
+                elif "datasetSmartName" in settings.params:
+                    settings.params["datasetSmartName"] = dataset
+                else:
+                    settings.params["datasetSmartName"] = dataset
+                    settings.params["datasetRef"] = dataset
+                settings.save()
+            elif dataset:
+                _cleanup_orphan()
+                exit_with_error(
+                    f"--dataset is only for DatasetRowLookup tools, not {tool_type}.",
+                    code="invalid_param",
+                    details=[
+                        f"Example: dku agent-tool create {name} --type DatasetRowLookup --dataset my_ds -P {project_key}",
+                    ],
+                )
+
+            if llm and tool_type == "LLMMeshLLMQuery":
+                settings = tool.get_settings()
+                settings.params["llmId"] = llm
+                settings.save()
+            elif llm:
+                _cleanup_orphan()
+                exit_with_error(
+                    f"--llm is only for LLMMeshLLMQuery tools, not {tool_type}.",
+                    code="invalid_param",
+                    details=[
+                        f"Example: dku agent-tool create {name} --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P {project_key}",
+                    ],
+                )
+
+            # --params merges arbitrary fields into settings.params. This is
+            # the documented escape hatch for plugin tools that have no
+            # dedicated flag (e.g. Custom_agent_tool_semantic-models-lab_semantic-model-query).
+            if parsed_params:
+                settings = tool.get_settings()
+                # settings.params is a dict-like proxy on real DSS; on the
+                # test MagicMock it behaves enough like a dict for .update().
+                for k, v in parsed_params.items():
+                    settings.params[k] = v
+                settings.save()
+        except typer.Exit:
+            raise
+        except Exception:
+            _cleanup_orphan()
+            raise
 
         success(f"Created agent tool '{name}' (id={tool.id}, type={tool_type})")
     except Exception as e:

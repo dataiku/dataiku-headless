@@ -1588,6 +1588,57 @@ def test_recipe_create_embed_docs_with_vlm(patch_client):
     builder.with_vlm.assert_called_once_with("openai:gpt-4o")
 
 
+def test_recipe_create_embed_docs_requires_input_or_folder(patch_client):
+    """Neither --input nor --input-folder ⇒ prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--input" in result.output and "--input-folder" in result.output
+
+
+def test_recipe_create_embed_docs_folder_only_rewires_main(patch_client):
+    """--input-folder alone ⇒ inputs.main repointed to the folder (DSS 14.5+ pattern)."""
+    proj = patch_client.get_project("PROJ1")
+    # Capture the settings object we can inspect after the rewire.
+    recipe_obj = proj.get_recipe.return_value
+    settings = recipe_obj.get_settings.return_value
+    raw_def: dict = {"inputs": {"main": {"items": [{"ref": "FOLDER_42"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw_def
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--input-folder",
+            "FOLDER_42",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # The post-build rewire wrote inputs.main with the folder ref.
+    assert raw_def["inputs"]["main"]["items"][0]["ref"] == "FOLDER_42"
+    settings.save.assert_called()
+
+
 def test_recipe_create_extract(patch_client):
     result = runner.invoke(
         app,
@@ -6382,6 +6433,35 @@ def test_recipe_set_settings_updates_payload(patch_client):
         ],
     )
     assert result.exit_code == 0
+
+
+def test_recipe_set_settings_blocks_nlp_agent_eval_output_column(patch_client):
+    """nlp_agent_evaluation hard-pins outputColumnName — surface that before save."""
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe("agent_eval_recipe")
+    recipe.get_settings.return_value.get_recipe_raw_definition.return_value = {
+        "type": "nlp_agent_evaluation",
+        "name": "agent_eval_recipe",
+    }
+    settings_json = json.dumps({"payload": {"outputColumnName": "my_col"}})
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "agent_eval_recipe",
+            "--settings",
+            settings_json,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Cannot change `outputColumnName`" in result.output
+    assert "JSON envelope" in result.output
+    # The settings save must NOT have happened — otherwise the user thinks it
+    # worked and is confused later when DSS reverted it.
+    recipe.get_settings.return_value.save.assert_not_called()
 
 
 def test_recipe_set_settings_rejects_stringified_payload(patch_client):

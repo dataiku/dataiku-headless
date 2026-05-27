@@ -436,6 +436,51 @@ def test_scenario_runs_custom_limit(patch_client):
     scenario.get_last_runs.assert_called_with(limit=5)
 
 
+def test_scenario_runs_json_still_running(patch_client):
+    """Regression: a fresh run with no result raises ValueError on .outcome.
+
+    The CLI must catch it and label the state RUNNING so `-o json` emits a
+    valid array; otherwise jq sees a partial Rich traceback ("Invalid numeric
+    literal at line 1, column 4").
+    """
+    from unittest.mock import MagicMock, PropertyMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    running = MagicMock()
+    running.id = "run_in_flight"
+    type(running).outcome = PropertyMock(
+        side_effect=ValueError(
+            "outcome not available for this scenario run. Maybe still running?"
+        )
+    )
+    running.get_start_time.return_value = "2026-05-27 10:00:00"
+    running.get_duration.return_value = None
+    scenario.get_last_runs.return_value = [running]
+
+    result = runner.invoke(
+        app, ["scenario", "runs", "scen1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed[0]["id"] == "run_in_flight"
+    assert parsed[0]["state"] == "RUNNING"
+
+
+def test_scenario_runs_json_empty(patch_client):
+    """No runs ⇒ `-o json` emits `[]`, not a malformed table-shaped object."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    scenario.get_last_runs.return_value = []
+
+    result = runner.invoke(
+        app, ["scenario", "runs", "scen1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed == []
+
+
 # --- last-run --successful ---
 
 
