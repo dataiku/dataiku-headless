@@ -191,6 +191,77 @@ def delete(
     except typer.Exit:
         raise
     except Exception as e:
+        # get_file() raises "is a folder, not a file" when path points to a folder.
+        if "not a file" in str(e):
+            exit_with_error(
+                f"'{path}' is a folder, not a file.",
+                details=[
+                    f"Delete it recursively with: dku library delete-folder {path} "
+                    f"-P {project_key} --yes --confirm-name {path}"
+                ],
+            )
+        handle_api_error(e)
+
+
+@app.command("delete-folder")
+def delete_folder(
+    ctx: typer.Context,
+    path: str = typer.Argument(help="Folder path in the library"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match the folder PATH to proceed (tier-3 cascade).",
+    ),
+) -> None:
+    """Recursively delete a folder and all its contents from the project library."""
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+
+    # Refuse root deletion up front (dataikuapi raises "Cannot delete root folder").
+    if path.strip() in ("", "/"):
+        exit_with_error(
+            "Refusing to delete the library root.",
+            details=[
+                "Pass a specific folder path, e.g. dku library delete-folder python/mylib"
+            ],
+        )
+
+    guard(
+        ctx,
+        tier=Tier.CASCADE,
+        action="library.delete-folder",
+        subject=f"library folder '{path}' in {project_key} (deletes all files inside)",
+        yes=yes,
+        target_id=path,
+        confirm_name=confirm_name,
+        prompt=f"Recursively delete library folder '{path}' and everything in it from {project_key}?",
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        lib = proj.get_library()
+        folder = lib.get_folder(path)  # None if missing; raises if path is a file
+        if folder is None:
+            exit_with_error(
+                f"Library folder '{path}' not found in {project_key}.",
+                details=[f"List contents with: dku library list -P {project_key}"],
+            )
+        folder.delete()
+        success(f"Deleted folder {path} and its contents")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        # get_folder() raises "is a file, not a folder" when path points to a file.
+        if "not a folder" in str(e):
+            exit_with_error(
+                f"'{path}' is a file, not a folder.",
+                details=[
+                    f"Delete a single file with: dku library delete {path} -P {project_key} --yes"
+                ],
+            )
         handle_api_error(e)
 
 
