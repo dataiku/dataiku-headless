@@ -41,6 +41,9 @@ tmp/
 demo/
 work/
 
+# IDE configs
+.idea/
+
 # AI coding tool configs (benchmark artifacts)
 .adal/
 .augment/

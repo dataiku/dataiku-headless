@@ -372,3 +372,92 @@ def test_git_remote_set(patch_client):
     proj = patch_client.get_project("PROJ1")
     git = proj.get_project_git()
     git.set_remote.assert_called_once_with("git@github.com:new/repo.git", name="origin")
+
+
+# --- reset-to-upstream ---
+
+
+def test_git_reset_to_upstream_blocks_without_yes(patch_client):
+    result = runner.invoke(app, ["git", "reset-to-upstream", "--project", "PROJ1"])
+    assert result.exit_code == 77
+    proj = patch_client.get_project("PROJ1")
+    git = proj.get_project_git()
+    git.reset_to_upstream.assert_not_called()
+
+
+def test_git_reset_to_upstream(patch_client):
+    result = runner.invoke(
+        app, ["git", "reset-to-upstream", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert "Reset" in result.output
+    proj = patch_client.get_project("PROJ1")
+    git = proj.get_project_git()
+    git.reset_to_upstream.assert_called_once_with()
+
+
+def test_git_reset_to_upstream_no_upstream_is_prescriptive(patch_client):
+    """A local-only branch has no upstream; DSS fails with an opaque NPE.
+
+    The CLI must explain the cause and the recovery commands instead of leaking
+    the raw 'name is null' server error.
+    """
+    git = patch_client.get_project("PROJ1").get_project_git()
+    git.reset_to_upstream.side_effect = Exception(
+        'NullPointerException: Cannot invoke "String.length()" because "name" is null'
+    )
+    git.get_status.return_value = {
+        "currentBranch": "fix/local-only",
+        "remotes": [{"name": "origin", "url": "git@github.com:x/y.git"}],
+    }
+    git.list_branches.return_value = ["origin/master", "origin/feature/test"]
+
+    result = runner.invoke(
+        app, ["git", "reset-to-upstream", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 1
+    # Headline is the prescriptive diagnosis, not the raw server error.
+    assert "Cannot reset to upstream" in result.output
+    assert "fix/local-only" in result.output
+    assert "no branch on the remote" in result.output
+    assert "dku git push -P PROJ1" in result.output
+    assert "reset-to-head" in result.output
+
+
+def test_git_reset_to_upstream_other_failure_falls_through(patch_client):
+    """When the branch DOES track a remote, an unrelated failure is not masked
+    by the no-upstream guidance -- it goes through the normal error handler."""
+    git = patch_client.get_project("PROJ1").get_project_git()
+    git.reset_to_upstream.side_effect = Exception("500 Internal Server Error")
+    git.get_status.return_value = {
+        "currentBranch": "master",
+        "remotes": [{"name": "origin", "url": "git@github.com:x/y.git"}],
+    }
+    git.list_branches.return_value = ["origin/master"]
+
+    result = runner.invoke(
+        app, ["git", "reset-to-upstream", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 1
+    assert "no branch on the remote" not in result.output
+    assert "500 Internal Server Error" in result.output
+
+
+# --- reset-to-head ---
+
+
+def test_git_reset_to_head_blocks_without_yes(patch_client):
+    result = runner.invoke(app, ["git", "reset-to-head", "--project", "PROJ1"])
+    assert result.exit_code == 77
+    proj = patch_client.get_project("PROJ1")
+    git = proj.get_project_git()
+    git.reset_to_head.assert_not_called()
+
+
+def test_git_reset_to_head(patch_client):
+    result = runner.invoke(app, ["git", "reset-to-head", "--project", "PROJ1", "--yes"])
+    assert result.exit_code == 0
+    assert "Reset" in result.output
+    proj = patch_client.get_project("PROJ1")
+    git = proj.get_project_git()
+    git.reset_to_head.assert_called_once_with()

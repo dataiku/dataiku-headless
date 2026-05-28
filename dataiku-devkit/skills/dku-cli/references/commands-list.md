@@ -32,7 +32,7 @@ Complete list of all `dku` command groups and verbs.
 | `agent-review` | list, create, get, delete, set-agent, set-llm, add-trait, list-tests, create-test, import-tests, export-tests, run, list-runs, results | Yes |
 | `agent-tool` | list, get, **create** (--dataset, --llm, --kb), set-definition, run, types, delete | Yes (except `types`) |
 | `code-studio` | list, create, get, delete, status, start, stop, change-owner, templates | Yes (except `templates`) |
-| `git` | status, log, diff, commit, pull, push, fetch, branches, create-branch, delete-branch, switch, tags, create-tag, remote | Yes |
+| `git` | status, log, diff, commit, pull, push, fetch, branches, create-branch, delete-branch, switch, tags, create-tag, remote, reset-to-upstream, reset-to-head | Yes |
 | `api-deployer` | list-infras, list-services, get-service, list-deployments, create-deployment, get-deployment, update-deployment, delete-deployment, deployment-status | No |
 | `project-deployer` | list-infras, list-projects, list-deployments, create-deployment, get-deployment, update-deployment, delete-deployment, deployment-status | No |
 | `notebook` | list, get, create, delete, sessions, stop, clear-outputs, history | Yes |
