@@ -164,3 +164,109 @@ def test_webapp_set_definition_from_file(tmp_path, patch_client):
     proj = patch_client.get_project("PROJ1")
     webapp = proj.get_webapp("webapp1")
     webapp.get_settings().save.assert_called_once()
+
+
+# ── logs ───────────────────────────────────────────────────────────────
+
+
+def test_webapp_logs_default_text(patch_client):
+    """Default output is plain text, one line per row, no decoration."""
+    result = runner.invoke(app, ["webapp", "logs", "webapp1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+    assert "[2026-05-28 12:00:00] INFO startup" in result.output
+    assert "[2026-05-28 12:00:01] INFO listening on 5000" in result.output
+    assert "[2026-05-28 12:00:02] ERROR something broke" in result.output
+
+
+def test_webapp_logs_tail_limit(patch_client):
+    """--tail N keeps only the last N lines."""
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "--tail", "1"]
+    )
+    assert result.exit_code == 0
+    assert "[2026-05-28 12:00:02] ERROR something broke" in result.output
+    # The earlier two lines must be filtered out.
+    assert "INFO startup" not in result.output
+    assert "INFO listening" not in result.output
+
+
+def test_webapp_logs_tail_rejects_zero(patch_client):
+    """--tail 0 is a usage error — prescriptive guidance, non-zero exit."""
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "--tail", "0"]
+    )
+    assert result.exit_code != 0
+    assert "must be a positive integer" in result.output
+
+
+def test_webapp_logs_json_output(patch_client):
+    """-o json emits the structured payload with all metadata."""
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["webappId"] == "webapp1"
+    assert payload["projectKey"] == "PROJ1"
+    assert payload["running"] is True
+    assert payload["totalLines"] == 120
+    assert payload["returnedLines"] == 3
+    assert payload["serverTailSize"] == 3
+    assert len(payload["lines"]) == 3
+
+
+def test_webapp_logs_json_with_tail(patch_client):
+    """--tail filters the JSON lines too; serverTailSize stays accurate."""
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json", "--tail", "2"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["returnedLines"] == 2
+    assert payload["serverTailSize"] == 3  # full tail received before trim
+    assert payload["lines"][-1] == "[2026-05-28 12:00:02] ERROR something broke"
+
+
+def test_webapp_logs_follow_rejects_json(patch_client):
+    """--follow cannot combine with -o json (text-only streaming)."""
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-f", "-o", "json"]
+    )
+    assert result.exit_code != 0
+    assert "cannot be combined" in result.output
+
+
+def test_webapp_logs_backend_not_running(patch_client):
+    """Prescriptive error when backend is stopped (no currentLogTail)."""
+    # Override the webapp state for this test: no currentLogTail, not running.
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    state = webapp.get_state()
+    state.running = False
+    state.state = {
+        "projectKey": "PROJ1",
+        "webAppId": "webapp1",
+        "hasExposedEndpoint": False,
+        # NOTE: no `currentLogTail` — mirrors real DSS behavior when stopped.
+    }
+    result = runner.invoke(app, ["webapp", "logs", "webapp1", "-P", "PROJ1"])
+    assert result.exit_code != 0
+    assert "backend is not running" in result.output
+    assert "dku webapp start webapp1 -P PROJ1" in result.output
+
+
+def test_webapp_logs_running_but_no_tail_yet(patch_client):
+    """Just-started backend may be running with no tail yet — empty success."""
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    state = webapp.get_state()
+    state.running = True
+    state.state = {"projectKey": "PROJ1", "webAppId": "webapp1"}
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["totalLines"] == 0
+    assert payload["lines"] == []
+    assert payload["running"] is True

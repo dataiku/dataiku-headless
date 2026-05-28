@@ -822,10 +822,26 @@ def mock_client():
     job_builder_mock.start_and_wait.return_value = started_job
     proj1.new_job.return_value = job_builder_mock
 
-    # Webapp mock — get_state returns object with .running property
+    # Webapp mock — get_state returns object with .running property and
+    # .state dict (mirrors DSSWebAppBackendState; .state["currentLogTail"]
+    # carries the log tail when the backend is running).
     webapp_mock = MagicMock()
     webapp_state = MagicMock()
     webapp_state.running = True
+    webapp_state.state = {
+        "projectKey": "PROJ1",
+        "webAppId": "webapp1",
+        "futureId": "fut1",
+        "futureInfo": {"alive": True},
+        "currentLogTail": {
+            "totalLines": 120,
+            "lines": [
+                "[2026-05-28 12:00:00] INFO startup",
+                "[2026-05-28 12:00:01] INFO listening on 5000",
+                "[2026-05-28 12:00:02] ERROR something broke",
+            ],
+        },
+    }
     webapp_mock.get_state.return_value = webapp_state
     webapp_mock.start_or_restart_backend.return_value = None
     webapp_mock.stop_backend.return_value = None
