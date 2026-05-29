@@ -223,7 +223,9 @@ def test_job_run_basic(patch_client):
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("NON_RECURSIVE_FORCED_BUILD")
     builder = proj.new_job.return_value
-    builder.with_output.assert_called_once_with("my_dataset")
+    # Object type is auto-detected and passed explicitly (defaults to DATASET) so
+    # managed-folder / saved-model targets don't error with "dataset not found".
+    builder.with_output.assert_called_once_with("my_dataset", object_type="DATASET")
     builder.start.assert_called_once()
 
 
@@ -248,6 +250,27 @@ def test_job_run_recursive_with_auto_schema(patch_client):
     proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
     builder = proj.new_job.return_value
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
+
+
+def test_job_run_folder_target_resolves_type(patch_client):
+    """A managed-folder target (by name) builds as MANAGED_FOLDER with its ID,
+    not the default DATASET (which would error with 'dataset not found')."""
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "Data Folder",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_job.return_value
+    # "Data Folder" resolves to id "folder1" (conftest).
+    builder.with_output.assert_called_once_with("folder1", object_type="MANAGED_FOLDER")
 
 
 def test_job_run_multiple_targets(patch_client):

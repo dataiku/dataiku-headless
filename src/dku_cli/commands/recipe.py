@@ -25,6 +25,8 @@ from dku_cli.helpers import (
     get_client_from_ctx,
     read_json_input,
     read_text_input,
+    resolve_build_output_types,
+    resolve_folder,
     resolve_project,
     resolve_recipe_input_ref,
     resolve_saved_model,
@@ -681,8 +683,11 @@ def run(
             )
 
         builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
-        for ref in output_refs:
-            builder.with_output(ref)
+        # get_flat_output_refs() returns bare refs with no object type. The job
+        # builder defaults object_type to DATASET, so managed-folder / saved-model
+        # outputs would error with "dataset does not exist". Resolve the real type.
+        for resolved_ref, object_type in resolve_build_output_types(proj, output_refs):
+            builder.with_output(resolved_ref, object_type=object_type)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
         job = builder.start()
@@ -797,11 +802,16 @@ def create(
         "--input-dataset",
         help="Input dataset name (must exist). Repeatable: `-i A -i B` wires both. Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
     ),
-    output_ds: str = typer.Option(
-        ...,
+    output_ds: str | None = typer.Option(
+        None,
         "--output-ds",
         "--output-dataset",
-        help="Output dataset name (auto-created for code recipes, must exist for plugin recipes)",
+        help="Output dataset name (auto-created for code recipes, must exist for plugin recipes). Mutually exclusive with --output-folder.",
+    ),
+    output_folder: str | None = typer.Option(
+        None,
+        "--output-folder",
+        help="Wire an EXISTING managed folder (by name or ID) as the recipe output instead of a dataset. Create the folder first: dku folder create NAME -P PROJ. Mutually exclusive with --output-ds.",
     ),
     connection: str | None = typer.Option(
         None,
@@ -883,10 +893,18 @@ def create(
     (e.g. --connection filesystem_managed).
 
     Plugin recipes use type CustomCode_<recipeComponentId>. The output dataset
-    must already exist. Use --params to pass initial configuration:
+    must already exist. Pass plugin config with --params — it is written to
+    params.customConfig with the required params.containerSelection (the recipe
+    NPEs at run time otherwise):
 
       dku recipe create my_step -t CustomCode_my-recipe \\
         -i input_ds --output-ds output_ds --params '{"key": "val"}' -P PROJ
+
+    To wire a managed folder as the output instead of a dataset, use
+    --output-folder (the folder must already exist):
+
+      dku recipe create my_step -t CustomCode_my-recipe \\
+        -i input_ds --output-folder my_folder --params '{...}' -P PROJ
 
     Discover available plugin recipes: dku plugin recipes [PLUGIN_ID]
     """
@@ -908,6 +926,25 @@ def create(
             details=[
                 f"Did you mean --output-ds '{output}'?",
                 "Use --output-ds for the output dataset name, -o for output format (table/json/csv).",
+            ],
+        )
+    # Resolve the output target: exactly one of --output-ds / --output-folder.
+    if output_ds and output_folder:
+        exit_with_error(
+            "Pass only one of --output-ds and --output-folder.",
+            code="invalid_argument",
+            details=[
+                "--output-ds wires/creates a dataset output.",
+                "--output-folder wires an existing managed folder output.",
+            ],
+        )
+    if not output_ds and not output_folder:
+        exit_with_error(
+            "No output specified. Provide --output-ds <DATASET> or --output-folder <FOLDER>.",
+            code="missing_param",
+            details=[
+                f"Dataset output: dku recipe create {recipe_name} -t {type_name} -i <INPUT> --output-ds <DATASET> -P {project_key}",
+                f"Folder output:  dku recipe create {recipe_name} -t {type_name} -i <INPUT> --output-folder <FOLDER> -P {project_key}",
             ],
         )
     # Parse --params if provided
@@ -954,6 +991,13 @@ def create(
                     f"Example: dku recipe create {recipe_name} -t {type_name} -i <INPUT_DS> --output-ds {output_ds} -P {project_key}",
                 ],
             )
+        # Resolve --output-folder to a managed-folder ID (must already exist).
+        # Folder outputs are always wired as existing objects (never auto-created).
+        output_folder_id: str | None = None
+        if output_folder:
+            output_folder_id = resolve_folder(proj, output_folder).id
+        # The ref to wire as the recipe output (dataset name or folder ID).
+        output_ref = output_folder_id or output_ds
         if _is_plugin_recipe_type(type_name):
             # Plugin recipes: project.new_recipe() returns None for unknown types.
             # Use DSSRecipeCreator directly in raw mode.
@@ -963,9 +1007,17 @@ def create(
             builder.set_raw_mode()
             for _input in inputs:
                 builder.with_input(_input, role=input_role)
-            builder.with_output(output_ds, role=output_role)
-            if params_dict is not None:
-                builder.creation_settings["rawPayload"] = json.dumps(params_dict)
+            builder.with_output(output_ref, role=output_role)
+            # Plugin (custom code) recipes read their config from
+            # params.customConfig and REQUIRE params.containerSelection — without
+            # it the recipe throws a Java NullPointerException at run time.
+            # rawPayload writes to the recipe payload, which plugin recipes ignore,
+            # leaving params null. In raw mode recipe_proto is persisted as-is, so
+            # set params there directly.
+            builder.recipe_proto["params"] = {
+                "customConfig": params_dict if params_dict is not None else {},
+                "containerSelection": {"containerMode": "INHERIT"},
+            }
             builder.build()
         else:
             builder = proj.new_recipe(type_name, recipe_name)
@@ -993,7 +1045,10 @@ def create(
             #   auto-create method and fall through to with_output().
             type_lower = type_name.lower()
             is_visual = type_lower in _VISUAL_RECIPE_TYPES
-            if connection and hasattr(builder, "with_new_output_dataset"):
+            if output_folder_id:
+                # Existing managed folder — wire as-is, never auto-create.
+                builder.with_output(output_folder_id)
+            elif connection and hasattr(builder, "with_new_output_dataset"):
                 builder.with_new_output_dataset(output_ds, connection)
             elif connection and hasattr(builder, "with_new_output"):
                 builder.with_new_output(output_ds, connection)
@@ -1066,6 +1121,8 @@ def create(
                     f"Env: {env_mode.upper()}" + (f" ({env_name})" if env_name else "")
                 )
             recipe_settings.save()
+        if output_folder_id:
+            info(f"Output folder: {output_folder_id}")
         success(f"Created recipe '{recipe_name}' in {project_key}")
     except Exception as e:
         if is_already_exists_error(e):

@@ -231,7 +231,7 @@ dku recipe get-definition RECIPE_NAME [-P PROJECT] [-o FORMAT]
 dku recipe get-settings RECIPE_NAME [-P PROJECT] [-o json]
 dku recipe set-settings RECIPE_NAME --settings JSON [-P PROJECT]
 dku recipe run RECIPE_NAME [-P PROJECT] [--wait] [--type BUILD_TYPE] [--auto-update-schema]
-dku recipe create RECIPE_NAME --type TYPE --input DS --output-ds DS [-P PROJECT]
+dku recipe create RECIPE_NAME --type TYPE --input DS {--output-ds DS | --output-folder FOLDER} [--params JSON|@file|-] [--input-role ROLE] [--output-role ROLE] [-P PROJECT]
 dku recipe delete RECIPE_NAME [-P PROJECT] [--yes]
 dku recipe rename RECIPE_NAME --name NEW_NAME [-P PROJECT]
 dku recipe status RECIPE_NAME [-P PROJECT] [-o FORMAT]             # Engine, severity, check messages
@@ -246,6 +246,8 @@ dku recipe apply-schema RECIPE_NAME [-P PROJECT] [-o FORMAT]
 
 - `create --input`/`--input-ds`/`-i` all work. `--type`/`-t` for type, `--output-ds` for output
 - `create` requires `--input` to exist. For code recipes (python, sql), `--output-ds` is auto-created. For visual recipes, both must pre-exist
+- `create --output-folder NAME_OR_ID` wires an EXISTING managed folder as the output instead of a dataset (mutually exclusive with `--output-ds`; folder names are resolved to IDs automatically). Create the folder first with `dku folder create`. Exactly one of `--output-ds`/`--output-folder` is required
+- `create -t CustomCode_<recipeComponentId> --params '{...}'` configures a plugin recipe. The config lands in `params.customConfig` with the required `params.containerSelection` (`containerMode: INHERIT`) — without the latter the recipe throws a Java NullPointerException at run time. `--params` accepts a JSON string, `@file.json`, or `-` (stdin). Plugin recipe outputs never auto-create — pre-create the dataset/folder. Use `--input-role`/`--output-role` for plugin recipes with non-`main` role names
 - `create -t prediction_scoring` and `create -t clustering_scoring` REQUIRE `--model SAVED_MODEL_ID_OR_NAME`. The model is auto-wired as a `model`-role input after creation. Omitting it errors before the server call
 - `add-input REF` — `REF` can be a dataset name, managed folder (name or ID), or saved model (ID or name). When `--type` is omitted, the CLI auto-detects by probing the project and errors on ambiguity. For saved models, `--role` defaults to `model`. Folder names are resolved to IDs before writing the ref (DSS stores folder refs as IDs)
 - `delete` prompts for confirmation by default. Use `--yes` / `-y` for non-interactive deletion
@@ -317,7 +319,7 @@ dku job wait JOB_ID [-P PROJECT] [--timeout SECONDS]
 ```
 
 - `last` prints the most recent job id on stdout — composable in shells: `dku job log $(dku job last -P PROJ) -P PROJ`. Pass `-o json` for the full record (id/state/initiator/start) or `-o table` for a one-row table. Exit 1 with a prescriptive error when there are no jobs
-- `run --target` is repeatable for building multiple outputs in one job
+- `run --target` is repeatable for building multiple outputs in one job. The target may be a dataset name, a managed folder (name or ID), or a saved model (name or ID) — the type is auto-detected (and names resolved to IDs) so folder/model targets don't error with "dataset does not exist". `dku recipe run` resolves its outputs' types the same way
 - `run --type` defaults to `NON_RECURSIVE_FORCED_BUILD`; use `RECURSIVE_BUILD` to build upstream deps
 - `run --auto-update-schema` auto-updates output schemas before each recipe run — eliminates manual schema propagation
 - `run --wait` blocks until completion; combine with `--timeout` for bounded waits
