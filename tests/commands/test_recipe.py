@@ -158,8 +158,9 @@ def test_recipe_run_with_type(patch_client):
     proj = patch_client.get_project("PROJ1")
     proj.new_job.assert_called_once_with("RECURSIVE_BUILD")
     builder = proj.new_job.return_value
-    # Should build recipe's output refs
-    builder.with_output.assert_called_once_with("output_ds")
+    # Should build recipe's output refs, resolving the object type (defaults to
+    # DATASET so managed-folder / saved-model outputs don't error).
+    builder.with_output.assert_called_once_with("output_ds", object_type="DATASET")
 
 
 def test_recipe_run_auto_update_schema(patch_client):
@@ -6096,10 +6097,18 @@ def test_recipe_create_plugin_recipe_with_params(patch_client, tmp_path):
     assert result.exit_code == 0
 
     call_args = proj.create_recipe.call_args
+    recipe_proto = call_args[0][0]
     creation_settings = call_args[0][1]
     assert creation_settings["rawCreation"] is True
-    raw_payload = json.loads(creation_settings["rawPayload"])
-    assert raw_payload == {"mode": "advanced", "threshold": 0.5}
+    # Plugin config must land in params.customConfig (NOT the payload), with the
+    # required containerSelection — otherwise the recipe NPEs at run time.
+    assert recipe_proto["params"]["customConfig"] == {
+        "mode": "advanced",
+        "threshold": 0.5,
+    }
+    assert recipe_proto["params"]["containerSelection"] == {"containerMode": "INHERIT"}
+    # Config must NOT be written to the payload.
+    assert "rawPayload" not in creation_settings
 
 
 def test_recipe_create_plugin_recipe_params_from_file(patch_client, tmp_path):
@@ -6129,8 +6138,9 @@ def test_recipe_create_plugin_recipe_params_from_file(patch_client, tmp_path):
         ],
     )
     assert result.exit_code == 0
-    raw_payload = json.loads(proj.create_recipe.call_args[0][1]["rawPayload"])
-    assert raw_payload == {"key": "value"}
+    recipe_proto = proj.create_recipe.call_args[0][0]
+    assert recipe_proto["params"]["customConfig"] == {"key": "value"}
+    assert recipe_proto["params"]["containerSelection"] == {"containerMode": "INHERIT"}
 
 
 def test_recipe_create_plugin_recipe_invalid_params(patch_client):
@@ -6186,6 +6196,106 @@ def test_recipe_create_plugin_recipe_custom_roles(patch_client):
     recipe_proto = proj.create_recipe.call_args[0][0]
     assert "documents" in recipe_proto["inputs"]
     assert "results" in recipe_proto["outputs"]
+
+
+def test_recipe_create_plugin_recipe_output_folder(patch_client):
+    """--output-folder wires an existing managed folder (by name) as the output.
+
+    The folder name resolves to its ID and that ID is the recipe output ref.
+    """
+    proj = patch_client.get_project("PROJ1")
+    proj.create_recipe.return_value = MagicMock()
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "CustomCode_plug_rec",
+            "--input",
+            "in_ds",
+            "--output-folder",
+            "Data Folder",
+            "--output-role",
+            "output_folder",
+            "--params",
+            '{"mode": "x"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    recipe_proto = proj.create_recipe.call_args[0][0]
+    # Folder name "Data Folder" resolves to id "folder1" (conftest).
+    refs = [
+        item["ref"]
+        for role in recipe_proto["outputs"].values()
+        for item in role["items"]
+    ]
+    assert refs == ["folder1"]
+    assert recipe_proto["params"]["customConfig"] == {"mode": "x"}
+
+
+def test_recipe_create_output_ds_and_folder_mutually_exclusive(patch_client):
+    """Passing both --output-ds and --output-folder is rejected."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "CustomCode_plug_rec",
+            "--input",
+            "in_ds",
+            "--output-ds",
+            "out_ds",
+            "--output-folder",
+            "Data Folder",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "only one of --output-ds and --output-folder" in result.output.lower()
+
+
+def test_recipe_create_requires_an_output(patch_client):
+    """Omitting both --output-ds and --output-folder is rejected with guidance."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_step",
+            "--type",
+            "python",
+            "--input",
+            "in_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "No output specified" in result.output
+
+
+def test_recipe_run_folder_output_builds_as_managed_folder(patch_client):
+    """A recipe whose output is a managed folder builds with object_type
+    MANAGED_FOLDER, not the default DATASET (which would error)."""
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe("recipe1")
+    recipe.get_settings().get_flat_output_refs.return_value = ["folder1"]
+
+    result = runner.invoke(
+        app,
+        ["recipe", "run", "recipe1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    builder = proj.new_job.return_value
+    builder.with_output.assert_called_once_with("folder1", object_type="MANAGED_FOLDER")
 
 
 def test_recipe_create_unknown_type_error(patch_client):

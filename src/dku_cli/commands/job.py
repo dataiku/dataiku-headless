@@ -8,7 +8,11 @@ from datetime import datetime, timezone
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    resolve_build_output_types,
+    resolve_project,
+)
 from dku_cli.output import (
     console,
     error,
@@ -319,7 +323,9 @@ _JOB_TYPES = [
 def run(
     ctx: typer.Context,
     target: list[str] = typer.Option(
-        ..., "--target", help="Dataset/object to build (repeatable)"
+        ...,
+        "--target",
+        help="Object to build — dataset name, managed folder (name or ID), or saved model (name or ID). Type is auto-detected. Repeatable.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     job_type: str = typer.Option(
@@ -361,8 +367,11 @@ def run(
         proj = client.get_project(project_key)
         builder = proj.new_job(job_type)
 
-        for name in target:
-            builder.with_output(name)
+        # JobDefinitionBuilder.with_output defaults object_type to DATASET, so a
+        # managed-folder / saved-model target would error with "dataset does not
+        # exist". Resolve each target's real type (and names to IDs) first.
+        for resolved_ref, object_type in resolve_build_output_types(proj, target):
+            builder.with_output(resolved_ref, object_type=object_type)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
         if refresh_metastore:

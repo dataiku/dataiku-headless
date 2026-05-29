@@ -448,6 +448,49 @@ def resolve_saved_model(project, model_ref: str):
     )
 
 
+def resolve_build_output_types(project, refs):
+    """Map build output refs to (resolved_ref, object_type) for the job builder.
+
+    Recipe outputs (``get_flat_output_refs()``) and ``dku job run --target`` give
+    bare refs. ``JobDefinitionBuilder.with_output`` defaults ``object_type`` to
+    DATASET server-side, so managed-folder / saved-model outputs error with
+    "dataset <id> does not exist". Classify each ref by checking the project's
+    folders and saved models once, resolving names to IDs where needed.
+
+    Cross-project refs ("PROJECT.id") are left as-is and treated as DATASET
+    (recipe outputs are always local; cross-project build targets are uncommon
+    and DATASET is the safe default).
+
+    :returns: list of (resolved_ref, object_type) tuples, one per input ref.
+    """
+    try:
+        folders = project.list_managed_folders()
+    except Exception:
+        folders = []
+    try:
+        models = project.list_saved_models()
+    except Exception:
+        models = []
+    folder_ids = {f.get("id") for f in folders}
+    folder_by_name = {f.get("name"): f.get("id") for f in folders if f.get("name")}
+    model_ids = {m.get("id") for m in models}
+    model_by_name = {m.get("name"): m.get("id") for m in models if m.get("name")}
+
+    resolved: list[tuple[str, str]] = []
+    for ref in refs:
+        if ref in folder_ids:
+            resolved.append((ref, "MANAGED_FOLDER"))
+        elif ref in folder_by_name:
+            resolved.append((folder_by_name[ref], "MANAGED_FOLDER"))
+        elif ref in model_ids:
+            resolved.append((ref, "SAVED_MODEL"))
+        elif ref in model_by_name:
+            resolved.append((model_by_name[ref], "SAVED_MODEL"))
+        else:
+            resolved.append((ref, "DATASET"))
+    return resolved
+
+
 def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None):
     """Resolve a recipe input ref to (kind, resolved_ref) where kind is one of
     "DATASET", "MANAGED_FOLDER", "SAVED_MODEL".
