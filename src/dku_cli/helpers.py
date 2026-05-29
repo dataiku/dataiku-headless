@@ -463,14 +463,8 @@ def resolve_build_output_types(project, refs):
 
     :returns: list of (resolved_ref, object_type) tuples, one per input ref.
     """
-    try:
-        folders = project.list_managed_folders()
-    except Exception:
-        folders = []
-    try:
-        models = project.list_saved_models()
-    except Exception:
-        models = []
+    folders = project.list_managed_folders()
+    models = project.list_saved_models()
     folder_ids = {f.get("id") for f in folders}
     folder_by_name = {f.get("name"): f.get("id") for f in folders if f.get("name")}
     model_ids = {m.get("id") for m in models}
