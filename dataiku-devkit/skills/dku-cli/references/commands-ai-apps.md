@@ -126,11 +126,18 @@ dku webapp start WEBAPP_ID [-P PROJECT]
 dku webapp restart WEBAPP_ID [-P PROJECT]
 dku webapp stop WEBAPP_ID [-P PROJECT]
 dku webapp status WEBAPP_ID [-P PROJECT]
+dku webapp logs WEBAPP_ID [-P PROJECT] [--tail N] [--follow] [-o text|json]
 dku webapp get-definition WEBAPP_ID [-P PROJECT] [-o json]
 dku webapp set-definition WEBAPP_ID --definition JSON [-P PROJECT]
 ```
 
 - `create` supports types: STANDARD (default), BOKEH, DASH, STREAMLIT, SHINY. Case-insensitive.
+- `logs` reads the backend log tail surfaced by DSS in the `backend/state` payload.
+  - DSS caps the server-side tail at ~80 lines per call — `--tail N` filters further down; there is no way to fetch the full backend log via the public API.
+  - Default output is plain text, one line per row, no decoration — pipe to `grep`/`awk`. Use `-o json` for `{webappId, projectKey, running, totalLines, returnedLines, serverTailSize, lines[]}`.
+  - `--follow` polls every 2s and prints new lines as they appear (uses `totalLines` as a high-water mark). If a poll arrives with more new lines than the 80-line cap, the missed count is reported so you don't silently lose history. Cannot combine with `-o json`.
+  - When the backend is stopped, DSS omits `currentLogTail` entirely — the CLI emits a prescriptive `webapp_not_running` error with the exact `dku webapp start ...` command to recover.
+  - Debug-after-restart pattern: `dku webapp restart WEBAPP_ID -P PROJ && sleep 5 && dku webapp logs WEBAPP_ID -P PROJ | grep -Ei 'error|traceback'`.
 - `get-definition` returns full webapp settings including source code in `params` (html, css, js, python)
 - `set-definition` accepts JSON string, `@file.json`, or `-` for stdin
 - To edit webapp code: `get-definition` → modify `params` → `set-definition`
