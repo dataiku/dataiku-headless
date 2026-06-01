@@ -1,0 +1,29 @@
+id: full_genai_pipeline
+domain: end_to_end
+difficulty: hard
+expected_gap: none
+fixtures:
+  - world/products
+setup:
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+prompt: |
+  In project {project}, set up an initial GenAI workflow around the `products`
+  dataset: create a knowledge bank named `products_kb`, create a RAG object
+  from it, and create an agent that uses the resulting search tool (name the
+  tool `kb_search_tool`).
+validation_gaps:
+  - "RAG check enforces existence only, not the name 'Products RAG'. DSS list_retrieval_augmented_llms API does not return the name field — accepted on POST but not persisted in the GET response."
+checks:
+  - run: dku knowledge list -P {project} -o json
+    assert: output_contains
+    contains: products_kb
+  - run: dku rag list -P {project} -o json
+    assert: min_rows
+    min: 1
+  - run: dku agent-tool list -P {project} -o json
+    assert: output_contains
+    contains: kb_search_tool
+  - run: dku agent-block get-graph $(dku agent list -P {project} -o json | jq -r '.[0].id') -P {project} -o json
+    assert: output_contains
+    contains: CORE_LOOP

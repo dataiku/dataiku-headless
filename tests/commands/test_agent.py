@@ -307,8 +307,14 @@ def test_agent_set_llm_structured_agent(patch_client):
     assert ver_raw["structuredAgentSettings"]["llmId"] == "anthropic:conn:claude-4"
 
 
-def test_agent_add_tool_structured_agent(patch_client):
-    """add-tool should fall back to raw dict mutation for structured agents."""
+def test_agent_add_tool_structured_agent_rejected(patch_client):
+    """add-tool must refuse non-TOOLS_USING_AGENT types.
+
+    Regression: the command used to silently write the tool to
+    toolsUsingAgentSettings.tools — a key a structured agent never reads (its tools
+    live inside blocks), so the tool was never attached despite a success message.
+    It must now fail loudly and not save.
+    """
     result = runner.invoke(
         app,
         [
@@ -321,15 +327,14 @@ def test_agent_add_tool_structured_agent(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 0
-    assert "Added tool" in result.output
+    assert result.exit_code == 1
+    assert "TOOLS_USING_AGENT" in result.output
+    assert "blocks" in result.output
 
     settings = (
         patch_client.get_project("PROJ1").get_agent("structured_agent").get_settings()
     )
-    ver_raw = settings.get_version_settings("v1").get_raw()
-    tools = ver_raw["structuredAgentSettings"]["tools"]
-    assert any(t.get("toolRef") == "new_tool_2" for t in tools)
+    settings.save.assert_not_called()
 
 
 def test_agent_test(patch_client):

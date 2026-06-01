@@ -1,0 +1,20 @@
+id: train_prediction_model
+domain: visual_ml
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/customers
+setup:
+  - dku dataset create customers --type UploadedFiles -P {project}
+  - dku dataset upload customers {fixture_dir}/customers.csv -P {project}
+prompt: |
+  Train a prediction model in project {project} from the uploaded `customers`
+  dataset to predict customer `tier`. Keep the work in Visual ML and train at
+  least one model.
+checks:
+  - run: dku ml list -P {project} -o json
+    assert: output_contains
+    contains: customers
+  - run: dku ml models $(dku ml list -P {project} -o json | jq -r '.[0] | "\(.analysis_id) \(.mltask_id)"') -P {project} -o json
+    assert: min_rows
+    min: 1

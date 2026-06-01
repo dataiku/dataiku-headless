@@ -1,0 +1,11 @@
+store_id,name,geom,city
+S001,Paris Boutique,POINT (2.3522 48.8566),Paris
+S002,Tokyo Hub,POINT (139.6917 35.6895),Tokyo
+S003,New York Flagship,POINT (-74.006 40.7128),New York
+S004,London Store,POINT (-0.1276 51.5074),London
+S005,Berlin Outlet,POINT (13.405 52.52),Berlin
+S006,Sydney Branch,POINT (151.2093 -33.8688),Sydney
+S007,Sao Paulo Shop,POINT (-46.6333 -23.5505),Sao Paulo
+S008,Mumbai Store,POINT (72.8777 19.076),Mumbai
+S009,Cairo Location,POINT (31.2357 30.0444),Cairo
+S010,Toronto Branch,POINT (-79.3832 43.6532),Toronto

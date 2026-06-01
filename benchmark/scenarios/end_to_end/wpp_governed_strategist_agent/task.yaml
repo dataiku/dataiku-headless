@@ -1,0 +1,77 @@
+id: wpp_governed_strategist_agent
+domain: end_to_end
+difficulty: hard
+expected_gap: none
+fixtures:
+  - wpp/campaigns
+  - wpp/channels
+  - wpp/performance
+  - wpp/brand_docs
+setup:
+  - dku dataset create campaigns --type UploadedFiles -P {project}
+  - dku dataset create channels --type UploadedFiles -P {project}
+  - dku dataset create performance --type UploadedFiles -P {project}
+  - dku dataset create brand_docs --type UploadedFiles -P {project}
+  - dku dataset upload campaigns {fixture_dir}/campaigns.csv -P {project}
+  - dku dataset upload channels {fixture_dir}/channels.csv -P {project}
+  - dku dataset upload performance {fixture_dir}/performance.csv -P {project}
+  - dku dataset upload brand_docs {fixture_dir}/brand_docs.csv -P {project}
+initial_checks:
+  - run: dku semantic-model list-entities wpp_campaign_schema -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  Our agency strategists get briefs like "launch the spring collection in Germany
+  on a €2M budget" and spend two weeks working out the audience, the channel mix
+  and the messaging. We want to let them stand up a self-serve campaign strategist
+  themselves, with no engineering help.
+
+  In project {project}, build the pieces:
+  - a semantic layer named `wpp_campaign_schema` over the campaign, channel and
+    performance tables so the assistant can query campaign performance;
+  - a knowledge bank named `wpp_campaign_kb` from the brand-guideline and
+    trend-report documents so it can ground recommendations in brand strategy;
+  - an agent named `wpp_campaign_strategist` that draws on both to draft a
+    campaign brief with a recommended channel mix and cited sources.
+
+  The agent must apply one governance rule: any campaign whose total budget
+  exceeds €5,000,000 is flagged for governance review.
+
+  Acceptance criteria: the semantic model covers the three entities; the
+  knowledge bank exists and is retrieval-configured; and the agent exists with a
+  knowledge-base search tool and applies a governance rule that flags any
+  campaign exceeding 5000000 euro for review.
+validation_gaps:
+  - "The semantic model structure is enforced (entities and relationships). The
+    natural-language-to-SQL querying it enables is not executed or graded."
+  - "The knowledge bank object and its vector configuration are proven. A
+    successful embedding build and a live retrieval query are not executed or
+    graded."
+  - "The agent, its knowledge-base tool, the tool-calling loop and the encoded
+    5000000-euro governance threshold are proven structurally. The agent is not
+    run, so the flagging behaviour and the brief quality are not executed or
+    graded."
+  - "Production also exposes a semantic-model query tool (a custom plugin tool),
+    which the current CLI create flags cannot configure; the agent here is
+    grounded with knowledge-base search and a campaign record lookup instead."
+checks:
+  - run: dku semantic-model list-entities wpp_campaign_schema -P {project} -o json
+    assert: min_rows
+    min: 3
+  - run: dku knowledge list -P {project} -o json
+    assert: output_contains
+    contains: wpp_campaign_kb
+  - run: dku agent-tool list -P {project} -o json
+    assert: output_contains
+    contains: search_wpp_kb
+  - run: dku agent-block get-graph $(dku agent list -P {project} -o json | jq -r '.[] | select(.name=="wpp_campaign_strategist") | .id') -P {project} -o json
+    assert: output_contains
+    contains: CORE_LOOP
+  - run: dku agent-block get-graph $(dku agent list -P {project} -o json | jq -r '.[] | select(.name=="wpp_campaign_strategist") | .id') -P {project} -o json
+    assert: output_contains
+    contains: "5000000"
+  - run: dku semantic-model list-relationships wpp_campaign_schema -P {project} -o json
+    assert: min_rows
+    min: 2
+  - run: dku agent-tool list -P {project} -o json
+    assert: output_contains
+    contains: campaign_lookup

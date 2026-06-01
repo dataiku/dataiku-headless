@@ -1,0 +1,19 @@
+id: time_trigger_scenario
+domain: automation
+difficulty: easy
+expected_gap: none
+fixtures: []
+setup: []
+initial_checks:
+  - run: dku scenario get-definition daily_refresh -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  We need this data refreshed every morning. Create a scheduled scenario in
+  project {project} called `daily_refresh` that runs once per day.
+checks:
+  - run: dku scenario get-definition daily_refresh -P {project} -o json
+    assert: output_contains
+    contains: temporal
+  - run: dku scenario get-definition daily_refresh -P {project} -o json
+    assert: output_contains
+    contains: Daily

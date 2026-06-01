@@ -187,4 +187,4 @@ UF=$(dku govern uploaded-file upload ./risk-assessment.pdf \
 | (future) `govern blueprint delete` | 4 ADMIN | Instance-wide schema mutation |
 | (future) `govern role delete` | 3 CASCADE | Cross-blueprint permission impact |
 
-Not yet implemented: `blueprint create/delete`, `blueprint-version create/save`, `role create/delete`, `role-assignment create/delete`, `custom-page create/edit/delete`, `time-series push/get/delete`, `signoff delegate-*`. These are the planned P1 follow-ups — see `docs/govern-battletest-findings.md`.
+Not yet implemented: `blueprint create/delete`, `blueprint-version create/save`, `role create/delete`, `role-assignment create/delete`, `custom-page create/edit/delete`, `time-series push/get/delete`, `signoff delegate-*`. These are the planned P1 follow-ups.

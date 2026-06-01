@@ -1,0 +1,69 @@
+id: upload_and_aggregate
+domain: data_prep
+difficulty: easy
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"string\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+initial_checks:
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  The `orders` dataset in project {project} was uploaded with the wrong schema:
+  every column is typed as text, including `amount`. Fix the typing issue and
+  create a grouped dataset named `revenue_by_region` with one row per region and
+  columns `region` and `amount_sum` (the total order amount per region).
+  Keep this in the visual flow.
+checks:
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: exit_code_zero
+  - run: dku dataset head revenue_by_region -P {project} -n 10 -o json
+    assert: min_rows
+    min: 4
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: output_contains
+    contains: region
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: output_contains
+    contains: amount
+  - run: dku dataset list -P {project} -o json
+    assert: output_rows
+    columns: [revenue_by_region]
+
+expected_outputs:
+  revenue_by_region:
+    schema:
+      - {name: region, type: string}
+      - {name: amount_sum, type: double}
+    row_count: 4
+    data:
+      - {region: East, amount_sum: 11262.18}
+      - {region: North, amount_sum: 11133.51}
+      - {region: South, amount_sum: 11574.7}
+      - {region: West, amount_sum: 11575.9}
+expected_flow:
+  nodes:
+    orders:
+      type: source
+      schema:
+        - {name: order_id, type: string}
+        - {name: customer_id, type: string}
+        - {name: product_id, type: string}
+        - {name: region, type: string}
+        - {name: amount, type: string}
+        - {name: date, type: dateonly}
+    revenue_by_region:
+      type: output
+      schema:
+        - {name: region, type: string}
+        - {name: amount_sum, type: double}
+  recipes:
+    - type: Grouping
+      inputs: [orders]
+      outputs: [revenue_by_region]
+  exact_recipe_count: true

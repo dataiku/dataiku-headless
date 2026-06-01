@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
+import click
 import typer
+from typer.core import TyperCommand, TyperGroup
 
 from dku_cli.brand import version_string
 from dku_cli.commands import (
@@ -64,6 +67,41 @@ from dku_cli.commands import (
     wiki,
     workspace,
 )
+
+# Monkey-patch TyperGroup/Command to use Click plain-text help when
+# compact mode is active (saves ~2K tokens on every --help call).
+_original_group_help = TyperGroup.format_help
+_original_command_help = TyperCommand.format_help
+
+
+def _compact_group_help(self, ctx, formatter):
+    from dku_cli.output import is_compact
+
+    if is_compact():
+        click.Group.format_help(self, ctx, formatter)
+    else:
+        _original_group_help(self, ctx, formatter)
+
+
+def _compact_command_help(self, ctx, formatter):
+    from dku_cli.output import is_compact
+
+    if is_compact():
+        click.Command.format_help(self, ctx, formatter)
+    else:
+        _original_command_help(self, ctx, formatter)
+
+
+TyperGroup.format_help = _compact_group_help
+TyperCommand.format_help = _compact_command_help
+
+# --compact is normally consumed by the app callback, but --help is an eager
+# Click option that renders before the callback runs. Detect --compact from
+# argv at import time so `dku --compact --help` actually produces plain help.
+if "--compact" in sys.argv:
+    from dku_cli.output import set_compact
+
+    set_compact(True)
 
 app = typer.Typer(
     name="dku",
@@ -154,6 +192,11 @@ def main(
     quiet: Optional[bool] = typer.Option(
         None, "--quiet", "-q", help="Suppress info/success messages"
     ),
+    compact: Optional[bool] = typer.Option(
+        None,
+        "--compact",
+        help="Compact machine-readable output (no indentation, omit empty fields, plain help text)",
+    ),
     errors: str = typer.Option(
         "text", "--errors", help="Error output format (text or json)"
     ),
@@ -186,6 +229,10 @@ def main(
         from dku_cli.output import set_quiet
 
         set_quiet(True)
+    if compact:
+        from dku_cli.output import set_compact
+
+        set_compact(True)
     if errors not in ("text", "json"):
         raise typer.BadParameter(
             "Error output format must be one of: text, json", param_hint="--errors"
@@ -198,7 +245,10 @@ def main(
         from dku_cli.brand import print_logo
 
         print_logo(subtitle=version_string())
-        ctx.get_help()
+        help_text = ctx.get_help()
+        if help_text:
+            # Compact mode: get_help() returns plain text from Click
+            print(help_text)
         raise typer.Exit()
 
 

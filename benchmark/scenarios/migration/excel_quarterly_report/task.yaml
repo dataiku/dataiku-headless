@@ -1,0 +1,76 @@
+id: excel_quarterly_report
+domain: migration
+difficulty: medium
+expected_gap: none
+fixtures:
+  - migration/expenses
+
+setup:
+  - "dku dataset create migration_expenses --type UploadedFiles -P {project}"
+  - "dku dataset upload migration_expenses {fixture_dir}/expenses.csv -P {project}"
+  - "dku dataset set-schema migration_expenses -P {project} --definition '[{\"name\":\"date\",\"type\":\"string\"},{\"name\":\"department\",\"type\":\"string\"},{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"vendor\",\"type\":\"string\"}]'"
+
+initial_checks:
+  - run: "dku dataset schema expense_summary -P {project} -o json"
+    assert: exit_code_nonzero
+
+prompt: |
+  A business analyst has a quarterly finance workbook that needs to move into
+  Dataiku project {project} as a managed flow. The source dataset
+  `migration_expenses` is already uploaded.
+
+  Recreate the two reporting outputs from that workbook. I need:
+
+  - `expense_summary`: spending by department and category, with columns
+    `total_amount` (sum), `average_amount` (average), and `transaction_count`
+    (number of transactions)
+  - `expense_monthly`: a month-by-department view of spending
+
+  Keep the work in the visual flow and build both branches end to end.
+
+checks:
+  - run: "dku recipe list -P {project} -o json"
+    assert: min_rows
+    min: 2
+  - run: "dku dataset schema expense_summary -P {project} -o json"
+    assert: has_columns
+    columns: [department, category, total_amount, average_amount, transaction_count]
+  - run: "dku dataset head expense_summary -P {project} -n 50 -o json"
+    assert: min_rows
+    min: 5
+  - run: "dku recipe list -P {project} -o json"
+    assert: no_python_recipes
+  - run: "dku dataset list -P {project} -o json"
+    assert: output_rows
+    columns: [expense_summary]
+  - run: "dku dataset schema expense_monthly -P {project} -o json"
+    assert: has_columns
+    columns: [department]
+
+expected_outputs:
+  expense_summary:
+    schema:
+      - {name: department, type: string}
+      - {name: category, type: string}
+      - {name: total_amount, type: double}
+      - {name: average_amount, type: double}
+      - {name: transaction_count, type: bigint}
+    row_count: 28
+expected_flow:
+  nodes:
+    migration_expenses:
+      type: source
+    expense_summary:
+      type: output
+      schema:
+        - {name: department, type: string}
+        - {name: category, type: string}
+        - {name: total_amount, type: double}
+        - {name: average_amount, type: double}
+        - {name: transaction_count, type: bigint}
+  recipes:
+    - type: Grouping
+      inputs: [migration_expenses]
+      outputs: [expense_summary]
+  exact_recipe_count: false
+  exact_dataset_count: false

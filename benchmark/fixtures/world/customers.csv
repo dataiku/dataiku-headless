@@ -1,0 +1,101 @@
+customer_id,name,tier,country
+C001,Customer 001,VIP,Japan
+C002,Customer 002,active,Spain
+C003,Customer 003,new,France
+C004,Customer 004,churned,Brazil
+C005,Customer 005,VIP,United Kingdom
+C006,Customer 006,active,Germany
+C007,Customer 007,new,Canada
+C008,Customer 008,churned,United States
+,Customer 009,VIP,Japan
+C010,Customer 010,active,Spain
+C011,Customer 011,new,France
+C012,Customer 012,churned,Brazil
+C013,Customer 013,VIP,United Kingdom
+C014,Customer 014,active,Germany
+C015,Customer 015,new,Canada
+C016,Customer 016,churned,United States
+C017,Customer 017,VIP,Japan
+C018,Customer 018,active,Spain
+C019,Customer 019,new,France
+C020,Customer 020,churned,Brazil
+C021,Customer 021,VIP,United Kingdom
+C022,Customer 022,active,Germany
+C023,Customer 023,new,Canada
+C024,Customer 024,churned,United States
+C025,Customer 025,VIP,Japan
+C026,Customer 026,active,Spain
+,Customer 027,new,France
+C028,Customer 028,churned,Brazil
+C029,Customer 029,VIP,United Kingdom
+C030,Customer 030,active,Germany
+C031,Customer 031,new,Canada
+C032,Customer 032,churned,United States
+C033,Customer 033,VIP,Japan
+C034,Customer 034,active,Spain
+C035,Customer 035,new,France
+C036,Customer 036,churned,Brazil
+C037,Customer 037,VIP,United Kingdom
+C038,Customer 038,active,Germany
+C039,Customer 039,new,Canada
+C040,Customer 040,churned,United States
+C041,Customer 041,VIP,Japan
+C042,Customer 042,active,Spain
+C043,Customer 043,new,France
+C044,Customer 044,churned,Brazil
+C045,Customer 045,VIP,United Kingdom
+C046,Customer 046,active,Germany
+C047,Customer 047,new,Canada
+C048,Customer 048,churned,United States
+C049,Customer 049,VIP,Japan
+C050,Customer 050,active,Spain
+C051,Customer 051,new,France
+C052,Customer 052,churned,Brazil
+C053,Customer 053,VIP,United Kingdom
+C054,Customer 054,active,Germany
+C055,Customer 055,new,Canada
+C056,Customer 056,churned,United States
+C057,Customer 057,VIP,Japan
+C058,Customer 058,active,Spain
+C059,Customer 059,new,France
+C060,Customer 060,churned,Brazil
+C061,Customer 061,VIP,United Kingdom
+C062,Customer 062,active,Germany
+C063,Customer 063,new,Canada
+,Customer 064,churned,United States
+C065,Customer 065,VIP,Japan
+C066,Customer 066,active,Spain
+C067,Customer 067,new,France
+C068,Customer 068,churned,Brazil
+C069,Customer 069,VIP,United Kingdom
+C070,Customer 070,active,Germany
+C071,Customer 071,new,Canada
+C072,Customer 072,churned,United States
+C073,Customer 073,VIP,Japan
+C074,Customer 074,active,Spain
+C075,Customer 075,new,France
+C076,Customer 076,churned,Brazil
+C077,Customer 077,VIP,United Kingdom
+C078,Customer 078,active,Germany
+C079,Customer 079,new,Canada
+C080,Customer 080,churned,United States
+C081,Customer 081,VIP,Japan
+C082,Customer 082,active,Spain
+C083,Customer 083,new,France
+C084,Customer 084,churned,Brazil
+C085,Customer 085,VIP,United Kingdom
+C086,Customer 086,active,Germany
+C087,Customer 087,new,Canada
+,Customer 088,churned,United States
+C089,Customer 089,VIP,Japan
+C090,Customer 090,active,Spain
+C091,Customer 091,new,France
+C092,Customer 092,churned,Brazil
+C093,Customer 093,VIP,United Kingdom
+C094,Customer 094,active,Germany
+C095,Customer 095,new,Canada
+C096,Customer 096,churned,United States
+C097,Customer 097,VIP,Japan
+C098,Customer 098,active,Spain
+C099,Customer 099,new,France
+C100,Customer 100,churned,Brazil

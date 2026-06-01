@@ -26,6 +26,16 @@ Train → Evaluate → Version → Deploy → Monitor → Retrain
 
 ## Visual ML — Training Models
 
+### ML Iteration Cycle
+
+The core ML workflow is an iteration loop:
+
+```
+Create ML Task → Configure → Train → Inspect results → Refine → Train → Deploy to Flow → Score
+```
+
+Each "train" creates a new training session with multiple model candidates. Iterate on settings (algorithms, features, sampling) between sessions. Once satisfied, deploy one model to the Flow as a saved model.
+
 ### Creating a Visual ML Task
 
 ```
@@ -36,6 +46,16 @@ Flow → Dataset → Lab → AutoML Prediction / Clustering
   → Select algorithms
   → Train
 ```
+
+An ML Task is identified by its `analysisId` and `mltaskId` — you always need both.
+
+### Updating an Existing Saved Model
+
+When iterating on a deployed model, deploying a new version to the same saved model (via `--saved-model-id` in the `dku-cli` skill) creates a new version while preserving the model's ID and downstream references. Use this instead of creating duplicate saved models on each iteration.
+
+### Forecasting Models
+
+Forecasting needs a time variable (storage type `dateonly` or `date`) and a target variable. If the time column is stored as string, use a Prepare recipe to parse it first. After creation, confirm the forecasting horizon and time step with the user.
 
 ### Algorithm Selection Guide
 

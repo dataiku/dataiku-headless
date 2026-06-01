@@ -68,16 +68,18 @@ Use this skill to decide **what DSS capability to use** and which platform refer
 | Webapps | `references/webapps.md`, `references/webapp-backends.md`, `references/webapp-frontends.md`, `references/webapp-local-dev-deploy.md`, `references/webapp-patterns.md`, `references/webapp-pitfalls.md` |
 | Parameters and forms | `references/parameters.md`, `references/parameters-types.md`, `references/parameters-dynamic.md`, `references/parameters-access.md` |
 | Dataset connectors | `references/datasets.md` |
+| Share datasets/folders/models/KBs across projects | `references/cross-project-sharing.md` |
 | Macros and runnables | `references/macros.md` |
 | Code environments | `references/code-environments.md` |
 | Plugin tests and review | `references/testing.md`, `references/plugin-review-checklist.md` |
-| Prepare processors | `references/prepare-processors.md`, `references/prepare-processors-core.md`, `references/prepare-processors-dates.md`, `references/prepare-processors-reshape-json-geo.md` |
+| Prepare processor overview | `references/prepare-processors.md` (selection guide + catalog), then open per-processor ref from `references/processors/<Processor>.md` |
 | GREL formulas | `references/formulas.md` |
 | Visual recipe payloads | `references/visual-recipe-payloads.md`, `references/visual-conditions.md` |
 | LLM Mesh and Knowledge Banks | `references/llm-mesh.md` |
 | Structured Visual Agents | `references/structured-agents.md`, `references/visual-agent-blocks.md` |
 | Guardrails | `references/guardrails.md` |
 | Scenarios | `references/scenarios.md` |
+| Data Quality rules | `references/data-quality-rules.md` | 10 rule families: record-count, size, numeric-range, emptiness, uniqueness, allowed-values, top-mode, meaning, schema, metric-compare |
 | MLOps | `references/mlops.md` |
 | Python API usage | `references/python-api.md` |
 | Dashboard and charts | `references/dashboard-charts.md` |

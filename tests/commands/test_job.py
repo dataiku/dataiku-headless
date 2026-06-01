@@ -112,6 +112,17 @@ def test_job_log_tail(patch_client):
     assert "line4" in result.output
 
 
+def test_job_log_grep_no_match(patch_client):
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = "INFO build started\nINFO build finished"
+    result = runner.invoke(
+        app, ["job", "log", "job1", "--project", "PROJ1", "--grep", "nonexistent"]
+    )
+    assert result.exit_code == 0
+    assert "No lines matching 'nonexistent' found" in result.output
+    assert "INFO build started" not in result.output
+
+
 def test_job_log_errors_only(patch_client):
     job = patch_client.get_project("PROJ1").get_job("job1")
     job.get_log.return_value = "\n".join(

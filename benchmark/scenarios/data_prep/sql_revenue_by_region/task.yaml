@@ -1,0 +1,57 @@
+id: sql_revenue_by_region
+domain: data_prep
+difficulty: medium
+expected_gap: tool_gap
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - dku dataset set-schema orders -d 'order_id string, customer_id string, product_id string, region string, amount double, date date' -P {project}
+initial_checks:
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, calculate the total revenue per region from the
+  `orders` dataset using the visual flow. Save the result as
+  `revenue_by_region` with columns `region` and `total_revenue`.
+  Do not use a Python recipe.
+checks:
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: has_columns
+    columns:
+      - region
+  - run: dku dataset head revenue_by_region -P {project} -n 5 -o json
+    assert: min_rows
+    min: 4
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku dataset schema revenue_by_region -P {project} -o json
+    assert: column_is_numeric
+    column: total_revenue
+
+expected_flow:
+  nodes:
+    orders:
+      type: source
+      schema:
+        - {name: order_id, type: string}
+        - {name: customer_id, type: string}
+        - {name: product_id, type: string}
+        - {name: region, type: string}
+        - {name: amount, type: double}
+        - {name: date, type: dateonly}
+    revenue_by_region:
+      type: output
+      schema:
+        - {name: region, type: string}
+        - {name: total_revenue, type: double}
+  recipes:
+    - type: group
+      inputs: [orders]
+      outputs: [revenue_by_region]
+  exact_recipe_count: true
+
+validation_gaps:
+  - "Checks confirm a Group recipe computes total revenue per region, but do
+     not verify the specific aggregation function (SUM vs COUNT vs AVG)."

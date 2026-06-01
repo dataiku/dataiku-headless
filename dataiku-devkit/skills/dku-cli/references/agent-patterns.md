@@ -2,6 +2,28 @@
 
 Advanced patterns for Structured Visual Agents (SVAs), agent tools, LLM configuration, and agent evaluation.
 
+## Quickstart Recipes
+
+**Tool-calling agent** (create agent + tool + core loop):
+```bash
+dku agent create NAME --type STRUCTURED_AGENT -P PROJ
+dku agent-tool create TOOL_NAME --type DatasetRowLookup --dataset DS -P PROJ
+AGENT_ID=$(dku agent list -P PROJ -o json | jq -r '.[] | select(.name=="NAME") | .id')
+LLM_ID=$(dku llm list -P PROJ -o json | jq -r '.[0].id')
+dku agent-block add "$AGENT_ID" --set-start -b "{\"type\":\"CORE_LOOP\",\"id\":\"loop\",\"llmId\":\"$LLM_ID\"}" -P PROJ
+dku agent add-tool "$AGENT_ID" --tool TOOL_NAME -P PROJ
+```
+
+**Stateful agent** (conversation memory + summarization):
+```bash
+dku agent create NAME --type STRUCTURED_AGENT -P PROJ
+AGENT_ID=$(dku agent list -P PROJ -o json | jq -r '.[] | select(.name=="NAME") | .id')
+dku agent-block add "$AGENT_ID" --set-start -b '{"type":"SET_STATE_ENTRIES","id":"memory"}' -P PROJ
+dku agent-block add "$AGENT_ID" -b '{"type":"EMIT_OUTPUT","id":"output","templateType":"CEL_EXPANSION","template":"","addToMessages":true}' -P PROJ
+```
+
+For ROUTING and other non-trivial graphs, use the `get-graph` → patch → `set-graph` workflow below.
+
 ## Structured Visual Agent (SVA) Graph — Canonical Workflow
 
 **Use `set-graph` as the primary pattern.** The `dku agent-block connect` command does not support `PYTHON_CODE` blocks (exits with an error — use `validNextBlocksFromCode` + `NextBlock()` yield instead). For `STANDARD_REACT`, `connect` works correctly (sets `defaultNextBlock` automatically). For any non-trivial graph, always use `get-graph -> patch JSON -> set-graph`:

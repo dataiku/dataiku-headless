@@ -1,0 +1,23 @@
+id: llm_eval_store
+domain: genai
+difficulty: hard
+expected_gap: none
+fixtures:
+  - genai/qa_pairs
+setup:
+  - dku dataset create qa_pairs --type UploadedFiles -P {project}
+  - dku dataset upload qa_pairs {fixture_dir}/qa_pairs.csv -P {project}
+prompt: |
+  In project {project}, set up automated testing of our AI answers against the
+  `qa_pairs` dataset. Create an evaluation setup and add an evaluation recipe
+  named `qa_eval_recipe` to the flow.
+validation_gaps:
+  - Current automated validation proves eval-store creation and recipe registration only.
+  - The harness does not yet run the eval recipe and assert on produced scoring outputs.
+checks:
+  - run: dku evaluation-store get $(dku evaluation-store list -P {project} -o json | jq -r '.[] | select(.flavor=="LLM") | .id') -P {project} -o json
+    assert: output_contains
+    contains: "\"mesFlavor\": \"LLM\""
+  - run: dku recipe list -P {project} -o json
+    assert: output_contains
+    contains: qa_eval_recipe

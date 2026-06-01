@@ -1,0 +1,201 @@
+user_id,signup_date,plan,country
+U0001,2023-01-02,pro,France
+U0002,2023-01-03,team,Germany
+U0003,2023-01-04,enterprise,Japan
+U0004,2023-01-05,free,Brazil
+U0005,2023-01-06,pro,Canada
+U0006,2023-01-07,team,Spain
+U0007,2023-01-08,enterprise,United Kingdom
+U0008,2023-01-09,free,United States
+U0009,2023-01-10,pro,France
+U0010,2023-01-11,team,Germany
+U0011,2023-01-12,enterprise,Japan
+U0012,2023-01-13,free,Brazil
+U0013,2023-01-14,pro,Canada
+U0014,2023-01-15,team,Spain
+U0015,2023-01-16,enterprise,United Kingdom
+U0016,2023-01-17,free,United States
+U0017,2023-01-18,pro,France
+U0018,2023-01-19,team,Germany
+U0019,2023-01-20,enterprise,Japan
+U0020,2023-01-21,free,Brazil
+U0021,2023-01-22,pro,Canada
+U0022,2023-01-23,team,Spain
+U0023,2023-01-24,enterprise,United Kingdom
+U0024,2023-01-25,free,United States
+U0025,2023-01-26,pro,France
+U0026,2023-01-27,team,Germany
+U0027,2023-01-28,enterprise,Japan
+U0028,2023-01-29,free,Brazil
+U0029,2023-01-30,pro,Canada
+U0030,2023-01-31,team,Spain
+U0031,2023-02-01,enterprise,United Kingdom
+U0032,2023-02-02,free,United States
+U0033,2023-02-03,pro,France
+U0034,2023-02-04,team,Germany
+U0035,2023-02-05,enterprise,Japan
+U0036,2023-02-06,free,Brazil
+U0037,2023-02-07,pro,Canada
+U0038,2023-02-08,team,Spain
+U0039,2023-02-09,enterprise,United Kingdom
+U0040,2023-02-10,free,United States
+U0041,2023-02-11,pro,France
+U0042,2023-02-12,team,Germany
+U0043,2023-02-13,enterprise,Japan
+U0044,2023-02-14,free,Brazil
+U0045,2023-02-15,pro,Canada
+U0046,2023-02-16,team,Spain
+U0047,2023-02-17,enterprise,United Kingdom
+U0048,2023-02-18,free,United States
+U0049,2023-02-19,pro,France
+U0050,2023-02-20,team,Germany
+U0051,2023-02-21,enterprise,Japan
+U0052,2023-02-22,free,Brazil
+U0053,2023-02-23,pro,Canada
+U0054,2023-02-24,team,Spain
+U0055,2023-02-25,enterprise,United Kingdom
+U0056,2023-02-26,free,United States
+U0057,2023-02-27,pro,France
+U0058,2023-02-28,team,Germany
+U0059,2023-03-01,enterprise,Japan
+U0060,2023-03-02,free,Brazil
+U0061,2023-03-03,pro,Canada
+U0062,2023-03-04,team,Spain
+U0063,2023-03-05,enterprise,United Kingdom
+U0064,2023-03-06,free,United States
+U0065,2023-03-07,pro,France
+U0066,2023-03-08,team,Germany
+U0067,2023-03-09,enterprise,Japan
+U0068,2023-03-10,free,Brazil
+U0069,2023-03-11,pro,Canada
+U0070,2023-03-12,team,Spain
+U0071,2023-03-13,enterprise,United Kingdom
+U0072,2023-03-14,free,United States
+U0073,2023-03-15,pro,France
+U0074,2023-03-16,team,Germany
+U0075,2023-03-17,enterprise,Japan
+U0076,2023-03-18,free,Brazil
+U0077,2023-03-19,pro,Canada
+U0078,2023-03-20,team,Spain
+U0079,2023-03-21,enterprise,United Kingdom
+U0080,2023-03-22,free,United States
+U0081,2023-03-23,pro,France
+U0082,2023-03-24,team,Germany
+U0083,2023-03-25,enterprise,Japan
+U0084,2023-03-26,free,Brazil
+U0085,2023-03-27,pro,Canada
+U0086,2023-03-28,team,Spain
+U0087,2023-03-29,enterprise,United Kingdom
+U0088,2023-03-30,free,United States
+U0089,2023-03-31,pro,France
+U0090,2023-04-01,team,Germany
+U0091,2023-04-02,enterprise,Japan
+U0092,2023-04-03,free,Brazil
+U0093,2023-04-04,pro,Canada
+U0094,2023-04-05,team,Spain
+U0095,2023-04-06,enterprise,United Kingdom
+U0096,2023-04-07,free,United States
+U0097,2023-04-08,pro,France
+U0098,2023-04-09,team,Germany
+U0099,2023-04-10,enterprise,Japan
+U0100,2023-04-11,free,Brazil
+U0101,2023-04-12,pro,Canada
+U0102,2023-04-13,team,Spain
+U0103,2023-04-14,enterprise,United Kingdom
+U0104,2023-04-15,free,United States
+U0105,2023-04-16,pro,France
+U0106,2023-04-17,team,Germany
+U0107,2023-04-18,enterprise,Japan
+U0108,2023-04-19,free,Brazil
+U0109,2023-04-20,pro,Canada
+U0110,2023-04-21,team,Spain
+U0111,2023-04-22,enterprise,United Kingdom
+U0112,2023-04-23,free,United States
+U0113,2023-04-24,pro,France
+U0114,2023-04-25,team,Germany
+U0115,2023-04-26,enterprise,Japan
+U0116,2023-04-27,free,Brazil
+U0117,2023-04-28,pro,Canada
+U0118,2023-04-29,team,Spain
+U0119,2023-04-30,enterprise,United Kingdom
+U0120,2023-05-01,free,United States
+U0121,2023-05-02,pro,France
+U0122,2023-05-03,team,Germany
+U0123,2023-05-04,enterprise,Japan
+U0124,2023-05-05,free,Brazil
+U0125,2023-05-06,pro,Canada
+U0126,2023-05-07,team,Spain
+U0127,2023-05-08,enterprise,United Kingdom
+U0128,2023-05-09,free,United States
+U0129,2023-05-10,pro,France
+U0130,2023-05-11,team,Germany
+U0131,2023-05-12,enterprise,Japan
+U0132,2023-05-13,free,Brazil
+U0133,2023-05-14,pro,Canada
+U0134,2023-05-15,team,Spain
+U0135,2023-05-16,enterprise,United Kingdom
+U0136,2023-05-17,free,United States
+U0137,2023-05-18,pro,France
+U0138,2023-05-19,team,Germany
+U0139,2023-05-20,enterprise,Japan
+U0140,2023-05-21,free,Brazil
+U0141,2023-05-22,pro,Canada
+U0142,2023-05-23,team,Spain
+U0143,2023-05-24,enterprise,United Kingdom
+U0144,2023-05-25,free,United States
+U0145,2023-05-26,pro,France
+U0146,2023-05-27,team,Germany
+U0147,2023-05-28,enterprise,Japan
+U0148,2023-05-29,free,Brazil
+U0149,2023-05-30,pro,Canada
+U0150,2023-05-31,team,Spain
+U0151,2023-06-01,enterprise,United Kingdom
+U0152,2023-06-02,free,United States
+U0153,2023-06-03,pro,France
+U0154,2023-06-04,team,Germany
+U0155,2023-06-05,enterprise,Japan
+U0156,2023-06-06,free,Brazil
+U0157,2023-06-07,pro,Canada
+U0158,2023-06-08,team,Spain
+U0159,2023-06-09,enterprise,United Kingdom
+U0160,2023-06-10,free,United States
+U0161,2023-06-11,pro,France
+U0162,2023-06-12,team,Germany
+U0163,2023-06-13,enterprise,Japan
+U0164,2023-06-14,free,Brazil
+U0165,2023-06-15,pro,Canada
+U0166,2023-06-16,team,Spain
+U0167,2023-06-17,enterprise,United Kingdom
+U0168,2023-06-18,free,United States
+U0169,2023-06-19,pro,France
+U0170,2023-06-20,team,Germany
+U0171,2023-06-21,enterprise,Japan
+U0172,2023-06-22,free,Brazil
+U0173,2023-06-23,pro,Canada
+U0174,2023-06-24,team,Spain
+U0175,2023-06-25,enterprise,United Kingdom
+U0176,2023-06-26,free,United States
+U0177,2023-06-27,pro,France
+U0178,2023-06-28,team,Germany
+U0179,2023-06-29,enterprise,Japan
+U0180,2023-06-30,free,Brazil
+U0181,2023-07-01,pro,Canada
+U0182,2023-07-02,team,Spain
+U0183,2023-07-03,enterprise,United Kingdom
+U0184,2023-07-04,free,United States
+U0185,2023-07-05,pro,France
+U0186,2023-07-06,team,Germany
+U0187,2023-07-07,enterprise,Japan
+U0188,2023-07-08,free,Brazil
+U0189,2023-07-09,pro,Canada
+U0190,2023-07-10,team,Spain
+U0191,2023-07-11,enterprise,United Kingdom
+U0192,2023-07-12,free,United States
+U0193,2023-07-13,pro,France
+U0194,2023-07-14,team,Germany
+U0195,2023-07-15,enterprise,Japan
+U0196,2023-07-16,free,Brazil
+U0197,2023-07-17,pro,Canada
+U0198,2023-07-18,team,Spain
+U0199,2023-07-19,enterprise,United Kingdom
+U0200,2023-07-20,free,United States

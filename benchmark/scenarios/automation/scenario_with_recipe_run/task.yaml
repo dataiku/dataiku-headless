@@ -1,0 +1,27 @@
+id: scenario_with_recipe_run
+domain: automation
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+  - dku recipe create-sort sort_orders -i orders --output-ds sorted_orders --sort-col amount:desc -P {project}
+prompt: |
+  In project {project}, automate the `sort_orders` recipe so it runs whenever
+  the `orders` dataset changes. Create a scenario named `order_pipeline` that
+  runs the recipe on every change, and run it once to confirm it completes
+  successfully and produces output.
+checks:
+  - run: dku scenario get-definition order_pipeline -P {project} -o json
+    assert: trigger_watches
+    trigger_type: ds_modified
+    dataset: orders
+  - run: dku scenario status order_pipeline -P {project} -o json
+    assert: output_contains
+    contains: SUCCESS
+  - run: dku dataset head sorted_orders -P {project} -o json
+    assert: min_rows
+    min: 1

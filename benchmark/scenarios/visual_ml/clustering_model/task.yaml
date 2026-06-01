@@ -1,0 +1,20 @@
+id: clustering_model
+domain: visual_ml
+difficulty: hard
+expected_gap: none
+fixtures:
+  - world/products
+setup:
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+  - "dku dataset set-schema products -P {project} --definition '[{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"unit_price\",\"type\":\"double\"}]'"
+prompt: |
+  In project {project}, create a clustering analysis from the uploaded
+  `products` dataset and train it in Visual ML.
+checks:
+  - run: dku ml list -P {project} -o json
+    assert: output_contains
+    contains: products
+  - run: dku ml models $(dku ml list -P {project} -o json | jq -r '.[0] | "\(.analysis_id) \(.mltask_id)"') -P {project} -o json
+    assert: min_rows
+    min: 1

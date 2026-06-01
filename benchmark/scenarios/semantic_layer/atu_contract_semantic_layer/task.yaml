@@ -1,0 +1,66 @@
+id: atu_contract_semantic_layer
+domain: semantic_layer
+difficulty: hard
+expected_gap: none
+fixtures:
+  - atu/suppliers
+  - atu/contracts
+  - atu/erp_postings
+  - atu/cost_centers
+  - atu/gl_accounts
+  - atu/headcount_monthly
+setup:
+  - dku dataset create suppliers --type UploadedFiles -P {project}
+  - dku dataset create contracts --type UploadedFiles -P {project}
+  - dku dataset create erp_postings --type UploadedFiles -P {project}
+  - dku dataset create cost_centers --type UploadedFiles -P {project}
+  - dku dataset create gl_accounts --type UploadedFiles -P {project}
+  - dku dataset create headcount_monthly --type UploadedFiles -P {project}
+  - dku dataset upload suppliers {fixture_dir}/suppliers.csv -P {project}
+  - dku dataset upload contracts {fixture_dir}/contracts.csv -P {project}
+  - dku dataset upload erp_postings {fixture_dir}/erp_postings.csv -P {project}
+  - dku dataset upload cost_centers {fixture_dir}/cost_centers.csv -P {project}
+  - dku dataset upload gl_accounts {fixture_dir}/gl_accounts.csv -P {project}
+  - dku dataset upload headcount_monthly {fixture_dir}/headcount_monthly.csv -P {project}
+initial_checks:
+  - run: dku semantic-model list-entities atu_contract_intelligence -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  Procurement and Finance keep asking questions that cut across our IT supplier
+  contracts and the actual SAP postings behind them — for example, "are we still
+  being billed on contracts that already expired?". To make those answerable,
+  set up a semantic layer named `atu_contract_intelligence` over the supplier,
+  contract, ERP-posting (invoice), cost-centre, GL-account and monthly-headcount
+  tables that are already loaded in project {project}.
+
+  Model the six business entities, the relationships that let a posting be traced
+  back to its contract, its supplier, its cost centre and its GL account, and the
+  core spend metrics (monthly and annual contract value, and total invoice spend).
+
+  Acceptance criteria: the semantic model exists with the six entities, the
+  relationships linking postings to contracts and to the master-data tables, and
+  the spend metrics.
+validation_gaps:
+  - "Checks enforce the semantic model's structure only (entity count, relationship
+    count, and that the posting→contract join and a spend metric are present).
+    Natural-language-to-SQL answer quality, golden-query correctness, and
+    distinct-value indexing are not executed or graded."
+checks:
+  - run: dku semantic-model list-entities atu_contract_intelligence -P {project} -o json
+    assert: min_rows
+    min: 6
+  - run: dku semantic-model list-relationships atu_contract_intelligence -P {project} -o json
+    assert: min_rows
+    min: 6
+  - run: dku semantic-model get-version atu_contract_intelligence -P {project} -o json
+    assert: output_contains
+    contains: Invoice
+  - run: dku semantic-model get-version atu_contract_intelligence -P {project} -o json
+    assert: output_contains
+    contains: contract_ref
+  - run: dku semantic-model get-version atu_contract_intelligence -P {project} -o json
+    assert: output_contains
+    contains: amount_eur
+  - run: dku semantic-model list-metrics atu_contract_intelligence --entity Invoice -P {project} -o json
+    assert: output_contains
+    contains: Total Spend

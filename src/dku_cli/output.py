@@ -18,6 +18,7 @@ console = Console()
 err_console = Console(stderr=True)
 
 _quiet = False
+_compact = False
 _error_format = "text"
 
 
@@ -32,6 +33,17 @@ def is_quiet() -> bool:
     return _quiet
 
 
+def set_compact(value: bool) -> None:
+    """Enable/disable compact mode (minimal JSON, no indentation)."""
+    global _compact
+    _compact = value
+
+
+def is_compact() -> bool:
+    """Check if compact mode is active."""
+    return _compact
+
+
 def set_error_format(value: str) -> None:
     """Configure how errors are rendered ('text' or 'json')."""
     if value not in ("text", "json"):
@@ -43,6 +55,23 @@ def set_error_format(value: str) -> None:
 def get_error_format() -> str:
     """Return the active error rendering mode."""
     return _error_format
+
+
+def filter_fields(
+    data: Sequence[dict[str, Any]], columns: list[str], fields: str | None
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Filter data dicts to include only requested fields.
+
+    Returns (filtered_data, filtered_columns).  If *fields* is None or
+    empty the original data is returned unchanged.
+    """
+    if not fields:
+        return list(data), columns
+    wanted = [f.strip() for f in fields.split(",") if f.strip()]
+    filtered: list[dict[str, Any]] = [
+        {k: row[k] for k in wanted if k in row} for row in data
+    ]
+    return filtered, wanted
 
 
 def resolve_output_format(
@@ -120,9 +149,15 @@ def _render_json(
     data: Sequence[dict[str, Any]],
     columns: list[str],
 ) -> None:
-    filtered = [{k: row.get(k, "") for k in columns} for row in data]
-    # Print to stdout directly (not via Rich) for clean piping
-    print(json.dumps(filtered, indent=2, default=str))
+    if _compact:
+        filtered = [
+            {k: row[k] for k in columns if k in row and row[k] not in ("", None)}
+            for row in data
+        ]
+        print(json.dumps(filtered, default=str, separators=(",", ":")))
+    else:
+        filtered = [{k: row.get(k, "") for k in columns} for row in data]
+        print(json.dumps(filtered, indent=2, default=str))
 
 
 def _render_csv(
@@ -197,7 +232,10 @@ def render_dag(nodes: dict[str, Any], title: str) -> None:
 def render_raw(data: Any, output_format: str = "json") -> None:
     """Render a single dict/list. JSON: dumps. Table: key-value pairs or auto-detected columns."""
     if output_format == "json":
-        print(json.dumps(data, indent=2, default=str))
+        if _compact:
+            print(json.dumps(data, default=str, separators=(",", ":")))
+        else:
+            print(json.dumps(data, indent=2, default=str))
     else:
         if isinstance(data, dict):
             rows = [{"key": k, "value": str(v)} for k, v in data.items()]

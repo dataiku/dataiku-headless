@@ -1,0 +1,30 @@
+id: entity_and_relationship
+domain: semantic_layer
+difficulty: easy
+expected_gap: none
+fixtures:
+  - world/orders
+  - world/customers
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset create customers --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - dku dataset upload customers {fixture_dir}/customers.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+initial_checks:
+  - run: dku semantic-model list-entities revenue_semantic_model -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, set up a data model named `revenue_semantic_model` so
+  the analytics tools understand how `customers` and `orders` relate to each
+  other. Link them on `customer_id`.
+checks:
+  - run: dku semantic-model list-entities revenue_semantic_model -P {project} -o json
+    assert: output_contains
+    contains: customers
+  - run: dku semantic-model list-entities revenue_semantic_model -P {project} -o json
+    assert: output_contains
+    contains: orders
+  - run: dku semantic-model list-relationships revenue_semantic_model -P {project} -o json
+    assert: output_contains
+    contains: customer_id

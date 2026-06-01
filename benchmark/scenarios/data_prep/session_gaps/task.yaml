@@ -1,0 +1,51 @@
+id: session_gaps
+domain: data_prep
+difficulty: hard
+expected_gap: none
+fixtures:
+  - world/user_sessions
+setup:
+  - dku dataset create user_sessions --type UploadedFiles -P {project}
+  - dku dataset upload user_sessions {fixture_dir}/user_sessions.csv -P {project}
+initial_checks:
+  - run: dku dataset schema long_session_gaps -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, the `user_sessions` dataset contains login/logout
+  timestamps for users in March 2024. Each row is a single session. I need
+  to find users who had a gap of more than 48 hours between consecutive
+  sessions (the time from one logout to the next login). Create a dataset
+  called `long_session_gaps` with columns `user_id` and `max_gap_hours`
+  containing each flagged user and their longest gap. Keep this in the visual
+  flow — no code recipes.
+checks:
+  - run: dku dataset schema long_session_gaps -P {project} -o json
+    assert: has_columns
+    columns:
+      - user_id
+      - max_gap_hours
+  - run: dku dataset head long_session_gaps -P {project} -n 5 -o json
+    assert: min_rows
+    min: 1
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku dataset list -P {project} -o json
+    assert: output_rows
+    columns: [long_session_gaps]
+  - run: dku dataset schema long_session_gaps -P {project} -o json
+    assert: column_is_numeric
+    column: max_gap_hours
+
+expected_outputs:
+  long_session_gaps:
+    schema:
+      - name: user_id
+        type: string
+      - name: max_gap_hours
+        type: bigint
+    row_count: 2
+    data:
+      - user_id: U1007
+        max_gap_hours: 72
+      - user_id: U1003
+        max_gap_hours: 62

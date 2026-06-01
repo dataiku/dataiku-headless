@@ -1,0 +1,61 @@
+id: geojoin_stores
+domain: data_prep
+difficulty: medium
+expected_gap: tool_gap
+fixtures:
+  - world/stores
+  - world/warehouses
+setup:
+  - dku dataset create stores --type UploadedFiles -P {project}
+  - dku dataset upload stores {fixture_dir}/stores.csv -P {project}
+  - dku dataset create warehouses --type UploadedFiles -P {project}
+  - dku dataset upload warehouses {fixture_dir}/warehouses.csv -P {project}
+initial_checks:
+  - run: dku dataset schema nearby_stores -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, configure a geo join to find which stores are within
+  200 km of each warehouse. The `stores` and `warehouses` datasets both have
+  a `geom` column with POINT geometry. Use the WITHIN_DISTANCE geo operator
+  (200 km). Name the output dataset `nearby_stores`. Keep this in the
+  visual flow.
+checks:
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku recipe get-definition find_nearby -P {project} -o json
+    assert: output_contains
+    column: WITHIN_DISTANCE
+  - run: dku recipe get-definition find_nearby -P {project} -o json
+    assert: output_contains
+    column: '"geoDistance": 200'
+
+expected_flow:
+  nodes:
+    stores:
+      type: source
+      schema:
+        - {name: store_id, type: string}
+        - {name: name, type: string}
+        - {name: geom, type: string}
+        - {name: city, type: string}
+    warehouses:
+      type: source
+      schema:
+        - {name: warehouse_id, type: string}
+        - {name: name, type: string}
+        - {name: geom, type: string}
+        - {name: region, type: string}
+    nearby_stores:
+      type: output
+      schema: []
+  recipes:
+    - type: geojoin
+      inputs: [stores, warehouses]
+      outputs: [nearby_stores]
+  exact_recipe_count: true
+
+validation_gaps:
+  - "Checks confirm a geojoin recipe exists with WITHIN_DISTANCE, 200 km
+     distance, and the right inputs/outputs. DSS 14.5.0-beta3 internal error
+     prevents geojoin recipe execution (IndexOutOfBoundsException), so
+     runtime correctness of the output is not verified."

@@ -3,111 +3,94 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class FixtureRef(BaseModel):
-    """Reference to a fixture directory for test data injection."""
-
-    path: str  # e.g., "sales/test1"
-    files: list[str] = Field(default_factory=list)  # Specific files, or empty = all
-    inject_as: str = "filesystem"  # "filesystem" = copy to /tmp/bench_fixtures/
+class ColumnSpec(BaseModel):
+    name: str
+    type: str
 
 
-class ExpectedCommand(BaseModel):
-    """An expected dku command in the agent trace."""
+class OutputDatasetSpec(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
 
-    pattern: str
-    required: bool = True
-    flags: list[str] = Field(default_factory=list)
-
-
-class VerifyStep(BaseModel):
-    """A verification step run against real DSS after the test."""
-
-    command: str
-    expect_status: int = 0
-    expect_contains: Optional[str] = None
-    expect_json: Optional[dict] = None
-    expect_min_rows: Optional[int] = None  # Min row count in JSON array output
-    expect_columns: list[str] = Field(
-        default_factory=list
-    )  # Column names that must exist
+    schema_: list[ColumnSpec] = Field(default_factory=list, alias="schema")
+    row_count: int = 0
+    data: list[dict] = Field(default_factory=list)
 
 
-class Expectations(BaseModel):
-    """What we expect from the agent run."""
+class FlowNode(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
 
-    commands: list[ExpectedCommand] = Field(default_factory=list)
-    no_commands: list[str] = Field(default_factory=list)
-    skill_invoked: Optional[str] = None
-    agent_spawned: Optional[str] = None
-    chaining: Optional[bool] = None
-    verify: list[VerifyStep] = Field(default_factory=list)
-    text_contains: list[str] = Field(default_factory=list)
-    text_excludes: list[str] = Field(default_factory=list)
-    no_python_recipes: bool = (
-        False  # If true, fail if any python/r/shell recipe types found
-    )
+    schema_: list[ColumnSpec] = Field(default_factory=list, alias="schema")
+    type: Literal["source", "intermediate", "output"] = "intermediate"
 
 
-class Rubric(BaseModel):
-    """Scoring weights for a test.
-
-    Only dimensions with non-None weight are included in the weighted
-    aggregate. Set a weight to include it; omit (None) to exclude.
-    """
-
-    command_correct: Optional[float] = 1.0
-    flags_correct: Optional[float] = 1.0
-    chaining: Optional[float] = 1.0
-    skill_routing: Optional[float] = 1.0
-    outcome_verified: Optional[float] = 1.0
-    efficiency: Optional[float] = 0.5
-    # Opt-in dimensions — only scored when explicitly weighted
-    no_forbidden: Optional[float] = None
-    agent_delegation: Optional[float] = None
-    text_content: Optional[float] = None
-    visual_recipe_ratio: Optional[float] = None  # Ratio of visual vs code recipes
+class FlowRecipe(BaseModel):
+    type: str
+    inputs: list[str] = Field(default_factory=list)
+    outputs: list[str] = Field(default_factory=list)
+    config: dict = Field(default_factory=dict)
 
 
-class Scenario(BaseModel):
-    """A single benchmark test scenario."""
+class FlowShapeSpec(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
 
+    nodes: dict[str, FlowNode] = Field(default_factory=dict)
+    recipes: list[FlowRecipe] = Field(default_factory=list)
+    exact_recipe_count: bool = True
+    exact_dataset_count: bool = False
+
+
+class Check(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    run: str
+    assert_: str = Field(alias="assert")
+    columns: list[str] = Field(default_factory=list)
+    min: int = 0
+    column: str = ""
+    contains: str = ""
+    dataset: str = ""
+    trigger_type: str = ""
+    reporter_type: str = ""
+    email: str = ""
+
+
+class NewScenario(BaseModel):
     id: str
-    tier: int
-    category: str
+    domain: str
+    difficulty: Literal["easy", "medium", "hard"]
+    expected_gap: Literal["none", "tool_gap", "capability_gap"] = "none"
+    # Per-scenario overrides for the difficulty-tiered runner defaults. Only set
+    # for genuine outliers; otherwise the tier for `difficulty` applies.
+    timeout: int | None = None
+    max_turns: int | None = None
+    fixtures: list[str] = Field(default_factory=list)
+    setup: list[str] = Field(default_factory=list)
+    initial_checks: list[Check] = Field(default_factory=list)
     prompt: str
-    needs_project: bool = False
-    timeout: Optional[int] = None
-    expect: Expectations = Field(default_factory=Expectations)
-    rubric: Rubric = Field(default_factory=Rubric)
-
-    # Evaluation framework v2 fields (all optional, backwards-compatible)
-    fixtures: list[FixtureRef] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
-    baseline_score: Optional[float] = None
-
-    # Set at runtime
-    project_key: Optional[str] = None
+    validation_gaps: list[str] = Field(default_factory=list)
+    checks: list[Check] = Field(default_factory=list)
+    project_key: str | None = None
+    expected_outputs: dict[str, OutputDatasetSpec] = Field(default_factory=dict)
+    expected_flow: FlowShapeSpec | None = None
+    task_file: Path | None = None
+    solution_file: Path | None = None
 
 
-class ScenarioFile(BaseModel):
-    """A YAML file containing multiple test scenarios."""
-
-    tests: list[Scenario]
-
-
-def load_scenarios(path: Path) -> list[Scenario]:
-    """Load all scenario YAML files from a directory."""
-    scenarios = []
-    for yaml_file in sorted(path.glob("*.yaml")):
-        with open(yaml_file) as f:
-            data = yaml.safe_load(f)
-        if data and "tests" in data:
-            sf = ScenarioFile(**data)
-            scenarios.extend(sf.tests)
+def load_new_scenarios(path: Path) -> list[NewScenario]:
+    scenarios: list[NewScenario] = []
+    for task_file in sorted(path.glob("*/*/task.yaml")):
+        with open(task_file) as f:
+            data = yaml.safe_load(f) or {}
+        scenario = NewScenario(**data)
+        scenario.task_file = task_file
+        solution_file = task_file.with_name("solution.md")
+        if solution_file.exists():
+            scenario.solution_file = solution_file
+        scenarios.append(scenario)
     return scenarios

@@ -19,7 +19,7 @@ dku [--url URL] [--api-key KEY] [--profile NAME] [--quiet] [--errors text|json] 
 
 | Need | Read |
 |---|---|
-| Auth, config, project, dataset, recipe, scenario, job, folder, flow, library, SQL, whoami | `commands-core.md` |
+| Auth, config, project, dataset, recipe, scenario (+ email reporters), data quality (dq), job, folder, flow, library, SQL, whoami | `commands-core.md` |
 | LLM, ML, models, Knowledge Banks, agents, semantic models, dashboards, insights, webapps, app designer, notebooks, wiki | `commands-ai-apps.md` |
 | Plugins, code envs, connections, users, deployers, Git, bundles, API services, admin, clusters, API keys, workspaces | `commands-admin-deploy.md` |
 | Govern commands | `commands-govern.md` |

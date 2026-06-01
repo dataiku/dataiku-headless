@@ -1,0 +1,59 @@
+id: top_products
+domain: data_prep
+difficulty: easy
+expected_gap: none
+fixtures:
+  - world/products
+setup:
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+  - "dku dataset set-schema products -P {project} --definition '[{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"unit_price\",\"type\":\"double\"}]'"
+initial_checks:
+  - run: dku dataset schema top_products -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, create a dataset called `top_products` that lists the
+  10 most expensive products from the `products` dataset. Keep this in the
+  visual flow.
+checks:
+  - run: dku dataset schema top_products -P {project} -o json
+    assert: has_columns
+    columns:
+      - product_id
+      - name
+      - unit_price
+  - run: dku dataset head top_products -P {project} -n 10 -o json
+    assert: min_rows
+    min: 10
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku dataset schema top_products -P {project} -o json
+    assert: column_is_numeric
+    column: unit_price
+
+expected_flow:
+  nodes:
+    products:
+      type: source
+      schema:
+        - {name: product_id, type: string}
+        - {name: name, type: string}
+        - {name: category, type: string}
+        - {name: unit_price, type: double}
+    top_products:
+      type: output
+      schema:
+        - {name: product_id, type: string}
+        - {name: name, type: string}
+        - {name: category, type: string}
+        - {name: unit_price, type: double}
+  recipes:
+    - type: TopN
+      inputs: [products]
+      outputs: [top_products]
+  exact_recipe_count: true
+
+validation_gaps:
+  - "Checks verify a TopN recipe exists with 10 output rows, but do not verify
+     the sort direction is descending — an agent using ascending order would
+     produce the wrong 10 products but still pass."

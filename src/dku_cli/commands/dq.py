@@ -12,16 +12,11 @@ from dku_cli.output import (
     render_raw,
     resolve_output_format,
     success,
-    warn,
 )
 
 app = typer.Typer(
     help="Manage data quality rules on DSS datasets (requires DSS 14.5+)."
 )
-
-# Rule types that have known compute bugs in DSS 14.5 beta
-_BUGGY_TYPES = frozenset({"ColumnNotEmptyRule", "ColumnEmptyRule"})
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -44,9 +39,14 @@ def _get_ruleset(ctx: typer.Context, dataset_name: str, project: str | None):
 #   ColumnMinInRangeRule, ColumnMaxInRangeRule, ColumnAvgInRangeRule,
 #   ColumnSumInRangeRule, ColumnMedianInRangeRule, ColumnStdDevInRangeRule
 #
+# ColumnNotEmptyRule REQUIRES a thresholdType enum or compute fails with
+# "Threshold type cannot be null". Verified live (DSS 14.6): the value
+# "ENTIRE_COLUMN_NOT_EMPTY" makes the rule pass when the column has no blanks.
+#
 # "value-in-range" creates TWO rules (min + max) to ensure all values in bounds.
 TYPE_MAP = {
     "record-count": "RecordCountInRangeRule",
+    "column-count": "ColumnCountInRangeRule",
     "not-empty": "ColumnNotEmptyRule",
     "column-min": "ColumnMinInRangeRule",
     "column-max": "ColumnMaxInRangeRule",
@@ -134,7 +134,30 @@ def _build_rule_config(
             )
         config["columns"] = [column]
 
-    # Range thresholds
+    # ColumnNotEmptyRule needs an explicit thresholdType or compute returns
+    # "Threshold type cannot be null". ENTIRE_COLUMN_NOT_EMPTY = no blanks
+    # allowed anywhere in the column. Verified live against DSS 14.6.
+    if rule_type == "not-empty":
+        config["thresholdType"] = "ENTIRE_COLUMN_NOT_EMPTY"
+
+    # column-count is a dataset-level rule. Use HARD bounds so an exact match
+    # (--min N --max N) fails loudly when the column count differs.
+    if rule_type == "column-count":
+        if min_val is None and max_val is None:
+            exit_with_error(
+                "--min and/or --max is required for rule type 'column-count'.",
+                details=[
+                    "Exact count: dku dq create DS --type column-count --min 6 --max 6"
+                ],
+            )
+        if min_val is not None:
+            config["minimum"] = min_val
+            config["minimumEnabled"] = True
+        if max_val is not None:
+            config["maximum"] = max_val
+            config["maximumEnabled"] = True
+
+    # Range thresholds (warning-level soft bounds)
     if rule_type in (
         "record-count",
         "column-min",
@@ -213,9 +236,9 @@ def create_rule(
         "--type",
         "-t",
         help=(
-            "Rule type shorthand: record-count, not-empty, value-in-range, "
-            "column-min, column-max, column-avg, column-sum. "
-            "Column rules need --column. Range rules need --min and/or --max."
+            "Rule type shorthand: record-count, column-count, not-empty, "
+            "value-in-range, column-min, column-max, column-avg, column-sum. "
+            "Column rules need --column. Range/count rules need --min and/or --max."
         ),
     ),
     column: str | None = typer.Option(
@@ -236,7 +259,8 @@ def create_rule(
 
     \b
       record-count   — total row count in range (dataset-level)
-      not-empty      — column has no nulls/blanks (BUGGY in DSS 14.5 beta — prefer column-min)
+      column-count   — number of columns in range (dataset-level); exact = --min N --max N
+      not-empty      — column has no nulls/blanks (works on any column type)
       value-in-range — creates TWO rules (min + max) ensuring all values in bounds
       column-min     — minimum column value in range (numeric columns only)
       column-max     — maximum column value in range (numeric columns only)
@@ -244,7 +268,7 @@ def create_rule(
       column-sum     — sum of column values in range (numeric columns only)
 
     For unlisted types (median, stddev, schema, file-size), use --config with raw JSON.
-    Full type catalog: docs/dq-rule-types.md
+    Payload reference: dataiku-devkit/skills/dku-cli/references/commands.md
     """
     if config and rule_type:
         exit_with_error(
@@ -275,12 +299,6 @@ def create_rule(
         for rc in rule_configs:
             rule = ruleset.create_rule(rc)
             success(f"Created rule '{rule.name}' (id: {rule.id}) on {dataset_name}")
-            if rc.get("type") in _BUGGY_TYPES:
-                warn(
-                    f"Known DSS 14.5 beta bug: {rc['type']} creates OK but compute "
-                    "fails with 'Threshold type cannot be null'. "
-                    "Workaround: use --type column-min --column COL --min 1 instead."
-                )
     except Exception as e:
         handle_api_error(e)
 

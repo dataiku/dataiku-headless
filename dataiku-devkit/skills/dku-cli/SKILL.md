@@ -21,14 +21,18 @@ metadata:
 
 Use this skill for **how to execute** DSS operations with `dku`. Use the `dataiku` skill for **what DSS capability to choose**.
 
+## Session Startup
+
+At the start of every session, before any user request: run `dku whoami` to confirm auth and `dku project list -o json | jq length` to count projects, then report the instance URL, project count, and authenticated user. If no project is specified, ask which one to work on.
+
 ## Core Rules
 
-1. Inspect before changing: `dku project inspect PROJ -o json` gives datasets, recipes, scenarios, flow, jobs, wiki, and variables in one call.
+1. Inspect before changing: `dku project inspect` returns datasets, recipes, scenarios, flow, jobs, wiki, and variables in one call.
 2. Use DSS-native operations first. For recipe selection, read `references/recipe-decision.md`.
 3. Uploaded local files need `UploadedFiles`; managed recipe outputs are usually `Filesystem` or connection-backed datasets.
-4. Gauge data before expensive reads or builds: `dku dataset info DS -P PROJ`; ask before large builds or LLM-heavy operations.
-5. Sample and schema-check before transforming: `dku dataset head INPUT -P PROJ -n 5` and `dku dataset schema INPUT -P PROJ`.
-6. Build with schema propagation when wiring a flow: `dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --auto-update-schema --wait`.
+4. Gauge data before expensive reads or builds, and ask before large builds or LLM-heavy operations.
+5. Sample and schema-check inputs before transforming them.
+6. Build with schema propagation when wiring a flow (`RECURSIVE_BUILD --auto-update-schema`).
 7. Verify final outputs with real data checks; exit code 0 is not enough.
 8. Use `&&` chains for related commands so setup, build, and verification stay atomic.
 9. Put global flags before the noun: `dku --errors json recipe list`, not `dku recipe list --errors json`.
@@ -36,31 +40,7 @@ Use this skill for **how to execute** DSS operations with `dku`. Use the `dataik
 
 ## Canonical Command Flow
 
-```bash
-# 1. Inspect project shape
-dku project inspect PROJ -o json
-
-# 2. Gauge and sample inputs
-dku dataset info INPUT -P PROJ && \
-dku dataset schema INPUT -P PROJ && \
-dku dataset head INPUT -P PROJ -n 5
-
-# 3. Wire DSS-native operations
-dku recipe create-join join_enriched -i INPUT -i LOOKUP \
-  --output-ds ENRICHED --join-key id -P PROJ && \
-dku recipe create-group summarize -i ENRICHED \
-  --output-ds SUMMARY -k category --agg "amount:sum,avg" -P PROJ
-
-# 4. Build and verify
-dku job run --target SUMMARY -P PROJ \
-  --type RECURSIVE_BUILD \
-  --auto-update-schema \
-  --wait && \
-dku dataset head SUMMARY -P PROJ -n 5 && \
-dku dataset info SUMMARY -P PROJ --recompute
-```
-
-Use this skeleton as the default shape; read `references/recipe-operations.md` for variants.
+The default shape is **inspect → gauge → sample → wire → build → verify**. Read `references/recipe-operations.md` for the full end-to-end skeleton and variants.
 
 ## Command Groups
 
@@ -84,6 +64,10 @@ Use this skeleton as the default shape; read `references/recipe-operations.md` f
 
 Exact syntax belongs in `references/commands.md`.
 
+## Structured Agents
+
+Build via `agent create --type STRUCTURED_AGENT` → add a start block (`CORE_LOOP` for tool-calling, `SET_STATE_ENTRIES` for stateful) → attach tools. ROUTING and other non-trivial graphs need `get-graph` → patch JSON → `set-graph`. Quickstart recipes and the canonical graph workflow are in `references/agent-patterns.md`.
+
 ## Reference Map
 
 | Reference | Read when... |
@@ -96,6 +80,7 @@ Exact syntax belongs in `references/commands.md`.
 | `references/commands-govern.md` | Govern command syntax |
 | `references/setup.md` | Auth, profiles, CI/CD setup, environment variables |
 | `references/recipe-decision.md` | Choosing visual recipe vs sync vs SQL vs Python |
+| `references/recipe-survey.md` | Full survey of recipe types by category (visual, ML, SQL, EDA, GenAI, Python) |
 | `references/recipe-operations.md` | Building, chaining, verification, and dataset upload workflows |
 | `references/recipe-examples.md` | Detailed visual recipe examples |
 | `references/common-gotchas.md` | Operational traps and recovery patterns |
@@ -103,7 +88,9 @@ Exact syntax belongs in `references/commands.md`.
 | `references/admin-safety.md` | Admin writes, IAM lockout prevention, recovery |
 | `references/sql-engines.md` | SQL landing, push-down, engine-specific behavior |
 | `references/prepare-steps.md` | Prepare step commands and raw step JSON |
+| `dataiku/references/processors/<Processor>.md` | Per-processor reference (param tables, JSON examples). Load on demand — one file per processor. |
 | `references/agent-patterns.md` | Agent creation, versions, tools, blocks |
+| `references/iteration-loop.md` | Iterating an agent's quality: baseline → prompt → architectural fix → re-eval |
 | `references/genai-recipes.md` | Embedding, RAG, Knowledge Banks, GenAI recipes |
 | `references/prompt-recipe-payload.md` | Prompt recipe payload schemas |
 | `references/dashboard-patterns.md` | Charts, insights, dashboards |
@@ -120,3 +107,13 @@ Use `dku` for quick queries, CRUD, builds, shell scripts, and repeatable agent o
 - Use `--errors json` before the noun for machine-readable failure handling.
 - Treat empty JSON arrays as data, not necessarily success. Verify row counts and schemas when correctness matters.
 - Do not paste raw connection, dataset, or webapp definitions into chat without redacting secrets.
+
+## Token-Efficient Output
+
+Command output is read back into your context, so shrink it at the source — the CLI's main cost lever.
+
+- Pass `--compact` before the noun for single-line JSON with empty fields omitted; use `--fields` to request only the columns you need.
+- Chain related reads into one shell call and post-filter with `jq` so you read one trimmed result, not several full payloads.
+- Don't re-read state you already retrieved this session — reuse the earlier output.
+
+See `references/common-gotchas.md` for output and `jq` patterns.

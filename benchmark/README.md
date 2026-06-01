@@ -1,257 +1,315 @@
 # dku-cli Agent Benchmark
 
-Evaluates how well AI coding agents use the dku-cli and Dataiku DevKit skills against a real Dataiku DSS sandbox. The benchmark loop: run test → find CLI/skill limitation → fix → re-run → measure improvement.
-
-**Key design principle:** The agent reads the actual skill files (`SKILL.md`) during tests — no hardcoded cheat sheets. This means benchmark results directly measure skill quality.
-
-**Currently uses Claude Code (Opus) only.** Codex adapter exists but is not active.
+Evaluates AI agents on real Dataiku DSS tasks. Grading is binary outcome-only: all critical DSS state checks must pass.
 
 ## Prerequisites
 
-- **Claude Code CLI** — installed and authenticated (`claude --version`). The runner invokes `claude -p` in headless mode.
-- **Dataiku DSS instance** — a sandbox with API access. Tests create/delete projects freely.
-- **`dku` CLI** — installed and on PATH (`uv tool install --from . dku-cli` or `uv run dku`).
+- **`dku` CLI** — installed and authenticated (`dku whoami` succeeds)
+- **Dataiku DSS instance** — API access, projects created/deleted freely
+- **Docker** — agents run inside the `bench-agents` sandbox container; MCP profiles also use a `bench-mcp` HTTP sidecar container
+- **Agent API keys** — set `ANTHROPIC_API_KEY` for Claude profiles, `OPENAI_API_KEY` for Codex profiles
+- **`dataiku-agent-dev-kit`** — skills bind-mounted at run, MCP server source baked into the `bench-mcp` sidecar image
 
-## Setup
+### .env file
 
 ```bash
-# 1. Install dependencies (from project root)
-uv sync
-
-# 2. Configure DSS credentials
 cp benchmark/.env.example benchmark/.env
-# Edit benchmark/.env with your DSS URL and API key
+```
 
-# 3. Authenticate the CLI
-source benchmark/.env
-dku auth login --url "$DKU_URL" --api-key "$DKU_API_KEY"
+```ini
+# benchmark/.env (gitignored — never commit real credentials)
+
+DKU_URL=https://your-dss-instance.example.com
+DKU_API_KEY=your-dss-api-key
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+```
+
+### Agent Dev Kit path
+
+The benchmark pulls from [`dataiku-agent-dev-kit`](https://github.com/dataiku/dataiku-agent-dev-kit) in two ways:
+
+| Variable | Read by | When | What it feeds |
+|---|---|---|---|
+| `AGENT_DEV_KIT_SRC` | `docker/build.sh` (shell env) | image **build** | the MCP server source baked into the `bench-mcp` sidecar image |
+| `AGENT_DEV_KIT_PATH` | `benchmark/.env` → runner | every **run** | the skills bind-mounted per profile |
+
+Both default to a sibling clone of `dataiku-cli`:
+
+```bash
+# Only if the repo is NOT a sibling of dataiku-cli:
+export AGENT_DEV_KIT_SRC=/path/to/dataiku-agent-dev-kit   # for build.sh
+# and set AGENT_DEV_KIT_PATH=/path/to/dataiku-agent-dev-kit in benchmark/.env
+```
+
+## Quick Start
+
+```bash
+# 1. Install benchmark dependencies
+uv sync --group benchmark
+
+# 2. Configure credentials
+cp benchmark/.env.example benchmark/.env
+# Edit benchmark/.env with your DSS URL, API key, and agent keys
+
+# 3. Build the sandbox images (needs Docker, ~2-3 min first build).
+#    Builds both bench-agents (agent runtime) and bench-mcp (MCP sidecar).
+benchmark/docker/build.sh
 
 # 4. Verify connectivity
 dku whoami
 
-# 5. Run a quick smoke test (7 tests, ~$0.50)
-uv run python -m benchmark.runner --tag smoke
+# 5. List available profiles and scenarios
+uv run python -m benchmark.runner --list
+
+# 6. Run one easy scenario (~30-90s)
+uv run python -m benchmark.runner --profile claude_dku_skills --scenario filter_and_sort --parallel 1 --verbose
+
+# 7. Run default profiles on all scenarios
+uv run python -m benchmark.runner
+
+# 8. Generate trend dashboard
+uv run python -m benchmark.dashboard
 ```
 
-## Usage
+### Common variations
 
 ```bash
-# Full suite — all 206 scenarios (expensive, ~$20+)
-uv run python -m benchmark.runner --agent claude
+# Filter by profile/domain/difficulty
+uv run python -m benchmark.runner --profile claude_dku_skills --domain data_prep --difficulty easy
 
-# By tag (recommended for quick validation)
-uv run python -m benchmark.runner --tag smoke               # 7 fast tests (~$0.50)
-uv run python -m benchmark.runner --tag migration            # Alteryx/Excel/pandas migrations
-uv run python -m benchmark.runner --tag fixture              # All fixture-backed tests
+# Override model at runtime
+uv run python -m benchmark.runner --profile claude_dku_skills --model claude-sonnet-4-6
 
-# By tier
-uv run python -m benchmark.runner --tier 9                   # Open-ended only
-uv run python -m benchmark.runner --tier 10                  # Migration scenarios
-uv run python -m benchmark.runner --tier 6,10                # Projects + migrations
+# Compare profiles
+uv run python -m benchmark.runner --profile claude_vanilla,claude_dku_skills --domain data_prep
 
-# Single test
-uv run python -m benchmark.runner --test fx_sales_pipeline --parallel 1
+# Repeat for statistical stability
+uv run python -m benchmark.runner --profile claude_dku_skills --scenario filter_and_sort --repeat 5
 
-# Dry run (show what would execute, no cost)
-uv run python -m benchmark.runner --dry-run --skip-preflight
+# Validate solutions against live DSS
+uv run python -m benchmark.runner --domain data_prep --validate
 
-# Adjust parallelism (default: 4)
-uv run python -m benchmark.runner --parallel 1
+# Keep DSS projects after run for inspection
+uv run python -m benchmark.runner --scenario filter_and_sort --no-cleanup
+
+# Dry-run to see what would execute
+uv run python -m benchmark.runner --dry-run
 ```
 
-## Test Tiers (206 scenarios)
+### Keeping things up to date
 
-| Tier | Files | Count | What It Evaluates |
-|------|-------|-------|-------------------|
-| 1 | `tier1_commands.yaml` + `tier1_generated.yaml` | 140 | Single-command knowledge — does the agent know the right `dku` command? |
-| 2 | `tier2_flags.yaml` | 5 | Flag correctness — `-o json`, `-P PROJECT`, `--yes`, `-n N` |
-| 3 | `tier3_chaining.yaml` | 3 | Chaining — are related commands `&&`-chained in a single bash call? |
-| 4 | `tier4_skills.yaml` | 4 | Skill routing — does Claude invoke the right skill? |
-| 5 | `tier5_agents.yaml` | 2 | Agent delegation — does Claude spawn the right subagent? |
-| 6 | `projects.yaml` + `tier6_e2e.yaml` + `fixture_pipelines.yaml` | 11 | Progressive builds + fixture-backed pipelines (sales, healthcare) |
-| 7 | `tier7_errors.yaml` + `advanced.yaml` (partial) | 16 | Error recovery + advanced workflows |
-| 8 | `advanced.yaml` (partial) | 3 | Stress tests: multi-project, max complexity |
-| 9 | `open_ended.yaml` | 10 | Open-ended real-world prompts — agent decides what to build |
-| 10 | `migration_*.yaml` + `auto_fixtures.yaml` | 8 | Migration scenarios (Alteryx, Excel, pandas) + auto-generated fixture tests |
+The three artifacts under test refresh differently:
 
-### Tags
+| Artifact | Source | To get latest |
+|---|---|---|
+| **`dku` CLI** | baked into the `bench-agents` image from `dku-cli` HEAD | `git pull` in `dataiku-cli` **+ rebuild** |
+| **MCP server** | baked into the `bench-mcp` sidecar image from `dataiku-agent-dev-kit/dataiku_mcp` | `git pull` in `dataiku-agent-dev-kit` **+ rebuild** |
+| **Skills** | bind-mounted from the host at run time | `git pull` in `dataiku-agent-dev-kit` (no rebuild) |
+| **claude / codex CLIs** | `npm i -g` at build (layer-cached) | rebuild with `--no-cache` |
 
-Scenarios can be tagged for quick filtering with `--tag`:
-
-| Tag | Count | Purpose |
-|-----|-------|---------|
-| `smoke` | 7 | Fast validation — 5 tier-1 commands + 1 chaining + 1 fixture pipeline |
-| `fixture` | ~10 | All tests using fixture data (not agent-generated) |
-| `migration` | 3 | Alteryx/Excel/pandas migration scenarios |
-| `alteryx` | 2 | Alteryx-specific tests |
-| `excel` | 2 | Excel-specific tests |
-| `pandas` | 2 | Pandas migration tests |
-| `auto` | 5 | Auto-generated from fixture directories |
-
-## Fixtures
-
-Pre-built test data in `benchmark/fixtures/`. Scenarios reference fixtures instead of relying on agent-generated synthetic data.
-
-```
-fixtures/
-  catalog.yaml                     # Index of all fixture sets
-  sales/test1/                     # 50 orders, 20 customers, 10 products
-  alteryx/test1/                   # 100-row customer segmentation + workflow spec
-  excel/test1/                     # 80-row financial report + workbook spec
-  pandas/test1/                    # 200-row ETL input + script.py to migrate
-  healthcare/test1/                # 100 encounters, 80 diagnoses, 60 treatments
-```
-
-### Drop-and-go: adding new fixtures
+One-command refresh:
 
 ```bash
-# 1. Create a fixture directory
-mkdir -p benchmark/fixtures/alteryx/test2
-
-# 2. Add files (at minimum: input data + optional spec)
-cp my_data.csv benchmark/fixtures/alteryx/test2/input.csv
-cp my_spec.md benchmark/fixtures/alteryx/test2/workflow_spec.md   # optional
-
-# 3. Auto-generate scenarios from all fixture directories
-uv run python -m benchmark.generate_fixtures
-
-# 4. Run the new tests
-python -m benchmark.runner --tag alteryx
+benchmark/docker/build.sh --pull            # latest dku + MCP
+benchmark/docker/build.sh --pull --no-cache # also refresh the agent CLIs
 ```
 
-The generator scans `fixtures/<category>/<testN>/` and creates a "here are files, recreate in Dataiku" scenario for each. If a `workflow_spec.md` or `script.py` exists, the prompt tells the agent to read it first. Otherwise it gets just the file list.
+The runner's preflight prints a **Freshness** line and warns when the running image was built from older commits than your host checkouts. Provenance (baked SHAs) is recorded in every report.
 
-## Cross-Run Analysis
+All runner CLI flags are documented in the [CLI Reference](docs/cli-reference.md).
 
-Results accumulate in `benchmark/reports/bench_*/summary.json`. The analysis CLI reads them all:
+## Example Output
 
-```bash
-# Pass rate trends across recent runs
-uv run python -m benchmark.cli trends --last 10
-
-# Compare two specific runs
-uv run python -m benchmark.cli compare bench_20260325_132113 bench_20260325_164125
-
-# Score history for one test
-uv run python -m benchmark.cli history fx_sales_pipeline --last 20
-
-# Set a golden baseline (best run)
-uv run python -m benchmark.cli set-baseline bench_20260325_164125
-
-# Check regressions vs baseline
-uv run python -m benchmark.cli regressions bench_20260331_091500
-
-# Cost breakdown
-uv run python -m benchmark.cli costs --last 5
-```
-
-### Baselines
-
-`benchmark/baselines.json` stores per-test golden scores. After a run, the runner automatically compares against baselines and warns about regressions:
+### `--list`
 
 ```
-WARNING: 2 regression(s) vs baseline (bench_20260325_164125):
-  t6_data_pipeline              0.85 -> 0.70 (-0.15)
-  a5_knowledge_search           0.90 -> 0.78 (-0.12)
+  Profiles:
+    claude_dku_skills    model=claude-sonnet-4-6 (default)
+
+  Scenarios (52):
+    automation/
+      dataset_trigger_scenario        medium  gap=none
+      email_reporter                  medium  gap=none
+      scenario_with_recipe_run        medium  gap=none
+      time_trigger_scenario           easy    gap=none
+    cross_project/
+      foreign_dataset_flow            medium  gap=none
+    dashboard/
+      chart_insight                   medium  gap=none
+      interactive_chart               medium  gap=none
+      multi_chart_dashboard           medium  gap=none
+      multi_tile_dashboard            medium  gap=none
+    ...
 ```
 
-## Architecture
+### Single scenario run
 
 ```
-benchmark/
-├── config.yaml                    # Agent models, cost rates, parallelism, timeout
-├── baselines.json                 # Golden baseline scores (gitignored)
-├── runner.py                      # Main orchestrator
-├── cli.py                         # Cross-run analysis CLI (trends, compare, etc.)
-├── cost.py                        # Cost estimation from token counts
-├── compare.py                     # Regression detection helpers
-├── generate_fixtures.py           # Auto-generate scenarios from fixture dirs
-├── generator.py                   # Auto-generate tier 1 from CLAUDE.md
-├── agents/
-│   ├── base.py                    # Abstract agent + AgentResult + VerificationResult
-│   ├── claude.py                  # Claude Code headless adapter (stream-json)
-│   └── codex.py                   # Codex headless adapter (placeholder)
-├── scenarios/
-│   ├── schema.py                  # Pydantic models (Scenario, FixtureRef, Rubric, etc.)
-│   ├── tier1_commands.yaml        # Tier 1: hand-written command tests
-│   ├── tier1_generated.yaml       # Tier 1: auto-generated from CLAUDE.md
-│   ├── tier2_flags.yaml           # Tier 2: flag correctness
-│   ├── tier3_chaining.yaml        # Tier 3: command chaining
-│   ├── tier4_skills.yaml          # Tier 4: skill routing
-│   ├── tier5_agents.yaml          # Tier 5: agent delegation
-│   ├── projects.yaml              # Tier 6: progressive project builds (p1-p6)
-│   ├── tier6_e2e.yaml             # Tier 6: end-to-end workflows
-│   ├── fixture_pipelines.yaml     # Tier 6: fixture-backed pipelines (sales, healthcare)
-│   ├── tier7_errors.yaml          # Tier 7: error recovery
-│   ├── advanced.yaml              # Tier 7-8: complex workflows (a1-a16)
-│   ├── open_ended.yaml            # Tier 9: real-world prompts (o1-o10)
-│   ├── migration_alteryx.yaml     # Tier 10: Alteryx workflow migration
-│   ├── migration_excel.yaml       # Tier 10: Excel workbook migration
-│   ├── migration_pandas.yaml      # Tier 10: pandas script migration
-│   └── auto_fixtures.yaml         # Tier 10: auto-generated from fixture dirs
-├── fixtures/                      # Pre-built test data (not agent-generated)
-│   ├── catalog.yaml               # Fixture index with schemas
-│   ├── sales/test1/               # Orders, customers, products
-│   ├── alteryx/test1/             # Customer segmentation workflow
-│   ├── excel/test1/               # Quarterly financial report
-│   ├── pandas/test1/              # ETL pipeline script
-│   └── healthcare/test1/          # Encounters, diagnoses, treatments
-├── store/                         # Cross-run analysis (reads summary.json files)
-│   ├── reader.py                  # Scan and load reports/bench_*/summary.json
-│   ├── query.py                   # Trends, history, compare, regressions
-│   └── baselines.py               # Load/set golden baselines
-├── analyzer/
-│   ├── trace_parser.py            # Parse JSONL from Claude headless output
-│   ├── scorer.py                  # Score against rubrics (7 dimensions)
-│   ├── reporter.py                # narrative.md + summary.json + terminal
-│   └── recommender.py             # Actionable skill/doc patches
-└── reports/                       # Output dir (gitignored)
-    └── {run_id}/
-        ├── summary.json           # Per-test scores, costs, commands, metrics
-        ├── narrative.md           # Rich narrative per test with agent output
-        ├── recommendations.md     # Failure patterns + suggested fixes
-        └── traces/                # Raw JSONL traces per test
+  Benchmark: bench_20260529_095529
+  ==================================================
+  Profiles: codex_dku_skills
+  Mode: outcome
+  Scenarios: 1
+  Total runs: 1 (1 tests x 1 agents)
+
+  Preflight: checking DSS connectivity...
+  Connected: Connected to DSS instance 'my-instance'
+
+  Running 1 tests (parallel=1)...
+
+    [  1/1] PASS codex_dku_skills filter_and_sort              opt=100% 34251ms $0.832 [coherent]
+
+  Generating reports...
+
+  Done. Reports at: benchmark/reports/bench_20260529_095529/
 ```
 
-## How It Works
+### Compare output
 
-1. **Pre-flight** — verifies DSS connectivity via `dku whoami`
-2. **Fixture injection** — copies fixture files to per-test `/tmp/bench_fixtures/{test_id}/` directories (thread-safe)
-3. **Project creation** — creates `BENCH_*` projects for tests that need them
-4. **Headless execution** — runs Claude via `claude -p --output-format stream-json` with a prompt that tells the agent to read `skills/dku-cli/SKILL.md` first
-5. **Trace parsing** — extracts bash commands, skill invocations, agent spawns, file reads/writes from JSONL
-6. **DSS verification** — runs `dku` commands post-test to verify actual DSS state (row counts, column names, recipe types)
-7. **Scoring** — weighted rubric across 7 dimensions (see below)
-8. **Regression check** — compares scores against `baselines.json`, warns about regressions
-9. **Reporting** — narrative.md, summary.json (with cost + git SHA), recommendations.md
-10. **Cleanup** — removes temporary fixture files
+```
+                    Pass / Fail Matrix
+ ┌────────────────────┬──────────┬──────┬──────────────────┬──────────┐
+ │ Scenario           │ Domain   │ Diff │ codex_dku_skills │ Overall  │
+ ├────────────────────┼──────────┼──────┼──────────────────┼──────────┤
+ │ filter_and_sort    │ data_prep│ easy │ PASS             │ 1/1      │
+ │ upload_and_aggreg. │ data_prep│ easy │ FAIL             │ 0/1      │
+ ├────────────────────┼──────────┼──────┼──────────────────┼──────────┤
+ │ TOTAL              │          │      │ 1/2  (50%)       │ 1/2 (50%)│
+ └────────────────────┴──────────┴──────┴──────────────────┴──────────┘
+
+                    Profile Stats
+ ┌──────────────────┬──────┬───────────┬─────────┬─────────────┐
+ │ Profile          │ Runs │ Pass Rate │ Avg Time│ Total Cost  │
+ ├──────────────────┼──────┼───────────┼─────────┼─────────────┤
+ │ codex_dku_skills │ 2    │ 50% (1/2) │ 94s     │ $1.664      │
+ └──────────────────┴──────┴───────────┴─────────┴─────────────┘
+```
+
+### Coherence tag
+
+Every result line includes a coherence tag:
+
+- **`coherent`** — agent used only the tool surface its profile was granted
+- **`INCOHERENT: vanilla used the dku CLI`** — agent reached for a surface it shouldn't have (see [Sandbox & coherence](#sandbox--coherence))
+
+## Profiles
+
+Defined in `config.yaml`. The `runner.profiles` key sets the default(s). Each profile is one `claude_*` / `codex_*` pair sharing a tool-surface preset (YAML anchors), differing only in `vendor` and `model`.
+
+| Profile | DSS surface | Skills |
+|---------|-------------|--------|
+| `*_vanilla` | raw `dataikuapi` + DSS creds only (no dku CLI) | none |
+| `*_dku` | the `dku` CLI | none |
+| `*_dku_skills` | the `dku` CLI | `dku-cli`, `dataiku` |
+| `*_mcp` | the dataiku MCP server only (no dku, no raw API) | none |
+| `*_mcp_skills` | the dataiku MCP server | auto-discovered from the agent-dev-kit |
+
+Full per-profile config keys are in the [CLI Reference](docs/cli-reference.md#profile-config-keys).
+
+## Sandbox & coherence
+
+Every agent run executes inside the `bench-agents` Docker image (build it with `benchmark/docker/build.sh`). The container is the isolation boundary; the host prepares config and parses the agent CLI's stdout.
+
+The agent image ships **runtime only**: the `claude`/`codex` CLIs, the `dku` CLI (installed as a uv tool, its source deleted), and `dataiku-api-client` for the vanilla baseline. It contains **no** repo, scenarios, `solution.md`, `.env`, skills, or the MCP server source. Per run, the host bind-mounts the fixture dir at `/work` and a config dir, and **copies in only the skills the profile grants** — so a no-skills profile literally has no skills on disk.
+
+The MCP server runs **out-of-process in a separate `bench-mcp` sidecar container** over streamable-HTTP, not as a child of the agent. The runner starts one shared sidecar per run on a per-run docker network (alias `bench-mcp`), hands it the DSS creds, and gives MCP-profile agents only the network + a URL (`http://bench-mcp:8000/mcp`). This is what keeps the MCP comparison realistic and fair: the agent has **no MCP source on disk to read** and **no DSS creds in any file or env it can reach** — it must use the tools blind, as in a real deployment.
+
+This makes cross-profile comparison fair by construction:
+
+- `vanilla` gets DSS creds in its env and uses `dataikuapi`; the `dku` CLI is off `PATH`.
+- `dku` / `dku_skills` get creds + the `dku` CLI; granted skills are copied in.
+- `mcp` / `mcp_skills` get **no** agent-side DSS creds and **no** MCP source; the `dku` CLI is off `PATH`, so the only DSS surface is the sidecar URL over HTTP.
+
+`benchmark/analyzer/coherence.py` is the trace-level sanity net on top of this: it flags any run whose bash/MCP trace reached for a surface its profile was not granted (raw `DSSClient` in a dku/mcp profile, the `dku` CLI in an mcp profile, or any read of `/opt/bench`, `.env`, `solution.md`, or its own `/cfg` config). The runner prints a `coherent` / `INCOHERENT: …` tag per result and records `coherence_issues` in each trace.
+
+Coherence issues are recorded per-trace in `reports/<run_id>/traces/`. They do not directly cause a FAIL — the profile stats table separately shows pass rates for coherent vs incoherent runs when you compare.
+
+Troubleshooting guide: [Troubleshooting Reference](docs/troubleshooting.md).
+
+## Scenarios
+
+Each scenario is a directory:
+
+```
+benchmark/scenarios/<domain>/<id>/
+  task.yaml     — fixtures, setup, prompt, critical/optional checks
+  solution.md   — maintainer-only executable witness used by --validate
+```
+
+**52 scenarios** across 11 domains.
+
+## Scenario Contract
+
+Each scenario has three distinct layers:
+
+- `task.yaml` `prompt` defines the full benchmark intent. This is the task shown to the agent.
+- `task.yaml` `checks` define the enforced success contract. These are the machine-checked outcomes used for scoring.
+- `solution.md` is a maintainer artifact used only by `--validate`. It proves that at least one executable path exists today, but it is not part of the benchmark semantics and does not define how agents are expected to solve the task.
+
+This matters for agent-agnostic benchmarks:
+
+- Agents are scored against `checks`, not against `solution.md`.
+- `solution.md` may use any valid path that satisfies the current checks.
+- A scenario can be broader in intent than what the current harness can fully prove.
+
+When the harness cannot yet prove the full intent, record that explicitly in `task.yaml` with `validation_gaps`. In that case:
+
+- the prompt should stay capability-first
+- the checks should remain honest about what is enforced today
+- `solution.md` should document the executable baseline and the missing proof
+
+## task.yaml Format
+
+```yaml
+id: upload_and_aggregate
+domain: data_prep
+difficulty: easy          # easy | medium | hard
+expected_gap: none        # none | tool_gap | capability_gap
+fixtures:
+  - world/orders          # copied from benchmark/fixtures/ to /tmp/bench_fixtures/
+setup:
+  - "dku dataset create orders --type UploadedFiles -P {project}"
+initial_checks:
+  - run: "dku dataset schema revenue_by_region -P {project}"
+    assert: exit_code_nonzero   # must fail before agent runs
+prompt: |
+  Natural-language task shown to the agent.
+validation_gaps:
+  - Optional list for cases where current checks only prove part of the intended capability.
+checks:
+  critical:
+    - run: "dku dataset head revenue_by_region -P {project} -n 10 -o json"
+      assert: min_rows
+      min: 4
+  optional:
+    - run: "dku recipe list -P {project} -o json"
+      assert: no_python_recipes
+```
+
+Placeholders: `{project}` → `BENCH_*` key, `{fixture_dir}` → path to the per-test fixture directory.
+
+## Assertions
+
+| Type | Checks |
+|------|--------|
+| `exit_code_zero` / `exit_code_nonzero` | Command exit code |
+| `has_columns` | Named columns exist in schema |
+| `min_rows` | Row count ≥ min |
+| `column_is_numeric` | Column type is numeric |
+| `output_contains` | stdout contains string |
+| `no_python_recipes` | No Python/R/shell recipes in project |
+| `output_schema` | Dataset schema matches `expected_outputs` (DSS client) |
+| `output_rows` | Row count + sample data match `expected_outputs` (DSS client) |
+| `flow_shape` | Flow nodes/recipes match `expected_flow` (DSS client) |
 
 ## Scoring
 
-Each test has a rubric with weighted dimensions. Only dimensions with non-None weight are included in the aggregate — prevents phantom dimensions from distorting scores.
+- **Pass** — all critical checks pass
+- **optional_score** — fraction of optional checks that pass (quality signal, doesn't affect pass/fail)
+- **gap_type** — `tool_gap` or `capability_gap` flags known limitations so they don't skew overall results
 
-| Dimension | What It Measures | Default Weight |
-|-----------|-----------------|----------------|
-| `command_correct` | Did the agent use the expected `dku` commands? (regex on trace) | 1.0 |
-| `flags_correct` | Were the right flags used? (`-o json`, `--type`, etc.) | 1.0 |
-| `outcome_verified` | Does DSS state match expectations? (real verification: exit code, row count, columns, recipe types) | 1.0 |
-| `efficiency` | Output tokens + bash call count. Fewer = better. | 0.5 |
-| `chaining` | Were related commands `&&`-chained? | 1.0 |
-| `skill_routing` | Did Claude invoke the right skill? | 1.0 |
-| `visual_recipe_ratio` | Ratio of visual recipes vs code recipes created | opt-in |
-| `no_forbidden` | Were forbidden commands avoided? | opt-in |
-| `agent_delegation` | Did Claude spawn the right subagent? | opt-in |
-| `text_content` | Expected text in agent output? | opt-in |
-
-### Verification features
-
-- `expect_status` — exit code check (default: 0)
-- `expect_contains` — substring match on stdout
-- `expect_min_rows` — minimum row count in JSON array output
-- `expect_columns` — column names that must exist in JSON output
-- `no_python_recipes` — fail if any python/r/shell recipe types found in project
-
-**Pass threshold: 0.70** (configurable in config.yaml)
+Passing a scenario means the enforced checks passed. It does not automatically mean the harness proved every aspect of the natural-language prompt. For partially validated scenarios, `validation_gaps` is the source of truth for what remains unproven.
 
 ## Reports
 
@@ -259,123 +317,86 @@ Each run writes to `benchmark/reports/{run_id}/`:
 
 | File | Contents |
 |------|----------|
-| `summary.json` | Per-test scores, costs, tokens, duration, git SHA, timestamp |
-| `narrative.md` | Rich report: task, commands, score breakdown, agent output, CLI/skill insights |
-| `recommendations.md` | Clustered failure patterns with suggested fixes |
-| `traces/` | Raw JSONL trace per test |
+| `summary.json` | Per-test results, costs, tokens, duration, git SHA |
+| `traces/` | Per-test debug JSON: agent output excerpts, bash commands, MCP/skill calls, `coherence_issues`, and errors |
 
-The `summary.json` includes enriched metadata for cross-run analysis:
-
-```json
-{
-  "run_id": "bench_20260331_091500",
-  "timestamp": "2026-03-31T09:15:00",
-  "agent": "claude",
-  "agent_model": "opus",
-  "git_sha": "d195273",
-  "estimated_cost_usd": 22.40,
-  "total_input_tokens": 1500000,
-  "total_output_tokens": 250000,
-  "pass_rate": 0.823,
-  "tests": [...]
-}
-```
-
-## Cost Estimates
-
-| Scope | Claude (Opus) |
-|-------|--------------|
-| Single tier 1 test | ~$0.05 |
-| Single tier 6/9 test | ~$0.15-0.30 |
-| Smoke tests (7 tests) | ~$0.50-1.00 |
-| All tier 9 (10 tests) | ~$2-3 |
-| All tier 10 migrations (8 tests) | ~$3-5 |
-| Full suite (206 tests) | ~$20-30 |
-
-Cost rates are configured per-agent in `config.yaml` (`cost_per_1k_input`, `cost_per_1k_output`).
-
-## After a Run: Reading Results
-
-1. **Terminal output** shows pass/fail + score for each test
-2. **`narrative.md`** — open this first. It shows what the agent did, what it got wrong, and the agent's own meta-feedback (what was confusing, what commands failed)
-3. **`recommendations.md`** — clustered failure patterns ranked by frequency. The top item is your highest-impact fix
-4. **`summary.json`** — structured data for cross-run analysis. Feed to `uv run python -m benchmark.cli trends`
-
-**The improvement loop:**
-```
-Run benchmark → Read narrative.md → Identify gap →
-  CLI bug?       → Fix in src/dku_cli/commands/*.py + add prescriptive error message
-  Skill gap?     → Fix in skills/dku-cli/SKILL.md (cheat sheet or gotchas table)
-  Missing feature → Add CLI command or visual recipe support
-→ Re-run benchmark → Compare with `uv run python -m benchmark.cli compare OLD NEW`
-```
-
-## Writing Scenarios
-
-Scenarios are YAML files in `benchmark/scenarios/`. Each file has a `tests:` list:
-
-```yaml
-tests:
-  - id: my_test_name              # Unique ID
-    tier: 6                        # 1-10 (see tier table above)
-    category: pipeline             # Grouping for reports
-    tags: ["smoke", "fixture"]     # For --tag filtering (optional)
-    prompt: |                      # What the agent sees
-      Build a pipeline in project {project} that joins
-      orders with customers and groups by region.
-      Data files are at {fixture_dir}/orders.csv.
-    needs_project: true            # Runner pre-creates a BENCH_* project
-    timeout: 300                   # Seconds (default: 300)
-    fixtures:                      # Optional: inject fixture files
-      - path: sales/test1
-        files: [orders.csv, customers.csv]
-        inject_as: filesystem
-    expect:
-      commands:                    # Expected dku commands (regex patterns)
-        - pattern: "dku recipe create-join"
-          required: true
-        - pattern: "dku recipe create-group"
-          required: true
-      no_python_recipes: true      # Fail if Python recipes found in project
-      verify:                      # Post-test DSS state checks
-        - command: "dku recipe list -P {project} -o json"
-          expect_status: 0
-          expect_min_rows: 2       # At least 2 recipes
-    rubric:                        # Scoring weights (omit = not scored)
-      command_correct: 1.0
-      outcome_verified: 1.0
-      efficiency: 0.3
-      visual_recipe_ratio: 1.0    # Penalize Python recipe usage
-```
-
-**Placeholders** resolved at runtime: `{project}` → `BENCH_XXXXXX_...`, `{fixture_dir}` → `/tmp/bench_fixtures/{test_id}/`.
-
-## Auto-Generating Tests
-
-### From CLAUDE.md command table (tier 1)
+### Trend dashboard
 
 ```bash
-uv run python -m benchmark.generator
-# Outputs: benchmark/scenarios/tier1_generated.yaml (130 scenarios)
+uv run python -m benchmark.dashboard
 ```
 
-### From fixture directories (tier 10)
+Reads all reports and generates `benchmark/reports/_dashboard.html` with:
+
+- **Pass rate over time** — overall and per-profile line chart
+- **Cost per run** — bar chart tracking API spend across runs
+- **Latest breakdown** — pass rate by domain and difficulty
+- **Run history table** — every run with date, SHA, pass rate, cost
+
+The dashboard opens in your browser automatically (pass `--no-open` to suppress). Charts render inline via Chart.js.
+
+## Comparing Runs
 
 ```bash
-uv run python -m benchmark.generate_fixtures
-# Scans fixtures/<category>/<testN>/, generates auto_fixtures.yaml
+# Latest run per profile (default) — picks the newest report dir for each profile
+uv run python -m benchmark.compare
+
+# All report dirs — no per-profile filtering
+uv run python -m benchmark.compare --all
+
+# Explicit A/B comparison — always shows regression/improvement summary
+uv run python -m benchmark.compare --baseline bench_20260527_165642 --candidate bench_20260528_095949
+
+# Compare two specific runs (positional args)
+uv run python -m benchmark.compare bench_20260527_165642 bench_20260528_095949
+
+# Filter by profile or domain
+uv run python -m benchmark.compare --profile claude_dku_skills,codex_dku_skills
+uv run python -m benchmark.compare --profile claude_dku_skills --domain data_prep
+
+# Profile stats only — skip the per-scenario matrix
+uv run python -m benchmark.compare --profiles-only
+
+# Export to file (json, csv, or markdown)
+uv run python -m benchmark.compare --export json
+uv run python -m benchmark.compare --export csv
+uv run python -m benchmark.compare --export md
+# Exports land in benchmark/reports/_compare_<timestamp>.<ext>
 ```
 
-## Project Isolation
+### Default selection logic
 
-Test resources are created in DSS projects prefixed `BENCH_` or `DEMO_`. These are not automatically cleaned up:
+With no arguments, `compare` loads all report dirs but keeps only the **newest run per unique profile**. This prevents stale runs from diluting the view. Pass `--all` to load every dir regardless.
 
-```bash
-# List benchmark projects
-dku project list -o json | jq -r '.[] | select(.key | startswith("BENCH_") or startswith("DEMO_")) | .key'
+### Output
 
-# Delete all (careful!)
-for key in $(dku project list -o json | jq -r '.[] | select(.key | startswith("BENCH_")) | .key'); do
-  echo y | dku project delete "$key"
-done
-```
+The compare command prints up to two tables:
+
+- **Pass / Fail Matrix** — rows are scenarios, columns are profiles; cells show `PASS`/`FAIL` (or `N/M` when multiple runs are aggregated)
+- **Profile Stats** — per-profile aggregates: run count, pass rate, avg time, avg commands, avg token usage, total cost
+
+### Regression section
+
+When exactly two run dirs are loaded (via `--baseline`/`--candidate`, positional args, or as a side effect of per-profile dedup), a regression section is appended listing newly-passing, regressed, and still-failing profile/scenario pairs.
+
+### Export
+
+`--export json` dumps the full matrix, per-run breakdowns, and per-cell records to a JSON file. `--export csv` writes every test result as a row. `--export md` generates a standalone markdown report including the matrix and profile stats tables.
+
+## Writing a Scenario
+
+1. Create `benchmark/scenarios/<domain>/<id>/task.yaml` + `solution.md`
+2. Write the prompt for the real intended DSS capability, not the narrowest path the current CLI can express
+3. Define `checks` as the machine-checked outcomes the harness can honestly enforce today
+4. If checks do not prove the full prompt intent, add explicit `validation_gaps`
+5. Use `solution.md` as a maintainer-side executable witness for `--validate`, not as the canonical agent workflow
+6. Run `--validate --domain <domain>` to confirm the witness path satisfies the current checks on live DSS
+
+Scenario authoring policy lives in [benchmark/CLAUDE.md](CLAUDE.md).
+
+## Reference documents
+
+- [Architecture](docs/architecture.md) — directory layout, runner lifecycle, container isolation model
+- [CLI Reference](docs/cli-reference.md) — runner flags and profile config keys
+- [Troubleshooting](docs/troubleshooting.md) — common issues and coherence table
+- [Authoring Guide](CLAUDE.md) — scenario contract, prompt rubric, editing checklist

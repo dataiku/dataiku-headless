@@ -1,0 +1,43 @@
+id: recipe_pipeline_with_zones
+domain: end_to_end
+difficulty: hard
+expected_gap: none
+fixtures:
+  - world/orders
+  - world/products
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+  - "dku dataset set-schema products -P {project} --definition '[{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"unit_price\",\"type\":\"double\"}]'"
+prompt: |
+  Build a complete visual flow in project {project}: create a join recipe named
+  `join_orders_products` on `orders` and `products` (keyed by `product_id`), a
+  grouping recipe named `group_by_region` that groups the result by `region`
+  summing `amount`, and a sort recipe named `sort_by_total` that sorts by the
+  total descending. Then organize the flow into three zones: `Ingestion` for the
+  raw datasets, `Processing` for intermediate recipes and datasets, and
+  `Reporting` for the final sorted output. Make sure the flow builds end to end.
+checks:
+  - run: dku recipe list -P {project} -o json
+    assert: output_contains
+    contains: join_orders_products
+  - run: dku recipe list -P {project} -o json
+    assert: output_contains
+    contains: group_by_region
+  - run: dku recipe list -P {project} -o json
+    assert: output_contains
+    contains: sort_by_total
+  - run: dku flow zones -P {project} -o json
+    assert: output_contains
+    contains: Ingestion
+  - run: dku flow zones -P {project} -o json
+    assert: output_contains
+    contains: Processing
+  - run: dku flow zones -P {project} -o json
+    assert: output_contains
+    contains: Reporting
+  - run: dku recipe run sort_by_total -P {project} -w --type RECURSIVE_MISSING_ONLY_BUILD --auto-update-schema
+    assert: exit_code_zero

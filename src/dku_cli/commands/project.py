@@ -11,6 +11,7 @@ from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
     error,
+    filter_fields,
     info,
     render,
     render_raw,
@@ -26,30 +27,36 @@ app = typer.Typer(help="Manage DSS projects.")
 def list_projects(
     ctx: typer.Context,
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated fields to include (key,name,short_desc)",
+    ),
 ) -> None:
     """List all projects."""
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        projects = client.list_project_keys()
-        data = []
-        for key in projects:
-            try:
-                proj = client.get_project(key)
-                meta = proj.get_metadata()
-                data.append(
-                    {
-                        "key": key,
-                        "name": meta.get("label", key),
-                        "short_desc": meta.get("shortDesc", ""),
-                    }
-                )
-            except Exception:
-                data.append({"key": key, "name": key, "short_desc": ""})
+        # Single GET /projects/ returns all metadata; do NOT fetch per-project
+        # (an N+1 that takes ~25s on instances with many projects and makes
+        # agents wrapping calls in `timeout` give up). Verified live: the list
+        # payload populates `name` and `shortDesc` directly, so no per-project
+        # get_metadata() call is needed for names to render.
+        projects = client.list_projects()
+        data = [
+            {
+                "key": p["projectKey"],
+                "name": p.get("name", p["projectKey"]),
+                "short_desc": p.get("shortDesc", ""),
+            }
+            for p in projects
+        ]
+
+        data, keys = filter_fields(data, ["key", "name", "short_desc"], fields)
 
         render(
             data,
-            ["key", "name", "short_desc"],
+            keys,
             output_format=output,
             title="Projects",
             headers={"key": "KEY", "name": "NAME", "short_desc": "DESCRIPTION"},

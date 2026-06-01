@@ -1,0 +1,21 @@
+id: email_reporter
+domain: automation
+difficulty: medium
+expected_gap: none
+fixtures: []
+setup: []
+initial_checks:
+  - run: dku scenario get-definition alerts_scenario -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  I need to know immediately if our pipeline fails. Create a scenario named
+  `alerts_scenario` in project {project} that sends an alert to
+  `alerts@example.com` if the run fails.
+checks:
+  - run: dku scenario get-definition alerts_scenario -P {project} -o json
+    assert: reporter_sends_email
+    reporter_type: mail-scenario
+    email: alerts@example.com
+validation_gaps:
+  - "Checks confirm a mail reporter sends to alerts@example.com, but do not
+     verify it is wired to the failure condition (it could fire on success)."

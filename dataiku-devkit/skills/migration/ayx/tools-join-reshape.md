@@ -199,7 +199,7 @@ dku recipe add-fold prep1 --columns "q1,q2" --key-column Name --value-column Val
 >
 > The default DSS auto-output behavior is option 1; only reach for option 2 when the null status itself is part of the contract.
 
-> **DO NOT use `FoldColumnsByName`** — that's a plugin processor (different param names: `keyColumn`/`valueColumn`) and DSS errors with `UnavailableTypeException` on instances where the plugin isn't installed. Older `dku` versions emitted the plugin variant from `add-fold`; if you see that error, **reinstall the global CLI** (`uv tool install --from . dku-cli --force --reinstall`) before assuming you need a Python fallback. `pd.melt` is genuinely never needed for this — even on the rarest DSS instance.
+> **DO NOT use `FoldColumnsByName`** — that's a plugin processor (different param names: `keyColumn`/`valueColumn`) that errors with `UnavailableTypeException` where the plugin isn't installed. `dku recipe add-fold` emits the stock `MultiColumnFold`, which needs no plugin. `pd.melt` is genuinely never needed for this — even on the rarest DSS instance.
 
 > **The job-not-the-tool reflex for Transpose.** Most Alteryx Transposes exist to feed a downstream `Summarize` (group + agg) over the long form. In DSS the cleaner shape is to compute the aggregate **per-input, before any reshape**: one `add-formula` step per output key inside each upstream Prepare, and the long form is never materialized. Saves the unpivot, the lookup join, and the per-key Group all in one shot. See `ayx/overview.md` § Collapse triggers — the `Union → Transpose → Summarize` row.
 

@@ -1,0 +1,23 @@
+id: knowledge_bank
+domain: genai
+difficulty: medium
+expected_gap: tool_gap
+fixtures:
+  - world/products
+setup:
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+prompt: |
+  Set up AI search over the `products` dataset in project {project} so we can
+  query it later, using the product information as the source content. Name the
+  knowledge bank `products_kb`.
+validation_gaps:
+  - Current automated validation proves KB object creation and vector-store-backed configuration only.
+  - The harness does not yet prove a successful KB build and retrieval query on the live instance.
+checks:
+  - run: dku knowledge list -P {project} -o json
+    assert: output_contains
+    contains: products_kb
+  - run: dku knowledge get products_kb -P {project} -o json
+    assert: output_contains
+    contains: VECTOR_STORE_BACKED

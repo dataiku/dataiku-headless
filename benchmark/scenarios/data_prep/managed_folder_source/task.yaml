@@ -1,0 +1,50 @@
+id: managed_folder_source
+domain: data_prep
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku folder create campaign_files -P {project}
+  - dku folder upload campaign_files {fixture_dir}/orders.csv --path jan.csv -P {project}
+  - dku folder upload campaign_files {fixture_dir}/orders.csv --path feb.csv -P {project}
+  - dku folder upload campaign_files {fixture_dir}/orders.csv --path mar.csv -P {project}
+initial_checks:
+  - run: dku dataset schema campaign_combined -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, we receive monthly CSV files in a managed folder called
+  `campaign_files`. Each file has the same schema (order_id, customer_id,
+  product_id, region, amount, date). Build a flow that reads all CSV files from
+  that folder and produces a single combined dataset named `campaign_combined`
+  containing all the rows.
+checks:
+  - run: dku folder list -P {project} -o json
+    assert: output_contains
+    contains: "campaign_files"
+  - run: dku dataset schema campaign_combined -P {project} -o json
+    assert: has_columns
+    columns:
+      - order_id
+      - customer_id
+      - amount
+      - region
+  - run: dku dataset head campaign_combined -P {project} -n 10 -o json
+    assert: min_rows
+    min: 10
+  - run: dku dataset list -P {project} -o json
+    assert: output_rows
+    columns: [campaign_combined]
+
+expected_outputs:
+  campaign_combined:
+    schema:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: product_id, type: string}
+      - {name: region, type: string}
+      - {name: amount, type: double}
+      - {name: date, type: dateonly}
+    row_count: 1500
+validation_gaps:
+  - "Cannot distinguish folder source from a re-uploaded dataset — both produce the same dataset type"

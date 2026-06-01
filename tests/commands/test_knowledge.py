@@ -172,8 +172,9 @@ def test_knowledge_build_wait(patch_client):
         app, ["knowledge", "build", "kb1", "--project", "PROJ1", "--wait"]
     )
     assert result.exit_code == 0
-    future = patch_client.get_project("PROJ1").get_knowledge_bank("kb1").build()
-    future.wait_for_result.assert_called()
+    # kb.build(wait=True) blocks server-side; no wait_for_result() on the result.
+    kb = patch_client.get_project("PROJ1").get_knowledge_bank("kb1")
+    kb.build.assert_called_with(wait=True)
 
 
 def test_knowledge_search(patch_client):

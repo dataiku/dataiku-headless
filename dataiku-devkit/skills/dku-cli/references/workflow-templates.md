@@ -40,14 +40,54 @@ dku knowledge search support_kb --query "test query" -P MY_PROJ
 ## Visual ML
 
 ```bash
+# Create ML task on dataset
 dku ml create-prediction customers churn --type BINARY_CLASSIFICATION -P MY_PROJ -o json
+
+# Explore and configure algorithms
 dku ml algorithms ANALYSIS_ID MLTASK_ID -P MY_PROJ
 dku ml set-algorithm ANALYSIS_ID MLTASK_ID --disable-all --enable XGBoost --enable RandomForest -P MY_PROJ
+
+# Train (creates a training session with multiple model candidates)
 dku ml train ANALYSIS_ID MLTASK_ID -P MY_PROJ -o json
+
+# Inspect results, then iterate (change settings, re-train)
 dku ml details ANALYSIS_ID MLTASK_ID MODEL_ID -P MY_PROJ
+
+# Deploy to Flow as a saved model
 dku ml deploy ANALYSIS_ID MLTASK_ID MODEL_ID --name ChurnModel --train-dataset customers -P MY_PROJ
 dku model metrics DEPLOYED_MODEL_ID -P MY_PROJ
+
+# Later iteration: update existing saved model with new version
+dku ml deploy ANALYSIS_ID MLTASK_ID NEW_MODEL_ID --name ChurnModel \
+  --train-dataset customers -P MY_PROJ \
+  --saved-model-id DEPLOYED_MODEL_ID
+# This creates a new version in the existing saved model (preserves downstream refs)
 ```
+
+## Job Recovery
+
+When a build, run, or training call times out before reaching a terminal state:
+
+```bash
+# 1. Check job status -- timeout is NOT failure
+dku job list -P PROJ -o json
+
+# 2. Wait for the specific job to complete
+dku job wait JOB_ID -P PROJ
+
+# 3. Check logs on failure
+dku job log JOB_ID -P PROJ
+
+# 4. Verify outputs -- a completed job may have partial results
+dku dataset head TARGET -P PROJ -n 5
+dku dataset info TARGET -P PROJ --recompute
+```
+
+**Rules:**
+- Timeout is not failure. A timed-out wait means the job may still be queued or running.
+- Do not start another overlapping build/run on the same recipe, output, or downstream path while a prior job may still be active.
+- Do not assume a missing job_id means the job is gone -- use `dku job list` to rediscover recent project jobs.
+- For linearly dependent recipes: complete the full cycle (create, configure, run, verify) for each recipe before starting the next. Never batch-create multiple dependent recipes and run them all at once.
 
 ## Deployment
 

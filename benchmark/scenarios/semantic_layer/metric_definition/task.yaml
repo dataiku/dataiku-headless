@@ -1,0 +1,24 @@
+id: metric_definition
+domain: semantic_layer
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+initial_checks:
+  - run: dku semantic-model list-metrics orders_semantic_model --entity orders -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, set up a data model named `orders_semantic_model` over
+  `orders` and define a metric named `Total Revenue` (the total order amount)
+  so the team can use it in reports.
+checks:
+  - run: dku semantic-model list-entities orders_semantic_model -P {project} -o json
+    assert: output_contains
+    contains: orders
+  - run: dku semantic-model list-metrics orders_semantic_model --entity orders -P {project} -o json
+    assert: output_contains
+    contains: Total Revenue

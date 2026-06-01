@@ -44,7 +44,7 @@ def list_stores(
                 {
                     "id": s.id,
                     "name": raw.get("name", ""),
-                    "flavor": raw.get("flavor", "TABULAR"),
+                    "flavor": raw.get("mesFlavor", raw.get("flavor", "TABULAR")),
                 }
             )
 

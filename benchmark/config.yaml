@@ -1,30 +1,90 @@
 dss:
-  project_prefix: "BENCH"
+  project_prefix: "PROJ"
   folder: "Agent Benchmark"
+  # Embedding model for knowledge-bank scenarios. Substituted into {embedding_llm}.
+  # List options: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P <project>
+  embedding_llm: "openai:OpenAI-All-Enterprise:text-embedding-3-small"
 
-agents:
-  claude:
-    command: "claude"
-    model: "opus"
-    cost_per_1k_input: 0.015
-    cost_per_1k_output: 0.075
-    # Actual invocation flags are hardcoded in agents/claude.py:
-    #   claude -p PROMPT --output-format stream-json --verbose
-    #   --dangerously-skip-permissions --model opus --max-turns 15
-  codex:
-    command: "codex"
-    model: "gpt-5.4"
-    cost_per_1k_input: 0.012
-    cost_per_1k_output: 0.060
-    # Actual invocation flags are hardcoded in agents/codex.py
+# Tool-surface presets, shared by each claude_* / codex_* pair.
+#   vanilla    — no dku CLI, no skills; raw dataikuapi + DSS creds only
+#   dku        — dku CLI, no skills
+#   dku_skills — dku CLI + progressive-disclosure CLI skills
+#   mcp              — MCP server as the only DSS surface (no dku, no raw API)
+#   mcp_skills       — MCP server + skills auto-discovered from the agent-dev-kit
+#   mcp_search       — MCP server in search mode (search_tools + call_tool only)
+#   mcp_search_skills— MCP server in search mode + skills
+_surfaces:
+  vanilla: &vanilla
+    skills: []
+    strip_dku: true
+    system_prompt: benchmark/agents/system_prompts/agnostic.md
+  dku: &dku
+    skills: []
+    system_prompt: benchmark/agents/system_prompts/dku.md
+  dku_skills: &dku_skills
+    skills: [dku-cli, dataiku, dataiku-internal-branding, migration]
+    system_prompt: benchmark/agents/system_prompts/dku_skills.md
+  mcp: &mcp
+    skills: []
+    system_prompt: benchmark/agents/system_prompts/mcp.md
+    # Served by the bench-mcp HTTP sidecar (Dockerfile.mcp); the runner injects
+    # its URL at run time. Only the server name matters here — no command/creds.
+    mcp_servers:
+      dataiku: {}
+    tool_exposure: full
+  mcp_skills: &mcp_skills
+    system_prompt: benchmark/agents/system_prompts/mcp_skills.md
+    skills_root: $AGENT_DEV_KIT_PATH/dataiku-skills
+    auto_discover_skills: true
+    mcp_servers:
+      dataiku: {}
+    tool_exposure: full
+  mcp_search: &mcp_search
+    <<: *mcp
+    tool_exposure: search
+  mcp_search_skills: &mcp_search_skills
+    <<: *mcp_skills
+    tool_exposure: search
+
+_defaults: &defaults
+  effort: medium
+  max_turns: 25  # fallback only; runner.max_turns tiers this by difficulty
+
+profiles:
+  claude_vanilla:    {<<: [*defaults, *vanilla],    vendor: claude, model: claude-sonnet-4-8}
+  codex_vanilla:     {<<: [*defaults, *vanilla],    vendor: codex,  model: gpt-5.5}
+  claude_dku:        {<<: [*defaults, *dku],        vendor: claude, model: claude-sonnet-4-8}
+  codex_dku:         {<<: [*defaults, *dku],        vendor: codex,  model: gpt-5.5}
+  claude_dku_skills: {<<: [*defaults, *dku_skills], vendor: claude, model: claude-sonnet-4-8}
+  codex_dku_skills:  {<<: [*defaults, *dku_skills], vendor: codex,  model: gpt-5.5}
+  claude_mcp:              {<<: [*defaults, *mcp],              vendor: claude, model: claude-sonnet-4-8}
+  codex_mcp:               {<<: [*defaults, *mcp],              vendor: codex,  model: gpt-5.5}
+  claude_mcp_skills:       {<<: [*defaults, *mcp_skills],       vendor: claude, model: claude-sonnet-4-8}
+  codex_mcp_skills:        {<<: [*defaults, *mcp_skills],       vendor: codex,  model: gpt-5.5}
+  claude_mcp_search:       {<<: [*defaults, *mcp_search],       vendor: claude, model: claude-sonnet-4-8}
+  codex_mcp_search:        {<<: [*defaults, *mcp_search],       vendor: codex,  model: gpt-5.5}
+  claude_mcp_search_skills: {<<: [*defaults, *mcp_search_skills],vendor: claude, model: claude-sonnet-4-8}
+  codex_mcp_search_skills: {<<: [*defaults, *mcp_search_skills],vendor: codex,  model: gpt-5.5}
 
 runner:
-  parallel: 2
-  timeout: 300
-  agents:
-    - claude
+  parallel: 4
+  # Wall-clock kill ceiling per scenario run, tiered by difficulty.
+  timeout:
+    default: 300
+    easy: 180
+    medium: 360
+    hard: 900
+  # Agent-side turn cap, tiered by difficulty — the real spend lever.
+  max_turns:
+    default: 25
+    easy: 15
+    medium: 25
+    hard: 40
+  repeat: 1  # runs per scenario x profile; >1 reports min/max/mean/stddev (overridable with --repeat)
+  cleanup: true
+  sandbox_image: bench-agents:latest
+  sandbox_cpus: 2
+  sandbox_memory: 2g
+  profiles:
+    - codex_dku_skills
   fixture_dir: benchmark/fixtures
-  baseline_threshold: 0.1
-
-scoring:
-  pass_threshold: 0.7

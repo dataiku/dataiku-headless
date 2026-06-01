@@ -642,6 +642,69 @@ def test_scenario_run_log_requires_run(patch_client):
     assert result.exit_code != 0
 
 
+def test_scenario_run_log_grep_match(patch_client):
+    """--grep shows only matching lines."""
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "run-log",
+            "scen1",
+            "--run",
+            "run1",
+            "--grep",
+            "completed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Step 1 completed" in result.output
+    assert "Done" not in result.output
+
+
+def test_scenario_run_log_grep_no_match(patch_client):
+    """--grep with no matching line warns and returns early."""
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "run-log",
+            "scen1",
+            "--run",
+            "run1",
+            "--grep",
+            "nonexistent",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "No lines matching 'nonexistent' found" in result.output
+    assert "Step 1 completed" not in result.output
+
+
+def test_scenario_run_log_tail(patch_client):
+    """--tail shows only the last N lines."""
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "run-log",
+            "scen1",
+            "--run",
+            "run1",
+            "--tail",
+            "1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Done" in result.output
+    assert "Step 1 completed" not in result.output
+
+
 # --- set-metadata ---
 
 
@@ -865,3 +928,154 @@ def test_scenario_remove_trigger_invalid_index(patch_client):
     )
     assert result.exit_code != 0
     assert "out of range" in result.output
+
+
+# --- list-reporters / add-reporter ---
+
+
+def _set_reporters(patch_client, reporters):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("nightly")
+    settings = scenario.get_settings()
+    settings.raw_reporters = reporters
+    return settings
+
+
+def test_scenario_list_reporters_table(patch_client):
+    _set_reporters(
+        patch_client,
+        [
+            {
+                "messaging": {
+                    "type": "mail-scenario",
+                    "configuration": {"recipient": "ops@example.com"},
+                },
+                "runCondition": "outcome != 'SUCCESS'",
+            },
+            {
+                "messaging": {
+                    "type": "slack-scenario",
+                    "configuration": {"recipient": "#alerts"},
+                },
+                "runCondition": "",
+            },
+        ],
+    )
+    result = runner.invoke(
+        app, ["scenario", "list-reporters", "nightly", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Reporters: nightly" in result.output
+    assert "mail-scenario" in result.output
+    assert "ops@example.com" in result.output
+    assert "outcome != 'SUCCESS'" in result.output
+    # Empty runCondition renders as the (always) sentinel.
+    assert "(always)" in result.output
+
+
+def test_scenario_list_reporters_json(patch_client):
+    _set_reporters(
+        patch_client,
+        [
+            {
+                "messaging": {
+                    "type": "mail-scenario",
+                    "configuration": {"recipient": "ops@example.com"},
+                },
+                "runCondition": "outcome != 'SUCCESS'",
+            }
+        ],
+    )
+    result = runner.invoke(
+        app,
+        ["scenario", "list-reporters", "nightly", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["messaging"]["type"] == "mail-scenario"
+    assert parsed[0]["messaging"]["configuration"]["recipient"] == "ops@example.com"
+
+
+def test_scenario_list_reporters_empty(patch_client):
+    _set_reporters(patch_client, [])
+    result = runner.invoke(
+        app, ["scenario", "list-reporters", "nightly", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "No reporters on scenario 'nightly'" in result.output
+    assert "dku scenario add-reporter nightly" in result.output
+
+
+def test_scenario_add_reporter_failure(patch_client):
+    settings = _set_reporters(patch_client, [])
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-reporter",
+            "nightly",
+            "--recipient",
+            "ops@example.com",
+            "--condition",
+            "failure",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Added 'failure' email reporter to 'ops@example.com'" in result.output
+    assert "index 0" in result.output
+    settings.save.assert_called_once()
+    assert len(settings.raw_reporters) == 1
+    reporter = settings.raw_reporters[0]
+    assert reporter["runCondition"] == "outcome != 'SUCCESS'"
+    assert reporter["runConditionEnabled"] is True
+    assert reporter["messaging"]["type"] == "mail-scenario"
+    assert reporter["messaging"]["configuration"]["recipient"] == "ops@example.com"
+
+
+def test_scenario_add_reporter_always_disables_condition(patch_client):
+    settings = _set_reporters(patch_client, [])
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-reporter",
+            "nightly",
+            "--recipient",
+            "team@example.com",
+            "--condition",
+            "always",
+            "--channel",
+            "smtp-prod",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    reporter = settings.raw_reporters[0]
+    assert reporter["runCondition"] == ""
+    assert reporter["runConditionEnabled"] is False
+    assert reporter["messaging"]["configuration"]["channelId"] == "smtp-prod"
+
+
+def test_scenario_add_reporter_invalid_condition(patch_client):
+    settings = _set_reporters(patch_client, [])
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-reporter",
+            "nightly",
+            "--recipient",
+            "ops@example.com",
+            "--condition",
+            "sometimes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unknown condition 'sometimes'" in result.output
+    assert "failure, success, always" in result.output
+    settings.save.assert_not_called()

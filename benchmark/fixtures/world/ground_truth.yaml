@@ -1,0 +1,66 @@
+seed: 20260427
+row_counts:
+  orders: 500
+  customers: 100
+  products: 50
+  events: 1000
+  users: 200
+  stores: 10
+  warehouses: 3
+  vendors: 12
+  room_bookings: 18
+  user_sessions: 61
+orders:
+  sum_amount_by_region:
+    East: 11262.18
+    North: 11133.51
+    South: 11574.7
+    West: 11575.9
+  vip_revenue_by_country:
+    Japan: 5571.57
+    United Kingdom: 5441.18
+  monthly_category_revenue_sample:
+  - month: 2024-01
+    category: Accessories
+    revenue: 1028.7
+  - month: 2024-01
+    category: Hardware
+    revenue: 1213.83
+  - month: 2024-01
+    category: Services
+    revenue: 1107.72
+  - month: 2024-01
+    category: Software
+    revenue: 1245.78
+  - month: 2024-02
+    category: Accessories
+    revenue: 800.09
+  - month: 2024-02
+    category: Hardware
+    revenue: 1039.4
+  - month: 2024-02
+    category: Services
+    revenue: 920.27
+  - month: 2024-02
+    category: Software
+    revenue: 990.94
+  - month: 2024-03
+    category: Accessories
+    revenue: 1139.69
+  - month: 2024-03
+    category: Hardware
+    revenue: 1120.47
+  - month: 2024-03
+    category: Services
+    revenue: 1068.92
+  - month: 2024-03
+    category: Software
+    revenue: 1235.1
+room_bookings:
+  alpha_beta_overlap_q2_2024: 47
+user_sessions:
+  long_gap_users:
+  - user_id: U1007
+    max_gap_hours: 72
+  - user_id: U1003
+    max_gap_hours: 62

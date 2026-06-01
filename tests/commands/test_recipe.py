@@ -1381,9 +1381,9 @@ def test_recipe_add_input_code_recipe_leaves_payload_alone(patch_client):
 
 
 def test_recipe_create_embed(patch_client):
-    """New KB: get_knowledge_bank raises, so with_output_knowledge_bank is used."""
+    """New KB: list_knowledge_banks is empty, so with_output_knowledge_bank is used."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_knowledge_bank.side_effect = Exception("not found")
+    proj.list_knowledge_banks.return_value = []
     result = runner.invoke(
         app,
         [
@@ -1408,13 +1408,14 @@ def test_recipe_create_embed(patch_client):
     builder.with_output_knowledge_bank.assert_called_once_with(
         "my_kb", "openai:text-embedding-3-small", "CHROMA"
     )
+    builder.set_raw_mode.assert_not_called()
     builder.build.assert_called_once()
 
 
 def test_recipe_create_embed_custom_vector_store(patch_client):
     """New KB with custom vector store type."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_knowledge_bank.side_effect = Exception("not found")
+    proj.list_knowledge_banks.return_value = []
     result = runner.invoke(
         app,
         [
@@ -1438,12 +1439,13 @@ def test_recipe_create_embed_custom_vector_store(patch_client):
     builder.with_output_knowledge_bank.assert_called_once_with(
         "my_kb", "openai:text-embedding-3-large", "FAISS"
     )
+    builder.set_raw_mode.assert_not_called()
 
 
 def test_recipe_create_embed_with_embed_column(patch_client):
     """--embed-column sets knowledgeColumn in obj_payload after creation."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_knowledge_bank.side_effect = Exception("not found")
+    proj.list_knowledge_banks.return_value = []
     recipe_mock = proj.get_recipe.return_value
     settings_mock = recipe_mock.get_settings.return_value
 
@@ -1474,7 +1476,7 @@ def test_recipe_create_embed_with_embed_column(patch_client):
 def test_recipe_create_embed_with_metadata_cols(patch_client):
     """--metadata-col is repeatable and writes payload.metadataColumns[]."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_knowledge_bank.side_effect = Exception("not found")
+    proj.list_knowledge_banks.return_value = []
     recipe_mock = proj.get_recipe.return_value
     settings_mock = recipe_mock.get_settings.return_value
 
@@ -1506,7 +1508,10 @@ def test_recipe_create_embed_with_metadata_cols(patch_client):
     )
     assert result.exit_code == 0, result.output
     assert settings_mock.obj_payload["knowledgeColumn"] == "body"
-    assert settings_mock.obj_payload["metadataColumns"] == ["title", "url"]
+    assert settings_mock.obj_payload["metadataColumns"] == [
+        {"column": "title"},
+        {"column": "url"},
+    ]
     assert settings_mock.obj_payload["chunkSizeCharacters"] == 1500
     assert settings_mock.obj_payload["chunkOverlapCharacters"] == 150
 
@@ -1514,7 +1519,7 @@ def test_recipe_create_embed_with_metadata_cols(patch_client):
 def test_recipe_create_embed_without_embed_column_warns(patch_client):
     """Without --embed-column, a warning is shown and save is NOT called."""
     proj = patch_client.get_project("PROJ1")
-    proj.get_knowledge_bank.side_effect = Exception("not found")
+    proj.list_knowledge_banks.return_value = []
     result = runner.invoke(
         app,
         [
@@ -1537,7 +1542,47 @@ def test_recipe_create_embed_without_embed_column_warns(patch_client):
     proj.get_recipe.assert_not_called()
 
 
+def test_recipe_create_embed_existing_kb(patch_client):
+    """Existing KB: uses set_raw_mode + direct ref instead of with_output_knowledge_bank."""
+    proj = patch_client.get_project("PROJ1")
+    existing_kb = MagicMock()
+    existing_kb.name = "my_kb"
+    existing_kb.id = "existing_id_abc"
+    proj.list_knowledge_banks.return_value = [existing_kb]
+    builder = proj.new_recipe.return_value
+    builder.recipe_proto = {"outputs": {}}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Using existing knowledge bank" in result.output
+    assert "existing_id_abc" in result.output
+    builder.with_output_knowledge_bank.assert_not_called()
+    builder.set_raw_mode.assert_called_once()
+    assert builder.recipe_proto["outputs"]["knowledge_bank"] == {
+        "items": [{"ref": "existing_id_abc", "appendMode": False}]
+    }
+    builder.build.assert_called_once()
+    assert "No --embed-column specified" in result.output
+    proj.get_recipe.assert_not_called()
+
+
 def test_recipe_create_embed_docs(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_knowledge_banks.return_value = []
     result = runner.invoke(
         app,
         [
@@ -1556,15 +1601,17 @@ def test_recipe_create_embed_docs(patch_client):
     )
     assert result.exit_code == 0
     assert "Created embed-docs recipe" in result.output
-    proj = patch_client.get_project("PROJ1")
     proj.new_recipe.assert_called_once_with("embed_documents", "doc_embed")
     builder = proj.new_recipe.return_value
     builder.with_vlm.assert_not_called()
     builder.with_output_knowledge_bank.assert_called_once()
+    builder.set_raw_mode.assert_not_called()
     builder.build.assert_called_once()
 
 
 def test_recipe_create_embed_docs_with_vlm(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_knowledge_banks.return_value = []
     result = runner.invoke(
         app,
         [
@@ -1584,7 +1631,6 @@ def test_recipe_create_embed_docs_with_vlm(patch_client):
         ],
     )
     assert result.exit_code == 0
-    proj = patch_client.get_project("PROJ1")
     builder = proj.new_recipe.return_value
     builder.with_vlm.assert_called_once_with("openai:gpt-4o")
 
@@ -1612,6 +1658,7 @@ def test_recipe_create_embed_docs_requires_input_or_folder(patch_client):
 def test_recipe_create_embed_docs_folder_only_rewires_main(patch_client):
     """--input-folder alone ⇒ inputs.main repointed to the folder (DSS 14.5+ pattern)."""
     proj = patch_client.get_project("PROJ1")
+    proj.list_knowledge_banks.return_value = []
     # Capture the settings object we can inspect after the rewire.
     recipe_obj = proj.get_recipe.return_value
     settings = recipe_obj.get_settings.return_value
@@ -4338,7 +4385,9 @@ def test_recipe_create_distinct_with_explicit_on_flag(patch_client):
         {"column": "customer_id"},
         {"column": "order_date"},
     ]
-    assert settings.obj_payload["selectAllColumns"] is True
+    # A subset via --on must NOT select all columns; otherwise DSS dedups on the
+    # full row and the keys are ignored.
+    assert settings.obj_payload["selectAllColumns"] is False
 
 
 # ── Dynamic connection discovery ──────────────────────────────────────
@@ -9057,3 +9106,165 @@ def test_recipe_create_join_right_limit_invalid_keep(patch_client):
     )
     assert result.exit_code == 1
     assert "KEEP_RANDOM" in result.output
+
+
+# ── lint-formula / lint-sql / lint-python ───────────────────────────────
+
+
+def _set_recipe_status(patch_client, severity, messages, actual_type="prepare"):
+    """Configure the shared recipe mock's status + raw type for lint tests."""
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe("r")
+    recipe.get_settings().get_recipe_raw_definition.return_value = {
+        "type": actual_type,
+        "name": "r",
+    }
+    status = recipe.get_status()
+    status.get_status_severity.return_value = severity
+    status.get_status_messages.return_value = messages
+    return recipe
+
+
+def test_recipe_lint_formula_clean(patch_client):
+    _set_recipe_status(patch_client, "SUCCESS", [], actual_type="shaker")
+    result = runner.invoke(
+        app, ["recipe", "lint-formula", "my_prepare", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Linting formula recipe 'my_prepare' (type: shaker)" in result.output
+    assert "No errors or warnings found." in result.output
+
+
+def test_recipe_lint_formula_with_errors(patch_client):
+    _set_recipe_status(
+        patch_client,
+        "ERROR",
+        [
+            {
+                "severity": "ERROR",
+                "code": "FORMULA_BAD",
+                "title": "Invalid formula",
+                "message": "Unknown column 'foo'",
+            },
+            {
+                "severity": "WARNING",
+                "code": "PERF",
+                "title": "Slow step",
+                "message": "consider indexing",
+            },
+        ],
+        actual_type="shaker",
+    )
+    result = runner.invoke(
+        app, ["recipe", "lint-formula", "my_prepare", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    assert "Found 1 error(s):" in result.output
+    assert "[FORMULA_BAD] Invalid formula: Unknown column 'foo'" in result.output
+    assert "Plus 1 warning(s)" in result.output
+
+
+def test_recipe_lint_formula_warnings_only(patch_client):
+    _set_recipe_status(
+        patch_client,
+        "WARNING",
+        [
+            {
+                "severity": "WARNING",
+                "code": "PERF",
+                "title": "Slow step",
+                "message": "consider indexing",
+            }
+        ],
+        actual_type="shaker",
+    )
+    result = runner.invoke(
+        app, ["recipe", "lint-formula", "my_prepare", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Found 1 warning(s):" in result.output
+    assert "[PERF] Slow step: consider indexing" in result.output
+
+
+def test_recipe_lint_formula_json(patch_client):
+    _set_recipe_status(
+        patch_client,
+        "ERROR",
+        [{"severity": "ERROR", "code": "X", "title": "t", "message": "m"}],
+        actual_type="shaker",
+    )
+    result = runner.invoke(
+        app,
+        ["recipe", "lint-formula", "my_prepare", "--project", "PROJ1", "-o", "json"],
+    )
+    assert result.exit_code == 1
+    parsed = json.loads(result.output[result.output.index("{") :])
+    assert parsed["recipe"] == "my_prepare"
+    assert parsed["type"] == "shaker"
+    assert parsed["severity"] == "ERROR"
+    assert parsed["lint_passed"] is False
+    assert parsed["messages"][0]["code"] == "X"
+
+
+def test_recipe_lint_sql_clean(patch_client):
+    _set_recipe_status(patch_client, "SUCCESS", [], actual_type="sql_query")
+    result = runner.invoke(
+        app, ["recipe", "lint-sql", "my_query", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Linting SQL recipe 'my_query' (type: sql_query)" in result.output
+    assert "No errors or warnings found." in result.output
+
+
+def test_recipe_lint_sql_json_passed(patch_client):
+    _set_recipe_status(patch_client, "SUCCESS", [], actual_type="sql_query")
+    result = runner.invoke(
+        app, ["recipe", "lint-sql", "my_query", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output[result.output.index("{") :])
+    assert parsed["lint_passed"] is True
+    assert parsed["severity"] == "SUCCESS"
+
+
+def test_recipe_lint_python_clean(patch_client):
+    _set_recipe_status(patch_client, "SUCCESS", [], actual_type="python")
+    result = runner.invoke(
+        app, ["recipe", "lint-python", "my_script", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Linting Python recipe 'my_script' (type: python)" in result.output
+    assert "No errors or warnings found." in result.output
+
+
+def test_recipe_lint_python_fatal_error(patch_client):
+    _set_recipe_status(
+        patch_client,
+        "FATAL",
+        [
+            {
+                "severity": "FATAL",
+                "code": "ENV_MISSING",
+                "title": "Code env missing",
+                "message": "env 'py39' not found",
+            }
+        ],
+        actual_type="python",
+    )
+    result = runner.invoke(
+        app, ["recipe", "lint-python", "my_script", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    assert "Found 1 error(s):" in result.output
+    assert "[ENV_MISSING] Code env missing: env 'py39' not found" in result.output
+
+
+def test_recipe_lint_python_not_found(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe("ghost")
+    recipe.get_settings.side_effect = KeyError("recipe")
+    result = runner.invoke(
+        app, ["recipe", "lint-python", "ghost", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output

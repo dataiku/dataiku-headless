@@ -1,0 +1,36 @@
+id: fuzzy_join_vendors
+domain: data_prep
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/products
+  - world/vendors
+setup:
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+  - dku dataset create vendors --type UploadedFiles -P {project}
+  - dku dataset upload vendors {fixture_dir}/vendors.csv -P {project}
+initial_checks:
+  - run: dku dataset schema vendor_product_match -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, set up a fuzzy join to match our vendor catalog
+  (`vendors`) against the `products` catalog on the `product_category`
+  column. Some vendor entries have minor spelling differences. Use
+  LEVENSHTEIN with a max distance of 2. Name the output dataset
+  `vendor_product_match`. Keep this in the visual flow.
+checks:
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku recipe get-definition match_vendors -P {project} -o json
+    assert: output_contains
+    column: LEVENSHTEIN
+  - run: dku recipe get-definition match_vendors -P {project} -o json
+    assert: output_contains
+    column: fuzzyJoinMaxDistance
+
+validation_gaps:
+  - "Checks confirm a fuzzy join recipe exists with LEVENSHTEIN, max distance
+     2, and the right inputs/outputs. DSS 14.5.0-beta3 internal error prevents
+     fuzzy join recipe execution (NullPointerException), so runtime correctness
+     of the output is not verified."

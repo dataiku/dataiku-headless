@@ -293,6 +293,8 @@ dku scenario list-triggers SCENARIO_ID [-P PROJECT] [-o FORMAT]
 dku scenario add-trigger SCENARIO_ID --trigger JSON [-P PROJECT]
 dku scenario add-trigger-dataset SCENARIO_ID --dataset DS [--delay SECS] [--grace-delay SECS] [-P PROJECT]
 dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
+dku scenario list-reporters SCENARIO_ID [-P PROJECT] [-o FORMAT]
+dku scenario add-reporter SCENARIO_ID --recipient EMAIL [--condition failure|success|always] [--channel CHANNEL_ID] [--sender EMAIL] [--subject TEXT] [--name TEXT] [-P PROJECT]
 ```
 
 - `last-run` shows the last finished run of a scenario
@@ -305,6 +307,32 @@ dku scenario remove-trigger SCENARIO_ID --index INDEX [-P PROJECT]
 - `set-definition` does a FULL settings replace — including `params.steps`, `params.reporters`, and the header fields. Supply a complete scenario definition (the shape returned by `get-definition` or `get_settings().get_raw()`). Partial updates of header-only fields should use `set-metadata` instead.
 - **Step types for `params.steps`:** `build_flowitem` (build datasets/folders — takes `params.builds` as a list of `{type: "DATASET"|"MANAGED_FOLDER", itemId, partitionsSpec}` and `params.buildMode`), `custom_python` (inline script — `params.script`), `exec_sql` (SQL — `params.sql`, `params.connection`). See `dataikuapi/dss/scenario.py` for the full step-type catalogue.
 - **`get-definition` is header-only:** it does NOT include `params.steps` or `triggers`. For triggers use `list-triggers`; for steps read via the API's `get_settings().get_raw()` path.
+- `add-reporter` wires a `mail-scenario` email reporter that fires at run end. `--condition failure` → `outcome != 'SUCCESS'`, `success` → `outcome == 'SUCCESS'`, `always` → fires regardless. For "stop on failure → alert ops, else notify team", add two reporters (`--condition failure --recipient ops@…` and `--condition success --recipient team@…`). The reporter is saved even if `--channel` doesn't match a configured SMTP channel (channels are validated at send time, not save time). Use `list-reporters` to verify.
+
+## data-quality (dq)
+
+Data quality rules live on a dataset and are computed on demand (DSS 14.5+).
+
+```bash
+dku dq list DATASET [-P PROJECT] [-o FORMAT]
+dku dq create DATASET --type TYPE [--column COL] [--min N] [--max N] [--name NAME] [-P PROJECT]
+dku dq create DATASET --config JSON [-P PROJECT]   # any of the 35+ DSS rule types
+dku dq compute DATASET [-P PROJECT]
+dku dq results DATASET [-P PROJECT] [-o FORMAT]
+dku dq status DATASET [-P PROJECT]
+dku dq delete DATASET --rule-id ID [-P PROJECT] -y
+dku dq project-status [-P PROJECT] [-o FORMAT]
+```
+
+Rule-type shorthands for `--type`:
+
+- `record-count` — total row count in range (dataset-level); `--min`/`--max`
+- `column-count` — number of columns in range (dataset-level). Exact match: `--min N --max N` (e.g. "exactly 6 columns" → `--min 6 --max 6`)
+- `not-empty` — a column has no nulls/blanks; needs `--column`. Works on **any** column type (string included) — the CLI sets the required `thresholdType` so `compute` passes
+- `value-in-range` — needs `--column` and `--min`/`--max`; creates TWO rules (min + max)
+- `column-min` / `column-max` / `column-avg` / `column-sum` — numeric columns only; `--min`/`--max`
+
+After creating rules, run `dku dq compute DATASET` then `dku dq results DATASET` to confirm each rule's OUTCOME is `OK`. For rule types without a shorthand (median, stddev, schema, file-size), pass raw JSON via `--config`.
 
 ## job
 

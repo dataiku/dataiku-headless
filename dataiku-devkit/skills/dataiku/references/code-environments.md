@@ -1,15 +1,41 @@
 # Code Environments Guide
 
-> Complete reference for managing Python dependencies in Dataiku plugins.
+> Complete reference for managing Python dependencies in Dataiku plugins and setting code environments for recipes, ML analyses, and webapps.
 
 ---
 
 ## Overview
 
-Code environments provide isolated Python environments for plugins. They ensure:
+Code environments provide isolated Python environments for plugins, recipes, ML analyses, and webapps. They ensure:
 - Reproducible dependency versions
 - Isolation from other plugins
 - Consistent execution across DSS nodes
+
+---
+
+## When to Change a Code Environment
+
+**Do not change the code environment proactively.** Only act when a recipe run, ML training, or webapp fails with an error that indicates an environment problem — missing package, import error, or incompatible Python version.
+
+When that happens, list available envs, filter by language, and ask the user for the exact environment name. Then set `EXPLICIT_ENV` with that name via the `dku-cli` skill.
+
+### Three Env Modes
+
+| Mode | Meaning |
+|------|---------|
+| `EXPLICIT_ENV` | Use a named environment (requires `env_name`) |
+| `INHERIT` | Inherit the project or instance default |
+| `USE_BUILTIN_MODE` | Use DSS built-in environment for the language |
+
+Use `list_code_envs` to discover available names before setting `EXPLICIT_ENV`.
+
+### Setting for Recipes
+
+Pin the env when creating a code recipe with `dku recipe create --env-mode EXPLICIT_ENV --env-name NAME`. Only applies to code recipes (`python`, `r`, `pyspark`, `sparkr`). Other valid `--env-mode` values are `INHERIT` and `USE_BUILTIN_MODE`. There is no command to change the env of an existing recipe via the CLI — re-create it or edit in the DSS UI.
+
+### Setting for ML Analyses
+
+`dku` does not expose a command to set the code env on an ML task. Configure it in the DSS UI (analysis → *Runtime environment*) or via `dataikuapi`.
 
 ---
 

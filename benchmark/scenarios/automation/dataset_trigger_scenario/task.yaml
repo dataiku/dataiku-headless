@@ -1,0 +1,21 @@
+id: dataset_trigger_scenario
+domain: automation
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+initial_checks:
+  - run: dku scenario get-definition orders_watchdog -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  We refresh the `orders` dataset whenever new data arrives. Set up an
+  automation in project {project} that watches `orders` for updates and runs
+  whenever that dataset changes. Name the scenario `orders_watchdog`.
+checks:
+  - run: dku scenario get-definition orders_watchdog -P {project} -o json
+    assert: trigger_watches
+    trigger_type: ds_modified
+    dataset: orders

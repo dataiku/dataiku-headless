@@ -1,0 +1,20 @@
+id: routing_block
+domain: structured_agent
+difficulty: medium
+expected_gap: none
+fixtures: []
+setup: []
+prompt: |
+  Build a customer support bot named `router_agent` in project {project} that
+  handles questions about pricing and support. If someone asks about pricing,
+  it should give them pricing info. If they ask about support, it should route
+  them to support answers.
+checks:
+  - run: dku agent list -P {project} -o json
+    assert: output_contains
+    contains: router_agent
+  - run: dku agent-block get-graph $(dku agent list -P {project} -o json | jq -r '.[] | select(.name=="router_agent") | .id') -P {project} -o json
+    assert: output_contains
+    contains: ROUTING
+validation_gaps:
+  - "Checks prove a routing block exists in the agent, but do not assert the specific pricing/support branch targets (internal branch node names are agent-chosen and not enforced)."

@@ -137,6 +137,81 @@ def test_dq_create_with_type_not_empty(patch_client):
     assert call_args["columns"] == ["CountryISO"]
 
 
+def test_dq_create_with_type_not_empty_threshold(patch_client):
+    """not-empty must set thresholdType=ENTIRE_COLUMN_NOT_EMPTY or compute fails."""
+    result = runner.invoke(
+        app,
+        [
+            "dq",
+            "create",
+            "ds1",
+            "--type",
+            "not-empty",
+            "--column",
+            "CountryISO",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+    proj = patch_client.get_project("PROJ1")
+    ds = proj.get_dataset("ds1")
+    ruleset = ds.get_data_quality_rules()
+    call_args = ruleset.create_rule.call_args[0][0]
+    assert call_args["thresholdType"] == "ENTIRE_COLUMN_NOT_EMPTY"
+
+
+def test_dq_create_with_type_column_count(patch_client):
+    """column-count sets hard minimum/maximum bounds with their *Enabled flags."""
+    result = runner.invoke(
+        app,
+        [
+            "dq",
+            "create",
+            "ds1",
+            "--type",
+            "column-count",
+            "--min",
+            "6",
+            "--max",
+            "6",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created rule" in result.output
+
+    proj = patch_client.get_project("PROJ1")
+    ds = proj.get_dataset("ds1")
+    ruleset = ds.get_data_quality_rules()
+    call_args = ruleset.create_rule.call_args[0][0]
+    assert call_args["type"] == "ColumnCountInRangeRule"
+    assert call_args["minimum"] == 6.0
+    assert call_args["minimumEnabled"] is True
+    assert call_args["maximum"] == 6.0
+    assert call_args["maximumEnabled"] is True
+
+
+def test_dq_create_column_count_requires_min_or_max(patch_client):
+    """column-count with neither --min nor --max exits with a prescriptive error."""
+    result = runner.invoke(
+        app,
+        [
+            "dq",
+            "create",
+            "ds1",
+            "--type",
+            "column-count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--min and/or --max is required" in result.output
+
+
 def test_dq_create_with_type_value_in_range(patch_client):
     """value-in-range creates TWO rules: ColumnMinInRangeRule + ColumnMaxInRangeRule."""
     result = runner.invoke(
@@ -213,8 +288,9 @@ def test_dq_create_not_empty_requires_column(patch_client):
     assert result.exit_code != 0
 
 
-def test_dq_create_not_empty_emits_warning(patch_client):
-    """Creating a not-empty rule should warn about the DSS 14.5 compute bug."""
+def test_dq_create_not_empty(patch_client):
+    """not-empty creates cleanly: the DSS 14.5 compute bug is worked around via
+    thresholdType, so no bug warning is emitted."""
     result = runner.invoke(
         app,
         [
@@ -231,11 +307,11 @@ def test_dq_create_not_empty_emits_warning(patch_client):
     )
     assert result.exit_code == 0
     assert "Created rule" in result.output
-    assert "Known DSS 14.5 beta bug" in result.output
+    assert "Known DSS 14.5 beta bug" not in result.output
 
 
-def test_dq_create_not_empty_raw_config_emits_warning(patch_client):
-    """Creating ColumnNotEmptyRule via raw --config should also warn."""
+def test_dq_create_not_empty_raw_config(patch_client):
+    """ColumnNotEmptyRule via raw --config creates without a bug warning."""
     config = json.dumps(
         {
             "type": "ColumnNotEmptyRule",
@@ -247,11 +323,12 @@ def test_dq_create_not_empty_raw_config_emits_warning(patch_client):
         app, ["dq", "create", "ds1", "--config", config, "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    assert "Known DSS 14.5 beta bug" in result.output
+    assert "Created rule" in result.output
+    assert "Known DSS 14.5 beta bug" not in result.output
 
 
-def test_dq_create_column_empty_raw_config_emits_warning(patch_client):
-    """Creating ColumnEmptyRule via raw --config should also warn."""
+def test_dq_create_column_empty_raw_config(patch_client):
+    """ColumnEmptyRule via raw --config creates without a bug warning."""
     config = json.dumps(
         {
             "type": "ColumnEmptyRule",
@@ -262,7 +339,8 @@ def test_dq_create_column_empty_raw_config_emits_warning(patch_client):
         app, ["dq", "create", "ds1", "--config", config, "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    assert "Known DSS 14.5 beta bug" in result.output
+    assert "Created rule" in result.output
+    assert "Known DSS 14.5 beta bug" not in result.output
 
 
 def test_dq_create_record_count_no_warning(patch_client):

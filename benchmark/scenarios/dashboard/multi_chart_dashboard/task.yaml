@@ -1,0 +1,33 @@
+id: multi_chart_dashboard
+domain: dashboard
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+  - world/products
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset create products --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - dku dataset upload products {fixture_dir}/products.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+  - "dku dataset set-schema products -P {project} --definition '[{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"category\",\"type\":\"string\"},{\"name\":\"unit_price\",\"type\":\"double\"}]'"
+prompt: |
+  Build a multi-chart dashboard in project {project} with two chart insights:
+  one for `Revenue by Region` (stacked bars, region as dimension, amount summed
+  as measure) from `orders`, and one for `Products by Category` (pie chart,
+  category as dimension, unit price summed as measure) from `products`. Add both
+  as tiles to a dashboard named `Analytics Board`.
+checks:
+  - run: dku dashboard list -P {project} -o json
+    assert: output_contains
+    contains: Analytics Board
+  - run: dku insight list -P {project} -o json
+    assert: output_contains
+    contains: Revenue by Region
+  - run: dku insight list -P {project} -o json
+    assert: output_contains
+    contains: Products by Category
+  - run: dku dashboard list-tiles $(dku dashboard list -P {project} -o json | jq -r '.[] | select(.name=="Analytics Board") | .id') -P {project} -o json
+    assert: min_rows
+    min: 2

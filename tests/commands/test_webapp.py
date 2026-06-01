@@ -270,3 +270,60 @@ def test_webapp_logs_running_but_no_tail_yet(patch_client):
     assert payload["totalLines"] == 0
     assert payload["lines"] == []
     assert payload["running"] is True
+
+
+def test_webapp_logs_grep_filter(patch_client):
+    """--grep keeps only matching lines (case-insensitive)."""
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "--grep", "error"]
+    )
+    assert result.exit_code == 0
+    assert "[2026-05-28 12:00:02] ERROR something broke" in result.output
+    assert "INFO startup" not in result.output
+    assert "INFO listening" not in result.output
+
+
+def test_webapp_logs_grep_json(patch_client):
+    """--grep narrows the JSON lines; serverTailSize reflects the full tail."""
+    result = runner.invoke(
+        app,
+        ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json", "--grep", "INFO"],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["returnedLines"] == 2
+    assert payload["serverTailSize"] == 3
+    assert all("INFO" in line for line in payload["lines"])
+
+
+def test_webapp_logs_follow_streams_seed(patch_client, monkeypatch):
+    """--follow prints the seed tail, then stops cleanly on Ctrl-C."""
+
+    def _stop(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("dku_cli.commands.webapp.time.sleep", _stop)
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "--follow"]
+    )
+    assert result.exit_code == 0
+    assert "[2026-05-28 12:00:00] INFO startup" in result.output
+    assert "[2026-05-28 12:00:02] ERROR something broke" in result.output
+    assert "Following webapp1" in result.output
+    assert "Stopped." in result.output
+
+
+def test_webapp_logs_follow_with_grep(patch_client, monkeypatch):
+    """--follow honors --grep on the seeded tail."""
+
+    def _stop(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("dku_cli.commands.webapp.time.sleep", _stop)
+    result = runner.invoke(
+        app,
+        ["webapp", "logs", "webapp1", "-P", "PROJ1", "--follow", "--grep", "error"],
+    )
+    assert result.exit_code == 0
+    assert "ERROR something broke" in result.output
+    assert "INFO startup" not in result.output

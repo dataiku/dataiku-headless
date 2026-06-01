@@ -347,7 +347,9 @@ def handle_api_error(e: Exception) -> None:
         status = 2
         code = "permission_denied"
         details = ["Permission denied — your API key lacks access to this resource."]
-    elif "Connection" in msg or "connect" in msg.lower():
+    # Match capital-C "Connection" only — NOT a lowercased "connect" substring,
+    # which collides with DSS payload fields like "connectionOK".
+    elif "Connection" in msg:
         status = 4
         code = "connection_error"
         details = [

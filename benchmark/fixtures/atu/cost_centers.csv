@@ -1,0 +1,6 @@
+cost_center_code,cost_center_name,department,owner
+CC100,IT Infrastructure,IT,J. Weber
+CC200,IT Applications,IT,S. Mueller
+CC300,Finance Systems,Finance,R. Klein
+CC400,HR Systems,HR,A. Fischer
+CC500,Workshop Operations,Operations,M. Bauer

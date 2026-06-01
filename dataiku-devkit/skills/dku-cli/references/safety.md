@@ -38,6 +38,20 @@ dku plugin delete my-plugin --force --yes --confirm-name my-plugin
 dku connection delete CONN --yes --confirm-name CONN
 ```
 
+## Delete Side-Effects
+
+`dku dataset delete` is tier 2 (one named resource), but deleting a dataset that is an INPUT to another recipe silently removes that recipe too — no cascade prompt. After a `dataset delete`, re-list recipes and recreate any that disappeared. Most common when prototyping Stack chains.
+
+## Credential Exposure
+
+DSS does not redact credentials at the API level, so several read commands return secrets in plain text. NEVER pipe their raw output to chat, a wiki, or git — strip first.
+
+| Command | Leaks | Strip before sharing |
+|---|---|---|
+| `dataset get-definition` on a plugin connector (`type: CustomPython_<plugin>`) | raw PAT/token in `params.customConfig.<sa>.inlinedConfig` | `jq 'del(.params.customConfig)'` |
+| `webapp get-definition` | top-level webapp-scoped `apiKey` (same scope the webapp calls DSS with) | `jq 'del(.apiKey, .config.apiKey)'` |
+| `connection list -o json` | `params.password`, `aws_secret_access_key`, OAuth refresh tokens | `jq 'del(.params.customConfig)'`; for support, use the UI export (DSS redacts it) instead of API output |
+
 ## Dangerous Mode
 
 `--dangerous`, `DKU_DANGEROUS=1`, and `dangerous_mode=true` bypass tier 2 and parts of tier 3 for a trusted session. Agents should only use dangerous mode when the user explicitly asks for it. Tier 4 admin guards are never bypassable.

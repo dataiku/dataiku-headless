@@ -73,6 +73,16 @@ def _tail_lines(text: str, count: int) -> str:
     return "\n".join(lines[-count:])
 
 
+def _grep_lines(text: str, pattern: str) -> str:
+    """Return only lines matching *pattern* (case-insensitive substring match)."""
+    if not pattern:
+        return text
+    lines = text.splitlines()
+    lower = pattern.lower()
+    matched = [line for line in lines if lower in line.lower()]
+    return "\n".join(matched)
+
+
 def _filter_error_lines(text: str, context: int = 1) -> str:
     """Return error-like lines with a small amount of surrounding context.
 
@@ -261,6 +271,9 @@ def log(
     ctx: typer.Context,
     job_id: str = typer.Argument(help="Job ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    grep: str | None = typer.Option(
+        None, "--grep", help="Show only lines containing this text (case-insensitive)"
+    ),
     tail: int | None = typer.Option(
         None, "--tail", help="Show only the last N log lines"
     ),
@@ -285,6 +298,11 @@ def log(
                 warn(
                     "No error-like lines found in the job log. Showing the original log."
                 )
+        if grep:
+            log_text = _grep_lines(log_text, grep)
+            if not log_text:
+                warn(f"No lines matching '{grep}' found in the job log.")
+                return
         if tail is not None:
             log_text = _tail_lines(log_text, tail)
         console.print(log_text)

@@ -16,6 +16,7 @@ from dku_cli.errors import (
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
     error,
+    filter_fields,
     info,
     render,
     render_raw,
@@ -32,6 +33,11 @@ def list_datasets(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated fields to include (name,type,columns)",
+    ),
 ) -> None:
     """List datasets in a project."""
     project_key = resolve_project(project)
@@ -51,13 +57,320 @@ def list_datasets(
                 }
             )
 
+        data, keys = filter_fields(data, ["name", "type", "schema_count"], fields)
+
         render(
             data,
-            ["name", "type", "schema_count"],
+            keys,
             output_format=output,
             title=f"Datasets ({project_key})",
             headers={"name": "NAME", "type": "TYPE", "schema_count": "COLUMNS"},
         )
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _is_numeric_type(dss_type: str) -> bool:
+    """Check if a DSS column type is numeric."""
+    return dss_type.lower() in {
+        "int",
+        "bigint",
+        "smallint",
+        "tinyint",
+        "float",
+        "double",
+        "decimal",
+        "numeric",
+        "number",
+    }
+
+
+def _make_computation(column: str, col_type: str, top_k: int) -> dict:
+    """Build a multi-computation for column analysis based on column type.
+
+    Returns a computation dict suitable for DSSStatisticsComputationSettings.
+
+    The 'missing' filter computation is only included for numeric columns
+    because DSS 14.x string-column filtering casts internally to numeric.
+    """
+    computations: list[dict] = [
+        {"type": "count"},
+        {"type": "count_distinct", "column": column},
+        {
+            "type": "grouped",
+            "grouping": {
+                "type": "anum",
+                "column": column,
+                "maxValues": top_k,
+                "groupOthers": True,
+            },
+            "computation": {"type": "count"},
+        },
+    ]
+    if _is_numeric_type(col_type):
+        computations += [
+            {
+                "type": "grouped",
+                "grouping": {
+                    "type": "subset",
+                    "filter": {"type": "missing", "column": column},
+                },
+                "computation": {"type": "count"},
+            },
+            {
+                "type": "grouped",
+                "grouping": {
+                    "type": "subset",
+                    "filter": {
+                        "type": "not",
+                        "filter": {"type": "missing", "column": column},
+                    },
+                },
+                "computation": {"type": "count"},
+            },
+            {"type": "mean", "column": column},
+            {"type": "std_dev", "column": column},
+            {
+                "type": "quantiles",
+                "freqs": [0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0],
+                "column": column,
+            },
+        ]
+    return {"type": "multi", "computations": computations}
+
+
+def _parse_result(result: dict, col_type: str) -> dict:
+    """Parse a multi-computation result into a flat dict."""
+    parsed: dict = {}
+    for r in result.get("results", []):
+        rtype = r.get("type")
+        if rtype == "count":
+            parsed["row_count"] = r.get("count", 0)
+        elif rtype == "count_distinct":
+            parsed["distinct_count"] = r.get("count", 0)
+        elif rtype == "mean":
+            parsed["mean"] = r.get("value") or r.get("mean")
+        elif rtype == "std_dev":
+            parsed["std_dev"] = r.get("value") or r.get("stdDev")
+        elif rtype == "quantiles":
+            quantiles = r.get("quantiles", [])
+            for q in quantiles:
+                freq = q.get("freq")
+                val = q.get("quantile")
+                if freq == 0.0:
+                    parsed["min"] = val
+                elif freq == 0.25:
+                    parsed["p25"] = val
+                elif freq == 0.5:
+                    parsed["median"] = val
+                elif freq == 0.75:
+                    parsed["p75"] = val
+                elif freq == 1.0:
+                    parsed["max"] = val
+                elif freq == 0.01:
+                    parsed["p01"] = val
+                elif freq == 0.05:
+                    parsed["p05"] = val
+                elif freq == 0.95:
+                    parsed["p95"] = val
+                elif freq == 0.99:
+                    parsed["p99"] = val
+        elif rtype == "grouped":
+            grouping = r.get("groups", {})
+            gtype = grouping.get("type")
+            if gtype == "anum":
+                top_values = []
+                values = grouping.get("values", [])
+                results = r.get("results", [])
+                for val, res in zip(values, results):
+                    top_values.append(
+                        {
+                            "value": val,
+                            "count": res.get("count", 0),
+                        }
+                    )
+                parsed["top_values"] = top_values
+                parsed["has_others"] = grouping.get("hasOthers", False)
+                parsed["has_all_values"] = grouping.get("hasAllValues", False)
+            elif gtype == "subset":
+                filter_ = grouping.get("filter", {})
+                ftype = filter_.get("type")
+                if ftype == "missing":
+                    parsed["null_count"] = r.get("results", [{}])[0].get("count", 0)
+                elif ftype == "not":
+                    # Non-null count — we can infer null = total - non_null
+                    non_null = r.get("results", [{}])[0].get("count", 0)
+                    parsed["non_null_count"] = non_null
+        elif rtype == "failed":
+            parsed["_warning"] = r.get("message", "Unknown computation error")
+    return parsed
+
+
+@app.command("analyze-column")
+def analyze_column(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    column: str = typer.Argument(help="Column name to analyze"),
+    top_k: int = typer.Option(
+        10, "--top-k", help="Number of top values to show (distribution)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Analyze a column: distribution, null rate, top-K values, and basic stats.
+
+    Computes column-level statistics on DSS using the statistics worksheet
+    engine and returns them in a structured format.
+    High-value for agents writing data quality recipes — run this first to
+    understand column shape before setting DQ rules.
+
+    Note: Null rate is reported only for numeric columns (DSS 14.x limitation
+    — the 'missing' filter casts internally to numeric). For string columns,
+    null absence is inferred from value coverage.
+
+    Example:
+      dku dataset analyze-column my_ds age -P PROJ
+      dku dataset analyze-column my_ds age --top-k 5 -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+
+        # Determine column type from schema
+        ds_def = ds.get_definition()
+        columns = ds_def.get("schema", {}).get("columns", [])
+        col_def = next((c for c in columns if c.get("name") == column), None)
+        if col_def is None:
+            exit_with_error(
+                f"Column '{column}' not found in '{dataset_name}'.",
+                code="column_not_found",
+                details=[
+                    f"Check schema: dku dataset schema {dataset_name} -P {project_key}",
+                ],
+            )
+        col_type = col_def.get("type", "string")
+
+        # Build computation, create temp worksheet, run
+        computation = _make_computation(column, col_type, top_k)
+
+        from dataikuapi.dss.statistics import DSSStatisticsComputationSettings
+
+        ws = ds.create_statistics_worksheet(
+            name=f"_dku_analyze_{column}_{int(time.time())}"
+        )
+        try:
+            comp = DSSStatisticsComputationSettings(computation)
+            result = ws.run_computation(comp, wait=True)
+        finally:
+            ws.delete()
+
+        parsed = _parse_result(result.get_raw(), col_type)
+
+        # For string columns, infer null from value coverage
+        if not _is_numeric_type(col_type):
+            top_vals = parsed.get("top_values", [])
+            top_sum = sum(tv["count"] for tv in top_vals)
+            total = parsed.get("row_count", 0)
+            has_all = parsed.get("has_all_values", False)
+            if has_all and top_sum == total:
+                parsed["null_count"] = 0
+            parsed.pop("has_others", None)
+            parsed.pop("has_all_values", None)
+
+        if fmt == "json":
+            render_raw(parsed, output_format="json")
+            return
+
+        summary = [
+            {"field": "Column", "value": column},
+            {"field": "Type", "value": col_type},
+            {"field": "Total rows", "value": str(parsed.get("row_count", 0))},
+        ]
+        row_count = parsed.get("row_count", 0)
+        null_count = parsed.get("null_count")
+        non_null = (
+            row_count - null_count
+            if null_count is not None
+            else parsed.get("non_null_count", row_count)
+        )
+        if null_count is not None:
+            null_rate = f"{null_count / row_count * 100:.1f}%" if row_count else "N/A"
+        else:
+            null_rate = "N/A"
+
+        summary.append({"field": "Non-null", "value": str(non_null)})
+        summary.append(
+            {
+                "field": "Null count",
+                "value": str(null_count) if null_count is not None else "N/A",
+            }
+        )
+        summary.append({"field": "Null rate", "value": null_rate})
+        summary.append(
+            {
+                "field": "Distinct values",
+                "value": str(parsed.get("distinct_count", "N/A")),
+            }
+        )
+
+        for stat_key, label in [
+            ("min", "Min"),
+            ("max", "Max"),
+            ("mean", "Mean"),
+            ("std_dev", "StdDev"),
+            ("p01", "P01"),
+            ("p05", "P05"),
+            ("p25", "P25"),
+            ("median", "Median"),
+            ("p75", "P75"),
+            ("p95", "P95"),
+            ("p99", "P99"),
+        ]:
+            val = parsed.get(stat_key)
+            if val is not None:
+                summary.append(
+                    {
+                        "field": label,
+                        "value": f"{val:.4f}" if isinstance(val, float) else str(val),
+                    }
+                )
+
+        render(
+            summary,
+            ["field", "value"],
+            output_format=fmt,
+            title=f"Column Analysis: {dataset_name}.{column}",
+        )
+
+        top_values = parsed.get("top_values", [])
+        if top_values:
+            tv_data = [
+                {
+                    "value": tv["value"],
+                    "count": str(tv["count"]),
+                    "frequency": f"{tv['count'] / non_null * 100:.1f}%"
+                    if non_null
+                    else "N/A",
+                }
+                for tv in top_values
+            ]
+            render(
+                tv_data,
+                ["value", "count", "frequency"],
+                output_format=fmt,
+                title=f"Top {len(tv_data)} Values",
+            )
+
+        warning = parsed.get("_warning")
+        if warning:
+            from dku_cli.output import warn
+
+            warn(f"Computation note: {warning}")
+
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -68,6 +381,11 @@ def schema(
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated fields to include (name,type,description)",
+    ),
 ) -> None:
     """Show dataset schema."""
     project_key = resolve_project(project)
@@ -95,6 +413,8 @@ def schema(
                 for col in columns
             ]
             keys = ["name", "type"]
+
+        data, keys = filter_fields(data, keys, fields)
 
         render(
             data,
@@ -987,6 +1307,7 @@ def upload(
         "-f",
         help="Clear existing files from the dataset before uploading.",
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Upload a file to an UploadedFiles dataset and auto-detect format/schema.
 
@@ -994,6 +1315,18 @@ def upload(
     fails. Pass --overwrite to clear the dataset first.
     """
     project_key = resolve_project(project)
+
+    if overwrite:
+        from dku_cli.safety import Tier, guard
+
+        guard(
+            ctx,
+            tier=Tier.DELETE,
+            action="dataset.clear",
+            subject=f"dataset '{dataset_name}' in project {project_key}",
+            yes=yes,
+            prompt=f"Wipe all rows from dataset '{dataset_name}' in project {project_key} before uploading? Data cannot be recovered.",
+        )
 
     if not local_path.exists():
         from dku_cli.output import error
@@ -1831,6 +2164,8 @@ def detect(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         detected = ds.autodetect_settings(infer_storage_types=infer_types)
+        if save:
+            detected.save()
 
         raw = detected.get_raw()
         format_type = raw.get("formatType", "")

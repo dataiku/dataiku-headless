@@ -1,0 +1,84 @@
+id: join_two_datasets
+domain: data_prep
+difficulty: easy
+expected_gap: none
+fixtures:
+  - world/orders
+  - world/customers
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset create customers --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - dku dataset upload customers {fixture_dir}/customers.csv -P {project}
+initial_checks:
+  - run: dku dataset schema orders_with_customers -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  In project {project}, combine `orders` with `customers` into a dataset named
+  `orders_with_customers`. Keep every order row and bring in each customer's
+  name, tier, and country. Keep this in the visual flow.
+checks:
+  - run: dku dataset schema orders_with_customers -P {project} -o json
+    assert: has_columns
+    columns:
+      - order_id
+      - customer_id
+      - tier
+      - country
+  - run: dku dataset head orders_with_customers -P {project} -n 10 -o json
+    assert: min_rows
+    min: 10
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku dataset list -P {project} -o json
+    assert: output_rows
+    columns: [orders_with_customers]
+
+expected_outputs:
+  orders_with_customers:
+    schema:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: product_id, type: string}
+      - {name: region, type: string}
+      - {name: amount, type: double}
+      - {name: date, type: dateonly}
+      - {name: name, type: string}
+      - {name: tier, type: string}
+      - {name: country, type: string}
+    row_count: 500
+expected_flow:
+  nodes:
+    orders:
+      type: source
+      schema:
+        - {name: order_id, type: string}
+        - {name: customer_id, type: string}
+        - {name: product_id, type: string}
+        - {name: region, type: string}
+        - {name: amount, type: double}
+        - {name: date, type: dateonly}
+    customers:
+      type: source
+      schema:
+        - {name: customer_id, type: string}
+        - {name: name, type: string}
+        - {name: tier, type: string}
+        - {name: country, type: string}
+    orders_with_customers:
+      type: output
+      schema:
+        - {name: order_id, type: string}
+        - {name: customer_id, type: string}
+        - {name: product_id, type: string}
+        - {name: region, type: string}
+        - {name: amount, type: double}
+        - {name: date, type: dateonly}
+        - {name: name, type: string}
+        - {name: tier, type: string}
+        - {name: country, type: string}
+  recipes:
+    - type: Join
+      inputs: [orders, customers]
+      outputs: [orders_with_customers]
+  exact_recipe_count: true

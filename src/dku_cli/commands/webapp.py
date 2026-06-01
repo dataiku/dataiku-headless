@@ -9,7 +9,13 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(
     help="Manage DSS web applications (list, start/stop, read/edit code)."
@@ -266,13 +272,21 @@ def _fetch_log_tail(
     return int(tail.get("totalLines", 0) or 0), list(tail.get("lines") or []), running
 
 
+def _grep_lines(lines: list[str], grep: str | None) -> list[str]:
+    """Case-insensitive substring filter, or the lines unchanged when grep is None."""
+    if not grep:
+        return lines
+    lower = grep.lower()
+    return [line for line in lines if lower in line.lower()]
+
+
 def _follow_logs(
-    webapp, project_key: str, webapp_id: str, initial_tail: int | None
+    webapp, project_key: str, webapp_id: str, initial_tail: int | None, grep: str | None
 ) -> None:
     """Stream new log lines until Ctrl-C, polling every 2s."""
     total, lines, _ = _fetch_log_tail(webapp, project_key, webapp_id)
     seed = lines if initial_tail is None else lines[-initial_tail:]
-    for line in seed:
+    for line in _grep_lines(seed, grep):
         print(line, flush=True)
     last_total = total
     info(f"Following {webapp_id} — Ctrl-C to stop (polls every 2s).")
@@ -293,7 +307,7 @@ def _follow_logs(
                 n_to_show = len(lines)
             else:
                 n_to_show = new_count
-            for line in lines[-n_to_show:]:
+            for line in _grep_lines(lines[-n_to_show:], grep):
                 print(line, flush=True)
             last_total = total
     except KeyboardInterrupt:
@@ -316,6 +330,11 @@ def logs(
         "--follow",
         "-f",
         help="Stream new log lines as they appear (Ctrl-C to stop).",
+    ),
+    grep: str | None = typer.Option(
+        None,
+        "--grep",
+        help="Show only lines containing this text (case-insensitive).",
     ),
     output: str | None = typer.Option(
         None,
@@ -357,11 +376,12 @@ def logs(
         webapp = proj.get_webapp(webapp_id)
 
         if follow:
-            _follow_logs(webapp, project_key, webapp_id, tail)
+            _follow_logs(webapp, project_key, webapp_id, tail, grep)
             return
 
         total, lines, running = _fetch_log_tail(webapp, project_key, webapp_id)
         shown = lines if tail is None else lines[-tail:]
+        shown = _grep_lines(shown, grep)
 
         if fmt == "json":
             payload = {

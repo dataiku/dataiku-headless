@@ -32,6 +32,7 @@ from dku_cli.helpers import (
     resolve_saved_model,
 )
 from dku_cli.output import (
+    filter_fields,
     info,
     render,
     render_raw,
@@ -488,6 +489,11 @@ def list_recipes(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated fields to include (name,type,tags)",
+    ),
 ) -> None:
     """List recipes in a project."""
     project_key = resolve_project(project)
@@ -509,9 +515,11 @@ def list_recipes(
                 }
             )
 
+        data, keys = filter_fields(data, ["name", "type", "tags"], fields)
+
         render(
             data,
-            ["name", "type", "tags"],
+            keys,
             output_format=output,
             title=f"Recipes ({project_key})",
         )
@@ -1313,6 +1321,156 @@ def status(
                 info("No status messages.")
     except typer.Exit:
         raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Recipe lint / validation commands
+# ---------------------------------------------------------------------------
+
+
+def _lint_from_status(
+    client, project_key: str, recipe_name: str, recipe_type_label: str, fmt: str
+) -> None:
+    """Run recipe status check and report errors/warnings as lint output.
+    dataikuapi has no compile/lint method, so we use DSS's built-in recipe
+    status checks which validate engine compatibility and recipe configuration.
+    """
+    from dku_cli.output import info as lint_info
+
+    recipe = _get_recipe_or_exit(
+        client.get_project(project_key), recipe_name, project_key
+    )
+    settings = recipe.get_settings()
+    raw_def = settings.get_recipe_raw_definition()
+    actual_type = raw_def.get("type", "")
+
+    lint_info(
+        f"Linting {recipe_type_label} recipe '{recipe_name}' (type: {actual_type})..."
+    )
+
+    recipe_status = recipe.get_status()
+    severity = recipe_status.get_status_severity()
+    messages = recipe_status.get_status_messages()
+
+    lint_passed = severity not in ("ERROR", "FATAL")
+
+    if fmt == "json":
+        render_raw(
+            {
+                "recipe": recipe_name,
+                "type": actual_type,
+                "severity": severity,
+                "messages": messages,
+                "lint_passed": lint_passed,
+            },
+            output_format="json",
+        )
+        if not lint_passed:
+            raise typer.Exit(1)
+        return
+
+    errors = [m for m in messages if m.get("severity") in ("ERROR", "FATAL")]
+    warnings = [m for m in messages if m.get("severity") == "WARNING"]
+
+    if errors:
+        from dku_cli.output import error as lint_err
+
+        lint_err(f"Found {len(errors)} error(s):")
+        for e in errors:
+            lint_err(
+                f"  [{e.get('code', '?')}] {e.get('title', '')}: {e.get('message', '')}"
+            )
+        if warnings:
+            from dku_cli.output import warn as lint_warn
+
+            lint_warn(f"Plus {len(warnings)} warning(s)")
+        raise typer.Exit(1)
+    elif warnings:
+        from dku_cli.output import warn as lint_warn
+
+        lint_warn(f"Found {len(warnings)} warning(s):")
+        for w in warnings:
+            lint_warn(
+                f"  [{w.get('code', '?')}] {w.get('title', '')}: {w.get('message', '')}"
+            )
+    else:
+        from dku_cli.output import success as lint_ok
+
+        lint_ok("No errors or warnings found.")
+
+    return
+
+
+@app.command("lint-formula")
+def lint_formula(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Lint a prepare recipe — validate formula/GREL expressions and step config.
+
+    Runs DSS recipe status checks to validate the prepare recipe's formula
+    expressions, step configuration, and engine compatibility. Reports any
+    errors or warnings detected by the DSS engine.
+
+    Example:
+      dku recipe lint-formula my_prepare -P PROJ
+      dku recipe lint-formula my_prepare -P PROJ -o json
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        _lint_from_status(client, resolve_project(project), recipe_name, "formula", fmt)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("lint-sql")
+def lint_sql(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="SQL recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Lint an SQL recipe — validate syntax and engine configuration.
+
+    Runs DSS recipe status checks to validate the SQL query, engine
+    compatibility, and output schema. Reports any SQL errors or warnings.
+
+    Example:
+      dku recipe lint-sql my_query -P PROJ
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        _lint_from_status(client, resolve_project(project), recipe_name, "SQL", fmt)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("lint-python")
+def lint_python(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Python recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Lint a Python recipe — validate code env and engine configuration.
+
+    Runs DSS recipe status checks to validate the Python code env,
+    container selection, and engine compatibility. Reports any errors
+    or warnings detected.
+
+    Example:
+      dku recipe lint-python my_script -P PROJ
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        _lint_from_status(client, resolve_project(project), recipe_name, "Python", fmt)
     except Exception as e:
         handle_api_error(e)
 
@@ -4541,7 +4699,8 @@ def create_distinct(
         help=(
             "Column(s) defining uniqueness. Repeatable. Default: ALL input columns "
             "(matching Python df.drop_duplicates() semantics). Specify --on col1 "
-            "--on col2 to dedup only on a subset of columns."
+            "--on col2 to dedup on a subset; the output then contains only those "
+            "columns (DSS Distinct has no keep-first-row semantics)."
         ),
     ),
     pre_filter: str | None = typer.Option(
@@ -4601,6 +4760,10 @@ def create_distinct(
 
         if on:
             key_cols = list(on)
+            # A subset was requested: output and dedup on exactly those columns.
+            # selectAllColumns must be False — when True, DSS deduplicates on the
+            # full row and the keys are ignored, silently defeating --on.
+            select_all = False
         else:
             # Resolve all columns from the input dataset schema.
             try:
@@ -4612,10 +4775,11 @@ def create_distinct(
                 # If we can't read the schema (e.g. input not yet built),
                 # fall back to DSS defaults — better than crashing.
                 key_cols = []
+            select_all = True
 
         if key_cols:
             payload["keys"] = [{"column": c} for c in key_cols]
-            payload["selectAllColumns"] = True
+            payload["selectAllColumns"] = select_all
             info(
                 "Distinct on: "
                 + ", ".join(key_cols[:5])
@@ -8154,18 +8318,22 @@ def create_embed(
         builder = proj.new_recipe("nlp_llm_rag_embedding", recipe_name)
         builder.with_input(input_ds)
 
-        # Check if KB already exists to avoid creating duplicates
-        kb_exists = False
-        try:
-            proj.get_knowledge_bank(output_kb)
-            kb_exists = True
-        except Exception as exc:
-            if not is_not_found_error(exc):
-                raise  # Re-raise auth/network errors; only swallow not-found
+        # Check if KB already exists to avoid creating duplicates.
+        # get_knowledge_bank() just instantiates a handle without an API call,
+        # so we must use list_knowledge_banks() filtered by name.
+        kb_list = proj.list_knowledge_banks()
+        existing_kb = next((kb for kb in kb_list if kb.name == output_kb), None)
 
-        if kb_exists:
-            info(f"Using existing knowledge bank '{output_kb}'")
-        builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
+        if existing_kb:
+            info(f"Using existing knowledge bank '{output_kb}' ({existing_kb.id})")
+            builder.recipe_proto["outputs"]["knowledge_bank"] = {
+                "items": [{"ref": existing_kb.id, "appendMode": False}]
+            }
+            builder.set_raw_mode()
+        else:
+            builder.with_output_knowledge_bank(
+                output_kb, embedding_llm, vector_store_type
+            )
 
         builder.build()
 
@@ -8186,7 +8354,10 @@ def create_embed(
                 payload["knowledgeColumn"] = embed_column
                 info(f"Embedding column set to '{embed_column}'")
             if metadata_col:
-                payload["metadataColumns"] = list(metadata_col)
+                # DSS expects metadataColumns as objects, not bare strings. A
+                # list of strings parses as JSON but the build job crashes with
+                # "Expected BEGIN_OBJECT but was STRING".
+                payload["metadataColumns"] = [{"column": c} for c in metadata_col]
                 info(f"Metadata columns: {', '.join(metadata_col)}")
             if chunk_size is not None:
                 payload["chunkSizeCharacters"] = chunk_size
@@ -8396,7 +8567,22 @@ def create_embed_docs(
             builder.with_input(input_folder)
         if vlm:
             builder.with_vlm(vlm)
-        builder.with_output_knowledge_bank(output_kb, embedding_llm, vector_store_type)
+
+        # Check if KB already exists to avoid creating duplicates
+        kb_list = proj.list_knowledge_banks()
+        existing_kb = next((kb for kb in kb_list if kb.name == output_kb), None)
+
+        if existing_kb:
+            info(f"Using existing knowledge bank '{output_kb}' ({existing_kb.id})")
+            builder.recipe_proto["outputs"]["knowledge_bank"] = {
+                "items": [{"ref": existing_kb.id, "appendMode": False}]
+            }
+            builder.set_raw_mode()
+        else:
+            builder.with_output_knowledge_bank(
+                output_kb, embedding_llm, vector_store_type
+            )
+
         builder.build()
 
         # Parse --rule body once (and infer extraction_mode if user didn't set it)

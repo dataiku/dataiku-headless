@@ -550,7 +550,7 @@ Default behavior: deduplicate on ALL columns of the input (matches `df.drop_dupl
 ## Split Recipe (`split`)
 
 `payload.mode` ∈ `{"VALUES", "RANDOM", "RANGE", "FILTERS", "CENTILE", "RANDOM_COLUMNS"}`.
-Note: payload is `"FILTERS"` (plural) even though the user-facing `--mode` flag is `FILTER` and the dataikuapi enum is `FILTER`. This used to be a CLI bug — the CLI now maps `FILTER` → `"FILTERS"` automatically.
+Note: the payload key is `"FILTERS"` (plural) even though the `--mode` flag and the dataikuapi enum are `FILTER`. The CLI maps `FILTER` → `"FILTERS"` automatically; only relevant if you hand-write the payload.
 
 | Mode | Required fields | Notes |
 |---|---|---|
@@ -644,7 +644,7 @@ Beyond the basic `pivots[0].{keyColumns, valueColumns}`:
 
 A "count-only pivot" (no value column, just a cross-tab of counts) sets `valueColumns: []` + `globalCount: true` — distinct from `valueColumns: [{count: true}]` which adds an explicit count column.
 
-**Output column naming.** DSS auto-names pivot output columns `<modality>_<value-col>_<agg>` (e.g. `HBO_active_base_flg_max`). To get bare modality names (e.g. `HBO`) — common when migrating SAS PROC TRANSPOSE or Alteryx CrossTab whose downstream code references unmodified modality names — chain a Prepare with `add-rename --mappings '{"HBO_active_base_flg_max":"HBO", ...}'` (one bulk step). `payload.outputColumnNameOverrides` is read by Group/Window/TopN but NOT by Pivot — see `dku-cli/references/common-gotchas.md` § Pivot rename. Pin the modality set with `--value-limit EXPLICIT --explicit-values m1 --explicit-values m2 …` when the source migration specifies the wanted modalities (e.g. SAS `keep=` clause); avoids drifting columns when input data adds new values.
+**Output column naming.** DSS auto-names pivot output columns `<modality>_<value-col>_<agg>` (e.g. `HBO_active_base_flg_max`). To get bare modality names (e.g. `HBO`) — common when migrating SAS PROC TRANSPOSE or Alteryx CrossTab whose downstream code references unmodified modality names — chain a Prepare with `add-rename --mappings '{"HBO_active_base_flg_max":"HBO", ...}'` (one bulk step). `payload.outputColumnNameOverrides` is read by Group/Window/TopN but NOT by Pivot (the `dku recipe create-pivot --rename` flag writes the field correctly, but DSS Pivot ignores it). Pin the modality set with `--value-limit EXPLICIT --explicit-values m1 --explicit-values m2 …` when the source migration specifies the wanted modalities (e.g. SAS `keep=` clause); avoids drifting columns when input data adds new values.
 
 ---
 

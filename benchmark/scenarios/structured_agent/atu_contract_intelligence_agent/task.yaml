@@ -1,0 +1,59 @@
+id: atu_contract_intelligence_agent
+domain: structured_agent
+difficulty: hard
+expected_gap: none
+fixtures:
+  - atu/contracts
+  - atu/contract_docs
+setup:
+  - dku dataset create contracts --type UploadedFiles -P {project}
+  - dku dataset create contract_docs --type UploadedFiles -P {project}
+  - dku dataset upload contracts {fixture_dir}/contracts.csv -P {project}
+  - dku dataset upload contract_docs {fixture_dir}/contract_docs.csv -P {project}
+initial_checks:
+  - run: dku knowledge get contracts_kb -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  Procurement needs a contract-intelligence assistant they can ask in plain
+  language — "what are the renewal terms on our Tableau contract?" or "pull up
+  contract CTR-2024-002 and tell me who owns the cost centre". In project
+  {project}, stand up a knowledge bank named `contracts_kb` from the contract
+  documents so the assistant can search the contract text, and build a structured
+  agent named `atu_contract_qa` that can BOTH search that knowledge bank AND look
+  up individual contract records before it answers, and that cites the contract
+  it relied on.
+
+  Acceptance criteria: the knowledge bank exists and is configured for vector
+  retrieval; the agent exists with a document-search tool and a contract-lookup
+  tool; and the agent can search the knowledge bank AND look up contract records
+  before answering.
+validation_gaps:
+  - "Proves the knowledge bank object exists and is vector-store-backed. A
+    successful embedding build and a live retrieval query are not executed or
+    graded."
+  - "Proves the agent, both tools, and a tool-calling loop wired to them exist.
+    Runtime tool invocation, retrieval grounding, and citation behaviour are not
+    executed or graded."
+  - "The production ATU agent also exposes a semantic-model query tool (a custom
+    plugin tool). Configuring a custom plugin agent tool is not expressible
+    through the current CLI create flags, so this scenario grounds the agent with
+    the document-search and record-lookup tools instead."
+checks:
+  - run: dku knowledge list -P {project} -o json
+    assert: output_contains
+    contains: contracts_kb
+  - run: dku knowledge get contracts_kb -P {project} -o json
+    assert: output_contains
+    contains: VECTOR_STORE_BACKED
+  - run: dku agent-tool list -P {project} -o json
+    assert: output_contains
+    contains: search_contracts_kb
+  - run: dku agent-tool list -P {project} -o json
+    assert: output_contains
+    contains: contract_lookup
+  - run: dku agent-block get-graph $(dku agent list -P {project} -o json | jq -r '.[] | select(.name=="atu_contract_qa") | .id') -P {project} -o json
+    assert: output_contains
+    contains: CORE_LOOP
+  - run: dku agent-block get-graph $(dku agent list -P {project} -o json | jq -r '.[] | select(.name=="atu_contract_qa") | .id') -P {project} -o json
+    assert: output_contains
+    contains: contract_answer

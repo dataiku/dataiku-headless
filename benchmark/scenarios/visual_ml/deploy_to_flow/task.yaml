@@ -1,0 +1,20 @@
+id: deploy_to_flow
+domain: visual_ml
+difficulty: hard
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+prompt: |
+  In project {project}, create and train a regression model from `orders`, then
+  deploy it back into the flow as a saved model named `order_amount_model`.
+checks:
+  - run: dku ml models $(dku ml list -P {project} -o json | jq -r '.[0] | "\(.analysis_id) \(.mltask_id)"') -P {project} -o json
+    assert: min_rows
+    min: 1
+  - run: dku model list -P {project} -o json
+    assert: output_contains
+    contains: order_amount_model

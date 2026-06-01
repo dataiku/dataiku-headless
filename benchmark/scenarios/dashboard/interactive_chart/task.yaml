@@ -1,0 +1,28 @@
+id: interactive_chart
+domain: dashboard
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+prompt: |
+  In project {project}, create a chart insight from the `orders` dataset that
+  shows total revenue by region. Configure it as a grouped-column chart with
+  `region` as the dimension and `amount` summed as the measure. Name it
+  `Revenue by Region`, validate it, then add it as a tile to a
+  new dashboard named `Operations Dashboard`.
+checks:
+  - run: dku dashboard list -P {project} -o json
+    assert: output_contains
+    contains: Operations Dashboard
+  - run: dku insight list -P {project} -o json
+    assert: output_contains
+    contains: Revenue by Region
+  - run: dku insight validate $(dku insight list -P {project} -o json | jq -r '.[] | select(.name=="Revenue by Region") | .id') -P {project}
+    assert: exit_code_zero
+  - run: dku dashboard list-tiles $(dku dashboard list -P {project} -o json | jq -r '.[] | select(.name=="Operations Dashboard") | .id') -P {project} -o json
+    assert: min_rows
+    min: 1

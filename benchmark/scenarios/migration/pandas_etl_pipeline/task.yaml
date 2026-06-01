@@ -1,0 +1,74 @@
+id: pandas_etl_pipeline
+domain: migration
+difficulty: hard
+expected_gap: none
+fixtures:
+  - migration/transactions
+
+setup:
+  - "dku dataset create migration_transactions --type UploadedFiles -P {project}"
+  - "dku dataset upload migration_transactions {fixture_dir}/transactions.csv -P {project}"
+
+initial_checks:
+  - run: "dku dataset schema tx_summary -P {project} -o json"
+    assert: exit_code_nonzero
+
+prompt: |
+  A data scientist has a local pandas ETL that now needs to run as a managed
+  flow in Dataiku project {project}. The source dataset
+  `migration_transactions` is already uploaded.
+
+  Create an output dataset named `tx_summary` that keeps only completed
+  transactions with a non-null amount, then summarizes the data by `category`
+  and `region` with columns `total_amount` (sum of amount), `average_amount`
+  (average amount), and `transaction_count` (transaction count). Sort the
+  result by `total_amount` descending.
+
+  Prefer the visual flow unless there is no visual equivalent for a step.
+
+checks:
+  - run: "dku recipe list -P {project} -o json"
+    assert: min_rows
+    min: 2
+  - run: "dku dataset schema tx_summary -P {project} -o json"
+    assert: has_columns
+    columns: [category, region, total_amount, average_amount, transaction_count]
+  - run: "dku dataset head tx_summary -P {project} -n 50 -o json"
+    assert: min_rows
+    min: 5
+  - run: "dku dataset list -P {project} -o json"
+    assert: output_rows
+    columns: [tx_summary]
+  - run: "dku dataset schema tx_summary -P {project} -o json"
+    assert: column_is_numeric
+    column: total_amount
+  - run: "dku recipe list -P {project} -o json"
+    assert: no_python_recipes
+
+expected_outputs:
+  tx_summary:
+    schema:
+      - {name: category, type: string}
+      - {name: region, type: string}
+      - {name: total_amount, type: double}
+      - {name: average_amount, type: double}
+      - {name: transaction_count, type: bigint}
+    row_count: 25
+expected_flow:
+  nodes:
+    migration_transactions:
+      type: source
+    tx_summary:
+      type: output
+      schema:
+        - {name: category, type: string}
+        - {name: region, type: string}
+        - {name: total_amount, type: double}
+        - {name: average_amount, type: double}
+        - {name: transaction_count, type: bigint}
+  recipes:
+    - type: Filter
+      inputs: [migration_transactions]
+    - type: Grouping
+  exact_recipe_count: false
+  exact_dataset_count: false

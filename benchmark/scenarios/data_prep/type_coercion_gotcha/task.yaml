@@ -1,0 +1,75 @@
+id: type_coercion_gotcha
+domain: data_prep
+difficulty: medium
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"string\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+initial_checks:
+  - run: dku dataset schema orders_typed -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  The `orders` dataset in project {project} still has `amount` stored as text,
+  which will break downstream aggregations. Create a cleaned dataset named
+  `orders_typed` that keeps the original business columns and fixes `amount` to
+  a numeric type. Keep this in the visual flow.
+checks:
+  - run: dku dataset schema orders_typed -P {project} -o json
+    assert: has_columns
+    columns:
+      - order_id
+      - customer_id
+      - product_id
+      - region
+      - amount
+      - date
+  - run: dku dataset schema orders_typed -P {project} -o json
+    assert: column_is_numeric
+    column: amount
+  - run: dku dataset head orders_typed -P {project} -n 5 -o json
+    assert: min_rows
+    min: 5
+  - run: dku recipe list -P {project} -o json
+    assert: no_python_recipes
+  - run: dku dataset list -P {project} -o json
+    assert: output_rows
+    columns: [orders_typed]
+
+expected_outputs:
+  orders_typed:
+    schema:
+      - {name: order_id, type: string}
+      - {name: customer_id, type: string}
+      - {name: product_id, type: string}
+      - {name: region, type: string}
+      - {name: amount, type: double}
+      - {name: date, type: dateonly}
+    row_count: 500
+expected_flow:
+  nodes:
+    orders:
+      type: source
+      schema:
+        - {name: order_id, type: string}
+        - {name: customer_id, type: string}
+        - {name: product_id, type: string}
+        - {name: region, type: string}
+        - {name: amount, type: string}
+        - {name: date, type: dateonly}
+    orders_typed:
+      type: output
+      schema:
+        - {name: order_id, type: string}
+        - {name: customer_id, type: string}
+        - {name: product_id, type: string}
+        - {name: region, type: string}
+        - {name: amount, type: double}
+        - {name: date, type: dateonly}
+  recipes:
+    - type: Filter
+      inputs: [orders]
+      outputs: [orders_typed]
+  exact_recipe_count: true

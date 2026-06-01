@@ -26,6 +26,17 @@ def test_project_list_json(patch_client):
     assert parsed[0]["key"] == "PROJ1"
 
 
+def test_project_list_uses_single_call_not_n_plus_1(patch_client):
+    """list must use one list_projects() call, not a per-project get_metadata()
+    loop (the N+1 that made it ~25s on busy instances)."""
+    result = runner.invoke(app, ["project", "list", "-o", "json"])
+    assert result.exit_code == 0, result.output
+    patch_client.list_projects.assert_called_once()
+    patch_client.get_project.assert_not_called()
+    parsed = json.loads(result.output)
+    assert parsed[1] == {"key": "PROJ2", "name": "Project Two", "short_desc": ""}
+
+
 def test_project_get(patch_client):
     result = runner.invoke(app, ["project", "get", "PROJ1"])
     assert result.exit_code == 0

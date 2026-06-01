@@ -8,7 +8,10 @@ from typing import List, Optional
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    resolve_project,
+)
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(
@@ -210,7 +213,8 @@ def list_tasks(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        tasks = proj.list_ml_tasks()
+        raw = proj.list_ml_tasks()
+        tasks = raw.get("mlTasks", []) if isinstance(raw, dict) else raw
 
         data = []
         for t in tasks:
@@ -220,12 +224,13 @@ def list_tasks(
                     "mltask_id": t.get("mlTaskId", ""),
                     "type": t.get("taskType", ""),
                     "target": t.get("targetVariable", ""),
+                    "dataset": t.get("inputDataset", ""),
                 }
             )
 
         render(
             data,
-            ["analysis_id", "mltask_id", "type", "target"],
+            ["analysis_id", "mltask_id", "type", "target", "dataset"],
             output_format=output,
             title=f"ML Tasks ({project_key})",
         )
@@ -459,13 +464,13 @@ def deploy(
             exit_with_error(
                 f"Model '{model_id}' is not in DONE state and cannot be deployed.",
                 details=[
-                    f"Check model states: dku ml models {analysis_id} {mltask_id} -P {project} (look for STATE=DONE)",
+                    f"Check model states: dku ml models {analysis_id} {mltask_id} -P {project_key} (look for STATE=DONE)",
                     "If training failed silently, try retraining: dku ml train "
                     + analysis_id
                     + " "
                     + mltask_id
                     + " -P "
-                    + (project or "PROJ"),
+                    + (project_key or "PROJ"),
                     "If the model trained on a small dataset, XGBoost/GBT may fail — try RANDOM_FOREST_REGRESSION or RIDGE_REGRESSION",
                     "Deploy workaround: dku ml deploy ... --no-redo-optimization (skips optimization on full train set)",
                 ],

@@ -1,0 +1,20 @@
+id: chart_insight
+domain: dashboard
+difficulty: easy
+expected_gap: none
+fixtures:
+  - world/orders
+setup:
+  - dku dataset create orders --type UploadedFiles -P {project}
+  - dku dataset upload orders {fixture_dir}/orders.csv -P {project}
+  - "dku dataset set-schema orders -P {project} --definition '[{\"name\":\"order_id\",\"type\":\"string\"},{\"name\":\"customer_id\",\"type\":\"string\"},{\"name\":\"product_id\",\"type\":\"string\"},{\"name\":\"region\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"},{\"name\":\"date\",\"type\":\"string\"}]'"
+prompt: |
+  Create a chart insight in project {project} from the `orders` dataset that
+  shows total revenue by region. Name it `Revenue by Region`. Acceptance
+  criteria: the insight exists and is saved as a valid chart on that dataset.
+checks:
+  - run: dku insight list -P {project} -o json
+    assert: output_contains
+    contains: Revenue by Region
+  - run: dku insight validate $(dku insight list -P {project} -o json | jq -r '.[] | select(.name=="Revenue by Region") | .id') -P {project}
+    assert: exit_code_zero

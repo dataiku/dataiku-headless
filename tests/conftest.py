@@ -38,6 +38,12 @@ def mock_client():
 
     # Projects
     client.list_project_keys.return_value = ["PROJ1", "PROJ2"]
+    # `dku project list` uses the single-call list_projects() (GET /projects/),
+    # which returns full metadata per project.
+    client.list_projects.return_value = [
+        {"projectKey": "PROJ1", "name": "Project One", "shortDesc": "First project"},
+        {"projectKey": "PROJ2", "name": "Project Two", "shortDesc": ""},
+    ]
 
     proj1 = MagicMock()
     proj1.get_metadata.return_value = {

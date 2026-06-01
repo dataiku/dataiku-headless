@@ -583,6 +583,24 @@ def avg_duration(
         handle_api_error(e)
 
 
+def _scenario_grep_lines(text: str, pattern: str) -> str:
+    """Return only lines matching *pattern* (case-insensitive substring match)."""
+    if not pattern:
+        return text
+    lines = text.splitlines()
+    lower = pattern.lower()
+    matched = [line for line in lines if lower in line.lower()]
+    return "\n".join(matched)
+
+
+def _scenario_tail_lines(text: str, count: int) -> str:
+    """Return the last *count* lines from *text*."""
+    if count <= 0:
+        return ""
+    lines = text.splitlines()
+    return "\n".join(lines[-count:])
+
+
 @app.command("run-log")
 def run_log(
     ctx: typer.Context,
@@ -591,16 +609,27 @@ def run_log(
     step_id: str | None = typer.Option(
         None, "--step", help="Step ID to scope logs to (optional)"
     ),
+    grep: str | None = typer.Option(
+        None, "--grep", help="Show only lines containing this text (case-insensitive)"
+    ),
+    tail: int | None = typer.Option(
+        None, "--tail", help="Show only the last N log lines"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Get logs from a specific scenario run.
 
     Use --step to get logs for a single step instead of the full run.
+    Use --grep to filter lines containing specific text.
+    Use --tail to show only the last N lines.
+
     Find run IDs with 'dku scenario runs' and step IDs from run details.
 
     Example:
       dku scenario run-log BUILD_ALL --run sc_2026-04-08T10 -P PROJ
       dku scenario run-log BUILD_ALL --run sc_2026-04-08T10 --step step1 -P PROJ
+      dku scenario run-log BUILD_ALL --run sc_2026-04-08T10 --grep error -P PROJ
+      dku scenario run-log BUILD_ALL --run sc_2026-04-08T10 --tail 50 -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -609,6 +638,15 @@ def run_log(
         scenario = proj.get_scenario(scenario_id)
         run = scenario.get_run(run_id)
         log_text = run.get_log(step_id=step_id)
+        if grep:
+            log_text = _scenario_grep_lines(log_text, grep)
+            if not log_text:
+                from dku_cli.output import warn as scenario_warn
+
+                scenario_warn(f"No lines matching '{grep}' found in the log.")
+                return
+        if tail is not None:
+            log_text = _scenario_tail_lines(log_text, tail)
         print(log_text)
     except typer.Exit:
         raise
@@ -922,6 +960,150 @@ def remove_trigger(
         success(
             f"Removed {removed.get('type', 'unknown')} trigger "
             f"at index {index} from scenario '{scenario_id}'"
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Reporter (email) commands
+# ---------------------------------------------------------------------------
+
+# runCondition expressions keyed by the --condition shorthand.
+# "always" disables the condition so the reporter fires on every outcome.
+_REPORTER_CONDITIONS = {
+    "failure": ("outcome != 'SUCCESS'", True),
+    "success": ("outcome == 'SUCCESS'", True),
+    "always": ("", False),
+}
+
+
+@app.command("list-reporters")
+def list_reporters(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List reporters on a scenario."""
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        reporters = scenario.get_settings().raw_reporters
+
+        if output == "json":
+            render_raw(reporters, output_format="json")
+            return
+
+        if not reporters:
+            info(
+                f"No reporters on scenario '{scenario_id}'. "
+                f"Add one: dku scenario add-reporter {scenario_id} "
+                f"--recipient you@example.com --condition failure -P {project_key}"
+            )
+            return
+
+        rows = []
+        for i, r in enumerate(reporters):
+            cfg = r.get("messaging", {}).get("configuration", {})
+            rows.append(
+                {
+                    "index": str(i),
+                    "type": r.get("messaging", {}).get("type", ""),
+                    "recipient": cfg.get("recipient", ""),
+                    "condition": r.get("runCondition", "") or "(always)",
+                }
+            )
+        render(
+            rows,
+            ["index", "type", "recipient", "condition"],
+            output_format=output,
+            title=f"Reporters: {scenario_id}",
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-reporter")
+def add_reporter(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    recipient: str = typer.Option(..., "--recipient", help="Email recipient address"),
+    condition: str = typer.Option(
+        "always",
+        "--condition",
+        help="When to send: failure (outcome != SUCCESS), success, or always",
+    ),
+    channel: str = typer.Option(
+        "mail",
+        "--channel",
+        help="DSS SMTP channel id. Must exist in Administration to actually "
+        "send; the reporter is saved regardless (validated at send time).",
+    ),
+    sender: str = typer.Option(None, "--sender", help="Sender email address"),
+    subject: str = typer.Option(
+        "DSS scenario ${scenarioName}: ${outcome}",
+        "--subject",
+        help="Email subject (supports ${scenarioName}, ${outcome}, ${projectKey})",
+    ),
+    name: str = typer.Option(None, "--name", help="Reporter display name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add an email reporter to a scenario.
+
+    Wires a `mail-scenario` reporter that fires at the end of a run. Use
+    --condition to branch on outcome.
+
+    Examples:
+        Alert on failure:   dku scenario add-reporter nightly --recipient ops@example.com --condition failure -P PROJ
+        Notice on success:  dku scenario add-reporter nightly --recipient team@example.com --condition success -P PROJ
+    """
+    if condition not in _REPORTER_CONDITIONS:
+        exit_with_error(
+            f"Unknown condition '{condition}'.",
+            code="invalid_input",
+            details=["Valid conditions: failure, success, always"],
+        )
+    run_condition, cond_enabled = _REPORTER_CONDITIONS[condition]
+    reporter = {
+        "name": name or f"email on {condition}",
+        "active": True,
+        "phase": "END",
+        "runConditionEnabled": cond_enabled,
+        "runCondition": run_condition,
+        "messaging": {
+            "type": "mail-scenario",
+            "configuration": {
+                "channelId": channel,
+                "subject": subject,
+                "sender": sender or "",
+                "recipient": recipient,
+                "sendAsHTML": False,
+                "messageSource": "TEMPLATE_FILE",
+                "templateFormat": "FREEMARKER",
+                "templateName": "default.ftl",
+            },
+        },
+    }
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        settings.raw_reporters.append(reporter)
+        idx = len(settings.raw_reporters) - 1
+        settings.save()
+        success(
+            f"Added '{condition}' email reporter to '{recipient}' on scenario "
+            f"'{scenario_id}' at index {idx}"
         )
     except typer.Exit:
         raise

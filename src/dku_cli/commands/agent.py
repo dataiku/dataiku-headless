@@ -416,19 +416,30 @@ def add_tool(
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
         settings = agent.get_settings()
-        agent_raw = settings.get_raw()
+
+        # Only TOOLS_USING_AGENT (Simple Visual Agent) reads a flat tool list from
+        # toolsUsingAgentSettings.tools. Structured/Python/plugin agents reference
+        # tools elsewhere (structured agents compose them inside blocks), so writing
+        # here would silently no-op. Fail loudly instead, matching the SDK's own
+        # ValueError("Only valid for Simple Visual Agents").
+        if settings.type != "TOOLS_USING_AGENT":
+            error(
+                f"Cannot add a tool to agent '{agent_id}': add-tool only supports "
+                f"TOOLS_USING_AGENT (Simple Visual Agent), but this agent is "
+                f"{settings.type}."
+            )
+            if settings.type == "STRUCTURED_AGENT":
+                info(
+                    "Structured agents attach tools inside blocks. Configure tools "
+                    "in the agent's blocks via the DSS UI."
+                )
+            raise typer.Exit(1)
 
         if new_version:
             ver_raw, new_vid = _deep_copy_version(settings)
-            # Append tool directly to the new version's raw dict
-            cfg_key = (
-                "structuredAgentSettings"
-                if agent_raw.get("type") == "STRUCTURED_AGENT"
-                else "toolsUsingAgentSettings"
-            )
-            ver_raw.setdefault(cfg_key, {}).setdefault("tools", []).append(
-                {"toolRef": tool_id}
-            )
+            ver_raw.setdefault("toolsUsingAgentSettings", {}).setdefault(
+                "tools", []
+            ).append({"toolRef": tool_id})
             settings.save()
             if activate:
                 _activate_version(proj, agent.id, new_vid)
@@ -450,29 +461,16 @@ def add_tool(
         # Idempotency check — bail early if the tool is already attached.
         ver_settings = settings.get_version_settings(active_ver_id)
         ver_raw = ver_settings.get_raw()
-        agent_raw = settings.get_raw()
-        cfg_key = (
-            "structuredAgentSettings"
-            if agent_raw.get("type") == "STRUCTURED_AGENT"
-            else "toolsUsingAgentSettings"
+        existing_tools = (
+            ver_raw.get("toolsUsingAgentSettings", {}).get("tools", []) or []
         )
-        existing_tools = ver_raw.get(cfg_key, {}).get("tools", []) or []
         if any(t.get("toolRef") == tool_id for t in existing_tools):
             info(
                 f"Tool '{tool_id}' already attached to agent '{agent_id}' — no change."
             )
             return
 
-        # Try dataikuapi's version settings API (works for TOOLS_USING_AGENT only)
-        try:
-            ver_settings.add_tool(tool_id)
-        except (ValueError, AttributeError):
-            # Structured agent — add tool to raw settings directly.
-            # cfg_key and ver_raw were resolved above for the idempotency check.
-            if cfg_key not in ver_raw:
-                ver_raw[cfg_key] = {}
-            tools = ver_raw[cfg_key].setdefault("tools", [])
-            tools.append({"toolRef": tool_id})
+        ver_settings.add_tool(tool_id)
         settings.save()
         success(f"Added tool '{tool_id}' to agent '{agent_id}'")
     except typer.Exit:

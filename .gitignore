@@ -21,7 +21,6 @@ coverage.xml
 # Internal development files (not shipped)
 .claude/memory/
 .claude/plans/
-.claude/skills/
 .claude/scheduled_tasks.lock
 .agents/
 
@@ -33,7 +32,6 @@ benchmark/reports/
 benchmark/.env
 
 
-demo_assets/
 plans/
 plugins/
 # Temp files
@@ -43,33 +41,11 @@ work/
 
 # IDE configs
 .idea/
+plan.md
+
 
 # AI coding tool configs (benchmark artifacts)
-.adal/
-.augment/
-.codebuddy/
-.commandcode/
-.continue/
-.cortex/
-.crush/
-.factory/
-.goose/
-.iflow/
-.junie/
-.kilocode/
-.kiro/
-.kode/
-.mcpjam/
-.mux/
-.neovate/
-.openhands/
-.pi/
-.pochi/
-.qoder/
-.qwen/
-.roo/
-.trae/
-.vibe/
-.windsurf/
-.zencoder/
 .claude/worktrees/
+
+# Benchmark Docker-shared scratch (fixtures + proto dirs)
+benchmark/.bench_scratch/

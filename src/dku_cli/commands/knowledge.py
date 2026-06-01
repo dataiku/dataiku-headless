@@ -236,7 +236,9 @@ def build(
         proj = client.get_project(project_key)
         kb = resolve_knowledge_bank(proj, kb_id)
         try:
-            future = kb.build()
+            # kb.build(wait=True) blocks until the job finishes and raises on
+            # failure; it returns a DSSJob (no wait_for_result()).
+            kb.build(wait=wait)
         except Exception as e:
             if "not found or not buildable" in str(
                 e
@@ -253,7 +255,6 @@ def build(
             raise
 
         if wait:
-            future.wait_for_result()
             success(f"Knowledge bank '{kb_id}' build completed")
         else:
             success(f"Knowledge bank '{kb_id}' build started")

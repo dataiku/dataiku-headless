@@ -199,6 +199,25 @@ def test_ml_list_json(patch_client):
     assert parsed[0]["mltask_id"] == "t1"
 
 
+def test_ml_list_dict_payload(patch_client):
+    """The live DSS endpoint returns {"mlTasks": [...]}, not a bare list."""
+    proj = patch_client.get_project("PROJ1")
+    proj.list_ml_tasks.return_value = {
+        "mlTasks": [
+            {
+                "analysisId": "a2",
+                "mlTaskId": "t2",
+                "taskType": "CLUSTERING",
+                "inputDataset": "ds1",
+            },
+        ]
+    }
+    result = runner.invoke(app, ["ml", "list", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "a2" in result.output
+    assert "CLUSTERING" in result.output
+
+
 # --- status ---
 
 

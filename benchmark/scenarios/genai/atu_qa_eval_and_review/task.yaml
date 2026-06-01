@@ -1,0 +1,64 @@
+id: atu_qa_eval_and_review
+domain: genai
+difficulty: hard
+expected_gap: none
+fixtures:
+  - atu/agent_answers
+setup:
+  - dku dataset create agent_answers --type UploadedFiles -P {project}
+  - dku dataset upload agent_answers {fixture_dir}/agent_answers.csv -P {project}
+  - dku agent create atu_contract_qa --type STRUCTURED_AGENT -P {project}
+initial_checks:
+  - run: dku agent-review get atu_contract_qa_review -P {project} -o json
+    assert: exit_code_nonzero
+prompt: |
+  Project {project} already has the `atu_contract_qa` agent and a dataset
+  `agent_answers` holding the answers it produced for a battery of procurement
+  test questions. We need to wrap a quality-assurance layer around the agent so
+  we can ship "quality-assured" AI rather than ungoverned chatbot output.
+
+  Stand up an agent evaluation store named `contract_eval_store` and an
+  evaluation called `agent_evaluate` that scores the answers in `agent_answers`,
+  and create a trait-based review named `atu_contract_qa_review` of the
+  `atu_contract_qa` agent that judges answers on these eight criteria: Reference,
+  Relevance, Completeness, Groundedness, Numeracy, Cited, Governed and
+  ScopeDiscipline.
+
+  Acceptance criteria: the evaluation store and the scoring evaluation exist over
+  the answers, and the review exists, is linked to the agent, and defines all
+  eight named traits.
+validation_gaps:
+  - "The five domain-specific scoring metrics used in production (flag accuracy,
+    contract-ID grounding, approved-sources, EUR-quantified, action-specified)
+    are LLM-judge custom metrics. The evaluation here is created with the
+    recipe's built-in agent metrics, so the custom-metric definitions and their
+    scores are not graded."
+  - "The eight review traits are defined but not executed — no review run against
+    live agent outputs is performed or graded."
+  - "The scoring evaluation is created but not run; scored output rows are not
+    produced or graded."
+  - "The AGENT-flavor evaluation store is created but is not returned by the
+    evaluation-store list endpoint, so the scoring layer is enforced via the
+    evaluation recipe (`agent_evaluate`) rather than the store object."
+checks:
+  - run: dku recipe list -P {project} -o json
+    assert: output_contains
+    contains: agent_evaluate
+  - run: dku agent-review get atu_contract_qa_review -P {project} -o json
+    assert: output_contains
+    contains: Groundedness
+  - run: dku agent-review get atu_contract_qa_review -P {project} -o json
+    assert: output_contains
+    contains: Numeracy
+  - run: dku agent-review get atu_contract_qa_review -P {project} -o json
+    assert: output_contains
+    contains: Cited
+  - run: dku agent-review get atu_contract_qa_review -P {project} -o json
+    assert: output_contains
+    contains: ScopeDiscipline
+  - run: dku agent-review get atu_contract_qa_review -P {project} -o json
+    assert: output_contains
+    contains: Governed
+  - run: dku dataset head agent_answers -P {project} -n 5 -o json
+    assert: min_rows
+    min: 4
