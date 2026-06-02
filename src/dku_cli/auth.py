@@ -100,6 +100,22 @@ def store_api_key(profile: str, api_key: str) -> str:
     return storage
 
 
+def _keyring_get(profile: str) -> str | None:
+    """Read a key from the OS keyring, swallowing backend errors.
+
+    Used by the stale-pointer recovery path, where a missing/denied keychain
+    should fall through to "key not found here" rather than surface an error.
+    """
+    if not _keyring_available():
+        return None
+    import keyring
+
+    try:
+        return keyring.get_password(SERVICE_NAME, profile)
+    except keyring.errors.KeyringError:
+        return None
+
+
 def get_api_key(profile: str) -> str | None:
     """Retrieve API key for a profile. Returns None on any failure (including
     keychain access denial — use `get_api_key_with_status` to distinguish).
@@ -126,10 +142,19 @@ def get_api_key_with_status(profile: str) -> KeyResult:
     credential_store = get_profile_credential_store(profile)
     if credential_store == "file":
         file_key = _get_file_fallback(profile)
-        return KeyResult(
-            file_key,
-            KeyStatus.OK if file_key else KeyStatus.MISSING,
-        )
+        if file_key:
+            return KeyResult(file_key, KeyStatus.OK)
+        # Stale-pointer recovery: the pointer says "file" but the file has no
+        # entry. The key may actually live in the keychain — the pointer can be
+        # flipped to "file" by a transient KeyringError in store_api_key's
+        # fallback branch, or by a test that wrote config without isolation.
+        # Treat the pointer as a hint, not a contract: try the keychain and
+        # self-heal so the misleading "No API key configured" can't recur.
+        healed_key = _keyring_get(profile)
+        if healed_key:
+            set_profile_credential_store(profile, "keychain")
+            return KeyResult(healed_key, KeyStatus.OK)
+        return KeyResult(None, KeyStatus.MISSING)
 
     # Try keyring first
     if _keyring_available():

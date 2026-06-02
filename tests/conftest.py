@@ -19,6 +19,28 @@ def _reset_quiet():
     set_error_format("text")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_config_files(tmp_path, monkeypatch):
+    """Redirect config + credentials files to a temp dir for EVERY test.
+
+    Without this, tests that call ``store_api_key`` / ``set_profile_credential_store``
+    (e.g. while exercising the keychain fallback) write to the developer's REAL
+    ``~/.../dku/config.toml`` and ``credentials.toml``. That silently flips the
+    active profile's ``credential_store`` pointer to "file" and surfaces later as
+    a spurious "No API key configured" in live ``dku`` use. Isolating the paths
+    keeps the suite from ever touching real credentials.
+    """
+    monkeypatch.setattr(
+        "dku_cli.config.CONFIG_FILE", tmp_path / "config.toml", raising=False
+    )
+    monkeypatch.setattr(
+        "dku_cli.config.CREDENTIALS_FILE", tmp_path / "credentials.toml", raising=False
+    )
+    monkeypatch.setattr(
+        "dku_cli.auth.CREDENTIALS_FILE", tmp_path / "credentials.toml", raising=False
+    )
+
+
 @pytest.fixture
 def mock_client():
     """Create a mock DSSClient with common methods."""

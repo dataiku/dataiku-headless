@@ -284,3 +284,54 @@ def test_infer_api_key_kind_unknown_for_garbage():
     assert infer_api_key_kind("not a real key with spaces") == "unknown"
     assert infer_api_key_kind("") == "unknown"
     assert infer_api_key_kind(None) == "unknown"
+
+
+def test_get_api_key_heals_stale_file_pointer_to_keychain(tmp_path):
+    """A stale credential_store='file' pointer self-heals to the keychain.
+
+    Regression: when the pointer says 'file' (e.g. flipped by a transient
+    KeyringError in store_api_key, or by an unisolated test write) but the file
+    has no entry and the key actually lives in the keychain, get_api_key must
+    still find it AND repoint the profile to 'keychain'. Before the fix the
+    'file' branch returned None without ever consulting the keychain, surfacing
+    as a misleading 'No API key configured'.
+    """
+    from dku_cli.config import (
+        get_profile_credential_store,
+        set_profile_credential_store,
+    )
+
+    cfg = tmp_path / "config.toml"
+    creds = tmp_path / "credentials.toml"  # empty → file fallback returns None
+
+    mock_keyring = MagicMock()
+    mock_keyring.get_password.return_value = "keychain-key-xyz"
+    mock_keyring.errors.KeyringError = Exception
+
+    with (
+        patch("dku_cli.config.CONFIG_FILE", cfg),
+        patch("dku_cli.auth.CREDENTIALS_FILE", creds),
+        patch("dku_cli.auth._keyring_available", return_value=True),
+        patch.dict("sys.modules", {"keyring": mock_keyring}),
+    ):
+        set_profile_credential_store("default", "file")  # stale pointer
+        assert get_api_key("default") == "keychain-key-xyz"
+        # Pointer self-healed so the next read takes the fast keychain path.
+        assert get_profile_credential_store("default") == "keychain"
+
+
+def test_get_api_key_missing_when_neither_store_has_key(tmp_path):
+    """Pointer='file', empty file, no keychain → MISSING (no false heal)."""
+    from dku_cli.config import set_profile_credential_store
+
+    cfg = tmp_path / "config.toml"
+    creds = tmp_path / "credentials.toml"
+    with (
+        patch("dku_cli.config.CONFIG_FILE", cfg),
+        patch("dku_cli.auth.CREDENTIALS_FILE", creds),
+        patch("dku_cli.auth._keyring_available", return_value=False),
+    ):
+        set_profile_credential_store("default", "file")
+        result = get_api_key_with_status("default")
+        assert result.key is None
+        assert result.status == KeyStatus.MISSING
