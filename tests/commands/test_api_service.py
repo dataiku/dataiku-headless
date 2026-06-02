@@ -56,12 +56,53 @@ def test_api_service_get_json(patch_client):
 
 def test_api_service_create_package(patch_client):
     result = runner.invoke(
-        app, ["api-service", "create-package", "myservice", "--project", "PROJ1"]
+        app,
+        [
+            "api-service",
+            "create-package",
+            "myservice",
+            "--package",
+            "v1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
+    assert "v1" in result.output
     proj = patch_client.get_project("PROJ1")
     svc = proj.get_api_service("myservice")
-    svc.create_package.assert_called_once()
+    # package_id is required by the DSS server — must be forwarded positionally.
+    svc.create_package.assert_called_once_with("v1", release_notes=None)
+
+
+def test_api_service_create_package_with_release_notes(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "api-service",
+            "create-package",
+            "myservice",
+            "--package",
+            "v2",
+            "--release-notes",
+            "bugfixes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    svc = patch_client.get_project("PROJ1").get_api_service("myservice")
+    svc.create_package.assert_called_once_with("v2", release_notes="bugfixes")
+
+
+def test_api_service_create_package_requires_package_id(patch_client):
+    # Regression: the command used to call create_package() with no args and
+    # crash with "missing 1 required positional argument: 'package_id'".
+    result = runner.invoke(
+        app, ["api-service", "create-package", "myservice", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "package" in result.output.lower()
 
 
 def test_api_service_list_packages(patch_client):

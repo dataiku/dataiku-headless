@@ -85,16 +85,34 @@ def get_api_service(
 def create_package(
     ctx: typer.Context,
     service_id: str = typer.Argument(help="API service ID"),
+    package_id: str = typer.Option(
+        ..., "--package", help="Package version ID to create (e.g. v1)"
+    ),
+    release_notes: str | None = typer.Option(
+        None,
+        "--release-notes",
+        help="Release notes describing changes in this package",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a new package for an API service."""
+    """Create a new package (version) for an API service.
+
+    The package ID is the version identifier you choose (e.g. v1, v2).
+    Required by the DSS server — without it the package cannot be created.
+
+    Example:
+      dku api-service create-package myservice --package v1 -P PROJ
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         service = proj.get_api_service(service_id)
-        service.create_package()
-        success(f"Created package for API service '{service_id}'")
+        service.create_package(package_id, release_notes=release_notes)
+        success(
+            f"Created package '{package_id}' for API service '{service_id}' "
+            f"in {project_key}"
+        )
     except Exception as e:
         handle_api_error(e)
 

@@ -110,12 +110,28 @@ def create_deployment(
     project_id: str = typer.Option(..., "--project-id", help="Project ID"),
     infra_id: str = typer.Option(..., "--infra-id", help="Infrastructure ID"),
     bundle_id: str = typer.Option(..., "--bundle-id", help="Bundle ID to deploy"),
+    ignore_warnings: bool = typer.Option(
+        False,
+        "--ignore-warnings",
+        help="Proceed past non-fatal validation warnings (e.g. Govern instance "
+        "unreachable). Common in dev/sandbox setups.",
+    ),
 ) -> None:
-    """Create a new Project Deployer deployment."""
+    """Create a new Project Deployer deployment.
+
+    If creation fails with a 'WARNING : ...' message (e.g. Govern instance
+    unreachable), retry with --ignore-warnings to proceed past it.
+    """
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()
-        deployer.create_deployment(deployment_id, project_id, infra_id, bundle_id)
+        deployer.create_deployment(
+            deployment_id,
+            project_id,
+            infra_id,
+            bundle_id,
+            ignore_warnings=ignore_warnings,
+        )
         success(
             f"Created deployment '{deployment_id}' (project={project_id}, infra={infra_id}, bundle={bundle_id})"
         )
@@ -197,13 +213,24 @@ def deployment_status(
     deployment_id: str = typer.Argument(help="Deployment ID"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show Project Deployer deployment status."""
+    """Show Project Deployer deployment health and messages.
+
+    Health is HEALTHY when the deployed bundle is running on the Automation node.
+
+    Example:
+      dku project-deployer deployment-status my_dep -o json
+    """
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()
         dep = deployer.get_deployment(deployment_id)
-        status = dep.get_light_status()
-        render_raw(status, output_format=output)
+        status = dep.get_status()
+        result = {
+            "deployment_id": deployment_id,
+            "health": status.get_health(),
+            "health_messages": status.get_health_messages(),
+        }
+        render_raw(result, output_format=output)
     except Exception as e:
         handle_api_error(e)

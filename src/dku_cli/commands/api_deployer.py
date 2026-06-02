@@ -106,7 +106,7 @@ def list_deployments(
             data.append(
                 {
                     "id": info.get("id", ""),
-                    "service_id": info.get("serviceId", ""),
+                    "service_id": info.get("publishedServiceId", ""),
                     "infra_id": info.get("infraId", ""),
                 }
             )
@@ -128,12 +128,32 @@ def create_deployment(
     service_id: str = typer.Option(..., "--service-id", help="Service ID"),
     infra_id: str = typer.Option(..., "--infra-id", help="Infrastructure ID"),
     version: str = typer.Option(..., "--version", help="Service version to deploy"),
+    ignore_warnings: bool = typer.Option(
+        False,
+        "--ignore-warnings",
+        help="Proceed past non-fatal validation warnings (e.g. Govern instance "
+        "unreachable, model governance status). Common in dev/sandbox setups.",
+    ),
 ) -> None:
-    """Create a new API Deployer deployment."""
+    """Create a new API Deployer deployment.
+
+    If creation fails with a 'WARNING : ...' message (e.g. Govern instance
+    unreachable), retry with --ignore-warnings to proceed past it.
+
+    Example:
+      dku api-deployer create-deployment --id my_dep --service-id my_svc \\
+        --infra-id my_infra --version v1
+    """
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
-        deployer.create_deployment(deployment_id, service_id, infra_id, version)
+        deployer.create_deployment(
+            deployment_id,
+            service_id,
+            infra_id,
+            version,
+            ignore_warnings=ignore_warnings,
+        )
         success(
             f"Created deployment '{deployment_id}' (service={service_id}, infra={infra_id}, version={version})"
         )
@@ -215,13 +235,31 @@ def deployment_status(
     deployment_id: str = typer.Argument(help="Deployment ID"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show API Deployer deployment status."""
+    """Show API Deployer deployment health and live service URLs.
+
+    Health is HEALTHY when the deployment is serving. service_urls are the
+    base URLs to query the deployed endpoints (append /<endpoint>/predict).
+
+    Example:
+      dku api-deployer deployment-status my_dep -o json
+    """
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
         dep = deployer.get_deployment(deployment_id)
-        status = dep.get_light_status()
-        render_raw(status, output_format=output)
+        status = dep.get_status()
+        # get_service_urls raises while the deployment is still initializing.
+        try:
+            service_urls = status.get_service_urls()
+        except ValueError:
+            service_urls = []
+        result = {
+            "deployment_id": deployment_id,
+            "health": status.get_health(),
+            "health_messages": status.get_health_messages(),
+            "service_urls": service_urls,
+        }
+        render_raw(result, output_format=output)
     except Exception as e:
         handle_api_error(e)

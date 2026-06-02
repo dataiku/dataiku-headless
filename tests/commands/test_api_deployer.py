@@ -85,7 +85,34 @@ def test_create_deployment(patch_client):
     assert result.exit_code == 0
     deployer = patch_client.get_apideployer()
     deployer.create_deployment.assert_called_once_with(
-        "new_dep", "svc1", "infra1", "v1"
+        "new_dep", "svc1", "infra1", "v1", ignore_warnings=False
+    )
+
+
+def test_create_deployment_ignore_warnings(patch_client):
+    # --ignore-warnings lets agents proceed past non-fatal validation warnings
+    # (e.g. "WARNING : Dataiku Govern Instance is unreachable") that otherwise
+    # abort deployment creation on dev/sandbox instances.
+    result = runner.invoke(
+        app,
+        [
+            "api-deployer",
+            "create-deployment",
+            "--id",
+            "new_dep",
+            "--service-id",
+            "svc1",
+            "--infra-id",
+            "infra1",
+            "--version",
+            "v1",
+            "--ignore-warnings",
+        ],
+    )
+    assert result.exit_code == 0
+    deployer = patch_client.get_apideployer()
+    deployer.create_deployment.assert_called_once_with(
+        "new_dep", "svc1", "infra1", "v1", ignore_warnings=True
     )
 
 
@@ -141,3 +168,19 @@ def test_deployment_status(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["health"] == "HEALTHY"
+    assert parsed["deployment_id"] == "dep1"
+    assert parsed["service_urls"] == ["https://apinode.example/public/api/v1/svc1"]
+
+
+def test_deployment_status_still_initializing(patch_client):
+    # get_service_urls() raises ValueError while the deployment is initializing;
+    # the command must degrade to an empty list, not crash.
+    deployer = patch_client.get_apideployer()
+    status = deployer.get_deployment("dep1").get_status()
+    status.get_service_urls.side_effect = ValueError("PublicURL not available")
+    result = runner.invoke(
+        app, ["api-deployer", "deployment-status", "dep1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["service_urls"] == []

@@ -126,12 +126,26 @@ dku api-deployer list-infras [-o FORMAT]
 dku api-deployer list-services [-o FORMAT]
 dku api-deployer get-service SERVICE_ID [-o FORMAT]
 dku api-deployer list-deployments [-o FORMAT]
-dku api-deployer create-deployment --id ID --service SERVICE_ID --infra INFRA_ID --version VERSION
+dku api-deployer create-deployment --id ID --service-id SERVICE_ID --infra-id INFRA_ID --version VERSION [--ignore-warnings]
 dku api-deployer get-deployment DEPLOYMENT_ID [-o FORMAT]
 dku api-deployer update-deployment DEPLOYMENT_ID [--wait/--no-wait]
 dku api-deployer delete-deployment DEPLOYMENT_ID
 dku api-deployer deployment-status DEPLOYMENT_ID [-o FORMAT]
 ```
+
+**Flags are `--service-id` / `--infra-id`** (not `--service` / `--infra`).
+Get `SERVICE_ID` from `dku api-deployer list-services` and `INFRA_ID` from
+`dku api-deployer list-infras`. `VERSION` is the package ID you published
+(see `api-service publish-package`).
+
+If `create-deployment` fails with `WARNING : Dataiku Govern Instance is
+unreachable` (or any other `WARNING :` validation message), retry with
+`--ignore-warnings` — these are non-fatal warnings that block creation by
+default. Common on dev/sandbox instances with no reachable Govern node.
+
+`deployment-status -o json` returns `health` (HEALTHY when serving),
+`health_messages`, and `service_urls` (base URLs — append `/<endpoint>/predict`
+to query a deployed endpoint).
 
 ---
 
@@ -143,12 +157,16 @@ Deploy project bundles to Automation Nodes. No `--project` needed — operates a
 dku project-deployer list-infras [-o FORMAT]
 dku project-deployer list-projects [-o FORMAT]
 dku project-deployer list-deployments [-o FORMAT]
-dku project-deployer create-deployment --id ID --project-key KEY --infra INFRA_ID --bundle BUNDLE_ID
+dku project-deployer create-deployment --id ID --project-id KEY --infra-id INFRA_ID --bundle-id BUNDLE_ID [--ignore-warnings]
 dku project-deployer get-deployment DEPLOYMENT_ID [-o FORMAT]
 dku project-deployer update-deployment DEPLOYMENT_ID [--wait/--no-wait]
 dku project-deployer delete-deployment DEPLOYMENT_ID
 dku project-deployer deployment-status DEPLOYMENT_ID [-o FORMAT]
 ```
+
+**Flags are `--project-id` / `--infra-id` / `--bundle-id`** (not `--project-key`
+/ `--infra` / `--bundle`). As with `api-deployer`, retry with `--ignore-warnings`
+if creation fails on a `WARNING :` (e.g. Govern instance unreachable).
 
 ---
 
@@ -215,7 +233,7 @@ dku continuous status RECIPE_ID [-P PROJECT] [-o FORMAT]
 dku api-service list [-P PROJECT] [-o FORMAT]
 dku api-service create SERVICE_ID [-P PROJECT]
 dku api-service get SERVICE_ID [-P PROJECT] [-o FORMAT]
-dku api-service create-package SERVICE_ID [-P PROJECT]
+dku api-service create-package SERVICE_ID --package PKG_ID [--release-notes TEXT] [-P PROJECT]
 dku api-service list-packages SERVICE_ID [-P PROJECT] [-o FORMAT]
 dku api-service add-endpoint SERVICE_ID -e ENDPOINT_ID -m MODEL_ID [-t TYPE] [-P PROJECT]
 dku api-service list-endpoints SERVICE_ID [-P PROJECT] [-o FORMAT]
@@ -223,8 +241,20 @@ dku api-service publish-package SERVICE_ID --package PKG_ID [--published-service
 dku api-service delete-package SERVICE_ID --package PKG_ID [-P PROJECT]
 ```
 
+- `create-package` **requires `--package PKG_ID`** (the version identifier you choose, e.g. `v1`) — the DSS server rejects the call without it
 - `add-endpoint` types: prediction (default), clustering, forecasting, causal
 - `publish-package` publishes to API Deployer. `--published-service` overrides the target service ID
+
+**Full deploy chain** (model → live endpoint):
+```bash
+dku api-service create SVC -P PROJ
+dku api-service add-endpoint SVC -e predict -m MODEL_ID -P PROJ
+dku api-service create-package SVC --package v1 -P PROJ
+dku api-service publish-package SVC --package v1 -P PROJ
+dku api-deployer create-deployment --id SVC_prod --service-id SVC --infra-id INFRA --version v1 [--ignore-warnings]
+dku api-deployer update-deployment SVC_prod --wait
+dku api-deployer deployment-status SVC_prod -o json   # health + service_urls
+```
 
 ## project-folder
 

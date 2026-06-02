@@ -78,7 +78,31 @@ def test_create_deployment(patch_client):
     assert result.exit_code == 0
     deployer = patch_client.get_projectdeployer()
     deployer.create_deployment.assert_called_once_with(
-        "new_pdep", "dp1", "auto_infra1", "v1"
+        "new_pdep", "dp1", "auto_infra1", "v1", ignore_warnings=False
+    )
+
+
+def test_create_deployment_ignore_warnings(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "project-deployer",
+            "create-deployment",
+            "--id",
+            "new_pdep",
+            "--project-id",
+            "dp1",
+            "--infra-id",
+            "auto_infra1",
+            "--bundle-id",
+            "v1",
+            "--ignore-warnings",
+        ],
+    )
+    assert result.exit_code == 0
+    deployer = patch_client.get_projectdeployer()
+    deployer.create_deployment.assert_called_once_with(
+        "new_pdep", "dp1", "auto_infra1", "v1", ignore_warnings=True
     )
 
 

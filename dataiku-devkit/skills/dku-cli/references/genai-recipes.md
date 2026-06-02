@@ -336,10 +336,9 @@ dku api-service create my_predictor -P PROJ && \
 dku api-service add-endpoint my_predictor \
   -e predict_churn -m saved_model_id -t prediction -P PROJ && \
 
-# 3. Create and publish package
-dku api-service create-package my_predictor -P PROJ && \
-PKG_ID=$(dku api-service list-packages my_predictor -P PROJ -o json | jq -r '.[0].id') && \
-dku api-service publish-package my_predictor --package "$PKG_ID" -P PROJ
+# 3. Create and publish package (--package is required: it's the version ID you choose)
+dku api-service create-package my_predictor --package v1 -P PROJ && \
+dku api-service publish-package my_predictor --package v1 -P PROJ
 ```
 
 ## Flow Investigation Patterns

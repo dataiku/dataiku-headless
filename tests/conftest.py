@@ -1786,7 +1786,7 @@ def mock_client():
         {
             "deploymentBasicInfo": {
                 "id": "dep1",
-                "serviceId": "svc1",
+                "publishedServiceId": "svc1",
                 "infraId": "infra1",
             }
         },
@@ -1800,7 +1800,13 @@ def mock_client():
         "infraId": "infra1",
     }
     api_dep_handle.get_settings.return_value = api_dep_settings
-    api_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    api_dep_status = MagicMock()
+    api_dep_status.get_health.return_value = "HEALTHY"
+    api_dep_status.get_health_messages.return_value = {"messages": [], "success": True}
+    api_dep_status.get_service_urls.return_value = [
+        "https://apinode.example/public/api/v1/svc1"
+    ]
+    api_dep_handle.get_status.return_value = api_dep_status
     api_dep_handle.start_update.return_value = MagicMock(
         wait_for_result=MagicMock(return_value={"success": True})
     )
@@ -1836,7 +1842,10 @@ def mock_client():
         "infraId": "auto_infra1",
     }
     proj_dep_handle.get_settings.return_value = proj_dep_settings
-    proj_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    proj_dep_status = MagicMock()
+    proj_dep_status.get_health.return_value = "HEALTHY"
+    proj_dep_status.get_health_messages.return_value = {"messages": [], "success": True}
+    proj_dep_handle.get_status.return_value = proj_dep_status
     proj_dep_handle.start_update.return_value = MagicMock(
         wait_for_result=MagicMock(return_value={"success": True})
     )
@@ -2413,7 +2422,7 @@ def mock_client():
         {
             "deploymentBasicInfo": {
                 "id": "dep1",
-                "serviceId": "svc1",
+                "publishedServiceId": "svc1",
                 "infraId": "infra1",
             }
         },
@@ -2427,7 +2436,13 @@ def mock_client():
         "infraId": "infra1",
     }
     api_dep_handle.get_settings.return_value = api_dep_settings
-    api_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    api_dep_status = MagicMock()
+    api_dep_status.get_health.return_value = "HEALTHY"
+    api_dep_status.get_health_messages.return_value = {"messages": [], "success": True}
+    api_dep_status.get_service_urls.return_value = [
+        "https://apinode.example/public/api/v1/svc1"
+    ]
+    api_dep_handle.get_status.return_value = api_dep_status
     api_dep_handle.start_update.return_value = MagicMock(
         wait_for_result=MagicMock(return_value={"success": True})
     )
@@ -2463,7 +2478,10 @@ def mock_client():
         "infraId": "auto_infra1",
     }
     proj_dep_handle.get_settings.return_value = proj_dep_settings
-    proj_dep_handle.get_light_status.return_value = {"health": "HEALTHY"}
+    proj_dep_status = MagicMock()
+    proj_dep_status.get_health.return_value = "HEALTHY"
+    proj_dep_status.get_health_messages.return_value = {"messages": [], "success": True}
+    proj_dep_handle.get_status.return_value = proj_dep_status
     proj_dep_handle.start_update.return_value = MagicMock(
         wait_for_result=MagicMock(return_value={"success": True})
     )
