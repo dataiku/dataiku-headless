@@ -148,6 +148,23 @@ For bulk testing, import from a dataset:
 dku agent-review import-tests "$REVIEW_ID" --dataset test_cases --query-column question --reference-column answer -P PROJ
 ```
 
+### Human verification (DSS 14.6)
+
+After a run, a human (SME) can confirm or correct the AI judge. `get-result` shows
+each trait's **AI verdict vs FINAL verdict** (they differ only where a human overrode),
+plus existing reviews/overrides; `verify` records an overall SME pass/fail+comment, and
+`override-trait` corrects a single trait's verdict (the AI verdict is preserved so you
+can measure AI-vs-human agreement).
+
+```bash
+# Inspect one result, then record human judgement
+RESULT_ID=$(dku agent-review results "$REVIEW_ID" --run "$RUN_ID" -P PROJ -o json | jq -r '.[0].id') && \
+dku agent-review get-result "$RESULT_ID" -P PROJ && \
+dku agent-review verify "$RESULT_ID" --pass -c "SME: answer is correct" -P PROJ && \
+TRAIT_ID=$(dku agent-review get "$REVIEW_ID" -P PROJ -o json | jq -r '.traits[0].id') && \
+dku agent-review override-trait "$RESULT_ID" --trait "$TRAIT_ID" --fail -P PROJ
+```
+
 ## Agent Hub Notes
 
 - **Cannot create** Agent Hub via CLI (it's a plugin webapp — create in DSS UI first).

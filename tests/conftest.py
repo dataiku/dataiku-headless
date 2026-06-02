@@ -1632,8 +1632,33 @@ def mock_client():
         "traitStatusJustificationPerTraitId": {
             "trait_accuracy": "The answer 4 matches the reference",
         },
+        # DSS 14.6 FINAL status (after human overrides). tone differs from its
+        # AI verdict (FAILED) → exercises the "overridden" detection.
+        "traitStatusPerTraitId": {
+            "trait_accuracy": "PASSED",
+            "trait_tone": "PASSED",
+        },
     }
+    # DSS 14.6 human verification: result self-describes review/run, exposes
+    # human reviews + per-trait overrides, and accepts create_* writes.
+    review_result_mock.agent_review_id = "review1"
+    review_result_mock.run_id = "run1"
+    _human_review_mock = MagicMock()
+    _human_review_mock.like = True
+    _human_review_mock.comment = "SME confirms the answer"
+    _human_review_mock.created_by = "admin"
+    review_result_mock.human_reviews = [_human_review_mock]
+    _trait_override_mock = MagicMock()
+    _trait_override_mock.like = False
+    _trait_override_mock.created_by = "admin"
+    review_result_mock.trait_overrides = {"trait_tone": [_trait_override_mock]}
+    _execution_mock = MagicMock()
+    _execution_mock.answer = "4"
+    review_result_mock.execution_results = [_execution_mock]
+    review_result_mock.create_human_review.return_value = _human_review_mock
+    review_result_mock.create_trait_override.return_value = _trait_override_mock
     review_run_mock.list_results.return_value = [review_result_mock]
+    review_run_mock.get_result.return_value = review_result_mock
 
     # Second run (for compare tests) — same shape, different pass counts.
     review_run_mock_b = MagicMock()
@@ -2234,8 +2259,33 @@ def mock_client():
         "traitStatusJustificationPerTraitId": {
             "trait_accuracy": "The answer 4 matches the reference",
         },
+        # DSS 14.6 FINAL status (after human overrides). tone differs from its
+        # AI verdict (FAILED) → exercises the "overridden" detection.
+        "traitStatusPerTraitId": {
+            "trait_accuracy": "PASSED",
+            "trait_tone": "PASSED",
+        },
     }
+    # DSS 14.6 human verification: result self-describes review/run, exposes
+    # human reviews + per-trait overrides, and accepts create_* writes.
+    review_result_mock.agent_review_id = "review1"
+    review_result_mock.run_id = "run1"
+    _human_review_mock = MagicMock()
+    _human_review_mock.like = True
+    _human_review_mock.comment = "SME confirms the answer"
+    _human_review_mock.created_by = "admin"
+    review_result_mock.human_reviews = [_human_review_mock]
+    _trait_override_mock = MagicMock()
+    _trait_override_mock.like = False
+    _trait_override_mock.created_by = "admin"
+    review_result_mock.trait_overrides = {"trait_tone": [_trait_override_mock]}
+    _execution_mock = MagicMock()
+    _execution_mock.answer = "4"
+    review_result_mock.execution_results = [_execution_mock]
+    review_result_mock.create_human_review.return_value = _human_review_mock
+    review_result_mock.create_trait_override.return_value = _trait_override_mock
     review_run_mock.list_results.return_value = [review_result_mock]
+    review_run_mock.get_result.return_value = review_result_mock
 
     # Second run (for compare tests) — same shape, different pass counts.
     review_run_mock_b = MagicMock()

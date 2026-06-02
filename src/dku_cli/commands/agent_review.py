@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
     resolve_agent_review,
     resolve_project,
 )
-from dku_cli.output import render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(
     help="Manage agent reviews — evaluate agent quality with traits, tests, and runs."
@@ -588,6 +595,46 @@ def _result_per_trait_justifications(result_obj) -> dict[str, str]:
     return out
 
 
+def _result_per_trait_final_status(result_obj) -> dict[str, str]:
+    """Extract trait_id → FINAL status from one result.
+
+    ``traitStatusPerTraitId`` is the authoritative status after human trait
+    overrides are applied; ``aiStatusPerTraitId`` keeps the original LLM-judge
+    verdict. They differ exactly where a human overrode a trait (DSS 14.6).
+    """
+    raw = result_obj.get_raw() if hasattr(result_obj, "get_raw") else {}
+    by_trait = raw.get("traitStatusPerTraitId", {}) or {}
+    out: dict[str, str] = {}
+    for tid, val in by_trait.items():
+        if isinstance(val, dict):
+            out[tid] = val.get("status", "OTHER")
+        else:
+            out[tid] = str(val) if val is not None else "OTHER"
+    return out
+
+
+def _verdict_label(like) -> str:
+    """Map a human 'like' boolean to a PASS/FAIL/— label."""
+    if like is True:
+        return "PASS"
+    if like is False:
+        return "FAIL"
+    return "—"
+
+
+def _get_result(client, project_key: str, result_id: str):
+    """Fetch a single agent-review result by ID.
+
+    Results are addressable by ID within a project (the GET endpoint is
+    ``/agent-reviews/results/{id}`` — no run ID needed), so a bare run handle is
+    used purely as the SDK accessor. The returned result self-describes its
+    review and run, which the human-verification writes rely on.
+    """
+    from dataikuapi.dss.agent_review import DSSAgentReviewRun
+
+    return DSSAgentReviewRun(client, project_key, {}).get_result(result_id)
+
+
 @app.command("results")
 def results(
     ctx: typer.Context,
@@ -847,6 +894,213 @@ def compare_runs(
             ["trait"] + run_ids,
             output_format=output,
             title=f"Trait pass-rate comparison ({review.id})",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("get-result")
+def get_result(
+    ctx: typer.Context,
+    result_id: str = typer.Argument(help="Result ID (from `agent-review results`)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show one result's detail with its human-verification state.
+
+    Surfaces, per trait, the AI judge's verdict vs the FINAL verdict (they differ
+    where a human overrode the trait), the LLM-judge justification, any human
+    reviews (SME pass/fail + comment), and any trait overrides. This is the read
+    side of DSS 14.6 human verification — pair it with `verify` and `override-trait`.
+
+    Examples:
+      dku agent-review get-result RESULT_ID -P PROJ
+      dku agent-review get-result RESULT_ID -P PROJ -o json
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        result = _get_result(client, project_key, result_id)
+
+        # Best-effort trait-id → name map via the parent review.
+        names: dict[str, str] = {}
+        try:
+            names = _trait_id_to_name(proj.get_agent_review(result.agent_review_id))
+        except Exception:
+            pass
+
+        ai = _result_per_trait_status(result)
+        final = _result_per_trait_final_status(result)
+        justif = _result_per_trait_justifications(result)
+        traits = [
+            {
+                "trait_id": tid,
+                "trait": names.get(tid, tid),
+                "ai_status": ai.get(tid, "—"),
+                "final_status": final.get(tid, ai.get(tid, "—")),
+                "overridden": tid in final and final.get(tid) != ai.get(tid),
+                "justification": justif.get(tid, ""),
+            }
+            for tid in sorted(set(ai) | set(final), key=lambda t: names.get(t, t))
+        ]
+
+        human_reviews = [
+            {
+                "verdict": _verdict_label(h.like),
+                "comment": h.comment or "",
+                "by": h.created_by or "",
+            }
+            for h in result.human_reviews
+        ]
+        overrides = [
+            {
+                "trait": names.get(tid, tid),
+                "trait_id": tid,
+                "verdict": _verdict_label(ov.like),
+                "by": ov.created_by or "",
+            }
+            for tid, ovs in result.trait_overrides.items()
+            for ov in ovs
+        ]
+
+        execs = result.execution_results
+        answer = (execs[0].answer or "") if execs else ""
+
+        if output == "json":
+            render_raw(
+                {
+                    "id": result.id,
+                    "test_id": result.test_id,
+                    "run_id": result.run_id,
+                    "query": result.query,
+                    "status": result.status,
+                    "answer": answer,
+                    "traits": traits,
+                    "human_reviews": human_reviews,
+                    "trait_overrides": overrides,
+                },
+                output_format=output,
+            )
+            return
+
+        info(f"Result {result.id}  status={result.status}  test={result.test_id}")
+        if result.query:
+            info(f"Query:  {result.query}")
+        if answer:
+            info(f"Answer: {answer[:400]}")
+        table_traits = [
+            {**t, "justification": (t["justification"] or "")[:80]} for t in traits
+        ]
+        render(
+            table_traits,
+            ["trait", "ai_status", "final_status", "overridden", "justification"],
+            output_format=output,
+            title="Traits (AI vs final)",
+        )
+        if human_reviews:
+            render(
+                human_reviews,
+                ["verdict", "comment", "by"],
+                output_format=output,
+                title="Human reviews",
+            )
+        if overrides:
+            render(
+                overrides,
+                ["trait", "verdict", "by"],
+                output_format=output,
+                title="Trait overrides",
+            )
+        if not human_reviews and not overrides:
+            info(
+                "No human verification yet — add one with `verify` or `override-trait`."
+            )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("verify")
+def verify(
+    ctx: typer.Context,
+    result_id: str = typer.Argument(help="Result ID (from `agent-review results`)"),
+    verdict: bool = typer.Option(
+        None,
+        "--pass/--fail",
+        help="Record a human PASS or FAIL verdict on this result.",
+    ),
+    comment: str = typer.Option(
+        None, "--comment", "-c", help="Reviewer comment (SME notes)."
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Record a human (SME) review on a result — DSS 14.6 human verification.
+
+    Stores an overall pass/fail verdict plus an optional comment, capturing a
+    human's judgement of the agent's answer alongside the AI judge. To correct a
+    single trait's AI verdict instead, use `override-trait`.
+
+    Examples:
+      dku agent-review verify RESULT_ID --pass -c "SME: answer is correct" -P PROJ
+      dku agent-review verify RESULT_ID --fail -c "Missed the refund window" -P PROJ
+    """
+    if verdict is None and not comment:
+        exit_with_error(
+            "Nothing to record for this human review.",
+            details=[
+                "Pass --pass or --fail (the human verdict), and/or --comment TEXT.",
+                'Example: dku agent-review verify RESULT_ID --pass -c "looks good" -P PROJ',
+            ],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        result = _get_result(client, project_key, result_id)
+        result.create_human_review(comment=comment, like=verdict)
+        success(
+            f"Recorded human review on result '{result_id}' "
+            f"(verdict={_verdict_label(verdict)})"
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("override-trait")
+def override_trait(
+    ctx: typer.Context,
+    result_id: str = typer.Argument(help="Result ID (from `agent-review results`)"),
+    trait: str = typer.Option(
+        ...,
+        "--trait",
+        help="Trait ID to override (see `get-result` or `get REVIEW -o json`).",
+    ),
+    verdict: bool = typer.Option(
+        ...,
+        "--pass/--fail",
+        help="Human PASS or FAIL for this trait — overrides the AI verdict.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Override one trait's AI verdict on a result with a human PASS/FAIL.
+
+    This sets the trait's FINAL status; the AI verdict is preserved separately so
+    you can measure AI-vs-human agreement. The trait ID must come from the result's
+    review — list them with `get-result RESULT_ID` or `get REVIEW_ID -o json`.
+
+    Examples:
+      dku agent-review override-trait RESULT_ID --trait TRAIT_ID --fail -P PROJ
+      dku agent-review override-trait RESULT_ID --trait TRAIT_ID --pass -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        result = _get_result(client, project_key, result_id)
+        result.create_trait_override(trait, like=verdict)
+        success(
+            f"Overrode trait '{trait}' on result '{result_id}' → "
+            f"{_verdict_label(verdict)} (final status now reflects the human "
+            f"verdict; AI verdict preserved)"
         )
     except Exception as e:
         handle_api_error(e)

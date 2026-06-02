@@ -313,6 +313,9 @@ dku agent-review export-tests REVIEW_ID --dataset DS [--create-new] [--connectio
 dku agent-review run REVIEW_ID [--wait/--no-wait] [--name NAME] [-P PROJECT]
 dku agent-review list-runs REVIEW_ID [-P PROJECT] [-o FORMAT]
 dku agent-review results REVIEW_ID --run RUN_ID [-P PROJECT] [-o FORMAT]
+dku agent-review get-result RESULT_ID [-P PROJECT] [-o FORMAT]
+dku agent-review verify RESULT_ID [--pass|--fail] [--comment TEXT] [-P PROJECT]
+dku agent-review override-trait RESULT_ID --trait TRAIT_ID [--pass|--fail] [-P PROJECT]
 ```
 
 - `REVIEW_ID` accepts review ID or name (resolved automatically)
@@ -324,6 +327,10 @@ dku agent-review results REVIEW_ID --run RUN_ID [-P PROJECT] [-o FORMAT]
 - `import-tests`: bulk-creates test cases from dataset rows; each row becomes one test
 - `run`: executes all tests, sending each query to the agent and scoring responses against configured traits
 - `results`: shows per-test evaluation results including trait pass/fail status
+- **Human verification (DSS 14.6)** — record SME judgement on a run's results (`RESULT_ID` comes from `results REVIEW_ID --run RUN_ID`):
+  - `get-result RESULT_ID` shows one result's detail: per-trait **AI verdict vs FINAL verdict** (they differ where a human overrode), justifications, human reviews, and trait overrides. This is the read side of human verification.
+  - `verify RESULT_ID --pass|--fail [--comment TEXT]` records an overall human (SME) review — a pass/fail verdict plus optional note — alongside the AI judge.
+  - `override-trait RESULT_ID --trait TRAIT_ID --pass|--fail` overrides one trait's AI verdict; this sets the trait's FINAL status while the AI verdict is preserved so you can measure AI-vs-human agreement. Trait IDs come from `get-result` or `get REVIEW_ID -o json`.
 
 ---
 

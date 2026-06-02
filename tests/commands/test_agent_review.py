@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from dku_cli.main import app
 
 runner = CliRunner()
+
+
+def _result_mock(patch_client):
+    """The shared conftest result mock (reached via the run handle)."""
+    return (
+        patch_client.get_project("PROJ1")
+        .get_agent_review("review1")
+        .get_run("run1")
+        .get_result("result1")
+    )
 
 
 # --- list ---
@@ -669,3 +680,138 @@ def test_compare_requires_two_runs(patch_client):
     )
     assert result.exit_code != 0
     assert "at least two runs" in result.output or "Compare needs" in result.output
+
+
+# --- get-result (human verification view) ---
+
+
+def test_get_result(patch_client):
+    with patch(
+        "dku_cli.commands.agent_review._get_result",
+        return_value=_result_mock(patch_client),
+    ):
+        result = runner.invoke(
+            app, ["agent-review", "get-result", "result1", "--project", "PROJ1"]
+        )
+    assert result.exit_code == 0
+    # Trait names resolved via the parent review, and the human review surfaces.
+    assert "Accuracy" in result.output
+    assert "Tone" in result.output
+    assert "SME confirms" in result.output
+
+
+def test_get_result_json(patch_client):
+    with patch(
+        "dku_cli.commands.agent_review._get_result",
+        return_value=_result_mock(patch_client),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "get-result",
+                "result1",
+                "--project",
+                "PROJ1",
+                "-o",
+                "json",
+            ],
+        )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "result1"
+    traits = {t["trait"]: t for t in parsed["traits"]}
+    # Tone: AI said FAILED, human override flipped FINAL to PASSED → overridden.
+    assert traits["Tone"]["ai_status"] == "FAILED"
+    assert traits["Tone"]["final_status"] == "PASSED"
+    assert traits["Tone"]["overridden"] is True
+    assert traits["Accuracy"]["overridden"] is False
+    assert parsed["human_reviews"][0]["verdict"] == "PASS"
+    assert parsed["trait_overrides"][0]["verdict"] == "FAIL"
+
+
+# --- verify (human review write) ---
+
+
+def test_verify_pass(patch_client):
+    mock_res = _result_mock(patch_client)
+    with patch("dku_cli.commands.agent_review._get_result", return_value=mock_res):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "verify",
+                "result1",
+                "--pass",
+                "-c",
+                "looks good",
+                "--project",
+                "PROJ1",
+            ],
+        )
+    assert result.exit_code == 0
+    mock_res.create_human_review.assert_called_once_with(
+        comment="looks good", like=True
+    )
+    assert "verdict=PASS" in result.output
+
+
+def test_verify_fail_no_comment(patch_client):
+    mock_res = _result_mock(patch_client)
+    with patch("dku_cli.commands.agent_review._get_result", return_value=mock_res):
+        result = runner.invoke(
+            app,
+            ["agent-review", "verify", "result1", "--fail", "--project", "PROJ1"],
+        )
+    assert result.exit_code == 0
+    mock_res.create_human_review.assert_called_once_with(comment=None, like=False)
+
+
+def test_verify_requires_verdict_or_comment(patch_client):
+    """No verdict and no comment → prescriptive error, nothing written."""
+    result = runner.invoke(
+        app, ["agent-review", "verify", "result1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "--pass or --fail" in result.output
+
+
+# --- override-trait (per-trait human override) ---
+
+
+def test_override_trait(patch_client):
+    mock_res = _result_mock(patch_client)
+    with patch("dku_cli.commands.agent_review._get_result", return_value=mock_res):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "override-trait",
+                "result1",
+                "--trait",
+                "trait_tone",
+                "--fail",
+                "--project",
+                "PROJ1",
+            ],
+        )
+    assert result.exit_code == 0
+    mock_res.create_trait_override.assert_called_once_with("trait_tone", like=False)
+    assert "trait_tone" in result.output
+
+
+def test_override_trait_requires_verdict(patch_client):
+    """--trait given but no --pass/--fail → typer rejects (required)."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "override-trait",
+            "result1",
+            "--trait",
+            "trait_tone",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
