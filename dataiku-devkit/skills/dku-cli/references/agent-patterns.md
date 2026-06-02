@@ -118,10 +118,24 @@ REVIEW_ID=$(dku agent-review list -P PROJ -o json | jq -r '.[0].id') && \
 dku agent-review set-agent "$REVIEW_ID" --agent MY_AGENT -P PROJ && \
 dku agent-review set-llm "$REVIEW_ID" --llm "openai:...:gpt-4o" -P PROJ && \
 dku agent-review add-trait "$REVIEW_ID" --name "Accuracy" --criteria "Does the answer match the reference answer?" -P PROJ && \
-dku agent-review add-trait "$REVIEW_ID" --name "Helpfulness" --criteria "Is the response helpful and actionable?" -P PROJ && \
+dku agent-review add-trait "$REVIEW_ID" --name "Helpfulness" --criteria "Is the response helpful and actionable?" --no-needs-reference -P PROJ && \
 dku agent-review create-test "$REVIEW_ID" -q "What is our refund policy?" -r "30-day money back guarantee" -P PROJ && \
 dku agent-review run "$REVIEW_ID" -P PROJ
 ```
+
+**Wire each trait to the test fields it scores against.** `add-trait` has two flags
+that decide which per-test fields the judge sees — they must match how you built the
+tests with `create-test --reference` / `--expectations`:
+
+| Trait kind | Flags | Why |
+|---|---|---|
+| Accuracy / correctness vs a reference | (defaults) | `--needs-reference` is ON by default; the judge compares against `-r`. Only scored on tests that HAVE a reference. |
+| Tone / format / safety / helpfulness | `--no-needs-reference` | These don't compare to a reference. Without this flag DSS still requires one, so they skip reference-less tests. |
+| Scored against per-test expectations | `--needs-expectations` (often with `--no-needs-reference`) | OFF by default, so the judge never sees `-e` expectations unless you turn it on. |
+
+DSS defaults **every** trait to needs-reference=ON / needs-expectations=OFF regardless
+of the criteria wording, so set these explicitly or your traits and tests won't wire
+together.
 
 ```bash
 # Check results (tool call 2)

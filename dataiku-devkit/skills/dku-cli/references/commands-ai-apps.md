@@ -305,7 +305,7 @@ dku agent-review get REVIEW_ID [-P PROJECT] [-o FORMAT]
 dku agent-review delete REVIEW_ID [-P PROJECT]
 dku agent-review set-agent REVIEW_ID --agent AGENT_ID [-P PROJECT]
 dku agent-review set-llm REVIEW_ID --llm LLM_ID [-P PROJECT]
-dku agent-review add-trait REVIEW_ID --name NAME [--description DESC] [--criteria CRITERIA] [--llm LLM_ID] [-P PROJECT]
+dku agent-review add-trait REVIEW_ID --name NAME [--description DESC] [--criteria CRITERIA] [--needs-reference/--no-needs-reference] [--needs-expectations/--no-needs-expectations] [--llm LLM_ID] [-P PROJECT]
 dku agent-review list-tests REVIEW_ID [-P PROJECT] [-o FORMAT]
 dku agent-review create-test REVIEW_ID --query QUERY [--reference ANSWER] [--expectations EXPECT] [-P PROJECT]
 dku agent-review import-tests REVIEW_ID --dataset DS --query-column COL [--reference-column COL] [--expectations-column COL] [--top-n N] [-P PROJECT]
@@ -317,6 +317,10 @@ dku agent-review results REVIEW_ID --run RUN_ID [-P PROJECT] [-o FORMAT]
 
 - `REVIEW_ID` accepts review ID or name (resolved automatically)
 - `add-trait`: `--criteria` is the evaluation prompt for the LLM judge (e.g. "Does the answer directly address the user's question?")
+- `add-trait` **trait/test wiring** — two flags control which per-test fields the judge sees, and they must match how you built the tests:
+  - `--needs-reference` (default **ON**): judge is given the test's `--reference`. A needs-reference trait is **only scored on tests that have a reference**. Pass `--no-needs-reference` for tone/format/safety traits so they score every test.
+  - `--needs-expectations` (default **OFF**): judge is given the test's `--expectations`. Pass `--needs-expectations` for traits scored against per-test expectations.
+  - DSS defaults **every** trait to needs-reference=ON / needs-expectations=OFF regardless of the criteria text — so a "Tone" trait wrongly requires a reference, and an expectations-based trait never sees the expectations, unless you set these flags. The CLI also warns if the criteria text names a field the trait isn't wired to.
 - `import-tests`: bulk-creates test cases from dataset rows; each row becomes one test
 - `run`: executes all tests, sending each query to the agent and scoring responses against configured traits
 - `results`: shows per-test evaluation results including trait pass/fail status

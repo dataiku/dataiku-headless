@@ -139,6 +139,87 @@ def test_add_trait(patch_client):
     assert trait_arg["name"] == "Accuracy"
     assert trait_arg["criteria"] == "Answer matches reference"
     assert trait_arg["enabled"] is True
+    # Default wiring must be sent explicitly (DSS defaults are needsReference=True,
+    # needsExpectations=False — we send them so behavior is deterministic).
+    assert trait_arg["needsReference"] is True
+    assert trait_arg["needsExpectations"] is False
+
+
+def test_add_trait_no_needs_reference(patch_client):
+    """Tone-style traits opt out of requiring a reference answer."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "add-trait",
+            "review1",
+            "--name",
+            "Tone",
+            "--criteria",
+            "Is the response professional and courteous?",
+            "--no-needs-reference",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    trait_arg = (
+        patch_client.get_project("PROJ1")
+        .get_agent_review("review1")
+        .add_trait.call_args[0][0]
+    )
+    assert trait_arg["needsReference"] is False
+    assert trait_arg["needsExpectations"] is False
+    assert "judge sees: neither" in result.output
+
+
+def test_add_trait_needs_expectations(patch_client):
+    """Expectation-scored traits wire the test's expectations to the judge."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "add-trait",
+            "review1",
+            "--name",
+            "Coverage",
+            "--criteria",
+            "Does the answer satisfy the stated requirements?",
+            "--needs-expectations",
+            "--no-needs-reference",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    trait_arg = (
+        patch_client.get_project("PROJ1")
+        .get_agent_review("review1")
+        .add_trait.call_args[0][0]
+    )
+    assert trait_arg["needsReference"] is False
+    assert trait_arg["needsExpectations"] is True
+    assert "judge sees: expectations" in result.output
+
+
+def test_add_trait_warns_on_expectations_mismatch(patch_client):
+    """Criteria names expectations but the flag is off -> prescriptive nudge."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "add-trait",
+            "review1",
+            "--name",
+            "Coverage",
+            "--criteria",
+            "Does the answer satisfy the stated expectations?",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "--needs-expectations" in result.output
 
 
 def test_add_trait_with_llm(patch_client):

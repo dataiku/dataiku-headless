@@ -191,6 +191,25 @@ def add_trait(
     criteria: str = typer.Option(
         "", "--criteria", help="Evaluation criteria/prompt for the LLM judge"
     ),
+    needs_reference: bool = typer.Option(
+        True,
+        "--needs-reference/--no-needs-reference",
+        help=(
+            "Give the judge the test's reference answer (default ON). "
+            "Keep ON for accuracy/correctness traits; pass --no-needs-reference "
+            "for tone/format/safety traits so they still score tests with no "
+            "reference. A needs-reference trait is ONLY scored on tests that have "
+            "a --reference."
+        ),
+    ),
+    needs_expectations: bool = typer.Option(
+        False,
+        "--needs-expectations/--no-needs-expectations",
+        help=(
+            "Give the judge the test's expectations (default OFF). Pass "
+            "--needs-expectations for traits scored against per-test --expectations."
+        ),
+    ),
     llm: str = typer.Option(
         None,
         "--llm",
@@ -200,12 +219,24 @@ def add_trait(
 ) -> None:
     """Add an evaluation trait to a review.
 
-    Traits define what the LLM judge evaluates. Each trait has a name, description,
-    and criteria prompt. The criteria tells the judge how to score the agent's response.
+    A trait pairs a criteria prompt with two wiring flags that decide which
+    per-test fields the LLM judge actually sees:
+
+      --needs-reference     judge gets the test's reference answer  (default ON)
+      --needs-expectations  judge gets the test's expectations      (default OFF)
+
+    These must match how you built your tests (create-test --reference /
+    --expectations). DSS defaults EVERY trait to needs-reference=ON,
+    needs-expectations=OFF, so without these flags a "Tone" trait wrongly requires
+    a reference and an expectations-based trait never sees the expectations.
 
     Examples:
-      dku agent-review add-trait REV1 --name "Accuracy" --criteria "Does the answer match the reference?" -P PROJ
-      dku agent-review add-trait REV1 --name "Tone" --description "Professional tone" --criteria "Is the response professional and courteous?" -P PROJ
+      # Correctness vs reference (defaults are already correct)
+      dku agent-review add-trait REV1 --name "Accuracy" --criteria "Does the answer match the reference answer?" -P PROJ
+      # Tone trait — no reference needed, scores every test
+      dku agent-review add-trait REV1 --name "Tone" --criteria "Is the response professional and courteous?" --no-needs-reference -P PROJ
+      # Trait scored against per-test expectations
+      dku agent-review add-trait REV1 --name "Coverage" --criteria "Does the answer satisfy the stated expectations?" --needs-expectations --no-needs-reference -P PROJ
     """
     project_key = resolve_project(project)
     try:
@@ -218,6 +249,8 @@ def add_trait(
             "description": description,
             "criteria": criteria,
             "enabled": True,
+            "needsReference": needs_reference,
+            "needsExpectations": needs_expectations,
         }
         # Default trait llmId to the review's helper LLM so DSS 14.5.1+ doesn't
         # NPE at run time. Explicit --llm takes precedence.
@@ -228,7 +261,31 @@ def add_trait(
 
         review.add_trait(trait)
         review.save()
-        success(f"Added trait '{name}' to review '{review_id}'")
+
+        wired = [
+            field
+            for field, on in (
+                ("reference", needs_reference),
+                ("expectations", needs_expectations),
+            )
+            if on
+        ]
+        sees = ", ".join(wired) if wired else "neither reference nor expectations"
+        success(f"Added trait '{name}' to review '{review_id}' (judge sees: {sees})")
+
+        # Prescriptive nudge: criteria text names a field the trait isn't wired to,
+        # so the judge would never receive it. Non-blocking — agents can ignore.
+        lc = criteria.lower()
+        if "expectation" in lc and not needs_expectations:
+            warn(
+                "Criteria mentions expectations but --needs-expectations is off — the "
+                "judge will NOT see the test's expectations. Re-run with --needs-expectations."
+            )
+        if "reference" in lc and not needs_reference:
+            warn(
+                "Criteria mentions the reference answer but --no-needs-reference is set "
+                "— the judge will NOT see the test's reference answer."
+            )
     except Exception as e:
         handle_api_error(e)
 
