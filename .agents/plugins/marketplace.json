@@ -1,0 +1,23 @@
+{
+  "name": "dataiku-marketplace",
+  "interface": {
+    "displayName": "Dataiku",
+    "shortDescription": "Dataiku DSS development toolkit for Codex"
+  },
+  "plugins": [
+    {
+      "name": "dataiku-mcp",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/dataiku/dataiku-cli.git",
+        "path": "./dataiku-mcp",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

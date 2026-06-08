@@ -118,6 +118,10 @@ def _build_rule_config(
 
     if name:
         config["displayName"] = name
+    else:
+        # Without a name DSS shows "Created rule ''" and a blank NAME column
+        # in results — derive a readable default from type + column.
+        config["displayName"] = f"{rule_type} {column}".strip() if column else rule_type
 
     # Column-level rules use "columns" array
     if rule_type in (
@@ -268,7 +272,7 @@ def create_rule(
       column-sum     — sum of column values in range (numeric columns only)
 
     For unlisted types (median, stddev, schema, file-size), use --config with raw JSON.
-    Payload reference: dataiku-devkit/skills/dku-cli/references/commands.md
+    Payload reference: dataiku-mcp/skills/dku-cli/SKILL.md
     """
     if config and rule_type:
         exit_with_error(
@@ -449,6 +453,8 @@ def delete_rule(
 
         rule.delete()
         success(f"Deleted rule '{rule.name}' ({rule_id}) from {dataset_name}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

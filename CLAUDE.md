@@ -39,7 +39,7 @@ When changing CLI behavior:
 2. Verify `dataikuapi` behavior from the installed source under `.venv/lib/*/dataikuapi/`; do not invent APIs.
 3. Add or update unit tests for happy paths and error paths.
 4. Run `uv run pytest -v` after any CLI code change.
-5. Test new or changed commands against live DSS with `uv run dku ...` using `ADVISORGPT` or `AGENTTEST`.
+5. Test new or changed commands against live DSS with `uv run dku ...`.
 6. Run `uv run ruff format .` before committing.
 
 Live DSS checks should verify real output, not just exit codes:
@@ -51,14 +51,8 @@ Live DSS checks should verify real output, not just exit codes:
 
 ## CLI Architecture
 
-```text
-typer
-  ├─ rich
-  ├─ dataikuapi
-  ├─ keyring
-  ├─ platformdirs
-  └─ tomli / tomllib
-```
+Stack: `typer` + `rich` → `dataikuapi` → DSS REST API.
+Auth: `keyring` (os keychain) + `platformdirs` + `tomli` (TOML profile).
 
 The CLI follows `dku <noun> <verb>`.
 
@@ -84,6 +78,7 @@ Every command should:
 | `errors.py` | User-facing exception mapping |
 | `safety.py` | Guarded destructive operations |
 | `commands/*.py` | One file per CLI noun |
+| `mcp/*.py` | Standalone `dku-mcp` MCP server (`dku_exec`); `fastmcp` lazy-imported, intentionally not on the `dku` app. See `dataiku-mcp/README.md`. |
 
 ## Coding Conventions
 
@@ -117,52 +112,33 @@ When adding a destructive command:
 4. Write the `prompt=` from the user's perspective.
 5. Test blocked, confirmed, mismatch, and dangerous-mode paths.
 
-Detailed agent-facing safety docs live in:
+Detailed agent-facing safety docs (tiers, exit 77, admin lockout) live in:
 
-- `dataiku-devkit/skills/dku-cli/references/safety.md`
-- `dataiku-devkit/skills/dku-cli/references/admin-safety.md`
+- `dataiku-mcp/skills/dku-cli/references/safety.md`
 
 ## DevKit Documentation Policy
 
-Always-loaded skill files must stay small and directional.
+References explain *when/why and non-obvious behavior*, not flags. Exact flags come from `<command> --help` (machine-readable JSON under `DKU_AGENT_HELP=1`). Placement:
 
-| Layer | File | Belongs there |
-|---|---|---|
-| 1 | `SKILL.md` | Purpose, boundary, high-impact rules, reference map |
-| 2 | `references/*.md` | Command syntax, payloads, workflow templates, gotchas |
-| 3 | CLI errors / `--help` | Recovery instructions at the failure point |
+| Layer | Content |
+|---|---|
+| `SKILL.md` | Purpose, triggers, permanent rules, capability→playbook router, reference map |
+| `playbooks/*.md` | Task-complete workflows: decisions, command sequences, gotchas-with-fix, verification. A few canonical command examples (no exhaustive flag tables) |
+| `references/*.md` | Durable cold detail: JSON payloads, param tables, schemas |
+| `<command> --help` | Exact flags (never hand-write flag tables) |
 
-Do not add incident notes directly to `CLAUDE.md` or to a skill cheat sheet by default. Promote a gotcha to `SKILL.md` only when it is common, severe, and prevents a wrong strategic choice. Otherwise put it in the narrowest canonical reference:
+The SKILL.md router owns the live capability→playbook map and the playbook list; don't re-list playbooks here (it drifts). The agent reads ONE playbook per task.
 
-- CLI syntax: `dataiku-devkit/skills/dku-cli/references/commands.md`
-- CLI operational traps: `dataiku-devkit/skills/dku-cli/references/common-gotchas.md`
-- Recipe build/verification flow: `dataiku-devkit/skills/dku-cli/references/recipe-operations.md`
-- General safety guards: `dataiku-devkit/skills/dku-cli/references/safety.md`
-- Admin lockout risks: `dataiku-devkit/skills/dku-cli/references/admin-safety.md`
-- Platform behavior and JSON payloads: `dataiku-devkit/skills/dataiku/references/*.md`
+Do not add incident notes to CLAUDE.md or skill cheat sheets. Put gotchas in the matching playbook or reference.
 
-When editing skills:
-
-- Keep `SKILL.md` under roughly 150 lines unless there is a strong reason.
-- Avoid command matrices and long examples in `SKILL.md`.
-- Link every important reference directly from `SKILL.md`.
-- Do not duplicate the same rule across multiple always-loaded files.
+Keep each layer scoped: SKILL.md a thin router, playbooks task-complete, references cold detail. No flag duplicates across files; no flag tables anywhere (they come from `--help`).
 
 ## Dataiku DevKit Layout
 
-```text
-dataiku-devkit/
-├── skills/
-│   ├── dataiku/                 # Platform capability router
-│   ├── dku-cli/                 # CLI execution router
-│   ├── migration/               # SAS / Alteryx / Excel migration workflows
-│   ├── dataiku-internal-branding/
-│   └── cli-meta-analysis/
-└── agents/
-    ├── dss-explorer.md
-    ├── plugin-reviewer.md
-    └── tool-designer.md
-```
+The agent-facing DevKit lives under `dataiku-mcp/skills/`: the unified `dku-cli`
+skill (`SKILL.md` router → `playbooks/` → `references/`), plus the `migration` and
+`dataiku-internal-branding` skills. Browse the directory for the current file set
+rather than maintaining a tree here.
 
 ## Testing
 
@@ -176,6 +152,10 @@ uv run ruff format .
 
 CI runs Python 3.10 through 3.13. Keep 3.10 compatibility.
 
+CI also runs a one-way quality ratchet (`scripts/check_quality_ratchet.py`) that
+fails only on *new* Ruff `C901`/`E501` debt. If a deliberate change shifts the
+counts, regenerate the baseline: `uv run python scripts/check_quality_ratchet.py --write-baseline`.
+
 For CLI changes, include tests for:
 
 - Table and JSON output when relevant.
@@ -188,7 +168,7 @@ For CLI changes, include tests for:
 Every PR description should include:
 
 - **What changed** — commands, flags, docs, errors, tests.
-- **Why** — benchmark feedback, discovered gap, bug, or agent failure mode.
+- **Why** — discovered gap, bug, or agent failure mode.
 - **Agent impact** — what becomes easier or safer for agents.
 - **Test plan** — unit tests and live DSS commands when applicable.
 
@@ -198,9 +178,7 @@ Use Conventional Commits:
 
 ```text
 feat: add new command group
-fix: handle empty dataset schema
 docs: update skill reference
-test: add recipe creation tests
 chore: bump dependency
 ```
 
@@ -222,13 +200,33 @@ Dataiku DevKit skills:
 | Claude Code plugin | `/plugin marketplace add dataiku/dataiku-cli` |
 | skills.sh | `npx skills add dataiku/dataiku-cli --all` |
 
+Connect an agent to DSS (local-stdio MCP) — the recommended path for external
+harnesses. Each user installs the server locally and authenticates with their
+own DSS personal API key (model A); no hosting, no Code Studio, no proxy:
+
+| Channel | Command |
+|---|---|
+| Claude Code plugin | `claude plugin marketplace add dataiku/dataiku-cli` → `claude plugin install dataiku-mcp` |
+| Codex plugin | `codex plugin marketplace add dataiku/dataiku-cli` → `codex plugin install dataiku-mcp` (export `DKU_URL` + `DKU_API_KEY`) |
+| OpenCode | `uv tool install --from git+…/dataiku-cli.git "dku-cli[mcp]"` + `dataiku-mcp/examples/opencode.json` |
+| Claude Desktop | one-click `.mcpb` bundle (non-technical users) — built from `dataiku-mcp-bundle/` |
+
+The `dataiku-mcp/` directory is **both** a Claude Code plugin (`.claude-plugin/`)
+and a Codex plugin (`.codex-plugin/`), sharing one launcher (`bin/`) + bundled
+wheel (`wheels/`). The Codex marketplace catalog lives at
+`.agents/plugins/marketplace.json`. The skill corpus ships as the plugin's own
+`dataiku-mcp/skills/` directory; the bundled `dku-cli` wheel carries only the CLI
+(`src/dku_cli`). The launcher runs `dku-mcp serve --transport stdio` through
+`uvx`. Rebuild the wheel after CLI changes with `make bundle` in `dataiku-mcp/`
+(a test guards against a stale wheel).
+
 ## Docs Index
 
 | Doc | Description |
 |---|---|
-| `benchmark/README.md` | Benchmark framework |
-| `dataiku-devkit/skills/dku-cli/SKILL.md` | CLI execution router |
-| `dataiku-devkit/skills/dataiku/SKILL.md` | DSS platform router |
-| `dataiku-devkit/skills/dku-cli/references/commands.md` | Command reference entrypoint and split-reference map |
-| `dataiku-devkit/skills/dku-cli/references/common-gotchas.md` | Operational gotchas |
-| `dataiku-devkit/skills/dataiku/references/` | Platform design and payload references |
+| `dataiku-mcp/skills/dku-cli/SKILL.md` | Unified DSS router (what to build + how to execute) |
+| `dku <group> [command] --help` | Self-describing CLI: exact flags/args/defaults as JSON (under `DKU_AGENT_HELP=1`) |
+| `dataiku-mcp/skills/dku-cli/playbooks/` | Task-complete workflows (sequences, gotchas, verification) |
+| `dataiku-mcp/skills/dku-cli/references/` | Durable cold detail: payload shapes, schemas, processor/param tables, safety |
+| `dataiku-mcp/README.md` | Claude Code + Codex plugin packaging |
+| `dataiku-mcp-bundle/README.md` | Claude Desktop `.mcpb` packaging |

@@ -8,7 +8,8 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="Manage Govern groups (admin).")
 
@@ -94,11 +95,14 @@ def delete(
     ),
 ) -> None:
     """Delete a Govern group. Requires --confirm flag and admin API key."""
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.group.delete",
+        subject=f"group '{name}'",
+        yes=confirm,
+        prompt=f"Delete Govern group '{name}'?",
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         govern.get_group(name).delete()

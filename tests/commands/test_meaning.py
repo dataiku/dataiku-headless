@@ -33,6 +33,17 @@ def test_meaning_list_empty(patch_client):
     assert "no" in result.output.lower()
 
 
+def test_meaning_list_handles_null_description(patch_client):
+    """A meaning whose `description` is explicitly null must render, not crash
+    with a TypeError (None[:60]) routed through the 'DSS API error' mapper."""
+    patch_client.list_meanings.return_value = [
+        {"id": "m1", "label": "L1", "type": "DECLARATIVE", "description": None},
+    ]
+    result = runner.invoke(app, ["meaning", "list"])
+    assert result.exit_code == 0
+    assert "m1" in result.output
+
+
 def test_meaning_get(patch_client):
     result = runner.invoke(app, ["meaning", "get", "country_code"])
     assert result.exit_code == 0

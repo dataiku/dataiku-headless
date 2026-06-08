@@ -35,7 +35,7 @@ For each changed feature, design a realistic test scenario that an agent would e
 Spawn a subagent with `subagent_type: "general-purpose"` and these constraints:
 
 **The subagent MUST:**
-- Only read `skills/dku-cli/SKILL.md` and `skills/dku-cli/references/commands.md` for guidance (simulates what a real agent sees)
+- Start from `dataiku-mcp/skills/dku-cli/SKILL.md` (the router), drill into one playbook, and get exact flags from `--help` — the way a real agent does
 - NOT read CLAUDE.md, recipe.py source, or test files (that's insider knowledge agents don't have)
 - Create project `CLI_PR_TEST` on the live DSS instance (always authed, free to create/delete)
 - Upload test CSV data
@@ -49,7 +49,7 @@ Spawn a subagent with `subagent_type: "general-purpose"` and these constraints:
 You are testing the dku CLI as if you were an AI agent with no insider knowledge.
 
 RULES:
-- Read skills/dku-cli/SKILL.md FIRST — this is your only guide
+- Read dataiku-mcp/skills/dku-cli/SKILL.md FIRST, then drill into one playbook and `--help` — this is your only guide
 - Use ONLY `uv run dku` commands (the CLI under test)
 - Do NOT read source code, CLAUDE.md, or test files
 - The CLI is already authenticated to a Dataiku DSS sandbox instance
@@ -103,7 +103,3 @@ Produce a structured review:
 - **Real DSS, not mocks.** Unit tests miss payload format issues, property restrictions, and server-side validation.
 - **Minimal context = honest test.** The subagent shouldn't know how the code works internally.
 - **Clean up after yourself.** Always delete CLI_PR_TEST at the end.
-
-## Persist findings
-
-After the review, append any "Failed" or "Confusing" items from the results table to `.learnings/PENDING.md` using the same dated-entry format as `/cli-meta-analysis`. Skip items that passed cleanly.

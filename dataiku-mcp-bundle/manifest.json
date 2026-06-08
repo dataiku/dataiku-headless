@@ -1,0 +1,38 @@
+{
+  "manifest_version": "0.3",
+  "name": "dataiku-mcp",
+  "version": "0.1.0",
+  "description": "Connect Claude Desktop to Dataiku DSS — the dku code-mode MCP server, authed with your own DSS personal API key.",
+  "author": {
+    "name": "Dataiku",
+    "url": "https://github.com/dataiku/dataiku-cli"
+  },
+  "homepage": "https://github.com/dataiku/dataiku-cli",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/dku-mcp-launch.sh",
+    "mcp_config": {
+      "command": "${__dirname}/bin/dku-mcp-launch.sh",
+      "args": [],
+      "env": {
+        "DKU_URL": "${user_config.dss_url}",
+        "DKU_API_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "dss_url": {
+      "type": "string",
+      "title": "DSS URL",
+      "description": "Your Dataiku DSS instance URL, e.g. https://dss.example.com",
+      "required": true
+    },
+    "api_key": {
+      "type": "string",
+      "title": "DSS personal API key",
+      "description": "Create one in DSS - Profile & settings - API keys. Every dku command runs as you, with your DSS permissions and audit trail.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

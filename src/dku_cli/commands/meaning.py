@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.commands._options import OutputOption
+from dku_cli.errors import handle_errors
 from dku_cli.helpers import get_client_from_ctx, read_json_input
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
 
@@ -12,67 +13,64 @@ app = typer.Typer(help="Manage DSS data dictionary meanings.")
 
 
 @app.command("list")
+@handle_errors
 def list_meanings(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    output: OutputOption = None,
 ) -> None:
     """List all user-defined meanings."""
     fmt = resolve_output_format(output)
-    try:
-        client = get_client_from_ctx(ctx)
-        meanings = client.list_meanings()
+    client = get_client_from_ctx(ctx)
+    meanings = client.list_meanings()
 
-        if fmt == "json":
-            render_raw(meanings, output_format="json")
-        else:
-            if not meanings:
-                info("No user-defined meanings found.")
-                return
+    if fmt == "json":
+        render_raw(meanings, output_format="json")
+    else:
+        if not meanings:
+            info("No user-defined meanings found.")
+            return
 
-            data = []
-            for m in meanings:
-                data.append(
-                    {
-                        "id": m.get("id", ""),
-                        "label": m.get("label", ""),
-                        "type": m.get("type", ""),
-                        "description": m.get("description", "")[:60],
-                    }
-                )
-            render(
-                data,
-                ["id", "label", "type", "description"],
-                output_format=fmt,
-                title="Meanings",
-                headers={
-                    "id": "ID",
-                    "label": "LABEL",
-                    "type": "TYPE",
-                    "description": "DESCRIPTION",
-                },
+        data = []
+        for m in meanings:
+            data.append(
+                {
+                    "id": m.get("id", ""),
+                    "label": m.get("label", ""),
+                    "type": m.get("type", ""),
+                    "description": (m.get("description") or "")[:60],
+                }
             )
-    except Exception as e:
-        handle_api_error(e)
+        render(
+            data,
+            ["id", "label", "type", "description"],
+            output_format=fmt,
+            title="Meanings",
+            headers={
+                "id": "ID",
+                "label": "LABEL",
+                "type": "TYPE",
+                "description": "DESCRIPTION",
+            },
+        )
 
 
 @app.command()
+@handle_errors
 def get(
     ctx: typer.Context,
     meaning_id: str = typer.Argument(help="Meaning ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    output: OutputOption = None,
 ) -> None:
     """Get a meaning's definition."""
     output = resolve_output_format(output, allowed=("json",), default="json")
-    try:
-        client = get_client_from_ctx(ctx)
-        meaning = client.get_meaning(meaning_id)
-        definition = meaning.get_definition()
-        render_raw(definition, output_format=output)
-    except Exception as e:
-        handle_api_error(e)
+    client = get_client_from_ctx(ctx)
+    meaning = client.get_meaning(meaning_id)
+    definition = meaning.get_definition()
+    render_raw(definition, output_format=output)
 
 
 @app.command()
+@handle_errors
 def create(
     ctx: typer.Context,
     meaning_id: str = typer.Argument(help="Meaning ID"),
@@ -95,20 +93,18 @@ def create(
       dku meaning create country_code --label "Country Code" --type VALUES_LIST
       dku meaning create email --label "Email Address" --type PATTERN
     """
-    try:
-        client = get_client_from_ctx(ctx)
-        client.create_meaning(
-            meaning_id,
-            label,
-            meaning_type,
-            description=description,
-        )
-        success(f"Created meaning '{meaning_id}' (type: {meaning_type})")
-    except Exception as e:
-        handle_api_error(e)
+    client = get_client_from_ctx(ctx)
+    client.create_meaning(
+        meaning_id,
+        label,
+        meaning_type,
+        description=description,
+    )
+    success(f"Created meaning '{meaning_id}' (type: {meaning_type})")
 
 
 @app.command()
+@handle_errors
 def update(
     ctx: typer.Context,
     meaning_id: str = typer.Argument(help="Meaning ID"),
@@ -129,11 +125,8 @@ def update(
       # edit def.json
       dku meaning update my_meaning -d @def.json
     """
-    try:
-        client = get_client_from_ctx(ctx)
-        meaning = client.get_meaning(meaning_id)
-        new_def = read_json_input(definition)
-        meaning.set_definition(new_def)
-        success(f"Updated meaning '{meaning_id}'")
-    except Exception as e:
-        handle_api_error(e)
+    client = get_client_from_ctx(ctx)
+    meaning = client.get_meaning(meaning_id)
+    new_def = read_json_input(definition)
+    meaning.set_definition(new_def)
+    success(f"Updated meaning '{meaning_id}'")

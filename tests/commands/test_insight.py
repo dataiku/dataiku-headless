@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from typer.testing import CliRunner
 
 from dku_cli.main import app
+from tests.helpers import strip_ansi
 
 runner = CliRunner()
 
@@ -75,7 +76,11 @@ def test_insight_create_with_type(patch_client):
     )
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
-    proj.create_insight.assert_called_once_with({"type": "chart", "name": "My Chart"})
+    creation_info = proj.create_insight.call_args[0][0]
+    assert creation_info["type"] == "chart"
+    assert creation_info["name"] == "My Chart"
+    # Charts always get a sampling block (DSS 14.6 NPEs without one).
+    assert "refreshableSelection" in creation_info["params"]
 
 
 def test_insight_create_with_dataset(patch_client):
@@ -503,8 +508,10 @@ def test_insight_set_chart_type_invalid(patch_client):
     result = runner.invoke(
         app, ["insight", "set-chart-type", "insight1", "donut", "--project", "PROJ1"]
     )
-    assert result.exit_code != 0
-    assert "donut" in result.output
+    # Invalid chart type is rejected at parse time by click.Choice (exit 2).
+    assert result.exit_code == 2
+    stripped = strip_ansi(result.output)
+    assert "Invalid value" in stripped
 
 
 def test_insight_set_chart_type_wrong_insight_type(patch_client):
@@ -642,8 +649,10 @@ def test_insight_add_measure_invalid_agg(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code != 0
-    assert "MEDIAN" in result.output
+    # Invalid aggregation is rejected at parse time by click.Choice (exit 2).
+    assert result.exit_code == 2
+    stripped = strip_ansi(result.output)
+    assert "Invalid value" in stripped
 
 
 # --- clear-columns ---
@@ -662,3 +671,444 @@ def test_insight_clear_columns(patch_client):
     assert raw["params"]["def"]["genericDimension1"] == []
     assert raw["params"]["def"]["genericMeasures"] == []
     settings.save.assert_called_once()
+
+
+# ── chart sampling defaults + column typing (DSS 14.6 NPE / COUNTD fixes) ──
+
+
+def test_insight_create_chart_injects_refreshable_selection(patch_client):
+    """Chart insights created without params.refreshableSelection NPE at
+    render time on DSS 14.6 ("spec.sampleSettings is null", HTTP 500)."""
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "create",
+            "Sales Chart",
+            "-t",
+            "chart",
+            "--dataset",
+            "sales",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    creation_info = patch_client.get_project("PROJ1").create_insight.call_args[0][0]
+    sel = creation_info["params"]["refreshableSelection"]
+    assert sel["selection"]["samplingMethod"] == "FULL"
+    assert sel["selection"]["maxRecords"] == 10000
+
+
+def test_insight_create_chart_keeps_caller_selection(patch_client):
+    """A caller-provided refreshableSelection must not be overwritten."""
+    definition = (
+        '{"params": {"refreshableSelection": {"selection": {"samplingMethod": '
+        '"HEAD_SEQUENTIAL", "maxRecords": 50}}}}'
+    )
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "create",
+            "Sales Chart",
+            "-t",
+            "chart",
+            "-d",
+            definition,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    creation_info = patch_client.get_project("PROJ1").create_insight.call_args[0][0]
+    sel = creation_info["params"]["refreshableSelection"]["selection"]
+    assert sel["samplingMethod"] == "HEAD_SEQUENTIAL"
+
+
+def test_insight_create_non_chart_no_selection_injected(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "create",
+            "My Table",
+            "-t",
+            "dataset_table",
+            "--dataset",
+            "sales",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    creation_info = patch_client.get_project("PROJ1").create_insight.call_args[0][0]
+    assert "refreshableSelection" not in creation_info.get("params", {})
+
+
+def _bound_chart_with_schema(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    raw["params"]["datasetSmartName"] = "sales_ds"
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [
+            {"name": "revenue", "type": "double"},
+            {"name": "declaration_id", "type": "string"},
+            {"name": "order_date", "type": "date"},
+        ]
+    }
+    return raw, settings
+
+
+def test_insight_add_measure_types_numeric_column(patch_client):
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "revenue",
+            "--agg",
+            "SUM",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericMeasures"] == [
+        {"column": "revenue", "function": "SUM", "type": "NUMERICAL"}
+    ]
+
+
+def test_insight_add_measure_countd_on_string_types_alphanum(patch_client):
+    """COUNTD on a string column must carry type ALPHANUM — an omitted type is
+    treated as NUMERICAL and fails at render ("found STRING_DICT")."""
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "declaration_id",
+            "--agg",
+            "COUNT_DISTINCT",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericMeasures"] == [
+        {"column": "declaration_id", "function": "COUNTD", "type": "ALPHANUM"}
+    ]
+
+
+def test_insight_add_measure_blocks_numeric_agg_on_string(patch_client):
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "declaration_id",
+            "--agg",
+            "SUM",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "COUNT" in result.output  # prescriptive alternative offered
+    settings.save.assert_not_called()
+
+
+def test_insight_add_measure_unknown_column_lists_available(patch_client):
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "revnue",
+            "--agg",
+            "SUM",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "revenue" in result.output  # available columns listed
+    settings.save.assert_not_called()
+
+
+def test_insight_add_dimension_types_date_column(patch_client):
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        ["insight", "add-dimension", "insight1", "-c", "order_date", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericDimension0"] == [
+        {"column": "order_date", "type": "DATE"}
+    ]
+
+
+# --- new helper flags: --breakdown / --date-mode / --axis / --as / set-colors ---
+
+
+def test_add_dimension_breakdown_goes_to_dim1(patch_client):
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "-c",
+            "declaration_id",
+            "--breakdown",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert [d["column"] for d in raw["params"]["def"]["genericDimension1"]] == [
+        "declaration_id"
+    ]
+    assert raw["params"]["def"]["genericDimension0"] == []
+
+
+def test_add_dimension_date_mode_bins(patch_client):
+    raw, _ = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "-c",
+            "order_date",
+            "--date-mode",
+            "MONTH",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    dim = raw["params"]["def"]["genericDimension0"][0]
+    assert dim["type"] == "DATE"
+    assert dim["dateParams"]["mode"] == "MONTH"
+
+
+def test_add_dimension_dateonly_resolves_to_date(patch_client):
+    # The bug fix: a `dateonly` storage column must resolve to chart type DATE
+    # (it used to fall through to ALPHANUM). No --date-mode → no binning.
+    raw, _ = _chart_insight_mock(patch_client)
+    raw["params"]["datasetSmartName"] = "ds1"
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "d", "type": "dateonly"}]
+    }
+    result = runner.invoke(
+        app, ["insight", "add-dimension", "insight1", "-c", "d", "-P", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    dim = raw["params"]["def"]["genericDimension0"][0]
+    assert dim["type"] == "DATE"
+    assert "dateParams" not in dim
+
+
+def test_add_dimension_date_mode_invalid(patch_client):
+    _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "-c",
+            "order_date",
+            "--date-mode",
+            "DECADE",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "date-mode" in result.output
+
+
+def test_add_dimension_date_mode_on_non_date_warns(patch_client):
+    raw, _ = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-dimension",
+            "insight1",
+            "-c",
+            "declaration_id",
+            "--date-mode",
+            "MONTH",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0  # still adds it
+    assert "ignored" in result.output
+    assert "dateParams" not in raw["params"]["def"]["genericDimension0"][0]
+
+
+def test_add_measure_axis2_as_line(patch_client):
+    raw, _ = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "revenue",
+            "--agg",
+            "SUM",
+            "--axis",
+            "2",
+            "--as",
+            "line",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    m = raw["params"]["def"]["genericMeasures"][0]
+    assert m["displayAxis"] == "axis2"
+    assert m["displayType"] == "line"
+
+
+def test_add_measure_default_axis1(patch_client):
+    raw, _ = _bound_chart_with_schema(patch_client)
+    runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "revenue",
+            "--agg",
+            "SUM",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    # axis1 is the implicit default — a plain measure keeps its minimal shape.
+    assert "displayAxis" not in raw["params"]["def"]["genericMeasures"][0]
+
+
+def test_add_measure_axis_invalid(patch_client):
+    _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "revenue",
+            "--axis",
+            "3",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_add_measure_as_invalid(patch_client):
+    _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "add-measure",
+            "insight1",
+            "-c",
+            "revenue",
+            "--as",
+            "donut",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_set_colors_category(patch_client):
+    raw, settings = _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "set-colors",
+            "insight1",
+            "--category",
+            "EU=#2E5EAA",
+            "--category",
+            "US=#D1495B",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    co = raw["params"]["def"]["colorOptions"]
+    assert co["customColors"] == {"EU": "#2E5EAA", "US": "#D1495B"}
+    assert co["paletteType"] == "CATEGORY"
+    settings.save.assert_called_once()
+
+
+def test_set_colors_single_palette_transparency(patch_client):
+    raw, _ = _bound_chart_with_schema(patch_client)
+    runner.invoke(
+        app,
+        [
+            "insight",
+            "set-colors",
+            "insight1",
+            "--single",
+            "#2678b2",
+            "--palette",
+            "pastel",
+            "--transparency",
+            "0.5",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    co = raw["params"]["def"]["colorOptions"]
+    assert co["singleColor"] == "#2678b2"
+    assert co["colorPalette"] == "pastel"
+    assert co["transparency"] == 0.5
+
+
+def test_set_colors_requires_an_option(patch_client):
+    _bound_chart_with_schema(patch_client)
+    result = runner.invoke(app, ["insight", "set-colors", "insight1", "-P", "PROJ1"])
+    assert result.exit_code != 0
+    assert "at least one" in result.output
+
+
+def test_set_colors_bad_category_pair(patch_client):
+    _bound_chart_with_schema(patch_client)
+    result = runner.invoke(
+        app,
+        ["insight", "set-colors", "insight1", "--category", "EU", "-P", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "VALUE=HEX" in result.output

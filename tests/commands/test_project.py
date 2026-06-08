@@ -520,6 +520,87 @@ def test_project_inspect_with_flag(patch_client):
     assert parsed["key"] == "PROJ1"
 
 
+# --- unknown / inaccessible project is NOT an auth error ---
+#
+# DSS returns 401/Unauthorized — never 404 — for a project that doesn't exist OR
+# that the caller can't access, and refuses to reveal which. The CLI must
+# prescribe key-vs-name instead of "check your API key", or agents waste turns
+# re-authenticating a valid key (a real benchmark failure cost 6 steps). The
+# trigger below — passing the display NAME "AdvisorGPT" instead of the KEY — is
+# exactly how the live failure was reproduced.
+
+_DSS_PROJECT_401 = (
+    "com.dataiku.dip.exceptions.UnauthorizedException: "
+    "Failed to read project permissions"
+)
+
+
+def test_project_inspect_unknown_project_is_not_auth_error(patch_client):
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project.return_value
+    proj.get_metadata.side_effect = DataikuException(_DSS_PROJECT_401)
+
+    result = runner.invoke(app, ["project", "inspect", "AdvisorGPT"])
+    assert result.exit_code == 3, result.stderr
+    err = result.stderr
+    assert "check your API key" not in err
+    # Must NOT prescribe the generic re-auth fix ("Run 'dku auth login'"),
+    # and MUST carry the explicit "your key is fine, do not re-auth" warning.
+    assert "Run 'dku auth login'" not in err
+    assert "Do NOT run" in err
+    assert "AdvisorGPT" in err
+    assert "dku project list" in err
+    assert "KEY" in err and "NAME" in err
+
+
+def test_project_inspect_unknown_project_json_error(patch_client):
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project.return_value
+    proj.get_metadata.side_effect = DataikuException(_DSS_PROJECT_401)
+
+    result = runner.invoke(
+        app, ["--errors", "json", "project", "inspect", "AdvisorGPT"]
+    )
+    assert result.exit_code == 3
+    assert result.stdout == ""
+    parsed = json.loads(result.stderr)
+    assert parsed["error"]["code"] == "project_not_found"
+    assert parsed["error"]["exit_code"] == 3
+    assert "AdvisorGPT" in parsed["error"]["message"]
+    # The misleading classification must be gone.
+    assert parsed["error"]["code"] != "auth_error"
+
+
+def test_project_get_unknown_project_is_not_auth_error(patch_client):
+    """`project get` threads the key too, so it gets the same guidance."""
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project.return_value
+    proj.get_metadata.side_effect = DataikuException(_DSS_PROJECT_401)
+
+    result = runner.invoke(app, ["project", "get", "AdvisorGPT"])
+    assert result.exit_code == 3
+    assert "check your API key" not in result.stderr
+    assert "AdvisorGPT" in result.stderr
+
+
+def test_project_variables_unknown_project_is_not_auth_error(patch_client):
+    """A -P-style command (key in --project, not positional) benefits as well."""
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project.return_value
+    proj.get_variables.side_effect = DataikuException(_DSS_PROJECT_401)
+
+    result = runner.invoke(
+        app, ["project", "variables", "-P", "AdvisorGPT", "-o", "json"]
+    )
+    assert result.exit_code == 3
+    assert "check your API key" not in result.stderr
+    assert "AdvisorGPT" in result.stderr
+
+
 # --- positional project key ---
 
 

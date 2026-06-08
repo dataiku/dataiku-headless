@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest -v
+
+      - name: Run lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Build
+        run: uv build
+
+      - name: Verify wheel version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          WHEEL=$(ls dist/dku_cli-*.whl | head -1)
+          WHEEL_VERSION=$(echo "$WHEEL" | sed 's/.*dku_cli-\(.*\)-py3-none-any\.whl/\1/')
+          if [ "$TAG_VERSION" != "$WHEEL_VERSION" ]; then
+            echo "Version mismatch: tag=$TAG_VERSION wheel=$WHEEL_VERSION"
+            exit 1
+          fi
+          echo "Version verified: $TAG_VERSION"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
+          make_latest: true

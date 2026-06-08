@@ -73,10 +73,9 @@ def test_artifact_create(patch_client):
 
 def test_artifact_delete_requires_confirm(patch_client):
     result = runner.invoke(app, ["govern", "artifact", "delete", "ar.5"])
-    assert result.exit_code != 0
-    assert (
-        "confirm" in result.output.lower() or "confirm" in (result.stderr or "").lower()
-    )
+    combined = result.output + (result.stderr or "")
+    assert result.exit_code == 77
+    assert "blocked" in combined.lower()
 
 
 def test_artifact_delete_with_confirm(patch_client):

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import typer
 
+from dku_cli.enums import JobType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -17,6 +18,7 @@ from dku_cli.output import (
     console,
     error,
     info,
+    print_text,
     render,
     resolve_output_format,
     success,
@@ -305,7 +307,7 @@ def log(
                 return
         if tail is not None:
             log_text = _tail_lines(log_text, tail)
-        console.print(log_text)
+        print_text(log_text)
     except Exception as e:
         handle_api_error(e)
 
@@ -329,12 +331,24 @@ def abort(
 
 
 _TERMINAL_STATES = {"DONE", "FAILED", "ABORTED"}
-_JOB_TYPES = [
-    "NON_RECURSIVE_FORCED_BUILD",
-    "RECURSIVE_BUILD",
-    "RECURSIVE_FORCED_BUILD",
-    "RECURSIVE_MISSING_ONLY_BUILD",
-]
+
+# After this long in a non-terminal state, surface the containerized-recipe
+# trap once: on a full K8s quota the pod never schedules, the job spins in
+# RUNNING forever and locks its output dataset.
+_LONG_RUNNING_HINT_SECS = 180
+
+
+def _emit_long_running_hint(job_id: str, project_key: str, elapsed: float) -> None:
+    warn(
+        f"Job '{job_id}' still not finished after {int(elapsed)}s. If the recipe "
+        "is containerized, it may be stuck unschedulable on a full K8s quota."
+    )
+    info(
+        f"Inspect: dku job log {job_id} -P {project_key} --tail 50 · "
+        f"abort: dku job abort {job_id} -P {project_key} · run locally: "
+        "dku recipe set-definition RECIPE --definition "
+        '\'{"params":{"containerSelection":{"containerMode":"NONE"}}}\''
+    )
 
 
 @app.command()
@@ -346,10 +360,11 @@ def run(
         help="Object to build — dataset name, managed folder (name or ID), or saved model (name or ID). Type is auto-detected. Repeatable.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    job_type: str = typer.Option(
-        "NON_RECURSIVE_FORCED_BUILD",
+    job_type: JobType = typer.Option(
+        JobType.NON_RECURSIVE_FORCED_BUILD,
         "--type",
         "-t",
+        case_sensitive=False,
         help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
     ),
     auto_update_schema: bool = typer.Option(
@@ -376,10 +391,6 @@ def run(
     """
     project_key = resolve_project(project)
 
-    if job_type not in _JOB_TYPES:
-        error(f"Invalid job type '{job_type}'. Must be one of: {', '.join(_JOB_TYPES)}")
-        raise typer.Exit(1)
-
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -404,20 +415,28 @@ def run(
         if wait_for_completion:
             info("Waiting for completion...")
             elapsed = 0.0
+            hinted = False
             while True:
                 raw = job.get_status()
                 state = raw.get("baseStatus", {}).get("state", "")
                 if state in _TERMINAL_STATES:
                     if state == "DONE":
                         success(f"Job '{job.id}' completed successfully")
-                    else:
-                        warn(f"Job '{job.id}' finished with state: {state}")
-                    return
+                        return
+                    # FAILED/ABORTED must exit non-zero — agents chain
+                    # `job run --wait && next-step`; exit 0 here would let the
+                    # chain march on past a failed build.
+                    warn(f"Job '{job.id}' finished with state: {state}")
+                    info(f"Inspect why: dku job log {job.id} -P {project_key}")
+                    raise SystemExit(1)
                 if timeout > 0 and elapsed >= timeout:
                     warn(
                         f"Timed out after {timeout}s — job '{job.id}' still in state: {state}"
                     )
                     raise SystemExit(1)
+                if not hinted and elapsed >= _LONG_RUNNING_HINT_SECS:
+                    hinted = True
+                    _emit_long_running_hint(job.id, project_key, elapsed)
                 time.sleep(2)
                 elapsed += 2
     except SystemExit:
@@ -446,17 +465,25 @@ def wait(
 
         info(f"Waiting for job '{job_id}' to complete...")
         elapsed = 0.0
+        hinted = False
         while True:
             raw = job.get_status()
             state = raw.get("baseStatus", {}).get("state", "")
             if state in _TERMINAL_STATES:
-                success(f"Job '{job_id}' finished with state: {state}")
-                return
+                if state == "DONE":
+                    success(f"Job '{job_id}' finished with state: {state}")
+                    return
+                warn(f"Job '{job_id}' finished with state: {state}")
+                info(f"Inspect why: dku job log {job_id} -P {project_key}")
+                raise SystemExit(1)
             if timeout > 0 and elapsed >= timeout:
                 warn(
                     f"Timed out after {timeout}s — job '{job_id}' still in state: {state}"
                 )
                 raise SystemExit(1)
+            if not hinted and elapsed >= _LONG_RUNNING_HINT_SECS:
+                hinted = True
+                _emit_long_running_hint(job_id, project_key, elapsed)
             time.sleep(2)
             elapsed += 2
     except SystemExit:

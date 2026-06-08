@@ -9,6 +9,7 @@ import typer
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import render_raw, resolve_output_format, success
+from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="Manage Govern time series.")
 
@@ -103,13 +104,14 @@ def delete(
     ),
 ) -> None:
     """Delete time series values. Without --min/--max, deletes all values."""
-    from dku_cli.output import error as err
-
-    if not confirm:
-        err(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.time_series.delete",
+        subject=f"time series '{time_series_id}' values",
+        yes=confirm,
+        prompt=f"Delete values from Govern time series '{time_series_id}'?",
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         ts = govern.get_time_series(time_series_id)

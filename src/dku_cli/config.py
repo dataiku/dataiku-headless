@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 from typing import Any
 
@@ -31,13 +32,13 @@ def _write_toml(path: Path, data: dict[str, Any]) -> None:
     # Write top-level keys first
     for key, value in data.items():
         if not isinstance(value, dict):
-            lines.append(f"{key} = {_toml_value(value)}")
+            lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
     # Then sections
     for key, value in data.items():
         if isinstance(value, dict):
-            lines.append(f"\n[{key}]")
+            lines.append(f"\n[{_toml_key(key)}]")
             for k, v in value.items():
-                lines.append(f"{k} = {_toml_value(v)}")
+                lines.append(f"{_toml_key(k)} = {_toml_value(v)}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
     # Restrict credentials file permissions
@@ -47,10 +48,14 @@ def _write_toml(path: Path, data: dict[str, Any]) -> None:
 
 def _toml_value(v: Any) -> str:
     if isinstance(v, str):
-        return f'"{v}"'
+        return json.dumps(v)
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
+
+
+def _toml_key(key: str) -> str:
+    return json.dumps(str(key))
 
 
 def get_config() -> dict[str, Any]:

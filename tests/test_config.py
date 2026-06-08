@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from dku_cli.config import (
     _read_toml,
+    _toml_key,
     _write_toml,
     _toml_value,
     clear_profile_configs,
@@ -20,6 +21,14 @@ from dku_cli.config import (
 
 def test_toml_value_string():
     assert _toml_value("hello") == '"hello"'
+
+
+def test_toml_value_escapes_strings():
+    assert _toml_value('hello "dss" \\ prod') == '"hello \\"dss\\" \\\\ prod"'
+
+
+def test_toml_key_quotes_dotted_profile_names():
+    assert _toml_key("prod.eu") == '"prod.eu"'
 
 
 def test_toml_value_bool():
@@ -48,6 +57,24 @@ def test_write_and_read_toml(tmp_path):
     result = _read_toml(path)
     assert result["active_profile"] == "sandbox"
     assert result["sandbox"]["url"] == "https://dss.example.com"
+
+
+def test_write_toml_escapes_values_and_section_names(tmp_path):
+    path = tmp_path / "test.toml"
+    data = {
+        "active_profile": 'prod"eu',
+        "prod.eu": {
+            "url": 'https://dss.example.com/a"b\\c',
+            "default_project": "AGENT.TEST",
+        },
+    }
+
+    _write_toml(path, data)
+    result = _read_toml(path)
+
+    assert result["active_profile"] == 'prod"eu'
+    assert result["prod.eu"]["url"] == 'https://dss.example.com/a"b\\c'
+    assert result["prod.eu"]["default_project"] == "AGENT.TEST"
 
 
 def test_set_profile_config_preserves_existing_values(tmp_path):

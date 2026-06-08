@@ -25,7 +25,8 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.15,<1",
-    "click>=8",
+    # click.core.UNSET (used by spec.py) is only importable on Click >= 8.3.
+    "click>=8.3",
     "rich>=13",
     "dataiku-api-client>=14.5,<16",
     "keyring>=25",
@@ -35,6 +36,12 @@ dependencies = [
 
 [project.scripts]
 dku = "dku_cli.main:app"
+dku-mcp = "dku_cli.mcp.cli:app"
+
+[project.optional-dependencies]
+# Runtime for the `dku-mcp serve` MCP server. Kept optional so the base CLI
+# install stays lean.
+mcp = ["fastmcp>=2.0"]
 
 [project.urls]
 Homepage = "https://github.com/dataiku/dataiku-cli"
@@ -50,13 +57,8 @@ dev = [
     "python-dotenv>=1.0",
     "pyyaml>=6.0.3",
     "ruff>=0.15.7",
+    "pytest-cov>=7.1.0",
 ]
-benchmark = [
-    "pydantic>=2.12.5",
-    "python-dotenv>=1.0",
-    "pyyaml>=6.0.3",
-]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"

@@ -1,9 +1,0 @@
-supplier_id,supplier_name,category,country,is_strategic
-SUP001,Hetzner Online GmbH,Cloud Infrastructure,DE,false
-SUP002,Microsoft Ireland Operations,Software Licensing,IE,true
-SUP003,Salesforce Tableau,Analytics Software,US,true
-SUP004,ATOSS Software SE,Workforce Management,DE,false
-SUP005,Snowflake Computing,Data Platform,US,true
-SUP006,SAP SE,ERP,DE,true
-SUP007,Deutsche Telekom,Telecom,DE,false
-SUP008,Adobe Systems,Creative Software,US,false

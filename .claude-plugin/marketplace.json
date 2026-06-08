@@ -4,18 +4,18 @@
     "name": "Dataiku"
   },
   "metadata": {
-    "description": "Dataiku DSS development toolkit",
+    "description": "Local Dataiku MCP and CLI packaging",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "dataiku-devkit",
+      "name": "dataiku-mcp",
       "source": {
         "source": "git-subdir",
         "url": "dataiku/dataiku-cli",
-        "path": "dataiku-devkit"
+        "path": "dataiku-mcp"
       },
-      "description": "Platform knowledge, CLI skill, plugin scaffolding, and exploration agents"
+      "description": "Connect your agent to Dataiku DSS through the local dataiku-mcp plugin."
     }
   ]
 }

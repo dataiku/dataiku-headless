@@ -8,6 +8,7 @@ import zipfile
 
 import typer
 
+from dku_cli.enums import AppEnableMode
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -512,10 +513,11 @@ def enable(
     description: str | None = typer.Option(
         None, "--description", help="App short description"
     ),
-    mode: str = typer.Option(
-        "setup",
+    mode: AppEnableMode = typer.Option(
+        AppEnableMode.setup,
         "--mode",
         "-m",
+        case_sensitive=False,
         help=(
             "What to enable: 'setup' (default — Project Setup, keeps "
             "projectAppType=REGULAR + sets useAppHomepage=True) OR "
@@ -543,15 +545,7 @@ def enable(
     semantic change that affects how the project is consumed.
     """
     project_key = resolve_project(project)
-    mode_normalised = (mode or "setup").strip().lower()
-    if mode_normalised not in {"setup", "template"}:
-        exit_with_error(
-            f"--mode must be 'setup' or 'template' (got {mode!r}).",
-            details=[
-                "setup    — Project Setup on a REGULAR project (default)",
-                "template — converts the project to APP_TEMPLATE",
-            ],
-        )
+    mode_normalised = mode.value
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

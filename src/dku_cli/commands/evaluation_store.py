@@ -6,11 +6,10 @@ import json
 
 import typer
 
+from dku_cli.enums import EvalFlavor
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
 from dku_cli.output import render, render_raw, resolve_output_format, success
-
-_VALID_FLAVORS = ("TABULAR", "LLM", "AGENT")
 
 app = typer.Typer(help="Manage DSS evaluation stores (TABULAR, LLM, AGENT).")
 
@@ -18,8 +17,12 @@ app = typer.Typer(help="Manage DSS evaluation stores (TABULAR, LLM, AGENT).")
 @app.command("list")
 def list_stores(
     ctx: typer.Context,
-    flavor: str | None = typer.Option(
-        None, "--flavor", "-f", help="Filter by flavor: TABULAR, LLM, or AGENT"
+    flavor: EvalFlavor | None = typer.Option(
+        None,
+        "--flavor",
+        "-f",
+        case_sensitive=False,
+        help="Filter by flavor: TABULAR, LLM, or AGENT",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
@@ -27,11 +30,6 @@ def list_stores(
     """List evaluation stores in a project."""
     project_key = resolve_project(project)
     output = resolve_output_format(output)
-    if flavor and flavor.upper() not in _VALID_FLAVORS:
-        exit_with_error(
-            f"Invalid flavor '{flavor}'.",
-            details=[f"Valid flavors: {', '.join(_VALID_FLAVORS)}"],
-        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -64,8 +62,12 @@ def list_stores(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Name for the evaluation store"),
-    flavor: str = typer.Option(
-        "TABULAR", "--flavor", "-f", help="Store flavor: TABULAR, LLM, or AGENT"
+    flavor: EvalFlavor = typer.Option(
+        EvalFlavor.TABULAR,
+        "--flavor",
+        "-f",
+        case_sensitive=False,
+        help="Store flavor: TABULAR, LLM, or AGENT",
     ),
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if a store with this name already exists"
@@ -77,11 +79,6 @@ def create(
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     flavor_upper = flavor.upper()
-    if flavor_upper not in _VALID_FLAVORS:
-        exit_with_error(
-            f"Invalid flavor '{flavor}'.",
-            details=[f"Valid flavors: {', '.join(_VALID_FLAVORS)}"],
-        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

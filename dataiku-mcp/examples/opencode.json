@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "dku": {
+      "type": "local",
+      "command": ["dku-mcp", "serve", "--transport", "stdio"],
+      "enabled": true,
+      "environment": {
+        "DKU_URL": "https://your-dss-host",
+        "DKU_API_KEY": "your-dss-personal-api-key"
+      }
+    }
+  }
+}

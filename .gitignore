@@ -21,19 +21,22 @@ coverage.xml
 # Internal development files (not shipped)
 .claude/memory/
 .claude/plans/
+.claude/skills/
 .claude/scheduled_tasks.lock
+# .agents/ is local agent scratch. Exception: the Codex plugin marketplace
+# catalog (.agents/plugins/marketplace.json) is force-tracked (git add -f) so
+# Codex can discover the dataiku-mcp plugin at its required path.
 .agents/
 
 # Brainstorm / design docs
 brainstorm/
 
-# Benchmark outputs
-benchmark/reports/
-benchmark/.env
-
+# The benchmark framework moved to a separate repo; ignore local leftovers.
+benchmark/
 
 plans/
 plugins/
+!dataiku-devkit/skills/**/plugins/
 # Temp files
 tmp/
 demo/

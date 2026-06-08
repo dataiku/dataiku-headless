@@ -1,0 +1,10 @@
+{
+  "dku": {
+    "command": "${PLUGIN_ROOT}/bin/dku-mcp-launch.sh",
+    "args": [],
+    "env": {
+      "DKU_URL": "${DKU_URL}",
+      "DKU_API_KEY": "${DKU_API_KEY}"
+    }
+  }
+}

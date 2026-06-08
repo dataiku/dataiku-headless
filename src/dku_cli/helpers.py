@@ -453,9 +453,10 @@ def resolve_build_output_types(project, refs):
 
     Recipe outputs (``get_flat_output_refs()``) and ``dku job run --target`` give
     bare refs. ``JobDefinitionBuilder.with_output`` defaults ``object_type`` to
-    DATASET server-side, so managed-folder / saved-model outputs error with
-    "dataset <id> does not exist". Classify each ref by checking the project's
-    folders and saved models once, resolving names to IDs where needed.
+    DATASET server-side, so managed-folder / saved-model / knowledge-bank /
+    evaluation-store outputs error with "dataset <id> does not exist". Classify
+    each ref by checking the project's folders, saved models, knowledge banks
+    and evaluation stores once, resolving names to IDs where needed.
 
     Cross-project refs ("PROJECT.id") are left as-is and treated as DATASET
     (recipe outputs are always local; cross-project build targets are uncommon
@@ -463,6 +464,16 @@ def resolve_build_output_types(project, refs):
 
     :returns: list of (resolved_ref, object_type) tuples, one per input ref.
     """
+    # Folders + saved models are cheap single list calls and are needed to tell
+    # a dataset apart from them, so classify against those first (preserving the
+    # original folder → saved-model precedence). A ref confirmed to be a plain
+    # dataset then short-circuits to DATASET, so the two expensive lookups
+    # (knowledge banks + evaluation stores) are deferred and never issued on the
+    # hot path where every output is a folder/model/dataset (e.g.
+    # `dku job run --target my_dataset`). Resolution precedence is unchanged:
+    # folders → saved models → knowledge banks → evaluation stores → DATASET
+    # (datasets, KBs and eval stores live in disjoint namespaces, so the
+    # dataset short-circuit cannot steal a ref that would have been a KB/MES).
     folders = project.list_managed_folders()
     models = project.list_saved_models()
     folder_ids = {f.get("id") for f in folders}
@@ -470,18 +481,89 @@ def resolve_build_output_types(project, refs):
     model_ids = {m.get("id") for m in models}
     model_by_name = {m.get("name"): m.get("id") for m in models if m.get("name")}
 
+    _deferred: dict[str, tuple[set, dict]] = {}
+
+    def _datasets() -> tuple[set, dict]:
+        # Cheap single list call used only to short-circuit a known dataset to
+        # DATASET before paying the KB/eval-store round-trips. Tolerate older
+        # DSS / failures by treating the project as having no listable datasets,
+        # which falls through to the KB → MES → DATASET path (original behavior).
+        if "ds" not in _deferred:
+            try:
+                datasets = project.list_datasets()
+                ids = {d.get("name") for d in datasets if d.get("name")}
+            except Exception:
+                ids = set()
+            _deferred["ds"] = (ids, {})
+        return _deferred["ds"]
+
+    def _kbs() -> tuple[set, dict]:
+        # Knowledge banks build as RETRIEVABLE_KNOWLEDGE — the exact type
+        # DSSKnowledgeBank.build() posts. Without this, embed recipe outputs
+        # fall through to DATASET and the job fails with the misleading
+        # "dataset <id> does not exist". The endpoint may be absent on older
+        # DSS — treat lookup failures as "project has none".
+        if "kb" not in _deferred:
+            try:
+                kbs = project.list_knowledge_banks()  # listitems extend dict
+                ids = {kb.get("id") for kb in kbs}
+                by_name = {kb.get("name"): kb.get("id") for kb in kbs if kb.get("name")}
+            except Exception:
+                ids, by_name = set(), {}
+            _deferred["kb"] = (ids, by_name)
+        return _deferred["kb"]
+
+    def _stores() -> tuple[set, dict]:
+        # Evaluation stores build as MODEL_EVALUATION_STORE — the type
+        # DSSEvaluationStore.build() posts; same DATASET-fallthrough hazard as
+        # knowledge banks. Quirk: public list_evaluation_stores() returns
+        # handles whose names need one get_settings() call each (N+1); the raw
+        # fetch returns {id, name, mesFlavor} dicts in a single call. The
+        # endpoint may be absent on older DSS — tolerate failures.
+        if "mes" not in _deferred:
+            try:
+                stores = project._fetch_evaluation_stores(flavor=None)
+                ids = {s.get("id") for s in stores}
+                by_name = {s.get("name"): s.get("id") for s in stores if s.get("name")}
+            except Exception:
+                ids, by_name = set(), {}
+            _deferred["mes"] = (ids, by_name)
+        return _deferred["mes"]
+
     resolved: list[tuple[str, str]] = []
     for ref in refs:
         if ref in folder_ids:
             resolved.append((ref, "MANAGED_FOLDER"))
-        elif ref in folder_by_name:
+            continue
+        if ref in folder_by_name:
             resolved.append((folder_by_name[ref], "MANAGED_FOLDER"))
-        elif ref in model_ids:
+            continue
+        if ref in model_ids:
             resolved.append((ref, "SAVED_MODEL"))
-        elif ref in model_by_name:
+            continue
+        if ref in model_by_name:
             resolved.append((model_by_name[ref], "SAVED_MODEL"))
-        else:
+            continue
+        ds_ids, _ = _datasets()
+        if ref in ds_ids:
+            # Known dataset — short-circuit before the expensive KB/MES probes.
             resolved.append((ref, "DATASET"))
+            continue
+        kb_ids, kb_by_name = _kbs()
+        if ref in kb_ids:
+            resolved.append((ref, "RETRIEVABLE_KNOWLEDGE"))
+            continue
+        if ref in kb_by_name:
+            resolved.append((kb_by_name[ref], "RETRIEVABLE_KNOWLEDGE"))
+            continue
+        mes_ids, mes_by_name = _stores()
+        if ref in mes_ids:
+            resolved.append((ref, "MODEL_EVALUATION_STORE"))
+            continue
+        if ref in mes_by_name:
+            resolved.append((mes_by_name[ref], "MODEL_EVALUATION_STORE"))
+            continue
+        resolved.append((ref, "DATASET"))
     return resolved
 
 

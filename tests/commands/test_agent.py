@@ -631,3 +631,44 @@ def test_agent_add_tool_new_version(patch_client):
     assert any(
         t.get("toolRef") == "fresh_tool" for t in v2["toolsUsingAgentSettings"]["tools"]
     )
+
+
+# ── ergonomic aliases + tool name resolution ──────────────────────────────
+
+
+def test_agent_test_accepts_query_flag(patch_client):
+    """--query/-q works as an alias for the positional query."""
+    result = runner.invoke(
+        app,
+        ["agent", "test", "agent1", "--query", "What is up?", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+
+
+def test_agent_test_requires_some_query(patch_client):
+    result = runner.invoke(app, ["agent", "test", "agent1", "--project", "PROJ1"])
+    assert result.exit_code == 2
+    assert "--query" in result.output
+
+
+def test_agent_add_tool_resolves_name_to_id(patch_client):
+    """A tool NAME resolves to its ID before writing toolRef (a raw name
+    saves fine but the tool silently never fires)."""
+    result = runner.invoke(
+        app,
+        ["agent", "add-tool", "agent1", "--tool", "My Tool", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_agent("agent1").get_settings()
+    raw = settings.get_version_settings("v1").get_raw()
+    tools = raw["toolsUsingAgentSettings"]["tools"]
+    assert any(t["toolRef"] == "tool1" for t in tools)  # resolved, not the name
+
+
+def test_agent_add_tool_unknown_ref_fails_with_catalog(patch_client):
+    result = runner.invoke(
+        app,
+        ["agent", "add-tool", "agent1", "--tool", "nope_xyz", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 3
+    assert "tool1" in result.output  # available tools listed

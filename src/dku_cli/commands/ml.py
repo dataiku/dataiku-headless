@@ -7,12 +7,20 @@ from typing import List, Optional
 
 import typer
 
+from dku_cli.enums import FeatureRole
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
     resolve_project,
 )
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(
     help="Create, train, and deploy ML models (prediction, clustering, timeseries, causal)."
@@ -327,6 +335,64 @@ def train(
 # Models / details
 # ---------------------------------------------------------------------------
 
+# Scalar performance metrics the trained-model snippet already carries at its
+# top level (verified live on DSS 14.6). Surfacing them here lets an agent
+# pick the best model straight from `dku ml models` instead of N+1
+# `dku ml details` calls.
+_SNIPPET_METRICS = (
+    "auc",
+    "f1",
+    "accuracy",
+    "precision",
+    "recall",
+    "logLoss",  # classification
+    "r2",
+    "rmse",
+    "mae",
+    "mape",
+    "evs",
+    "rmsle",  # regression
+    "silhouette",  # clustering
+)
+
+# evaluationMetric enum value → snippet field carrying that score.
+_EVAL_METRIC_FIELDS = {
+    "ROC_AUC": "auc",
+    "F1": "f1",
+    "ACCURACY": "accuracy",
+    "PRECISION": "precision",
+    "RECALL": "recall",
+    "LOG_LOSS": "logLoss",
+    "R2": "r2",
+    "RMSE": "rmse",
+    "MAE": "mae",
+    "MAPE": "mape",
+    "EVS": "evs",
+    "RMSLE": "rmsle",
+    "SILHOUETTE": "silhouette",
+}
+
+_LOWER_IS_BETTER_METRICS = {
+    "LOG_LOSS",
+    "RMSE",
+    "MAE",
+    "MAPE",
+    "RMSLE",
+}
+
+
+def _score_direction(eval_metric: str) -> str:
+    if eval_metric not in _EVAL_METRIC_FIELDS:
+        return ""
+    return "lower" if eval_metric in _LOWER_IS_BETTER_METRICS else "higher"
+
+
+def _rank_score(score: object, direction: str) -> float | str:
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return ""
+    ranked = -score if direction == "lower" else score
+    return round(ranked, 4)
+
 
 @app.command()
 def models(
@@ -342,7 +408,14 @@ def models(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List trained models in an ML task."""
+    """List trained models in an ML task with their headline metric.
+
+    The table shows METRIC/SCORE (the task's evaluation metric). JSON output
+    additionally includes SCORE_DIRECTION, RANK_SCORE, and every scalar metric
+    present in the snippet (auc, f1, accuracy, logLoss, r2, rmse, ...). Pick
+    the best model with:
+    dku ml models A M -P PROJ -o json | jq 'max_by(.rank_score)'
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -354,18 +427,37 @@ def models(
         data = []
         for mid in ids:
             snippet = mltask.get_trained_model_snippet(id=mid)
-            data.append(
-                {
-                    "id": mid,
-                    "algorithm": snippet.get("algorithm", ""),
-                    "session": snippet.get("sessionId", ""),
-                    "state": snippet.get("trainInfo", {}).get("state", ""),
-                }
-            )
+            eval_metric = snippet.get("evaluationMetric", "")
+            score_field = _EVAL_METRIC_FIELDS.get(eval_metric, "")
+            score = snippet.get(score_field) if score_field else None
+            direction = _score_direction(eval_metric)
+            row = {
+                "id": mid,
+                "algorithm": snippet.get("algorithm", ""),
+                "session": snippet.get("sessionId", ""),
+                "state": snippet.get("trainInfo", {}).get("state", ""),
+                "metric": eval_metric,
+                "score": (
+                    round(score, 4)
+                    if isinstance(score, (int, float)) and not isinstance(score, bool)
+                    else ""
+                ),
+                "score_direction": direction,
+                "rank_score": _rank_score(score, direction),
+            }
+            for field in _SNIPPET_METRICS:
+                if field in snippet:
+                    row[field] = snippet[field]
+            data.append(row)
+
+        columns = ["id", "algorithm", "session", "state", "metric", "score"]
+        if output == "json":
+            columns += ["score_direction", "rank_score"]
+            columns += [f for f in _SNIPPET_METRICS if any(f in r for r in data)]
 
         render(
             data,
-            ["id", "algorithm", "session", "state"],
+            columns,
             output_format=output,
             title=f"Trained Models ({mltask_id})",
         )
@@ -532,10 +624,49 @@ def redeploy(
         )
         render_raw(result, output)
         success("Redeployed to flow.")
+        if recipe_name:
+            _warn_if_training_recipe_input_stale(
+                proj, analysis_id, recipe_name, project_key
+            )
     except SystemExit:
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+def _warn_if_training_recipe_input_stale(
+    proj, analysis_id: str, recipe_name: str, project_key: str
+) -> None:
+    """Warn when the training recipe's input differs from the analysis input.
+
+    redeploy_to_flow swaps the saved-model version but does NOT repoint the
+    training recipe's input (the SDK posts no dataset param — verified
+    dataikuapi behavior). If the analysis was trained on a different dataset,
+    a later flow rebuild of the saved model silently retrains on the OLD
+    data. Advisory only — never fails the redeploy.
+    """
+    try:
+        definition = proj.get_analysis(analysis_id).get_definition()
+        raw = definition.get_raw() if hasattr(definition, "get_raw") else definition
+        analysis_input = (
+            raw.get("inputDatasetSmartName") or raw.get("inputDataset") or ""
+        )
+        settings = proj.get_recipe(recipe_name).get_settings()
+        items = (settings.get_recipe_inputs() or {}).get("main", {}).get("items", [])
+        recipe_input = items[0].get("ref", "") if items else ""
+        if analysis_input and recipe_input and analysis_input != recipe_input:
+            warn(
+                f"Training recipe '{recipe_name}' still reads '{recipe_input}', "
+                f"but this model was trained on '{analysis_input}'. A flow "
+                "rebuild of the saved model would retrain on the OLD dataset."
+            )
+            info(
+                f"Fix: dku recipe replace-input {recipe_name} {recipe_input} "
+                f"{analysis_input} -P {project_key}  (or use 'dku ml deploy' "
+                "to create a fresh training recipe)"
+            )
+    except Exception:
+        pass  # best-effort advisory; the redeploy itself already succeeded
 
 
 # ---------------------------------------------------------------------------
@@ -648,9 +779,10 @@ def set_feature(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     feature: str = typer.Argument(help="Feature (column) name"),
-    role: str = typer.Option(
+    role: FeatureRole = typer.Option(
         ...,
         "--role",
+        case_sensitive=False,
         help="INPUT | REJECT | TARGET (prediction only) | WEIGHT (prediction only)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -664,13 +796,7 @@ def set_feature(
     Example:
       dku ml set-feature ml_analysis_1 mltask_1 true_label --role REJECT -P PROJ
     """
-    role_upper = role.upper()
-    valid_roles = {"INPUT", "REJECT", "REJECTED", "TARGET", "WEIGHT"}
-    if role_upper not in valid_roles:
-        exit_with_error(
-            f"Invalid --role '{role}'. Allowed: INPUT, REJECT, TARGET, WEIGHT.",
-            code="invalid_param",
-        )
+    role_upper = role.value
     # DSS stores rejected role as "REJECT" internally.
     if role_upper == "REJECTED":
         role_upper = "REJECT"
@@ -694,6 +820,109 @@ def set_feature(
         feat["role"] = role_upper
         task_settings.save()
         success(f"Set feature '{feature}' role = {role_upper} in ML task {mltask_id}.")
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _feature_role_assignments(
+    reject: Optional[str],
+    input_features: Optional[str],
+    target: Optional[str],
+    weight: Optional[str],
+) -> list[tuple[str, str]]:
+    """Flatten the role flags into (feature, role) pairs (one comprehension)."""
+
+    def _split(value: Optional[str]) -> list[str]:
+        return [c.strip() for c in value.split(",") if c.strip()] if value else []
+
+    role_lists = [
+        (reject, "REJECT"),
+        (input_features, "INPUT"),
+        (target, "TARGET"),
+        (weight, "WEIGHT"),
+    ]
+    return [(feat, role) for value, role in role_lists for feat in _split(value)]
+
+
+@app.command("set-features")
+def set_features(
+    ctx: typer.Context,
+    analysis_id: str = typer.Argument(help="Analysis ID"),
+    mltask_id: str = typer.Argument(help="ML task ID"),
+    reject: Optional[str] = typer.Option(
+        None, "--reject", help="Comma-separated features to REJECT"
+    ),
+    input_features: Optional[str] = typer.Option(
+        None, "--input", help="Comma-separated features to set as INPUT"
+    ),
+    target: Optional[str] = typer.Option(
+        None, "--target", help="Feature to set as TARGET (prediction tasks only)"
+    ),
+    weight: Optional[str] = typer.Option(
+        None, "--weight", help="Feature to set as WEIGHT (prediction tasks only)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set multiple feature roles in ONE transactional write.
+
+    Prefer this over a loop of `set-feature` calls. Each `set-feature` does a full
+    get-settings -> modify -> save round-trip; firing many in quick succession
+    races (a later save clobbers earlier ones, so some rejects silently don't
+    stick — exactly the trap that trains a model on columns you meant to drop).
+    `set-features` reads the settings once, applies every change, and saves once.
+
+    Validates that all named features exist BEFORE saving, so a typo aborts the
+    whole call rather than half-applying.
+
+    Example:
+      dku ml set-features A M --reject order_id --input quantity,price -P PROJ
+    """
+    project_key = resolve_project(project)
+    assignments = _feature_role_assignments(reject, input_features, target, weight)
+
+    if not assignments:
+        exit_with_error(
+            "No feature roles given. Provide at least one of "
+            "--reject / --input / --target / --weight.",
+            code="invalid_param",
+            details=[
+                "Example: dku ml set-features A M --reject id --input age -P PROJ",
+            ],
+        )
+
+    try:
+        client = get_client_from_ctx(ctx)
+        mltask = client.get_project(project_key).get_ml_task(analysis_id, mltask_id)
+        task_settings = mltask.get_settings()
+
+        # Resolve every feature first; abort before saving if any is missing.
+        resolved: list[tuple[dict, str, str]] = []
+        missing: list[str] = []
+        for feat, role in assignments:
+            try:
+                resolved.append(
+                    (task_settings.get_feature_preprocessing(feat), role, feat)
+                )
+            except Exception:  # noqa: BLE001
+                missing.append(feat)
+        if missing:
+            settings_cmd = f"dku ml settings {analysis_id} {mltask_id} -P {project_key}"
+            exit_with_error(
+                f"Feature(s) not found in ML task {mltask_id}: {', '.join(missing)}.",
+                code="not_found",
+                details=[f"Inspect features: {settings_cmd} -o json"],
+                status=3,
+            )
+
+        for feat_settings, role, _feat in resolved:
+            feat_settings["role"] = role
+        task_settings.save()
+        summary = ", ".join(f"{feat}={role}" for _, role, feat in resolved)
+        success(
+            f"Set {len(resolved)} feature role(s) in ML task {mltask_id}: {summary}"
+        )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

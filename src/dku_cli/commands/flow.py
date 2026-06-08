@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+
 import typer
 
+from dku_cli.enums import MoveItemType
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
-from dku_cli.helpers import get_client_from_ctx, resolve_folder, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    resolve_folder,
+    resolve_knowledge_bank,
+    resolve_project,
+)
 from dku_cli.output import (
     error,
     info,
@@ -79,7 +88,14 @@ def zones(
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """List flow zones with their items (objectType + objectId per member)."""
+    """List flow zones with their items (objectType + objectId per member).
+
+    DSS reports the default zone's items[] as EMPTY even when it holds objects, so
+    raw item counts mislead. This command derives the default zone's real
+    membership (every flow node not assigned to another zone) and flags empty
+    zones, so "is the flow clean?" can be judged from membership rather than a 0
+    that lies. Derived members carry objectType=null and itemsDerived=true.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -87,6 +103,22 @@ def zones(
         proj = client.get_project(project_key)
         flow = proj.get_flow()
         zone_list = flow.list_zones()
+
+        # Object ids explicitly assigned to a NON-default zone.
+        zoned_ids: set[str] = set()
+        for z in zone_list:
+            if z.id == "default":
+                continue
+            for item in getattr(z, "_raw", {}).get("items", []) or []:
+                oid = item.get("objectId")
+                if oid:
+                    zoned_ids.add(oid)
+
+        # All flow nodes — used to derive the default zone's real membership.
+        try:
+            all_node_ids = set(flow.get_graph().nodes.keys())
+        except Exception:
+            all_node_ids = set()
 
         data = []
         for z in zone_list:
@@ -99,11 +131,23 @@ def zones(
                 }
                 for i in raw_items
             ]
+            derived = False
+            # The default zone's items[] is empty in the API; derive its members
+            # as every flow node not claimed by another zone. The id stays
+            # "default" even when the zone has been renamed.
+            if z.id == "default" and not items and all_node_ids:
+                members = sorted(all_node_ids - zoned_ids)
+                items = [
+                    {"objectType": None, "objectId": m, "projectKey": project_key}
+                    for m in members
+                ]
+                derived = bool(members)
             data.append(
                 {
                     "id": z.id,
                     "name": z.name,
                     "itemCount": len(items),
+                    "itemsDerived": derived,
                     "items": items,
                 }
             )
@@ -117,6 +161,12 @@ def zones(
                 output_format=output,
                 title=f"Flow Zones ({project_key})",
             )
+            empty = [d["name"] for d in data if d["itemCount"] == 0]
+            if empty:
+                info(
+                    f"Empty zone(s): {', '.join(empty)} — no objects assigned. "
+                    "(Default-zone members are derived; items[] is empty in the API.)"
+                )
         else:
             render_raw(data, output)
     except Exception as e:
@@ -181,6 +231,41 @@ def set_zone(
         handle_api_error(e)
 
 
+@app.command("delete-zone")
+def delete_zone(
+    ctx: typer.Context,
+    zone_ref: str = typer.Argument(help="Zone name or ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+) -> None:
+    """Delete a flow zone. Its items move to the default zone (not deleted)."""
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="flow.delete_zone",
+        subject=f"flow zone '{zone_ref}' in {project_key}",
+        yes=yes,
+        prompt=(
+            f"Delete flow zone '{zone_ref}' from {project_key}? "
+            "Its items move back to the default zone."
+        ),
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        flow = proj.get_flow()
+        zone = _resolve_zone(flow, zone_ref, project_key)
+        zone.delete()
+        success(f"Deleted zone '{zone_ref}' (items moved to the default zone)")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 def _resolve_zone(
     flow, zone_ref: str, project_key: str, *, create_if_missing: bool = False
 ):
@@ -222,7 +307,28 @@ _ITEM_RESOLVERS = {
     "RECIPE": "get_recipe",
     "MANAGED_FOLDER": "get_managed_folder",
     "SAVED_MODEL": "get_saved_model",
+    # Both convert via flow._to_smart_ref: KB → RETRIEVABLE_KNOWLEDGE,
+    # MES → MODEL_EVALUATION_STORE (use get_model_evaluation_store for every
+    # flavor — DSSEvaluationStore is not accepted by _to_smart_ref).
+    "KNOWLEDGE_BANK": "get_knowledge_bank",
+    "MODEL_EVALUATION_STORE": "get_model_evaluation_store",
 }
+
+
+def _resolve_evaluation_store(proj, ref: str):
+    """Resolve an evaluation store by ID or name to a DSSModelEvaluationStore."""
+    try:
+        mes = proj.get_model_evaluation_store(ref)
+        mes.get_settings()  # lazy handle — confirm existence
+        return mes
+    except Exception:
+        pass
+    # Quirk: the raw fetch returns {id, name, mesFlavor} in one call; the
+    # public list returns handles whose names need N+1 settings reads.
+    for item in proj._fetch_evaluation_stores(flavor=None):
+        if item.get("name") == ref:
+            return proj.get_model_evaluation_store(item.get("id"))
+    raise ValueError(f"Evaluation store '{ref}' not found (checked ID and name)")
 
 
 def _try_resolve_item(proj, name: str, item_type: str):
@@ -231,6 +337,10 @@ def _try_resolve_item(proj, name: str, item_type: str):
     try:
         if item_type == "MANAGED_FOLDER":
             return resolve_folder(proj, name), None
+        if item_type == "KNOWLEDGE_BANK":
+            return resolve_knowledge_bank(proj, name), None
+        if item_type == "MODEL_EVALUATION_STORE":
+            return _resolve_evaluation_store(proj, name), None
         method = _ITEM_RESOLVERS[item_type]
         obj = getattr(proj, method)(name)
         # For datasets and recipes, lazy handles need a confirming call.
@@ -241,6 +351,11 @@ def _try_resolve_item(proj, name: str, item_type: str):
         elif item_type == "SAVED_MODEL":
             obj.get_settings()
         return obj, None
+    except SystemExit as exc:
+        # resolve_folder / resolve_knowledge_bank call exit_with_error (sys.exit)
+        # when nothing matches. During --type AUTO probing that must be a miss for
+        # this kind, not a hard abort of the whole move — so catch SystemExit too.
+        return None, exc
     except Exception as exc:
         return None, exc
 
@@ -251,8 +366,20 @@ def _detect_item_type(proj, name: str) -> str | None:
     Used by `flow move --type AUTO` so agents can drop a mixed dataset +
     recipe + folder list into one call without pre-classifying each name.
     """
-    for kind in ("DATASET", "RECIPE", "MANAGED_FOLDER", "SAVED_MODEL"):
-        obj, exc = _try_resolve_item(proj, name, kind)
+    # Probe non-exiting kinds first; MANAGED_FOLDER/KNOWLEDGE_BANK/MES resolvers
+    # call exit_with_error (which prints + sys.exit) on a miss, so a saved model
+    # or KB resolves before those run. Suppress the probe's stderr regardless so a
+    # successful detection never leaks a spurious "not found" line.
+    for kind in (
+        "DATASET",
+        "RECIPE",
+        "SAVED_MODEL",
+        "MANAGED_FOLDER",
+        "KNOWLEDGE_BANK",
+        "MODEL_EVALUATION_STORE",
+    ):
+        with contextlib.redirect_stderr(io.StringIO()):
+            obj, exc = _try_resolve_item(proj, name, kind)
         if obj is not None and exc is None:
             return kind
     return None
@@ -270,11 +397,16 @@ def move(
         "-z",
         help="Target zone name or ID. Use 'dku flow zones' to list.",
     ),
-    item_type: str = typer.Option(
-        "DATASET",
+    item_type: MoveItemType = typer.Option(
+        MoveItemType.DATASET,
         "--type",
         "-t",
-        help="Item type for ALL items: DATASET (default), RECIPE, MANAGED_FOLDER, SAVED_MODEL, or AUTO to auto-detect each item.",
+        case_sensitive=False,
+        help=(
+            "Item type for ALL items: DATASET (default), RECIPE, "
+            "MANAGED_FOLDER, SAVED_MODEL, KNOWLEDGE_BANK, "
+            "MODEL_EVALUATION_STORE, or AUTO to auto-detect each item."
+        ),
     ),
     create_zone: bool = typer.Option(
         True,
@@ -303,12 +435,6 @@ def move(
     """
     project_key = resolve_project(project)
     item_type_upper = item_type.upper()
-    if item_type_upper != "AUTO" and item_type_upper not in _ITEM_RESOLVERS:
-        exit_with_error(
-            f"Unknown item type '{item_type}'.",
-            code="invalid_argument",
-            details=[f"Valid types: {', '.join(sorted(_ITEM_RESOLVERS))}, AUTO"],
-        )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -326,7 +452,8 @@ def move(
                 if detected is None:
                     exit_with_error(
                         f"'{name}' is not a dataset, recipe, managed folder, "
-                        f"or saved model in '{project_key}'.",
+                        f"saved model, knowledge bank, or evaluation store "
+                        f"in '{project_key}'.",
                         code="not_found",
                         details=[
                             "Verify the name exists:",
@@ -334,18 +461,29 @@ def move(
                             f"  dku recipe list -P {project_key}",
                             f"  dku folder list -P {project_key}",
                             f"  dku model list -P {project_key}",
+                            f"  dku knowledge list -P {project_key}",
+                            f"  dku evaluation-store list -P {project_key}",
                         ],
                     )
                 obj, _ = _try_resolve_item(proj, name, detected)
                 resolved.append(obj)
                 continue
 
-            obj, exc = _try_resolve_item(proj, name, item_type_upper)
+            # Suppress the resolver's own pre-printed "not found" line so the
+            # prescriptive cross-type guidance below is the single message the
+            # agent sees (the exit_with_error-based folder/KB resolvers print to
+            # stderr before raising SystemExit).
+            with contextlib.redirect_stderr(io.StringIO()):
+                obj, exc = _try_resolve_item(proj, name, item_type_upper)
             if obj is not None:
                 resolved.append(obj)
                 continue
 
-            if not exc or not is_not_found_error(exc):
+            # SystemExit comes only from the exit_with_error-based resolvers
+            # (MANAGED_FOLDER / KNOWLEDGE_BANK), which sys.exit solely on a
+            # not-found miss — treat it as a miss so the cross-type probe runs
+            # instead of re-raising a generic abort.
+            if not exc or not (isinstance(exc, SystemExit) or is_not_found_error(exc)):
                 raise exc
 
             # Cross-type miss: probe other kinds and tell the agent which

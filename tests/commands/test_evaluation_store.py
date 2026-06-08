@@ -48,8 +48,8 @@ def test_evaluation_store_list_invalid_flavor(patch_client):
     result = runner.invoke(
         app, ["evaluation-store", "list", "--flavor", "BOGUS", "--project", "PROJ1"]
     )
-    assert result.exit_code != 0
-    assert "Invalid flavor" in result.output
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
 
 
 # ── create ───────────────────────────────────────────────────────────
@@ -120,8 +120,8 @@ def test_evaluation_store_create_invalid_flavor(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code != 0
-    assert "Invalid flavor" in result.output
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
 
 
 def test_evaluation_store_create_if_not_exists(patch_client):

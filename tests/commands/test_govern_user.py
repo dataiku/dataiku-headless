@@ -100,7 +100,7 @@ def test_user_delete_bulk_requires_confirm(patch_client):
             '["alice"]',
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 77
 
 
 def test_user_delete_bulk(patch_client):
@@ -113,6 +113,8 @@ def test_user_delete_bulk(patch_client):
             "--definition",
             '["alice"]',
             "--confirm",
+            "--confirm-name",
+            "delete-users",
         ],
     )
     assert result.exit_code == 0

@@ -21,7 +21,6 @@ def test_pivot_modality_scan_matched():
     assert "explicitValues" in joined
     assert "redesign" in joined.lower() or "restructure" in joined.lower()
     assert "add-formula" in joined
-    assert "rule 15" in joined
 
 
 def test_pivot_modality_unrelated_error_returns_none():
@@ -41,7 +40,6 @@ def test_fold_plugin_missing_matched():
     assert "MultiColumnFold" in joined
     # Must explicitly forbid the pd.melt fallback
     assert "pd.melt" in joined.lower() or "pd.melt" in joined
-    assert "rule 15" in joined
 
 
 def test_fold_plugin_partial_match_returns_none():

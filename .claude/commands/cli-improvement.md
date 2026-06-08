@@ -16,7 +16,7 @@ Every benchmark issue should be evaluated first through this lens: **could a bui
 
 ## Workflow
 
-1. **Read feedback** from the benchmark run provided in `$ARGUMENTS`
+1. **Read feedback** from a benchmark run (now produced by the external benchmark repo) provided in `$ARGUMENTS`
 2. **Capability check** — for every Python recipe or custom code: could a built-in feature handle it?
 3. **Categorize issues:**
    - **Built-in capability gaps** ← highest priority
@@ -25,7 +25,7 @@ Every benchmark issue should be evaluated first through this lens: **could a bui
    - Test gaps
    - Not actionable (platform limitations)
 4. **For each gap**, determine the fix: skill doc change, CLI error message suggesting the built-in, new command/flag, or SKILL.md example
-5. **For each CLI fix**, verify the `dataikuapi` method exists — read `src/dku_cli/commands/` and cross-check `skills/dku-cli/references/commands.md`
+5. **For each CLI fix**, verify the `dataikuapi` method exists — read `src/dku_cli/commands/` and confirm against the installed `dataikuapi` source
 6. **Plan changes** with file paths and diffs, ordered by agent impact
 
 ## Requirements
@@ -39,11 +39,10 @@ Every benchmark issue should be evaluated first through this lens: **could a bui
 
 | File | Purpose |
 |------|---------|
-| `benchmark/` | Test scenarios and results |
-| `dataiku-devkit/skills/dku-cli/SKILL.md` | Agent-facing CLI skill |
-| `dataiku-devkit/skills/dataiku/SKILL.md` | Platform knowledge router |
-| `dataiku-devkit/skills/dku-cli/references/commands.md` | Full command reference |
-| `dataiku-devkit/skills/dataiku/references/` | Platform reference docs |
+| `dataiku-mcp/skills/dku-cli/SKILL.md` | Agent-facing router: rules, capability→playbook map, reference map |
+| `dataiku-mcp/skills/dku-cli/playbooks/` | Task-complete workflows (one per task family) |
+| `dataiku-mcp/skills/dku-cli/references/` | Durable payload shapes, schemas, processor/param tables, safety |
+| `dku <group> [command] --help` | Self-describing CLI: exact flags as JSON under `DKU_AGENT_HELP=1` |
 | `src/dku_cli/commands/` | Command implementations |
 | `src/dku_cli/errors.py` | Error handling |
 

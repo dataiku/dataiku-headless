@@ -4,25 +4,66 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v4
       - run: uv sync
-      - run: uv run pytest -v
+      - run: uv run pytest -q
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync
+      - run: uv run pytest -q --cov=dku_cli --cov-report=term-missing --cov-fail-under=70
 
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v4
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+
+  quality-ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync
+      - run: uv run python scripts/check_quality_ratchet.py
+
+  actionlint:
+    runs-on: ubuntu-latest
+    name: Workflow Lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download actionlint
+        id: actionlint
+        run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
+        shell: bash
+      - name: Lint all workflows
+        run: ${{ steps.actionlint.outputs.executable }} -color -shellcheck=
+        shell: bash

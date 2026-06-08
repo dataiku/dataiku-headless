@@ -75,6 +75,15 @@ def query(
     ctx: typer.Context,
     sql: str = typer.Argument(help="SQL query (literal or @file.sql)"),
     connection: str = typer.Option(..., "--connection", "-c", help="Connection name"),
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        "-P",
+        help=(
+            "Accepted and ignored — SQL queries are connection-scoped, not "
+            "project-scoped. Find connections with: dku connection list"
+        ),
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     no_auto_commit: bool = typer.Option(
         False,
@@ -91,7 +100,11 @@ def query(
     Without this, DSS's sql_query endpoint opens a streaming session that
     closes without committing, and the change is silently rolled back.
     Pass --no-auto-commit to opt out (e.g., inside an explicit transaction).
+
+    SQL is connection-scoped: -P is accepted for muscle-memory consistency
+    with other commands but has no effect.
     """
+    del project  # accepted for ergonomic parity; SQL is connection-scoped
     output = resolve_output_format(output)
     query_text = _read_query(sql)
     is_mutation = _is_ddl_or_dml(query_text)

@@ -1,4 +1,0 @@
-warehouse_id,name,geom,region
-W001,Europe Hub,POINT (2.3488 48.8534),Europe
-W002,Asia Pacific Hub,POINT (139.7104 35.6762),APAC
-W003,Americas Hub,POINT (-74.006 40.7128),Americas

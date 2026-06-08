@@ -6,6 +6,7 @@ import difflib
 
 import typer
 
+from dku_cli.enums import ChartType, MeasureAgg
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -24,6 +25,78 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS insights (charts, reports, metrics views).")
+
+# Default sampling block for chart insights. DSS 14.6 renders charts through
+# spec.sampleSettings and NPEs ("Cannot read field 'selection' because
+# 'spec.sampleSettings' is null", HTTP 500) when a chart insight is created
+# without params.refreshableSelection — the UI always writes it, the public
+# API does not. Canonical shape: dataiku skill references/dashboard-charts.md.
+_DEFAULT_REFRESHABLE_SELECTION = {
+    "selection": {
+        "useMemTable": False,
+        "filter": {"distinct": False, "enabled": False},
+        "partitionSelectionMethod": "ALL",
+        "latestPartitionsN": 1,
+        "ordering": {"enabled": False, "rules": []},
+        "samplingMethod": "FULL",
+        "maxRecords": 10000,
+        "targetRatio": 0.02,
+        "ascending": True,
+        "withinFirstN": -1,
+        "maxReadUncompressedBytes": -1,
+    },
+    "autoRefreshSample": False,
+    "_refreshTrigger": 0,
+}
+
+# Numeric storage types → chart column type NUMERICAL; everything else is
+# ALPHANUM except dates. Chart dimension/measure objects carry this `type`
+# field — omitting it makes DSS assume NUMERICAL and fail at render time on
+# string/meaning columns ("Column X was expected to be NUMERICAL but is not").
+_NUMERIC_STORAGE_TYPES = {"tinyint", "smallint", "int", "bigint", "float", "double"}
+# DSS stores dates under several storage types — all map to the chart DATE type.
+# Checking only "date" silently mis-typed dateonly/datetime columns as ALPHANUM,
+# which broke time-series charts (no date axis, no binning).
+_DATE_STORAGE_TYPES = {"date", "dateonly", "datetime", "datetimenotz", "datetimetz"}
+_DATE_MODES = {"YEAR", "QUARTER", "MONTH", "WEEK", "DAY", "HOUR"}
+# Chart types whose data does NOT live in genericDimension0/genericMeasures, so
+# the add-dimension/add-measure helpers can't fully configure them — they render
+# blank until type-specific fields are set via set-definition. set-chart-type
+# warns when one of these is selected.
+_HELPER_INCOMPLETE_TYPES = {"scatter", "boxplots", "treemap"}
+
+
+def _chart_column_type(proj, raw: dict, column: str, project_key: str) -> str | None:
+    """Resolve a chart column's type (NUMERICAL/ALPHANUM/DATE) from the bound
+    dataset's schema. Errors prescriptively when the column does not exist —
+    chart column names are NOT validated server-side; a typo saves fine and
+    renders a blank chart. Returns None when the schema cannot be read."""
+    ds_name = (raw.get("params") or {}).get("datasetSmartName") or ""
+    if not ds_name:
+        return None
+    try:
+        schema = proj.get_dataset(ds_name).get_schema()
+        columns = schema.get("columns", []) if isinstance(schema, dict) else schema
+        by_name = {c.get("name"): c.get("type", "") for c in columns}
+    except Exception:
+        return None  # foreign/unreadable dataset — stay permissive
+    if column not in by_name:
+        exit_with_error(
+            f"Column '{column}' does not exist in dataset '{ds_name}'.",
+            code="bad_column",
+            details=[
+                "Chart column names are not validated server-side — a wrong "
+                "name saves but renders a blank chart.",
+                f"Available columns: {', '.join(sorted(by_name))}",
+                f"Inspect with: dku dataset schema {ds_name} -P {project_key}",
+            ],
+        )
+    storage = (by_name[column] or "").lower()
+    if storage in _NUMERIC_STORAGE_TYPES:
+        return "NUMERICAL"
+    if storage in _DATE_STORAGE_TYPES:
+        return "DATE"
+    return "ALPHANUM"
 
 
 @app.command("list")
@@ -163,6 +236,13 @@ def create(
         if dataset:
             creation_info.setdefault("params", {})
             creation_info["params"]["datasetSmartName"] = dataset
+        if creation_info.get("type") == "chart":
+            # Without a sampling block, DSS 14.6 chart rendering NPEs with
+            # HTTP 500 ("spec.sampleSettings is null"). The UI always writes
+            # it; inject the canonical default unless the caller provided one.
+            creation_info.setdefault("params", {}).setdefault(
+                "refreshableSelection", _DEFAULT_REFRESHABLE_SELECTION
+            )
         insight = proj.create_insight(creation_info)
         if output == "json":
             render_raw(
@@ -452,8 +532,13 @@ def head(
 def set_chart_type(
     ctx: typer.Context,
     insight_id: str = typer.Argument(help="Insight ID"),
-    chart_type: str = typer.Argument(
-        help="Chart type: lines, multi_columns_lines, stacked_bars, grouped_columns, pie, scatter, boxplots, treemap, pivot_table, stacked_area"
+    chart_type: ChartType = typer.Argument(
+        case_sensitive=False,
+        help=(
+            "Chart type: lines, multi_columns_lines, stacked_bars, "
+            "grouped_columns, pie, scatter, boxplots, treemap, "
+            "pivot_table, stacked_area"
+        ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -463,23 +548,6 @@ def set_chart_type(
     """
     from dku_cli.errors import exit_with_error
 
-    valid_types = {
-        "lines",
-        "multi_columns_lines",
-        "stacked_bars",
-        "grouped_columns",
-        "pie",
-        "scatter",
-        "boxplots",
-        "treemap",
-        "pivot_table",
-        "stacked_area",
-    }
-    if chart_type not in valid_types:
-        exit_with_error(
-            f"Unknown chart type '{chart_type}'",
-            details=[f"Valid types: {', '.join(sorted(valid_types))}"],
-        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -494,6 +562,15 @@ def set_chart_type(
         raw.setdefault("params", {}).setdefault("def", {})["type"] = chart_type
         settings.save()
         success(f"Chart type set to '{chart_type}' for insight '{insight_id}'")
+        if chart_type in _HELPER_INCOMPLETE_TYPES:
+            warn(
+                f"'{chart_type}' needs chart-specific fields that add-dimension/"
+                "add-measure do NOT set (scatter→uaXDimension/uaYDimension, "
+                "boxplots→boxplotValue/boxplotBreakdownDim, "
+                "treemap→yDimension+genericMeasures). It will render blank until "
+                "you configure those via 'dku insight set-definition' — see "
+                "references/dashboards.md."
+            )
     except typer.Exit:
         raise
     except Exception as e:
@@ -511,16 +588,42 @@ def add_dimension(
     slot: int = typer.Option(
         0, "--slot", help="Dimension slot: 0 (X axis / first) or 1 (second)"
     ),
+    breakdown: bool = typer.Option(
+        False,
+        "--breakdown",
+        "-b",
+        help="Add as the color/series breakdown (genericDimension1) instead of the "
+        "X axis — for stacked / colored charts and pivot columns (same as --slot 1).",
+    ),
+    date_mode: str = typer.Option(
+        None,
+        "--date-mode",
+        help="Bin a DATE column by YEAR|QUARTER|MONTH|WEEK|DAY|HOUR (sets dateParams). "
+        "Needed for a real time axis — a raw date dim plots every distinct value.",
+    ),
 ) -> None:
     """Add a dimension column to a chart insight.
 
-    Appends to genericDimension0 (slot 0, default) or genericDimension1 (slot 1):
-      dku insight add-dimension INSIGHT_ID --column order_date -P PROJ
+    Slot 0 (default) is the X axis; --breakdown (slot 1) is the color/series split.
+    DATE columns are auto-typed; add --date-mode to bin the time axis:
+      dku insight add-dimension INSIGHT_ID -c region -P PROJ
+      dku insight add-dimension INSIGHT_ID -c status --breakdown -P PROJ
+      dku insight add-dimension INSIGHT_ID -c order_date --date-mode MONTH -P PROJ
     """
     from dku_cli.errors import exit_with_error
 
+    if breakdown:
+        slot = 1
     if slot not in (0, 1):
         exit_with_error("--slot must be 0 or 1")
+    mode = None
+    if date_mode is not None:
+        mode = date_mode.upper()
+        if mode not in _DATE_MODES:
+            exit_with_error(
+                f"Unknown --date-mode '{date_mode}'",
+                details=[f"Valid: {', '.join(sorted(_DATE_MODES))}"],
+            )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -535,9 +638,32 @@ def add_dimension(
         chart_def = raw.setdefault("params", {}).setdefault("def", {})
         key = f"genericDimension{slot}"
         dims = chart_def.setdefault(key, [])
-        dims.append({"column": column})
+        dim: dict = {"column": column}
+        col_type = _chart_column_type(proj, raw, column, project_key)
+        if col_type:
+            dim["type"] = col_type
+        # Type is auto-resolved (the bug fix: dateonly/datetime now → DATE, not
+        # ALPHANUM). Binning is only applied when --date-mode is explicit, so a
+        # plain date dim keeps its prior shape; hint that binning is available.
+        if mode is not None:
+            if col_type == "DATE":
+                dim["dateParams"] = {"mode": mode, "maxBinNumberForAutomaticMode": 0}
+            else:
+                warn(
+                    f"--date-mode ignored: '{column}' is {col_type}, not a date column."
+                )
+        elif col_type == "DATE":
+            info(
+                f"'{column}' is a date column — pass --date-mode "
+                "YEAR|QUARTER|MONTH|WEEK|DAY|HOUR to bin the time axis."
+            )
+        dims.append(dim)
         settings.save()
-        success(f"Added dimension '{column}' to slot {slot} of insight '{insight_id}'")
+        where = "breakdown (slot 1)" if slot == 1 else "X axis (slot 0)"
+        suffix = (
+            f", binned by {dim['dateParams']['mode']}" if "dateParams" in dim else ""
+        )
+        success(f"Added dimension '{column}' to {where} of '{insight_id}'{suffix}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -552,24 +678,45 @@ def add_measure(
     column: str = typer.Option(
         ..., "--column", "-c", help="Column name to add as measure"
     ),
-    aggregation: str = typer.Option(
-        "AVG", "--agg", help="Aggregation: AVG, SUM, COUNT, MIN, MAX, COUNT_DISTINCT"
+    aggregation: MeasureAgg = typer.Option(
+        MeasureAgg.AVG,
+        "--agg",
+        case_sensitive=False,
+        help="Aggregation: AVG, SUM, COUNT, MIN, MAX, COUNT_DISTINCT",
+    ),
+    axis: int = typer.Option(
+        1,
+        "--axis",
+        help="Y axis: 1 (left, default) or 2 (right). Use 2 for a dual-axis combo "
+        "(e.g. revenue bars on axis 1 + a rate line on axis 2).",
+    ),
+    display_as: str = typer.Option(
+        None,
+        "--as",
+        help="Render THIS measure as: column | line | area (default: the chart's "
+        "native type). Mix with --axis 2 for combo charts.",
     ),
 ) -> None:
     """Add a measure column to a chart insight.
 
     dku insight add-measure INSIGHT_ID --column revenue --agg SUM -P PROJ
+    # dual-axis combo: bars on the left, a rate line on the right
+    dku insight add-measure INSIGHT_ID -c rate --agg AVG --axis 2 --as line -P PROJ
     """
     from dku_cli.errors import exit_with_error
 
-    valid_aggs = {"AVG", "SUM", "COUNT", "MIN", "MAX", "COUNT_DISTINCT"}
     dss_aggs = {"COUNT_DISTINCT": "COUNTD"}
     agg = aggregation.upper()
-    if agg not in valid_aggs:
-        exit_with_error(
-            f"Unknown aggregation '{aggregation}'",
-            details=[f"Valid: {', '.join(sorted(valid_aggs))}"],
-        )
+    if axis not in (1, 2):
+        exit_with_error("--axis must be 1 (left) or 2 (right)")
+    display_type = None
+    if display_as is not None:
+        display_type = display_as.lower()
+        if display_type not in ("column", "line", "area"):
+            exit_with_error(
+                f"Unknown --as '{display_as}'",
+                details=["Valid: column, line, area"],
+            )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -582,11 +729,41 @@ def add_measure(
                 f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
             )
         chart_def = raw.setdefault("params", {}).setdefault("def", {})
-        chart_def.setdefault("genericMeasures", []).append(
-            {"column": column, "function": dss_aggs.get(agg, agg)}
-        )
+        measure: dict = {"column": column, "function": dss_aggs.get(agg, agg)}
+        col_type = _chart_column_type(proj, raw, column, project_key)
+        if col_type:
+            # Charts require the measure's `type` to match the column. An
+            # omitted type is treated as NUMERICAL and string/meaning columns
+            # fail at render time with "Column X was expected to be NUMERICAL
+            # but is not (found STRING_DICT)".
+            if agg in ("AVG", "SUM", "MIN", "MAX") and col_type != "NUMERICAL":
+                exit_with_error(
+                    f"{agg}({column}) needs a numerical column, but "
+                    f"'{column}' is {col_type}.",
+                    code="bad_aggregation",
+                    details=[
+                        "Use --agg COUNT (row count) or --agg COUNT_DISTINCT "
+                        "for non-numeric columns,",
+                        "or fix the storage type first: dku dataset set-schema "
+                        f"... -P {project_key}",
+                    ],
+                )
+            measure["type"] = col_type
+        # axis1 is the DSS default — only write displayAxis for the right axis,
+        # so a plain measure keeps its minimal shape.
+        if axis == 2:
+            measure["displayAxis"] = "axis2"
+        if display_type is not None:
+            measure["displayType"] = display_type
+        chart_def.setdefault("genericMeasures", []).append(measure)
         settings.save()
-        success(f"Added measure '{column}' ({agg}) to insight '{insight_id}'")
+        extra = []
+        if axis == 2:
+            extra.append("right axis")
+        if display_type:
+            extra.append(f"as {display_type}")
+        suffix = f" ({', '.join(extra)})" if extra else ""
+        success(f"Added measure '{column}' ({agg}) to insight '{insight_id}'{suffix}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -623,6 +800,96 @@ def clear_columns(
         chart_def["genericMeasures"] = []
         settings.save()
         success(f"Cleared all column bindings for insight '{insight_id}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-colors")
+def set_colors(
+    ctx: typer.Context,
+    insight_id: str = typer.Argument(help="Insight ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    single: str = typer.Option(
+        None,
+        "--single",
+        help="One color for all series (hex, e.g. '#2678b2').",
+    ),
+    palette: str = typer.Option(
+        None,
+        "--palette",
+        help="Named color palette id (e.g. 'default', 'dku_dss_next', 'pastel').",
+    ),
+    category: list[str] = typer.Option(
+        None,
+        "--category",
+        help="Per-category color as VALUE=HEX (repeatable), e.g. --category EU=#2E5EAA "
+        "--category US=#D1495B. Sets customColors + paletteType=CATEGORY.",
+    ),
+    transparency: float = typer.Option(
+        None, "--transparency", help="Fill transparency, 0.0 (clear) to 1.0 (solid)."
+    ),
+) -> None:
+    """Set a chart's colors: a single color, a named palette, or per-category map.
+
+    Charts have no dedicated colour API, so this patches params.def.colorOptions.
+    Custom category colours need a categorical breakdown (the x dimension or a
+    --breakdown dimension) to map against.
+
+      dku insight set-colors ID --single '#2678b2' -P PROJ
+      dku insight set-colors ID --palette dku_dss_next -P PROJ
+      dku insight set-colors ID --category EU=#2E5EAA --category US=#D1495B -P PROJ
+
+    Note: DSS may store paletteType as CONTINUOUS even after a CATEGORY set; the
+    customColors still apply when a categorical breakdown is present (verify the
+    rendered chart).
+    """
+    from dku_cli.errors import exit_with_error
+
+    if not any([single, palette, category, transparency is not None]):
+        exit_with_error(
+            "Nothing to set. Provide at least one of "
+            "--single / --palette / --category / --transparency.",
+        )
+    custom: dict[str, str] = {}
+    for pair in category or []:
+        if "=" not in pair:
+            exit_with_error(
+                f"--category must be VALUE=HEX, got '{pair}'",
+                details=["Example: --category EU=#2E5EAA"],
+            )
+        k, v = pair.split("=", 1)
+        custom[k.strip()] = v.strip()
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        insight = proj.get_insight(insight_id)
+        settings = insight.get_settings()
+        raw = settings.get_raw()
+        if raw.get("type") != "chart":
+            exit_with_error(
+                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+            )
+        chart_def = raw.setdefault("params", {}).setdefault("def", {})
+        co = chart_def.setdefault("colorOptions", {})
+        applied = []
+        if single:
+            co["singleColor"] = single
+            applied.append(f"single={single}")
+        if palette:
+            co["colorPalette"] = palette
+            applied.append(f"palette={palette}")
+        if custom:
+            co["customColors"] = custom
+            co["paletteType"] = "CATEGORY"
+            applied.append(f"{len(custom)} custom colour(s)")
+        if transparency is not None:
+            co["transparency"] = transparency
+            applied.append(f"transparency={transparency}")
+        settings.save()
+        success(f"Set colors on '{insight_id}': {', '.join(applied)}")
     except typer.Exit:
         raise
     except Exception as e:

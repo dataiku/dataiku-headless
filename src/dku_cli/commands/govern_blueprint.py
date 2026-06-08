@@ -6,31 +6,38 @@ from typing import Optional
 
 import typer
 
+from dku_cli.commands._govern_blueprint_describe import (
+    _build_field_rows,
+    _build_signoff_rows as _build_signoff_rows,
+    _build_step_rows,
+    _build_view_rows,
+    _describe_version_warnings,
+    _lint_version_definition,
+    _load_signoff_rows,
+    _resolve_blueprint_name,
+    _resolve_version_status,
+    _workflow_steps,
+)
+from dku_cli.enums import (
+    BlueprintStatus,
+    MigrationBehavior,
+    SignoffImportRole,
+)
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import (
     console,
-    error,
     render,
     render_raw,
     resolve_output_format,
     success,
     warn,
 )
+from dku_cli.safety import Tier, guard
 
 app = typer.Typer(
     help="Manage Govern blueprints. Use 'fields' subcommand to discover field schemas for artifact creation."
 )
-
-_VALID_BV_STATUSES = ("DRAFT", "ACTIVE", "ARCHIVED")
-
-_VALID_MIGRATION_BEHAVIORS = (
-    "FAIL_IMPORT_ON_EXISTING_MIGRATION_OR_MISSING_VERSION",
-    "IGNORE_MIGRATION_ON_EXISTING_MIGRATION_OR_MISSING_VERSION",
-    "IMPORT_WITHOUT_MIGRATIONS",
-)
-
-_VALID_SIGNOFF_IMPORT_ROLES = ("ALL", "EXISTING", "NONE")
 
 
 @app.command("list")
@@ -157,109 +164,6 @@ def get_version(
         handle_api_error(e)
 
 
-def _count_view_components(comp: object) -> int:
-    """Recursively count leaf field components in a viewComponent tree.
-
-    A view's `viewComponent` is either a leaf (`{type: "<x>-field", fieldId: ...}`)
-    or a `container` whose `layout.viewComponents[]` holds children that may
-    themselves be containers. We count any node with a `fieldId` as one
-    component.
-    """
-    if not isinstance(comp, dict):
-        return 0
-    if comp.get("type") == "container":
-        children = (comp.get("layout") or {}).get("viewComponents") or []
-        return sum(_count_view_components(c) for c in children)
-    return 1 if comp.get("fieldId") else 0
-
-
-def _collect_view_field_ids(comp: object, sink: set[str]) -> None:
-    """Walk a viewComponent tree and add every referenced fieldId to `sink`."""
-    if not isinstance(comp, dict):
-        return
-    fid = comp.get("fieldId")
-    if fid:
-        sink.add(fid)
-    if comp.get("type") == "container":
-        for child in (comp.get("layout") or {}).get("viewComponents") or []:
-            _collect_view_field_ids(child, sink)
-
-
-def _lint_version_definition(raw: dict) -> list[str]:
-    """Return structural-warning strings for a blueprint version definition.
-
-    Catches the silent-failure patterns the Govern API accepts but render
-    broken: empty views, empty/invalid artifactPageViewId, empty/invalid step
-    viewIds, fields not referenced by any view. Called from describe-version
-    (read) and set-version-definition (write, pre-push) so the same lint rules
-    live in one place.
-
-    Signoff-step-existence checks live in describe-version because they depend
-    on a separate live API call (list_signoff_configurations), not the raw
-    version definition.
-    """
-    warnings: list[str] = []
-    if not isinstance(raw, dict):
-        return warnings
-
-    ui_def = raw.get("uiDefinition", {}) or {}
-    views = ui_def.get("views", {}) or {}
-    artifact_page_view_id = ui_def.get("artifactPageViewId", "") or ""
-    ui_step_defs = ui_def.get("uiStepDefinitions", {}) or {}
-    workflow = raw.get("workflowDefinition", {}) or {}
-    steps = workflow.get("stepDefinitions", []) or []
-    field_defs = raw.get("fieldDefinitions", {}) or {}
-
-    if not views:
-        warnings.append(
-            "uiDefinition.views is empty — the artifact page will be BLANK in Govern. "
-            "Define at least one view that lists every field."
-        )
-    if not artifact_page_view_id:
-        warnings.append(
-            "uiDefinition.artifactPageViewId is empty — set it to a real "
-            "view id so the main artifact page renders."
-        )
-    elif views and artifact_page_view_id not in views:
-        warnings.append(
-            f"uiDefinition.artifactPageViewId='{artifact_page_view_id}' "
-            f"does not match any view id (have: {sorted(views)})."
-        )
-
-    for s in steps:
-        if not isinstance(s, dict):
-            continue
-        sid = s.get("id", "")
-        if not sid:
-            continue
-        sd = ui_step_defs.get(sid) or {}
-        vid = sd.get("viewId", "") or ""
-        if not vid and views:
-            warnings.append(
-                f"Step '{sid}' has no viewId — its tab will render blank. "
-                f"Set uiStepDefinitions['{sid}'].viewId to a real view id."
-            )
-        elif vid and views and vid not in views:
-            warnings.append(
-                f"Step '{sid}' viewId='{vid}' does not match any view id "
-                f"(have: {sorted(views)})."
-            )
-
-    if views and field_defs:
-        referenced: set[str] = set()
-        for vdef in views.values():
-            if isinstance(vdef, dict):
-                _collect_view_field_ids(vdef.get("viewComponent"), referenced)
-        unreferenced = sorted(set(field_defs.keys()) - referenced)
-        for fid in unreferenced:
-            warnings.append(
-                f"Field '{fid}' is not referenced by any view component — "
-                f"users won't see it. Add it to a view's viewComponents."
-            )
-
-    return warnings
-
-
 @app.command("describe-version")
 def describe_version(
     ctx: typer.Context,
@@ -281,33 +185,10 @@ def describe_version(
         version = bp.get_version(version_id)
         defn = version.get_definition()
         raw = defn.get_raw()
-
-        # Resolve the version's status (DRAFT / ACTIVE / ARCHIVED) from the
-        # blueprint's version list, since the version definition itself
-        # doesn't carry the trace.
-        status = "?"
-        try:
-            for item in bp.list_versions():
-                trace_raw = item.get_raw()
-                bv = trace_raw.get("blueprintVersion", trace_raw)
-                vid_obj = bv.get("id", {}) if isinstance(bv, dict) else {}
-                vid = (
-                    vid_obj.get("versionId", "")
-                    if isinstance(vid_obj, dict)
-                    else str(vid_obj)
-                )
-                if vid == version_id:
-                    status = trace_raw.get("blueprintVersionTrace", {}).get(
-                        "status", "?"
-                    )
-                    break
-        except Exception:
-            pass
+        status = _resolve_version_status(bp, version_id)
 
         # Header
-        bp_def_raw = bp.get_definition().get_raw()
-        bp_inner = bp_def_raw.get("blueprint", bp_def_raw)
-        bp_name = bp_inner.get("name", "") if isinstance(bp_inner, dict) else ""
+        bp_name = _resolve_blueprint_name(bp)
         console.print(
             f"[bold]Blueprint:[/bold] [cyan]{blueprint_id}[/cyan] — {bp_name}"
         )
@@ -317,25 +198,7 @@ def describe_version(
         console.print()
 
         # Fields
-        field_defs = raw.get("fieldDefinitions", {}) or {}
-        field_rows = []
-        for fid, fd in field_defs.items():
-            if not isinstance(fd, dict):
-                continue
-            categories = fd.get("categories") or []
-            field_rows.append(
-                {
-                    "id": fid,
-                    "label": fd.get("label", ""),
-                    "type": fd.get("fieldType", ""),
-                    "source": fd.get("sourceType", "STORE"),
-                    "list": "*" if "listConfig" in fd else "",
-                    "required": "*"
-                    if fd.get("isMandatory") or fd.get("required")
-                    else "",
-                    "categories": ",".join(categories) if categories else "",
-                }
-            )
+        field_rows = _build_field_rows(raw)
         render(
             field_rows,
             ["id", "label", "type", "source", "list", "required", "categories"],
@@ -353,21 +216,8 @@ def describe_version(
         )
 
         # Workflow steps
-        workflow = raw.get("workflowDefinition", {}) or {}
-        steps = workflow.get("stepDefinitions", []) or []
-        initial_id = workflow.get("initialStepId", "")
-        step_rows = []
-        for s in steps:
-            if not isinstance(s, dict):
-                continue
-            sid = s.get("id", "")
-            step_rows.append(
-                {
-                    "id": sid,
-                    "name": s.get("name", ""),
-                    "initial": "*" if sid == initial_id else "",
-                }
-            )
+        steps, initial_id = _workflow_steps(raw)
+        step_rows = _build_step_rows(steps, initial_id)
         render(
             step_rows,
             ["id", "name", "initial"],
@@ -377,36 +227,7 @@ def describe_version(
         )
 
         # Signoffs
-        try:
-            signoff_configs = list(version.list_signoff_configurations())
-        except Exception:
-            signoff_configs = []
-        signoff_rows = []
-        for item in signoff_configs:
-            cfg = item.get_raw() if hasattr(item, "get_raw") else item
-            if not isinstance(cfg, dict):
-                continue
-            cfg_id = cfg.get("id", {})
-            step_id = cfg_id.get("stepId", "") if isinstance(cfg_id, dict) else ""
-            groups = cfg.get("feedbackUsersGroups") or []
-            approvers = cfg.get("approvers") or []
-            approver_types = sorted(
-                {
-                    (a.get("usersContainer") or {}).get("type", "?")
-                    for a in approvers
-                    if isinstance(a, dict)
-                }
-            )
-            signoff_rows.append(
-                {
-                    "step": step_id,
-                    "title": cfg.get("title", ""),
-                    "mandatory": "*" if cfg.get("mandatory") else "",
-                    "approvers": str(len(approvers)),
-                    "approver_types": ",".join(approver_types),
-                    "feedback_groups": str(len(groups)),
-                }
-            )
+        signoff_rows = _load_signoff_rows(version)
         render(
             signoff_rows,
             [
@@ -430,32 +251,7 @@ def describe_version(
         )
 
         # Views
-        ui_def = raw.get("uiDefinition", {}) or {}
-        views = ui_def.get("views", {}) or {}
-        artifact_page_view_id = ui_def.get("artifactPageViewId", "") or ""
-        ui_step_defs = ui_def.get("uiStepDefinitions", {}) or {}
-
-        view_to_steps: dict[str, list[str]] = {}
-        for step_id, sd in ui_step_defs.items():
-            vid = (sd or {}).get("viewId", "") or ""
-            if vid:
-                view_to_steps.setdefault(vid, []).append(step_id)
-
-        view_rows = []
-        for vid, vdef in views.items():
-            if not isinstance(vdef, dict):
-                continue
-            comp = vdef.get("viewComponent", {})
-            view_rows.append(
-                {
-                    "id": vid,
-                    "label": vdef.get("label", ""),
-                    "components": str(_count_view_components(comp)),
-                    "is_artifact_page": "*" if vid == artifact_page_view_id else "",
-                    "used_by_steps": ",".join(sorted(view_to_steps.get(vid, [])))
-                    or "—",
-                }
-            )
+        view_rows = _build_view_rows(raw)
         render(
             view_rows,
             ["id", "label", "components", "is_artifact_page", "used_by_steps"],
@@ -475,18 +271,8 @@ def describe_version(
         # Most rules live in the shared _lint_version_definition helper so
         # set-version-definition can reuse them on push. The signoff-step
         # check stays here because it depends on a separate live API call.
-        warnings = _lint_version_definition(raw)
-
-        valid_step_ids: set[str] = {
-            s.get("id", "") for s in steps if isinstance(s, dict) and s.get("id")
-        }
-        for row in signoff_rows:
-            sid = row["step"]
-            if sid and sid not in valid_step_ids:
-                warnings.append(
-                    f"Signoff configured on step '{sid}' which does not exist "
-                    f"in workflowDefinition.stepDefinitions."
-                )
+        valid_step_ids = {step.get("id", "") for step in steps if step.get("id")}
+        warnings = _describe_version_warnings(raw, valid_step_ids, signoff_rows)
 
         console.print()
         if warnings:
@@ -667,11 +453,14 @@ def delete(
     ),
 ) -> None:
     """Delete a blueprint (admin/architect). All versions and artifacts must be deleted first."""
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.blueprint.delete",
+        subject=f"blueprint '{blueprint_id}'",
+        yes=confirm,
+        prompt=f"Delete Govern blueprint '{blueprint_id}'?",
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -825,11 +614,14 @@ def delete_version(
     ),
 ) -> None:
     """Delete a blueprint version. All artifacts using this version must be deleted first."""
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.blueprint.delete_version",
+        subject=f"blueprint version '{version_id}' on '{blueprint_id}'",
+        yes=confirm,
+        prompt=f"Delete Govern blueprint version '{version_id}' on '{blueprint_id}'?",
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -868,17 +660,13 @@ def set_version_status(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID"),
-    status: str = typer.Argument(
-        help="New status: DRAFT, ACTIVE, or ARCHIVED. Only ACTIVE versions can be applied to artifacts."
+    status: BlueprintStatus = typer.Argument(
+        case_sensitive=False,
+        help="New status: DRAFT, ACTIVE, or ARCHIVED. Only ACTIVE versions can be applied to artifacts.",
     ),
 ) -> None:
     """Update blueprint version status. Typical flow: DRAFT → ACTIVE (publish) → ARCHIVED (retire)."""
     status = status.upper()
-    if status not in _VALID_BV_STATUSES:
-        exit_with_error(
-            f"Invalid status '{status}'. Must be one of: {', '.join(_VALID_BV_STATUSES)}.",
-            code="invalid_status",
-        )
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -1081,11 +869,20 @@ def delete_signoff_config(
     ),
 ) -> None:
     """Delete the signoff configuration on a workflow step."""
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.blueprint.delete_signoff_config",
+        subject=(
+            f"sign-off configuration '{step_id}' on blueprint version "
+            f"'{blueprint_id}/{version_id}'"
+        ),
+        yes=confirm,
+        prompt=(
+            f"Delete sign-off configuration '{step_id}' on Govern blueprint "
+            f"version '{blueprint_id}/{version_id}'?"
+        ),
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -1222,14 +1019,16 @@ def import_version(
         "--ignore-origin-errors",
         help="Don't fail if the origin version referenced in the export no longer exists on this instance.",
     ),
-    signoff_roles: str = typer.Option(
-        "ALL",
+    signoff_roles: SignoffImportRole = typer.Option(
+        SignoffImportRole.ALL,
         "--signoff-roles",
+        case_sensitive=False,
         help="How strictly to validate signoff reviewer/approver references: ALL (strict — fail if any user/group/role/key missing), EXISTING (keep only existing, drop missing silently), NONE (skip validation, drop everything).",
     ),
-    migration_behavior: Optional[str] = typer.Option(
+    migration_behavior: Optional[MigrationBehavior] = typer.Option(
         None,
         "--migration-behavior",
+        case_sensitive=False,
         help="How to handle migration paths in the envelope: FAIL_IMPORT_ON_EXISTING_MIGRATION_OR_MISSING_VERSION (default), IGNORE_MIGRATION_ON_EXISTING_MIGRATION_OR_MISSING_VERSION, or IMPORT_WITHOUT_MIGRATIONS.",
     ),
 ) -> None:
@@ -1248,18 +1047,8 @@ def import_version(
     after verifying the import.
     """
     signoff_roles = signoff_roles.upper()
-    if signoff_roles not in _VALID_SIGNOFF_IMPORT_ROLES:
-        exit_with_error(
-            f"Invalid --signoff-roles '{signoff_roles}'. Must be one of: {', '.join(_VALID_SIGNOFF_IMPORT_ROLES)}.",
-            code="invalid_signoff_roles",
-        )
     if migration_behavior is not None:
         migration_behavior = migration_behavior.upper()
-        if migration_behavior not in _VALID_MIGRATION_BEHAVIORS:
-            exit_with_error(
-                f"Invalid --migration-behavior '{migration_behavior}'. Must be one of: {', '.join(_VALID_MIGRATION_BEHAVIORS)}.",
-                code="invalid_migration_behavior",
-            )
 
     try:
         govern = get_govern_client_from_ctx(ctx)

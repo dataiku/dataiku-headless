@@ -6,7 +6,8 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="Manage Govern custom pages.")
 
@@ -123,11 +124,14 @@ def delete(
     ),
 ) -> None:
     """Delete a custom page (admin/architect). Requires --confirm flag."""
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.custom_page.delete",
+        subject=f"custom page '{page_id}'",
+        yes=confirm,
+        prompt=f"Delete Govern custom page '{page_id}'?",
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         handler = govern.get_custom_pages_handler()

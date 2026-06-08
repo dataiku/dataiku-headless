@@ -7,6 +7,7 @@ import json
 from typer.testing import CliRunner
 
 from dku_cli.main import app
+from tests.helpers import strip_ansi
 
 runner = CliRunner()
 
@@ -337,3 +338,134 @@ def test_flow_create_zone_with_color(patch_client):
     )
     assert result.exit_code == 0
     assert "Created zone" in result.output
+
+
+# ── delete-zone + KB/eval-store move support ──────────────────────────────
+
+
+def test_flow_delete_zone_guarded(patch_client):
+    blocked = runner.invoke(
+        app, ["flow", "delete-zone", "Processing", "--project", "PROJ1"]
+    )
+    assert blocked.exit_code == 77
+
+    ok = runner.invoke(
+        app, ["flow", "delete-zone", "Processing", "--project", "PROJ1", "-y"]
+    )
+    assert ok.exit_code == 0
+    flow = patch_client.get_project("PROJ1").get_flow()
+    zone = [z for z in flow.list_zones() if z.name == "Processing"][0]
+    zone.delete.assert_called_once()
+
+
+def test_flow_move_knowledge_bank_type(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "kb1",
+            "--zone",
+            "Processing",
+            "--type",
+            "KNOWLEDGE_BANK",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj.get_knowledge_bank.assert_called_with("kb1")
+
+
+def test_flow_move_model_evaluation_store_type(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "mes1",
+            "--zone",
+            "Processing",
+            "--type",
+            "MODEL_EVALUATION_STORE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+    proj.get_model_evaluation_store.assert_called_with("mes1")
+
+
+def test_flow_move_folder_type_on_dataset_gives_cross_type_hint(patch_client):
+    """`flow move ds1 --type MANAGED_FOLDER` on a real dataset must surface the
+    prescriptive cross-type hint, not re-raise the resolver's SystemExit as a
+    generic abort. resolve_folder raises SystemExit on a miss; the move handler
+    must treat that as a not-found so the probe runs."""
+    proj = patch_client.get_project("PROJ1")
+    # By-ID folder lookup fails (ds1 is not a folder); the name fallback in
+    # resolve_folder then calls exit_with_error (SystemExit) since ds1 isn't in
+    # list_managed_folders. The DATASET probe still succeeds (ds1 is a dataset).
+    proj.get_managed_folder.side_effect = Exception("NotFoundException: does not exist")
+
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "ds1",
+            "--zone",
+            "Processing",
+            "--type",
+            "MANAGED_FOLDER",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    stripped = strip_ansi(result.output)
+    assert "is a DATASET" in stripped
+    assert "--type DATASET" in stripped or "--type AUTO" in stripped
+
+
+def test_flow_move_type_accepts_lowercase(patch_client):
+    """case_sensitive=False: a lowercase --type must parse and move the item."""
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "ds1",
+            "--zone",
+            "Processing",
+            "--type",
+            "dataset",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+
+
+def test_flow_move_invalid_type_rejected(patch_client):
+    """Invalid --type is rejected by click.Choice (exit 2, 'Invalid value')."""
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "move",
+            "ds1",
+            "--zone",
+            "Processing",
+            "--type",
+            "WIDGET",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2
+    stripped = strip_ansi(result.output)
+    assert "Invalid value" in stripped

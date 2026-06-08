@@ -57,6 +57,19 @@ def get_error_format() -> str:
     return _error_format
 
 
+def reset_output_modes() -> None:
+    """Restore all output-mode globals to their defaults.
+
+    The single authoritative reset for quiet/compact/error-format — used by
+    the test harness between tests, and the right hook for any embedder that
+    runs multiple CLI invocations in one process. Adding a new output-mode
+    global? Reset it here, or it WILL leak across invocations.
+    """
+    set_quiet(False)
+    set_compact(False)
+    set_error_format("text")
+
+
 def filter_fields(
     data: Sequence[dict[str, Any]], columns: list[str], fields: str | None
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -191,6 +204,16 @@ def warn(msg: str) -> None:
 def info(msg: str) -> None:
     if not _quiet:
         err_console.print(f"[dim]{msg}[/dim]")
+
+
+def print_text(text: str) -> None:
+    """Print server-provided text (logs, code) verbatim.
+
+    Disables Rich markup and highlighting: log lines containing brackets
+    (e.g. ``[/SUP001_contract.pdf, ...]``) otherwise raise ``MarkupError``
+    and hide the real content.
+    """
+    console.print(text, markup=False, highlight=False)
 
 
 def render_dag(nodes: dict[str, Any], title: str) -> None:

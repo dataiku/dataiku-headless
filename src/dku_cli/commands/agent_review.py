@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import typer
 
+from dku_cli.commands.agent import _activate_version, _deep_copy_version
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    resolve_agent,
     resolve_agent_review,
     resolve_project,
 )
@@ -22,6 +24,42 @@ from dku_cli.output import (
 app = typer.Typer(
     help="Manage agent reviews — evaluate agent quality with traits, tests, and runs."
 )
+
+
+def _ensure_review_agent_version(proj, review) -> tuple[str | None, bool]:
+    """Ensure the review is pinned to a saved agent version before execution."""
+    review_raw = review.get_raw() if hasattr(review, "get_raw") else {}
+    agent_id = review_raw.get("agentSmartId") or getattr(review, "agent_id", None)
+    if not agent_id:
+        return None, False
+
+    agent = resolve_agent(proj, agent_id)
+    settings = agent.get_settings()
+    agent_raw = settings.get_raw()
+    versions = agent_raw.get("versions", [])
+    version_ids = {v.get("versionId") for v in versions if v.get("versionId")}
+    pinned_version = review_raw.get("agentVersion")
+    if pinned_version and pinned_version in version_ids:
+        return pinned_version, False
+
+    source_vid = agent_raw.get("activeVersion")
+    if source_vid is None and versions:
+        source_vid = versions[0].get("versionId")
+    if source_vid is None:
+        exit_with_error(
+            f"Agent '{agent_id}' has no version to publish for review execution.",
+            code="no_agent_version",
+            details=[
+                f"Create one first: dku agent create-version {agent_id} --activate -P {proj.project_key}",
+            ],
+        )
+
+    _, new_vid = _deep_copy_version(settings, source_vid=source_vid)
+    settings.save()
+    _activate_version(proj, agent.id, new_vid)
+    review_raw["agentVersion"] = new_vid
+    review.save()
+    return new_vid, True
 
 
 @app.command("list")
@@ -479,6 +517,9 @@ def run_review(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
+        published_version, was_published = _ensure_review_agent_version(proj, review)
+        if was_published:
+            info(f"Published agent version '{published_version}' for review execution.")
         result = review.perform_run(wait=wait, run_name=run_name)
 
         if wait:

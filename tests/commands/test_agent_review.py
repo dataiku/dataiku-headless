@@ -483,6 +483,26 @@ def test_run_with_name(patch_client):
     assert result.exit_code == 0
 
 
+def test_run_auto_publishes_missing_review_agent_version(patch_client):
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    review.data.pop("agentVersion", None)
+
+    result = runner.invoke(
+        app, ["agent-review", "run", "review1", "--no-wait", "--project", "PROJ1"]
+    )
+
+    assert result.exit_code == 0
+    agent_raw = (
+        patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
+    )
+    assert [v["versionId"] for v in agent_raw["versions"]] == ["v1", "v2"]
+    assert review.data["agentVersion"] == "v2"
+    patch_client.get_project("PROJ1").get_saved_model(
+        "agent1"
+    ).set_active_version.assert_called_with("v2")
+    review.perform_run.assert_called_once_with(wait=False, run_name=None)
+
+
 # --- list-runs ---
 
 

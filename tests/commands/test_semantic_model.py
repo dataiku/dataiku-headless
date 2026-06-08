@@ -242,7 +242,42 @@ def test_get_version_uninitialized_existing_version(patch_client):
 
     assert result.exit_code == 3
     assert "exists but has no settings yet" in result.output
+    # The hint must be copy-pasteable: add-entity takes only the model ref as a
+    # positional, so the entity name goes behind -n, and the flag is
+    # --from-dataset (not the non-existent --dataset).
+    assert "-n ENTITY_NAME" in result.output
+    assert "--from-dataset DS" in result.output
+    assert "--dataset DS" not in result.output
+    # The broken bare-positional form must not reappear.
+    assert "add-entity sm1 ENTITY_NAME" not in result.output
     sm.list_versions_ids.assert_called_once()
+
+
+def test_get_version_uninitialized_hint_is_parseable(patch_client):
+    # The suggested add-entity invocation must actually parse — the old bare
+    # positional form raised "Got unexpected extra argument (ENTITY_NAME)".
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "-n",
+            "ENTITY_NAME",
+            "--from-dataset",
+            "DS",
+            "--version",
+            "v2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    streams = result.output
+    try:
+        streams += result.stderr
+    except (ValueError, AttributeError):
+        pass
+    assert "unexpected extra argument" not in streams.lower()
 
 
 # ---------------------------------------------------------------------------

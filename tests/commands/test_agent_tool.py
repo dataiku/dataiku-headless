@@ -462,3 +462,124 @@ def test_agent_tool_run_regular_tool_failure_no_plugin_warning(patch_client):
     )
     assert result.exit_code != 0
     assert "Plugin tool" not in result.output
+
+
+# ── DSS 14.6 catalog + Model Predict ergonomics ──────────────────────────
+
+
+def test_agent_tool_types_includes_dss14_catalog(patch_client):
+    """The catalog must include the live-verified DSS 14.6 built-ins —
+    missing entries cost agents dozens of blind type guesses."""
+    result = runner.invoke(app, ["agent-tool", "types", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    type_names = [t["type"] for t in parsed]
+    for expected in (
+        "DatasetRowLookup",
+        "DatasetRowAppend",
+        "VectorStoreSearch",
+        "LLMMeshLLMQuery",
+        "ClassicalPredictionModelPredict",
+        "ApiEndpoint",
+        "ImageGeneration",
+        "GenerateArtifact",
+    ):
+        assert expected in type_names
+
+
+def test_agent_tool_create_with_saved_model_sets_smref(patch_client):
+    """--saved-model must write params.smRef (NOT savedModelId/modelId)."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "churn_predict",
+            "--type",
+            "ClassicalPredictionModelPredict",
+            "--saved-model",
+            "model1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created agent tool" in result.output
+    proj = patch_client.get_project("PROJ1")
+    new_tool = proj.new_agent_tool.return_value.create()
+    settings = new_tool.get_settings.return_value
+    assert settings.params["smRef"] == proj.get_saved_model.return_value.sm_id
+    settings.save.assert_called()
+
+
+def test_agent_tool_create_with_saved_model_wrong_type(patch_client):
+    """--saved-model on a non-ModelPredict type should fail and clean up."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "bad_tool",
+            "--type",
+            "DatasetRowLookup",
+            "--saved-model",
+            "model1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "ClassicalPredictionModelPredict" in result.output
+    new_tool = patch_client.get_project("PROJ1").new_agent_tool.return_value.create()
+    new_tool.delete.assert_called()
+
+
+def test_agent_tool_create_dataset_row_append_accepts_dataset(patch_client):
+    """--dataset works for DatasetRowAppend (same ref fields as lookup)."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "create",
+            "appender",
+            "--type",
+            "DatasetRowAppend",
+            "--dataset",
+            "target_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created agent tool" in result.output
+
+
+def test_agent_tool_set_definition_params_only(patch_client):
+    """--params merges into settings.params without restating the definition."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "set-definition",
+            "tool1",
+            "--params",
+            '{"smRef": "model_abc"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    tool = patch_client.get_project("PROJ1").get_agent_tool("tool1")
+    raw = tool.get_settings.return_value.get_raw.return_value
+    assert raw["params"]["smRef"] == "model_abc"
+    tool.get_settings.return_value.save.assert_called_once()
+
+
+def test_agent_tool_set_definition_requires_definition_or_params(patch_client):
+    """Neither --definition nor --params → prescriptive error."""
+    result = runner.invoke(
+        app,
+        ["agent-tool", "set-definition", "tool1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "--params" in result.output

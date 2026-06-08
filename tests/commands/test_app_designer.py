@@ -532,14 +532,31 @@ def test_app_designer_enable_template_mode_idempotent_when_already_template(
     settings.save.assert_not_called()
 
 
+def test_app_designer_enable_mode_accepts_uppercase(patch_client):
+    """case_sensitive=False: an uppercase --mode TEMPLATE parses to the lowercase
+    enum member and flips the project to APP_TEMPLATE."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_settings.return_value
+    raw_settings = {"projectAppType": "REGULAR"}
+    settings.get_raw.return_value = raw_settings
+
+    result = runner.invoke(
+        app,
+        ["app-designer", "enable", "--project", "PROJ1", "--mode", "TEMPLATE"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "App template enabled" in result.output
+    assert raw_settings["projectAppType"] == "APP_TEMPLATE"
+
+
 def test_app_designer_enable_rejects_invalid_mode(patch_client):
     """Unknown --mode value returns a prescriptive error."""
     result = runner.invoke(
         app,
         ["app-designer", "enable", "--project", "PROJ1", "--mode", "bogus"],
     )
-    assert result.exit_code != 0
-    assert "must be 'setup' or 'template'" in result.output
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
 
 
 def test_app_designer_enable_with_label(patch_client):

@@ -35,6 +35,7 @@ from dku_cli.commands import (
     dataset,
     discussion,
     dq,
+    eal,
     evaluation_store,
     flow,
     folder,
@@ -68,32 +69,54 @@ from dku_cli.commands import (
     workspace,
 )
 
-# Monkey-patch TyperGroup/Command to use Click plain-text help when
-# compact mode is active (saves ~2K tokens on every --help call).
+# Monkey-patch TyperGroup/Command help rendering. Two overrides:
+#   * DKU_AGENT_HELP=1 → emit compact machine-readable spec JSON instead of
+#     human help, so an agent's reflexive `--help` returns exact flags with
+#     minimal token overhead.
+#   * --compact → use Click plain-text help for non-agent output paths.
 _original_group_help = TyperGroup.format_help
 _original_command_help = TyperCommand.format_help
 
 
-def _compact_group_help(self, ctx, formatter):
-    from dku_cli.output import is_compact
+def _agent_help_json(self, ctx, formatter) -> bool:
+    """If DKU_AGENT_HELP=1, write this command's spec JSON and return True."""
+    import os
 
-    if is_compact():
-        click.Group.format_help(self, ctx, formatter)
-    else:
-        _original_group_help(self, ctx, formatter)
+    if os.environ.get("DKU_AGENT_HELP") != "1":
+        return False
+    import json
 
+    from dku_cli.spec import spec_node_for
 
-def _compact_command_help(self, ctx, formatter):
-    from dku_cli.output import is_compact
-
-    if is_compact():
-        click.Command.format_help(self, ctx, formatter)
-    else:
-        _original_command_help(self, ctx, formatter)
+    node = spec_node_for(self, ctx)
+    formatter.write(json.dumps(node, default=str, separators=(",", ":")) + "\n")
+    return True
 
 
-TyperGroup.format_help = _compact_group_help
-TyperCommand.format_help = _compact_command_help
+def _help_renderer(compact_render, rich_render):
+    """Build a format_help override: agent-help JSON > compact plain text > Rich.
+
+    One factory instead of two hand-rolled near-identical patches, so the
+    interception order is defined in exactly one place.
+    """
+
+    def render(self, ctx, formatter):
+        from dku_cli.output import is_compact
+
+        if _agent_help_json(self, ctx, formatter):
+            return
+        if is_compact():
+            compact_render(self, ctx, formatter)
+        else:
+            rich_render(self, ctx, formatter)
+
+    return render
+
+
+TyperGroup.format_help = _help_renderer(click.Group.format_help, _original_group_help)
+TyperCommand.format_help = _help_renderer(
+    click.Command.format_help, _original_command_help
+)
 
 # --compact is normally consumed by the app callback, but --help is an eager
 # Click option that renders before the callback runs. Detect --compact from
@@ -130,6 +153,7 @@ app.add_typer(codestudio.app, name="code-studio")
 app.add_typer(dashboard.app, name="dashboard")
 app.add_typer(discussion.app, name="discussion")
 app.add_typer(dq.app, name="dq")
+app.add_typer(eal.app, name="eal")
 app.add_typer(evaluation_store.app, name="evaluation-store")
 app.add_typer(project.app, name="project")
 app.add_typer(project_deployer.app, name="project-deployer")

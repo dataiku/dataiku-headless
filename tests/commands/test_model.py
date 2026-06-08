@@ -287,7 +287,8 @@ def test_model_create_mlflow_invalid_type(patch_client):
         ],
     )
     assert result.exit_code != 0
-    assert "BINARY_CLASSIFICATION" in result.output
+    # case_sensitive=False makes click display the choices lowercased.
+    assert "binary_classification" in result.output.lower()
 
 
 # --- import-mlflow ---
@@ -439,3 +440,63 @@ def test_model_create_external_invalid_type(patch_client):
         ],
     )
     assert result.exit_code != 0
+
+
+def test_model_set_flow_options_writes_enum_value(patch_client):
+    """rebuild_behavior is written as the plain enum value (no .upper() needed)."""
+    proj = patch_client.get_project("PROJ1")
+    raw = proj.get_saved_model("m1").get_settings().get_raw()
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "set-flow-options",
+            "m1",
+            "--rebuild-behavior",
+            "WRITE_PROTECT",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["flowOptions"]["rebuildBehavior"] == "WRITE_PROTECT"
+
+
+def test_model_set_flow_options_accepts_lowercase(patch_client):
+    """case_sensitive=False: lowercase --rebuild-behavior parses and writes the
+    canonical uppercase value."""
+    proj = patch_client.get_project("PROJ1")
+    raw = proj.get_saved_model("m1").get_settings().get_raw()
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "set-flow-options",
+            "m1",
+            "--rebuild-behavior",
+            "normal",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["flowOptions"]["rebuildBehavior"] == "NORMAL"
+
+
+def test_model_set_publish_policy_writes_enum_value(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    raw = proj.get_saved_model("m1").get_settings().get_raw()
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "set-publish-policy",
+            "m1",
+            "--policy",
+            "explicit",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert raw["publishPolicy"] == "EXPLICIT"

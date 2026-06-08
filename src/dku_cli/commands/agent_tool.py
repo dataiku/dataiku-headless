@@ -13,14 +13,38 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
-# Known built-in agent tool types in DSS (verified on DSS 14.4+).
-# The server accepts these as the `type` param in new_agent_tool().
-# For custom Python tools, create a plugin with python-agent-tools/ and use
-# the Custom_agent_tool_<plugin>_<tool> type format.
+# Built-in agent tool types, live-verified on DSS 14.6 by probe-creating each
+# via new_agent_tool() — DSS exposes NO endpoint to list tool types, so this
+# catalog is CLI-maintained. Catalog gaps cost agents dozens of blind guesses
+# (the Model Predict type took ~28 type + 15 param-field attempts to discover).
+# Other doc-listed tools (SQL Q&A, Google Search, Jira, Salesforce, MCP, ...)
+# are plugin-distributed: use the Custom_agent_tool_<plugin>_<tool> type format.
 BUILTIN_TOOL_TYPES = {
-    "DatasetRowLookup": "Query rows from a dataset by column values (use --dataset)",
+    "DatasetRowLookup": (
+        "Query rows from a dataset by column values (use --dataset; "
+        "params: retrievalMode, maxRecords)"
+    ),
+    "DatasetRowAppend": (
+        "Append rows to a dataset (set the target via --dataset or "
+        "set-definition --params)"
+    ),
     "VectorStoreSearch": "Search a knowledge bank (use --knowledge-bank)",
     "LLMMeshLLMQuery": "Call another LLM or agent via LLM Mesh (use --llm)",
+    "ClassicalPredictionModelPredict": (
+        "Predict with a saved ML model (use --saved-model → params.smRef; "
+        'run input is {"record": {...}} at the root)'
+    ),
+    "ApiEndpoint": (
+        "Call a deployed API service endpoint (configure via set-definition --params)"
+    ),
+    "ImageGeneration": (
+        "Generate images via an image LLM (params: nbImagesToGenerate, "
+        "imageHandlingMode)"
+    ),
+    "GenerateArtifact": (
+        "Render a Jinja template into an artifact (params: templateType, "
+        "outputFormat, variables)"
+    ),
 }
 
 app = typer.Typer(help="Manage DSS agent tools.")
@@ -77,12 +101,24 @@ def create(
         None,
         "--dataset",
         "--ds",
-        help="Dataset name for DatasetRowLookup (auto-detects field name per DSS version)",
+        help=(
+            "Dataset name for DatasetRowLookup / DatasetRowAppend "
+            "(auto-detects field name per DSS version)"
+        ),
     ),
     llm: str | None = typer.Option(
         None,
         "--llm",
         help="LLM ID e.g. openai:conn:gpt-4o (sets llmId for LLMMeshLLMQuery)",
+    ),
+    saved_model: str | None = typer.Option(
+        None,
+        "--saved-model",
+        "--sm",
+        help=(
+            "Saved model ID or name (sets params.smRef for "
+            "ClassicalPredictionModelPredict)"
+        ),
     ),
     params: str | None = typer.Option(
         None,
@@ -99,9 +135,9 @@ def create(
 ) -> None:
     """Create a new agent tool.
 
-    Built-in types: DatasetRowLookup, VectorStoreSearch, LLMMeshLLMQuery.
-    For custom Python tools, build a plugin and use Custom_agent_tool_<plugin>_<tool>.
-    Run 'dku agent-tool types' to see built-in types.
+    Run 'dku agent-tool types' for the built-in type catalog (verified per DSS
+    version). For custom Python tools, build a plugin and use
+    Custom_agent_tool_<plugin>_<tool>.
 
     Use `--params @config.json` for plugin tool types that need configuration
     that has no dedicated flag (e.g. semantic-model-query, google-search-tool).
@@ -112,9 +148,13 @@ def create(
       dku agent-tool create my_lookup --type DatasetRowLookup --dataset customers -P PROJ
       dku agent-tool create my_search --type VectorStoreSearch --kb my_kb -P PROJ
       dku agent-tool create my_llm --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P PROJ
+      dku agent-tool create churn_predict --type ClassicalPredictionModelPredict --saved-model my_model -P PROJ
       dku agent-tool create "Web Search" --type Custom_agent_tool_google-search-tool_google-search-tool -P PROJ
       dku agent-tool create sm_query --type Custom_agent_tool_semantic-models-lab_semantic-model-query \\
-          --params '{"semanticModelId":"sm123","activeVersionOnly":true}' -P PROJ
+          --params '{"config":{"semantic_model_id":"sm","llm_id":"<LLM>","embedding_llm_id":"<EMB>","sql_generation_mode":"VERSION"}}'
+          # NOTE: semantic-model-query needs the config{} wrapper with BOTH llm_id and
+          # embedding_llm_id. A flat {"semanticModelId":...} saves but fails at runtime:
+          # "Tool is not fully configured: Semantic model and LLM are required".
     """
     project_key = resolve_project(project)
     # Validate --params up front so we don't half-create the tool on bad JSON.
@@ -167,7 +207,7 @@ def create(
 
         try:
             # Post-creation param configuration for built-in types
-            if dataset and tool_type == "DatasetRowLookup":
+            if dataset and tool_type in ("DatasetRowLookup", "DatasetRowAppend"):
                 settings = tool.get_settings()
                 # Detect which field the server uses (datasetRef in DSS 14.5+,
                 # datasetSmartName in older versions). Write to existing field,
@@ -183,7 +223,7 @@ def create(
             elif dataset:
                 _cleanup_orphan()
                 exit_with_error(
-                    f"--dataset is only for DatasetRowLookup tools, not {tool_type}.",
+                    f"--dataset is only for DatasetRowLookup/DatasetRowAppend tools, not {tool_type}.",
                     code="invalid_param",
                     details=[
                         f"Example: dku agent-tool create {name} --type DatasetRowLookup --dataset my_ds -P {project_key}",
@@ -201,6 +241,27 @@ def create(
                     code="invalid_param",
                     details=[
                         f"Example: dku agent-tool create {name} --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P {project_key}",
+                    ],
+                )
+
+            if saved_model and tool_type == "ClassicalPredictionModelPredict":
+                from dku_cli.helpers import resolve_saved_model
+
+                sm = resolve_saved_model(proj, saved_model)
+                settings = tool.get_settings()
+                # Verified live (DSS 14.6): the model field is `smRef` — NOT
+                # savedModelId/modelId. Params are not validated server-side,
+                # so a wrong key persists silently and the tool fails at run
+                # time with "Model to use is not specified".
+                settings.params["smRef"] = sm.sm_id
+                settings.save()
+            elif saved_model:
+                _cleanup_orphan()
+                exit_with_error(
+                    f"--saved-model is only for ClassicalPredictionModelPredict tools, not {tool_type}.",
+                    code="invalid_param",
+                    details=[
+                        f"Example: dku agent-tool create {name} --type ClassicalPredictionModelPredict --saved-model my_model -P {project_key}",
                     ],
                 )
 
@@ -229,26 +290,67 @@ def create(
 def set_definition(
     ctx: typer.Context,
     tool_id: str = typer.Argument(help="Agent tool ID"),
-    definition: str = typer.Option(
-        ...,
+    definition: str | None = typer.Option(
+        None,
         "--definition",
         "-d",
-        help="Definition JSON (string, @file.json, or - for stdin)",
+        help="Definition JSON merged at the top level (string, @file.json, or - for stdin)",
+    ),
+    params: str | None = typer.Option(
+        None,
+        "--params",
+        help=(
+            "Params-only JSON merged into settings.params (same escape hatch "
+            'as create --params), e.g. \'{"smRef":"model_id"}\''
+        ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Update agent tool settings (params, config, etc.)."""
+    """Update agent tool settings (params, config, etc.).
+
+    Use --params to merge keys into settings.params without restating the full
+    definition (parity with create --params). Note: DSS does NOT validate
+    params keys against the tool type — unknown keys persist silently, so
+    "it saved" does not mean "it is configured correctly". Check the expected
+    keys with 'dku agent-tool types' and verify with 'dku agent-tool run'.
+    """
     project_key = resolve_project(project)
+    if definition is None and params is None:
+        exit_with_error(
+            "Pass --definition and/or --params.",
+            code="missing_param",
+            details=[
+                'Merge params only:  dku agent-tool set-definition ID --params \'{"smRef":"model_id"}\' -P PROJ',
+                "Replace top-level keys: dku agent-tool set-definition ID -d @definition.json -P PROJ",
+            ],
+        )
+    parsed_params: dict | None = None
+    if params is not None:
+        parsed_params = read_json_input(params)
+        if not isinstance(parsed_params, dict):
+            exit_with_error(
+                "--params must be a JSON object.",
+                code="bad_argument",
+                details=[
+                    'Pass a JSON object, e.g. \'{"key":"value"}\', @file.json, '
+                    "or '-' for stdin.",
+                ],
+            )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         tool = proj.get_agent_tool(tool_id)
         settings = tool.get_settings()
         raw = settings.get_raw()
-        updates = read_json_input(definition)
-        raw.update(updates)
+        if definition is not None:
+            updates = read_json_input(definition)
+            raw.update(updates)
+        if parsed_params:
+            raw.setdefault("params", {}).update(parsed_params)
         settings.save()
         success(f"Updated agent tool '{tool_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -321,7 +423,20 @@ def run(
     ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Run an agent tool."""
+    """Run an agent tool.
+
+    --input is the tool's logical input at the ROOT (the SDK adds the
+    {"input": {...}} envelope — do not nest it yourself). Verified shapes:
+
+      ClassicalPredictionModelPredict: '{"record": {"feat1": 1, "feat2": "a"}}'
+      VectorStoreSearch:               '{"query": "search terms"}'
+      DatasetRowLookup:                lookup values for the configured columns
+
+    The exact shape for a configured tool is in its descriptor:
+    dku agent-tool get TOOL_ID -P PROJ -o json | jq -r '.quickTestQueryStr'
+    (note: quickTestQueryStr shows the ENVELOPED form — strip the outer
+    {"input": ...} wrapper when passing --input).
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:

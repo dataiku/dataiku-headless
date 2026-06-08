@@ -6,6 +6,11 @@ from typing import Optional
 
 import typer
 
+from dku_cli.enums import (
+    SignoffApprovalStatus,
+    SignoffFeedbackStatus,
+    SignoffStatus,
+)
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import render, render_raw, resolve_output_format, success
@@ -90,27 +95,12 @@ def update_status(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID"),
-    status: str = typer.Argument(
-        help="New status: NOT_STARTED, WAITING_FOR_FEEDBACK, WAITING_FOR_APPROVAL, APPROVED, REJECTED, ABANDONED"
+    status: SignoffStatus = typer.Argument(
+        case_sensitive=False,
+        help="New status: NOT_STARTED, WAITING_FOR_FEEDBACK, WAITING_FOR_APPROVAL, APPROVED, REJECTED, ABANDONED",
     ),
 ) -> None:
     """Update the status of a sign-off."""
-    valid = {
-        "NOT_STARTED",
-        "WAITING_FOR_FEEDBACK",
-        "WAITING_FOR_APPROVAL",
-        "APPROVED",
-        "REJECTED",
-        "ABANDONED",
-    }
-    if status not in valid:
-        from dku_cli.errors import exit_with_error
-
-        exit_with_error(
-            f"Invalid sign-off status: '{status}'",
-            code="invalid_argument",
-            details=[f"Valid statuses: {', '.join(sorted(valid))}"],
-        )
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -131,10 +121,11 @@ def add_feedback(
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID"),
     group_id: str = typer.Option(..., "--group-id", "-g", help="Feedback group ID"),
-    status: str = typer.Option(
+    status: SignoffFeedbackStatus = typer.Option(
         ...,
         "--status",
         "-s",
+        case_sensitive=False,
         help="Feedback status: APPROVED, MINOR_ISSUE, MAJOR_ISSUE",
     ),
     comment: Optional[str] = typer.Option(
@@ -142,15 +133,6 @@ def add_feedback(
     ),
 ) -> None:
     """Add feedback to a sign-off."""
-    valid = {"APPROVED", "MINOR_ISSUE", "MAJOR_ISSUE"}
-    if status not in valid:
-        from dku_cli.errors import exit_with_error
-
-        exit_with_error(
-            f"Invalid feedback status: '{status}'",
-            code="invalid_argument",
-            details=[f"Valid statuses: {', '.join(sorted(valid))}"],
-        )
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -170,23 +152,18 @@ def add_approval(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID"),
-    status: str = typer.Option(
-        ..., "--status", "-s", help="Approval status: APPROVED, REJECTED, ABANDONED"
+    status: SignoffApprovalStatus = typer.Option(
+        ...,
+        "--status",
+        "-s",
+        case_sensitive=False,
+        help="Approval status: APPROVED, REJECTED, ABANDONED",
     ),
     comment: Optional[str] = typer.Option(
         None, "--comment", "-c", help="Approval comment"
     ),
 ) -> None:
     """Add approval to a sign-off."""
-    valid = {"APPROVED", "REJECTED", "ABANDONED"}
-    if status not in valid:
-        from dku_cli.errors import exit_with_error
-
-        exit_with_error(
-            f"Invalid approval status: '{status}'",
-            code="invalid_argument",
-            details=[f"Valid statuses: {', '.join(sorted(valid))}"],
-        )
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)

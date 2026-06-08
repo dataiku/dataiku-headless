@@ -8,8 +8,10 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from dku_cli.commands.job import _emit_long_running_hint
 from dku_cli.main import app
 from dku_cli.output import set_quiet
+from tests.helpers import strip_ansi
 
 runner = CliRunner()
 
@@ -99,6 +101,19 @@ def test_job_log(patch_client):
     assert "Log line" in result.output
 
 
+def test_job_log_bracketed_content_is_not_parsed_as_markup(patch_client):
+    """Raw log lines with brackets (file lists, [ERROR] tags) crashed Rich with
+    MarkupError and hid the real error. Logs must print verbatim."""
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = (
+        "[2026-06-03 10:00] [/SUP001_contract.pdf, /SUP002.pdf] [ERROR] embed failed"
+    )
+    result = runner.invoke(app, ["job", "log", "job1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "SUP001_contract.pdf" in result.output
+    assert "embed failed" in result.output
+
+
 def test_job_log_tail(patch_client):
     job = patch_client.get_project("PROJ1").get_job("job1")
     job.get_log.return_value = "line1\nline2\nline3\nline4"
@@ -163,6 +178,15 @@ def test_job_abort(patch_client):
     assert result.exit_code == 0
 
 
+def test_job_long_running_hint_uses_valid_abort_command(capsys):
+    _emit_long_running_hint("job1", "PROJ1", 180)
+
+    captured = capsys.readouterr()
+    assert "dku job abort job1" in captured.err
+    assert "-P PROJ1" in captured.err
+    assert " -y" not in captured.err
+
+
 # ── Phase 4: wait command ──────────────────────────────────────────────
 
 
@@ -203,15 +227,16 @@ def test_job_wait_timeout(patch_client):
     assert "Timed out" in result.output
 
 
-def test_job_wait_failed(patch_client):
-    """Job finishes with FAILED state."""
+def test_job_wait_failed_exits_nonzero(patch_client):
+    """`job wait` on a FAILED job must exit non-zero so agents chaining
+    `job wait && next-step` stop instead of marching past a failed build."""
     proj = patch_client.get_project("PROJ1")
     job_mock = proj.get_job("job1")
     job_mock.get_status.return_value = {"baseStatus": {"state": "FAILED"}}
     result = runner.invoke(app, ["job", "wait", "job1", "--project", "PROJ1"])
-    assert result.exit_code == 0
-    assert "finished" in result.output
+    assert result.exit_code != 0
     assert "FAILED" in result.output
+    assert "job log" in result.output  # prescriptive 'Inspect why' hint
 
 
 # ── Phase: job run command ───────────────────────────────────────────
@@ -323,8 +348,33 @@ def test_job_run_wait(patch_client):
     assert "completed" in result.output.lower() or "DONE" in result.output
 
 
+def test_job_run_wait_failed_exits_nonzero(patch_client):
+    """`job run --wait` on a FAILED build must exit non-zero (DONE still exits 0).
+
+    Agents chain `job run --wait && next-step`; exit 0 on FAILED would let the
+    chain continue past a broken build."""
+    proj = patch_client.get_project("PROJ1")
+    started_job = proj.new_job.return_value.start.return_value
+    started_job.get_status.return_value = {"baseStatus": {"state": "FAILED"}}
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "my_dataset",
+            "--wait",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "FAILED" in result.output
+    assert "job log" in result.output  # prescriptive 'Inspect why' hint
+
+
 def test_job_run_invalid_type(patch_client):
-    """Invalid job type should fail."""
+    """Invalid job type is rejected at parse time by click.Choice (exit 2)."""
     result = runner.invoke(
         app,
         [
@@ -338,4 +388,6 @@ def test_job_run_invalid_type(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 1
+    assert result.exit_code == 2
+    stripped = strip_ansi(result.output)
+    assert "Invalid value" in stripped

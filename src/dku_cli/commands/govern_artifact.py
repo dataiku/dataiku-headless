@@ -9,7 +9,8 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
-from dku_cli.output import error, render, render_raw, resolve_output_format, success
+from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.safety import Tier, guard
 
 app = typer.Typer(
     help="Manage Govern artifacts. Use 'govern blueprint fields' to discover field schemas."
@@ -323,11 +324,14 @@ def delete(
     ),
 ) -> None:
     """Delete a Govern artifact. Requires --confirm / --yes flag."""
-    if not confirm:
-        error(
-            "Deletion requires --confirm (or --yes / -y) flag. This action is irreversible."
-        )
-        raise typer.Exit(1)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="govern.artifact.delete",
+        subject=f"artifact '{artifact_id}'",
+        yes=confirm,
+        prompt=f"Delete Govern artifact '{artifact_id}'?",
+    )
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)

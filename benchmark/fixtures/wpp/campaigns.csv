@@ -1,6 +1,0 @@
-campaign_id,campaign_name,brand,market,budget_eur,objective,start_date,end_date
-CMP001,Spring Collection Launch,Aurora,DE,2000000,awareness,2026-03-01,2026-05-31
-CMP002,Summer Mega Push,Aurora,EU,8000000,conversion,2026-06-01,2026-08-31
-CMP003,Always-On Search,Nimbus,UK,1200000,performance,2026-01-01,2026-12-31
-CMP004,Global Brand Relaunch,Vertex,US,6500000,awareness,2026-04-01,2026-09-30
-CMP005,Loyalty Reactivation,Nimbus,FR,800000,retention,2026-02-01,2026-06-30

@@ -11,8 +11,16 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
+from functools import wraps
+from typing import TypeVar, cast
+
+import click
+import typer
 
 from dku_cli.output import error, get_error_format
+
+F = TypeVar("F", bound=Callable[..., object])
 
 
 class AuthError(Exception):
@@ -140,6 +148,65 @@ def _handle_invalid_api_key(msg: str) -> tuple[str, list[str]] | None:
     )
 
 
+def _handle_project_access_denied(
+    msg: str, project_key: str | None = None
+) -> tuple[str, list[str]] | None:
+    """Detect a project-scoped 401 and prescribe key-vs-name, NOT re-auth.
+
+    DSS returns ``UnauthorizedException: Failed to read project permissions`` for
+    a project the caller cannot access — and it does NOT distinguish "project
+    does not exist" from "exists but you lack permission" (it refuses to reveal
+    existence). The generic 401/Unauthorized branch in ``handle_api_error`` then
+    blames the API key, sending agents into a pointless re-auth loop even though
+    their key is perfectly valid (``dku whoami`` works fine). This is the exact
+    failure mode that wasted 6 agent steps in a live benchmark run.
+
+    A genuinely invalid key surfaces earlier as ``NotAuthenticatedException`` /
+    ``Unknown API Key`` (handled by ``_handle_invalid_api_key``), so by the time
+    we reach this project-permissions failure the instance credentials are sound.
+
+    Fires on either of two signals:
+      * The exact DSS message ``Failed to read project permissions`` — catches
+        ANY project-scoped command (dataset, recipe, scenario…), even when the
+        caller did not thread a project key.
+      * A 401/Unauthorized when the caller DID name a project (``project_key``
+        set) — broader, and future-proofs the wired commands against DSS
+        rewording the permissions message.
+
+    Returns (message, details) or None if the error isn't this case.
+    """
+    perm_failure = "Failed to read project permissions" in msg
+    named_project_401 = project_key is not None and (
+        "Unauthorized" in msg or "401" in msg
+    )
+    if not (perm_failure or named_project_401):
+        return None
+
+    subject = f"Project '{project_key}'" if project_key else "That project key"
+    details = [
+        "DSS returns the same error whether the project does not exist or you",
+        "lack permission on it — it will not say which.",
+        "",
+        "This is NOT an API-key problem: your instance credentials work",
+        "(`dku whoami` confirms them). Do NOT run `dku auth login` again.",
+        "",
+        "Most likely cause: project KEY vs display NAME. A key is UPPERCASE with",
+        "no spaces (e.g. ADVISORGPT) and differs from the display name (e.g.",
+        "'AdvisorGPT'). Project-scoped commands require the KEY, not the name.",
+        "",
+        "List projects and read the KEY column (not NAME):",
+        "  dku project list",
+    ]
+    if project_key:
+        details.append(
+            f"Find the row whose NAME is '{project_key}' and retry with its KEY."
+        )
+    return (
+        f"{subject} was not found, or your account cannot access it.",
+        details,
+    )
+
+
 def _handle_pivot_modality_scan(msg: str) -> tuple[str, list[str]] | None:
     """Detect a Pivot recipe modality-scan failure and prescribe restructuring.
 
@@ -166,10 +233,6 @@ def _handle_pivot_modality_scan(msg: str) -> tuple[str, list[str]] | None:
             "fan a column-keyed value into N output columns for a downstream",
             "join, compute those N columns inline upstream with `add-formula`",
             "(one per modality) and skip the pivot entirely.",
-            "",
-            "See: dku-cli skill cheat-sheet rule 15 +",
-            "skills/dku-cli/references/common-gotchas.md +",
-            "skills/migration/ayx/translation.md § CrossTab.",
         ],
     )
 
@@ -200,8 +263,6 @@ def _handle_fold_plugin_missing(msg: str) -> tuple[str, list[str]] | None:
             "still in your way after reinstalling, consider whether you need",
             "the unpivot at all — most are eliminated by computing per-group",
             "aggregates *before* the reshape.",
-            "",
-            "See: dku-cli skill cheat-sheet rule 15.",
         ],
     )
 
@@ -275,8 +336,23 @@ def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
     return None
 
 
-def handle_api_error(e: Exception) -> None:
-    """Convert dataikuapi exceptions to friendly messages and exit."""
+def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
+    """Convert dataikuapi exceptions to friendly messages and exit.
+
+    Args:
+        e: The exception raised by ``dataikuapi``.
+        project_key: Key of the project the failed call targeted, if any. Lets a
+            project-scoped 401 become a prescriptive key-vs-name message instead
+            of a misleading "check your API key"; see
+            ``_handle_project_access_denied`` for the full rationale.
+    """
+    # @handle_errors wraps the whole command body, so a usage error raised by
+    # resolve_project()/resolve_output_format() (typer.BadParameter, a
+    # click.UsageError) reaches here. Re-raise it so Click formats it as a usage
+    # error at exit 2 instead of mislabeling it "DSS API error" at exit 1.
+    if isinstance(e, (SystemExit, typer.Exit, click.exceptions.UsageError)):
+        raise e
+
     msg = str(e)
 
     status = 1
@@ -326,16 +402,36 @@ def handle_api_error(e: Exception) -> None:
             status=2,
         )
 
+    # Project-scoped 401 — an unknown OR inaccessible project, NOT a bad key.
+    # Must run BEFORE the generic 401/Unauthorized branch (the DSS message
+    # "Failed to read project permissions" contains "Unauthorized") so agents
+    # get key-vs-name guidance instead of a bogus "check your API key". Status 3
+    # (not_found), not 2 (auth), so the recovery path is "use the right project
+    # key", not "re-authenticate".
+    project_denied = _handle_project_access_denied(msg, project_key)
+    if project_denied:
+        exit_with_error(
+            project_denied[0],
+            code="project_not_found",
+            details=project_denied[1],
+            status=3,
+        )
+
     # dataikuapi raises generic Exceptions with HTTP status info
     # Check "not found" before "unauthorized" — DSS wraps NotFoundException in UnauthorizedException
-    if "NotFoundException" in msg or "does not exist" in msg:
+    if (
+        "NotFoundException" in msg
+        or "does not exist" in msg
+        or "404" in msg
+        or "Not found" in msg.lower()
+    ):
         status = 3
         code = "not_found"
-        details = [f"Not found: {msg}"]
-    elif "404" in msg or "Not found" in msg.lower():
-        status = 3
-        code = "not_found"
-        details = [f"Not found: {msg}"]
+        details = [
+            f"Not found: {msg}",
+            "Check the name and project (-P), then list what exists with the",
+            "matching `dku <noun> list -P <project>` (e.g. dku dataset list, dku recipe list).",
+        ]
     elif "401" in msg or "Unauthorized" in msg:
         status = 2
         code = "auth_error"
@@ -368,3 +464,29 @@ def handle_api_error(e: Exception) -> None:
         details = [f"DSS API error: {msg}"]
 
     exit_with_error(details[0], code=code, details=details[1:], status=status)
+
+
+def handle_errors(func: F) -> F:
+    """Decorate a command function with the standard DSS API error mapper.
+
+    When the wrapped command was invoked with a ``project`` keyword (the ``-P`` /
+    ``--project`` value, even if it's a display name rather than a KEY), that
+    hint is threaded into ``handle_api_error`` so a project-scoped 401 surfaces
+    the prescriptive key-vs-name guidance instead of a bogus "check your API
+    key" re-auth loop — matching the per-call ``handle_api_error(e,
+    project_key=...)`` sites elsewhere.
+    """
+
+    @wraps(func)
+    def wrapper(*args: object, **kwargs: object) -> object:
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            project_hint = kwargs.get("project")
+            handle_api_error(
+                e,
+                project_key=project_hint if isinstance(project_hint, str) else None,
+            )
+            return None
+
+    return cast(F, wrapper)

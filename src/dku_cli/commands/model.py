@@ -7,6 +7,12 @@ from typing import List
 
 import typer
 
+from dku_cli.enums import (
+    CrossProjectBuildBehavior,
+    PredictionType,
+    PublishPolicy,
+    RebuildBehavior,
+)
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -238,15 +244,6 @@ def versions(
         handle_api_error(e)
 
 
-_VALID_REBUILD_BEHAVIOR = {"NORMAL", "WRITE_PROTECT", "EXPLICIT_REBUILD"}
-_VALID_CROSS_PROJECT_BEHAVIOR = {
-    "DEFAULT",
-    "AUTO_BUILD",
-    "DO_NOT_BUILD",
-    "EXPLICIT_REBUILD",
-}
-
-
 @app.command("set-flow-options")
 def set_flow_options(
     ctx: typer.Context,
@@ -257,15 +254,17 @@ def set_flow_options(
         "--virtualizable/--no-virtualizable",
         help="Allow this model to be virtualized in downstream flow zones (settings.flowOptions.virtualizable).",
     ),
-    rebuild_behavior: str | None = typer.Option(
+    rebuild_behavior: RebuildBehavior | None = typer.Option(
         None,
         "--rebuild-behavior",
-        help=f"Rebuild behavior: {', '.join(sorted(_VALID_REBUILD_BEHAVIOR))}. Sets settings.flowOptions.rebuildBehavior.",
+        case_sensitive=False,
+        help=f"Rebuild behavior: {', '.join(m.value for m in RebuildBehavior)}. Sets settings.flowOptions.rebuildBehavior.",
     ),
-    cross_project_build_behavior: str | None = typer.Option(
+    cross_project_build_behavior: CrossProjectBuildBehavior | None = typer.Option(
         None,
         "--cross-project-build-behavior",
-        help=f"Cross-project rebuild: {', '.join(sorted(_VALID_CROSS_PROJECT_BEHAVIOR))}. Sets settings.flowOptions.crossProjectBuildBehavior.",
+        case_sensitive=False,
+        help=f"Cross-project rebuild: {', '.join(m.value for m in CrossProjectBuildBehavior)}. Sets settings.flowOptions.crossProjectBuildBehavior.",
     ),
     ignore_error_status_on_build: bool | None = typer.Option(
         None,
@@ -282,21 +281,6 @@ def set_flow_options(
         dku model set-flow-options 7bdMB26q --virtualizable \\
             --rebuild-behavior NORMAL --ignore-error-status-on-build -P PROJ
     """
-    if rebuild_behavior and rebuild_behavior.upper() not in _VALID_REBUILD_BEHAVIOR:
-        exit_with_error(
-            f"Invalid --rebuild-behavior '{rebuild_behavior}'.",
-            code="invalid_argument",
-            details=[f"Valid: {', '.join(sorted(_VALID_REBUILD_BEHAVIOR))}"],
-        )
-    if (
-        cross_project_build_behavior
-        and cross_project_build_behavior.upper() not in _VALID_CROSS_PROJECT_BEHAVIOR
-    ):
-        exit_with_error(
-            f"Invalid --cross-project-build-behavior '{cross_project_build_behavior}'.",
-            code="invalid_argument",
-            details=[f"Valid: {', '.join(sorted(_VALID_CROSS_PROJECT_BEHAVIOR))}"],
-        )
     if (
         virtualizable is None
         and rebuild_behavior is None
@@ -322,9 +306,9 @@ def set_flow_options(
         if virtualizable is not None:
             flow["virtualizable"] = bool(virtualizable)
         if rebuild_behavior is not None:
-            flow["rebuildBehavior"] = rebuild_behavior.upper()
+            flow["rebuildBehavior"] = rebuild_behavior.value
         if cross_project_build_behavior is not None:
-            flow["crossProjectBuildBehavior"] = cross_project_build_behavior.upper()
+            flow["crossProjectBuildBehavior"] = cross_project_build_behavior.value
         if ignore_error_status_on_build is not None:
             flow["ignoreErrorStatusOnBuild"] = bool(ignore_error_status_on_build)
         settings.save()
@@ -340,18 +324,16 @@ def set_flow_options(
         handle_api_error(e)
 
 
-_VALID_PUBLISH_POLICIES = {"UNCONDITIONAL", "CONDITIONAL", "EXPLICIT"}
-
-
 @app.command("set-publish-policy")
 def set_publish_policy(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    policy: str = typer.Option(
+    policy: PublishPolicy = typer.Option(
         ...,
         "--policy",
-        help=f"Publish policy: {', '.join(sorted(_VALID_PUBLISH_POLICIES))}. Sets settings.publishPolicy.",
+        case_sensitive=False,
+        help=f"Publish policy: {', '.join(m.value for m in PublishPolicy)}. Sets settings.publishPolicy.",
     ),
 ) -> None:
     """Set the publish policy on a saved model.
@@ -360,12 +342,6 @@ def set_publish_policy(
     CONDITIONAL  = only when newer version beats current on chosen metric.
     EXPLICIT     = no auto-activation; manual `set-active-version` only.
     """
-    if policy.upper() not in _VALID_PUBLISH_POLICIES:
-        exit_with_error(
-            f"Invalid --policy '{policy}'.",
-            code="invalid_argument",
-            details=[f"Valid: {', '.join(sorted(_VALID_PUBLISH_POLICIES))}"],
-        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -373,9 +349,9 @@ def set_publish_policy(
         model = proj.get_saved_model(model_id)
         settings = model.get_settings()
         raw = settings.get_raw()
-        raw["publishPolicy"] = policy.upper()
+        raw["publishPolicy"] = policy.value
         settings.save()
-        success(f"Set publishPolicy={policy.upper()} on saved model '{model_id}'")
+        success(f"Set publishPolicy={policy.value} on saved model '{model_id}'")
     except Exception as e:
         if is_not_found_error(e):
             exit_with_error(
@@ -733,17 +709,15 @@ def set_metadata(
         handle_api_error(e)
 
 
-_PREDICTION_TYPES = frozenset({"BINARY_CLASSIFICATION", "MULTICLASS", "REGRESSION"})
-
-
 @app.command("create-mlflow")
 def create_mlflow(
     ctx: typer.Context,
     name: str = typer.Argument(help="Name for the MLflow saved model"),
-    prediction_type: str | None = typer.Option(
+    prediction_type: PredictionType | None = typer.Option(
         None,
         "--prediction-type",
         "-t",
+        case_sensitive=False,
         help="BINARY_CLASSIFICATION, MULTICLASS, or REGRESSION (optional)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -758,15 +732,6 @@ def create_mlflow(
       dku model create-mlflow "Custom Model" -P PROJ
     """
     project_key = resolve_project(project)
-    if prediction_type and prediction_type not in _PREDICTION_TYPES:
-        exit_with_error(
-            f"Invalid prediction type: '{prediction_type}'",
-            code="invalid_argument",
-            details=[
-                f"Supported types: {', '.join(sorted(_PREDICTION_TYPES))}",
-                "Omit --prediction-type for non-standard prediction types.",
-            ],
-        )
     fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
@@ -842,10 +807,11 @@ def import_mlflow(
 def create_external(
     ctx: typer.Context,
     name: str = typer.Argument(help="Name for the external model"),
-    prediction_type: str = typer.Option(
+    prediction_type: PredictionType = typer.Option(
         ...,
         "--prediction-type",
         "-t",
+        case_sensitive=False,
         help="BINARY_CLASSIFICATION, MULTICLASS, or REGRESSION",
     ),
     protocol: str = typer.Option(
@@ -876,12 +842,6 @@ def create_external(
         --protocol vertex-ai --region europe-west1 --connection vertex_conn -P PROJ
     """
     project_key = resolve_project(project)
-    if prediction_type not in _PREDICTION_TYPES:
-        exit_with_error(
-            f"Invalid prediction type: '{prediction_type}'",
-            code="invalid_argument",
-            details=[f"Supported types: {', '.join(sorted(_PREDICTION_TYPES))}"],
-        )
     fmt = resolve_output_format(output)
     try:
         if config:

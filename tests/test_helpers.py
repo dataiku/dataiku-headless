@@ -165,3 +165,69 @@ def test_get_client_from_ctx_blocks_wrong_node_type():
         # Opt-in to ALL_NODE_TYPES lets it through.
         get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         mock_get.assert_called_once()
+
+
+def test_resolve_build_output_types_classifies_kb_and_eval_store():
+    """KB outputs build as RETRIEVABLE_KNOWLEDGE, eval stores as
+    MODEL_EVALUATION_STORE — the types the SDK's own build() methods post.
+    Falling through to DATASET produced the misleading
+    "dataset <id> does not exist" error on `dku recipe run`."""
+    from dku_cli.helpers import resolve_build_output_types
+
+    project = MagicMock()
+    project.list_managed_folders.return_value = [{"id": "fold1", "name": "Folder"}]
+    project.list_saved_models.return_value = [{"id": "model1", "name": "Model"}]
+    project.list_knowledge_banks.return_value = [{"id": "kb123", "name": "My KB"}]
+    project._fetch_evaluation_stores.return_value = [
+        {"id": "mes9", "name": "Agent Evals", "mesFlavor": "LLM"}
+    ]
+
+    resolved = resolve_build_output_types(
+        project, ["ds1", "fold1", "model1", "kb123", "My KB", "mes9", "Agent Evals"]
+    )
+    assert resolved == [
+        ("ds1", "DATASET"),
+        ("fold1", "MANAGED_FOLDER"),
+        ("model1", "SAVED_MODEL"),
+        ("kb123", "RETRIEVABLE_KNOWLEDGE"),
+        ("kb123", "RETRIEVABLE_KNOWLEDGE"),
+        ("mes9", "MODEL_EVALUATION_STORE"),
+        ("mes9", "MODEL_EVALUATION_STORE"),
+    ]
+    project._fetch_evaluation_stores.assert_called_once_with(flavor=None)
+
+
+def test_resolve_build_output_types_tolerates_missing_kb_mes_endpoints():
+    """Older DSS without KB/eval-store endpoints must not break dataset builds."""
+    from dku_cli.helpers import resolve_build_output_types
+
+    project = MagicMock()
+    project.list_managed_folders.return_value = []
+    project.list_saved_models.return_value = []
+    project.list_knowledge_banks.side_effect = Exception("404")
+    project._fetch_evaluation_stores.side_effect = Exception("404")
+
+    assert resolve_build_output_types(project, ["ds1"]) == [("ds1", "DATASET")]
+
+
+def test_resolve_build_output_types_skips_kb_mes_for_plain_datasets():
+    """The hot path (all refs are folders/models/datasets) must not pay the two
+    expensive KB + eval-store round-trips — they are deferred until a ref isn't
+    already a folder or saved model."""
+    from dku_cli.helpers import resolve_build_output_types
+
+    project = MagicMock()
+    project.list_managed_folders.return_value = [{"id": "fold1", "name": "Folder"}]
+    project.list_saved_models.return_value = [{"id": "model1", "name": "Model"}]
+    project.list_datasets.return_value = [{"name": "ds1"}]
+
+    resolved = resolve_build_output_types(project, ["ds1", "fold1", "model1"])
+    assert resolved == [
+        ("ds1", "DATASET"),
+        ("fold1", "MANAGED_FOLDER"),
+        ("model1", "SAVED_MODEL"),
+    ]
+    # ds1 short-circuits to DATASET via the cheap dataset list, so the two
+    # expensive KB/eval-store lookups must NOT be issued.
+    project.list_knowledge_banks.assert_not_called()
+    project._fetch_evaluation_stores.assert_not_called()

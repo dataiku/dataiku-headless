@@ -442,6 +442,41 @@ def test_ml_set_algorithm(patch_client):
     settings.save.assert_called_once()
 
 
+# --- set-features (bulk, transactional) ---
+
+
+def test_ml_set_features_single_transactional_write(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-features",
+            "a1",
+            "t1",
+            "--reject",
+            "col_a,col_b",
+            "--input",
+            "col_c",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Set 3 feature role(s)" in result.output
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    # The whole point: ONE save for N features (not N saves that race).
+    settings.save.assert_called_once()
+    assert settings.get_feature_preprocessing.call_count == 3
+
+
+def test_ml_set_features_requires_at_least_one_role(patch_client):
+    result = runner.invoke(
+        app, ["ml", "set-features", "a1", "t1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "No feature roles" in result.output
+
+
 # --- delete ---
 
 
@@ -454,3 +489,182 @@ def test_ml_delete(patch_client):
     patch_client.get_project("PROJ1").get_ml_task(
         "a1", "t1"
     ).delete.assert_called_once()
+
+
+# ── models metrics + redeploy stale-input advisory ────────────────────────
+
+
+def test_ml_models_surfaces_headline_metric(patch_client):
+    """Table shows METRIC/SCORE so agents can pick the best model without
+    N+1 `dku ml details` calls."""
+    result = runner.invoke(app, ["ml", "models", "a1", "t1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "ROC_AUC" in result.output
+    assert "0.92" in result.output
+
+
+def test_ml_models_json_includes_all_snippet_metrics(patch_client):
+    result = runner.invoke(
+        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    row = parsed[0]
+    assert row["metric"] == "ROC_AUC"
+    assert row["score"] == 0.92
+    assert row["score_direction"] == "higher"
+    assert row["rank_score"] == 0.92
+    assert row["auc"] == 0.92
+    assert row["f1"] == 0.9
+    assert row["state"] == "DONE"
+
+
+def test_ml_models_rank_score_handles_lower_is_better_metrics(patch_client):
+    mltask = patch_client.get_project("PROJ1").get_ml_task("a1", "t1")
+    mltask.get_trained_models_ids.return_value = ["model-worse", "model-better"]
+    snippets = {
+        "model-worse": {
+            "algorithm": "LinearRegression",
+            "sessionId": "s1",
+            "evaluationMetric": "RMSE",
+            "rmse": 2.0,
+            "trainInfo": {"state": "DONE"},
+        },
+        "model-better": {
+            "algorithm": "RandomForest",
+            "sessionId": "s1",
+            "evaluationMetric": "RMSE",
+            "rmse": 1.25,
+            "trainInfo": {"state": "DONE"},
+        },
+    }
+    mltask.get_trained_model_snippet.side_effect = lambda **kwargs: snippets[
+        kwargs["id"]
+    ]
+
+    result = runner.invoke(
+        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+    )
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["score_direction"] == "lower"
+    assert parsed[0]["rank_score"] == -2.0
+    assert max(parsed, key=lambda row: row["rank_score"])["id"] == "model-better"
+
+
+def test_ml_models_bool_score_excluded_consistently(patch_client):
+    """A boolean-valued metric must render score='' AND rank_score='' — the two
+    paths must agree (bool is a subclass of int, so it must be excluded in both,
+    not rendered as round(True)=1 in the score column)."""
+    mltask = patch_client.get_project("PROJ1").get_ml_task("a1", "t1")
+    mltask.get_trained_models_ids.return_value = ["model-bool"]
+    mltask.get_trained_model_snippet.side_effect = lambda **kwargs: {
+        "algorithm": "RandomForest",
+        "sessionId": "s1",
+        "evaluationMetric": "ROC_AUC",
+        "auc": True,  # pathological boolean metric value
+        "trainInfo": {"state": "DONE"},
+    }
+
+    result = runner.invoke(
+        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    row = json.loads(result.output)[0]
+    assert row["score"] == ""
+    assert row["rank_score"] == ""
+
+
+def test_ml_set_feature_role_accepts_lowercase(patch_client):
+    """case_sensitive=False: a lowercase --role must parse."""
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-feature",
+            "a1",
+            "t1",
+            "some_col",
+            "--role",
+            "reject",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+
+
+def test_ml_redeploy_warns_on_stale_recipe_input(patch_client):
+    """redeploy swaps the model version but not the recipe input — warn when
+    the analysis dataset differs so a flow rebuild doesn't silently retrain
+    on the old data."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_analysis.return_value.get_definition.return_value.get_raw.return_value = {
+        "inputDatasetSmartName": "new_train_ds"
+    }
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "redeploy",
+            "a1",
+            "t1",
+            "model1",
+            "--recipe-name",
+            "train_model",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "still reads" in result.output
+    assert "replace-input" in result.output
+
+
+def test_ml_redeploy_warns_on_stale_recipe_input_dataset_field(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.get_analysis.return_value.get_definition.return_value.get_raw.return_value = {
+        "inputDataset": "new_train_ds"
+    }
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "redeploy",
+            "a1",
+            "t1",
+            "model1",
+            "--recipe-name",
+            "train_model",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "still reads" in result.output
+    assert "new_train_ds" in result.output
+
+
+def test_ml_redeploy_quiet_when_inputs_match(patch_client):
+    """No advisory when the training recipe already reads the right dataset."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_analysis.return_value.get_definition.return_value.get_raw.return_value = {
+        "inputDataset": "train_ds"
+    }
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "redeploy",
+            "a1",
+            "t1",
+            "model1",
+            "--recipe-name",
+            "train_model",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "still reads" not in result.output

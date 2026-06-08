@@ -297,3 +297,21 @@ def test_sql_query_select_does_not_auto_commit(patch_client):
     patch_client.sql_query.assert_called_once_with(
         "SELECT 42", connection="myconn", post_queries=None
     )
+
+
+def test_sql_query_accepts_and_ignores_project_flag(patch_client):
+    """-P is muscle memory from every other command — accept it as a no-op
+    (SQL is connection-scoped)."""
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            "SELECT 1",
+            "--connection",
+            "my_conn",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0

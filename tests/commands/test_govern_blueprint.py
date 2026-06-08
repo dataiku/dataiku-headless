@@ -346,6 +346,108 @@ def test_lint_version_definition_clean_payload():
     assert _lint_version_definition(_clean_version_payload()) == []
 
 
+def test_describe_version_builds_field_rows_with_metadata():
+    from dku_cli.commands.govern_blueprint import _build_field_rows
+
+    payload = _clean_version_payload()
+    payload["fieldDefinitions"]["priority"] = {
+        "fieldType": "CATEGORY",
+        "label": "Priority",
+        "sourceType": "USER",
+        "listConfig": {},
+        "isMandatory": True,
+        "categories": ["Low", "High"],
+    }
+
+    rows = _build_field_rows(payload)
+    row = next(r for r in rows if r["id"] == "priority")
+
+    assert row["type"] == "CATEGORY"
+    assert row["source"] == "USER"
+    assert row["list"] == "*"
+    assert row["required"] == "*"
+    assert row["categories"] == "Low,High"
+
+
+def test_describe_version_builds_view_rows_with_usage_and_component_counts():
+    from dku_cli.commands.govern_blueprint import _build_view_rows
+
+    payload = _clean_version_payload()
+    payload["uiDefinition"]["uiStepDefinitions"]["review"] = {"viewId": "main"}
+    payload["uiDefinition"]["views"]["secondary"] = {
+        "label": "Secondary",
+        "viewComponent": {"type": "text-field", "fieldId": "title"},
+    }
+
+    rows = _build_view_rows(payload)
+    main = next(r for r in rows if r["id"] == "main")
+    secondary = next(r for r in rows if r["id"] == "secondary")
+
+    assert main["components"] == "1"
+    assert main["is_artifact_page"] == "*"
+    assert main["used_by_steps"] == "draft,review"
+    assert secondary["components"] == "1"
+    assert secondary["used_by_steps"] == "—"
+
+
+def test_describe_version_builds_signoff_rows_and_warnings():
+    from dku_cli.commands.govern_blueprint import (
+        _build_signoff_rows,
+        _describe_version_warnings,
+    )
+
+    signoff_rows = _build_signoff_rows(
+        [
+            MagicMock_wrapper(
+                {
+                    "id": {"stepId": "ghost"},
+                    "title": "Review gate",
+                    "mandatory": True,
+                    "feedbackUsersGroups": ["govern-reviewers"],
+                    "approvers": [
+                        {"usersContainer": {"type": "GROUP"}},
+                        {"usersContainer": {"type": "USER"}},
+                    ],
+                }
+            )
+        ]
+    )
+
+    assert signoff_rows == [
+        {
+            "step": "ghost",
+            "title": "Review gate",
+            "mandatory": "*",
+            "approvers": "2",
+            "approver_types": "GROUP,USER",
+            "feedback_groups": "1",
+        }
+    ]
+    warnings = _describe_version_warnings(
+        _clean_version_payload(), {"draft"}, signoff_rows
+    )
+    assert any("Signoff configured on step 'ghost'" in w for w in warnings)
+
+
+def test_describe_version_resolves_status_from_version_trace():
+    from dku_cli.commands.govern_blueprint import _resolve_version_status
+
+    bp = MagicMock()
+    bp.list_versions.return_value = [
+        MagicMock_wrapper(
+            {
+                "blueprintVersion": {
+                    "id": {"blueprintId": "bp.x", "versionId": "bv.v1"}
+                },
+                "blueprintVersionTrace": {"status": "ACTIVE"},
+            }
+        )
+    ]
+
+    assert _resolve_version_status(bp, "bv.v1") == "ACTIVE"
+    assert _resolve_version_status(bp, "bv.missing") == "?"
+
+
 def test_lint_version_definition_flags_empty_views():
     from dku_cli.commands.govern_blueprint import _lint_version_definition
 
@@ -485,8 +587,9 @@ def test_delete_version_requires_confirm(patch_client):
             "bv.v1",
         ],
     )
-    assert result.exit_code != 0
-    assert "--confirm" in result.output
+    combined = result.output + (result.stderr or "")
+    assert result.exit_code == 77
+    assert "blocked" in combined.lower()
 
 
 def test_delete_version_with_confirm(patch_client):
@@ -561,11 +664,13 @@ def test_set_version_status_rejects_unknown(patch_client):
             "PUBLISHED",
         ],
     )
-    assert result.exit_code != 0
-    assert "Invalid status" in result.output
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
 
 
 def test_set_version_status_case_insensitive(patch_client):
+    """case_sensitive=False: a lowercase status is accepted and normalized to the
+    canonical uppercase value passed to the Govern trace."""
     result = runner.invoke(
         app,
         [
@@ -583,7 +688,7 @@ def test_set_version_status_case_insensitive(patch_client):
     )
     admin_bp = designer.get_blueprint.return_value
     trace_mock = admin_bp.get_version.return_value.get_trace.return_value
-    trace_mock.set_status.assert_called_with("DRAFT")
+    trace_mock.set_status.assert_called_once_with("DRAFT")
 
 
 # ---------------------------------------------------------------------------
@@ -727,8 +832,9 @@ def test_delete_signoff_config_requires_confirm(patch_client):
             "review",
         ],
     )
-    assert result.exit_code != 0
-    assert "--confirm" in result.output
+    combined = result.output + (result.stderr or "")
+    assert result.exit_code == 77
+    assert "blocked" in combined.lower()
 
 
 def test_delete_signoff_config_with_confirm(patch_client):
@@ -1059,8 +1165,8 @@ def test_import_version_rejects_invalid_signoff_roles(patch_client):
             "WHATEVER",
         ],
     )
-    assert result.exit_code != 0
-    assert "Invalid --signoff-roles" in result.output
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
 
 
 def test_import_version_rejects_invalid_migration_behavior(patch_client):
@@ -1077,5 +1183,5 @@ def test_import_version_rejects_invalid_migration_behavior(patch_client):
             "BOGUS",
         ],
     )
-    assert result.exit_code != 0
-    assert "Invalid --migration-behavior" in result.output
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output

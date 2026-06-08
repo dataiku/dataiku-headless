@@ -415,6 +415,30 @@ def add_tool(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
+
+        # Resolve tool NAME → ID (mirrors resolve_agent). Agents reference
+        # tools by ID; a name written as toolRef saves fine but the tool
+        # silently never fires at runtime.
+        tools = proj.list_agent_tools(include_shared=True)
+        known_ids = {t.get("id") for t in tools}
+        if tool_id not in known_ids:
+            by_name = [t.get("id") for t in tools if t.get("name") == tool_id]
+            if len(by_name) == 1:
+                tool_id = by_name[0]
+            elif len(by_name) > 1:
+                error(
+                    f"Tool name '{tool_id}' is ambiguous ({len(by_name)} matches: "
+                    f"{', '.join(by_name)}). Use the tool ID."
+                )
+                raise typer.Exit(1)
+            else:
+                available = ", ".join(f"{t.get('id')} ({t.get('name')})" for t in tools)
+                error(
+                    f"Tool '{tool_id}' not found (checked as both ID and name). "
+                    f"Available: {available or 'none — create one with dku agent-tool create'}"
+                )
+                raise typer.Exit(3)
+
         settings = agent.get_settings()
 
         # Only TOOLS_USING_AGENT (Simple Visual Agent) reads a flat tool list from
@@ -562,7 +586,10 @@ def set_llm(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
     llm_id: str = typer.Option(
-        ..., "--llm-id", help="LLM ID to set (e.g. 'openai:conn:gpt-4o')"
+        ...,
+        "--llm-id",
+        "--llm",
+        help="LLM ID to set (e.g. 'openai:conn:gpt-4o'). --llm is an accepted alias.",
     ),
     new_version: bool = typer.Option(
         False,
@@ -644,7 +671,10 @@ def set_llm(
 def test(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
-    query: str = typer.Argument(help="Test query to send to the agent"),
+    query: str | None = typer.Argument(None, help="Test query to send to the agent"),
+    query_opt: str | None = typer.Option(
+        None, "--query", "-q", help="Alias for the positional query"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(
         None, "-o", "--output", help="Output format (text or json)"
@@ -658,8 +688,17 @@ def test(
 
     Examples:
       dku agent test my_agent "What is the refund policy?" -P PROJ
-      dku agent test my_agent "Summarize the latest report" -P PROJ -o json
+      dku agent test my_agent --query "Summarize the latest report" -P PROJ -o json
     """
+    # Accept the query positionally or via --query/-q (agents habitually try
+    # the flag form; "No such option" wasted a turn per session).
+    if query is None and query_opt is None:
+        error('Missing query. Pass it positionally or via --query "...".')
+        raise typer.Exit(2)
+    if query is not None and query_opt is not None and query != query_opt:
+        error("Both a positional query and --query were given — pass only one.")
+        raise typer.Exit(2)
+    query = query if query is not None else query_opt
     project_key = resolve_project(project)
     output = resolve_output_format(output, allowed=("text", "json"), default="text")
     try:

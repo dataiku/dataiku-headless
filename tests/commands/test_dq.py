@@ -437,6 +437,16 @@ def test_dq_delete_with_yes(patch_client):
     assert "Deleted" in result.output
 
 
+def test_dq_delete_without_yes_preserves_safety_exit(patch_client):
+    result = runner.invoke(
+        app,
+        ["dq", "delete", "ds1", "--rule-id", "rule1", "--project", "PROJ1"],
+    )
+
+    assert result.exit_code == 77
+    assert "safety" in result.output.lower() or "blocked" in result.output.lower()
+
+
 def test_dq_delete_not_found(patch_client):
     result = runner.invoke(
         app,
@@ -471,3 +481,32 @@ def test_dq_project_status_json(patch_client):
     parsed = json.loads(result.output)
     assert "ds1" in parsed
     assert parsed["ds1"]["status"] == "OK"
+
+
+def test_dq_create_derives_default_rule_name(patch_client):
+    """Without --name the rule gets a readable type+column default instead of
+    DSS showing \"Created rule ''\" with a blank NAME column."""
+    result = runner.invoke(
+        app,
+        [
+            "dq",
+            "create",
+            "ds1",
+            "--type",
+            "not-empty",
+            "--column",
+            "CountryISO",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    ruleset = (
+        patch_client.get_project("PROJ1").get_dataset("ds1").get_data_quality_rules()
+    )
+    config = ruleset.create_rule.call_args.kwargs.get("config") or (
+        ruleset.create_rule.call_args.args[0]
+        if ruleset.create_rule.call_args.args
+        else None
+    )
+    assert config["displayName"] == "not-empty CountryISO"

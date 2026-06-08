@@ -112,7 +112,7 @@ def get(
             title=f"Project: {project_key}",
         )
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -291,7 +291,7 @@ def inspect(
                 headers={"section": "SECTION", "detail": "DETAIL"},
             )
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 @app.command()
@@ -312,7 +312,7 @@ def export(
 
         success(f"Exported to {out_path}")
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -441,7 +441,7 @@ def delete(
                 "Re-run with --drop-data to also clear backing SQL tables and managed folder contents."
             )
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -473,7 +473,7 @@ def duplicate(
         )
         success(f"Duplicated {project_key} → {target_key}")
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command("set-metadata")
@@ -507,7 +507,7 @@ def set_metadata(
         proj.set_metadata(meta)
         success(f"Updated metadata for {project_key}")
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -529,7 +529,7 @@ def variables(
         vars_data = proj.get_variables()
         render_raw(vars_data, output_format=output)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 @app.command("set-variables")
@@ -589,7 +589,7 @@ def set_variables(
     except typer.Exit:
         raise
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 @app.command()
@@ -609,7 +609,7 @@ def permissions(
         perms = proj.get_permissions()
         render_raw(perms, output_format=output)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 @app.command("set-permissions")
@@ -644,7 +644,7 @@ def set_permissions(
         proj.set_permissions(perms)
         success(f"Updated permissions for {key}")
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 @app.command()
@@ -665,7 +665,7 @@ def tags(
         tag_list = meta.get("tags", [])
         render_raw(tag_list, output_format=output)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 @app.command("ai-describe")
@@ -728,7 +728,7 @@ def ai_describe(
     except typer.Exit:
         raise
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
 
 
 def _scan_text_for_column(text: str, column: str) -> bool:
@@ -947,7 +947,7 @@ def find_column_refs(
     except typer.Exit:
         raise
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -1026,4 +1026,4 @@ def timeline(
     except typer.Exit:
         raise
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=key)
