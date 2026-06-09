@@ -31,36 +31,61 @@ triggers:
   - .xlsx file
 metadata:
   author: dataiku
-  version: "0.1.35"
+  version: "0.1.113"
   tags: migration, sas, alteryx, xlsx, visual-recipes, dataiku
 ---
 
 # Migration
 
-Migrate a legacy ETL / analytics workflow to a Dataiku DSS flow. This file is the source-agnostic frame: the rules and phases apply to every source. Source-specific parsing, tool/step → recipe mapping, and language semantics live in the per-source folders below.
+Migrate a legacy ETL / analytics workflow to a Dataiku DSS flow — source-agnostic frame; per-source parsing and step→recipe mapping live in the folders below. Pair with `dku-cli` (execution) and `dataiku` (platform knowledge).
 
-Pair with `dku-cli` (CLI execution & platform knowledge). External skill references you'll reach for repeatedly during a migration are listed at the bottom of `references/workflow.md`.
+## Dispatch — read the source overview as soon as you know the source
 
-## Dispatch
+| Source | Read first |
+|---|---|
+| `.sas` / `.egp` / `.flw`, or SAS code (`proc …`, `data <name>;`, `%macro`) | `sas/overview.md` |
+| `.yxmd` / `.yxzp` / `.yxdb`, or any Alteryx tool | `ayx/overview.md` |
+| `.xlsx` workbook | `xlsx/overview.md` |
 
-Read the source-specific overview the moment you know what you're migrating.
+Each `<source>/overview.md` carries its own source rules, collapse triggers, and reference map.
 
-| Source | Read first | Then |
-|---|---|---|
-| `.sas`, `.egp`, `.flw`, or any SAS code (`proc …`, `data <name>;`, `%macro`) | `sas/overview.md` | `sas/translation.md`, `sas/semantics.md` |
-| `.yxmd`, `.yxzp`, `.yxdb`, or any Alteryx tool reference | `ayx/overview.md` | `ayx/translation.md`, `ayx/semantics.md`, `ayx/frictions.md` |
-| `.xlsx` workbook | `xlsx/overview.md` | — |
+## Five phases — mechanics in `references/workflow.md`
 
-## Rules
+0. **Preflight** — auth, connection, project.
+1. **Inventory** — parse sources → table (step/tool, in, out, what, migratable?). Surface for a sanity check when >20 tools.
+2. **Plan** — map each step to a recipe (`../dku-cli/playbooks/tabular-flow.md` + `<source>/overview.md`), folding neighbours via `<source>/overview.md` § Collapse triggers. **Present inventory + plan, get user confirmation — the gate.**
+3. **Build & verify** — one functional unit at a time: configure → `$status.ok` → `apply-schema` → run → verify (`head` + count). Parallel branches concurrently; never cascade 10+ unverified recipes.
+3.5. **Flow collapse (Tier-2)** — on the *built* graph, hunt graph-shape redundancy (identical siblings, grouping fan-out, broadcast aggregate, join chains); emit the Verdict table before Phase 4. Source-agnostic: `references/flow-collapse.md`.
+4. **Integration test** — flow walk-through, summary, document deviations.
 
-1. **Visual → SQL → Python.** State machines decompose into a four-recipe Window-lag → Prepare-markers → Window-aggregate → Prepare-final pipeline (composite "date|prev_value" marker + max + split); see `sas/data-step.md`. Pivots/Unpivots whose only consumer re-aggregates → compute per-group aggregates *before* the reshape, the Pivot disappears. See `../dku-cli/playbooks/tabular-flow.md`.
-2. **One engine per flow.** If the sources live on a SQL connection, every intermediate dataset (extracts, lookups, reference CSVs, fan-ins) must live on the same connection. A single Python recipe in the middle forces every upstream row through DSS memory and destroys push-down for the rest of the flow.
-3. **Build incrementally, in functional units.** A unit is one recipe, or a small group of independent recipes that share no dependencies. Per unit: configure → check `$status.ok` → `apply-schema` → run → verify (`head` + row count). Independent branches can be built concurrently; what to avoid is cascading 10+ unverified recipes where one bad upstream silently propagates. See `../dku-cli/playbooks/tabular-flow.md` § Validate before you run.
-4. **Prefer the `dku` CLI for every step.** It's composable in shell, error messages are agent-friendly, and outputs are uniform. Drop to `dataikuapi` only when no `dku` verb fits and the workaround would be heavier than ~5 lines of Python — when you do, note the noun + verb that *would have* helped so the gap can be filed later.
-5. **Verify with `--recompute`.** `dku dataset info DS -P PROJ --recompute` — DSS caches row counts and does not auto-refresh after a build.
+## Rules (every source)
 
-Source-specific rules (DATA step ≠ Python; PROC FORMAT inlines; Alteryx tool ≠ 1:1 recipe; AlteryxSelect explicit types; …) live in each `<source>/overview.md`.
+1. **Recipe altitude: Visual → SQL → Python.** SQL only for `LAG`/`ROW_NUMBER`/`PERCENTILE_CONT`/median/range-joins/multi-CTE, or a hard engine mandate. Python is the last resort, never the tidy default. A *blocked* visual recipe → reinstall the CLI or restructure the flow, not Python (state-machine & pivot decompositions: `../dku-cli/playbooks/tabular-flow.md`).
+2. **One engine per flow.** SQL-source flows keep every intermediate on that connection; a mid-flow Python recipe forces all rows through DSS memory and kills push-down. A single non-translatable Prepare *step* does the same (`dku recipe status` → `Engine: DSS`) — pick SQL-translatable processors/GREL functions. SQL targets → read `../dku-cli/playbooks/tabular-flow.md` + `../dku-cli/references/prepare-processors.md`.
+3. **N source steps → far fewer recipes (expect 3–5×).** Recipes encode jobs, not atomic ops — fold neighbours as you draft Phase 2 (graph-shape collapse: `references/flow-collapse.md`).
+4. **Build in functional units, verify each** — row counts are cached, so `dku dataset info DS -P PROJ --recompute` after every build.
+5. **Organize as you build** — clear recipe names + stage zones (`dku flow zones`/`move`) mandatory; descriptions + wiki opt-in, ask first (`ai-describe --save`). See `../dku-cli/playbooks/tabular-flow.md`.
+6. **Prefer `dku` over `dataikuapi`** — drop to the API only when no verb fits; note the missing noun+verb.
 
-## Plan
+Source-specific rules (DATA step ≠ Python; PROC FORMAT inlines; Alteryx tool ≠ 1:1; AlteryxSelect explicit types) live in each `<source>/overview.md`.
 
-Phase 0–4. See `references/workflow.md`.
+## Top gotchas — full catalog in `../dku-cli/playbooks/tabular-flow.md`
+
+| Symptom | Fix |
+|---|---|
+| Upload auto-types all columns STRING → numeric aggregations break | `set-schema` with correct types right after upload |
+| `set-schema type: date` on a CSV → every row null | Keep `string`; parse with a Prepare `DateParser` (ISO sorts chronologically) |
+| **Group can't do median/percentile** (`--agg` = sum/avg/min/max/count/count_distinct/concat/stddev) | Median/quantiles → **SQL recipe** (`PERCENTILE_CONT`) or Python; never a plain Group. `sas/procs.md` |
+| Group adds an extra `count` column | `--no-global-count` |
+| Sampling-recipe filter silently drops the predicate | Use `dku recipe create-filter`; for visual-recipe formula filters set `uiData.mode: "CUSTOM"` |
+| `apply-schema` skipped → computed columns missing | Run it before the first build |
+| `int → string` lost on SQL push-down | `concat("", col)`, not `"" + col` or `toString()`. `../dku-cli/playbooks/tabular-flow.md` |
+| Whole Prepare recipe falls to `Engine: DSS` on SQL data | One non-translatable step (geo/array/NLP/fold/`PythonUDF`/`Coalesce`/`TypeSetter`, or GREL `split`/`hash`/`strval`/`arrayContains`) demotes it all. `../dku-cli/references/prepare-processors.md` |
+| Window gives per-row identity, not a global aggregate | Group(no key) + CROSS Join, or `--frame-unbounded`. `../dku-cli/playbooks/tabular-flow.md` |
+| PROC LOGISTIC/REG/GLM landed as a Python recipe | Anti-pattern — use the `dku ml` chain (`create-prediction → set-algorithm → train → deploy`). `sas/ml-scenarios.md` |
+
+## Reference map
+
+**This skill** — `references/workflow.md` (phase mechanics) · `references/flow-collapse.md` (graph-shape collapse). Per-source deep refs live in each `<source>/overview.md`.
+
+**External (read often)** — `../dku-cli/playbooks/tabular-flow.md` (pick a recipe, 4→1 collapse, CLI commands, SQL engines/push-down, flow organization, common gotchas — *mandatory* for SQL targets) · `../dku-cli/playbooks/project-ops.md` (scenarios, schedules, checks). `../dku-cli/references/`: `visual-recipe-payloads.md`, `prepare-processors.md` (incl. which steps/GREL fns keep SQL push-down), `formulas.md` (GREL).

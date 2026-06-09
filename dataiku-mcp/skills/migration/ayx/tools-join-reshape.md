@@ -1,223 +1,194 @@
-# Alteryx Join and Reshape Tools to Dataiku
+# Alteryx Join & Reshape Tools → Dataiku
 
-Translation details for joins, unions, summarize, crosstab, transpose, and related collapse patterns.
+Join, JoinMultiple, AppendFields, Union/Stack, Summarize, CrossTab, Transpose, and collapse patterns.
 
 ## Join
 
-**Alteryx:** three outputs — `Left` (rows only in left), `Join` (matched), `Right` (rows only in right). A wire from each output can fan out independently.
+Alteryx Join has **three outputs** — `Left` (left-only), `Join` (matched), `Right` (right-only); each output can fan out independently. Map **one DSS Join recipe per output table**; each Alteryx `Join+Union(…)` pair collapses to a single typed Join. `create-join -j` supports `INNER, LEFT, RIGHT, FULL, CROSS, LEFT_ANTI, RIGHT_ANTI`. Key format `'leftcol=rightcol'`.
 
-```xml
-<Configuration joinByRecordPos="False">
-  <JoinInfo connection="Left"><Field field="id"/></JoinInfo>
-  <JoinInfo connection="Right"><Field field="id"/></JoinInfo>
-</Configuration>
-```
+The 7 SQL joins (Alteryx outputs unioned):
 
-**Dataiku:** Join recipe. Type depends on which Alteryx outputs are used:
-- Only `Join` consumed → **Inner**
-- `Join` + `Left` consumed (separately) → Inner into one output + **Antijoin** (first-class type in recent DSS; check `dku recipe create-join --help`) into another; fallback is Inner + Left-Outer with a downstream filter.
-- All three separately → cleanest is **Full Outer Join** into one recipe; then downstream filter on match status.
-- DSS Join's "non-matching columns" option (where available) can also emit an extra output containing the unmatched rows, so the three Alteryx outputs can come from one Join recipe with two outputs + an antijoin.
+| SQL join (Alteryx outputs unioned) | DSS recipe |
+|---|---|
+| INNER (`Join`) | `create-join -i L -i R -k 'lk=rk' -j INNER` |
+| LEFT (`Join`+`Left`) | `-i L -i R -j LEFT` — one recipe, no Union |
+| RIGHT (`Join`+`Right`) | `-i L -i R -j RIGHT` |
+| FULL (`Join`+`Left`+`Right`) | `-i L -i R -j FULL` — but see FULL-engine gotcha |
+| LEFT-anti / left-only (`Left`) | `-i L -i R -j LEFT_ANTI` — emits only left columns (matches Alteryx `Left`; right side not appended) |
+| RIGHT-anti / right-only (`Right`) | swap inputs: `-i R -i L -k 'rk=lk' -j LEFT_ANTI` — emits only R's columns (cleaner than `-j RIGHT_ANTI`, which keeps left column slots) |
+| FULL-anti / outer-excluding-inner (`Left`+`Right`) | `create-stack -i out_left_anti -i out_right_anti` — schema-union fills absent side with nulls |
 
-```bash
-dku recipe create-join jn -P PROJ \
-    --inputs left,right \
-    --output-ds joined \
-    --type inner \
-    --condition 'left.id == right.id'
-```
+DSS LEFT_ANTI keeps only the surviving (left) side, so anti-join output columns match Alteryx — no downstream column-drop needed.
+
+**FULL outer join engine gotcha (OWNER).** On filesystem/uploaded inputs, `-j FULL` at the default engine may auto-pick an unavailable engine (Spark → `DSS integration to version 1.X is no longer supported`); forcing `--engine DSS` throws H2 `Syntax error in SQL statement "EXPLAIN SELECT …"` when a join/output column name contains a space. INNER/LEFT/RIGHT/LEFT_ANTI are unaffected — only FULL hits it. **Engine-free workaround: build FULL as `Stack(LEFT, RIGHT_ANTI)`** — LEFT holds inner+left-only rows, right-anti adds right-only rows; one Stack, no FULL engine. FULL-anti = `Stack(LEFT_ANTI, RIGHT_ANTI)`. Alternatively sync to a SQL connection and run FULL there.
 
 **Caveats:**
-- Column collision: if both sides have `name`, the right side comes through as `name_1`. Rename upstream.
-- `joinByRecordPos="True"` (positional join) — Alteryx aligns rows by record index. DSS has no positional-join visual recipe. **First, look for a derivable common key**: positional joins in Alteryx often exist because the data was extracted from text/CSV without a key column, but a key can be reconstructed (e.g., concat / strip-suffix / parse-prefix). Tested on Challenge_031: left side had `Surf Site = "Tamarack St."`, right side had `Site = "Tamarack St. - San Diego County"` — adding `add-formula Site = concat(Surf Site, " - San Diego County")` to the left and joining on `Site = Site` reproduces the positional-join result exactly (and is more robust to ordering changes). **Only when no common key is derivable** fall back to: Window with `--compute rowNumber::idx` on each side (no partition; default ordering by an existing positional column) → Join on the row-number columns. The Window+Window+Join chain is 3 recipes vs 1 for the derived-key approach. **If neither input has a stable order column** (raw uploaded CSV with no positional field), prepend a `row_id` column at upload time — DSS Prepare has NO row-counter processor (verified Challenge_033: `add-step --type Enumerator` accepts at step-add time but fails at run-time with the misleading `UnavailableTypeException: Type Enumerator was available in a plugin that is not installed`), and Window's `rowNumber` aggregation requires an order-by column. Pre-baking the index in the Python extraction (`csv.writer` with `enumerate(rows)`, schema-set `row_id` to `bigint`) is the cleanest path; if the source is already a managed dataset, materialize one Window-with-rowNumber over the full input first, then proceed. Tested on Challenge_033 (Nielsen reshape): `joinByRecordPos="True"` between filtered metadata (30 rows) and filtered metric (30 rows) collapsed to: pre-bake `row_id` at upload → Prepare for Branch A (filter+formula+rename, surfaces `Code = 1..30` as a natural position key) → Window for Branch B (`lead` + post-filter to identify metric rows) → Window for Branch B index (`rowNumber` 1..30) → Join on `Code = rownumber`. The `rowNumber` output column is hardcoded by DSS to `rownumber` (lowercase), the `--compute 'rowNumber::idx'` third segment is advisory and silently ignored — reference `rownumber` in the join key, or `--rename 'rownumber:idx'` to force the override (works for Window output schema; remember the post-filter ordering trap above).
-- Alteryx Join silently drops rows where the key is null on either side (matches SQL semantics). DSS Join does the same.
-- `--cols 'INDEX:c1,c2,c3'` is **silently ignored** at the moment (writes `selectedColumns` as a plain string list; DSS Join requires `[{"name", "table", "type"}, ...]` dict objects and falls back to AUTO mode when the dict shape is missing). Until fixed, drop unwanted columns via a downstream Prepare `add-step ColumnsSelector keep=false`. See `../../dku-cli/playbooks/tabular-flow.md`.
+- Column collision: both sides with `name` → right comes through as `name_1`. Rename upstream.
+- Alteryx Join and DSS Join both silently drop rows where the key is null on either side (SQL semantics).
+- `--cols 'INDEX:c1,c2,c3'` is **silently ignored** (writes `selectedColumns` as a plain string list; DSS Join needs `[{"name","table","type"},…]` dicts and falls back to AUTO). Drop unwanted columns via downstream Prepare `add-step ColumnsSelector keep=false`. See `../../dku-cli/playbooks/tabular-flow.md`.
+
+**Positional join** (`joinByRecordPos="True"`) — Alteryx aligns by record index; DSS has no positional-join visual recipe. Decision ladder:
+1. **Derive a common key first** (most positional joins exist because data was extracted without a key). When the two sides hold the same entity under differently-formatted labels, normalize one with `add-formula` (e.g. `concat(col, " - <suffix>")`) and join on the derived key — exact, robust to ordering, and 1 recipe vs 3.
+2. **No derivable key, but each input has a stable order column:** Window with `--compute rowNumber::idx` on each side (no partition; order by an existing positional col) → Join on the row-number columns.
+3. **No stable order column** (raw CSV): pre-bake a `row_id` at upload — DSS Prepare has NO row-counter. `add-step --type Enumerator` accepts at add-time but fails at run with `UnavailableTypeException: Type Enumerator was available in a plugin that is not installed`. Bake the index in the Python extraction (`csv.writer` + `enumerate(rows)`, schema-set `row_id` to `bigint`). If the source is already a managed dataset, materialize one Window-with-rowNumber over the full input first.
+
+Window `rowNumber` output column is **hardcoded to `rownumber`** (lowercase); the `--compute 'rowNumber::idx'` third segment is advisory and silently ignored — reference `rownumber` in the join key, or `--rename 'rownumber:idx'` to force it. When pre-baking a position key, mind the post-filter ordering trap: a Window `lead`/`lag` followed by a row filter must order on the position column before the filter, or the offset reads the wrong neighbor.
 
 ---
 
 ## JoinMultiple
 
-**Alteryx:** N-way join on a single key.
-
-**Dataiku:** chain 2-way Join recipes (one per additional input) or use a SQL recipe with multiple `JOIN` clauses. For 3+ inputs on a SQL connection, the SQL recipe is cleaner; for all-in-memory, chain Joins.
+N-way join on a single key. Chain 2-way Join recipes (one per additional input) for all-in-memory; use a SQL recipe with multiple `JOIN` clauses for 3+ inputs on a SQL connection.
 
 ---
 
 ## AppendFields (cartesian)
 
-**Alteryx:** cartesian product of two inputs (Target × Source).
+Cartesian product (Target × Source). DSS: Join `type: CROSS`, else SQL `SELECT * FROM a CROSS JOIN b`, else Python `a.assign(_k=1).merge(b.assign(_k=1), on="_k").drop("_k", axis=1)`.
 
-**Dataiku:** Join recipe with `type: CROSS` (if supported), else a SQL recipe: `SELECT * FROM a CROSS JOIN b`. In Python: `a.assign(_k=1).merge(b.assign(_k=1), on="_k").drop("_k", axis=1)`.
-
-**Single-row broadcast (the most common Alteryx use of AppendFields).** When the Source side is **one row** synthesized upstream by `Sample(First 1) → Formula(extract field from row 0)` — i.e. the workflow is just stamping every Target row with a value derived from the input's first row (a date in the title cell, a report parameter, a global stamp) — there is no cartesian. Skip both the Sample/Formula branch AND the AppendFields. Instead, fold them into the Target's Prepare:
+**Single-row broadcast** (the most common AppendFields use): when the Source side is **one row** synthesized by `Sample(First 1) → Formula(extract field from row 0)` — stamping every Target row with a value from the input's first row (date in a title cell, a report parameter, a global stamp) — there is no cartesian. Skip the Sample/Formula branch AND the AppendFields; fold into the Target's Prepare:
 
 ```bash
 dku recipe add-formula PREP --column Date --expr 'if(startsWith(F1, "Ranks as of "), substring(F1, 12), null)'
 dku recipe add-step PREP --type UpDownFiller -p '{"columns":["Date"],"up":false}'
 ```
 
-The first row sets `Date`, every other row gets `null`, then `UpDownFiller(up:false)` fills `null` cells with the previous non-null value — broadcasting the row-0 value to all rows. **Only NULL triggers fill; empty string `""` does not** (see `../../dku-cli/references/prepare-processors.md` § UpDownFiller). Returning `null` from the formula (not `""`) is critical. This collapse turns `Sample + Formula + AppendFields` (3 tools) into `CreateColumnWithGREL + UpDownFiller` (2 steps) inside whatever Prepare you already have — net cost zero recipes. See `ayx/overview.md` § Collapse triggers — the "messy-spreadsheet" row.
+Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** (return `null`, not `""`; see `../../dku-cli/references/prepare-processors.md` § UpDownFiller). Collapses 3 tools → 2 Prepare steps, net zero recipes. See `ayx/overview.md` § Collapse triggers (messy-spreadsheet row).
 
 ---
 
 ## Union / Stack
 
-**Alteryx `Union`:** stacks inputs, matching columns by name (default) or position. Missing columns → null.
-
-```xml
-<Configuration>
-  <Mode>ByName|ByPosition|Manual</Mode>
-</Configuration>
-```
-
-**Dataiku:** Stack recipe.
+Alteryx `Union` stacks inputs, matching columns by name (default), position, or manual; missing columns → null. DSS: Stack recipe.
 
 ```bash
-dku recipe create-stack st -P PROJ \
-    -i a -i b -i c \
-    --output-ds stacked
+dku recipe create-stack st -P PROJ -i a -i b -i c --output-ds stacked
 ```
 
-Modes:
-- `Union Fields by Name` → Stack with `--mode UNION` (default; union schema, missing → null).
-- `Union Fields by Position` → DSS Stack maps by column name, not position. If the Alteryx workflow depends on position, pre-rename columns upstream to the intended names, then stack with `--mode UNION`.
-
-**Caveats:** if two inputs disagree on a column's type (e.g. `int` vs `string`), Stack may upcast to `string`. Rename/cast upstream to avoid surprises.
+- `Union Fields by Name` → `--mode UNION` (default; union schema, missing → null).
+- `Union Fields by Position` → DSS Stack maps by **name, not position**. If the workflow depends on position, pre-rename columns upstream to the intended names, then stack `--mode UNION`.
+- Type disagreement (e.g. `int` vs `string`) → Stack may upcast to `string`. Rename/cast upstream.
 
 ---
 
 ## Summarize
 
-**Alteryx:** group-by + aggregations, explicit.
-
-```xml
-<Configuration>
-  <SummarizeFields>
-    <SummarizeField field="Region" action="GroupBy" rename="Region"/>
-    <SummarizeField field="Sales" action="Sum" rename="Total Sales"/>
-    <SummarizeField field="Orders" action="CountDistinct" rename="Unique Orders"/>
-  </SummarizeFields>
-</Configuration>
-```
-
-**Dataiku:** Group recipe, `--no-global-count` (Alteryx doesn't emit an unrequested count).
+Group-by + explicit aggregations → DSS Group recipe with `--no-global-count` (Alteryx doesn't emit an unrequested count).
 
 ```bash
 dku recipe create-group grp -P PROJ -i in --output-ds agg \
-    --group-by Region \
-    --agg 'Sales:sum,Orders:count_distinct' \
-    --no-global-count
+    --group-by Region --agg 'Sales:sum,Orders:count_distinct' --no-global-count
 ```
 
 ### Alteryx action → DSS aggregation
 
 | Alteryx | DSS |
 |---|---|
-| `Sum` | `sum` |
-| `Count` | `count` |
-| `CountDistinct` | `count_distinct` |
+| `Sum` / `Count` / `CountDistinct` | `sum` / `count` / `count_distinct` |
 | `CountNonNull` | `count` (on a non-null column) |
-| `Min` / `Max` | `min` / `max` |
-| `Avg` | `avg` |
-| `Median` | `median` |
+| `Min` / `Max` / `Avg` | `min` / `max` / `avg` |
 | `First` / `Last` | `first` / `last` |
-| `Concat` / `ConcatDistinct` | `concat` — careful on SQL connections (LISTAGG size cap, see § Caveats below and `../../dku-cli/playbooks/tabular-flow.md`) |
-| `StdDev` / `Variance` | `stddev` / `variance` |
-| `Percentile` | `percentile` (configure `percentile_value`) |
-| `SumNo0` / `AvgNo0` / `MinNo0` / `MaxNo0` / `CountNo0` | **No direct DSS aggregation** — the `*No0` variants in Alteryx ignore zero values (in addition to nulls), which DSS aggregations don't. Lift the zero-exclusion to a `--computed-col` on the same Group recipe, then aggregate the computed column. Pattern: `--computed-col 'col_no0=if(val("col")==0\|\|isBlank(val("col")), null, val("col")):double' --agg col_no0:avg`. The `if … then null else col` construct converts zeros to nulls, then `avg` (which already ignores nulls) gives Alteryx-equivalent semantics. Tested on Challenge_030 (fantasy-baseball Avg_Age and Avg_Pitcher Rank by team): 1 Group recipe, exact match against expected. **GREL `==` not `=` for equality** — single `=` is assignment and the CLI errors `Unexpected '='. Did you mean '=='?` (good) but the underlying job log shows a misleading `EOFException: Unexpected end of ZLIB input stream` (bad — investigate later). See `ayx/semantics.md` § Aggregation null-handling for why this divergence exists. |
+| `Median` | DSS `median` aggregate is **SQL-engine ONLY**, NOT reachable via `--agg` (set `--engine SQL` + `median` JSON flag via `set-settings`). In-memory engine fails `RuntimeException: Median aggregation is not implemented for DSS Engine`. On in-memory data, `create-sync` to SQL first — see § Median / percentile. |
+| `Concat` / `ConcatDistinct` | `concat` — Snowflake LISTAGG size cap (see Caveats + `../../dku-cli/playbooks/tabular-flow.md`) |
+| `StdDev` | `stddev` |
+| `Variance` | **NOT a `--agg` function** (`col:variance` rejected). Get `stddev`² in a downstream Prepare `--computed-col`, or SQL `VAR_POP`/`VAR_SAMP`. |
+| `Percentile` / `Quantile` | **NOT a Group aggregate at all** (`col:percentile` rejected). Use a SQL recipe `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY "col")` (`p` 0–1; every standard SQL engine). On filesystem inputs, `create-sync` to SQL first — see § Median / percentile. |
+| `SumNo0` / `AvgNo0` / `MinNo0` / `MaxNo0` / `CountNo0` | **No direct DSS aggregation** — `*No0` variants ignore zeros (plus nulls), which DSS aggregations don't. Lift zero-exclusion to a `--computed-col` on the same Group, then aggregate it: `--computed-col 'col_no0=if(val("col")==0\|\|isBlank(val("col")), null, val("col")):double' --agg col_no0:avg`. The `if … null` converts zeros to nulls; `avg` already ignores nulls. **GREL `==` not `=`** — single `=` errors `Unexpected '='. Did you mean '=='?`; if it slips through, the job log shows a misleading `EOFException: Unexpected end of ZLIB input stream` (the GREL syntax error is the real cause). See `ayx/semantics.md` § Aggregation null-handling. |
 
 **Caveats:**
-- Group recipe auto-names outputs `{col}_{func}` (`Sales_sum`). Use `--rename SRC:DST` to fix names inline (the Group recipe's `outputColumnNameOverrides` IS honored — unlike the Pivot recipe's, see `../../dku-cli/playbooks/tabular-flow.md`). Or add a `ColumnRenamer` in a downstream Prepare to restore Alteryx aliases.
-- `Concat` on Snowflake → LISTAGG, capped per-group. For large text, aggregate in a Python recipe.
+- Group auto-names outputs `{col}_{func}` (`Sales_sum`). `--rename SRC:DST` fixes names inline (Group's `outputColumnNameOverrides` IS honored — unlike Pivot's, see `../../dku-cli/playbooks/tabular-flow.md`), or a downstream `ColumnRenamer`.
+- `Concat` on Snowflake → LISTAGG, capped per-group. For large text, aggregate in Python.
+
+### Median / percentile (no in-memory visual path)
+
+Both `median` (SQL-engine only, not via `--agg`) and percentile/quantile (no Group aggregate at all) collapse to the same shape: sync input to a SQL connection (`duckdb_local` works for verification migrations), then ONE SQL recipe with `PERCENTILE_CONT`.
+
+```bash
+# Alteryx: Summarize(GroupBy Region, Median Sales, Percentile 90 of Sales)
+dku recipe create-sync sync_to_db -P PROJ -i input --output-ds input_db -c <sql_connection>
+dku recipe run sync_to_db -P PROJ --wait
+
+dku recipe create-sql med_pct -P PROJ -i input_db --output-ds med_pct_result \
+    --connection <sql_connection> \
+    --sql 'SELECT "Region",
+                  PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY "Sales") AS "Median Sales",
+                  PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY "Sales") AS "P90 Sales"
+           FROM "${projectKey}_input_db" GROUP BY "Region"'
+dku recipe apply-schema med_pct -P PROJ
+dku recipe run med_pct -P PROJ --wait
+```
+
+`PERCENTILE_CONT(0.5)` IS the median, so one SQL recipe covers both actions. Use `PERCENTILE_DISC(p)` (actual data value, no interpolation) if Alteryx's percentile method requires it. For a SQL-backed input, skip the sync.
 
 ### Sample (Mode=First, N=1) → TopN, not Sort+Sample
 
-Alteryx's `Sample` tool with `Mode=First` and `N=1` (no `GroupFields`) takes the first row of the input — typically used after a `Sort` to grab the row with the min/max value. **Migrate as a single TopN recipe**, not Sort + Sample:
+Alteryx `Sample(Mode=First, N=1)` (no `GroupFields`) takes the first row — typically after a `Sort` to grab the min/max row. Migrate as a **single TopN** (sort + limit in one pass), not Sort + Sample:
 
 ```bash
 # Alteryx: Group → Sort by avg_age asc → Sample(First, N=1)  (3 tools)
-# DSS:    Group → TopN(--n 1 --sort-col 'avg_age:asc')        (2 recipes — TopN sorts internally)
-
+# DSS:    Group → TopN(--n 1 --sort-col 'avg_age:asc')        (2 recipes)
 dku recipe create-topn youngest -P PROJ -i agg --output-ds youngest --n 1 --sort-col 'avg_age:asc'
 ```
 
-Alteryx's `Sample` with `Mode=First, N=K` collapses to `--n K` on TopN. With `GroupFields` set, pass `--partition-key`. The Sort recipe is fully replaced — TopN is sort + limit in one pass.
+`Mode=First, N=K` → `--n K`. With `GroupFields`, pass `--partition-key`. The Sort recipe is fully replaced.
 
 ---
 
 ## CrossTab
 
-**Alteryx:** pivot wide. Group rows by `GroupFields`, columns from `HeaderField`, values from `DataField` with `Action` aggregation.
-
-```xml
-<Configuration>
-  <GroupFields><Field field="Region"/></GroupFields>
-  <HeaderField>Category</HeaderField>
-  <DataField>Sales</DataField>
-  <Methods><Method method="Sum"/></Methods>
-</Configuration>
-```
-
-**Dataiku:** Pivot recipe.
+Pivot wide: group rows by `GroupFields`, columns from `HeaderField`, values from `DataField` with `Action` aggregation → DSS Pivot recipe.
 
 ```bash
 dku recipe create-pivot pv -P PROJ -i in --output-ds wide \
     -r Region -c Category -v Sales --agg-type SUM --no-global-count
 ```
 
-**Caveats:**
-- Output columns are `<header_value>_<agg>`. If Alteryx used "Concatenate" for text aggregation, use `concat` agg but mind SQL LISTAGG limits.
-- **Modality scan is UI-only.** A fresh `create-pivot` recipe builds and errors `RecipeSchemaComputer$DontWantToCompute: Modality lists stored in output schema are not up-to-date`. Setting `pivots[0].explicitValues = [["v1"], ["v2"], …]` via `set-settings` updates the recipe payload but DOES NOT populate the output dataset's modality cache, so the build still fails. There is no `dku` command that triggers the scan. **Workaround: restructure to avoid the pivot.** If you need a wide table with one column per modality for downstream joins, compute the per-modality aggregate inside each upstream branch (Prepare with `add-formula` per modality) and skip the pivot altogether. See `ayx/overview.md` § Collapse triggers — the `Summarize → CrossTab` row.
+- Output columns are `<header_value>_<agg>`. For text aggregation ("Concatenate") use `concat` agg, mind SQL LISTAGG limits.
 
-> **The job-not-the-tool reflex for CrossTab.** Many CrossTabs are mid-flow shape changes that downstream consumers don't actually need. Before reaching for Pivot, ask: *what does the next recipe do with the wide form?* If the answer is "join then aggregate again", you can usually fold the aggregation into the upstream Group recipe's `computedColumns` (see `../../dku-cli/playbooks/tabular-flow.md`) or just compute the per-category values per-component before any reshape.
+**Modality scan build failure (OWNER) — fix with `--value-limit`, don't avoid the pivot.** A fresh `create-pivot` at the default `TOP_N` builds and errors `RecipeSchemaComputer$DontWantToCompute: Modality lists stored in output schema are not up-to-date` (`dku` can't trigger the UI's distinct-value scan).
+- Low cardinality (≤ a few dozen distinct headers): `--value-limit NO_LIMIT` — DSS resolves modalities at build time.
+- Deterministic whitelist: `--value-limit EXPLICIT --explicit-values v1 --explicit-values v2`.
+- Frequency floor: `--value-limit AT_LEAST_N_OCC --min-occ-limit N`.
+- Setting `pivots[0].explicitValues` via `set-settings` does **NOT** work (updates payload, not the modality cache) — only the `--value-limit` flags do. For high-cardinality headers, fall back to per-modality columns inline upstream with `add-formula`.
+
+**Count-occurrences-then-pivot collapses to ONE Pivot (default global count).** Alteryx `Summarize(GroupBy=(row,col)+Count) → CrossTab(DataField=Count, Method=Sum) → MultiFieldFormula(iif(isNull(x),0,x))` (incidence matrix) → a **single Pivot with no value column**: `create-pivot -r ROW -c COL --value-limit NO_LIMIT`. DSS adds a per-modality global-count column by default (this IS the per-cell record count) and **auto-fills empty cells with 0**, so the upstream Summarize AND the null→0 MultiFieldFormula both vanish. Output columns `<modality>_count` → one downstream `ColumnRenamer` (3 tools → 1 Pivot).
+
+**CrossTab → DynamicRename.** Pivot, then a **trailing static Prepare** `ColumnRenamer` for the renames. A DynamicRename that maps output column names **from values in an input table** (data-driven rename) has no visual equivalent — needs **Python** (read the rename map, apply to the wide-form column headers).
+
+**The job-not-the-tool reflex.** Many CrossTabs are mid-flow shape changes the downstream consumer doesn't need. Before reaching for Pivot, ask *what does the next recipe do with the wide form?* If it's "join then aggregate again", fold the aggregation into the upstream Group's `computedColumns` (`dku-cli` SKILL.md rule 12) or compute the per-category values per-component before any reshape.
 
 ---
 
 ## Transpose
 
-**Alteryx:** pivot long. Key columns stay; data columns become (Name, Value) pairs.
-
-```xml
-<Configuration>
-  <KeyFields><Field field="id"/></KeyFields>
-  <DataFields><Field field="q1"/><Field field="q2"/></DataFields>
-</Configuration>
-```
-
-**Dataiku:** Prepare recipe with `MultiColumnFold` (stock DSS — no plugin). Use the `add-fold` shortcut:
+Pivot long: key columns stay, data columns become (Name, Value) pairs → DSS Prepare with `MultiColumnFold` (stock, no plugin):
 
 ```bash
 dku recipe add-fold prep1 --columns "q1,q2" --key-column Name --value-column Value -P PROJ
 ```
 
-(`add-fold` emits `MultiColumnFold` with `foldRemoveFoldedColumns: true`. `MultiColumnByPrefixFold` is the regex-pattern variant — `add-fold --pattern '.*-25'`.)
+`add-fold` emits `MultiColumnFold` with `foldRemoveFoldedColumns: true`. `MultiColumnByPrefixFold` is the regex variant — `add-fold --pattern '.*-25'`.
 
-> **`MultiColumnFold` SILENTLY DROPS rows where the value is null.** A row that has a null in one of the folded columns produces N-1 long rows instead of N. There is no warning. Two ways to handle this:
->
-> 1. **For aggregation downstream** (most common — fold so you can `Group` over the long form): pre-impute with `FillEmptyWithValue` (one step per folded column) BEFORE the fold. Imputed rows survive and the Group result is unaffected by the imputation choice.
-> 2. **For round-tripping back to long form preserving null status** (rare — e.g., the original wide values need to appear as `Value=""` in the final long output): use a sentinel-string approach. Cast each metric to a string column with `if(isBlank(strval("col")), "@@NULL@@", concat("", numval("col")))`, fold the sentinel-strings, then `add-find-replace` with `--matching FULL_STRING` to swap `@@NULL@@` back to empty. Six metric columns → ~10 step Prepare. Single Prepare; still visual.
->
-> The default DSS auto-output behavior is option 1; only reach for option 2 when the null status itself is part of the contract.
+**`MultiColumnFold` SILENTLY DROPS rows where the value is null** — a row with a null in one folded column yields N-1 long rows instead of N, no warning. Two handlers:
+1. **For downstream aggregation** (most common — fold so you can `Group` the long form): pre-impute with `FillEmptyWithValue` (one step per folded column) BEFORE the fold. Imputed rows survive; Group result is unaffected by the imputation choice. (This is the default path.)
+2. **For round-trip preserving null status** (rare — original wide values must appear as `Value=""` in the final long output): sentinel-string — cast each metric to string with `if(isBlank(strval("col")), "@@NULL@@", concat("", numval("col")))`, fold the sentinels, then `add-find-replace --matching FULL_STRING` swapping `@@NULL@@` → empty. Single Prepare, still visual.
 
-> **DO NOT use `FoldColumnsByName`** — that's a plugin processor (different param names: `keyColumn`/`valueColumn`) that errors with `UnavailableTypeException` where the plugin isn't installed. `dku recipe add-fold` emits the stock `MultiColumnFold`, which needs no plugin. `pd.melt` is genuinely never needed for this — even on the rarest DSS instance.
+**DO NOT use `FoldColumnsByName`** — that's a plugin processor (params `keyColumn`/`valueColumn`) that errors `UnavailableTypeException` where the plugin isn't installed. `add-fold` emits stock `MultiColumnFold`, no plugin needed. `pd.melt` is never needed for this, even on the rarest DSS instance.
 
-> **The job-not-the-tool reflex for Transpose.** Most Alteryx Transposes exist to feed a downstream `Summarize` (group + agg) over the long form. In DSS the cleaner shape is to compute the aggregate **per-input, before any reshape**: one `add-formula` step per output key inside each upstream Prepare, and the long form is never materialized. Saves the unpivot, the lookup join, and the per-key Group all in one shot. See `ayx/overview.md` § Collapse triggers — the `Union → Transpose → Summarize` row.
-
-> **Pivot/Transpose round-trip in Alteryx is just a long-form computation in disguise.** The pattern `Transpose → MultiRowFormula → CrossTab → JoinMultiple → AlteryxSelect → Transpose` (long → window → wide → join → wide → long) reduces in DSS to: compute everything in long form, then emit the final long output via Stack-of-projections. The CrossTab/JoinMultiple round-trip exists in Alteryx because MultiRowFormula operates on a single column and the original metric values must be re-attached to the moving averages — DSS Window can carry both Value and lagged columns through the long form, so the round-trip is wasted shape change. See `ayx/overview.md` § Collapse triggers — the `Transpose → MultiRowFormula → CrossTab → Transpose` row.
+**The job-not-the-tool reflex.** Most Transposes exist to feed a downstream `Summarize` over the long form. The cleaner DSS shape: compute the aggregate **per-input, before any reshape** — one `add-formula` per output key inside each upstream Prepare; the long form is never materialized (saves unpivot + lookup join + per-key Group). The round-trip `Transpose → MultiRowFormula → CrossTab → JoinMultiple → AlteryxSelect → Transpose` (long→window→wide→join→wide→long) reduces to: compute everything in long form, emit final long output via Stack-of-projections. The CrossTab/JoinMultiple round-trip exists because Alteryx MultiRowFormula operates on a single column; DSS Window carries both Value and lagged columns through the long form, so the round-trip is wasted shape change. See `ayx/overview.md` § Collapse triggers (the `Union → Transpose → Summarize` and `Transpose → MultiRowFormula → CrossTab → Transpose` rows).
 
 ---
 
 ## Component-stat workflows (Transpose + Summarize + CrossTab macro chains)
 
-A common Alteryx pattern: per-component datasets carrying wide stat columns (one column per category), chained through `Transpose` (wide→long) → `Summarize` (group + agg per category) → `CrossTab` (long→wide back to one column per category) → join across components → score. Often wrapped in a standard or batch `.yxmc` macro to repeat per category.
+Common pattern: per-component datasets with wide stat columns (one per category), chained `Transpose` (wide→long) → `Summarize` (group+agg per category) → `CrossTab` (long→wide) → join across components → score; often wrapped in a `.yxmc` macro to repeat per category.
 
-**The DSS rewrite skips both reshapes entirely.** When the goal is "for each component, produce one column per category, then combine across components", do the per-category arithmetic *inside each upstream Prepare* with `add-formula` (one formula per category) — the long form is never materialized.
+**The DSS rewrite skips both reshapes.** Do the per-category arithmetic *inside each upstream Prepare* with `add-formula` (one per category); the long form never materializes. A `BatchMacro` repeating the chain becomes N sibling Prepares (one per component). The `CROSS` join is one recipe (`create-join -i` is repeatable), not N-1 chained joins. Each Prepare stays on whatever engine its input uses — no engine break for the long form.
 
-Worked example (Mario Kart-style 4-component combo optimizer, validated migration `MARIOKART_FRESH`):
+Worked example (4-component combo optimizer — score each component, cross-join, rank):
 
 ```bash
-# Per component (drivers / bodies / tires / gliders): one Prepare with N add-formula
-# steps, one per category to score on. No Transpose, no Summarize, no CrossTab.
+# Per component: one Prepare with N add-formula steps, one per category. No Transpose/Summarize/CrossTab.
 for c in DRIVERS BODIES TIRES GLIDERS; do
   dku recipe create-prepare prep_${c} -P PROJ -i ${c}_RAW --output-ds ${c}_SCORED
   dku recipe add-formula prep_${c} -P PROJ --column speed_score \
@@ -227,13 +198,12 @@ for c in DRIVERS BODIES TIRES GLIDERS; do
   dku recipe apply-schema prep_${c} -P PROJ
 done
 
-# One CROSS join wires all four scored components into a single combo row
-# (`-i` is repeatable; create-join handles N>2 in a single recipe).
+# One CROSS join wires all four scored components into a single combo row (-i is repeatable, N>2 in one recipe).
 dku recipe create-join join_combos -P PROJ \
     -i DRIVERS_SCORED -i BODIES_SCORED -i TIRES_SCORED -i GLIDERS_SCORED \
     --output-ds COMBOS --join-type CROSS
 
-# Final score + sort: another Prepare with the weighted-sum formula, then Sort.
+# Final score + sort.
 dku recipe create-prepare score_combos -P PROJ -i COMBOS --output-ds COMBOS_SCORED
 dku recipe add-formula score_combos -P PROJ --column total_score \
     --expr 'speed_score * 0.4 + handling_score * 0.6'
@@ -241,11 +211,4 @@ dku recipe create-sort sort_combos -P PROJ -i COMBOS_SCORED \
     --output-ds COMBOS_RANKED --sort-col total_score:desc
 ```
 
-**Why this collapses cleanly:**
-- The Transpose/Summarize/CrossTab triplet only existed because Alteryx-style macros encourage looping over a category list. DSS expresses "per-category arithmetic" as N formulas in one Prepare — explicit, readable, and stays on whatever engine the input uses (no engine break for the long form).
-- A `BatchMacro` repeating the chain per component becomes 4 sibling Prepares (one per component), all configurable via the same loop.
-- The `CROSS` join is one recipe, not N-1 chained joins, because `create-join -i` is repeatable.
-
-If you find yourself writing `Transpose → Summarize → CrossTab` (or its macro equivalent) in a draft DSS plan, stop and audit: usually the per-category formulas already live in the upstream component dataset, and the entire reshape was just a Alteryx-flavored loop.
-
----
+If a draft DSS plan contains `Transpose → Summarize → CrossTab` (or its macro equivalent), stop and audit: the per-category formulas usually already live in the upstream component dataset, and the reshape was just an Alteryx-flavored loop.

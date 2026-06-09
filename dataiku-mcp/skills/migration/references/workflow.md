@@ -1,6 +1,6 @@
 # Migration workflow
 
-The five-phase migration playbook, in detail. Source-agnostic. Source-specific Phase 1 parsing lives in each `<source>/overview.md`.
+The phase-by-phase migration playbook, in detail. Source-agnostic. Source-specific Phase 1 parsing lives in each `<source>/overview.md`.
 
 ---
 
@@ -38,7 +38,7 @@ Real projects often have the same transformation implemented several ways (DATA 
 
 ## Phase 2 — Migration plan
 
-Map each migratable step to a Dataiku recipe. Pick types using `../../dku-cli/playbooks/tabular-flow.md` and `<source>/translation.md` (priority: **Visual → SQL → Python**).
+Map each migratable step to a Dataiku recipe. Pick types using `../../dku-cli/playbooks/tabular-flow.md` (decision rationale) + `../../dku-cli/playbooks/tabular-flow.md` (the exact CLI command + Python anti-pattern per recipe) and `<source>/overview.md` (priority: **Visual → SQL → Python**).
 
 **Apply the collapse triggers as you draft, not after.** The full per-source list lives in `<source>/overview.md` § Collapse triggers. As you map each step, ask:
 
@@ -102,6 +102,8 @@ dku dataset head active -P PROJ -n 5
 
 Compare row count against the source's expected count (SAS: NOTE in the log `NOTE: Table WORK.X created, with N rows`. Alteryx: cached `BrowseV2` data or a ground-truth CSV. Excel: row count of the source range.). If counts differ, investigate before continuing.
 
+**The shipped ground truth is the contract — not the solution's literal tool config.** When a transformation's config *contradicts* the shipped expected output, reproduce the ground truth and note the divergence; don't blindly transliterate the config. Verify against the answer key on a row whose value depends on the contested step — e.g. a gap-fill: fill-with-0 vs forward-fill (LOCF) disagree on any row with an interior gap, and the GT tells you which the author used (for event-driven series — seat-share, event-only prices — LOCF is usually intended). (Ch.109)
+
 ### Cadence: one-liner per recipe, summary per zone
 
 Per recipe, a one-liner is enough: `recipe_name: input → output, N rows OK`. At the end of each functional unit / zone (or every 5–8 recipes for large flows), present a short summary table — recipes built, row counts vs. source, anything skipped. Reserve a richer per-recipe report for the cases where the row count *doesn't* match and you need to walk the user through what you tried. Verbose per-recipe narration on every step is unnecessary in a 30+-recipe flow.
@@ -116,6 +118,31 @@ If the source upload lands on a different connection from the rest of the flow (
 
 ---
 
+## Phase 3.5 — Flow collapse & sanity check
+
+Tier-1 collapse (Phase 2) reasons on the draft plan, per source, branch-by-branch — it never sees the whole emitted graph at once. So a correctly-translated flow still ships structural redundancy: two sibling branches translated identically, or one grouping recipe per metric joined back together. This pass is the backstop. It runs on the **built** graph and is **source-agnostic** — same rules whether the source was SAS, Alteryx, or Excel.
+
+```bash
+dku flow visualize -P PROJ                 # spot fan-outs and parallel branches
+# Two recipes byte-identical? Diff their payloads:
+diff <(dku recipe get-settings A -P PROJ -o json | jq .payload) \
+     <(dku recipe get-settings B -P PROJ -o json | jq .payload)
+```
+
+Five named rewrites to hunt — full detect / precondition / rewrite / verify in `references/flow-collapse.md`:
+
+1. **Hoist an identical transform below a union** — N identical sibling Prepares → one Stack then one Prepare.
+2. **Merge a grouping fan-out** — N single-aggregation groupings (same input + keys) joined back → one multi-aggregation grouping.
+3. **Collapse a broadcast aggregate** — Group → join-back-on-key → one unbounded-frame Window.
+4. **Drop dead nodes** — display-only / redundant-sort / sample-then-rebuild.
+5. **Fuse a sequential join chain** — N joins each adding one input (equi-join lookup ladder *or* cross/cartesian combination grid) → one multi-input Join recipe.
+
+**These five are a floor, not a checklist.** After working them, do one no-checklist pass: for every linear run and fan-in, ask whether a single native DSS recipe (multi-input Join, multi-step Prepare, Group with `computedColumns` + pre/post-filter, unbounded Window) reproduces the subgraph's output. An intermediate dataset consumed only by the next recipe is the tell. Collapse for the smallest correct, legible flow — readability can veto, "didn't look" can't. See `references/flow-collapse.md` § Beyond the catalog.
+
+**Verify every rewrite before deleting anything.** Build the replacement into a fresh output and compare row counts (`dku dataset info --recompute`) and spot-checked values against the pre-collapse output. A row-count *increase* after merging a grouping fan-out means you dropped the INNER join's implicit row-filter — reproduce it with a postFilter. Only repoint consumers and delete old nodes once counts and values match.
+
+---
+
 ## Phase 4 — Integration test
 
 ```bash
@@ -126,56 +153,4 @@ dku dataset head FINAL_OUTPUT -P PROJ -n 5 -o json
 
 Present a migration summary: source step → recipe → output dataset → row count → status. Note anything skipped (non-migratable patterns; alternative implementations).
 
-If a wiki was bootstrapped via `dku project ai-describe --save` in Phase 3, refine it now with the final mapping table and any deviations from parity.
-
----
-
-## Common Gotchas
-
-Full catalog in `../../dku-cli/playbooks/tabular-flow.md`. Source-specific gotchas (parsing quirks, language traps) in each `<source>/overview.md`.
-
-| Gotcha | Fix |
-|---|---|
-| Upload auto-detects all columns as STRING | `set-schema` with correct types right after upload |
-| `set-schema` with `type: date` on CSV → all null | Keep as `string`; parse with `DateParser` in a Prepare step |
-| Sampling recipe with `uiData.expression` filter silently drops the predicate (no error, output row count = input row count) | DSS rewrites `uiData` to `{mode: "CUSTOM", conditions: []}` on save. Use `dku recipe create-filter` (Prepare + `FilterOnCustomFormula`) — that schema isn't mutated |
-| Group recipe adds an extra `count` column | Pass `--no-global-count` |
-| `dku dataset info` row count is stale after build | Pass `--recompute` |
-| `apply-schema` required before first run | Otherwise computed columns silently missing |
-| ML setup as a Python recipe in the Flow (PROC LOGISTIC / PROC REG / PROC GLM landed as `dataiku.api_client()` script) | Anti-pattern. Recipes produce data, not status. Use the `dku ml` namespace: `create-prediction → set-algorithm → train → deploy → recipe create-prediction-scoring`. See `sas/ml-scenarios.md`. |
-| Window recipe doesn't produce global aggregates per row (`MEAN(col)` over the whole table → still per-row identity) | Use Group(no key) + CROSS Join + Prepare instead. See `sas/procs.md`. |
-| `.sas7bdat` numeric IDs export as `1077430.0` (float) — `set-schema id:bigint` silently nulls every value, joins produce 0 rows | Cast to nullable `Int64` in pandas before `to_csv`. See `sas/overview.md` § `.sas7bdat` source tables. |
-
-## Reference Map
-
-### Within this skill
-
-| Reference | When to read |
-|---|---|
-| `references/workflow.md` | Phase-by-phase mechanics — the source-agnostic Phase 0–4 playbook |
-| `sas/overview.md` | SAS-specific entrypoint — file parsing, source-specific rules, non-migratable patterns |
-| `sas/translation.md` | SAS translation entrypoint and focused reference map |
-| `sas/data-step.md` | DATA step, RETAIN, ARRAY, DO, SELECT/WHEN, and external file I/O |
-| `sas/procs.md` | PROC mapping, SQL, transpose, univariate, formats, and stats |
-| `sas/functions-formats.md` | Function mapping, GREL/SQL equivalents, rounding, and dates |
-| `sas/ml-scenarios.md` | Visual ML, scheduling, checks, reporting, and scenarios |
-| `sas/flow-patterns.md` | Enterprise driver scripts, passthrough extracts, fan-in/split, and parity checks |
-| `sas/semantics.md` | PDV, MERGE semantics, missing values, macro patterns — read when a value disagrees |
-| `ayx/overview.md` | Alteryx-specific entrypoint — file parsing, source-specific rules, non-migratable patterns |
-| `ayx/translation.md` | Alteryx translation entrypoint and focused reference map |
-| `ayx/tools-core.md` | TextInput, DbFile, Formula, Select, Filter, Sort, Sample, and Unique |
-| `ayx/tools-join-reshape.md` | Join, JoinMultiple, AppendFields, Union, Summarize, CrossTab, and Transpose |
-| `ayx/tools-state-parsing.md` | MultiRowFormula, RunningTotal, RecordID, TextToColumns, RegEx, and DateTime |
-| `ayx/tools-io-apps-ml.md` | Download, FindReplace, spatial, macros, dynamic input, yxdb, email, Excel, apps, and predictive tools |
-| `ayx/workflow-patterns.md` | Range joins, reroutes, component-stat chains, correlation, and recurring collapse patterns |
-| `ayx/semantics.md` | Alteryx data types, null/join semantics, MultiRowFormula boundary rules |
-| `ayx/frictions.md` | DSS-vs-Alteryx onboarding pushbacks (intermediate datasets, previews, layout) |
-| `xlsx/overview.md` | Excel-specific entrypoint |
-
-### External skill references (read often)
-
-- **`../../dku-cli/playbooks/tabular-flow.md`** — the tabular-flow playbook: picking a recipe type (Visual → SQL → Python rationale, decision tree, `$status.ok` validation), the visual-recipe pipeline-collapse pattern (4 recipes → 1), filter-mode rule, custom aggregations; Dataiku/CLI traps (upload→STRING, `--recompute`, `apply-schema` required, Sampling-filter trap, GREL push-down quirks); flow zones, recipe naming, wiki, dataset descriptions; and SQL-engine work (cross-connection landing, GREL → SQL push-down, stale-physical-table recovery) — *mandatory* whenever the target connection is SQL.
-- **`dku <noun> <verb> --help`** (machine-readable under `DKU_AGENT_HELP=1`) — the authoritative source for every command's exact flags. The skill's quick examples are abbreviated; drill into `--help` rather than guessing.
-- **`../../dku-cli/references/prepare-processors.md`** — the index of all Prepare-recipe processors with their JSON shape. You will translate dozens of source steps into Prepare-step JSON; this is the canonical reference. The Golden Rule from the file: prefer a purpose-built processor over `CreateColumnWithGREL`.
-- **`../../dku-cli/references/formulas.md`** — GREL function reference. Translating source formulas (`Formula` tools in Alteryx, DATA-step assignments in SAS, Excel formulas) is mostly "find the GREL equivalent of this function". Case-sensitive, has surprises (`toTitlecase` not `toTitleCase`).
-- **`../../dku-cli/playbooks/project-ops.md`** — orchestrating multi-step builds. Useful when the migrated flow needs scheduled rebuilds, cross-project quality gates, or composing leaf scenarios. Read after Phase 4 when wiring the flow into automation.
+If a wiki was bootstrapped via `dku project ai-describe --save` in Phase 3, refine it now with the final mapping table and any deviations from parity. Link DSS objects natively in the wiki mapping table, e.g. `[clean_customers](recipe:clean_customers)` and `[customers_clean](dataset:customers_clean)`, not inline-code object names; see `../../dku-cli/playbooks/tabular-flow.md` § Project wiki.

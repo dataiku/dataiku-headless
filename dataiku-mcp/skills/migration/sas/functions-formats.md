@@ -4,7 +4,7 @@ Function and format mapping from SAS to GREL, SQL, and DSS processors.
 
 ## Function mapping (SAS → GREL / SQL / processor)
 
-GREL function names are **case-sensitive**. See `../../dku-cli/references/formulas.md` for the full GREL reference and `../../dku-cli/references/prepare-processors.md` for the processor catalog.
+GREL function names are **case-sensitive**. See `../../dku-cli/references/formulas.md` for the full GREL reference and `../../dku-cli/references/prepare-processors.md` for the processor catalog. On a SQL target, verify each function keeps push-down — one non-translatable GREL fn/processor in a Prepare step demotes the whole recipe to `Engine: DSS` (rule 2): `../../dku-cli/references/prepare-processors.md` § SQL push-down.
 
 ### Core
 

@@ -2,14 +2,14 @@
 
 Source-specific entrypoint for migrating SAS programs (`.sas`, `.egp`, `.flw`) to a Dataiku DSS flow. Read the top-level `migration` SKILL.md first for the cross-source rules, phases, and common gotchas. This file holds only the parts that differ for SAS.
 
-Pair with `dku-cli` (CLI execution & platform knowledge). When the target is a SQL connection, also read `../../dku-cli/playbooks/tabular-flow.md` § GREL → SQL push-down gotchas.
+Pair with `dku-cli` (CLI execution) and `dataiku` (platform knowledge). When the target is a SQL connection, also read `dku-cli` skill's `playbooks/tabular-flow.md` § GREL → SQL push-down gotchas.
 
 ## SAS-specific rules
 
 In addition to the cross-source rules in the top-level SKILL.md:
 
 1. **DATA step ≠ Python recipe.** Most DATA steps decompose into Prepare (filter / rename / compute) + Join (`MERGE`) + Group / Window (RETAIN). `merge X(in=a) Y(in=b); by k; if a;` is a LEFT JOIN. `if a and b;` is INNER. Going to Python is almost always premature.
-2. **`PROC FORMAT` inlines into a formula.** No separate format artifact. `put(var, spend_tier.)` with `low-500='Low'` → nested `if()`. See `translation.md`.
+2. **`PROC FORMAT` inlines into a formula.** No separate format artifact. `put(var, spend_tier.)` with `low-500='Low'` → nested `if()`. See `procs.md` § PROC FORMAT range notation.
 
 ## Phase 1 — Parsing the source files
 
@@ -21,13 +21,13 @@ Read directly. Follow every `%include` chain. Embedded `datalines;` blocks are t
 
 ZIP archive. Extract with `unzip project.egp`. Inside:
 
-- `project.xml` is **UTF-16** — `open(f, 'rb').read().decode('utf-16')`; plain `open(f)` garbles it.
+- **Encoding rule:** `project.xml` is **UTF-16** — `open(f, 'rb').read().decode('utf-16')`; plain `open(f)` garbles it. Every other XML / log file in the bundle (`EGTask-*/*.xml`, `Query-*/Log-*/result.log`, `ImportTask-*/*.xml`, `CodeTask-*/*.xml`) is **UTF-8 with a BOM** — use `open(f, encoding='utf-8-sig')`. Defaulting to `utf-16` for the whole bundle yields CJK glyphs (`믯㲿砿汭瘠牥楳湯`); defaulting to `utf-8` chokes on the BOM. Confirmed across two real EGP migrations.
 - `<Element><Type>CONTAINER</Type>` → process flow groups.
 - `<Element><Type>TASK</Type>` → executable tasks.
 - `CodeTask-*/code.sas` — read directly.
 - `Query-*/Log-*/result.log` — Query Builder tasks have NO `.sas` file; the generated SQL is in the log, prefixed with `s`.
 - `ImportTask-*/*.xml` — CSV field mappings.
-- `EGTask-*` — empty EG-native placeholders, no code.
+- `EGTask-*/*.xml` — EG-native task definitions (Summary Statistics / Table Analysis / Bar Chart / Forecast / etc.). Read `<Task name="…" asm="SAS.EG.Tasks.<Family>">` for the task type; the XML lists role variables (`<Var name=… cls='DatasetColumn'/>`), BY groups (`<Role name='RoleCLASS'>`), and dataset bindings. There is no `.sas` file because EG generates the SAS code on submit, **but the task INTENT is fully encoded in the XML** — translate it like any other task. Common families seen in the wild: `SAS.EG.Tasks.Describe` (PROC MEANS / FREQ / UNIVARIATE), `SAS.EG.Tasks.GraphBar`, `SAS.EG.Tasks.Forecast`. Do not stub these as "placeholders" — they're as much real flow logic as `CodeTask-*`.
 
 ### `.flw` (SAS Studio flow)
 
@@ -63,14 +63,11 @@ After `dku dataset upload + set-schema`, sanity-check with `dku dataset head <ds
 
 `proc python; submit; ... endsubmit;` blocks. Extract the code between `submit;` / `endsubmit;`, migrate to a Python recipe. Ignore the SAS-side bridge.
 
-### PROC SQL passthrough is ingest, not flow
+### PROC SQL passthrough — translate the body
 
-`proc sql; connect to <engine> as remote (...); create table X as select ... from connection to remote(...); quit;` blocks describe **what the warehouse delivers to SAS WORK**, not flow logic. Two paths:
+`proc sql; connect to <engine> as remote (...); create table X as select ... from connection to remote(...); quit;` is SAS pass-through to a remote engine. The SELECT body is real flow logic (joins, filters, projections, aggregates) and must be migrated like any other set of operations — never stubbed as a header-only "warehouse delivers this" placeholder, regardless of whether the warehouse is reachable from DSS.
 
-- **Warehouse reachable from DSS** — model as a SQL recipe on the same connection. Push-down preserved end-to-end, including subsequent visual recipes if rule 2 (one engine per flow) is honored.
-- **Warehouse NOT reachable** — model the `extract_*` output as an INPUT dataset (header-only CSV with the right typed schema; the user wires real data later). Migrate only the **post-extract** logic. This is the default for code-only migrations.
-
-Either way the inventory line for a passthrough block reads `Yes → Input dataset (warehouse delivered)` or `Yes → SQL recipe`, never `Yes → Visual recipe pipeline`. Do not translate 8 LEFT JOINs in a passthrough into 8 visual Join recipes — that's transliteration of the *warehouse query plan*, not migration of the SAS *flow*.
+Translate the body into one or more recipes against the equivalent DSS-side connection. The recipe-type choice follows the usual rules: a single SQL recipe when the body needs `LAG`/`ROW_NUMBER`/`PERCENTILE_CONT` / multi-CTE push-down that visual recipes don't expose; otherwise visual recipes (Join, Group, Filter, Distinct, …) — same as any other DATA / PROC step. When the original warehouse is reachable as a Dataiku connection, point the recipes at it directly so push-down survives end-to-end (rule 2 — one engine per flow). When it isn't, the translation is unchanged; only the input wiring differs.
 
 ### SAS macro variables → DSS project variables
 
@@ -124,7 +121,11 @@ Tell the user: *"Steps #N are SAS infrastructure — no recipe equivalent. Datai
 
 ## Collapse triggers — running the Phase-2 collapse pass
 
-The migration skill rule 13 ("N source steps → far fewer DSS recipes") says you must do a collapse pass after the 1:1 draft. SAS is *not* Alteryx: a single SAS DATA step is already chunky (`merge + compute + bin + filter + output` in one block), so the typical collapse direction is "many SAS plumbing/in-place steps → fewer DSS recipes" rather than "many tools → one recipe". Several DATA steps actually *expand* to two recipes (Join + Prepare) — that is correct, not a missed collapse.
+The migration skill rule 16 ("N source steps → far fewer DSS recipes") says you must do a collapse pass after the 1:1 draft.
+
+> **Source-agnostic graph collapses now live in `references/flow-collapse.md`** (Tier-2, re-checked on the built graph in Phase 3.5 / rule 18). The rows below are *source-idiom detectors* for Phase-2 planning; rows that are really DSS-graph shapes point there for mechanics instead of repeating them.
+
+SAS is *not* Alteryx: a single SAS DATA step is already chunky (`merge + compute + bin + filter + output` in one block), so the typical collapse direction is "many SAS plumbing/in-place steps → fewer DSS recipes" rather than "many tools → one recipe". Several DATA steps actually *expand* to two recipes (Join + Prepare) — that is correct, not a missed collapse.
 
 **Expected ratio band for SAS: ~1.2–2.5×** (vs Alteryx's 3–5×). Anchor on the value hot-spots below, not on the raw step count. A SAS program with no `proc sort`s, no in-place rewrites, and no per-dim fan-in legitimately migrates 1:1.
 
@@ -143,7 +144,7 @@ Each row below describes a pattern that appears in nearly every analytic SAS pro
 | Same lookup table joined twice under different aliases (e.g. `plan_levels_list` joined as `_before` then `_after` to attach two level columns) | Either one SQL recipe with two CTE joins, or two visual Joins (no Prepare aliasing step needed) | 4-5 → 1-2 |
 | `proc sort nodupkey` | One Distinct recipe (sort+dedupe is one DSS op — agents otherwise add a redundant Sort) | 1 → 1 (not a fusion, but flag the foot-gun) |
 | `data _NULL_;` log-only steps, `proc print`, display-only `format` statements | Drop — already covered as non-migratable above | N → 0 |
-| `%macro foo(ds); ...; %mend; %foo(a); %foo(b); %foo(c);` where the macro body is identical and the inputs share a key | One Stack of the inputs + one Prepare (or one Window if the body needs per-group ordering); not three separate recipes | 3 macro expansions → 1-2 |
+| `%macro foo(ds); ...; %mend; %foo(a); %foo(b); %foo(c);` where the macro body is identical and the inputs share a key | One Stack of the inputs + one Prepare (or one Window if the body needs per-group ordering); not three separate recipes — this is the identical-branch hoist, `references/flow-collapse.md` § 1 | 3 macro expansions → 1-2 |
 | `proc sql; create table X as select ...; quit;` doing only `WHERE` + `GROUP BY` + simple aggregates | Filter + Group (visual, two recipes) — but if the surrounding flow is on SQL anyway, leaving as a SQL recipe is also fine. Do NOT translate trivial PROC SQL to a Python recipe. | 1 → 1-2 |
 | Per-feature blocks (tenure, consumption, elapsed, …) that ONLY need a column already present in `appl_reference_table` or trivially join-able from one extra extract | Skip the dedicated `appl_X` checkpoint — add the extract as another input to the master Join, compute the feature columns inline in the master Prepare alongside categorize + default-fill | 4-5 per block → 0 (folded into the existing master pair) |
 | **DATA-step BY-group state machine** (RETAIN + first./last. + multiple conditional updates that propagate state across rows) | **Does NOT collapse to one Window.** Realistic count is a four-recipe visual pipeline: Window-lag → Prepare-markers → Window-aggregate → Prepare-final. See `data-step.md`. Reach for Python only after exhausting this pattern. | 1 SAS step → 4 DSS recipes (expansion — flag in plan) |
@@ -187,11 +188,13 @@ After Phase 3 build, compare row count against the SAS log: `NOTE: Table WORK.X 
 | Reference | When to read |
 |---|---|
 | `semantics.md` | Any time you need to understand *why* a SAS program produces a given value — PDV, MERGE semantics, missing value rules, macro scoping, LAG trap, PROC UNIVARIATE defaults |
-| `translation.md` | SAS translation entrypoint and focused reference map |
 | `data-step.md` | DATA step, RETAIN, ARRAY, DO, SELECT/WHEN, external file I/O |
 | `procs.md` | PROC mapping, SQL, transpose, univariate, formats, stats |
 | `functions-formats.md` | Function mapping, GREL/SQL equivalents, rounding, dates |
 | `ml-scenarios.md` | Visual ML, scheduling, checks, reporting, scenarios |
 | `flow-patterns.md` | Enterprise driver scripts, passthrough extracts, fan-in/split, parity checks |
 | `../references/workflow.md` | Phase-by-phase mechanics |
-| `../../dku-cli/playbooks/tabular-flow.md` | Picking a recipe type, cross-source Dataiku/CLI gotchas, flow zones/naming, and SQL-engine cross-connection landing + GREL → SQL push-down |
+| `../../dku-cli/playbooks/tabular-flow.md` | Picking a recipe type |
+| `../../dku-cli/playbooks/tabular-flow.md` | Cross-source Dataiku/CLI gotchas |
+| `../../dku-cli/playbooks/tabular-flow.md` | Zones, naming, wiki, descriptions |
+| `dku-cli` skill's `playbooks/tabular-flow.md` | When the target connection is a SQL engine — cross-connection landing, GREL → SQL push-down gotchas |
