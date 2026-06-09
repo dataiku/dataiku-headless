@@ -836,7 +836,10 @@ def create_mock_client():
         },
     }
     webapp_mock.get_state.return_value = webapp_state
-    webapp_mock.start_or_restart_backend.return_value = None
+    # start_or_restart_backend() returns a DSSFuture; mock a successful boot.
+    webapp_future_mock = MagicMock()
+    webapp_future_mock.wait_for_result.return_value = None
+    webapp_mock.start_or_restart_backend.return_value = webapp_future_mock
     webapp_mock.stop_backend.return_value = None
     webapp_settings = MagicMock()
     webapp_settings.get_raw.return_value = {

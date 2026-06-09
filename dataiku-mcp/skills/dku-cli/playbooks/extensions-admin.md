@@ -114,9 +114,14 @@ prefix; route names must match `@app.route`). In plugin webapps the function liv
 Deploy: SPA frontends build to `resource/dist/` (Vite **single-bundle** output, see
 gotchas), then reload the plugin. Debug after restart:
 ```
-dku webapp restart <id> -P <proj> && dku webapp logs <id> -P <proj> | grep -Ei 'error|traceback'
+dku webapp restart <id> -P <proj>        # blocks until up or crashed; prints crash reason + log tail on failure (exit 1)
+dku webapp logs   <id> -P <proj>         # shows live tail OR last crash tail if backend is down
+dku webapp logs   <id> -P <proj> --follow | grep -Ei 'error|traceback'
 ```
-`webapp logs` is capped at ~80 server-side lines; use `--follow` for live tail.
+`start`/`restart` wait on the boot future — no need to poll `status` separately.
+`webapp logs` falls back to `lastCrashLogTail` when the backend has crashed, so
+you get the traceback even before attempting a restart. Capped at ~80 server-side
+lines; use `--follow` for live tail (refused when backend is stopped).
 
 Top webapp gotchas (fixes in `references/webapps.md`): wrong folder (`webapps/` not
 `custom-webapps/`); missing `app.js`/`meta.json`; missing `codeEnv: PLUGIN_MANAGED`;

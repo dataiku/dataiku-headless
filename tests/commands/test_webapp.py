@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -70,12 +71,59 @@ def test_webapp_list_json(patch_client):
 def test_webapp_start(patch_client):
     result = runner.invoke(app, ["webapp", "start", "webapp1", "--project", "PROJ1"])
     assert result.exit_code == 0
+    assert "Started" in result.output
+
+
+def test_webapp_start_crash_surfaces_error(patch_client):
+    """start exits non-zero and prints crash reason when the boot future fails."""
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    future = webapp.start_or_restart_backend()
+    future.wait_for_result.side_effect = DataikuException(
+        "BackendStartFailedException: No module named 'uvicorn_worker'"
+    )
+    # Also give the webapp a lastCrashLogTail so _print_crash_tail can fire.
+    webapp.get_state().state = {
+        "projectKey": "PROJ1",
+        "webAppId": "webapp1",
+        "lastCrashLogTail": {
+            "totalLines": 3,
+            "lines": [
+                "ERROR Backend main loop failed",
+                "ModuleNotFoundError: No module named 'uvicorn_worker'",
+            ],
+        },
+    }
+    webapp.get_state().running = False
+    result = runner.invoke(app, ["webapp", "start", "webapp1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "failed to start" in result.output
+    assert "uvicorn_worker" in result.output
 
 
 def test_webapp_restart(patch_client):
     result = runner.invoke(app, ["webapp", "restart", "webapp1", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "Restarted" in result.output
+
+
+def test_webapp_restart_crash_surfaces_error(patch_client):
+    """restart exits non-zero and prints crash reason when the boot future fails."""
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    future = webapp.start_or_restart_backend()
+    future.wait_for_result.side_effect = DataikuException(
+        "BackendStartFailedException: No module named 'uvicorn_worker'"
+    )
+    webapp.get_state().running = False
+    result = runner.invoke(app, ["webapp", "restart", "webapp1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "failed to start" in result.output
+    assert "uvicorn_worker" in result.output
 
 
 def test_webapp_stop(patch_client):
@@ -237,8 +285,7 @@ def test_webapp_logs_follow_rejects_json(patch_client):
 
 
 def test_webapp_logs_backend_not_running(patch_client):
-    """Prescriptive error when backend is stopped (no currentLogTail)."""
-    # Override the webapp state for this test: no currentLogTail, not running.
+    """Prescriptive error when backend is stopped and there are no crash logs either."""
     proj = patch_client.get_project("PROJ1")
     webapp = proj.get_webapp("webapp1")
     state = webapp.get_state()
@@ -247,12 +294,129 @@ def test_webapp_logs_backend_not_running(patch_client):
         "projectKey": "PROJ1",
         "webAppId": "webapp1",
         "hasExposedEndpoint": False,
-        # NOTE: no `currentLogTail` — mirrors real DSS behavior when stopped.
+        # NOTE: neither currentLogTail nor lastCrashLogTail — mirrors DSS
+        # behaviour for a backend that was stopped cleanly (never crashed).
     }
     result = runner.invoke(app, ["webapp", "logs", "webapp1", "-P", "PROJ1"])
     assert result.exit_code != 0
     assert "backend is not running" in result.output
     assert "dku webapp start webapp1 -P PROJ1" in result.output
+
+
+def test_webapp_logs_shows_crash_tail(patch_client):
+    """Falls back to lastCrashLogTail and prints a warning banner (text mode)."""
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    state = webapp.get_state()
+    state.running = False
+    state.state = {
+        "projectKey": "PROJ1",
+        "webAppId": "webapp1",
+        # No currentLogTail (backend died), but lastCrashLogTail is present.
+        "lastCrashLogTail": {
+            "totalLines": 2,
+            "lines": [
+                "ERROR Backend main loop failed",
+                "ModuleNotFoundError: No module named 'uvicorn_worker'",
+            ],
+        },
+    }
+    result = runner.invoke(app, ["webapp", "logs", "webapp1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+    assert "crash log" in result.output.lower()
+    assert "ModuleNotFoundError" in result.output
+    assert "uvicorn_worker" in result.output
+
+
+def test_webapp_logs_crash_tail_json(patch_client):
+    """lastCrashLogTail is flagged with crashed=true and source in -o json output."""
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    state = webapp.get_state()
+    state.running = False
+    state.state = {
+        "projectKey": "PROJ1",
+        "webAppId": "webapp1",
+        "lastCrashLogTail": {
+            "totalLines": 1,
+            "lines": ["ModuleNotFoundError: No module named 'uvicorn_worker'"],
+        },
+    }
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["crashed"] is True
+    assert payload["source"] == "lastCrashLogTail"
+    assert payload["running"] is False
+    assert "uvicorn_worker" in payload["lines"][0]
+
+
+def test_webapp_logs_follow_refuses_crash_tail(patch_client):
+    """--follow exits non-zero when backend has a crash tail (can't stream stopped)."""
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    state = webapp.get_state()
+    state.running = False
+    state.state = {
+        "projectKey": "PROJ1",
+        "webAppId": "webapp1",
+        "lastCrashLogTail": {
+            "totalLines": 1,
+            "lines": ["ModuleNotFoundError: No module named 'uvicorn_worker'"],
+        },
+    }
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "--follow"]
+    )
+    assert result.exit_code != 0
+    assert "not running" in result.output.lower()
+
+
+def test_webapp_logs_follow_exits_if_backend_crashes_during_poll(
+    patch_client, monkeypatch
+):
+    """--follow exits when a live backend switches to lastCrashLogTail."""
+    proj = patch_client.get_project("PROJ1")
+    webapp = proj.get_webapp("webapp1")
+    webapp.get_state.side_effect = [
+        SimpleNamespace(
+            running=True,
+            state={
+                "projectKey": "PROJ1",
+                "webAppId": "webapp1",
+                "currentLogTail": {
+                    "totalLines": 1,
+                    "lines": ["INFO startup"],
+                },
+            },
+        ),
+        SimpleNamespace(
+            running=False,
+            state={
+                "projectKey": "PROJ1",
+                "webAppId": "webapp1",
+                "lastCrashLogTail": {
+                    "totalLines": 2,
+                    "lines": [
+                        "ERROR Backend main loop failed",
+                        "ModuleNotFoundError: No module named 'uvicorn_worker'",
+                    ],
+                },
+            },
+        ),
+    ]
+    monkeypatch.setattr("dku_cli.commands.webapp.time.sleep", lambda _seconds: None)
+
+    result = runner.invoke(
+        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "--follow"]
+    )
+
+    assert result.exit_code != 0
+    assert "INFO startup" in result.output
+    assert "cannot follow logs" in result.output
+    assert "without --follow" in result.output
 
 
 def test_webapp_logs_running_but_no_tail_yet(patch_client):

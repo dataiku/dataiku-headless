@@ -7,14 +7,18 @@ import time
 
 import typer
 
+from dataikuapi.utils import DataikuException
+
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
+    error,
     info,
     render,
     render_raw,
     resolve_output_format,
     success,
+    warn,
 )
 
 app = typer.Typer(
@@ -95,20 +99,56 @@ def create(
         handle_api_error(e)
 
 
+def _print_crash_tail(webapp, webapp_id: str) -> None:
+    """Print lastCrashLogTail to stdout after a failed boot (best-effort).
+
+    Called right after a DataikuException from wait_for_result() so the caller
+    already printed the root-cause message; this adds the raw log tail for
+    extra context. Failures are silently swallowed — never mask the original
+    exception.
+    """
+    try:
+        raw = webapp.get_state().state
+        crash_tail = raw.get("lastCrashLogTail") if isinstance(raw, dict) else None
+        if crash_tail:
+            lines = list(crash_tail.get("lines") or [])
+            if lines:
+                warn(f"Last crash log for '{webapp_id}':")
+                for line in lines:
+                    print(line)
+    except Exception:
+        pass
+
+
 @app.command()
 def start(
     ctx: typer.Context,
     webapp_id: str = typer.Argument(help="Web app ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Start or restart a web app backend."""
+    """Start or restart a web app backend.
+
+    Waits until the backend is confirmed up or has crashed. On a failed boot,
+    the crash reason and last crash log tail are printed and the command exits
+    non-zero — so deploy scripts and CI pipelines get actionable output without
+    needing to poll `dku webapp logs` separately.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         webapp = proj.get_webapp(webapp_id)
-        webapp.start_or_restart_backend()
+        future = webapp.start_or_restart_backend()
+        try:
+            future.wait_for_result()
+        except DataikuException as boot_err:
+            error(f"Web app '{webapp_id}' backend failed to start.")
+            print(str(boot_err))
+            _print_crash_tail(webapp, webapp_id)
+            raise typer.Exit(1)
         success(f"Started web app '{webapp_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -119,14 +159,27 @@ def restart(
     webapp_id: str = typer.Argument(help="Web app ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Restart a running web app backend."""
+    """Restart a running web app backend.
+
+    Same wait-and-diagnose behaviour as `start`: blocks until the backend is up
+    or has crashed, then surfaces the crash reason and last log tail on failure.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         webapp = proj.get_webapp(webapp_id)
-        webapp.start_or_restart_backend()
+        future = webapp.start_or_restart_backend()
+        try:
+            future.wait_for_result()
+        except DataikuException as boot_err:
+            error(f"Web app '{webapp_id}' backend failed to start.")
+            print(str(boot_err))
+            _print_crash_tail(webapp, webapp_id)
+            raise typer.Exit(1)
         success(f"Restarted web app '{webapp_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -238,24 +291,38 @@ def set_definition(
 # `tail`, `maxLines`, `nbLines` all return 80). `totalLines` is the monotonic
 # overall count, which we use as a high-water mark for --follow.
 #
-# When the backend is stopped, `currentLogTail` is absent — that's the cue to
-# emit a prescriptive "start the backend first" error rather than printing
-# nothing.
+# When the backend crashes on startup, DSS drops `currentLogTail` but sets
+# `lastCrashLogTail` with the traceback lines — present precisely when
+# `currentLogTail` is absent. We fall back to that so `dku webapp logs` is
+# useful even after a failed boot (e.g. missing dependency in the code env).
+# Only when both fields are absent do we emit the "start the backend" error.
+#
+# `--follow` is live-stream only: it always reads from `currentLogTail` and
+# refuses to start when the backend is stopped (crash tail or not).
 
 
 def _fetch_log_tail(
     webapp, project_key: str, webapp_id: str
-) -> tuple[int, list[str], bool]:
-    """Return (totalLines, lines, running) from DSS backend state.
+) -> tuple[int, list[str], bool, bool]:
+    """Return (totalLines, lines, running, crashed) from DSS backend state.
 
-    Raises (via exit_with_error) when the backend is stopped, since the API
-    omits `currentLogTail` entirely in that case and a blank exit would leave
-    the agent guessing.
+    `crashed` is True when the lines come from `lastCrashLogTail` (stopped
+    after a failed boot) rather than `currentLogTail` (live backend). Callers
+    should surface this distinction to the user.
+
+    Exits via exit_with_error when *both* tails are absent and the backend is
+    not running — a blank result would leave the user guessing.
     """
     state_wrapper = webapp.get_state()
     raw = state_wrapper.state  # public property → underlying dict
     running = bool(state_wrapper.running)
     tail = raw.get("currentLogTail") if isinstance(raw, dict) else None
+    crashed = False
+    if not tail:
+        crash_tail = raw.get("lastCrashLogTail") if isinstance(raw, dict) else None
+        if crash_tail:
+            tail = crash_tail
+            crashed = True
     if not tail:
         if not running:
             exit_with_error(
@@ -268,8 +335,13 @@ def _fetch_log_tail(
                 status=1,
             )
         # Running but no tail yet (just started, log file not flushed). Treat as empty.
-        return 0, [], running
-    return int(tail.get("totalLines", 0) or 0), list(tail.get("lines") or []), running
+        return 0, [], running, False
+    return (
+        int(tail.get("totalLines", 0) or 0),
+        list(tail.get("lines") or []),
+        running,
+        crashed,
+    )
 
 
 def _grep_lines(lines: list[str], grep: str | None) -> list[str]:
@@ -280,11 +352,31 @@ def _grep_lines(lines: list[str], grep: str | None) -> list[str]:
     return [line for line in lines if lower in line.lower()]
 
 
+def _exit_cannot_follow_crash_tail(webapp_id: str, project_key: str) -> None:
+    exit_with_error(
+        f"Web app '{webapp_id}' is not running — cannot follow logs.",
+        code="webapp_not_running",
+        details=[
+            "The backend crashed. Use `dku webapp logs` (without --follow) "
+            "to see the crash log.",
+            f"Fix the error, then restart with: "
+            f"dku webapp start {webapp_id} -P {project_key}",
+        ],
+        status=1,
+    )
+
+
 def _follow_logs(
     webapp, project_key: str, webapp_id: str, initial_tail: int | None, grep: str | None
 ) -> None:
-    """Stream new log lines until Ctrl-C, polling every 2s."""
-    total, lines, _ = _fetch_log_tail(webapp, project_key, webapp_id)
+    """Stream new log lines until Ctrl-C, polling every 2s.
+
+    Refuses to follow when the backend is stopped — crash logs are a one-shot
+    snapshot, not a live stream. The user should fix the crash and restart first.
+    """
+    total, lines, _, crashed = _fetch_log_tail(webapp, project_key, webapp_id)
+    if crashed:
+        _exit_cannot_follow_crash_tail(webapp_id, project_key)
     seed = lines if initial_tail is None else lines[-initial_tail:]
     for line in _grep_lines(seed, grep):
         print(line, flush=True)
@@ -293,7 +385,9 @@ def _follow_logs(
     try:
         while True:
             time.sleep(2)
-            total, lines, _ = _fetch_log_tail(webapp, project_key, webapp_id)
+            total, lines, _, crashed = _fetch_log_tail(webapp, project_key, webapp_id)
+            if crashed:
+                _exit_cannot_follow_crash_tail(webapp_id, project_key)
             new_count = total - last_total
             if new_count <= 0:
                 continue
@@ -379,7 +473,7 @@ def logs(
             _follow_logs(webapp, project_key, webapp_id, tail, grep)
             return
 
-        total, lines, running = _fetch_log_tail(webapp, project_key, webapp_id)
+        total, lines, running, crashed = _fetch_log_tail(webapp, project_key, webapp_id)
         shown = lines if tail is None else lines[-tail:]
         shown = _grep_lines(shown, grep)
 
@@ -388,6 +482,8 @@ def logs(
                 "webappId": webapp_id,
                 "projectKey": project_key,
                 "running": running,
+                "crashed": crashed,
+                "source": "lastCrashLogTail" if crashed else "currentLogTail",
                 "totalLines": total,
                 "returnedLines": len(shown),
                 "serverTailSize": len(lines),
@@ -396,6 +492,8 @@ def logs(
             print(json.dumps(payload, indent=2))
             return
 
+        if crashed:
+            warn(f"Backend is not running — showing last crash log for '{webapp_id}'.")
         for line in shown:
             print(line)
         if tail is None and total > len(shown):
