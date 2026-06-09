@@ -16,13 +16,6 @@ dku plugin set-code-env PLUGIN_ID ENV_ID -P PROJ
 dku plugin get PLUGIN_ID -o json
 dku plugin recipes PLUGIN_ID -P PROJ
 
-# Govern artifact
-dku govern blueprint list
-dku govern blueprint fields BP
-dku govern artifact create -b BP -n "Name" -f field=value ...
-dku govern signoff update-status AR step --status WAITING_FOR_FEEDBACK
-dku govern signoff add-approval AR step --status APPROVED
-
 # Admin
 dku auth login --url URL --api-key KEY --profile NAME
 dku whoami
@@ -131,30 +124,10 @@ instance after editing it).
 
 ---
 
-## Govern (when used)
+## Govern
 
-Use Govern when an AI/ML initiative needs a **tracked approval workflow**: a governed
-record (**artifact**) follows a **blueprint** (schema) through **workflow steps**, gated by
-**sign-offs** (reviewer feedback + final approval). Govern is a separate node type — on a
-`[GOVERN]` profile every non-govern project command exits 4; use `dku govern …`. Requires
-an admin API key. Blueprint/field/signoff detail: `references/govern.md`.
-
-Core sequence (create artifact → set fields → advance signoff):
-```
-dku govern blueprint list
-dku govern blueprint fields <bp>           # ALWAYS inspect fields before creating
-dku govern artifact create -b <bp> -n "Name" -f field=value ...
-dku govern artifact set-field <ar> <field> <value>
-# advance a signoff
-dku govern signoff update-status <ar> <step> --status WAITING_FOR_FEEDBACK
-dku govern signoff add-feedback   <ar> <step> --group-id <ro> --status APPROVED
-dku govern signoff update-status <ar> <step> --status WAITING_FOR_APPROVAL
-dku govern signoff add-approval   <ar> <step> --status APPROVED
-```
-Gotchas: statuses are **uppercase** and a `WAITING_FOR_*` step can't jump back to
-`NOT_STARTED` (route through `ABANDONED`, then reset with `--reload-conf`). List fields take
-a JSON array even for one value (`-f countries='["France"]'`). `--errors json` is a global
-flag — put it **before** the noun.
+Tracked approval workflows for AI/ML initiatives (artifacts → blueprints → sign-offs) have
+their own playbook: **`playbooks/govern.md`** (payload shapes in `references/govern.md`).
 
 ---
 

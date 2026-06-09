@@ -141,11 +141,10 @@ Signoff config payload (`create-signoff-config BP VER STEP`):
 - Each `feedbackUsersGroups` entry needs both `id` (used by
   `add-feedback/delegate-feedback --group-id`) **and** `title` (server rejects
   empty). `approvers` is a flat list (no grouping).
-- **`usersContainer.type` is lowercase**: `user` (`login`), `group`
-  (`groupName`), `role` (`roleId`), `global-api-key` (`keyId`). `"USER"` /
-  `"SINGLE_USER"` → `unknown type "USER"`. (Exception: `"type":"FIELD"`
-  uppercase is valid only inside a signoff to resolve reviewers from a REFERENCE
-  field.)
+- **`usersContainer.type` is lowercase, four values only** (server
+  `UsersContainer` enum): `user` (`login`), `group` (`groupName`), `role`
+  (`roleId`), `global-api-key` (`keyId`). `"USER"` / `"SINGLE_USER"` / `"FIELD"`
+  → `unknown type "…"` (there is no FIELD/dynamic-reviewer container type).
 - `recurrenceConfiguration.activated:true` requires sum of intervals > 0;
   `reloadConf:true` reloads the config from the blueprint on reset.
 - `addedBy`/`addedOn` are server-stamped — omit on create.
@@ -162,7 +161,9 @@ a signoff **config** must exist on the version (`No sign-off configuration exist
 the signoff must be created on the artifact before feedback/approval; and the
 authenticated identity must be in the target feedback/approval group — otherwise
 `add-feedback`/`add-approval` fail with `User/API key is not part of the group` (use a
-`delegate-*` command to act on someone's behalf).
+`delegate-*` command to act on someone's behalf). A **role** used as reviewer/approver
+must first be bound to real groups/users; an unbound role is an empty set, making a
+mandatory gate impossible to cross (`add-approval` → "is not an approver").
 
 ## UI views — the #1 silent-failure
 
@@ -197,11 +198,13 @@ view contains a matching `action` component.
 
 ## Embedding external content (custom-html page)
 
-`custom-page-custom-html` (`cp.*`) is the **only** way to surface external content —
-a DSS dashboard/webapp, chat assistant, BI view — inside Govern without a plugin. The
-other page types (table/matrix/kanban) are structured views over artifacts. Custom HTML
-runs through `DomSanitizer.bypassSecurityTrustHtml`, so **`<iframe>` and `<script>` are
-both allowed** (admin-only editable — Govern trusts the author).
+A custom page's `type` value is the short form — verified live: `standard-page`,
+`artifact-table`, `custom-html` (the `custom-page-*` strings are Angular component
+names, NOT the `type` field). A `custom-html` page (`cp.*`) is the **only** way to
+surface external content — a DSS dashboard/webapp, chat assistant, BI view — inside
+Govern without a plugin; the other types (`artifact-table`/matrix/kanban) are structured
+views over artifacts. Custom HTML runs through `DomSanitizer.bypassSecurityTrustHtml`, so
+**`<iframe>` and `<script>` are both allowed** (admin-only editable — Govern trusts the author).
 
 ```json
 {"type":"custom-html","htmlContent":"<iframe src=\"…\" style=\"position:absolute;inset:0;width:100%;height:100%;border:0\"></iframe>"}
@@ -227,20 +230,44 @@ both allowed** (admin-only editable — Govern trusts the author).
 [{"timestamp": 1700000000000, "value": 42}, {"timestamp": 1700000060000, "value": 99.5}]
 ```
 
-## Logical hooks (durable rules)
+## Logical hooks & custom actions (durable rules)
 
 Python on lifecycle phases `CREATE`/`UPDATE`/`DELETE`, as `logicalHookList[]`
-entries (`{name, description, phases, script}`). Access via `handler =
-get_handler()`: `handler.artifact.fields[...]`, `handler.hookPhase`.
+entries (`{name, description, phases, script}`). Custom **actions** are
+user-triggered buttons in `actions{}` (keyed `ac.*`), shown only if a view holds
+a matching `action` component. Both call `handler = get_handler()` — the **same**
+object (server `handler.py`). Its complete surface: `handler.artifact.fields[...]`
+(`None` on DELETE), `handler.hookPhase`, `handler.authCtxIdentifier` (a string —
+no `.login`), `handler.client`, `handler.status` (default `'SUCCESS'`),
+`handler.message`, `handler.fieldMessages`, `handler.artifactIdsToUpdate`.
 
-- Hooks run **before** commit; the action may still fail afterward.
-- **Never mutate neighbor artifacts via the API client** from a hook — it can
-  trigger another hook and is unsupported. To sync neighbors, append IDs to
+- **There is NO `handler.fail()`, `.log()`, `.now()`, or `.parameters`.** Block a
+  save by `raise ValueError("reason")` (loud — traceback in the log) or
+  `handler.status="ERROR"; handler.message="reason"` (clean — no log trace).
+- **`print()` is dropped** (the kernel `exec`s with no stdout redirect) — log via
+  `logging.getLogger('govern_python_server')`. Log file (Govern node):
+  `$DIP_HOME/run/python-scripts/logical-hook.log`.
+- Hooks run **before** commit; the action may still fail afterward. **Never mutate
+  neighbor artifacts via `handler.client`** from a hook — it can trigger another
+  hook and is unsupported. Sync neighbors by appending IDs to
   `handler.artifactIdsToUpdate` (their UPDATE hooks run after this commits).
-- Block invalid state with `handler.fail("reason")`.
-- Prefer native built-ins over external code: derived values → hook; validation
-  → hook `fail`; approval gates → signoff; user side-effects → custom **action**
-  (actions CAN safely call `dataikuapi`).
+- Actions, unlike hooks, **can** safely call `dataikuapi` (explicit, post-commit).
+  Prefer built-ins over external code: derived values → hook; validation/blocking
+  → hook `raise`/`status`; approval gates → signoff; user side-effects → action.
+
+## Audit & observability
+
+`auditTrailSettings.targets` is `[]` by default — **no audit is captured** and
+`audit.log` stays 0 bytes however many hooks fire (an empty log is NOT proof
+hooks aren't running; it means audit isn't enabled). Enable via `PUT
+/admin/general-settings` (returns an empty body → `JSONDecodeError` on success;
+verify with a GET). Govern wires only **two** target types: `LOG4J`
+(JSON-per-line to `$DIP_HOME/run/audit.log`) and `EVENT_SERVER` (POST each event
+to a URL → DSS Event Server → audit dataset → public API). Design-node targets
+`KAFKA` / `FSLIKE` (S3/Azure/GCS) / `BIGQUERY` / `STATSD` are **not** wired on
+Govern — copying them over silently no-ops. EVENT_SERVER pushes are chunked
+(`Transfer-Encoding: chunked`, **no `Content-Length`**) with a **flat** event
+shape; `audit.log` nests the same fields under `message:{}`.
 
 ## Common error → cause → fix
 

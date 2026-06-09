@@ -73,7 +73,8 @@ Skip this for narrow reads.
 | Project setup, variables, bundles, cross-project; scheduled/conditional rebuild | Project ops / Scenario | `playbooks/project-ops.md` |
 | Dashboards, charts, insights; app designer; classification/regression/clustering | Dashboard / App / Visual ML | `playbooks/analytics-apps.md` |
 | Define business entities, metrics, relationships, and golden queries for NL-to-SQL | Semantic model | `playbooks/semantic-layer.md` |
-| Reusable packaged capability; webapp; instance governance; admin/deploy/auth | Plugin / Webapp / Govern / Admin | `playbooks/extensions-admin.md` |
+| Reusable packaged capability; webapp; admin/deploy/auth | Plugin / Webapp / Admin | `playbooks/extensions-admin.md` |
+| Tracked approval workflow on a GOVERN node: blueprints, artifacts, sign-offs | Govern | `playbooks/govern.md` |
 
 ## References (open on demand for payload shapes / schemas)
 
@@ -90,7 +91,7 @@ Skip this for narrow reads.
 | App Designer manifest + tile catalog | `references/app-designer.md` |
 | Plugin structure, components, testing | `references/plugins.md` |
 | Webapp backends, frontend, deploy | `references/webapps.md` |
-| Govern blueprints, fields, workflow, sign-offs | `references/govern.md` |
+| Govern blueprints, fields, workflow, sign-offs, hooks/actions, audit, custom-html embeds | `references/govern.md` |
 | Model lifecycle (drift/retrain/MLflow/API serving), code envs, guardrails, semantic models, macros | `references/mlops.md` |
 | Semantic model entity/attribute/metric/relationship/golden-query/glossary payload schemas + distinctValuesHandlingMode | `references/semantic-models.md` |
 | Safety tiers, exit 77, admin lockout | `references/safety.md` |
