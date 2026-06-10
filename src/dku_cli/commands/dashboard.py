@@ -343,6 +343,23 @@ def add_tile(
                     f"dku dashboard get {dashboard_id} -P {project_key}  # check page count"
                 ],
             )
+        # DSS requires every INSIGHT tile to carry `tileType` AND `insightType`.
+        # Omitting them makes the dashboard fail to render with the cryptic
+        # `JsonParseException: Insight type null is unknown` — DSS does NOT infer
+        # the type from the linked insight. Look it up from the insight itself.
+        try:
+            insight_raw = proj.get_insight(insight_id).get_settings().get_raw()
+            insight_type = insight_raw.get("type")
+        except Exception:
+            insight_type = None
+        if not insight_type:
+            exit_with_error(
+                f"Could not resolve the type of insight '{insight_id}' — cannot build the tile",
+                details=[
+                    f"dku insight list -P {project_key}  # confirm the insight ID exists",
+                    "A tile needs insightType (chart, dataset_table, ...); DSS does not infer it.",
+                ],
+            )
         tiles = pages[page].setdefault("grid", {}).setdefault("tiles", [])
         top = max(
             (
@@ -353,9 +370,11 @@ def add_tile(
         )
         tiles.append(
             {
+                "tileType": "INSIGHT",
                 "insightId": insight_id,
+                "insightType": insight_type,
                 "box": {"left": 0, "top": top, "width": width, "height": height},
-                "displayMode": "insight",
+                "displayMode": "INSIGHT",
                 "showTitle": True,
                 "resizeMode": "FIT_INSIGHT",
             }

@@ -268,6 +268,23 @@ def _get_recipe_payload(settings) -> dict:
     return raw["params"]["payload"]
 
 
+def _get_or_create_recipe_params(settings) -> dict:
+    """Mutable `params` dict ATTACHED to the recipe definition.
+
+    `settings.get_recipe_params()` returns None when the definition has no
+    `params` key (e.g. right after a bare code-recipe create), so the common
+    `get_recipe_params() or {}` idiom hands back a DETACHED dict: every write
+    lands in it, `settings.save()` persists nothing, and the command reports
+    success. Seed the key in the raw definition instead.
+    """
+    raw = settings.get_recipe_raw_definition()
+    params = raw.get("params")
+    if not isinstance(params, dict):
+        params = {}
+        raw["params"] = params
+    return params
+
+
 def _deep_merge_dict(base: dict, patch: dict) -> dict:
     """Recursively merge *patch* into *base*. Non-dict values in *patch* replace *base*."""
     merged = dict(base)
@@ -681,6 +698,7 @@ __all__ = [
     "_create_eval_recipe",
     "_deep_merge_dict",
     "_ensure_output_dataset",
+    "_get_or_create_recipe_params",
     "_ensure_output_folder",
     "_enum_value",
     "_ensure_steps_array",

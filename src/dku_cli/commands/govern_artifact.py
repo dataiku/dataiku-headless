@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -105,6 +105,15 @@ def list_artifacts(
     archived: Optional[bool] = typer.Option(
         None, "--archived/--no-archived", help="Filter by archived status"
     ),
+    field: Optional[List[str]] = typer.Option(
+        None,
+        "--field",
+        "-f",
+        help="Filter by field value: KEY=VALUE (exact, case-insensitive, "
+        "repeatable). E.g. --field sensitive_data=Yes. Matched field values are "
+        "added as output columns. Discover field IDs/values with "
+        "'govern blueprint fields <bp>'.",
+    ),
     page_size: int = typer.Option(
         50, "--page-size", help="Results per page (default 50)"
     ),
@@ -113,7 +122,19 @@ def list_artifacts(
     ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Search and list Govern artifacts."""
+    """Search and list Govern artifacts.
+
+    Default page size is 50. Without --all, the listing stops at the first
+    page and prints a "showing N (more available)" footer when truncation is
+    detected — agents counting artifacts MUST pass --all (or pipe through
+    `-o json | jq length`) to get a reliable count.
+
+    To count/filter by a FIELD VALUE (the plain listing only carries
+    id/name/blueprint/archived, never field values), use --field. Example:
+    count projects exposed to PII —
+      dku govern artifact list -b bp.system.govern_project \\
+        --field sensitive_data=Yes --all -o json | jq length
+    """
     from dataikuapi.govern.artifact_search import (
         GovernArtifactFilterArchivedStatus,
         GovernArtifactFilterBlueprints,
@@ -140,9 +161,30 @@ def list_artifacts(
                 )
             )
 
+        field_keys: list[str] = []
+        for pair in field or []:
+            if "=" not in pair:
+                exit_with_error(
+                    f"Invalid --field '{pair}': expected KEY=VALUE.",
+                    details=[
+                        "Example: --field sensitive_data=Yes",
+                        "Discover field IDs and allowed values with:",
+                        f"  dku govern blueprint fields {blueprint or '<BLUEPRINT_ID>'}",
+                    ],
+                )
+            key, _, value = pair.partition("=")
+            key, value = key.strip(), value.strip()
+            field_keys.append(key)
+            query.add_artifact_filter(
+                GovernArtifactFilterFieldValue(
+                    "EQUALS", condition=value, field_id=key, case_sensitive=False
+                )
+            )
+
         req = govern.new_artifact_search_request(query)
 
         data = []
+        truncated = False
         while True:
             resp = req.fetch_next_batch(page_size=page_size)
             hits = resp.get_response_hits()
@@ -153,24 +195,49 @@ def list_artifacts(
                 raw = hit.get_raw()
                 art = raw.get("artifact", raw)
                 bp_ver = art.get("blueprintVersionId", {})
-                data.append(
-                    {
-                        "id": art.get("id", ""),
-                        "name": art.get("name", ""),
-                        "blueprint": bp_ver.get("blueprintId", ""),
-                        "archived": str(art.get("status", {}).get("archived", False)),
-                    }
-                )
+                row = {
+                    "id": art.get("id", ""),
+                    "name": art.get("name", ""),
+                    "blueprint": bp_ver.get("blueprintId", ""),
+                    "archived": str(art.get("status", {}).get("archived", False)),
+                }
+                if field_keys:
+                    art_fields = art.get("fields", {}) or {}
+                    for k in field_keys:
+                        row[k] = art_fields.get(k)
+                data.append(row)
 
             if not all_pages:
+                # Probe the next page to know whether we just truncated.
+                # Cheap (one round-trip) but precise — beats showing a misleading
+                # count to an agent that won't notice the page-size cap.
+                if len(hits) >= page_size:
+                    peek = req.fetch_next_batch(page_size=1)
+                    if peek.get_response_hits():
+                        truncated = True
                 break
 
         render(
             data,
-            ["id", "name", "blueprint", "archived"],
+            ["id", "name", "blueprint", "archived", *field_keys],
             output_format=output,
             title="Govern Artifacts",
         )
+        if truncated and output != "json":
+            from dku_cli.output import warn
+
+            warn(
+                f"Showing {len(data)} (more available). "
+                f"Pass --all for full list, or -o json | jq length for a count."
+            )
+        if field_keys and not data and output != "json":
+            from dku_cli.output import warn
+
+            warn(
+                "0 matches for that field filter. Verify field IDs and allowed "
+                "values (the filter is exact-match) with: "
+                f"dku govern blueprint fields {blueprint or '<BLUEPRINT_ID>'}"
+            )
     except SystemExit:
         raise
     except Exception as e:
@@ -389,6 +456,89 @@ def set_field(
         defn.definition = raw
         defn.save()
         success(f"Set '{field_id}' on artifact '{artifact_id}'")
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-fields")
+def set_fields(
+    ctx: typer.Context,
+    artifact_id: str = typer.Argument(help="Artifact ID (e.g. ar.5)"),
+    pairs: list[str] = typer.Argument(
+        ...,
+        help=(
+            "One or more 'field_id=value' pairs. Each value is parsed as "
+            'JSON when valid (\'[\\"a\\"]\', "true", "42") otherwise as a '
+            "plain string. Repeatable: `set-fields ar.5 cost=High region=EU`."
+        ),
+    ),
+) -> None:
+    """Set multiple fields on an artifact in a single round-trip.
+
+    Closes the natural-plural footgun where agents type `set-fields` first
+    and have to retry with `set-field`. Equivalent to N calls of `set-field`
+    but issues one save() — also avoids partial writes when one of the
+    fields fails REFERENCE validation.
+
+    Examples:
+      dku govern artifact set-fields ar.5 cost_rating=High region=EU
+      dku govern artifact set-fields ar.5 'countries=["France","Germany"]' \\
+                                          business_initiative=ar.10
+    """
+    import json as json_mod
+
+    if not pairs:
+        from dku_cli.errors import exit_with_error
+
+        exit_with_error(
+            "set-fields requires at least one 'field_id=value' pair.",
+            code="invalid_argument",
+            details=[
+                "Example: dku govern artifact set-fields ar.5 cost=High region=EU"
+            ],
+        )
+
+    parsed_updates: dict = {}
+    for entry in pairs:
+        if "=" not in entry:
+            from dku_cli.errors import exit_with_error
+
+            exit_with_error(
+                f"Invalid pair '{entry}'. Expected 'field_id=value'.",
+                code="invalid_argument",
+            )
+        field_id, value = entry.split("=", 1)
+        field_id = field_id.strip()
+        try:
+            parsed = json_mod.loads(value)
+        except (json_mod.JSONDecodeError, ValueError):
+            parsed = value
+        parsed_updates[field_id] = parsed
+
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        art = govern.get_artifact(artifact_id)
+        defn = art.get_definition()
+        raw = defn.get_raw()
+
+        bv = raw.get("blueprintVersionId") or {}
+        bp_id = bv.get("blueprintId")
+        ver_id = bv.get("versionId")
+        if bp_id and ver_id:
+            field_defs = _get_version_field_defs(govern, bp_id, ver_id)
+            _validate_reference_fields(field_defs, parsed_updates)
+
+        fields = raw.setdefault("fields", {})
+        for field_id, parsed in parsed_updates.items():
+            fields[field_id] = parsed
+        defn.definition = raw
+        defn.save()
+        success(
+            f"Set {len(parsed_updates)} field(s) on artifact '{artifact_id}': "
+            + ", ".join(parsed_updates.keys())
+        )
     except SystemExit:
         raise
     except Exception as e:

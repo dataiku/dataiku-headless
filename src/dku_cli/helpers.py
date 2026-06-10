@@ -12,13 +12,14 @@ import typer
 import dataikuapi
 
 from dku_cli.client import (
+    AUTH_MODE_IN_POD_TICKET,
     get_client,
     get_govern_client,
     probe_node_type,
     resolve_auth,
     resolve_node_type,
 )
-from dku_cli.config import get_default_project
+from dku_cli.config import get_default_project, get_profile_config
 
 
 # Node types that support project-scoped commands (flow, datasets, recipes…).
@@ -39,6 +40,16 @@ def _resolve_target_node_type(opts: dict) -> str | None:
     """Resolve node type for the actual auth target, not just stored profile metadata."""
     profile = opts.get("profile")
     if not _has_auth_overrides(opts):
+        return resolve_node_type(profile=profile)
+
+    # Ticket-mode profiles can't be probed via API-key Basic auth; trust their
+    # stored node_type (init scripts that write ticket-mode profiles always
+    # also set node_type explicitly).
+    active = profile or os.environ.get("DKU_PROFILE")
+    if (
+        active
+        and get_profile_config(active).get("auth_mode") == AUTH_MODE_IN_POD_TICKET
+    ):
         return resolve_node_type(profile=profile)
 
     try:

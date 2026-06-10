@@ -11,11 +11,29 @@ from dku_cli.enums import (
     SignoffFeedbackStatus,
     SignoffStatus,
 )
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage Govern artifact sign-offs.")
+
+
+def _current_step_id(artifact) -> str | None:
+    """Read the artifact's current workflow step id, if any.
+
+    Returns None if no current step is set or the shape is unfamiliar — the
+    caller falls back to letting the server raise.
+    """
+    try:
+        defn = artifact.get_definition().get_raw()
+    except Exception:
+        return None
+    status = defn.get("status") if isinstance(defn, dict) else None
+    if isinstance(status, dict):
+        sid = status.get("stepId")
+        if isinstance(sid, str) and sid:
+            return sid
+    return None
 
 
 @app.command()
@@ -24,10 +42,47 @@ def create(
     artifact_id: str = typer.Argument(help="Artifact ID (e.g. ar.5)"),
     step_id: str = typer.Argument(help="Workflow step ID (e.g. ideation, exploration)"),
 ) -> None:
-    """Create a sign-off for a workflow step. Required before updating status."""
+    """Create a sign-off for a workflow step. Required before updating status.
+
+    The artifact's CURRENT workflow step must equal ``step_id``. If they
+    differ, DSS rejects with ``workflow step is not active`` — this verb
+    pre-flights the check and emits the exact ``set-definition`` payload
+    needed to advance the workflow first.
+    """
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
+
+        current = _current_step_id(art)
+        if current is not None and current != step_id:
+            exit_with_error(
+                f"Sign-off step '{step_id}' is not the artifact's current "
+                f"workflow step ('{current}'). DSS only allows sign-off "
+                "creation on the active step.",
+                code="workflow_step_mismatch",
+                details=[
+                    "Advance the workflow first, then re-run sign-off create.",
+                    "",
+                    "Step 1 — advance to the target step via read-modify-write "
+                    "(dku set-definition strips the status field, and a "
+                    "status-only definition would wipe the artifact's fields):",
+                    "",
+                    "  python - <<'PY'",
+                    "  import dataikuapi",
+                    "  c = dataikuapi.GovernClient(URL, api_key=KEY)",
+                    f"  defn = c.get_artifact('{artifact_id}').get_definition()",
+                    "  raw = defn.get_raw()",
+                    f"  raw.setdefault('status', {{}})['stepId'] = '{step_id}'",
+                    "  raw.pop('workflow', None)  # server re-derives steps",
+                    "  defn.save()",
+                    "  PY",
+                    "",
+                    "Step 2 — create the sign-off (re-run this command):",
+                    f"  dku govern signoff create {artifact_id} {step_id}",
+                ],
+                status=2,
+            )
+
         art.create_signoff(step_id)
         success(f"Created sign-off for step '{step_id}' on artifact '{artifact_id}'")
     except SystemExit:

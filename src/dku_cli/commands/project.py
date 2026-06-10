@@ -299,8 +299,36 @@ def export(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
     dest: Path = typer.Option(".", "--dest", "-d", help="Destination directory"),
+    with_data: bool = typer.Option(
+        False,
+        "--with-data/--no-with-data",
+        help="Shortcut: export uploaded + managed-FS + all dataset data",
+    ),
+    uploads: bool = typer.Option(
+        False, "--uploads", help="Export data of Uploaded datasets"
+    ),
+    managed_fs: bool = typer.Option(
+        False, "--managed-fs", help="Export data of managed Filesystem datasets"
+    ),
+    managed_folders: bool = typer.Option(
+        False, "--managed-folders", help="Export data of managed folders"
+    ),
+    all_datasets: bool = typer.Option(
+        False, "--all-datasets", help="Export data of all datasets"
+    ),
+    all_input_datasets: bool = typer.Option(
+        False, "--all-input-datasets", help="Export data of all input datasets"
+    ),
+    insights_data: bool = typer.Option(
+        False, "--insights-data", help="Export data of static insights"
+    ),
 ) -> None:
-    """Export project as ZIP."""
+    """Export project as ZIP.
+
+    By default no dataset/folder data is included (settings-only). Use
+    --with-data for the common case, or the granular flags to pick exactly
+    which data to bundle.
+    """
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -308,11 +336,154 @@ def export(
         dest.mkdir(parents=True, exist_ok=True)
         out_path = dest / f"{project_key}.zip"
 
-        proj.export_to_file(str(out_path))
+        # Map flags to export_to_file() option keys (verified against
+        # dataikuapi DSSProject.export_to_file docstring). --with-data is a
+        # convenience that turns on uploads + managed-FS + all datasets.
+        options: dict = {}
+        if uploads or with_data:
+            options["exportUploads"] = True
+        if managed_fs or with_data:
+            options["exportManagedFS"] = True
+        if all_datasets or with_data:
+            options["exportAllDatasets"] = True
+        if managed_folders:
+            options["exportManagedFolders"] = True
+        if all_input_datasets:
+            options["exportAllInputDatasets"] = True
+        if insights_data:
+            options["exportInsightsData"] = True
+
+        # Preserve the original settings-only behavior when no data flag is
+        # set: call without options= so DSS uses its defaults.
+        if options:
+            proj.export_to_file(str(out_path), options=options)
+        else:
+            proj.export_to_file(str(out_path))
 
         success(f"Exported to {out_path}")
     except Exception as e:
         handle_api_error(e, project_key=project_key)
+
+
+@app.command("import")
+def import_project(
+    ctx: typer.Context,
+    archive_path: Path = typer.Argument(
+        help="Path to the project archive (.zip) to import"
+    ),
+    target_key: Optional[str] = typer.Option(
+        None,
+        "--as",
+        "-k",
+        help="Project key to import under (default: original key in the archive)",
+    ),
+    remap_connection: List[str] = typer.Option(
+        [],
+        "--remap-connection",
+        help="Connection remap SRC=TGT (repeatable, e.g. --remap-connection pg_old=pg_new)",
+    ),
+    wait: bool = typer.Option(
+        False,
+        "--wait",
+        help="Block until the import finishes (import is already synchronous; "
+        "this is accepted for symmetry with other commands)",
+    ),
+) -> None:
+    """Import a project from a ZIP archive (design node only).
+
+    Remap source connections to existing target connections with
+    --remap-connection SRC=TGT (repeatable). If the archive references a
+    connection that does not exist on this node and is not remapped, DSS
+    silently no-ops — this command detects that and tells you how to fix it.
+    """
+    try:
+        client = get_client_from_ctx(ctx)
+
+        if not archive_path.is_file():
+            exit_with_error(
+                f"Archive not found: {archive_path}",
+                code="archive_not_found",
+                details=[
+                    "Pass a path to an existing project export .zip.",
+                    "Create one with: dku project export <KEY> --with-data --dest .",
+                ],
+            )
+
+        # Parse --remap-connection SRC=TGT pairs into the remapping shape DSS
+        # expects (verified against dataikuapi TemporaryImportHandle.execute:
+        # settings["remapping"]["connections"] = [{"source":..,"target":..}]).
+        connections = []
+        for pair in remap_connection:
+            if "=" not in pair:
+                exit_with_error(
+                    f"Invalid --remap-connection value: {pair!r}",
+                    code="bad_remap",
+                    details=[
+                        "Use SRC=TGT, e.g. --remap-connection pg_old=pg_new",
+                    ],
+                )
+            src, tgt = pair.split("=", 1)
+            src, tgt = src.strip(), tgt.strip()
+            if not src or not tgt:
+                exit_with_error(
+                    f"Invalid --remap-connection value: {pair!r}",
+                    code="bad_remap",
+                    details=[
+                        "Both sides are required: --remap-connection SRC=TGT",
+                    ],
+                )
+            connections.append({"source": src, "target": tgt})
+
+        settings: dict = {}
+        if target_key:
+            settings["targetProjectKey"] = target_key
+        if connections:
+            settings["remapping"] = {"connections": connections}
+
+        with open(archive_path, "rb") as f:
+            handle = client.prepare_project_import(f)
+            res = handle.execute(settings=settings if settings else None)
+
+        # execute() returns {"success": bool, ...} and does NOT raise when a
+        # target connection is missing — it silently no-ops. Always check the
+        # flag (the dataikuapi docstring warns about this).
+        res = res or {}
+        if not res.get("success"):
+            messages = []
+            for m in res.get("messages", []) or []:
+                if isinstance(m, dict):
+                    text = m.get("message") or m.get("details") or str(m)
+                else:
+                    text = str(m)
+                if text:
+                    messages.append(text)
+            details = list(messages)
+            details.append("")
+            details.append("Likely a connection/code-env referenced by the archive")
+            details.append("does not exist on this node. Fix by either:")
+            details.append(
+                "  - creating the missing connection: dku connection create ..."
+            )
+            details.append(
+                "  - re-running with a remap: "
+                "dku project import "
+                f"{archive_path} --remap-connection SRC=TGT"
+            )
+            exit_with_error(
+                "Project import failed (DSS reported success=false).",
+                code="import_failed",
+                details=details,
+            )
+
+        imported_key = (
+            res.get("targetProjectKey")
+            or res.get("projectKey")
+            or target_key
+            or "(original key from archive)"
+        )
+        success(f"Imported project {imported_key}")
+    except Exception as e:
+        handle_api_error(e)
 
 
 @app.command()
@@ -500,12 +671,57 @@ def set_metadata(
         if name is not None:
             meta["label"] = name
         if description is not None:
+            # DSS metadata serializes the project description under BOTH
+            # 'description' (multiline) and 'shortDesc' (UI tagline) on
+            # different versions; write both so the field that's actually
+            # honored at PUT lands either way.
+            meta["description"] = description
             meta["shortDesc"] = description
         if tags is not None:
             meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
 
         proj.set_metadata(meta)
+
+        # Verify the write landed: re-GET and compare. PUT
+        # /projects/<key>/metadata silently drops unknown fields on some DSS
+        # versions, so a success log without verification has misled agents
+        # in the past (PENDING entry 2026-05-11 AYX HTML extractor).
+        try:
+            after = proj.get_metadata() or {}
+        except Exception:
+            after = None
+
+        if after is not None:
+            mismatches = []
+            if name is not None and after.get("label") != name:
+                mismatches.append(f"label='{after.get('label', '')}' (sent '{name}')")
+            if description is not None:
+                got = after.get("description") or after.get("shortDesc") or ""
+                if got != description:
+                    mismatches.append(f"description='{got}' (sent '{description}')")
+            if tags is not None:
+                sent_tags = [t.strip() for t in tags.split(",") if t.strip()]
+                if (after.get("tags") or []) != sent_tags:
+                    mismatches.append(
+                        f"tags={after.get('tags', [])} (sent {sent_tags})"
+                    )
+            if mismatches:
+                warn(
+                    "set-metadata reported success but the server returned "
+                    "different values on re-read:"
+                )
+                for m in mismatches:
+                    warn(f"  {m}")
+                warn(
+                    "If this is a project description, try setting it at "
+                    "creation time via 'dku project create -d \"...\"' — some "
+                    "DSS versions ignore description updates on the metadata "
+                    "endpoint."
+                )
+                raise typer.Exit(1)
         success(f"Updated metadata for {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e, project_key=project_key)
 

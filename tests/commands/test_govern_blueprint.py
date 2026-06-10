@@ -74,6 +74,12 @@ def test_blueprint_list_versions_json(patch_client):
     data = json.loads(result.output)
     assert len(data) == 1
     assert data[0]["version_id"] == "bv.system.default"
+    # JSON must carry BOTH the flat snake_case keys and the nested camelCase
+    # `id` shape returned by get-version, so resolver code that does
+    # `(v.get("id") or {}).get("versionId")` works against either endpoint.
+    assert data[0]["id"]["versionId"] == "bv.system.default"
+    assert data[0]["id"]["blueprintId"]
+    assert data[0]["blueprint_id"] == data[0]["id"]["blueprintId"]
 
 
 def test_blueprint_get_version(patch_client):
@@ -176,6 +182,50 @@ def test_blueprint_fields_shows_allowed_refs(patch_client):
 # Version designer: create-version, set-version-definition, delete-version,
 # version-status, set-version-status
 # ---------------------------------------------------------------------------
+
+
+def test_blueprint_create_strips_bp_prefix(patch_client):
+    """`govern blueprint create bp.swag` should strip the prefix and pass
+    'swag' to designer.create_blueprint — the API rejects the bp.<id> form
+    on this endpoint while every other verb requires it."""
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "create",
+            "bp.swag",
+            "--definition",
+            '{"name":"SWAG"}',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer.create_blueprint.assert_called_once_with("swag", {"name": "SWAG"})
+    assert "Stripping 'bp.' prefix" in result.output
+
+
+def test_blueprint_create_accepts_bare_identifier(patch_client):
+    """Bare identifier passes straight through (no warning, no strip)."""
+    designer = (
+        patch_client.get_govern_client.return_value.get_blueprint_designer.return_value
+    )
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "create",
+            "swag",
+            "--definition",
+            '{"name":"SWAG"}',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    designer.create_blueprint.assert_called_once_with("swag", {"name": "SWAG"})
+    assert "Stripping" not in result.output
 
 
 def test_create_version_forwards_args(patch_client):
@@ -1185,3 +1235,184 @@ def test_import_version_rejects_invalid_migration_behavior(patch_client):
     )
     assert result.exit_code == 2
     assert "Invalid value" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Hooks surfacing: describe-version Hooks section + list-hooks verb.
+#
+# Backstory: agents that sweep blueprints looking for `hooks` always returned
+# zero because hooks live on the VERSION under `logicalHookList`. Even after
+# drilling to describe-version, hooks weren't rendered. Both behaviours are
+# now under test to prevent regression.
+# ---------------------------------------------------------------------------
+
+
+def _inject_version_def(patch_client, payload: dict) -> None:
+    """Override the wired bp_ver definition with a custom payload.
+
+    Mutates both the designer path (used by describe-version) and the direct
+    path (used by list-hooks). They share the same bp_ver mock so a single
+    assignment covers both.
+    """
+    govern = patch_client.get_govern_client.return_value
+    bp_obj = govern.get_blueprint.return_value
+    bp_ver = bp_obj.get_version.return_value
+    bp_ver.get_definition.return_value.get_raw.return_value = payload
+
+
+_HOOK_VER_PAYLOAD = {
+    "id": {"blueprintId": "bp.hook_test", "versionId": "bv.default"},
+    "name": "Default",
+    "fieldDefinitions": {},
+    "workflowDefinition": {"stepDefinitions": [{"id": "draft", "name": "Draft"}]},
+    "logicalHookList": [
+        {
+            "name": "compute_score",
+            "description": "Derive derived_score from risk_level.",
+            "phases": ["CREATE", "UPDATE"],
+            "script": "x = 1\ny = 2\nz = 3\n",
+        },
+        {
+            "name": "validate_owner",
+            "description": "Block save when high-risk artifact has no owner.",
+            "phases": ["UPDATE"],
+            "script": "raise ValueError('nope')\n",
+        },
+    ],
+    "uiDefinition": {
+        "views": {"main": {"label": "Overview", "viewComponent": {}}},
+        "uiStepDefinitions": {"draft": {"viewId": "main"}},
+        "artifactPageViewId": "main",
+    },
+}
+
+
+def test_describe_version_renders_hooks_section(patch_client):
+    _inject_version_def(patch_client, _HOOK_VER_PAYLOAD)
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "describe-version", "bp.hook_test", "bv.default"],
+    )
+    assert result.exit_code == 0, result.output
+    # Section header counts the hooks
+    assert "Hooks (2)" in result.output
+    # Both hook names render
+    assert "compute_score" in result.output
+    assert "validate_owner" in result.output
+    # Phases column renders as comma-joined string
+    assert "CREATE,UPDATE" in result.output
+
+
+def test_describe_version_hooks_section_zero_when_absent(patch_client):
+    payload = dict(_HOOK_VER_PAYLOAD)
+    payload["logicalHookList"] = []
+    _inject_version_def(patch_client, payload)
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "describe-version", "bp.hook_test", "bv.default"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Hooks (0)" in result.output
+
+
+def test_list_hooks_table(patch_client):
+    _inject_version_def(patch_client, _HOOK_VER_PAYLOAD)
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "list-hooks", "bp.hook_test", "bv.default"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "compute_score" in result.output
+    assert "validate_owner" in result.output
+    assert "CREATE,UPDATE" in result.output
+    # Lines column reflects script length (3 lines for compute_score)
+    assert "3" in result.output
+
+
+def test_list_hooks_json(patch_client):
+    _inject_version_def(patch_client, _HOOK_VER_PAYLOAD)
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "list-hooks",
+            "bp.hook_test",
+            "bv.default",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert len(data) == 2
+    # JSON output preserves the FULL hook including the script source — that's
+    # the agent's path when it needs to inspect what a hook actually does.
+    assert data[0]["name"] == "compute_score"
+    assert "script" in data[0]
+    assert "x = 1" in data[0]["script"]
+
+
+def test_list_hooks_empty_emits_helpful_message(patch_client):
+    payload = dict(_HOOK_VER_PAYLOAD)
+    payload["logicalHookList"] = []
+    _inject_version_def(patch_client, payload)
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "list-hooks", "bp.hook_test", "bv.default"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "No hooks configured" in result.output
+    assert "bp.hook_test" in result.output
+
+
+def test_list_hooks_empty_json_returns_empty_array(patch_client):
+    payload = dict(_HOOK_VER_PAYLOAD)
+    payload["logicalHookList"] = []
+    _inject_version_def(patch_client, payload)
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "blueprint",
+            "list-hooks",
+            "bp.hook_test",
+            "bv.default",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == []
+
+
+def test_list_hooks_drops_non_dict_entries(patch_client):
+    """Defensive: malformed payloads (non-dict items) must not crash the table."""
+    payload = dict(_HOOK_VER_PAYLOAD)
+    payload["logicalHookList"] = [
+        {"name": "good", "phases": ["CREATE"], "script": "pass\n"},
+        "this is not a dict",
+        None,
+        42,
+    ]
+    _inject_version_def(patch_client, payload)
+    result = runner.invoke(
+        app,
+        ["govern", "blueprint", "list-hooks", "bp.hook_test", "bv.default"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "good" in result.output
+    # The non-dict entries are silently dropped — header reports a count of 1.
+    assert "Hooks on bp.hook_test (bv.default) — 1" in result.output
+
+
+def test_summarize_hook_truncates_long_descriptions():
+    from dku_cli.commands.govern_blueprint import _summarize_hook
+
+    long = "x" * 200
+    row = _summarize_hook(
+        {"name": "h", "description": long, "phases": [], "script": ""}
+    )
+    # Truncated to 61 chars + ellipsis = 62 displayed
+    assert row["description"].endswith("…")
+    assert len(row["description"]) <= 62

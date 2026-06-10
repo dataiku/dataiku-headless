@@ -171,3 +171,43 @@ def test_signoff_create(patch_client):
     assert result.exit_code == 0
     gov = patch_client.get_govern_client()
     gov.get_artifact.return_value.create_signoff.assert_called_once_with("exploration")
+
+
+def test_signoff_create_blocks_when_workflow_step_mismatches(patch_client):
+    """Pre-flight: refuse and emit advance-payload if current step != requested."""
+    gov = patch_client.get_govern_client()
+    art = gov.get_artifact.return_value
+    # Artifact is currently at step "review" but caller requests sign-off
+    # creation for "exploration" — DSS would raise "workflow step is not active".
+    art.get_definition.return_value.get_raw.return_value = {
+        "id": "ar.5",
+        "name": "Test Project",
+        "status": {"stepId": "review"},
+    }
+    result = runner.invoke(app, ["govern", "signoff", "create", "ar.5", "exploration"])
+    assert result.exit_code != 0
+    output = result.output + (result.stderr or "")
+    assert "current" in output.lower()
+    assert "review" in output
+    assert "exploration" in output
+    # The remediation must be the read-modify-write snippet — NOT a
+    # `set-definition --definition '{"status": ...}'` suggestion, which strips
+    # status server-side and would wipe the artifact's other fields.
+    assert "get_definition" in output
+    assert "stepId" in output
+    assert "--definition" not in output
+    # Must NOT have called create_signoff before exiting
+    art.create_signoff.assert_not_called()
+
+
+def test_signoff_create_proceeds_when_step_matches(patch_client):
+    """When current step == requested, no pre-flight block — proceed to create."""
+    gov = patch_client.get_govern_client()
+    art = gov.get_artifact.return_value
+    art.get_definition.return_value.get_raw.return_value = {
+        "id": "ar.5",
+        "status": {"stepId": "exploration"},
+    }
+    result = runner.invoke(app, ["govern", "signoff", "create", "ar.5", "exploration"])
+    assert result.exit_code == 0
+    art.create_signoff.assert_called_once_with("exploration")

@@ -173,6 +173,44 @@ def zones(
         handle_api_error(e)
 
 
+@app.command(
+    "zone",
+    hidden=True,
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def _zone_noun_alias(ctx: typer.Context) -> None:
+    """Hint for agents typing `dku flow zone <verb>` (kubectl-style noun-verb).
+
+    Zone verbs live at the flow root, not under a `zone` sub-noun: `create-zone`,
+    `set-zone`, `delete-zone`, and `zones` (list). Typer's "Did you mean" heuristic
+    misses `create-zone` for the typo `zone create` because the leading token is
+    different; this alias surfaces the right spelling instead of an empty error.
+    """
+    extra = ctx.args or []
+    verb = extra[0] if extra else ""
+    rewrites = {
+        "create": "create-zone",
+        "list": "zones",
+        "delete": "delete-zone",
+        "remove": "delete-zone",
+        "rm": "delete-zone",
+        "set": "set-zone",
+        "update": "set-zone",
+        "rename": "set-zone --name",
+    }
+    suggestion = rewrites.get(verb)
+    error("`dku flow zone <verb>` is not a command — zone verbs live at the flow root.")
+    if suggestion:
+        rest = " ".join(extra[1:])
+        info(f"Did you mean: `dku flow {suggestion}{(' ' + rest) if rest else ''}`?")
+    else:
+        info(
+            "Available zone verbs: `dku flow create-zone NAME`, `dku flow zones` (list), "
+            "`dku flow set-zone REF [--name X] [--color #...]`, `dku flow delete-zone REF [--force]`."
+        )
+    raise typer.Exit(2)
+
+
 @app.command("create-zone")
 def create_zone(
     ctx: typer.Context,
@@ -236,31 +274,68 @@ def delete_zone(
     ctx: typer.Context,
     zone_ref: str = typer.Argument(help="Zone name or ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Delete even if the zone has items (they move to the default zone).",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
-    """Delete a flow zone. Its items move to the default zone (not deleted)."""
-    from dku_cli.safety import Tier, guard
+    """Delete a flow zone.
 
+    By default only an EMPTY zone is deleted — the common case after moving a
+    single-recipe flow's output into the same zone as its recipe leaves a
+    leftover empty zone. A non-empty zone needs --force (its items are moved to
+    the default zone, not deleted). The 'default' zone cannot be deleted.
+    """
     project_key = resolve_project(project)
-    guard(
-        ctx,
-        tier=Tier.DELETE,
-        action="flow.delete_zone",
-        subject=f"flow zone '{zone_ref}' in {project_key}",
-        yes=yes,
-        prompt=(
-            f"Delete flow zone '{zone_ref}' from {project_key}? "
-            "Its items move back to the default zone."
-        ),
-    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         flow = proj.get_flow()
         zone = _resolve_zone(flow, zone_ref, project_key)
+
+        if zone.id == "default":
+            exit_with_error(
+                "The 'default' zone cannot be deleted.",
+                code="invalid_argument",
+            )
+
+        item_count = len(zone._raw.get("items", []))
+        if item_count and not force:
+            exit_with_error(
+                f"Zone '{zone_ref}' has {item_count} item(s) — not deleting.",
+                code="zone_not_empty",
+                details=[
+                    "Pass --force to delete it anyway (items move to the default "
+                    "zone; they are NOT deleted).",
+                    f"Inspect its items: dku flow zones -P {project_key}",
+                ],
+            )
+
+        if item_count:
+            # Non-empty + --force: reorganizes the flow → route through the guard.
+            from dku_cli.safety import Tier, guard
+
+            guard(
+                ctx,
+                tier=Tier.DELETE,
+                action="flow.delete-zone",
+                subject=f"flow zone '{zone.name}' ({zone.id}) with {item_count} item(s) in {project_key}",
+                yes=yes,
+                prompt=(
+                    f"Delete flow zone '{zone.name}' ({zone.id}) from {project_key}? "
+                    f"Its {item_count} item(s) will move to the default zone (not deleted)."
+                ),
+            )
+
         zone.delete()
-        success(f"Deleted zone '{zone_ref}' (items moved to the default zone)")
+        success(f"Deleted flow zone '{zone.name}' ({zone.id}) from {project_key}")
+        if item_count:
+            info(f"{item_count} item(s) were moved to the default zone.")
     except typer.Exit:
+        raise
+    except typer.Abort:
         raise
     except Exception as e:
         handle_api_error(e)
@@ -331,6 +406,33 @@ def _resolve_evaluation_store(proj, ref: str):
     raise ValueError(f"Evaluation store '{ref}' not found (checked ID and name)")
 
 
+def _resolve_saved_model(proj, ref: str):
+    """Resolve a saved model by ID first, then by name.
+
+    `proj.get_saved_model(sm_id)` only accepts the saved-model ID — passing
+    a human-readable name silently returns a lazy handle whose
+    `.get_settings()` raises NotFoundException. This falls back to a name
+    match against `list_saved_models()` so `dku flow move <NAME>
+    --type SAVED_MODEL` works the same way as `--type DATASET`.
+    """
+    sm = proj.get_saved_model(ref)
+    try:
+        sm.get_settings()
+        return sm
+    except Exception:
+        pass
+    # Fall back to name match.
+    for entry in proj.list_saved_models() or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("name") == ref or entry.get("id") == ref:
+            sm_id = entry.get("id")
+            if sm_id:
+                return proj.get_saved_model(sm_id)
+    # No match — let the original NotFoundException surface.
+    return sm
+
+
 def _try_resolve_item(proj, name: str, item_type: str):
     """Resolve a single item by name+type, returning (obj, None) on success
     or (None, exception) on lookup failure."""
@@ -341,14 +443,16 @@ def _try_resolve_item(proj, name: str, item_type: str):
             return resolve_knowledge_bank(proj, name), None
         if item_type == "MODEL_EVALUATION_STORE":
             return _resolve_evaluation_store(proj, name), None
+        if item_type == "SAVED_MODEL":
+            obj = _resolve_saved_model(proj, name)
+            obj.get_settings()
+            return obj, None
         method = _ITEM_RESOLVERS[item_type]
         obj = getattr(proj, method)(name)
         # For datasets and recipes, lazy handles need a confirming call.
         if item_type == "DATASET":
             obj.get_definition()
         elif item_type == "RECIPE":
-            obj.get_settings()
-        elif item_type == "SAVED_MODEL":
             obj.get_settings()
         return obj, None
     except SystemExit as exc:

@@ -480,22 +480,38 @@ def test_app_designer_remove_tile_section_out_of_range(patch_client):
 # ---------------------------------------------------------------------------
 
 
-def test_app_designer_enable_default_mode_is_setup(patch_client):
-    """Default `enable` is Project Setup — must NOT touch projectAppType.
+def test_app_designer_enable_default_mode_is_template(patch_client):
+    """Default `enable` converts REGULAR → APP_TEMPLATE.
 
-    Regression for SOL_SAS_INVENTORY_SCORER: the old behavior silently
-    flipped REGULAR projects to APP_TEMPLATE, breaking them as Solutions
-    references."""
+    Project Setup mode (the lighter alternative) is gated by the internal
+    `hasSetupSection` flag which the public API cannot write — see the
+    `--mode setup` redirect test for the surfaced guidance."""
     proj = patch_client.get_project("PROJ1")
     settings = proj.get_settings.return_value
-    settings.get_raw.return_value = {"projectAppType": "REGULAR"}
+    raw_settings = {"projectAppType": "REGULAR"}
+    settings.get_raw.return_value = raw_settings
 
     result = runner.invoke(app, ["app-designer", "enable", "--project", "PROJ1"])
     assert result.exit_code == 0, result.output
-    assert "Project Setup enabled" in result.output
-    assert "REGULAR" in result.output
-    # Settings.save() must NOT have been called — projectAppType untouched
-    settings.save.assert_not_called()
+    assert "App template enabled" in result.output
+    assert raw_settings["projectAppType"] == "APP_TEMPLATE"
+    settings.save.assert_called()
+
+
+def test_app_designer_enable_setup_mode_redirects(patch_client):
+    """--mode setup must error out with the UI redirect — the public API
+    cannot write `hasSetupSection`, so silently writing only the manifest
+    leaves the UI in landing-page state (the bug we're guarding against)."""
+    result = runner.invoke(
+        app, ["app-designer", "enable", "--project", "PROJ1", "--mode", "setup"]
+    )
+    assert result.exit_code != 0
+    assert "not implementable via the public API" in result.output
+    # Surface the UI path so the agent can tell the user what to click
+    assert "Show advanced options" in result.output
+    assert "Add a setup section" in result.output
+    # And the supported alternative
+    assert "--mode template" in result.output
 
 
 def test_app_designer_enable_template_mode_flips_to_app_template(patch_client):
@@ -550,7 +566,7 @@ def test_app_designer_enable_mode_accepts_uppercase(patch_client):
 
 
 def test_app_designer_enable_rejects_invalid_mode(patch_client):
-    """Unknown --mode value returns a prescriptive error."""
+    """Unknown --mode value returns a prescriptive error pointing to template."""
     result = runner.invoke(
         app,
         ["app-designer", "enable", "--project", "PROJ1", "--mode", "bogus"],

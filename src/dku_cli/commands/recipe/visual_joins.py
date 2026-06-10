@@ -199,10 +199,13 @@ def create_join(
     Supports 2+ input datasets in a SINGLE recipe — prefer this over
     cascading join recipes. Pass all datasets with -i: -i ds1 -i ds2 -i ds3.
 
-    Join keys auto-detect from matching column names. For explicit keys,
+    --join-key is REQUIRED in practice. Auto-detection on shared column
+    names is NOT implemented — running create-join without --join-key (and
+    without --join-type CROSS) leaves the join with empty conditions, which
+    DSS executes as a CROSS join. The CLI now warns when this happens.
+    Format: 'col' (same both sides) or 'left=right'. For multi-input joins
     use --join-key col (join 0, first pair) and --join-key 1:col (join 1,
-    second pair). Format: 'col' (same both sides) or 'left=right'.
-    CROSS joins need no keys.
+    second pair). CROSS joins need no keys — pass --join-type CROSS.
 
     Advanced match modes (apply to every EQ condition on every pair):
       --case-insensitive / --normalize-text     fuzzy text matching
@@ -571,6 +574,31 @@ def create_join(
 
         join_settings.save()
         _auto_apply_schema(proj, recipe_name)
+
+        # Silent CROSS-join trap: DSS does NOT auto-detect join keys on shared
+        # column names. If the user didn't pass --join-key (and isn't asking
+        # for a CROSS join), every pair lands with on:[] and the join executes
+        # as a Cartesian product. Emit a loud warning so agents catch this
+        # before running the recipe (a 51B-row CROSS-join surprise is the
+        # canonical failure mode here).
+        if jt != "CROSS" and isinstance(joins, list):
+            empty_pairs = [idx for idx, j in enumerate(joins) if not j.get("on")]
+            if empty_pairs:
+                pairs_label = (
+                    "pair " + str(empty_pairs[0])
+                    if len(empty_pairs) == 1
+                    else "pairs " + ", ".join(str(i) for i in empty_pairs)
+                )
+                warn(
+                    f"Join recipe '{recipe_name}' has empty conditions on {pairs_label}. "
+                    f"DSS will execute this as a CROSS join — every left row joined to every right row."
+                )
+                warn(
+                    "Auto-detection on shared column names is NOT implemented. "
+                    "Re-run with --join-key COL (or --join-key N:COL for non-first pair), "
+                    "OR pass --join-type CROSS to confirm Cartesian intent."
+                )
+
         success(f"Created {jt} join recipe '{recipe_name}' in {project_key}")
     except typer.Exit:
         raise

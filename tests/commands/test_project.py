@@ -209,7 +209,35 @@ def test_project_set_metadata_description(patch_client):
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     call_args = proj.set_metadata.call_args[0][0]
+    # Both fields are written; some DSS versions read 'description', others
+    # 'shortDesc' — covers either at the cost of one extra key (PENDING.md
+    # 2026-05-11).
     assert call_args["shortDesc"] == "A new desc"
+    assert call_args["description"] == "A new desc"
+
+
+def test_project_set_metadata_detects_silent_no_op(patch_client):
+    """If DSS accepts the PUT but doesn't actually persist the description,
+    the round-trip GET will show the old value. The CLI must warn AND exit
+    non-zero so chained scripts don't drift on stale state."""
+    proj = patch_client.get_project("PROJ1")
+    # Simulate the DSS endpoint silently dropping the description field:
+    # both get_metadata calls return a fresh dict with the OLD description,
+    # regardless of what set_metadata received.
+    proj.set_metadata.side_effect = None
+    proj.get_metadata.side_effect = lambda: {
+        "label": "Project One",
+        "shortDesc": "stuck old",
+        "description": "stuck old",
+    }
+    result = runner.invoke(
+        app, ["project", "set-metadata", "PROJ1", "--description", "should land"]
+    )
+    assert result.exit_code == 1
+    # Rich line-wraps long warn lines in the runner's narrow buffer; use a
+    # phrase that survives the wrap and the stuck-old leak.
+    assert "stuck old" in result.output
+    assert "set-metadata reported success" in result.output
 
 
 def test_project_set_metadata_both(patch_client):
@@ -687,6 +715,151 @@ def test_project_ai_describe_custom_options(patch_client):
     proj.generate_ai_description.assert_called_once_with(
         language="french", purpose="technical", length="high", save_description=False
     )
+
+
+# --- project export ---
+
+
+def test_project_export_no_flags_settings_only(patch_client, tmp_path):
+    """No data flags => call export_to_file() with NO options= (preserves the
+    original settings-only behavior)."""
+    result = runner.invoke(
+        app,
+        ["project", "export", "PROJ1", "--dest", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.export_to_file.assert_called_once()
+    args, kwargs = proj.export_to_file.call_args
+    # Positional path only; no options keyword passed.
+    assert "options" not in kwargs
+    assert args[0].endswith("PROJ1.zip")
+
+
+def test_project_export_with_data_builds_options(patch_client, tmp_path):
+    """--with-data turns on uploads + managed-FS + all datasets."""
+    result = runner.invoke(
+        app,
+        ["project", "export", "PROJ1", "--with-data", "--dest", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    _, kwargs = proj.export_to_file.call_args
+    opts = kwargs["options"]
+    assert opts["exportUploads"] is True
+    assert opts["exportManagedFS"] is True
+    assert opts["exportAllDatasets"] is True
+    # Granular-only keys not set by --with-data
+    assert "exportManagedFolders" not in opts
+    assert "exportInsightsData" not in opts
+
+
+def test_project_export_granular_flags(patch_client, tmp_path):
+    """Granular flags map to their individual option keys."""
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "export",
+            "PROJ1",
+            "--managed-folders",
+            "--insights-data",
+            "--all-input-datasets",
+            "--dest",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    _, kwargs = proj.export_to_file.call_args
+    opts = kwargs["options"]
+    assert opts == {
+        "exportManagedFolders": True,
+        "exportInsightsData": True,
+        "exportAllInputDatasets": True,
+    }
+
+
+# --- project import ---
+
+
+def test_project_import_happy_path(patch_client, tmp_path):
+    archive = tmp_path / "PROJ1.zip"
+    archive.write_bytes(b"PK\x03\x04 fake zip")
+    handle = patch_client.prepare_project_import.return_value
+    handle.execute.return_value = {"success": True, "targetProjectKey": "PROJ1"}
+
+    result = runner.invoke(
+        app,
+        ["project", "import", str(archive), "--as", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "PROJ1" in result.output
+    # targetProjectKey carried into settings
+    _, kwargs = handle.execute.call_args
+    assert kwargs["settings"]["targetProjectKey"] == "PROJ1"
+
+
+def test_project_import_remap_connection_shape(patch_client, tmp_path):
+    archive = tmp_path / "PROJ1.zip"
+    archive.write_bytes(b"PK\x03\x04 fake zip")
+    handle = patch_client.prepare_project_import.return_value
+    handle.execute.return_value = {"success": True, "targetProjectKey": "PROJ1"}
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "import",
+            str(archive),
+            "--remap-connection",
+            "pg_old=pg_new",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    _, kwargs = handle.execute.call_args
+    assert kwargs["settings"]["remapping"] == {
+        "connections": [{"source": "pg_old", "target": "pg_new"}]
+    }
+
+
+def test_project_import_failure_is_prescriptive(patch_client, tmp_path):
+    """success=false must exit non-zero with prescriptive remap/create guidance."""
+    archive = tmp_path / "PROJ1.zip"
+    archive.write_bytes(b"PK\x03\x04 fake zip")
+    handle = patch_client.prepare_project_import.return_value
+    handle.execute.return_value = {
+        "success": False,
+        "messages": [{"message": "Connection 'pg_old' does not exist"}],
+    }
+
+    result = runner.invoke(
+        app,
+        ["project", "import", str(archive)],
+    )
+    assert result.exit_code != 0
+    assert "pg_old" in result.output
+    assert "--remap-connection" in result.output
+    assert "dku connection create" in result.output
+
+
+def test_project_import_missing_archive(patch_client, tmp_path):
+    missing = tmp_path / "nope.zip"
+    result = runner.invoke(app, ["project", "import", str(missing)])
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower()
+    assert "dku project export" in result.output
+
+
+def test_project_import_bad_remap_value(patch_client, tmp_path):
+    archive = tmp_path / "PROJ1.zip"
+    archive.write_bytes(b"PK\x03\x04 fake zip")
+    result = runner.invoke(
+        app,
+        ["project", "import", str(archive), "--remap-connection", "noequals"],
+    )
+    assert result.exit_code != 0
+    assert "SRC=TGT" in result.output
 
 
 # --- timeline ---

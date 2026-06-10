@@ -50,16 +50,64 @@ def _zip_directory(dir_path: Path) -> Path:
     return tmp
 
 
+def _find_plugin_json_member(archive: ZipFile) -> str | None:
+    """Locate plugin.json inside a plugin archive.
+
+    Returns its member path if it sits at the ZIP root OR exactly one
+    directory deep under a single top-level folder (the layout Dataiku
+    plugin exports and GitHub "Download ZIP" both produce — e.g.
+    ``my-plugin-main/plugin.json``). Returns None when plugin.json is
+    absent or the wrapper is ambiguous (loose files beside the folder, or
+    more than one top-level entry).
+    """
+    files = [n for n in archive.namelist() if not n.endswith("/")]
+    if "plugin.json" in files:
+        return "plugin.json"
+    nested = [n for n in files if n.count("/") == 1 and n.endswith("/plugin.json")]
+    top_dirs = {n.split("/", 1)[0] for n in files if "/" in n}
+    loose_at_root = [n for n in files if "/" not in n]
+    # Single wrapper dir, nothing loose at the root → safe to flatten.
+    if len(nested) == 1 and len(top_dirs) == 1 and not loose_at_root:
+        return nested[0]
+    return None
+
+
+def _repack_flat(zip_path: Path, wrapper: str) -> Path:
+    """Repack a wrapped plugin ZIP so its contents sit at the root.
+
+    Strips the single top-level ``wrapper/`` directory from every member.
+    Returns the path to a new temp ZIP (caller is responsible for deleting it).
+    """
+    prefix = wrapper.rstrip("/") + "/"
+    fd = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    out = Path(fd.name)
+    fd.close()
+    with ZipFile(zip_path) as src, ZipFile(out, "w") as dst:
+        for name in src.namelist():
+            if name.endswith("/") or not name.startswith(prefix):
+                continue
+            with src.open(name) as member:
+                dst.writestr(name[len(prefix) :], member.read())
+    return out
+
+
 def _read_plugin_id(zip_path: Path) -> str:
-    """Read the plugin id from plugin.json at the root of a plugin archive."""
+    """Read the plugin id from plugin.json in a plugin archive (root or one
+    directory deep)."""
     try:
         with ZipFile(zip_path) as archive:
-            with archive.open("plugin.json") as plugin_file:
+            member = _find_plugin_json_member(archive)
+            if member is None:
+                raise typer.BadParameter(
+                    "Plugin archive must contain plugin.json at the ZIP root "
+                    "(or under a single top-level folder).\n"
+                    "Dataiku exports and GitHub 'Download ZIP' wrap content under "
+                    "a folder — `dku plugin push` auto-flattens that, but only when "
+                    "there is exactly ONE top-level folder and nothing loose beside "
+                    "it. Repack flat: cd <dir> && zip -r ../flat.zip ."
+                )
+            with archive.open(member) as plugin_file:
                 plugin_meta = json.load(plugin_file)
-    except KeyError as exc:
-        raise typer.BadParameter(
-            "Plugin archive must contain plugin.json at the ZIP root."
-        ) from exc
     except OSError as exc:
         raise typer.BadParameter(f"Could not read plugin archive: {zip_path}") from exc
     except json.JSONDecodeError as exc:
@@ -69,6 +117,23 @@ def _read_plugin_id(zip_path: Path) -> str:
     if not plugin_id:
         raise typer.BadParameter("plugin.json must define a non-empty 'id'.")
     return plugin_id
+
+
+def _plugin_is_dev(p) -> bool:
+    """Whether a list_plugins() item is a dev plugin.
+
+    Two traps verified against a live DSS: the flag key is ``dev`` (NOT
+    ``isDev``), and its value comes back as the STRING ``"True"`` / ``"False"``
+    rather than a JSON bool. Only dev plugins expose ``list_files()`` (installed
+    plugins raise "is not a dev plugin"), so recipe-component introspection
+    hinges on getting this right.
+    """
+    if not isinstance(p, dict):
+        return bool(getattr(p, "dev", False))
+    val = p.get("dev")
+    if isinstance(val, str):
+        return val.strip().lower() == "true"
+    return bool(val)
 
 
 @app.command("list")
@@ -126,6 +191,7 @@ def push(
         raise typer.Exit(1)
 
     tmp_zip: Path | None = None
+    flat_zip: Path | None = None
     if path.is_dir():
         tmp_zip = _zip_directory(path)
         info(f"Zipped plugin directory: {path}")
@@ -142,6 +208,21 @@ def push(
         raise typer.Exit(1)
 
     try:
+        # Auto-flatten archives that wrap content under a single top-level
+        # folder (Dataiku exports + GitHub "Download ZIP" both do this; DSS
+        # rejects them with "Plugin archive must contain plugin.json at the
+        # ZIP root"). Directory pushes are already flat.
+        with ZipFile(zip_path) as _probe:
+            member = _find_plugin_json_member(_probe)
+        if member is not None and member != "plugin.json":
+            wrapper = member.split("/", 1)[0]
+            flat_zip = _repack_flat(zip_path, wrapper)
+            info(
+                f"Archive wrapped content under '{wrapper}/' — repacked flat "
+                "for upload."
+            )
+            zip_path = flat_zip
+
         plugin_id = _read_plugin_id(zip_path)
 
         client = get_client_from_ctx(ctx)
@@ -160,8 +241,15 @@ def push(
                 success(f"Installed plugin '{plugin_id}'")
 
         warn(
-            "Plugin recipe types may not be available until DSS is restarted "
-            "or the plugin is reloaded from the DSS UI."
+            "The DSS UI plugin catalog is loaded at backend start and does NOT "
+            "see types added/updated via API on a running instance."
+        )
+        info(
+            "Recipes of this plugin's types still BUILD and RUN correctly — the "
+            "job runner reads plugins from disk per-job. Verify by BUILDING the "
+            "recipe (dku recipe run / dku job run), not by opening it in the UI "
+            "editor (which may report 'recipe cannot be retrieved / plugin "
+            "uninstalled' until DSS is restarted or reloaded)."
         )
 
     except SystemExit:
@@ -169,8 +257,9 @@ def push(
     except Exception as e:
         handle_api_error(e)
     finally:
-        if tmp_zip and tmp_zip.exists():
-            tmp_zip.unlink()
+        for tmp in (tmp_zip, flat_zip):
+            if tmp and tmp.exists():
+                tmp.unlink()
 
 
 @app.command()
@@ -364,6 +453,23 @@ def delete(
         handle_api_error(e)
 
 
+def _bound_managed_env(plugin) -> str | None:
+    """Return the name of the managed code env already bound to a plugin, or None.
+
+    DSS records the bound managed env in the plugin's instance-level settings under
+    `codeEnvName` (see dataikuapi DSSPluginSettings.set_code_env / get_raw). Treat
+    only a non-empty string as a real binding so a missing/None field means "unbound".
+    """
+    try:
+        raw = plugin.get_settings().get_raw()
+    except Exception:
+        return None
+    bound = raw.get("codeEnvName") if isinstance(raw, dict) else None
+    if isinstance(bound, str) and bound.strip():
+        return bound
+    return None
+
+
 @app.command("create-code-env")
 def create_code_env(
     ctx: typer.Context,
@@ -371,16 +477,53 @@ def create_code_env(
     wait: bool = typer.Option(
         True, "--wait/--no-wait", help="Wait for code env creation"
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Create a new managed env even if one is already bound (creates a numbered duplicate)",
+    ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create the managed code environment for a plugin.
 
     Use after first install: dku plugin push ... --install && dku plugin create-code-env PLUGIN_ID
+
+    Idempotent: if a managed env is already bound, this skips creation (exit 0) and
+    points at the rebuild command. Pass --force to create a numbered duplicate anyway.
     """
     output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
+
+        # Idempotency guard: don't blindly create a duplicate numbered env
+        # (e.g. plugin_<id>_managed_2) when one is already bound.
+        if not force:
+            existing = _bound_managed_env(plugin)
+            if existing is not None:
+                if output == "json":
+                    render_raw(
+                        {
+                            "pluginId": plugin_id,
+                            "envName": existing,
+                            "created": False,
+                            "reason": "already-bound",
+                        },
+                        output_format="json",
+                    )
+                else:
+                    warn(
+                        f"Plugin '{plugin_id}' already has managed code env '{existing}' "
+                        "bound — skipping creation (idempotent)."
+                    )
+                    info(f"  Rebuild it:        dku plugin update-code-env {plugin_id}")
+                    info(f"  Or update the env: dku code-env update {existing}")
+                    info(
+                        "  Force a new (duplicate) env: "
+                        f"dku plugin create-code-env {plugin_id} --force"
+                    )
+                return
+
         if output != "json":
             info(f"Creating code environment for plugin '{plugin_id}'...")
         future = plugin.create_code_env()
@@ -523,18 +666,21 @@ def recipes(
         plugins = client.list_plugins()
 
         data = []
+        matched = False
+        opaque = []  # installed (non-dev) plugins we can't enumerate via API
         for p in plugins:
             pid = p.get("id", "") if isinstance(p, dict) else ""
             if plugin_id and pid != plugin_id:
                 continue
+            matched = True
 
-            # Try to get recipe components from dev plugin file tree
-            is_dev = p.get("isDev", False) if isinstance(p, dict) else False
+            # Only dev plugins expose list_files(); installed plugins raise
+            # "is not a dev plugin", so introspection is dev-only.
             recipe_ids = []
-            if is_dev:
+            introspected = False
+            if _plugin_is_dev(p):
                 try:
-                    plugin_obj = client.get_plugin(pid)
-                    file_tree = plugin_obj.list_files()
+                    file_tree = client.get_plugin(pid).list_files()
                     for item in file_tree:
                         if (
                             isinstance(item, dict)
@@ -543,6 +689,7 @@ def recipes(
                             for child in item.get("children", []):
                                 if isinstance(child, dict) and "children" in child:
                                     recipe_ids.append(child["name"])
+                    introspected = True
                 except Exception:
                     pass
 
@@ -556,39 +703,52 @@ def recipes(
                             "type": f"CustomCode_{rid}",
                         }
                     )
+            elif introspected:
+                # Dev plugin, file tree readable, but no custom-recipes/ dir —
+                # this plugin contributes no recipe types. Skip silently.
+                continue
             else:
-                # Can't read file tree — show the plugin with the naming pattern
-                data.append(
-                    {
-                        "plugin": pid,
-                        "recipe_id": "(check DSS UI)",
-                        "label": "(see plugin docs)",
-                        "type": "CustomCode_<recipeId>",
-                    }
-                )
+                # Installed (non-dev) plugin: the public API cannot enumerate
+                # its custom-recipes components. Record for an honest footer.
+                opaque.append(pid)
 
-        if plugin_id and not data:
+        if plugin_id and not matched:
             error(f"Plugin '{plugin_id}' not found.")
             info("Run: dku plugin list")
             raise typer.Exit(3)
 
-        if not data:
+        if not plugins:
             info("No plugins installed. Install one: dku plugin push <path>")
             return
 
-        render(
-            data,
-            ["plugin", "recipe_id", "label", "type"],
-            output_format=output_fmt,
-            title="Plugin Recipes",
-            headers={
-                "plugin": "PLUGIN",
-                "recipe_id": "RECIPE ID",
-                "label": "LABEL",
-                "type": "TYPE (use with --type)",
-            },
-        )
-    except SystemExit:
+        if data:
+            render(
+                data,
+                ["plugin", "recipe_id", "label", "type"],
+                output_format=output_fmt,
+                title="Plugin Recipes",
+                headers={
+                    "plugin": "PLUGIN",
+                    "recipe_id": "RECIPE ID",
+                    "label": "LABEL",
+                    "type": "TYPE (use with --type)",
+                },
+            )
+        elif output_fmt == "json":
+            # Keep JSON consumers happy: emit an empty array rather than prose.
+            render([], ["plugin", "recipe_id", "label", "type"], output_format="json")
+
+        if opaque and output_fmt != "json":
+            info(
+                "The public API cannot enumerate recipe components of installed "
+                "(non-dev) plugins: " + ", ".join(sorted(opaque))
+            )
+            info(
+                "Their recipe type is CustomCode_<recipeComponentId>, where "
+                "<recipeComponentId> is the directory name under custom-recipes/ "
+                "in the plugin (see the plugin's store page or its source ZIP)."
+            )
+    except (SystemExit, typer.Exit):
         raise
     except Exception as e:
         handle_api_error(e)

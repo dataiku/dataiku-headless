@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
+from dku_cli.auth import KeyResult, KeyStatus
 from dku_cli.main import app
 
 runner = CliRunner()
+
+
+def _key_result(key):
+    """Mirror get_api_key_with_status: found key → OK, missing → MISSING."""
+    return KeyResult(key, KeyStatus.OK if key else KeyStatus.MISSING)
 
 
 def test_auth_logout_all_clears_profile_config():
@@ -158,3 +165,80 @@ def test_auth_switch_nonexistent_profile_exits_one():
 
     assert result.exit_code == 1
     assert "does not exist" in result.output
+
+
+def test_auth_list_json_round_trips_url_and_node_type():
+    """auth list -o json must include every persisted profile field so callers
+    can pipe through jq without falling back to dataikuapi internals."""
+    profiles = {
+        "default": {
+            "url": "https://dss.example.com",
+            "node_type": "DESIGN",
+            "default_project": "PROJ1",
+        },
+        "govern": {
+            "url": "https://govern.example.com",
+            "node_type": "GOVERN",
+        },
+    }
+    with (
+        patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value=profiles),
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_api_key_with_status",
+            side_effect=lambda name: _key_result(
+                "secret" if name == "default" else None
+            ),
+        ),
+    ):
+        result = runner.invoke(app, ["auth", "list", "-o", "json"])
+
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert isinstance(parsed, list) and len(parsed) == 2
+    by_name = {p["name"]: p for p in parsed}
+    assert by_name["default"] == {
+        "name": "default",
+        "active": True,
+        "node_type": "DESIGN",
+        "url": "https://dss.example.com",
+        "default_project": "PROJ1",
+        "auth_mode": "api_key",
+        "has_key": True,
+    }
+    assert by_name["govern"]["url"] == "https://govern.example.com"
+    assert by_name["govern"]["node_type"] == "GOVERN"
+    assert by_name["govern"]["active"] is False
+    assert by_name["govern"]["has_key"] is False
+    # default_project key is always present, even if empty
+    assert "default_project" in by_name["govern"]
+
+
+def test_auth_list_text_keeps_legacy_layout():
+    """Text output preserves the historical 'name [node] url (key stored)' layout."""
+    profiles = {
+        "default": {"url": "https://dss.example.com", "node_type": "DESIGN"},
+    }
+    with (
+        patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value=profiles),
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_api_key_with_status",
+            return_value=_key_result("secret"),
+        ),
+    ):
+        result = runner.invoke(app, ["auth", "list"])
+
+    assert result.exit_code == 0
+    assert "default *" in result.output
+    assert "[DESIGN]" in result.output
+    assert "https://dss.example.com" in result.output
+    assert "key stored" in result.output
+
+
+def test_auth_list_json_empty_profiles():
+    """No profiles → empty JSON array (not an info message in JSON mode)."""
+    with patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value={}):
+        result = runner.invoke(app, ["auth", "list", "-o", "json"])
+    assert result.exit_code == 0
+    assert json.loads(result.output) == []

@@ -165,8 +165,14 @@ def test_recipe_create_geojoin_invalid_distance_unit(patch_client):
 
 
 def test_recipe_create_geojoin_with_operator(patch_client):
-    """--operator INTERSECTS sets geo join operator."""
+    """--operator INTERSECTS writes an INTERSECTS condition into joins[0].on."""
     proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    # DSS BUILDS from joins[0].on, so auto-detect must find a geo column to
+    # write the condition: give each input a geopoint column.
+    proj.get_dataset.return_value.get_schema.side_effect = None
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "the_geom", "type": "geopoint"}]
+    }
     try:
         result = runner.invoke(
             app,
@@ -188,16 +194,23 @@ def test_recipe_create_geojoin_with_operator(patch_client):
         )
         assert result.exit_code == 0
         assert "INTERSECTS" in result.output
-        geo_join = settings.obj_payload["joins"][0]
-        assert geo_join["geoOperator"] == "INTERSECTS"
-        assert geo_join["geoJoin"] is True
+        cond = settings.obj_payload["joins"][0]["on"][0]
+        assert cond["type"] == "INTERSECTS"
+        # INTERSECTS is not a distance operator — no threshold/unit.
+        assert "threshold" not in cond
+        assert "unit" not in cond
     finally:
         patcher.stop()
 
 
 def test_recipe_create_geojoin_with_distance(patch_client):
-    """--distance and --distance-unit configure distance threshold."""
+    """--distance and --distance-unit configure the DWITHIN condition threshold."""
     proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    # Auto-detect a geo column so the build-time condition is written.
+    proj.get_dataset.return_value.get_schema.side_effect = None
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "the_geom", "type": "geopoint"}]
+    }
     try:
         result = runner.invoke(
             app,
@@ -220,9 +233,10 @@ def test_recipe_create_geojoin_with_distance(patch_client):
             ],
         )
         assert result.exit_code == 0
-        geo_join = settings.obj_payload["joins"][0]
-        assert geo_join["geoDistance"] == 5000.0
-        assert geo_join["geoUnit"] == "km"
+        cond = settings.obj_payload["joins"][0]["on"][0]
+        assert cond["type"] == "DWITHIN"  # WITHIN_DISTANCE → DWITHIN
+        assert cond["threshold"] == 5000.0
+        assert cond["unit"] == "KILOMETER"  # km → KILOMETER
     finally:
         patcher.stop()
 
@@ -284,9 +298,9 @@ def test_recipe_create_geojoin_with_geo_columns(patch_client):
             ],
         )
         assert result.exit_code == 0
-        geo_join = settings.obj_payload["joins"][0]
-        assert geo_join["geoColumn1"] == "location_left"
-        assert geo_join["geoColumn2"] == "location_right"
+        cond = settings.obj_payload["joins"][0]["on"][0]
+        assert cond["column1"] == {"name": "location_left", "table": 0}
+        assert cond["column2"] == {"name": "location_right", "table": 1}
     finally:
         patcher.stop()
 
@@ -1103,3 +1117,51 @@ def test_agent_tool_create_kb_resolves_name_to_id(patch_client):
     assert result.exit_code == 0, result.output
     builder = proj.new_agent_tool.return_value
     builder.with_knowledge_bank.assert_called_once_with("kb_id_123")
+
+
+# ── NET-NEW (PR surface): create-geojoin CONTAINS writes an on[] condition ──
+
+
+def test_recipe_create_geojoin_contains_condition(patch_client):
+    """CONTAINS operator writes a CONTAINS MatchingCondition into on[] with the
+    explicit -g geo columns (no distance/unit) — regression for the bug where
+    on[] was left empty and the build failed with 'Empty join conditions'."""
+    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-geojoin",
+                "geo_match",
+                "-i",
+                "regions",
+                "-i",
+                "points",
+                "--output-ds",
+                "matched",
+                "--operator",
+                "CONTAINS",
+                "-g",
+                "region_poly",
+                "-g",
+                "pt",
+                "--join-type",
+                "INNER",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        on = settings.obj_payload["joins"][0]["on"]
+        assert len(on) == 1
+        cond = on[0]
+        assert cond["type"] == "CONTAINS"
+        assert cond["column1"] == {"name": "region_poly", "table": 0}
+        assert cond["column2"] == {"name": "pt", "table": 1}
+        # CONTAINS is not a distance operator — no threshold/unit.
+        assert "threshold" not in cond
+        assert "unit" not in cond
+        assert settings.obj_payload["joins"][0]["type"] == "INNER"
+    finally:
+        patcher.stop()

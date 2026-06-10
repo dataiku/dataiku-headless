@@ -17,6 +17,23 @@ def test_config_path():
     assert "config.toml" in result.output
 
 
+def test_config_list_profiles_does_not_crash():
+    """Regression: the alias called the auth command function directly without
+    passing `output`, so resolve_output_format got a Typer OptionInfo and
+    crashed on `.lower()`."""
+    with (
+        patch(
+            "dku_cli.commands.auth_cmd.get_all_profiles",
+            return_value={"local": {"url": "http://localhost:8082"}},
+        ),
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="local"),
+    ):
+        result = runner.invoke(app, ["config", "list-profiles"])
+    assert result.exit_code == 0
+    assert "local" in result.output
+    assert "OptionInfo" not in result.output
+
+
 def test_config_set_default_project():
     with patch("dku_cli.commands.config_cmd.set_default_project") as mock_set:
         result = runner.invoke(app, ["config", "set", "default_project", "MYPROJ"])

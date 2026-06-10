@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from dku_cli.errors import _handle_govern_validation, _handle_invalid_api_key
+from dku_cli.errors import (
+    _handle_govern_field_save_npe,
+    _handle_govern_field_type_enum,
+    _handle_govern_validation,
+    _handle_invalid_api_key,
+)
 
 
 def test_list_field_error():
@@ -90,3 +95,56 @@ def test_invalid_api_key_returns_none_for_other_errors():
     assert _handle_invalid_api_key("NotFoundException: Project does not exist") is None
     assert _handle_invalid_api_key("ValidationException: bad field") is None
     assert _handle_invalid_api_key("403 Forbidden") is None
+
+
+def test_govern_field_type_enum_string():
+    msg = (
+        "java.lang.IllegalArgumentException: No enum constant "
+        "com.dataiku.gh.core.models.fields.FieldType.STRING"
+    )
+    result = _handle_govern_field_type_enum(msg)
+    assert result is not None
+    message, details = result
+    assert "'STRING'" in message
+    joined = "\n".join(details)
+    assert "TEXT" in joined
+    assert "CATEGORY" in joined
+    assert "JSON" in joined
+    assert "STRING' → use 'TEXT'" in joined
+    assert "govern-field-types.md" in joined
+
+
+def test_govern_field_type_enum_other_value():
+    msg = "IllegalArgumentException: No enum constant FieldType.MARKDOWN"
+    result = _handle_govern_field_type_enum(msg)
+    assert result is not None
+    assert "'MARKDOWN'" in result[0]
+
+
+def test_govern_field_type_enum_returns_none_for_other_errors():
+    assert _handle_govern_field_type_enum("NotFoundException: nope") is None
+    assert _handle_govern_field_type_enum("ValidationException: bad") is None
+
+
+def test_govern_field_save_npe_matches():
+    msg = (
+        "java.lang.NullPointerException: Cannot invoke "
+        '"com.google.gson.JsonObject.get(String).getAsString()" '
+        "because the return value of "
+        '"com.google.gson.JsonObject.get(String)" is null'
+    )
+    result = _handle_govern_field_save_npe(msg)
+    assert result is not None
+    message, details = result
+    assert "fieldDefinitions" in message
+    joined = "\n".join(details)
+    assert "id" in joined
+    assert "fieldType" in joined
+    assert "sourceType" in joined
+    assert "label" in joined
+    assert "'name' instead of 'id'" in joined
+
+
+def test_govern_field_save_npe_returns_none_for_other_errors():
+    assert _handle_govern_field_save_npe("NotFoundException: nope") is None
+    assert _handle_govern_field_save_npe("NullPointerException: something else") is None

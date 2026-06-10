@@ -784,6 +784,10 @@ def test_recipe_check_schema_json(patch_client):
 
 def test_recipe_apply_schema_no_changes(patch_client):
     """apply-schema does nothing when no changes needed."""
+    # apply-schema now refuses code recipes (the default fixture types recipe1
+    # as python); type it as a visual recipe so the compute/apply path runs.
+    settings = patch_client.get_project("PROJ1").get_recipe("recipe1").get_settings()
+    settings.get_recipe_raw_definition.return_value = {"type": "grouping"}
     result = runner.invoke(
         app,
         [
@@ -802,6 +806,10 @@ def test_recipe_apply_schema_with_changes(patch_client):
     """apply-schema applies updates when changes exist."""
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe("recipe1")
+    # Visual recipe type so apply-schema doesn't refuse it as a code recipe.
+    recipe_mock.get_settings().get_recipe_raw_definition.return_value = {
+        "type": "grouping"
+    }
     updates = recipe_mock.compute_schema_updates.return_value
     updates.any_action_required.return_value = True
     updates.data = {"totalIncompatibilities": 1, "computables": []}
@@ -819,3 +827,29 @@ def test_recipe_apply_schema_with_changes(patch_client):
     assert result.exit_code == 0
     assert "applied" in result.output.lower()
     updates.apply.assert_called_once()
+
+
+# ── NET-NEW (PR surface): apply-schema refuses code recipes ───────────
+
+
+def test_recipe_apply_schema_rejects_python_recipe(patch_client):
+    """apply-schema on a Python recipe emits prescriptive guidance (not raw exception)."""
+    # Default fixture has recipe1 typed as "python" — no override needed.
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "apply-schema",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2
+    output = result.output.lower()
+    # Rich wraps long lines; check unwrappable tokens.
+    assert "write_with_schema" in output
+    assert "dku recipe run" in output
+
+
+# ── Visual recipe: create-join ────────────────────────────────────────

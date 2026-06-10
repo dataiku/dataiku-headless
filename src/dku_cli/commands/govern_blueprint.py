@@ -117,21 +117,43 @@ def list_versions(
             bv = raw.get("blueprintVersion", raw)
             vid = bv.get("id", {})
             trace = raw.get("blueprintVersionTrace", {})
+            version_id_str = (
+                vid.get("versionId", "") if isinstance(vid, dict) else str(vid)
+            )
+            blueprint_id_str = (
+                vid.get("blueprintId", blueprint_id)
+                if isinstance(vid, dict)
+                else blueprint_id
+            )
+            # Emit BOTH the flat snake_case (`version_id`) used by older
+            # consumers AND the nested camelCase (`id.versionId`) returned by
+            # `get-version` so resolver code that does
+            # `(v.get("id") or {}).get("versionId")` works against either
+            # endpoint without an output-shape branch. Same goes for
+            # `blueprint_id` ↔ `id.blueprintId`.
             data.append(
                 {
-                    "version_id": vid.get("versionId", "")
-                    if isinstance(vid, dict)
-                    else str(vid),
+                    "version_id": version_id_str,
+                    "blueprint_id": blueprint_id_str,
+                    "id": {
+                        "blueprintId": blueprint_id_str,
+                        "versionId": version_id_str,
+                    },
                     "name": bv.get("name", ""),
                     "status": trace.get("status", ""),
                 }
             )
-        render(
-            data,
-            ["version_id", "name", "status"],
-            output_format=output,
-            title=f"Versions of {blueprint_id}",
-        )
+        if output == "json":
+            # render() filters rows to the listed columns — emit the full rows
+            # so the dual flat/nested id shapes actually reach JSON consumers.
+            render_raw(data, output_format="json")
+        else:
+            render(
+                data,
+                ["version_id", "name", "status"],
+                output_format=output,
+                title=f"Versions of {blueprint_id}",
+            )
     except SystemExit:
         raise
     except Exception as e:
@@ -164,19 +186,57 @@ def get_version(
         handle_api_error(e)
 
 
+def _summarize_hook(hook: dict) -> dict:
+    """Project a logicalHookList entry into a scannable table row.
+
+    Hooks carry their full Python source in `script`, which is useless for
+    table output. We surface name, phases, line count, and a truncated
+    description — enough for an agent to decide whether to drill in.
+    """
+    if not isinstance(hook, dict):
+        return {"name": "", "phases": "", "lines": "0", "description": ""}
+    phases = hook.get("phases") or []
+    if isinstance(phases, list):
+        phases_str = ",".join(str(p) for p in phases)
+    else:
+        phases_str = str(phases)
+    script = hook.get("script") or ""
+    line_count = len(script.splitlines()) if isinstance(script, str) else 0
+    desc = (hook.get("description") or "").strip().replace("\n", " ")
+    if len(desc) > 64:
+        desc = desc[:61] + "…"
+    return {
+        "name": hook.get("name", "") or "",
+        "phases": phases_str,
+        "lines": str(line_count),
+        "description": desc,
+    }
+
+
+_HOOK_TABLE_COLS = ["name", "phases", "lines", "description"]
+_HOOK_TABLE_HEADERS = {
+    "name": "NAME",
+    "phases": "PHASES",
+    "lines": "LINES",
+    "description": "DESCRIPTION",
+}
+
+
 @app.command("describe-version")
 def describe_version(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID (e.g. bv.v1)"),
 ) -> None:
-    """Pretty-print a blueprint version: fields, workflow, signoffs, views, and structural warnings.
+    """Pretty-print a blueprint version: fields, workflow, signoffs, views, hooks, and structural warnings.
 
     Use this instead of `get-version | jq` when authoring or auditing a
     blueprint — the tables are easier to scan and the bottom of the output
     flags structural bugs (empty views, missing artifactPageViewId, fields not
     in any view, signoffs on non-existent steps, etc.) that the Govern API
     silently accepts but break the UI.
+
+    For just the hook list (without the rest), use `list-hooks BP VER`.
     """
     try:
         govern = get_govern_client_from_ctx(ctx)
@@ -264,6 +324,21 @@ def describe_version(
                 "is_artifact_page": "MAIN",
                 "used_by_steps": "USED BY STEPS",
             },
+        )
+
+        # Hooks — server-side Python that fires on CREATE/UPDATE/DELETE phases.
+        # Live under `logicalHookList` on the version (NOT `hooks`, NOT on the
+        # blueprint). Surfacing them here is the cure for the "scanned 31
+        # versions, found 0 hooks" agent failure mode — when this section is
+        # missing, agents conclude there are no hooks even when there are.
+        hooks = raw.get("logicalHookList", []) or []
+        hook_rows = [_summarize_hook(h) for h in hooks if isinstance(h, dict)]
+        render(
+            hook_rows,
+            _HOOK_TABLE_COLS,
+            output_format="table",
+            title=f"Hooks ({len(hook_rows)})",
+            headers=_HOOK_TABLE_HEADERS,
         )
 
         # Structural warnings — the whole point of this command. Catches the
@@ -389,11 +464,60 @@ def fields(
         handle_api_error(e)
 
 
+@app.command("list-hooks")
+def list_hooks(
+    ctx: typer.Context,
+    blueprint_id: str = typer.Argument(help="Blueprint ID"),
+    version_id: str = typer.Argument(help="Version ID (e.g. bv.default)"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List logical hooks on a blueprint version.
+
+    Hooks are server-side Python that runs on CREATE / UPDATE / DELETE phases.
+    They live on the *version* under `logicalHookList` — NOT on the blueprint
+    under `hooks`. Sweeping blueprints for a `hooks` field will always report
+    zero. This verb does the right lookup.
+
+    Table output shows NAME · PHASES · LINES · DESCRIPTION (one row per hook).
+    JSON output returns the full `logicalHookList` array including each
+    hook's `script` source.
+    """
+    output = resolve_output_format(output)
+    try:
+        govern = get_govern_client_from_ctx(ctx)
+        bp = govern.get_blueprint(blueprint_id)
+        ver = bp.get_version(version_id)
+        defn = ver.get_definition()
+        raw = defn.get_raw()
+        hooks = raw.get("logicalHookList", []) or []
+        # Defensive: drop non-dict entries rather than crashing the table.
+        hooks = [h for h in hooks if isinstance(h, dict)]
+        if output == "json":
+            render_raw(hooks, output_format="json")
+            return
+        if not hooks:
+            success(f"No hooks configured on {blueprint_id} / {version_id}.")
+            return
+        rows = [_summarize_hook(h) for h in hooks]
+        render(
+            rows,
+            _HOOK_TABLE_COLS,
+            output_format=output,
+            title=f"Hooks on {blueprint_id} ({version_id}) — {len(rows)}",
+            headers=_HOOK_TABLE_HEADERS,
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command()
 def create(
     ctx: typer.Context,
     identifier: str = typer.Argument(
-        help="New blueprint identifier (letters, digits, hyphen, underscore)"
+        help="New blueprint identifier. Accepts both 'swag' and 'bp.swag' "
+        "forms — the 'bp.' prefix is stripped automatically."
     ),
     definition: str = typer.Option(
         ...,
@@ -402,13 +526,49 @@ def create(
     ),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Create a new blueprint (admin/architect). Provide definition as JSON."""
+    """Create a new blueprint (admin/architect). Provide definition as JSON.
+
+    Note: every other ``govern blueprint`` verb takes the full ``bp.<id>``
+    form, but ``create`` historically required the bare identifier. This
+    command now accepts both — pass either ``swag`` or ``bp.swag`` and the
+    resulting blueprint ID will always be ``bp.swag``.
+    """
     output = resolve_output_format(output)
+
+    # DSS rejects identifiers containing the "bp." prefix in this endpoint
+    # even though every other verb requires it. Strip transparently and warn
+    # so agents can still copy-paste the full bp.<id> form they used elsewhere.
+    bare_identifier = identifier
+    if identifier.startswith("bp."):
+        bare_identifier = identifier[3:]
+        from dku_cli.output import warn
+
+        warn(
+            f"Stripping 'bp.' prefix: '{identifier}' → '{bare_identifier}'. "
+            "DSS adds the prefix automatically on create."
+        )
+
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
         bp_data = read_json_input(definition)
-        bp = designer.create_blueprint(identifier, bp_data)
+
+        # DSS rejects --definition JSON whose top-level 'id' is set on this
+        # endpoint with `ValidationException: blueprint.id 'X' cannot be set
+        # in creation`. The id is redundant with the positional argument, so
+        # strip it transparently and warn the agent — same pattern as the
+        # 'bp.' prefix strip above.
+        if isinstance(bp_data, dict) and "id" in bp_data:
+            from dku_cli.output import warn
+
+            stripped_id = bp_data.pop("id")
+            warn(
+                f"Stripped 'id': '{stripped_id}' from definition JSON — "
+                "the blueprint ID is set from the positional argument, not from the body. "
+                "DSS rejects creation when both are set."
+            )
+
+        bp = designer.create_blueprint(bare_identifier, bp_data)
         defn = bp.get_definition()
         success(f"Created blueprint '{bp.blueprint_id}'")
         render_raw(defn.get_raw(), output_format=output)

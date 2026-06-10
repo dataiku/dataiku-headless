@@ -6,6 +6,7 @@ import time
 
 import typer
 
+from dku_cli.enums import EnvMode
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -21,6 +22,19 @@ from dku_cli.output import (
     resolve_output_format,
     success,
     warn,
+)
+from dku_cli.commands.scenario_payloads import (
+    KNOWN_STEP_TYPES,
+    build_python_trigger,
+    build_step,
+    build_targets,
+    build_temporal_trigger,
+    dataset_items,
+    env_selection,
+    mixed_typed_items,
+    validate_build_job_type,
+    validate_handle_warnings_as,
+    validate_run_options,
 )
 
 app = typer.Typer(help="Manage DSS scenarios.")
@@ -82,7 +96,7 @@ def list_scenarios(
                 {
                     "id": s.get("id", ""),
                     "name": s.get("name", ""),
-                    "active": str(s.get("active", False)),
+                    "active": bool(s.get("active", False)),
                     "type": s.get("type", ""),
                 }
             )
@@ -341,6 +355,75 @@ def set_definition(
                     ],
                 )
         success(f"Updated definition for scenario '{scenario_id}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-active")
+def set_active(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    enable: bool = typer.Option(
+        True,
+        "--enable/--disable",
+        help="Enable (default) or disable the scenario.",
+    ),
+    skip_triggers: bool = typer.Option(
+        False,
+        "--skip-triggers",
+        help="Only flip the scenario-level active flag; leave triggers untouched.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Enable or disable a scenario AND every trigger in one call.
+
+    DSS gates scenario auto-runs at two levels: scenario.active (top-level)
+    AND each triggers[].active. Both must be true for the scenario to fire
+    on its own. Many Solutions ship with one or both at false, so flipping
+    just the top-level flag still leaves auto-runs blocked.
+
+    This verb flips both. Pass --skip-triggers to flip only the top-level
+    flag (rare; use when you want a manual-only scenario whose triggers
+    should stay disabled).
+
+    Examples:
+      dku scenario set-active daily -P PROJ
+      dku scenario set-active daily --disable -P PROJ
+      dku scenario set-active daily --skip-triggers -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        raw = settings.get_raw()
+
+        before_scen = bool(raw.get("active", False))
+        triggers = raw.get("triggers") or []
+        before_trig_active = sum(1 for t in triggers if t.get("active"))
+
+        raw["active"] = enable
+        if not skip_triggers:
+            for trigger in triggers:
+                trigger["active"] = enable
+
+        settings.save()
+
+        verb = "enabled" if enable else "disabled"
+        if skip_triggers:
+            success(
+                f"{verb.capitalize()} scenario '{scenario_id}' "
+                f"(triggers untouched: {before_trig_active}/{len(triggers)} active)"
+            )
+        else:
+            after = len(triggers) if enable else 0
+            success(
+                f"{verb.capitalize()} scenario '{scenario_id}' "
+                f"(scenario.active: {before_scen} → {enable}; "
+                f"triggers active: {before_trig_active}/{len(triggers)} → "
+                f"{after}/{len(triggers)})"
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -809,7 +892,7 @@ def list_triggers(
                 {
                     "index": str(i),
                     "type": t.get("type", ""),
-                    "active": str(t.get("active", False)),
+                    "active": bool(t.get("active", False)),
                     "description": _trigger_description(t),
                 }
             )
@@ -915,6 +998,170 @@ def add_trigger_dataset(
     _add_trigger(ctx, scenario_id, project, trigger_dict)
 
 
+@app.command("add-trigger-time")
+def add_trigger_time(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    frequency: str = typer.Option(
+        ...,
+        "--frequency",
+        "-f",
+        help="Schedule frequency: Minutely, Hourly, Daily, Weekly, Monthly",
+    ),
+    hour: int = typer.Option(
+        2, "--hour", help="Hour of day (0–23) for Daily/Weekly/Monthly (default: 2)"
+    ),
+    minute: int = typer.Option(
+        0, "--minute", help="Minute of hour (0–59) (default: 0)"
+    ),
+    days: str | None = typer.Option(
+        None,
+        "--days",
+        help="Comma-separated days of week for Weekly: Monday,Tuesday,...",
+    ),
+    monthly_run_on: str = typer.Option(
+        "ON_THE_DAY",
+        "--monthly-run-on",
+        help="Monthly run mode: ON_THE_DAY, LAST_DAY_OF_THE_MONTH, FIRST_DAY_OF_THE_MONTH, FIRST_WEEK, LAST_WEEK",
+    ),
+    repeat_every: int = typer.Option(
+        1,
+        "--repeat-every",
+        help="Repeat every N units (e.g. every 2 hours, every 3 days). Default: 1",
+    ),
+    timezone: str = typer.Option(
+        "SERVER",
+        "--timezone",
+        help="Timezone (e.g. SERVER, UTC, Europe/Paris). Default: SERVER",
+    ),
+    active: bool = typer.Option(
+        True,
+        "--active/--inactive",
+        help="Whether the trigger is active (default: active)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a time-based (temporal) trigger to a scenario.
+
+    Replaces hand-crafted JSON for daily/weekly/hourly schedules.
+
+    Examples:
+        Daily at 02:00:
+            dku scenario add-trigger-time SCEN --frequency Daily --hour 2 -P PROJ
+        Weekly Mon/Wed/Fri at 06:30:
+            dku scenario add-trigger-time SCEN --frequency Weekly \\
+              --days Monday,Wednesday,Friday --hour 6 --minute 30 -P PROJ
+        Every 15 minutes:
+            dku scenario add-trigger-time SCEN --frequency Minutely --repeat-every 15 -P PROJ
+        Hourly at :00 (every 2 hours):
+            dku scenario add-trigger-time SCEN --frequency Hourly --minute 0 --repeat-every 2 -P PROJ
+        Monthly on the last day at 03:00:
+            dku scenario add-trigger-time SCEN --frequency Monthly --monthly-run-on LAST_DAY_OF_THE_MONTH --hour 3 -P PROJ
+    """
+    _add_trigger(
+        ctx,
+        scenario_id,
+        project,
+        build_temporal_trigger(
+            frequency=frequency,
+            hour=hour,
+            minute=minute,
+            days=days,
+            monthly_run_on=monthly_run_on,
+            repeat_every=repeat_every,
+            timezone=timezone,
+            active=active,
+        ),
+    )
+
+
+@app.command("add-trigger-python")
+def add_trigger_python(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    code: str = typer.Option(
+        ...,
+        "--code",
+        help=(
+            "Python trigger script: literal, @file.py, or '-' for stdin. The "
+            "script must call Trigger().fire() from dataiku.scenario to fire "
+            "the scenario; returning silently means 'don't fire'. Canonical "
+            "shape:\n"
+            "  from dataiku.scenario import Trigger\n"
+            "  if some_state_check(): Trigger().fire()"
+        ),
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        help="Trigger display name in the UI (optional).",
+    ),
+    delay: int = typer.Option(
+        86400,
+        "--delay",
+        help=(
+            "Polling interval in seconds — how often DSS evaluates the script. "
+            "Default 86400 (once per day)."
+        ),
+    ),
+    grace_delay: int = typer.Option(
+        0,
+        "--grace-delay",
+        help="Seconds to wait after the script fires before launching the run (default 0).",
+    ),
+    check_again: bool = typer.Option(
+        False,
+        "--check-again/--no-check-again",
+        help="Re-check after grace delay before firing.",
+    ),
+    env_mode: EnvMode = typer.Option(
+        EnvMode.INHERIT,
+        "--env-mode",
+        case_sensitive=False,
+        help=(
+            "Code env mode for the trigger: INHERIT | USE_BUILTIN_MODE | EXPLICIT_ENV."
+        ),
+    ),
+    env_name: str | None = typer.Option(
+        None,
+        "--env-name",
+        help="Code env name (required when --env-mode EXPLICIT_ENV).",
+    ),
+    inactive: bool = typer.Option(
+        False,
+        "--inactive",
+        help="Create the trigger in disabled state. By default, triggers are active.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a custom_python trigger (fire-on-state-condition).
+
+    Use this for "fire when a project variable / external system state
+    matches a condition" patterns — far more flexible than dataset_change or
+    temporal triggers but undocumented in the SDK. The script is polled every
+    --delay seconds; it fires the scenario when Trigger().fire() is called.
+
+    Example (fires when var.activate_hourly_build is true, polled hourly):
+        dku scenario add-trigger-python SCEN --code @trigger.py --delay 3600 -P PROJ
+    """
+    body = read_text_input(code)
+    _add_trigger(
+        ctx,
+        scenario_id,
+        project,
+        build_python_trigger(
+            code=body,
+            env_mode=env_mode,
+            env_name=env_name,
+            delay=delay,
+            grace_delay=grace_delay,
+            check_again=check_again,
+            active=not inactive,
+            name=name,
+        ),
+    )
+
+
 @app.command("remove-trigger")
 def remove_trigger(
     ctx: typer.Context,
@@ -965,6 +1212,1290 @@ def remove_trigger(
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Step commands (step-based scenarios only)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_step_settings(scenario):
+    """Return raw_steps list for a step-based scenario, or exit with a
+    prescriptive error if the scenario is custom_python (whole-scenario
+    Python script, no steps)."""
+    settings = scenario.get_settings()
+    if not hasattr(settings, "raw_steps"):
+        exit_with_error(
+            "This scenario is not step-based — it has no steps to manage.",
+            code="wrong_scenario_type",
+            details=[
+                "Scenario type must be 'step_based'. For custom_python scenarios, "
+                "use 'dku scenario set-code SCEN --code @file.py' to update the script.",
+            ],
+        )
+    return settings
+
+
+def _add_step(
+    ctx: typer.Context,
+    scenario_id: str,
+    project: str | None,
+    step: dict,
+    at: int | None = None,
+) -> None:
+    """Shared logic for all add-step commands."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = _resolve_step_settings(scenario)
+        steps = settings.raw_steps
+        if at is None or at >= len(steps):
+            steps.append(step)
+            idx = len(steps) - 1
+        else:
+            steps.insert(max(at, 0), step)
+            idx = max(at, 0)
+        settings.save()
+        success(
+            f"Added {step.get('type', 'unknown')} step "
+            f"'{step.get('name', step.get('id', ''))}' to scenario '{scenario_id}' at index {idx}"
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("list-steps")
+def list_steps(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List steps in a step-based scenario.
+
+    Examples:
+        dku scenario list-steps daily_refresh -P PROJ
+        dku scenario list-steps daily_refresh -o json -P PROJ
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = _resolve_step_settings(scenario)
+        steps = settings.raw_steps
+        if output == "json":
+            print(__import__("json").dumps(steps, indent=2, default=str))
+            return
+        rows = [
+            {
+                "index": str(i),
+                "id": s.get("id", ""),
+                "name": s.get("name", ""),
+                "type": s.get("type", ""),
+            }
+            for i, s in enumerate(steps)
+        ]
+        render(
+            rows,
+            ["index", "id", "name", "type"],
+            output_format=output,
+            title=f"Steps ({scenario_id})",
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("remove-step")
+def remove_step(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    index: int = typer.Option(
+        ...,
+        "--index",
+        help="Step index to remove (0-based, from list-steps)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+) -> None:
+    """Remove a step from a step-based scenario by index."""
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="scenario.remove_step",
+        subject=f"step index {index} from scenario '{scenario_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove step at index {index} from scenario '{scenario_id}'?",
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        scenario = proj.get_scenario(scenario_id)
+        settings = _resolve_step_settings(scenario)
+        steps = settings.raw_steps
+        if index < 0 or index >= len(steps):
+            exit_with_error(
+                f"Index {index} out of range (0–{len(steps) - 1}).",
+                code="invalid_index",
+                details=[
+                    f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
+                ],
+            )
+        removed = steps.pop(index)
+        settings.save()
+        success(
+            f"Removed {removed.get('type', 'unknown')} step "
+            f"at index {index} from scenario '{scenario_id}'"
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("add-step")
+def add_step(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    type_: str = typer.Option(
+        ...,
+        "--type",
+        help=(
+            "Step type. Common: build_flowitem, custom_python, exec_sql, "
+            "check_dataset, compute_metrics, reload_schema, run_scenario, "
+            "restart_webapp, refresh_chart_cache. Prefer typed shortcuts "
+            "(add-step-build, add-step-python, …) over this generic verb."
+        ),
+    ),
+    name: str = typer.Option(..., "--name", help="Step name (label shown in UI)"),
+    params: str | None = typer.Option(
+        None,
+        "--params",
+        help="Step params as JSON literal, @file.json, or '-' for stdin",
+    ),
+    at: int | None = typer.Option(
+        None, "--at", help="Insert at index (default: append)"
+    ),
+    proceed_on_failure: bool = typer.Option(
+        False, "--proceed-on-failure", help="Continue scenario if this step fails"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a step to a step-based scenario (generic; supports any step type).
+
+    Prefer the typed shortcuts when available — they construct the right
+    `params` shape for you. Use this generic verb for step types not yet
+    covered by a shortcut.
+
+    Examples:
+        dku scenario add-step daily --type build_flowitem --name "Build all" \\
+            --params '{"builds":[{"type":"DATASET","itemId":"final"}],"jobType":"NON_RECURSIVE_FORCED_BUILD"}' -P PROJ
+        dku scenario add-step daily --type set_project_variables --name "Set day" \\
+            --params '{"variables":{"day":"$(date +%F)"}}' -P PROJ
+    """
+    if type_ not in KNOWN_STEP_TYPES:
+        warn(
+            f"Step type '{type_}' is not in the known catalog "
+            f"({', '.join(sorted(KNOWN_STEP_TYPES))[:120]}...) — proceeding anyway."
+        )
+    params_dict = read_json_input(params) if params else {}
+    if not isinstance(params_dict, dict):
+        exit_with_error(
+            "--params must be a JSON object.",
+            code="invalid_argument",
+        )
+    if proceed_on_failure:
+        params_dict["proceedOnFailure"] = True
+    step = {"type": type_, "name": name, "params": params_dict}
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-build")
+def add_step_build(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    build: list[str] = typer.Option(
+        ...,
+        "--build",
+        help="Dataset/folder to build (repeatable; PROJECT.NAME for cross-project)",
+    ),
+    job_type: str = typer.Option(
+        "NON_RECURSIVE_FORCED_BUILD",
+        "--job-type",
+        help="NON_RECURSIVE_FORCED_BUILD | RECURSIVE_BUILD | RECURSIVE_FORCED_BUILD | RECURSIVE_MISSING_ONLY_BUILD",
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    handle_warnings_as: str | None = typer.Option(
+        None,
+        "--handle-warnings-as",
+        help=(
+            "Outcome to record when the build emits warnings: WARNING "
+            "(server default), FAILED (treat warnings as failures), "
+            "SUCCESS (ignore warnings), or ABORTED."
+        ),
+    ),
+    refresh_metastore: bool = typer.Option(
+        False,
+        "--refresh-metastore",
+        help=(
+            "Refresh the Hive metastore after each built table. Only relevant "
+            "for Hive/Impala/Spark-SQL outputs whose downstream consumers query "
+            "via metastore."
+        ),
+    ),
+    stop_at_zone_boundary: bool = typer.Option(
+        False,
+        "--stop-at-zone-boundary",
+        help=(
+            "When --job-type RECURSIVE, do NOT cross flow-zone boundaries when "
+            "walking upstream — only rebuild items in the same zone(s) as the "
+            "explicit --build targets."
+        ),
+    ),
+    max_retries: int | None = typer.Option(
+        None,
+        "--max-retries",
+        help=(
+            "Re-run the step on failure up to N times before marking the "
+            "scenario as FAILED. 0 disables retry. Maps to maxRetriesOnFail."
+        ),
+    ),
+    delay_between_retries: int | None = typer.Option(
+        None,
+        "--delay-between-retries",
+        help="Seconds to wait between retries. Requires --max-retries.",
+    ),
+    run_condition_type: str | None = typer.Option(
+        None,
+        "--run-condition-type",
+        help=(
+            "Gate the step on prior steps' status: RUN_ALWAYS, "
+            "RUN_IF_STATUS_MATCH (use with --run-condition-statuses), or "
+            "RUN_CONDITIONALLY (use with --run-condition-expression). "
+            "Omitted = server default RUN_IF_STATUS_MATCH on SUCCESS,WARNING "
+            "(the step is skipped after a prior failure)."
+        ),
+    ),
+    run_condition_expression: str | None = typer.Option(
+        None,
+        "--run-condition-expression",
+        help=(
+            "GREL boolean expression evaluated before the step runs. "
+            "Implies --run-condition-type RUN_CONDITIONALLY if not set."
+        ),
+    ),
+    run_condition_statuses: list[str] = typer.Option(
+        [],
+        "--run-condition-statuses",
+        help=(
+            "Status whitelist when --run-condition-type RUN_IF_STATUS_MATCH "
+            "(repeatable; comma/space accepted). DSS UI 'run if previous "
+            "succeeded' default writes SUCCESS,WARNING — not just SUCCESS."
+        ),
+    ),
+    reset_scenario_status: bool = typer.Option(
+        False,
+        "--reset-scenario-status",
+        help="Reset accumulated status before this step runs.",
+    ),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a build_flowitem step (the most common scenario step).
+
+    Example:
+        dku scenario add-step-build daily --name "Build core" \\
+            --build sales_clean --build inventory_clean -P PROJ
+
+    With retry + warnings-as-failure:
+        dku scenario add-step-build daily --name "Build core" \\
+            --build sales_clean --max-retries 3 --delay-between-retries 60 \\
+            --handle-warnings-as FAILED -P PROJ
+    """
+    handle_warnings_as = validate_handle_warnings_as(handle_warnings_as)
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+
+    job_type = validate_build_job_type(job_type)
+
+    params: dict = {"builds": build_targets(build), "jobType": job_type}
+    if handle_warnings_as:
+        params["handleWarningsAs"] = handle_warnings_as
+    if refresh_metastore:
+        params["refreshHiveMetastore"] = True
+    if stop_at_zone_boundary:
+        params["stopAtFlowZoneBoundary"] = True
+    step = build_step(
+        "build_flowitem",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        delay_between_retries=delay_between_retries,
+        max_retries=max_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-python")
+def add_step_python(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    code: str = typer.Option(
+        ..., "--code", help="Python script: literal, @file.py, or '-' for stdin"
+    ),
+    env_mode: EnvMode = typer.Option(
+        EnvMode.INHERIT,
+        "--env-mode",
+        case_sensitive=False,
+        help="Code env mode: INHERIT | USE_BUILTIN_MODE | EXPLICIT_ENV",
+    ),
+    env_name: str | None = typer.Option(
+        None, "--env-name", help="Code env name (required when --env-mode EXPLICIT_ENV)"
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(
+        None,
+        "--max-retries",
+        help="Re-run the step on failure up to N times. 0 disables retry.",
+    ),
+    delay_between_retries: int | None = typer.Option(
+        None,
+        "--delay-between-retries",
+        help="Seconds between retries. Requires --max-retries.",
+    ),
+    run_condition_type: str | None = typer.Option(
+        None,
+        "--run-condition-type",
+        help=(
+            "Gate the step on prior steps' status: RUN_ALWAYS, "
+            "RUN_IF_STATUS_MATCH (use --run-condition-statuses), or "
+            "RUN_CONDITIONALLY (use --run-condition-expression). Omitted = "
+            "server default RUN_IF_STATUS_MATCH on SUCCESS,WARNING."
+        ),
+    ),
+    run_condition_statuses: list[str] = typer.Option(
+        [],
+        "--run-condition-statuses",
+        help=(
+            "Status whitelist when --run-condition-type RUN_IF_STATUS_MATCH "
+            "(repeatable; comma- or space-separated also accepted). DSS UI "
+            "default 'run if previous succeeded' writes SUCCESS,WARNING — "
+            "agents writing fixtures often wrongly assume just SUCCESS."
+        ),
+    ),
+    run_condition_expression: str | None = typer.Option(
+        None,
+        "--run-condition-expression",
+        help=(
+            "GREL boolean. Implies --run-condition-type RUN_CONDITIONALLY if not set."
+        ),
+    ),
+    reset_scenario_status: bool = typer.Option(
+        False,
+        "--reset-scenario-status",
+        help="Reset accumulated status before this step runs.",
+    ),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a custom_python step (inline Python script in a step-based scenario).
+
+    Example:
+        dku scenario add-step-python daily --name "Notify" --code @notify.py -P PROJ
+    """
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    script = read_text_input(code)
+    params: dict = {
+        "script": script,
+        "envSelection": env_selection(env_mode, env_name),
+    }
+    step = build_step(
+        "custom_python",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-sql")
+def add_step_sql(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    connection: str = typer.Option(..., "--connection", help="SQL connection name"),
+    sql: str = typer.Option(
+        ..., "--sql", help="SQL query: literal, @file.sql, or '-' for stdin"
+    ),
+    override_default_limit: bool = typer.Option(
+        False,
+        "--override-default-limit/--no-override-default-limit",
+        help=(
+            "Disable DSS's default 10k-row LIMIT cap on the query result. "
+            "Required for SELECT-with-side-effects when the agent expects "
+            "all rows. DDL (CREATE/DROP/ALTER) is unaffected."
+        ),
+    ),
+    extra_conf: list[str] = typer.Option(
+        [],
+        "--extra-conf",
+        help=(
+            "Connection-level session knob KEY=VALUE (repeatable). E.g. "
+            "--extra-conf STATEMENT_TIMEOUT_IN_SECONDS=300 for Snowflake. "
+            "Maps to params.extraConf[]."
+        ),
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add an exec_sql step (run a SQL query against a connection).
+
+    Example:
+        dku scenario add-step-sql daily --name "Cleanup" \\
+            --connection prod_pg --sql 'DELETE FROM staging WHERE day < CURRENT_DATE - 30' -P PROJ
+    """
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    body = read_text_input(sql)
+    params: dict = {"connection": connection, "sql": body}
+    if override_default_limit:
+        params["overrideDefaultLimit"] = True
+    if extra_conf:
+        parsed_conf = []
+        for entry in extra_conf:
+            if "=" not in entry:
+                exit_with_error(
+                    f"Invalid --extra-conf '{entry}'. Expected 'KEY=VALUE'.",
+                    code="invalid_argument",
+                )
+            k, v = entry.split("=", 1)
+            parsed_conf.append({"key": k.strip(), "value": v.strip()})
+        params["extraConf"] = parsed_conf
+    step = build_step(
+        "exec_sql",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-check-dataset")
+def add_step_check_dataset(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    dataset: list[str] = typer.Option(
+        ...,
+        "--dataset",
+        help="Dataset to check (repeatable; PROJECT.NAME cross-project)",
+    ),
+    handle_warnings_as: str = typer.Option(
+        "WARNING",
+        "--handle-warnings-as",
+        help=(
+            "Outcome to record when checks emit warnings: WARNING "
+            "(server default), FAILED, SUCCESS, or ABORTED."
+        ),
+    ),
+    compute_automatic_rules: bool = typer.Option(False, "--compute-automatic-rules"),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a check_dataset step (run dataset checks defined on the dataset).
+
+    Example:
+        dku scenario add-step-check-dataset daily --name "QC" \\
+            --dataset sales_clean --dataset orders_clean -P PROJ
+    """
+    handle_warnings_as = validate_handle_warnings_as(handle_warnings_as)
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    params = {
+        "checks": dataset_items(dataset),
+        "handleWarningsAs": handle_warnings_as,
+        "computeAutomaticRules": compute_automatic_rules,
+    }
+    step = build_step(
+        "check_dataset",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-compute-metrics")
+def add_step_compute_metrics(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    dataset: list[str] = typer.Option(
+        [],
+        "--dataset",
+        help="Dataset to compute metrics on (repeatable; PROJECT.NAME cross-project).",
+    ),
+    folder: list[str] = typer.Option(
+        [],
+        "--folder",
+        help=(
+            "Managed folder to refresh file-count/size metrics on (repeatable). "
+            "Maps to {type:MANAGED_FOLDER, itemId} in computes[]."
+        ),
+    ),
+    saved_model: list[str] = typer.Option(
+        [],
+        "--saved-model",
+        help=(
+            "Saved model to refresh drift metrics on (repeatable). Maps to "
+            "{type:SAVED_MODEL, itemId} in computes[]."
+        ),
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a compute_metrics step. Refreshes metrics on datasets, managed
+    folders, and/or saved models — DSS computes_metrics accepts a polymorphic
+    computes[] mixing all three. Dataset metrics include row counts; folder
+    metrics include file-count/size/timestamp; saved-model metrics include
+    drift detectors against stored evaluations.
+    """
+    if not (dataset or folder or saved_model):
+        exit_with_error(
+            "compute-metrics needs at least one --dataset, --folder, or --saved-model.",
+            code="invalid_argument",
+        )
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    params = {
+        "computes": mixed_typed_items(
+            datasets=dataset, folders=folder, saved_models=saved_model
+        )
+    }
+    step = build_step(
+        "compute_metrics",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-reload-schema")
+def add_step_reload_schema(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    dataset: list[str] = typer.Option(
+        ..., "--dataset", help="Dataset to reload schema on (repeatable)"
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a reload_schema step (refresh source schemas before downstream builds).
+
+    Common before recursive builds when source tables/columns may have changed.
+    """
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    params = {"items": dataset_items(dataset)}
+    step = build_step(
+        "reload_schema",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-run-scenario")
+def add_step_run_scenario(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    target_scenario: str = typer.Option(
+        ..., "--scenario-id", help="Scenario to invoke"
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a run_scenario step (chain another scenario)."""
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    params = {"scenarioId": target_scenario}
+    step = build_step(
+        "run_scenario",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-restart-webapp")
+def add_step_restart_webapp(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    webapp: str = typer.Option(..., "--webapp", help="Webapp ID to restart"),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a restart_webapp step (used to refresh dashboard-attached webapps)."""
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    params = {"webAppId": webapp}
+    step = build_step(
+        "restart_webapp",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-refresh-chart-cache")
+def add_step_refresh_chart_cache(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    dashboard: list[str] = typer.Option(
+        [], "--dashboard", help="Dashboard ID (repeatable)"
+    ),
+    dataset: list[str] = typer.Option(
+        [], "--dataset", help="Dataset to refresh charts for (repeatable)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Force refresh even if cache fresh"
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a refresh_chart_cache step (precompute dashboard tile data)."""
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    # Server shape is List<RefreshItem> ({smartName, name}), not plain strings.
+    params: dict = {
+        "dashboards": [{"smartName": d, "name": d} for d in dashboard],
+        "datasets": [{"smartName": d, "name": d} for d in dataset],
+        "force": force,
+    }
+    step = build_step(
+        "refresh_chart_cache",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-clear-items")
+def add_step_clear_items(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    clear: list[str] = typer.Option(
+        [],
+        "--clear",
+        help=(
+            "Dataset to wipe data on (repeatable; PROJECT.NAME cross-project). "
+            "Definition stays; only data is cleared. For folders/models, use "
+            "--clear-folder / --clear-model — DSS clear_items accepts a "
+            "polymorphic items[] mixing all three."
+        ),
+    ),
+    clear_folder: list[str] = typer.Option(
+        [],
+        "--clear-folder",
+        help=(
+            "Managed folder to wipe (repeatable). Definition + permissions "
+            "stay; only stored files are deleted. Maps to {type:MANAGED_FOLDER}."
+        ),
+    ),
+    clear_model: list[str] = typer.Option(
+        [],
+        "--clear-model",
+        help=(
+            "Saved model to clear training history + predictions on (repeatable). "
+            "Maps to {type:SAVED_MODEL}."
+        ),
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a clear_items step. Wipes data on datasets, managed folders, and/or
+    saved models — DSS clear_items accepts a polymorphic items[] mixing all three.
+
+    Common before a full rebuild: clear the target so partial leftovers don't
+    pollute the new run. Cheaper than `dku dataset delete` + `create` because
+    downstream recipe wiring is preserved.
+    """
+    if not (clear or clear_folder or clear_model):
+        exit_with_error(
+            "clear-items needs at least one --clear (dataset), --clear-folder, "
+            "or --clear-model.",
+            code="invalid_argument",
+        )
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    # DSS clear_items step writes the polymorphic array under `clears`, NOT
+    # `items` (verified against localhost — DSS silently accepts `items` but
+    # drops the data, leaving the step with an empty `clears: []`).
+    params: dict = {
+        "clears": mixed_typed_items(
+            datasets=clear, folders=clear_folder, saved_models=clear_model
+        )
+    }
+    step = build_step(
+        "clear_items",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-propagate-schema")
+def add_step_propagate_schema(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    dataset: str = typer.Option(
+        ...,
+        "--dataset",
+        help="Origin dataset (the one whose schema changed). Propagation flows downstream from here.",
+    ),
+    behavior: str = typer.Option(
+        "AUTO_NO_BUILD",
+        "--behavior",
+        help="Propagation behaviour: AUTO_NO_BUILD (default — only update schemas), AUTO_WITH_BUILDS (also rebuild downstream), MANUAL.",
+    ),
+    exclude_recipe: list[str] = typer.Option(
+        [],
+        "--exclude-recipe",
+        help="Recipe to skip during propagation (repeatable). Useful for recipes that intentionally drop columns.",
+    ),
+    mark_as_ok_recipe: list[str] = typer.Option(
+        [],
+        "--mark-as-ok-recipe",
+        help="Recipe to mark as schema-OK without re-applying (repeatable).",
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a schema_propagation step.
+
+    Propagates schema changes from --dataset down through the flow. Replaces
+    the per-recipe `dku recipe apply-schema` chain when many downstream
+    recipes need updating.
+    """
+    _VALID_BEHAVIORS = {"AUTO_NO_BUILD", "AUTO_WITH_BUILDS", "MANUAL"}
+    behavior = behavior.upper()
+    if behavior == "AUTO_WITH_BUILD":
+        behavior = "AUTO_WITH_BUILDS"
+    if behavior not in _VALID_BEHAVIORS:
+        exit_with_error(
+            f"Invalid --behavior '{behavior}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_BEHAVIORS))}"],
+        )
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    # Server shape (SchemaPropagationStepRunner): everything nests under
+    # params.options (an AppHomepageTile.PropagateSchemaTile). Flat keys are
+    # silently dropped by Gson and the step NPEs at run time.
+    options: dict = {
+        "datasetName": dataset,
+        "behavior": behavior,
+        "excludedRecipes": list(exclude_recipe),
+        "markAsOkRecipes": list(mark_as_ok_recipe),
+    }
+    params: dict = {"options": options}
+    step = build_step(
+        "schema_propagation",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-prepare-lambda-package")
+def add_step_prepare_lambda_package(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    api_service: str = typer.Option(
+        ..., "--api-service", help="API service ID to package"
+    ),
+    package_id: str | None = typer.Option(
+        None,
+        "--package-id",
+        help="Optional package ID (defaults to a timestamp-derived value).",
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a prepare_lambda_package step (build an API-deployer package from this project's API service).
+
+    Pair with add-step-update-deployment to auto-roll-forward an API endpoint
+    after a retrain — the canonical "deploy on every successful retrain"
+    pattern.
+    """
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    # Server field (PrepareLambdaPackageStepParams) is serviceId, not
+    # apiServiceId — Gson drops unknown keys silently.
+    params: dict = {"serviceId": api_service}
+    if package_id:
+        params["packageId"] = package_id
+    step = build_step(
+        "prepare_lambda_package",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+@app.command("add-step-update-deployment")
+def add_step_update_deployment(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    deployment_id: str = typer.Option(
+        ..., "--deployment-id", help="API-deployer deployment ID to update"
+    ),
+    version_id: str | None = typer.Option(
+        None,
+        "--version-id",
+        "--package-id",
+        help=(
+            "Version (package) ID to deploy — maps to newVersionId "
+            "(defaults to the package built earlier in the scenario)."
+        ),
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add an update_apideployer_deployment step.
+
+    Pushes a (just-built) package to a running API-deployer deployment,
+    completing the auto-deploy-on-retrain chain when paired with
+    add-step-prepare-lambda-package.
+    """
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    # Server fields (UpdateDeployerDeploymentStepParams) are deploymentId +
+    # newVersionId; a packageId key is silently dropped.
+    params: dict = {"deploymentId": deployment_id}
+    if version_id:
+        params["newVersionId"] = version_id
+    step = build_step(
+        "update_apideployer_deployment",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
+
+
+_VALID_DASHBOARD_EXPORT_FORMATS = frozenset({"PDF", "PNG", "JPEG"})
+_VALID_DASHBOARD_PAPER_SIZES = frozenset(
+    {"A4", "A3", "A5", "LETTER", "LEGAL", "TABLOID", "EXECUTIVE", "CUSTOM"}
+)
+_VALID_DASHBOARD_ORIENTATIONS = frozenset({"PORTRAIT", "LANDSCAPE"})
+
+
+@app.command("add-step-export-dashboard")
+def add_step_export_dashboard(
+    ctx: typer.Context,
+    scenario_id: str = typer.Argument(help="Scenario ID"),
+    name: str = typer.Option(..., "--name", help="Step name"),
+    dashboard_id: str = typer.Option(
+        ..., "--dashboard-id", help="Dashboard ID to export."
+    ),
+    output_folder: str = typer.Option(
+        ...,
+        "--output-folder",
+        help="Managed folder ID where the export file is dumped (timestamped).",
+    ),
+    format: str = typer.Option(
+        "PDF",
+        "--format",
+        help="Export format: PDF (default), PNG, JPEG.",
+    ),
+    paper_size: str = typer.Option(
+        "A4",
+        "--paper-size",
+        help=(
+            "Paper size: A4 (default), A3, A5, LETTER, LEGAL, TABLOID, EXECUTIVE, "
+            "CUSTOM (use --width/--height)."
+        ),
+    ),
+    orientation: str = typer.Option(
+        "PORTRAIT",
+        "--orientation",
+        help="PORTRAIT (default) or LANDSCAPE.",
+    ),
+    width: int | None = typer.Option(
+        None,
+        "--width",
+        help=(
+            "Pixel width (only when not --use-dashboard-format-settings). "
+            "1240 ≈ A4 portrait at 150 dpi."
+        ),
+    ),
+    height: int | None = typer.Option(
+        None,
+        "--height",
+        help="Pixel height (paired with --width).",
+    ),
+    use_dashboard_format_settings: bool = typer.Option(
+        False,
+        "--use-dashboard-format-settings",
+        help=(
+            "Inherit format from the dashboard's Export… panel instead of "
+            "using --paper-size/--orientation/--width/--height."
+        ),
+    ),
+    proceed_on_failure: bool = typer.Option(False, "--proceed-on-failure"),
+    max_retries: int | None = typer.Option(None, "--max-retries"),
+    delay_between_retries: int | None = typer.Option(None, "--delay-between-retries"),
+    run_condition_type: str | None = typer.Option(None, "--run-condition-type"),
+    run_condition_statuses: list[str] = typer.Option([], "--run-condition-statuses"),
+    run_condition_expression: str | None = typer.Option(
+        None, "--run-condition-expression"
+    ),
+    reset_scenario_status: bool = typer.Option(False, "--reset-scenario-status"),
+    at: int | None = typer.Option(None, "--at"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Add a create_dashboard_export step (PDF/PNG snapshot of a dashboard).
+
+    The canonical "after building the flow, snapshot the dashboard for
+    archival or downstream upload" pattern. Output lands in the named
+    managed folder as a timestamped file.
+
+    Example:
+        dku scenario add-step-export-dashboard daily \\
+            --name "Snapshot KPI dashboard" \\
+            --dashboard-id ABC123 --output-folder REPORTS \\
+            --format PDF --paper-size A4 --orientation LANDSCAPE -P PROJ
+    """
+    fmt = format.upper()
+    if fmt not in _VALID_DASHBOARD_EXPORT_FORMATS:
+        exit_with_error(
+            f"Invalid --format '{format}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_DASHBOARD_EXPORT_FORMATS))}"],
+        )
+    ps = paper_size.upper()
+    if ps not in _VALID_DASHBOARD_PAPER_SIZES:
+        exit_with_error(
+            f"Invalid --paper-size '{paper_size}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_DASHBOARD_PAPER_SIZES))}"],
+        )
+    orient = orientation.upper()
+    if orient not in _VALID_DASHBOARD_ORIENTATIONS:
+        exit_with_error(
+            f"Invalid --orientation '{orientation}'.",
+            code="invalid_argument",
+            details=[f"Valid: {', '.join(sorted(_VALID_DASHBOARD_ORIENTATIONS))}"],
+        )
+    if (width is None) != (height is None):
+        exit_with_error(
+            "--width and --height must be provided together.",
+            code="invalid_argument",
+        )
+    rct, rcs = validate_run_options(
+        run_condition_type,
+        run_condition_expression,
+        run_condition_statuses,
+        max_retries,
+        delay_between_retries,
+    )
+    export_format: dict = {
+        "paperSize": ps,
+        "orientation": orient,
+        "fileType": fmt,
+    }
+    if width is not None and height is not None:
+        export_format["width"] = width
+        export_format["height"] = height
+    params: dict = {
+        "dashboardId": dashboard_id,
+        "exportFormat": export_format,
+        "shouldUseDashboardFormatSettings": use_dashboard_format_settings,
+        "folderSmartId": output_folder,
+    }
+    step = build_step(
+        "create_dashboard_export",
+        name,
+        params,
+        proceed_on_failure=proceed_on_failure,
+        max_retries=max_retries,
+        delay_between_retries=delay_between_retries,
+        run_condition_type=rct,
+        run_condition_expression=run_condition_expression,
+        run_condition_statuses=rcs,
+        reset_scenario_status=reset_scenario_status,
+    )
+    _add_step(ctx, scenario_id, project, step, at=at)
 
 
 # ---------------------------------------------------------------------------

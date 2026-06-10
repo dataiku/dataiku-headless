@@ -288,6 +288,10 @@ def test_dashboard_add_tile(patch_client):
         "pages": [{"id": "p1", "grid": {"tiles": []}}],
     }
     settings.get_raw.return_value = raw
+    proj.get_insight("insight1").get_settings().get_raw.return_value = {
+        "id": "insight1",
+        "type": "chart",
+    }
     result = runner.invoke(
         app,
         [
@@ -303,7 +307,39 @@ def test_dashboard_add_tile(patch_client):
     assert result.exit_code == 0
     assert "Added insight" in result.output
     settings.save.assert_called_once()
-    assert raw["pages"][0]["grid"]["tiles"][0]["insightId"] == "insight1"
+    tile = raw["pages"][0]["grid"]["tiles"][0]
+    assert tile["insightId"] == "insight1"
+    # DSS requires both fields or the dashboard fails to render with
+    # "Insight type null is unknown".
+    assert tile["tileType"] == "INSIGHT"
+    assert tile["insightType"] == "chart"
+
+
+def test_dashboard_add_tile_unknown_insight_type_fails(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    settings.get_raw.return_value = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [{"id": "p1", "grid": {"tiles": []}}],
+    }
+    # Insight whose type cannot be resolved -> refuse to build a null-type tile.
+    proj.get_insight("ghost").get_settings().get_raw.return_value = {"id": "ghost"}
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "add-tile",
+            "dashboard1",
+            "--insight",
+            "ghost",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Could not resolve the type" in result.output
+    settings.save.assert_not_called()
 
 
 def test_dashboard_add_tile_stacks_below_existing(patch_client):

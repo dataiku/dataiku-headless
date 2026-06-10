@@ -5,23 +5,32 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        # Exercise the declared support window without running the full suite on
+        # every intermediate interpreter for each PR.
+        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv run pytest -q
 
-  coverage:
+  coverage-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -29,8 +38,9 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv run pytest -q --cov=dku_cli --cov-report=term-missing --cov-fail-under=70
+      - run: uv build
 
   lint:
     runs-on: ubuntu-latest
@@ -40,7 +50,7 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
 
@@ -52,7 +62,7 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv run python scripts/check_quality_ratchet.py
 
   actionlint:

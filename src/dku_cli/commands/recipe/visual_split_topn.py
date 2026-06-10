@@ -377,7 +377,11 @@ def create_topn(
         ..., "--output-ds", "--output-dataset", help="Output dataset name"
     ),
     n: int = typer.Option(
-        10, "--n", "-n", help="Number of top rows to keep (default: 10)"
+        10,
+        "--n",
+        "-n",
+        "--top",
+        help="Number of top rows to keep (default: 10). Alias: --top.",
     ),
     sort_col: str = typer.Option(
         None,

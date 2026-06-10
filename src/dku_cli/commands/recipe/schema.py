@@ -84,6 +84,32 @@ def apply_schema(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
+
+        # Pre-check recipe type: code recipes set their output schema at
+        # run-time (Python via `dataiku.Dataset(...).write_with_schema()`,
+        # R / shell similarly). DSS raises `DontWantToCompute` from
+        # compute_schema_updates() in that case; emit prescriptive guidance
+        # BEFORE the call instead of letting the raw exception bubble up.
+        rtype = recipe.get_settings().get_recipe_raw_definition().get("type", "")
+        if rtype in {"python", "r", "shell", "pyspark", "sparkr", "spark_scala"}:
+            exit_with_error(
+                f"Recipe '{recipe_name}' is type '{rtype}' — code recipes set "
+                "their output schema at run-time, not via apply-schema.",
+                code="wrong_recipe_type",
+                status=2,
+                details=[
+                    "Code recipes write their output schema inside the recipe body:",
+                    '  Python: `dataiku.Dataset("OUT").write_with_schema(df)` propagates df.dtypes',
+                    '  R:      `dkuWriteDataset(df, "OUT")` does the same',
+                    "",
+                    "To materialize the output schema, run the recipe instead:",
+                    f"  dku recipe run {recipe_name} --wait -P {project_key}",
+                    "",
+                    "apply-schema is for visual recipes (prepare, join, group, …)",
+                    "where DSS can derive the output schema from the recipe config.",
+                ],
+            )
+
         updates = recipe.compute_schema_updates()
 
         if not updates.any_action_required():
@@ -93,5 +119,7 @@ def apply_schema(
         results = updates.apply()
         render_raw(results, output_format=output)
         success(f"Applied schema updates for '{recipe_name}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)

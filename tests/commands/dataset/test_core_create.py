@@ -45,9 +45,39 @@ def test_dataset_schema_json(patch_client):
     assert parsed[0]["name"] == "col1"
 
 
+def test_dataset_get_schema_alias(patch_client):
+    """`get-schema` is a hidden alias for `schema` (recurring agent miss —
+    reached for by analogy with get-definition)."""
+    result = runner.invoke(
+        app, ["dataset", "get-schema", "ds1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["name"] == "col1"
+
+
 def test_dataset_head(patch_client):
     result = runner.invoke(app, ["dataset", "head", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
+
+
+def test_dataset_head_preserves_column_name_case(patch_client, mock_client):
+    """`head` must show real column-name case in headers, not upper-cased.
+
+    The table renderer upper-cases headers by default, but for `head` the
+    headers ARE dataset column names — and GREL/Prepare formula references are
+    case-sensitive. An agent copying an upper-cased 'STATEANSI' into a formula
+    when the column is really 'StateANSI' gets silent nulls / dropped rows.
+    """
+    ds = mock_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {
+        "schema": {"columns": [{"name": "StateANSI", "type": "string"}]},
+    }
+    ds.iter_rows.return_value = iter([["6"], ["17"]])
+    result = runner.invoke(app, ["dataset", "head", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "StateANSI" in result.output
+    assert "STATEANSI" not in result.output
 
 
 def test_dataset_head_columns_filter(patch_client):

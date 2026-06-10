@@ -44,6 +44,49 @@ def test_artifact_list_with_page_size(patch_client):
     req.fetch_next_batch.assert_called_with(page_size=10)
 
 
+def test_artifact_list_with_field_filter(patch_client):
+    """--field KEY=VALUE adds a field-value filter and surfaces the value."""
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "artifact",
+            "list",
+            "-b",
+            "bp.system.govern_project",
+            "--field",
+            "sensitive_data=Yes",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    # matched field value is surfaced as a column
+    assert data[0]["sensitive_data"] == "Yes"
+    # the EQUALS field-value filter reached the search query
+    gov = patch_client.get_govern_client()
+    query = gov.new_artifact_search_request.call_args.args[0]
+    built = [f.build() for f in query.artifact_filters]
+    assert any(
+        f.get("type") == "field"
+        and f.get("fieldId") == "sensitive_data"
+        and f.get("condition") == "Yes"
+        and f.get("conditionType") == "EQUALS"
+        for f in built
+    )
+
+
+def test_artifact_list_field_filter_requires_equals(patch_client):
+    """--field without '=' is a prescriptive error, not a silent miss."""
+    result = runner.invoke(
+        app,
+        ["govern", "artifact", "list", "--field", "sensitive_data"],
+    )
+    assert result.exit_code != 0
+    assert "expected KEY=VALUE" in result.output
+
+
 def test_artifact_get(patch_client):
     result = runner.invoke(app, ["govern", "artifact", "get", "ar.5"])
     assert result.exit_code == 0
@@ -198,6 +241,93 @@ def test_artifact_list_all_pages(patch_client):
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1  # Only 1 hit before empty page stops iteration
+
+
+def test_artifact_list_warns_on_truncation(patch_client):
+    """Without --all, fetching exactly page_size hits + a non-empty peek
+    triggers a 'Showing N (more available)' warning footer."""
+    from unittest.mock import MagicMock
+
+    gov = patch_client.get_govern_client()
+
+    # Build a full page of hits at page_size=2.
+    def _hit(art_id):
+        h = MagicMock()
+        h.get_raw.return_value = {
+            "artifact": {
+                "id": art_id,
+                "name": f"Artifact {art_id}",
+                "blueprintVersionId": {"blueprintId": "bp.t"},
+                "status": {"archived": False},
+            },
+        }
+        return h
+
+    full_page = MagicMock()
+    full_page.get_response_hits.return_value = [_hit("ar.1"), _hit("ar.2")]
+    peek_with_more = MagicMock()
+    peek_with_more.get_response_hits.return_value = [_hit("ar.3")]
+
+    req = MagicMock()
+    req.fetch_next_batch.side_effect = [full_page, peek_with_more]
+    gov.new_artifact_search_request.return_value = req
+
+    result = runner.invoke(app, ["govern", "artifact", "list", "--page-size", "2"])
+    assert result.exit_code == 0, result.output
+    assert "Showing 2 (more available)" in result.output
+    assert "--all" in result.output
+
+
+def test_artifact_list_no_warning_when_results_fit(patch_client):
+    """Below page-size cap → no truncation warning."""
+    result = runner.invoke(app, ["govern", "artifact", "list"])
+    assert result.exit_code == 0
+    assert "more available" not in result.output
+
+
+def test_artifact_list_no_warning_in_json_mode(patch_client):
+    """JSON output is consumed by jq pipelines — never inject warnings."""
+    from unittest.mock import MagicMock
+
+    gov = patch_client.get_govern_client()
+
+    def _hit(art_id):
+        h = MagicMock()
+        h.get_raw.return_value = {
+            "artifact": {
+                "id": art_id,
+                "name": "X",
+                "blueprintVersionId": {},
+                "status": {"archived": False},
+            },
+        }
+        return h
+
+    full_page = MagicMock()
+    full_page.get_response_hits.return_value = [_hit("ar.1")]
+    peek_with_more = MagicMock()
+    peek_with_more.get_response_hits.return_value = [_hit("ar.2")]
+    req = MagicMock()
+    req.fetch_next_batch.side_effect = [full_page, peek_with_more]
+    gov.new_artifact_search_request.return_value = req
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "artifact",
+            "list",
+            "--page-size",
+            "1",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # JSON consumers must not see warning text mixed into the array.
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert "more available" not in result.output
 
 
 # ---------------------------------------------------------------------------

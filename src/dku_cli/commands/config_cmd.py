@@ -98,6 +98,25 @@ def show_path() -> None:
     print(CONFIG_FILE)
 
 
+@app.command("list-profiles")
+def list_profiles_alias() -> None:
+    """List configured auth profiles (alias for `dku auth list`).
+
+    Profiles are stored in the auth section of `config.toml`, so the
+    canonical command lives under `dku auth`. This alias closes the
+    discoverability gap — agents who reach for `dku config list-profiles`
+    naturally now land on the right output instead of a "did you mean
+    'set-variables'" suggestion that helps no one.
+    """
+    from dku_cli.commands.auth_cmd import list_profiles as _auth_list_profiles
+
+    # Call the underlying command function directly. Its `output` parameter
+    # defaults to a Typer OptionInfo (only resolved when invoked through the
+    # CLI), so we must pass an explicit value — otherwise resolve_output_format
+    # receives the OptionInfo and crashes on `.lower()`.
+    _auth_list_profiles(output=None)
+
+
 @app.command("set-safety")
 def set_safety(
     mode: str = typer.Argument(help="Safety mode: guarded or dangerous"),

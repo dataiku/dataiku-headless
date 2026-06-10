@@ -5,10 +5,11 @@ from __future__ import annotations
 import copy
 import json
 import time
+from pathlib import Path
 
 import typer
 
-from dku_cli.errors import handle_api_error
+from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
     read_text_input,
@@ -507,10 +508,16 @@ def add_tool(
 def set_prompt(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
-    prompt: str = typer.Option(
-        ...,
+    prompt: str | None = typer.Option(
+        None,
         "--prompt",
         help="System prompt: literal string, @file.txt, or '-' for stdin",
+    ),
+    file: str | None = typer.Option(
+        None,
+        "--file",
+        "-f",
+        help="Path to a file containing the prompt (equivalent to --prompt @file).",
     ),
     new_version: bool = typer.Option(
         False,
@@ -530,19 +537,28 @@ def set_prompt(
     Without it, the active version is mutated in place.
 
     Examples:
-      dku agent set-prompt my_agent --prompt "You are a helpful analyst." -P PROJ
+      dku agent set-prompt my_agent --prompt @system_prompt.txt -P PROJ
+      dku agent set-prompt my_agent --file system_prompt.txt -P PROJ
       dku agent set-prompt my_agent --prompt @system_prompt.txt --new-version --activate -P PROJ
       echo "You are an analyst." | dku agent set-prompt my_agent --prompt - -P PROJ
     """
+    if (prompt is None) == (file is None):
+        exit_with_error(
+            "Provide exactly one of --prompt / --file.",
+            code="invalid_argument",
+        )
     if activate and not new_version:
         error("--activate requires --new-version.")
         raise typer.Exit(1)
+
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
-        prompt_text = read_text_input(prompt)
+        prompt_text = (
+            Path(file).read_text() if file is not None else read_text_input(prompt)
+        )
         settings = agent.get_settings()
         agent_raw = settings.get_raw()
 
@@ -575,6 +591,180 @@ def set_prompt(
             success(
                 f"Set system prompt on agent '{agent_id}' ({len(prompt_text)} chars, field={prompt_field})"
             )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _find_inline_versions(sm_raw: dict) -> list:
+    """Return the saved model's inline version list, or [] if none.
+
+    PYTHON_AGENT code lives in the backing saved model's `inlineVersions`,
+    NOT in DSSAgentSettings (agent-settings PUT silently drops `code`).
+    """
+    return sm_raw.get("inlineVersions") or []
+
+
+def _pick_inline_version(sm_raw: dict, inline_versions: list) -> dict:
+    """Pick the active inline version dict (fallback: first).
+
+    The active pointer can live under a few keys depending on DSS version.
+    Match on versionId; if no match (e.g. single unnamed version), use the
+    first inline version.
+    """
+    active = (
+        sm_raw.get("activeVersion")
+        or sm_raw.get("activeVersionId")
+        or sm_raw.get("active")
+    )
+    if active:
+        for v in inline_versions:
+            if v.get("versionId") == active or v.get("id") == active:
+                return v
+    return inline_versions[0]
+
+
+@app.command("set-code")
+def set_code(
+    ctx: typer.Context,
+    agent_id: str = typer.Argument(help="Agent ID or name"),
+    file: str = typer.Option(
+        ...,
+        "--file",
+        "-f",
+        help="Python code: literal string, @file.py, or '-' for stdin",
+    ),
+    new_version: bool = typer.Option(
+        False,
+        "--new-version",
+        help="Create a new inline version with this code instead of mutating the active one in place",
+    ),
+    activate: bool = typer.Option(
+        False,
+        "--activate",
+        help="Activate the new version after creation (requires --new-version)",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the Python code for a Code Agent (PYTHON_AGENT). Accepts agent ID or name.
+
+    Code Agent code lives in the backing saved model's inline version, NOT in
+    agent settings — `dku agent set-prompt`/`set-llm` cannot reach it. This
+    command writes `inlineVersions[<active>].code`, saves, then re-GETs to
+    verify the code landed (round-trip).
+
+    Pass --new-version to append a fresh inline version with this code
+    (reversible); --activate then makes it the live version.
+
+    Examples:
+      dku agent set-code my_code_agent --file agent.py -P PROJ
+      dku agent set-code my_code_agent -f - -P PROJ < agent.py
+      dku agent set-code my_code_agent -f @agent.py --new-version --activate -P PROJ
+    """
+    if activate and not new_version:
+        error("--activate requires --new-version.")
+        raise typer.Exit(1)
+
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        agent = resolve_agent(proj, agent_id)
+        code = read_text_input(file)
+
+        # The agent id IS the backing saved-model id for PYTHON_AGENT.
+        sm = proj.get_saved_model(agent.id)
+        st = sm.get_settings()
+        raw = st.get_raw()
+
+        # Reject non-code agents UP FRONT, before any save(). All agent types
+        # (TOOLS_USING/STRUCTURED/PLUGIN) are saved-model-backed and have inline
+        # versions, so the "no inline versions" check below is not enough to tell
+        # them apart — only PYTHON_AGENT has editable `code`. Key off the
+        # saved-model type (verified live: raw["savedModelType"]). Absent → fall
+        # through (older DSS / unexpected shape) to preserve prior behavior.
+        sm_type = raw.get("savedModelType")
+        if sm_type and sm_type != "PYTHON_AGENT":
+            exit_with_error(
+                f"Agent '{agent_id}' is a {sm_type}, not a PYTHON_AGENT (Code Agent) — "
+                "it has no editable Python code.",
+                code="invalid_argument",
+                details=[
+                    f"Inspect the agent with: dku agent get {agent_id} -P {project_key}",
+                    "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
+                    "agents use: dku agent set-prompt / set-llm / add-tool.",
+                ],
+                status=1,
+            )
+
+        inline_versions = _find_inline_versions(raw)
+        if not inline_versions:
+            exit_with_error(
+                f"Agent '{agent_id}' has no inline versions — it is not a Code Agent (PYTHON_AGENT), "
+                "so it has no editable Python code.",
+                code="invalid_argument",
+                details=[
+                    "Inspect the agent with: dku agent get "
+                    f"{agent_id} -P {project_key}",
+                    "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
+                    "agents use: dku agent set-prompt / set-llm / add-tool.",
+                ],
+                status=1,
+            )
+
+        new_vid: str | None = None
+        if new_version:
+            source = _pick_inline_version(raw, inline_versions)
+            target = copy.deepcopy(source)
+            new_vid = _next_version_id(inline_versions)
+            target["versionId"] = new_vid
+            inline_versions.append(target)
+        else:
+            target = _pick_inline_version(raw, inline_versions)
+
+        # An API-created PYTHON_AGENT may have no "code" key on v1 — create it.
+        target["code"] = code
+        target_vid = target.get("versionId")
+
+        st.save()
+
+        # Round-trip verify: re-GET and confirm the code landed on the target
+        # version. PUTs to agents drop `code`; verify against the saved model.
+        verify_raw = sm.get_settings().get_raw()
+        verify_versions = _find_inline_versions(verify_raw)
+        landed = None
+        for v in verify_versions:
+            if target_vid is not None and v.get("versionId") == target_vid:
+                landed = v.get("code")
+                break
+        else:
+            if verify_versions:
+                landed = _pick_inline_version(verify_raw, verify_versions).get("code")
+
+        if landed != code:
+            exit_with_error(
+                f"Code did not persist on agent '{agent_id}' after save (round-trip check failed).",
+                code="verification_failed",
+                details=[
+                    "The saved-model PUT may have been ignored, or the inline version "
+                    "could not be located.",
+                    f"Re-inspect with: dku agent get {agent_id} -P {project_key}",
+                    "If the agent is not a PYTHON_AGENT, set-code does not apply.",
+                ],
+                status=1,
+            )
+
+        if new_version:
+            if activate:
+                _activate_version(proj, agent.id, new_vid)
+            suffix = " (now active)" if activate else ""
+            success(
+                f"Set code on agent '{agent_id}' as version '{new_vid}'{suffix} "
+                f"({len(code)} chars)"
+            )
+        else:
+            success(f"Set code on agent '{agent_id}' ({len(code)} chars)")
     except typer.Exit:
         raise
     except Exception as e:

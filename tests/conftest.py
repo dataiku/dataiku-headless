@@ -58,18 +58,26 @@ def _isolate_config_files(tmp_path, monkeypatch):
 @pytest.fixture
 def mock_client():
     """Create a mock DSSClient with common methods."""
-    return create_mock_client()
+    client = create_mock_client()
+    return client
 
 
 @pytest.fixture
 def patch_client(mock_client):
-    """Patch get_client and get_govern_client everywhere they're imported.
+    """Patch get_client + get_govern_client everywhere they're imported.
 
     Also stubs resolve_node_type so the node-type guard in
     ``get_client_from_ctx`` does not block tests based on whatever profile
     the developer has configured locally.
+
+    Govern commands invoke the standalone ``get_govern_client`` factory
+    (not ``client.get_govern_client()``), so the mock_client's prebuilt
+    govern stub at ``mock_client.get_govern_client()`` has to be wired
+    through both the client and helpers import paths — otherwise govern
+    tests hit the real DSS server and fail with a 404 on
+    ``/dip/publicapi/admin/...``.
     """
-    govern_client = mock_client.get_govern_client.return_value
+    govern_client = mock_client.get_govern_client()
     with (
         patch("dku_cli.client.get_client", return_value=mock_client),
         patch("dku_cli.helpers.get_client", return_value=mock_client),

@@ -51,7 +51,37 @@ def _autodetect_and_warn(ds, dataset_name: str, project_key: str) -> None:
         f"Format detected: {detected.get_raw().get('formatType', 'unknown')} "
         f"({len(schema_cols)} columns)"
     )
-    if schema_cols and all(c.get("type") == "string" for c in schema_cols):
+    if not schema_cols:
+        return
+
+    # Header not parsed → generic col_0, col_1, … names. DSS's header heuristic
+    # fails when the header row is mostly numeric (year columns, numeric IDs):
+    # it can't tell header from data and leaves parseHeaderRow=false. Downstream
+    # recipes then KeyError on the real names. Detect the col_<n> pattern and
+    # tell the agent the fix.
+    import re
+
+    names = [c.get("name", "") for c in schema_cols]
+    generic = [n for n in names if re.fullmatch(r"col_\d+", n)]
+    header_eaten = len(generic) == len(names) and len(names) > 0
+    if not header_eaten and not detected.get_raw().get("formatParams", {}).get(
+        "parseHeaderRow", True
+    ):
+        # parseHeaderRow false but names aren't col_N (rare) — still flag
+        header_eaten = len(generic) >= max(1, len(names) // 2)
+    if header_eaten:
+        warn(
+            "Header row NOT parsed — columns named col_0, col_1, … "
+            "This happens when the header is mostly numeric (year "
+            "columns, numeric IDs). Fix BEFORE building recipes:\n"
+            f"  dku dataset set-definition {dataset_name} --definition "
+            '\'{"formatParams":{"parseHeaderRow":true}}\' --deep-merge '
+            f"-P {project_key}\n"
+            f"  then dku dataset set-schema {dataset_name} -d "
+            f"'<columns-from-CSV-header>' -P {project_key}"
+        )
+
+    if all(c.get("type") == "string" for c in schema_cols):
         warn(
             "All columns detected as STRING. Downstream aggregation recipes "
             "(group, window) may fail on numeric operations. Fix with: "
@@ -417,7 +447,8 @@ def analyze_column(
         handle_api_error(e)
 
 
-@app.command()
+@app.command("schema")
+@app.command("get-schema", hidden=True)
 def schema(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
@@ -429,7 +460,12 @@ def schema(
         help="Comma-separated fields to include (name,type,description)",
     ),
 ) -> None:
-    """Show dataset schema."""
+    """Show dataset schema.
+
+    Also available as `get-schema` (hidden alias) for parity with the
+    other `get-*` inspectors — agents reach for `get-schema` by analogy
+    with `get-definition`. Recurring miss across migration sessions.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format(output)
     try:
@@ -491,10 +527,158 @@ _SIZE_WARNING_BYTES = 1_000_000_000  # 1 GB
 _ROW_WARNING_COUNT = 10_000_000  # 10M rows
 
 
+def _gather_dataset_info(
+    ds, dataset_name: str, project_key: str, *, recompute: bool, fmt: str
+) -> tuple[dict, dict]:
+    """Run a single dataset's info collection and return (display_row, json_row).
+
+    Extracted so `info` can iterate over multiple dataset names without
+    duplicating the gather/format logic. Returns a (table-row, json-row)
+    pair; the caller decides how to render. Stale-metrics hints and
+    large-dataset warnings still go to stderr per dataset.
+    """
+    if recompute:
+        if fmt != "json":
+            info(f"Recomputing metrics for '{dataset_name}'...")
+        try:
+            ds.compute_metrics(
+                metric_ids=[
+                    "records:COUNT_RECORDS",
+                    "basic:SIZE",
+                    "basic:COUNT_FILES",
+                ]
+            )
+        except Exception as exc:
+            if fmt != "json":
+                warn(f"Metric recompute failed for '{dataset_name}': {exc}")
+
+    ds_def = ds.get_definition()
+    ds_type = ds_def.get("type", "unknown")
+    params = ds_def.get("params", {})
+    connection_name = params.get("connection", params.get("uploadConnection", ""))
+    format_type = ds_def.get("formatType", "")
+    columns = ds_def.get("schema", {}).get("columns", [])
+    managed = ds_def.get("managed", False)
+    tags = ds_def.get("tags", [])
+
+    last_build_time = None
+    build_success = None
+    try:
+        ds_info = ds.get_info()
+        raw_info = ds_info.get_raw()
+        last_build = raw_info.get("lastBuild", {})
+        if last_build.get("buildEndTime"):
+            from datetime import datetime, timezone
+
+            ts = last_build["buildEndTime"] / 1000
+            last_build_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
+        build_success = last_build.get("buildSuccess")
+    except Exception:
+        pass
+
+    row_count = None
+    data_size_bytes = None
+    file_count = None
+    metrics_stale = True
+
+    try:
+        metrics = ds.get_last_metric_values()
+        available_ids = metrics.get_all_ids()
+        if "records:COUNT_RECORDS" in available_ids:
+            try:
+                row_count = metrics.get_global_value("records:COUNT_RECORDS")
+                metrics_stale = False
+            except Exception:
+                pass
+        if "basic:SIZE" in available_ids:
+            try:
+                data_size_bytes = metrics.get_global_value("basic:SIZE")
+                metrics_stale = False
+            except Exception:
+                pass
+        if "basic:COUNT_FILES" in available_ids:
+            try:
+                file_count = metrics.get_global_value("basic:COUNT_FILES")
+                metrics_stale = False
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    display_row = {
+        "name": dataset_name,
+        "type": ds_type,
+        "managed": managed,
+        "connection": connection_name or "(none)",
+        "format": format_type or "(none)",
+        "columns": len(columns),
+        "rows": _format_count(row_count) if row_count is not None else "(not computed)",
+        "size": _format_bytes(data_size_bytes)
+        if data_size_bytes is not None
+        else "(not computed)",
+        "files": _format_count(file_count) if file_count is not None else "(n/a)",
+        "last_build": last_build_time or "(never built)",
+        "build_ok": str(build_success) if build_success is not None else "(unknown)",
+        "tags": ", ".join(tags) if tags else "(none)",
+    }
+    json_row = {
+        "name": dataset_name,
+        "type": ds_type,
+        "managed": managed,
+        "connection": connection_name or None,
+        "format": format_type or None,
+        "columns": len(columns),
+        "rows": int(row_count) if row_count is not None else None,
+        "size_bytes": int(data_size_bytes) if data_size_bytes is not None else None,
+        "size_human": _format_bytes(data_size_bytes)
+        if data_size_bytes is not None
+        else None,
+        "files": int(file_count) if file_count is not None else None,
+        "last_build": last_build_time,
+        "build_success": build_success,
+        "tags": tags,
+        "metrics_computed": not metrics_stale,
+    }
+
+    if data_size_bytes is not None and data_size_bytes > _SIZE_WARNING_BYTES:
+        warn(
+            f"Large dataset '{dataset_name}': {_format_bytes(data_size_bytes)}. "
+            "Use --rows/-n with 'head' to limit data pulled. "
+            "Building downstream recipes may incur significant compute cost."
+        )
+    if row_count is not None and row_count > _ROW_WARNING_COUNT:
+        warn(
+            f"High row count on '{dataset_name}': {_format_count(row_count)} rows. "
+            "Consider sampling before transforming. "
+            "Use 'dku recipe create-sampling' to create a sample dataset."
+        )
+    if metrics_stale and fmt != "json":
+        if last_build_time is not None:
+            info(
+                f"Metrics are stale for '{dataset_name}' — pass --recompute for fresh row count / size / file count: "
+                f"dku dataset info {dataset_name} -P {project_key} --recompute"
+            )
+        else:
+            info(
+                f"Metrics not yet computed for '{dataset_name}'. Run: "
+                f"dku dataset build {dataset_name} -P {project_key} --wait"
+            )
+
+    return display_row, json_row
+
+
 @app.command("info")
 def info_cmd(
     ctx: typer.Context,
-    dataset_name: str = typer.Argument(help="Dataset name"),
+    dataset_names: list[str] = typer.Argument(
+        ...,
+        help=(
+            "Dataset name(s). Pass multiple to inspect several at once: "
+            "`dku dataset info ds1 ds2 ds3 -P PROJ`. JSON output then returns a list."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     recompute: bool = typer.Option(
@@ -511,8 +695,11 @@ def info_cmd(
     accidental expensive operations. Pass --recompute after a build to
     refresh row count, size, and file count metrics.
 
+    Accepts multiple positional names (one shell call inspects N datasets):
+
     Example:
       dku dataset info my_data -P PROJ
+      dku dataset info ds1 ds2 ds3 -P PROJ
       dku dataset info my_data -P PROJ -o json
       dku dataset info my_data -P PROJ --recompute
     """
@@ -520,167 +707,49 @@ def info_cmd(
     fmt = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
-        ds = client.get_project(project_key).get_dataset(dataset_name)
+        proj = client.get_project(project_key)
 
-        if recompute:
-            if fmt != "json":
-                info("Recomputing metrics...")
-            try:
-                ds.compute_metrics(
-                    metric_ids=[
-                        "records:COUNT_RECORDS",
-                        "basic:SIZE",
-                        "basic:COUNT_FILES",
-                    ]
-                )
-            except Exception as exc:
-                if fmt != "json":
-                    warn(f"Metric recompute failed: {exc}")
-
-        # --- Definition: type, connection, format, columns ---
-        ds_def = ds.get_definition()
-        ds_type = ds_def.get("type", "unknown")
-        params = ds_def.get("params", {})
-        connection_name = params.get("connection", params.get("uploadConnection", ""))
-        format_type = ds_def.get("formatType", "")
-        columns = ds_def.get("schema", {}).get("columns", [])
-        managed = ds_def.get("managed", False)
-        tags = ds_def.get("tags", [])
-
-        # --- Build info (from get_info) ---
-        last_build_time = None
-        build_success = None
-        try:
-            ds_info = ds.get_info()
-            raw_info = ds_info.get_raw()
-            last_build = raw_info.get("lastBuild", {})
-            if last_build.get("buildEndTime"):
-                from datetime import datetime, timezone
-
-                ts = last_build["buildEndTime"] / 1000
-                last_build_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
-                    "%Y-%m-%d %H:%M UTC"
-                )
-            build_success = last_build.get("buildSuccess")
-        except Exception:
-            pass  # get_info may not be available on all dataset types
-
-        # --- Metrics: row count, data size, file count ---
-        row_count = None
-        data_size_bytes = None
-        file_count = None
-        metrics_stale = True
-
-        try:
-            metrics = ds.get_last_metric_values()
-            available_ids = metrics.get_all_ids()
-
-            # Each metric can independently fail (ID exists but no computed
-            # value for the global partition), so wrap each individually.
-            if "records:COUNT_RECORDS" in available_ids:
-                try:
-                    row_count = metrics.get_global_value("records:COUNT_RECORDS")
-                    metrics_stale = False
-                except Exception:
-                    pass
-            if "basic:SIZE" in available_ids:
-                try:
-                    data_size_bytes = metrics.get_global_value("basic:SIZE")
-                    metrics_stale = False
-                except Exception:
-                    pass
-            if "basic:COUNT_FILES" in available_ids:
-                try:
-                    file_count = metrics.get_global_value("basic:COUNT_FILES")
-                    metrics_stale = False
-                except Exception:
-                    pass
-        except Exception:
-            pass  # Metrics may not be computed yet
-
-        # --- Build result ---
-        result = {
-            "name": dataset_name,
-            "type": ds_type,
-            "managed": managed,
-            "connection": connection_name or "(none)",
-            "format": format_type or "(none)",
-            "columns": len(columns),
-            "rows": _format_count(row_count)
-            if row_count is not None
-            else "(not computed)",
-            "size": _format_bytes(data_size_bytes)
-            if data_size_bytes is not None
-            else "(not computed)",
-            "files": _format_count(file_count) if file_count is not None else "(n/a)",
-            "last_build": last_build_time or "(never built)",
-            "build_ok": str(build_success)
-            if build_success is not None
-            else "(unknown)",
-            "tags": ", ".join(tags) if tags else "(none)",
-        }
+        display_rows: list[dict] = []
+        json_rows: list[dict] = []
+        for dataset_name in dataset_names:
+            ds = proj.get_dataset(dataset_name)
+            display_row, json_row = _gather_dataset_info(
+                ds, dataset_name, project_key, recompute=recompute, fmt=fmt
+            )
+            display_rows.append(display_row)
+            json_rows.append(json_row)
 
         if fmt == "json":
-            # JSON output uses raw numeric values for programmatic use
-            json_result = {
-                "name": dataset_name,
-                "type": ds_type,
-                "managed": managed,
-                "connection": connection_name or None,
-                "format": format_type or None,
-                "columns": len(columns),
-                "rows": int(row_count) if row_count is not None else None,
-                "size_bytes": int(data_size_bytes)
-                if data_size_bytes is not None
-                else None,
-                "size_human": _format_bytes(data_size_bytes)
-                if data_size_bytes is not None
-                else None,
-                "files": int(file_count) if file_count is not None else None,
-                "last_build": last_build_time,
-                "build_success": build_success,
-                "tags": tags,
-                "metrics_computed": not metrics_stale,
-            }
-            render_raw(json_result, output_format="json")
-        else:
-            data = [{"field": k, "value": v} for k, v in result.items()]
+            # Single-name calls keep the historical dict shape; multi-name
+            # returns a list so consumers can iterate without branching.
+            payload = json_rows[0] if len(json_rows) == 1 else json_rows
+            render_raw(payload, output_format="json")
+            return
+
+        if len(display_rows) == 1:
+            data = [{"field": k, "value": v} for k, v in display_rows[0].items()]
             render(
                 data,
                 ["field", "value"],
                 output_format=fmt,
-                title=f"Dataset Info: {dataset_name}",
+                title=f"Dataset Info: {dataset_names[0]}",
             )
-
-        # --- Warnings for large datasets ---
-        if data_size_bytes is not None and data_size_bytes > _SIZE_WARNING_BYTES:
-            warn(
-                f"Large dataset: {_format_bytes(data_size_bytes)}. "
-                "Use --rows/-n with 'head' to limit data pulled. "
-                "Building downstream recipes may incur significant compute cost."
+        else:
+            # Multi-dataset table: one column per dataset, one row per field.
+            field_names = list(display_rows[0].keys())
+            columns = ["field", *dataset_names]
+            data = []
+            for fname in field_names:
+                row = {"field": fname}
+                for ds_name, dr in zip(dataset_names, display_rows):
+                    row[ds_name] = dr[fname]
+                data.append(row)
+            render(
+                data,
+                columns,
+                output_format=fmt,
+                title=f"Dataset Info ({len(dataset_names)} datasets)",
             )
-        if row_count is not None and row_count > _ROW_WARNING_COUNT:
-            warn(
-                f"High row count: {_format_count(row_count)} rows. "
-                "Consider sampling before transforming. "
-                "Use 'dku recipe create-sampling' to create a sample dataset."
-            )
-        # Stale-metrics hint — skip in JSON mode so the stderr line doesn't
-        # interfere with programmatic consumers that check both streams.
-        if metrics_stale and fmt != "json":
-            if last_build_time is not None:
-                # Dataset has been built but metrics are cached (DSS does
-                # NOT auto-recompute on build). Direct the agent to --recompute.
-                info(
-                    f"Metrics are stale — pass --recompute for fresh row count / size / file count: "
-                    f"dku dataset info {dataset_name} -P {project_key} --recompute"
-                )
-            else:
-                # Dataset was never successfully built — no metrics to refresh.
-                info(
-                    "Metrics not yet computed. Run: "
-                    f"dku dataset build {dataset_name} -P {project_key} --wait"
-                )
     except typer.Exit:
         raise
     except Exception as e:
@@ -719,6 +788,22 @@ def head(
             for i, col in enumerate(ds_def.get("schema", {}).get("columns", []))
         ]
 
+        # Empty schema => `iter_rows()` yields nothing or empty lists, and
+        # the previous behavior was to print `[]` / `[{},{}]` with no
+        # explanation. An agent reading that thinks the dataset is empty,
+        # when in reality it just has no columns yet (never built). Surface
+        # this explicitly with the recovery command.
+        if not all_columns:
+            exit_with_error(
+                f"Dataset '{dataset_name}' has no columns — it likely has never been built.",
+                code="empty_schema",
+                details=[
+                    "An unbuilt managed dataset has zero columns; `head` cannot show data.",
+                    f"  dku dataset build {dataset_name} -P {project_key} --type RECURSIVE_BUILD --auto-update-schema --wait",
+                    f"  dku dataset head {dataset_name} -P {project_key} -n 10",
+                ],
+            )
+
         # Filter columns if requested
         if filter_columns:
             requested = [c.strip() for c in filter_columns.split(",") if c.strip()]
@@ -754,6 +839,12 @@ def head(
             display_columns,
             output_format=output,
             title=f"{dataset_name} (first {rows} rows)",
+            # Preserve the real column-name case in headers. The table renderer
+            # upper-cases headers by default, but here the headers ARE dataset
+            # column names — and GREL/formula references are case-sensitive, so
+            # an agent copying an upper-cased header into a Prepare formula gets
+            # silent nulls / dropped rows. Show 'StateANSI', not 'STATEANSI'.
+            headers={c: c for c in display_columns},
         )
         # Table rendering truncates columns aggressively once there are more
         # than ~6 on a typical terminal. Hint the agent toward JSON output.
@@ -796,7 +887,40 @@ def build(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
 
-        from dku_cli.output import error, info, success
+        from dku_cli.output import error, info, success, warn
+
+        # Catch the "RECURSIVE_BUILD on an orphan target succeeds and reports
+        # success without building anything" failure mode. If `dataset_name`
+        # has no producing recipe (managed dataset with no producer, or just
+        # never wired), `dataset build` returns DONE without doing work and
+        # masks failed recipe creates upstream (PENDING 2026-05-25 iterative
+        # macro entry). Warn — don't block; intentional clear/no-op may be
+        # desired.
+        try:
+            recipes_meta = proj.list_recipes() or []
+            has_producer = False
+            for r in recipes_meta:
+                outs = (r or {}).get("outputs") or {}
+                for role in outs.values():
+                    for item in (role or {}).get("items") or []:
+                        if (item or {}).get("ref") == dataset_name:
+                            has_producer = True
+                            break
+                    if has_producer:
+                        break
+                if has_producer:
+                    break
+            if not has_producer:
+                warn(
+                    f"Dataset '{dataset_name}' has no producing recipe — the build will "
+                    f"report success but no recipe will actually run."
+                )
+                info(
+                    f"Wire a recipe first (e.g. `dku recipe create-prepare … --output-ds {dataset_name} -P {project_key}`), "
+                    f"or build the producing dataset directly."
+                )
+        except Exception:
+            pass  # Best-effort — never block the build on a metadata read failure.
 
         # Use job builder when advanced options are specified
         if job_type or auto_update_schema:
@@ -1384,50 +1508,69 @@ def delete(
     project_key = resolve_project(project)
     from dku_cli.safety import Tier, guard
 
+    # Pre-query dependents BEFORE the safety guard so the cascade preview
+    # makes it into the AGENT INSTRUCTION block (when --yes is missing).
+    # Without this, the agent only sees a generic "Permanently delete X"
+    # prompt and the user never learns recipes will be cascaded.
+    # ds.get_usages() returns a list of dicts; field names vary slightly
+    # across DSS versions so we handle both shapes.
+    dependents: list[tuple[str, str]] = []
+    usages_query_failed = False
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        usages = ds.get_usages() or []
+        for u in usages:
+            usage_type = u.get("type") or u.get("objectType") or ""
+            obj_id = u.get("objectId") or u.get("id") or ""
+            if not obj_id:
+                continue
+            if "RECIPE" in usage_type.upper():
+                role = u.get("objectRole") or u.get("role") or ""
+                reason = (
+                    "uses as input"
+                    if "INPUT" in role.upper()
+                    else "produces"
+                    if "OUTPUT" in role.upper()
+                    else "depends on"
+                )
+                dependents.append((obj_id, reason))
+    except Exception:
+        # Non-fatal: bare delete still proceeds, but the prompt drops the
+        # cascade preview and the user gets a "couldn't enumerate" warn.
+        usages_query_failed = True
+
+    cascade_lines: list[str] = []
+    if dependents:
+        cascade_lines.append(
+            f" Will cascade-delete {len(dependents)} dependent recipe(s):"
+        )
+        for recipe_id, reason in dependents:
+            cascade_lines.append(f"   - {recipe_id} ({reason})")
+    base_prompt = (
+        f"Permanently delete dataset '{dataset_name}' from project {project_key}? "
+        f"This cannot be undone."
+    )
+    full_prompt = base_prompt + "".join("\n" + line for line in cascade_lines)
+
     guard(
         ctx,
         tier=Tier.DELETE,
         action="dataset.delete",
         subject=f"dataset '{dataset_name}' in project {project_key}",
         yes=yes,
-        prompt=f"Permanently delete dataset '{dataset_name}' from project {project_key}? This cannot be undone.",
+        prompt=full_prompt,
     )
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
 
-        # Query dependent recipes BEFORE confirmation so the user sees the
-        # full blast radius. ds.get_usages() returns a list of dicts with
-        # type/objectType and objectId/id fields — format varies slightly
-        # across DSS versions, so handle both shapes.
-        dependents: list[tuple[str, str]] = []
-        try:
-            usages = ds.get_usages() or []
-            for u in usages:
-                usage_type = u.get("type") or u.get("objectType") or ""
-                obj_id = u.get("objectId") or u.get("id") or ""
-                if not obj_id:
-                    continue
-                # Only recipes cascade; analyses and models don't block dataset delete
-                if "RECIPE" in usage_type.upper():
-                    # Try to determine input vs output role from the usage entry
-                    role = u.get("objectRole") or u.get("role") or ""
-                    reason = (
-                        "uses as input"
-                        if "INPUT" in role.upper()
-                        else "produces"
-                        if "OUTPUT" in role.upper()
-                        else "depends on"
-                    )
-                    dependents.append((obj_id, reason))
-        except Exception:
-            # Non-fatal: if usages query fails, proceed with delete but warn
+        if usages_query_failed:
             warn(
                 f"Could not enumerate dependents of '{dataset_name}' — "
                 f"cascade effects unknown. Proceeding."
             )
-
-        if dependents:
+        elif dependents:
             warn(
                 f"Deleting '{dataset_name}' will also remove "
                 f"{len(dependents)} dependent recipe(s):"
@@ -1503,17 +1646,54 @@ def set_definition(
         ...,
         "--definition",
         "-d",
-        help="Definition JSON (string, @file.json, or '-' for stdin)",
+        help="Definition JSON (string, @file.json, or '-' for stdin). Default is wholesale replace; pass --merge to overlay top-level keys onto the current definition, --deep-merge to recurse into nested dicts.",
+    ),
+    merge: bool = typer.Option(
+        False,
+        "--merge",
+        help="Shallow merge: overlay top-level keys onto the existing definition instead of replacing it. Required to patch a single field (e.g. formatParams) without re-sending the entire def.",
+    ),
+    deep_merge: bool = typer.Option(
+        False,
+        "--deep-merge",
+        help="Deep merge: recurse into nested dicts. Use to patch one field inside formatParams/params without losing siblings.",
     ),
 ) -> None:
-    """Set the full definition of a dataset from JSON."""
+    """Set the full definition of a dataset from JSON.
+
+    Default is wholesale replace (callers send the entire definition).
+    Pass --merge to overlay top-level keys, or --deep-merge to recurse — both
+    GET the current definition, patch in memory, then PUT. Mirrors the merge
+    flags on 'dku recipe set-definition'.
+    """
+    if merge and deep_merge:
+        exit_with_error(
+            "Use either --merge or --deep-merge, not both.",
+            code="invalid_argument",
+        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         new_def = read_json_input(definition)
-        ds.set_definition(new_def)
-        success(f"Updated definition for dataset '{dataset_name}'")
+        if merge or deep_merge:
+            current = ds.get_definition()
+            if deep_merge:
+                from dku_cli.commands.recipe._common import _deep_merge_dict
+
+                merged = _deep_merge_dict(current, new_def)
+            else:
+                merged = dict(current)
+                merged.update(new_def)
+            ds.set_definition(merged)
+        else:
+            ds.set_definition(new_def)
+        success(
+            f"Updated definition for dataset '{dataset_name}'"
+            + (" (deep-merged)" if deep_merge else (" (merged)" if merge else ""))
+        )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

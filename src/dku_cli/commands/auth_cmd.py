@@ -17,7 +17,7 @@ from dku_cli.auth import (
     store_api_key,
 )
 from dku_cli.brand import ICON, print_logo, welcome
-from dku_cli.client import resolve_auth
+from dku_cli.client import AUTH_MODE_IN_POD_TICKET, get_client, resolve_auth
 from dku_cli.config import (
     clear_profile_configs,
     delete_profile_config,
@@ -32,6 +32,7 @@ from dku_cli.output import (
     console,
     error,
     info,
+    render,
     render_raw,
     resolve_output_format,
     success,
@@ -207,30 +208,68 @@ def status(
     flag_url = opts.get("url")
     flag_api_key = opts.get("api_key")
 
-    try:
-        url, api_key = resolve_auth(url=flag_url, api_key=flag_api_key, profile=profile)
-    except Exception:
-        if fmt == "json":
-            render_raw(
-                {
-                    "profile": profile,
-                    "status": "not_configured",
-                    "error": "Profile is not fully configured",
-                },
-                output_format=fmt,
-            )
-        else:
-            error(f'Profile "{profile}" is not fully configured.')
-            error("Run 'dku auth login' to set up.")
-        raise typer.Exit(1)
-
-    url_source, api_key_source = _resolve_auth_sources(
-        flag_url, flag_api_key, url, api_key, profile
+    # Ticket-mode profiles take a separate path: no stored URL/key, the client
+    # is wired through DKU_API_TICKET + DKU_BACKEND_HOST/PORT injected by DSS.
+    profile_cfg = get_profile_config(profile)
+    is_ticket_mode = (
+        not flag_url
+        and not flag_api_key
+        and profile_cfg.get("auth_mode") == AUTH_MODE_IN_POD_TICKET
     )
-    project_key, project_source = _resolve_project_source(profile)
+
+    if is_ticket_mode:
+        try:
+            client = get_client(profile=profile)
+        except Exception as e:
+            if fmt == "json":
+                render_raw(
+                    {
+                        "profile": profile,
+                        "status": "not_configured",
+                        "error": str(e),
+                    },
+                    output_format=fmt,
+                )
+            else:
+                error(f'Profile "{profile}" (in-pod ticket) cannot resolve auth.')
+                error(str(e))
+            raise typer.Exit(1)
+        host = os.environ.get("DKU_BACKEND_HOST", "?")
+        port = os.environ.get("DKU_BACKEND_PORT", "?")
+        proto = os.environ.get("DKU_BACKEND_PROTOCOL", "http")
+        url = f"{proto}://{host}:{port}"
+        api_key = "<in-pod-ticket>"
+        url_source = "DKU_BACKEND_HOST/PORT (in-pod)"
+        api_key_source = "DKU_API_TICKET (in-pod)"
+        project_key, project_source = _resolve_project_source(profile)
+    else:
+        try:
+            url, api_key = resolve_auth(
+                url=flag_url, api_key=flag_api_key, profile=profile
+            )
+        except Exception:
+            if fmt == "json":
+                render_raw(
+                    {
+                        "profile": profile,
+                        "status": "not_configured",
+                        "error": "Profile is not fully configured",
+                    },
+                    output_format=fmt,
+                )
+            else:
+                error(f'Profile "{profile}" is not fully configured.')
+                error("Run 'dku auth login' to set up.")
+            raise typer.Exit(1)
+
+        url_source, api_key_source = _resolve_auth_sources(
+            flag_url, flag_api_key, url, api_key, profile
+        )
+        project_key, project_source = _resolve_project_source(profile)
 
     try:
-        client = dataikuapi.DSSClient(url, api_key=api_key)
+        if not is_ticket_mode:
+            client = dataikuapi.DSSClient(url, api_key=api_key)
         auth_info = client.get_auth_info()
         user = auth_info.get("authIdentifier", "unknown")
         groups = auth_info.get("groups", [])
@@ -319,33 +358,90 @@ def status(
 
 
 @app.command("list")
-def list_profiles() -> None:
-    """List all configured profiles."""
+def list_profiles(
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List all configured profiles.
+
+    JSON output round-trips every persisted profile field (name, url,
+    node_type, default_project, active flag, has_key) so callers can pipe
+    through `jq` without needing a second `auth status` call.
+    """
+    output_fmt = resolve_output_format(output)
     profiles = get_all_profiles()
     active = get_active_profile()
 
     if not profiles:
-        info("No profiles configured. Run 'dku auth login' to get started.")
+        if output_fmt == "json":
+            render_raw([], output_format="json")
+        else:
+            info("No profiles configured. Run 'dku auth login' to get started.")
         return
 
+    rows = []
+    key_results = {}  # name -> KeyResult, for the rich text-output labels
     for name, cfg in profiles.items():
-        marker = " *" if name == active else ""
-        result = get_api_key_with_status(name)
-        if result.status == KeyStatus.OK:
-            key_state = "key stored"
-        elif result.status == KeyStatus.DENIED:
+        auth_mode = cfg.get("auth_mode") or "api_key"
+        key_result = get_api_key_with_status(name)
+        key_results[name] = key_result
+        rows.append(
+            {
+                "name": name,
+                "active": name == active,
+                "node_type": cfg.get("node_type", "?"),
+                "url": cfg.get("url", ""),
+                "default_project": cfg.get("default_project", ""),
+                "auth_mode": auth_mode,
+                "has_key": key_result.status == KeyStatus.OK,
+            }
+        )
+
+    if output_fmt == "json":
+        render_raw(rows, output_format="json")
+        return
+
+    if output_fmt == "csv":
+        render(
+            rows,
+            [
+                "name",
+                "active",
+                "node_type",
+                "url",
+                "default_project",
+                "auth_mode",
+                "has_key",
+            ],
+            output_format="csv",
+        )
+        return
+
+    # Default: human-friendly text matching the historical layout
+    for row in rows:
+        marker = " *" if row["active"] else ""
+        key_result = key_results[row["name"]]
+        if row["auth_mode"] == AUTH_MODE_IN_POD_TICKET:
+            auth_label = "in-pod ticket"
+        elif key_result.status == KeyStatus.OK:
+            auth_label = "key stored"
+        elif key_result.status == KeyStatus.DENIED:
             # Don't say "no key" — the entry is likely still there. Tell the
             # user the truth so they don't waste time re-running `auth login`.
-            key_state = (
+            auth_label = (
                 "keychain access denied (entry may exist; re-prompt may be required)"
             )
-        elif result.status == KeyStatus.BACKEND_ERROR:
-            key_state = f"keychain error ({result.detail})"
+        elif key_result.status == KeyStatus.BACKEND_ERROR:
+            auth_label = f"keychain error ({key_result.detail or ''})"
         else:
-            key_state = "no key"
-        url = cfg.get("url", "no url")
-        node = cfg.get("node_type", "?")
-        console.print(f"  {name}{marker}  [{node}]  {url}  ({key_state})")
+            auth_label = "no key"
+        url = row["url"] or (
+            "in-pod backend"
+            if row["auth_mode"] == AUTH_MODE_IN_POD_TICKET
+            else "no url"
+        )
+        console.print(
+            f"  {row['name']}{marker}  [{row['node_type']}]  {url}  ({auth_label})"
+        )
 
 
 @app.command()

@@ -580,10 +580,59 @@ def create_prediction_scoring(
         builder.with_input_model(model)
         builder.with_input(input_ds)
         builder.with_existing_output(output_ds)
+
+        # On some DSS / dataikuapi version pairs, the response parser raises
+        # KeyError('recipe') AFTER the recipe is successfully created on the
+        # server. The recipe IS there — just the SDK's post-build response
+        # decoder couldn't find an expected key. Swallow that one specific
+        # KeyError; re-raise anything else.
+        built_recipe = None
+        try:
+            built_recipe = builder.build()
+        except KeyError as ke:
+            if str(ke).strip("'") != "recipe":
+                raise
+
         # DSS auto-names scoring recipes 'score_<input>'; reconcile to the
         # requested name so the payload patch + schema apply below hit the real
         # recipe (else the output stays at 0 columns and the build fails).
-        recipe_name = _build_scoring_recipe(builder, recipe_name)
+        if built_recipe is not None:
+            recipe_name = _reconcile_scoring_name(built_recipe, recipe_name)
+        else:
+            # The KeyError swallowed the build handle — resolve the recipe by
+            # name. Try the requested name first, then DSS's 'score_<input>'
+            # auto-name, and rename the auto-name back when found.
+            actual_recipe_name = recipe_name
+            try:
+                proj.get_recipe(recipe_name).get_settings()
+            except Exception:
+                auto_name = f"score_{input_ds}"
+                try:
+                    proj.get_recipe(auto_name).get_settings()
+                    actual_recipe_name = auto_name
+                except Exception:
+                    exit_with_error(
+                        f"Prediction-scoring recipe build did not produce a recipe "
+                        f"named '{recipe_name}' or '{auto_name}'.",
+                        code="recipe_not_created",
+                        details=[
+                            "Re-check the inputs:",
+                            f"  Input dataset: {input_ds}",
+                            f"  Output dataset: {output_ds}",
+                            f"  Saved model: {model}",
+                            f"  Project: {project_key}",
+                        ],
+                    )
+            if actual_recipe_name != recipe_name:
+                try:
+                    proj.get_recipe(actual_recipe_name).rename(recipe_name)
+                except Exception as rename_err:
+                    warn(
+                        f"Could not rename '{actual_recipe_name}' → '{recipe_name}': "
+                        f"{rename_err}. Continuing with the auto-name; you can rename "
+                        f"manually with: dku recipe rename {actual_recipe_name} --name {recipe_name} -P {project_key}"
+                    )
+                    recipe_name = actual_recipe_name
 
         recipe_obj = proj.get_recipe(recipe_name)
         settings = recipe_obj.get_settings()

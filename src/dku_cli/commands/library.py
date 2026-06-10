@@ -161,17 +161,119 @@ def write(
         handle_api_error(e)
 
 
+def _is_library_folder(lib, path: str) -> bool:
+    """Return True if `path` resolves to a folder (not a file) in the library.
+
+    Best-effort: a folder responds to `.list()`, a file does not. Returns
+    False on any error so the caller can fall back to file-delete semantics.
+    """
+    try:
+        folder = lib.get_folder(path)
+        if folder is None:
+            return False
+        folder.list()
+        return True
+    except Exception:
+        return False
+
+
+def _delete_folder_recursive(lib, folder_path: str) -> tuple[int, int]:
+    """Delete every file under `folder_path`, then the folder itself.
+
+    Returns (file_count, folder_count) so callers can summarise.
+    """
+    files = _list_remote_files(lib, folder_path)
+    file_count = 0
+    for fpath in sorted(files):
+        try:
+            f = lib.get_file(fpath)
+            if f is not None:
+                f.delete()
+                file_count += 1
+        except Exception:
+            # Best-effort — ignore already-gone files
+            pass
+
+    folder_count = 0
+    try:
+        folder = lib.get_folder(folder_path)
+        if folder is not None and hasattr(folder, "delete"):
+            folder.delete()
+            folder_count = 1
+    except Exception:
+        pass
+    return file_count, folder_count
+
+
 @app.command()
 def delete(
     ctx: typer.Context,
-    path: str = typer.Argument(help="File path in the library"),
+    path: str = typer.Argument(help="File or folder path in the library"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    recursive: bool = typer.Option(
+        False,
+        "--recursive",
+        "-r",
+        help="Recursively delete a folder and every file under it. "
+        "Tier-3 CASCADE safety — requires --confirm-name to match the folder path.",
+    ),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match the folder path to proceed (tier-3 cascade, --recursive only).",
+    ),
 ) -> None:
-    """Delete a file from the project library."""
+    """Delete a file (or, with --recursive, a folder tree) from the library.
+
+    Without --recursive, the target must be a file — pointing at a folder
+    emits a prescriptive error showing the recursive recovery one-liner.
+    """
     from dku_cli.safety import Tier, guard
 
     project_key = resolve_project(project)
+
+    if recursive:
+        guard(
+            ctx,
+            tier=Tier.CASCADE,
+            action="library.delete-recursive",
+            subject=f"library folder '{path}' in {project_key} (and ALL descendant files)",
+            yes=yes,
+            target_id=path,
+            confirm_name=confirm_name,
+            prompt=(
+                f"Recursively delete library folder '{path}' from {project_key}? "
+                "This wipes every file beneath it."
+            ),
+        )
+        try:
+            client = get_client_from_ctx(ctx)
+            proj = client.get_project(project_key)
+            lib = proj.get_library()
+            if not _is_library_folder(lib, path):
+                exit_with_error(
+                    f"'{path}' is not a folder in the project library — "
+                    "--recursive only applies to folders.",
+                    code="not_a_folder",
+                    details=[
+                        "For a single file, drop --recursive:",
+                        f"  dku library delete '{path}' -P {project_key} --yes",
+                    ],
+                    status=2,
+                )
+            files_deleted, folders_deleted = _delete_folder_recursive(lib, path)
+            success(
+                f"Deleted {files_deleted} file(s) "
+                f"and {folders_deleted} folder(s) under '{path}'"
+            )
+            return
+        except typer.Exit:
+            raise
+        except Exception as e:
+            handle_api_error(e)
+            return
+
     guard(
         ctx,
         tier=Tier.DELETE,
@@ -184,8 +286,36 @@ def delete(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         lib = proj.get_library()
-        f = lib.get_file(path)
-        f.delete()
+        try:
+            f = lib.get_file(path)
+            f.delete()
+        except Exception as inner:
+            # Bare DSS error is "The item /X is a folder, not a file" —
+            # surface the recursive escape hatch instead of a dead-end.
+            # NOTE: dataikuapi raises from get_file() itself, not from
+            # delete() — the path is rejected before the file handle is
+            # returned. So this except wraps both calls.
+            msg = str(inner)
+            if "is a folder, not a file" in msg or "is a folder" in msg:
+                exit_with_error(
+                    f"'{path}' is a folder, not a file. Use --recursive to "
+                    "delete the folder and everything beneath it.",
+                    code="is_a_folder",
+                    details=[
+                        "Tier-3 cascade — wipes every descendant file:",
+                        "",
+                        f"  dku library delete '{path}' -P {project_key} \\\\",
+                        f"    --recursive --yes --confirm-name '{path}'",
+                        "",
+                        "Or enumerate-and-delete one file at a time:",
+                        "",
+                        f"  dku library list --path '{path}' -P {project_key} -o json \\\\",
+                        "    | jq -r '.[].path' \\\\",
+                        f"    | xargs -I{{}} dku library delete '{{}}' -P {project_key} --yes",
+                    ],
+                    status=2,
+                )
+            raise
 
         success(f"Deleted {path}")
     except typer.Exit:
@@ -314,28 +444,33 @@ def _collect_local_files(local_dir: Path, excludes: set[str]) -> list[tuple[Path
 
 
 def _list_remote_files(lib, folder_path: str) -> set[str]:
-    """Recursively list all file paths under a library folder."""
+    """Recursively list all file paths under a library folder.
+
+    Returns paths normalised WITHOUT a leading slash (matches the form
+    `dku library write` / `delete` accept). Real DSS returns `item.path`
+    with a leading slash (e.g. ``/python/lib/foo.py``); we strip it.
+    """
     remote: set[str] = set()
 
-    def _walk(container, prefix: str) -> None:
+    def _normalize(p: str) -> str:
+        return p.lstrip("/")
+
+    def _walk(container) -> None:
         for item in container.list():
-            item_path = item.path
-            # item.path may be absolute from library root — make relative
-            if prefix and not item_path.startswith(prefix):
-                item_path = f"{prefix}/{item_path}"
-            # DSSLibraryItem: check if it has a .list() method (folder) or not (file)
+            item_path = _normalize(item.path)
+            # DSSLibraryItem: check if it has a .list() method (folder)
             try:
                 item.list()  # probe: raises if item is a file, not a folder
-                _walk(item, item_path)
+                _walk(item)
             except Exception:
                 remote.add(item_path)
 
     try:
-        if folder_path == "/":
-            _walk(lib, "")
+        if folder_path == "/" or folder_path == "":
+            _walk(lib)
         else:
             folder = lib.get_folder(folder_path)
-            _walk(folder, folder_path)
+            _walk(folder)
     except Exception:
         pass  # Folder doesn't exist yet — no remote files
     return remote

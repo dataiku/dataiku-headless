@@ -514,54 +514,82 @@ def enable(
         None, "--description", help="App short description"
     ),
     mode: AppEnableMode = typer.Option(
-        AppEnableMode.setup,
+        AppEnableMode.template,
         "--mode",
         "-m",
         case_sensitive=False,
         help=(
-            "What to enable: 'setup' (default — Project Setup, keeps "
-            "projectAppType=REGULAR + sets useAppHomepage=True) OR "
-            "'template' (converts the project to APP_TEMPLATE for use "
-            "as a Dataiku App that can be instantiated)."
+            "What to enable: 'template' (default — converts the project "
+            "to APP_TEMPLATE so it can be instantiated as a Dataiku App). "
+            "'setup' is rejected — Project Setup mode requires an internal "
+            "endpoint not exposed in the public API; see the error message "
+            "for the manual UI step."
         ),
     ),
 ) -> None:
-    """Enable the app homepage on a project.
+    """Enable the app homepage on a project (APP_TEMPLATE mode).
 
-    Two modes — they look identical in the manifest schema but produce
-    very different product surfaces:
+    Sets `projectAppType=APP_TEMPLATE` AND `useAppHomepage=True`.
+    Reversible by opening the App Designer UI and clicking
+    `Actions → Convert back to regular project` (POSTs
+    `/dip/api/projects/switch-app-type` with `appType=REGULAR`).
 
     \b
-    - --mode setup (default): adds a "Project Setup" homepage to a
-      REGULAR project. Setup pages are first-party DSS UI for guided
-      configuration; the project keeps `projectAppType=REGULAR`. This
-      is what every Dataiku Solutions reference project uses.
-    - --mode template: converts the project to APP_TEMPLATE so it can
-      be instantiated as a Dataiku App. Sets `projectAppType=APP_TEMPLATE`
-      AND `useAppHomepage=True`. NOT reversible without manual
-      `projectAppType=REGULAR` reset via `proj.get_settings().save()`.
-
-    If you are unsure, pick `setup` — converting to template is a
-    semantic change that affects how the project is consumed.
+    Project Setup mode (the lighter alternative for one-off templates
+    configured before use) is NOT settable via this CLI. The discriminator
+    `hasSetupSection` is written by `POST /dip/api/projects/set-setup-section`,
+    which lives in the internal `/dip/api/` namespace; that namespace
+    rejects API-key auth (HTTP 401) and `dataikuapi` only targets
+    `/dip/publicapi/`. Setting `useAppHomepage=true` in the manifest alone
+    is necessary-but-not-sufficient — the UI keys on `hasSetupSection`.
+    Open the App Designer in a browser and click
+    `Show advanced options → Add a setup section to this project` instead.
     """
     project_key = resolve_project(project)
     mode_normalised = mode.value
+
+    if mode_normalised == "setup":
+        # Drop the lie — manifest PUT alone leaves the UI in landing-page state.
+        # Tell the agent exactly what to do instead.
+        try:
+            client = get_client_from_ctx(ctx)
+            host = client.host.rstrip("/")
+        except Exception:
+            host = "<DSS-URL>"
+        exit_with_error(
+            "--mode setup is not implementable via the public API.",
+            details=[
+                "Project Setup mode is gated by a project-level boolean",
+                "`hasSetupSection` (visible in `params.json`) that ONLY the",
+                "internal endpoint `/dip/api/projects/set-setup-section`",
+                "writes. That endpoint rejects API-key auth (401) and is",
+                "not mirrored in `/dip/publicapi/` — so `dku` cannot reach",
+                "it. Setting `useAppHomepage=True` alone leaves the App",
+                "Designer UI on the 'Convert this project…' landing page.",
+                "",
+                "Two paths forward:",
+                f"  1. Manual UI step — open {host}/projects/{project_key}/app-designer/",
+                "     then click `Show advanced options → Add a setup section",
+                "     to this project`.",
+                "  2. Use APP_TEMPLATE mode instead:",
+                f"     dku app-designer enable -P {project_key} --mode template",
+            ],
+        )
+
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
 
-        if mode_normalised == "template":
-            settings = proj.get_settings()
-            raw_settings = settings.get_raw()
-            if raw_settings.get("projectAppType") != "APP_TEMPLATE":
-                raw_settings["projectAppType"] = "APP_TEMPLATE"
-                settings.save()
-                warn(
-                    f"Project {project_key} converted to APP_TEMPLATE — "
-                    "no longer a REGULAR project."
-                )
+        settings = proj.get_settings()
+        raw_settings = settings.get_raw()
+        if raw_settings.get("projectAppType") != "APP_TEMPLATE":
+            raw_settings["projectAppType"] = "APP_TEMPLATE"
+            settings.save()
+            warn(
+                f"Project {project_key} converted to APP_TEMPLATE — "
+                "no longer a REGULAR project."
+            )
 
-        # Always read+write through the helpers so REGULAR projects work too.
         raw = _read_manifest(client, project_key)
         raw["useAppHomepage"] = True
         if label:
@@ -570,15 +598,7 @@ def enable(
             raw["shortDesc"] = description
         _write_manifest(client, project_key, raw)
 
-        if mode_normalised == "setup":
-            success(
-                f"Project Setup enabled for {project_key} "
-                f"(projectAppType remains REGULAR)"
-            )
-        else:
-            success(
-                f"App template enabled for {project_key} (projectAppType=APP_TEMPLATE)"
-            )
+        success(f"App template enabled for {project_key} (projectAppType=APP_TEMPLATE)")
     except Exception as e:
         handle_api_error(e)
 

@@ -129,6 +129,8 @@ def configure_govern_client(client):
             "workflow": {
                 "steps": {"exploration": {"status": "ONGOING", "visible": True}},
             },
+            # Field values surfaced by `govern artifact list --field KEY=VALUE`.
+            "fields": {"sensitive_data": "Yes"},
         },
     }
     search_resp.get_response_hits.return_value = [search_hit]
@@ -234,6 +236,28 @@ def configure_govern_client(client):
     }
     role_obj.get_definition.return_value = role_def
     roles_handler.get_role.return_value = role_obj
+
+    # Role assignments — `dku govern role-assignment list/get/set/delete`.
+    # One existing record: bp.system.govern_project binds role ro.reviewer.
+    ra_item = MagicMock()
+    ra_item.get_raw.return_value = {
+        "blueprintId": "bp.system.govern_project",
+        "roleAssignmentsRules": {
+            "ro.reviewer": [{"criteria": [], "userContainers": [], "fieldIds": []}]
+        },
+    }
+    roles_handler.list_role_assignments.return_value = [ra_item]
+    ra_def = MagicMock()
+    ra_def.get_raw.return_value = {
+        "blueprintId": "bp.system.govern_project",
+        "roleAssignmentsRules": {
+            "ro.reviewer": [{"criteria": [], "userContainers": [], "fieldIds": []}]
+        },
+    }
+    ra_record = MagicMock()
+    ra_record.get_definition.return_value = ra_def
+    roles_handler.get_role_assignments.return_value = ra_record
+
     govern_client.get_roles_permissions_handler.return_value = roles_handler
 
     # Custom pages

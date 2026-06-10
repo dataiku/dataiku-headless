@@ -284,6 +284,73 @@ def test_scenario_set_definition_warns_on_step_count_mismatch(patch_client):
     assert "server persisted 0" in result.output
 
 
+# ── set-active tests ─────────────────────────────────────────────────────
+
+
+def test_scenario_set_active_enables_scenario_and_triggers(patch_client):
+    """set-active --enable flips both scenario.active AND every triggers[].active."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    raw = scenario.get_settings().get_raw()
+    raw["active"] = False
+    raw["triggers"] = [
+        {"id": "t1", "type": "temporal", "active": False},
+        {"id": "t2", "type": "dataset_modified", "active": False},
+    ]
+
+    result = runner.invoke(
+        app,
+        ["scenario", "set-active", "scen1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["active"] is True
+    assert all(t["active"] is True for t in raw["triggers"])
+    scenario.get_settings().save.assert_called()
+
+
+def test_scenario_set_active_disable_drops_both(patch_client):
+    """set-active --disable flips both off."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    raw = scenario.get_settings().get_raw()
+    raw["active"] = True
+    raw["triggers"] = [{"id": "t1", "active": True}]
+
+    result = runner.invoke(
+        app,
+        ["scenario", "set-active", "scen1", "--disable", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["active"] is False
+    assert raw["triggers"][0]["active"] is False
+
+
+def test_scenario_set_active_skip_triggers(patch_client):
+    """--skip-triggers leaves trigger.active untouched."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    raw = scenario.get_settings().get_raw()
+    raw["active"] = False
+    raw["triggers"] = [{"id": "t1", "active": False}]
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-active",
+            "scen1",
+            "--skip-triggers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["active"] is True
+    # trigger left at its previous False — agents flipping just the top
+    # flag should still see "1/1 → 0/1 active" semantics in the message.
+    assert raw["triggers"][0]["active"] is False
+
+
 # ── run --wait polling tests ─────────────────────────────────────────────
 
 
@@ -887,6 +954,230 @@ def test_scenario_add_trigger_dataset_custom_delays(patch_client):
     assert added["graceDelaySettings"]["checkAgainAfterGraceDelay"] is False
 
 
+def test_scenario_add_trigger_time_daily(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings()
+    initial_count = len(settings.raw_triggers)
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Daily",
+            "--hour",
+            "3",
+            "--minute",
+            "30",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "temporal" in result.output
+    assert len(settings.raw_triggers) == initial_count + 1
+    added = settings.raw_triggers[-1]
+    assert added["type"] == "temporal"
+    assert added["active"] is True
+    p = added["params"]
+    assert p["frequency"] == "Daily"
+    assert p["hour"] == 3
+    assert p["minute"] == 30
+    assert p["repeatFrequency"] == 1
+    assert p["timezone"] == "SERVER"
+    assert "daysOfWeek" not in p
+
+
+def test_scenario_add_trigger_time_weekly(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings()
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Weekly",
+            "--days",
+            "Monday,Wednesday,Friday",
+            "--hour",
+            "6",
+            "--minute",
+            "0",
+            "--timezone",
+            "Europe/Paris",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    p = settings.raw_triggers[-1]["params"]
+    assert p["frequency"] == "Weekly"
+    assert p["daysOfWeek"] == ["Monday", "Wednesday", "Friday"]
+    assert p["timezone"] == "Europe/Paris"
+
+
+def test_scenario_add_trigger_time_minutely(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings()
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Minutely",
+            "--repeat-every",
+            "15",
+            "--inactive",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    added = settings.raw_triggers[-1]
+    assert added["active"] is False
+    p = added["params"]
+    assert p["frequency"] == "Minutely"
+    assert p["repeatFrequency"] == 15
+    # Minutely should not include hour/minute
+    assert "hour" not in p
+    assert "minute" not in p
+
+
+def test_scenario_add_trigger_time_monthly_last_day(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings()
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Monthly",
+            "--monthly-run-on",
+            "LAST_DAY_OF_THE_MONTH",
+            "--hour",
+            "3",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    p = settings.raw_triggers[-1]["params"]
+    assert p["monthlyRunOn"] == "LAST_DAY_OF_THE_MONTH"
+    assert p["hour"] == 3
+
+
+def test_scenario_add_trigger_time_invalid_frequency(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Hourlyish",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid --frequency" in result.output
+
+
+def test_scenario_add_trigger_time_weekly_requires_days(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Weekly",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--days is required" in result.output
+
+
+def test_scenario_add_trigger_time_weekly_invalid_day(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-time",
+            "scen1",
+            "--frequency",
+            "Weekly",
+            "--days",
+            "Monday,Funday",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid day" in result.output
+
+
+def test_scenario_add_trigger_python_uses_canonical_env_mode(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings()
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-python",
+            "scen1",
+            "--code",
+            "from dataiku.scenario import Trigger\nTrigger().fire()",
+            "--env-mode",
+            "USE_BUILTIN_MODE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    added = settings.raw_triggers[-1]
+    assert added["type"] == "custom_python"
+    assert added["params"]["envSelection"] == {"envMode": "USE_BUILTIN_MODE"}
+
+
+def test_scenario_add_trigger_python_rejects_old_invalid_env_mode(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-trigger-python",
+            "scen1",
+            "--code",
+            "print('noop')",
+            "--env-mode",
+            "USE_BUILTIN_ENV",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "use_builtin_mode" in result.output
+
+
 def test_scenario_remove_trigger(patch_client):
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
@@ -928,6 +1219,451 @@ def test_scenario_remove_trigger_invalid_index(patch_client):
     )
     assert result.exit_code != 0
     assert "out of range" in result.output
+
+
+def _patch_step_scenario(patch_client):
+    """Configure the scenario_settings mock to expose a real raw_steps list."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    settings = scenario.get_settings.return_value
+    steps: list[dict] = []
+    type(settings).raw_steps = property(lambda self: steps)
+    return steps
+
+
+def test_add_step_python_uses_canonical_env_mode(patch_client):
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-python",
+            "scen1",
+            "--name",
+            "Inline Python",
+            "--code",
+            "print(1)",
+            "--env-mode",
+            "USE_BUILTIN_MODE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = steps[0]
+    assert step["type"] == "custom_python"
+    assert step["params"]["envSelection"] == {"envMode": "USE_BUILTIN_MODE"}
+
+
+def test_add_step_python_rejects_old_invalid_env_mode(patch_client):
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-python",
+            "scen1",
+            "--name",
+            "Inline Python",
+            "--code",
+            "print(1)",
+            "--env-mode",
+            "USE_BUILTIN_ENV",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "use_builtin_mode" in result.output
+
+
+def test_add_step_build_with_retry_and_warnings(patch_client):
+    """--max-retries / --delay-between-retries / --handle-warnings-as land in payload."""
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Build core",
+            "--build",
+            "sales_clean",
+            "--max-retries",
+            "3",
+            "--delay-between-retries",
+            "60",
+            "--handle-warnings-as",
+            "FAILED",
+            "--refresh-metastore",
+            "--stop-at-zone-boundary",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["type"] == "build_flowitem"
+    assert step["maxRetriesOnFail"] == 3
+    assert step["delayBetweenRetries"] == 60
+    assert step["params"]["handleWarningsAs"] == "FAILED"
+    assert step["params"]["refreshHiveMetastore"] is True
+    assert step["params"]["stopAtFlowZoneBoundary"] is True
+
+
+def test_add_step_build_run_condition_expression_implies_type(patch_client):
+    """--run-condition-expression alone implies type RUN_CONDITIONALLY."""
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Conditional",
+            "--build",
+            "sales_clean",
+            "--run-condition-expression",
+            "stepOutcome('previous') == 'SUCCESS'",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = steps[0]
+    assert step["runConditionType"] == "RUN_CONDITIONALLY"
+    assert "stepOutcome" in step["runConditionExpression"]
+
+
+def test_add_step_build_delay_without_retries_errors(patch_client):
+    """--delay-between-retries requires --max-retries."""
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Bad",
+            "--build",
+            "ds",
+            "--delay-between-retries",
+            "30",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "max-retries" in result.output.lower()
+
+
+def test_add_step_build_invalid_handle_warnings_errors(patch_client):
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Bad",
+            "--build",
+            "ds",
+            "--handle-warnings-as",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "BOGUS" in result.output
+
+
+def test_add_step_build_invalid_job_type_rejected_with_suggestion(patch_client):
+    """A bogus jobType saves as null and NPEs at run time — reject client-side
+    and suggest the correct value."""
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Bad",
+            "--build",
+            "ds",
+            "--job-type",
+            "FORCED_RECURSIVE_BUILD",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid --job-type" in result.output
+    assert "RECURSIVE_FORCED_BUILD" in result.output
+
+
+def test_add_step_build_valid_job_type_accepted(patch_client):
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Good",
+            "--build",
+            "ds",
+            "--job-type",
+            "RECURSIVE_FORCED_BUILD",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert steps[-1]["params"]["jobType"] == "RECURSIVE_FORCED_BUILD"
+
+
+def test_add_step_clear_items(patch_client):
+    """clear_items step writes clears[] (NOT items[]) and type=clear_items."""
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-clear-items",
+            "scen1",
+            "--name",
+            "Wipe staging",
+            "--clear",
+            "staging_orders",
+            "--clear",
+            "OTHER_PROJ.shared_dim",
+            "--clear-folder",
+            "REPORTS",
+            "--clear-model",
+            "abc123",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["type"] == "clear_items"
+    # DSS uses params.clears[] for clear_items, not params.items[]
+    assert "items" not in step["params"]
+    clears = step["params"]["clears"]
+    assert clears[0] == {
+        "type": "DATASET",
+        "itemId": "staging_orders",
+        "partitionsSpec": "",
+    }
+    assert clears[1] == {
+        "type": "DATASET",
+        "projectKey": "OTHER_PROJ",
+        "itemId": "shared_dim",
+        "partitionsSpec": "",
+    }
+    assert clears[2] == {
+        "type": "MANAGED_FOLDER",
+        "itemId": "REPORTS",
+        "partitionsSpec": "",
+    }
+    assert clears[3] == {
+        "type": "SAVED_MODEL",
+        "itemId": "abc123",
+        "partitionsSpec": "",
+    }
+
+
+def test_add_step_propagate_schema(patch_client):
+    """schema_propagation params nest under options (PropagateSchemaTile shape)."""
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-propagate-schema",
+            "scen1",
+            "--name",
+            "Propagate",
+            "--dataset",
+            "raw_orders",
+            "--behavior",
+            "AUTO_WITH_BUILDS",
+            "--exclude-recipe",
+            "drop_pii",
+            "--mark-as-ok-recipe",
+            "legacy_join",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = steps[0]
+    assert step["type"] == "schema_propagation"
+    opts = step["params"]["options"]
+    assert opts["datasetName"] == "raw_orders"
+    assert opts["behavior"] == "AUTO_WITH_BUILDS"
+    assert opts["excludedRecipes"] == ["drop_pii"]
+    assert opts["markAsOkRecipes"] == ["legacy_join"]
+
+
+def test_add_step_propagate_schema_invalid_behavior(patch_client):
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-propagate-schema",
+            "scen1",
+            "--name",
+            "Bad",
+            "--dataset",
+            "x",
+            "--behavior",
+            "BOGUS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid --behavior" in result.output
+
+
+def test_add_step_prepare_lambda_package(patch_client):
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-prepare-lambda-package",
+            "scen1",
+            "--name",
+            "Build pkg",
+            "--api-service",
+            "fraud_score",
+            "--package-id",
+            "v42",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = steps[0]
+    assert step["type"] == "prepare_lambda_package"
+    assert step["params"]["serviceId"] == "fraud_score"
+    assert step["params"]["packageId"] == "v42"
+
+
+def test_add_step_update_deployment(patch_client):
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-update-deployment",
+            "scen1",
+            "--name",
+            "Roll forward",
+            "--deployment-id",
+            "fraud_v1",
+            "--package-id",
+            "v42",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = steps[0]
+    assert step["type"] == "update_apideployer_deployment"
+    assert step["params"]["deploymentId"] == "fraud_v1"
+    assert step["params"]["newVersionId"] == "v42"
+
+
+def test_add_step_refresh_chart_cache_item_shape(patch_client):
+    """dashboards/datasets are List<RefreshItem> ({smartName, name}), not strings."""
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-refresh-chart-cache",
+            "scen1",
+            "--name",
+            "Warm cache",
+            "--dashboard",
+            "exec_kpis",
+            "--dataset",
+            "sales_clean",
+            "--force",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    step = steps[0]
+    assert step["type"] == "refresh_chart_cache"
+    assert step["params"]["dashboards"] == [
+        {"smartName": "exec_kpis", "name": "exec_kpis"}
+    ]
+    assert step["params"]["datasets"] == [
+        {"smartName": "sales_clean", "name": "sales_clean"}
+    ]
+    assert step["params"]["force"] is True
+
+
+def test_add_step_build_run_condition_type_alias_suggestion(patch_client):
+    """Legacy/invented run-condition values are rejected, real enum suggested."""
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Bad",
+            "--build",
+            "ds",
+            "--run-condition-type",
+            "ALWAYS",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "RUN_ALWAYS" in result.output
+
+
+def test_add_step_build_handle_warnings_alias_suggestion(patch_client):
+    """AS_FAILURE (not a real Outcome) is rejected with FAILED suggested."""
+    _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step-build",
+            "scen1",
+            "--name",
+            "Bad",
+            "--build",
+            "ds",
+            "--handle-warnings-as",
+            "AS_FAILURE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "FAILED" in result.output
 
 
 # --- list-reporters / add-reporter ---

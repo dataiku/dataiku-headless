@@ -60,7 +60,17 @@ def create_group(
     agg: list[str] = typer.Option(
         None,
         "--agg",
-        help="Aggregation: 'col:func1,func2'. Functions: sum, avg, min, max, count, count_distinct, concat, stddev. Repeatable.",
+        help=(
+            "Aggregation: 'col:func1,func2'. Functions accepted via --agg: "
+            "sum, avg, min, max, count, count_distinct, concat, concat_distinct, "
+            "stddev, first, last, first_last_not_null, sum2. Repeatable. "
+            "MEDIAN: DSS Group has a median aggregate but it is SQL-engine ONLY "
+            "(fails on the in-memory DSS engine: 'Median aggregation is not "
+            "implemented for DSS Engine') — set --engine SQL and add the `median` "
+            "JSON flag on the column via `dku recipe set-settings` (not reachable "
+            "through --agg). PERCENTILE/quantiles are NOT a Group aggregate at all "
+            "— use a SQL recipe with PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col)."
+        ),
     ),
     no_global_count: bool = typer.Option(
         False,
@@ -156,6 +166,12 @@ def create_group(
 
     Aggregation functions: sum, avg, min, max, count, count_distinct, concat, stddev,
     first, last, first_last_not_null, concat_distinct, sum2.
+
+    Median is a SQL-engine-ONLY DSS Group aggregate (fails on the in-memory DSS
+    engine with "Median aggregation is not implemented for DSS Engine") and is not
+    reachable through --agg — pass --engine SQL and set the `median` JSON flag via
+    `dku recipe set-settings`. Percentiles/quantiles are not a Group aggregate at
+    all: use a SQL recipe (PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col)).
 
     By default DSS adds a 'count' column (rows per group). Pass --no-global-count
     to suppress it when only the explicit aggregates should appear in the output.
@@ -826,42 +842,56 @@ def create_distinct(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        builder = proj.new_recipe("distinct", recipe_name)
-        builder.with_input(input_ds)
-        _wire_single_output(client, proj, builder, output_ds, project_key, connection)
-        builder.build()
 
-        # Configure distinct keys. Default behavior is "distinct on ALL columns"
-        # to match df.drop_duplicates() semantics. Without this, DSS defaults to
-        # keys=[first_col] + selectAllColumns=false, which silently produces a
-        # single-column output (the first column) — an anti-pattern that looks
-        # like distinct but is actually a projection.
-        recipe_obj = proj.get_recipe(recipe_name)
-        settings = recipe_obj.get_settings()
-        payload = _get_recipe_payload(settings)
-
+        # Resolve keys BEFORE creating anything — a Distinct without keys builds
+        # to "No distinct column" (DSS payload defaults to keys=[first_col] +
+        # selectAllColumns=false, which silently produces a single-column
+        # projection). If --on is omitted and we can't read the input schema
+        # (input doesn't exist, or exists but is unbuilt), refuse to create the
+        # half-broken recipe + orphan output dataset.
         if on:
             key_cols = list(on)
-            # A subset was requested: output and dedup on exactly those columns.
-            # selectAllColumns must be False — when True, DSS deduplicates on the
-            # full row and the keys are ignored, silently defeating --on.
-            select_all = False
+            # A subset was requested: output and dedup on exactly those columns
+            # (selectAllColumns is forced False below — see the keys block).
         else:
-            # Resolve all columns from the input dataset schema.
             try:
                 input_schema = (
                     proj.get_dataset(input_ds).get_schema().get("columns", [])
                 )
                 key_cols = [c["name"] for c in input_schema]
             except Exception:
-                # If we can't read the schema (e.g. input not yet built),
-                # fall back to DSS defaults — better than crashing.
                 key_cols = []
-            select_all = True
+            if not key_cols:
+                exit_with_error(
+                    f"Cannot infer distinct keys: input '{input_ds}' has no readable schema.",
+                    code="missing_distinct_keys",
+                    details=[
+                        "The input dataset either does not exist or has never been built (zero columns).",
+                        "Either pass explicit keys, or build the input first:",
+                        f"  dku recipe create-distinct {recipe_name} -i {input_ds} --output-ds {output_ds} --on COL [--on COL2 ...] -P {project_key}",
+                        f"  dku dataset build {input_ds} -P {project_key} --type RECURSIVE_BUILD --auto-update-schema --wait",
+                    ],
+                )
+
+        builder = proj.new_recipe("distinct", recipe_name)
+        builder.with_input(input_ds)
+        _wire_single_output(client, proj, builder, output_ds, project_key, connection)
+        builder.build()
+
+        recipe_obj = proj.get_recipe(recipe_name)
+        settings = recipe_obj.get_settings()
+        payload = _get_recipe_payload(settings)
 
         if key_cols:
             payload["keys"] = [{"column": c} for c in key_cols]
-            payload["selectAllColumns"] = select_all
+            # selectAllColumns=True dedupes on EVERY column (full-row distinct),
+            # ignoring `keys` for the dedup. That is correct only when no --on was
+            # given (key_cols == all input columns). With an explicit --on subset,
+            # selectAllColumns MUST be False, otherwise the subset is silently
+            # ignored and DSS dedupes on all columns (e.g. --on "Reference Number"
+            # returns ~every row instead of one per Reference Number). With it
+            # False, dedup is on the subset and the output projects to those keys.
+            payload["selectAllColumns"] = not bool(on)
             info(
                 "Distinct on: "
                 + ", ".join(key_cols[:5])

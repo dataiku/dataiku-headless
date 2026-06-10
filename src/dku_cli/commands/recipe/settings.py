@@ -3,19 +3,74 @@
 from __future__ import annotations
 
 # ruff: noqa: F403,F405
+from dku_cli.enums import ContainerMode, EnvMode
+
 from ._common import *
+
+
+def _unwrap_recipe_definition_payload(new_def):
+    """Strip get-definition / DSS-raw wrappers from --definition JSON.
+
+    Without this, passing back the full output of ``dku recipe get-definition
+    -o json`` (shape ``{"definition": {...}, "payload": {...}}``) or a raw DSS
+    response (``{"definition": {...}, "$status": ...}``) silently writes the
+    *wrapper keys* into ``raw_definition`` instead of the recipe fields —
+    "Updated definition" reports success and nothing changes.
+    """
+    if not isinstance(new_def, dict):
+        return new_def
+    keys = set(new_def.keys())
+    wrappers = {
+        frozenset({"definition", "payload"}),
+        frozenset({"definition", "$status"}),
+    }
+    if keys in wrappers and isinstance(new_def.get("definition"), dict):
+        warn(
+            "Unwrapping --definition: input had a get-definition wrapper "
+            "({'definition': ..., '"
+            + ("payload" if "payload" in keys else "$status")
+            + "': ...}); using the inner 'definition' object."
+        )
+        return new_def["definition"]
+    return new_def
 
 
 @app.command("set-code")
 def set_code(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    code: str = typer.Option(
-        ..., "--code", "-c", help="Code: literal string, @file.py, or '-' for stdin"
+    code: str | None = typer.Option(
+        None,
+        "--code",
+        "-c",
+        help="Code: literal string, @file.py, or '-' for stdin",
+    ),
+    file: str | None = typer.Option(
+        None,
+        "--file",
+        "-f",
+        help="Path to a file containing the code (equivalent to --code @file).",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Set the code payload of a code recipe."""
+    """Set the code payload of a code recipe.
+
+    Use --code for a literal string / ``@file`` / ``-`` (stdin), or --file
+    for a plain file path (matches the ``curl -f``/``kubectl -f`` idiom).
+    """
+    if (code is None) == (file is None):
+        exit_with_error(
+            "Provide exactly one of --code / --file.",
+            code="invalid_argument",
+            details=[
+                'Literal: dku recipe set-code RECIPE --code "print(\\"hi\\")" -P PROJ',
+                "From file (either form):",
+                "  dku recipe set-code RECIPE --code @my_recipe.py -P PROJ",
+                "  dku recipe set-code RECIPE --file my_recipe.py -P PROJ",
+                "From stdin: cat my_recipe.py | dku recipe set-code RECIPE --code - -P PROJ",
+            ],
+        )
+
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -23,7 +78,9 @@ def set_code(
             client.get_project(project_key), recipe_name, project_key
         )
 
-        if code == "-":
+        if file is not None:
+            code_text = Path(file).read_text()
+        elif code == "-":
             code_text = sys.stdin.read()
         elif code.startswith("@"):
             code_text = Path(code[1:]).read_text()
@@ -89,7 +146,7 @@ def set_definition(
         None,
         "--definition",
         "-d",
-        help="Recipe definition JSON — updates raw_definition (connection, I/O). String, @file.json, or '-' for stdin.",
+        help="Recipe definition JSON — updates raw_definition (connection, I/O, description). String, @file.json, or '-' for stdin. Shallow merge: top-level keys overwrite, siblings preserved (use 'dku recipe set-description' for the common description-only case).",
     ),
     payload_json: str | None = typer.Option(
         None,
@@ -145,10 +202,28 @@ def set_definition(
         settings = recipe.get_settings()
         if definition:
             new_def = read_json_input(definition)
+            new_def = _unwrap_recipe_definition_payload(new_def)
             raw = settings.get_recipe_raw_definition()
             raw.update(new_def)
             target = "definition"
         else:
+            # A code recipe's payload IS its source code (stored as a string),
+            # not a JSON config dict. _get_recipe_payload seeds str_payload="{}"
+            # to obtain a mutable dict — which silently WIPES the source. Refuse
+            # before that happens and point at the right verbs.
+            if _is_text_payload_recipe(settings):
+                rtype = settings.get_recipe_raw_definition().get("type", "")
+                exit_with_error(
+                    f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
+                    "its payload is source code, not JSON config. --payload would "
+                    "OVERWRITE the code.",
+                    code="wrong_recipe_type",
+                    status=2,
+                    details=[
+                        f"Change the code:      dku recipe set-code {recipe_name} --file CODE -P {project_key}",
+                        f"Change container/env: dku recipe set-env {recipe_name} --container-mode NONE --env-mode USE_BUILTIN_MODE -P {project_key}",
+                    ],
+                )
             new_payload = read_json_input(payload_json)
             current = _get_recipe_payload(settings)
             if deep_merge:
@@ -163,6 +238,168 @@ def set_definition(
             f"Updated {target} for recipe '{recipe_name}'"
             + (" (deep-merged)" if deep_merge else "")
         )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-description")
+def set_description(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    description: str = typer.Option(
+        ...,
+        "--description",
+        "-d",
+        help="Description text: literal string, @file.md, or '-' for stdin.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the recipe description (shortcut for set-definition --definition '{"description":"..."}').
+
+    Description lives at .definition.description on get-definition output (NOT
+    .recipe.description). Other top-level definition fields (type, name, I/O
+    mappings) are preserved.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
+        text = read_text_input(description)
+        settings = recipe.get_settings()
+        raw = settings.get_recipe_raw_definition()
+        raw["description"] = text
+        settings.save()
+        success(f"Updated description for recipe '{recipe_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-env")
+def set_env(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    env_mode: str | None = typer.Option(
+        None,
+        "--env-mode",
+        help=(
+            "Code-env mode: INHERIT (project default), USE_BUILTIN_MODE, "
+            "EXPLICIT_ENV (specify --env-name). Sets params.envSelection.envMode."
+        ),
+    ),
+    env_name: str | None = typer.Option(
+        None,
+        "--env-name",
+        help="Code env name when --env-mode EXPLICIT_ENV. Sets params.envSelection.envName.",
+    ),
+    container_mode: str | None = typer.Option(
+        None,
+        "--container-mode",
+        help=(
+            "Container execution mode: INHERIT (project default), NONE (run on the "
+            "DSS process), EXPLICIT_CONTAINER (use --container-conf), KUBERNETES, "
+            "EXPLICIT_K8S. Sets params.containerSelection.containerMode."
+        ),
+    ),
+    container_conf: str | None = typer.Option(
+        None,
+        "--container-conf",
+        help="Container configuration name when --container-mode EXPLICIT_CONTAINER.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the code env and/or container of an existing code recipe.
+
+    Updates a python/r/sql/pyspark/cpython/sparkr recipe's code-env and container
+    selection in place — the same knobs `recipe create` exposes, but for a recipe
+    that already exists (e.g. after `set-code`). Avoids the `set-settings` round-trip,
+    which rejects code recipes because their `payload` is a code string, not a dict.
+
+    Pin a recipe to a built code env and run it on the DSS process:
+
+      dku recipe set-env my_recipe --env-mode EXPLICIT_ENV --env-name my_env \\
+        --container-mode NONE -P PROJ
+    """
+    if not (env_mode or container_mode):
+        exit_with_error(
+            "Nothing to set — pass --env-mode and/or --container-mode.",
+            code="invalid_argument",
+        )
+    # DSS deserializes an unknown enum value to null and only fails at build
+    # time — validate up-front against the same enums `recipe create` uses.
+    if env_mode and env_mode.upper() not in {m.value for m in EnvMode}:
+        exit_with_error(
+            f"Invalid --env-mode '{env_mode}'.",
+            code="invalid_argument",
+            details=[f"Use {', '.join(m.value for m in EnvMode)}."],
+        )
+    if container_mode and container_mode.upper() not in {
+        m.value for m in ContainerMode
+    }:
+        exit_with_error(
+            f"Invalid --container-mode '{container_mode}'.",
+            code="invalid_argument",
+            details=[f"Use {', '.join(m.value for m in ContainerMode)}."],
+        )
+    if env_mode and env_mode.upper() == "EXPLICIT_ENV" and not env_name:
+        exit_with_error(
+            "--env-mode EXPLICIT_ENV requires --env-name.",
+            code="invalid_argument",
+        )
+    if (
+        container_mode
+        and container_mode.upper() == "EXPLICIT_CONTAINER"
+        and not container_conf
+    ):
+        exit_with_error(
+            "--container-mode EXPLICIT_CONTAINER requires --container-conf.",
+            code="invalid_argument",
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        if env_name:
+            # DSS accepts any string for envName without checking it exists, so a
+            # typo'd / nonexistent env only surfaces as a confusing failure at
+            # recipe build time. Validate up-front against the live env list.
+            known = {e.get("envName") for e in client.list_code_envs()}
+            if env_name not in known:
+                exit_with_error(
+                    f"Code env '{env_name}' does not exist on this instance.",
+                    code="not_found",
+                    status=2,
+                    details=[
+                        "List available envs: dku code-env list",
+                        f"Create it:           dku code-env create {env_name} --python-version 3.11",
+                    ],
+                )
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
+        settings = recipe.get_settings()
+        rp = _get_or_create_recipe_params(settings)
+        if container_mode:
+            cs = rp.setdefault("containerSelection", {})
+            cs["containerMode"] = container_mode.upper()
+            if container_conf:
+                cs["containerConf"] = container_conf
+            info(
+                f"Container: {container_mode.upper()}"
+                + (f" ({container_conf})" if container_conf else "")
+            )
+        if env_mode:
+            es = rp.setdefault("envSelection", {})
+            es["envMode"] = env_mode.upper()
+            if env_name:
+                es["envName"] = env_name
+            info(f"Env: {env_mode.upper()}" + (f" ({env_name})" if env_name else ""))
+        settings.save()
+        success(f"Updated env/container for recipe '{recipe_name}'")
     except typer.Exit:
         raise
     except Exception as e:
@@ -262,7 +499,13 @@ def set_settings_cmd(
         ...,
         "--settings",
         "-s",
-        help="Settings JSON (string, @file.json, or '-' for stdin)",
+        "--definition",
+        "-d",
+        help=(
+            "Settings JSON (string, @file.json, or '-' for stdin). "
+            "Aliases: -s/--settings (canonical) and -d/--definition "
+            "(for cross-verb consistency with insight/dashboard set-definition)."
+        ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -295,6 +538,31 @@ def set_settings_cmd(
         if "payload" in new_settings:
             new_payload = new_settings["payload"]
             if not isinstance(new_payload, dict):
+                # Code recipes (python/sql/r/shell) have a STRING payload (the
+                # source). For these, set-settings is the wrong tool — the string
+                # payload is correct, not a json.dumps mistake. Point to the
+                # dedicated verbs instead.
+                if _is_text_payload_recipe(settings):
+                    exit_with_error(
+                        "This is a code recipe — its `payload` is the source "
+                        "code (a string), so `set-settings` cannot edit it.",
+                        code="code_recipe_payload",
+                        details=[
+                            "Use the dedicated verbs instead:",
+                            "  • change the code   → dku recipe set-code R -c @file -P PROJ",
+                            "  • change env/container → dku recipe set-env R "
+                            "--env-mode … --container-mode NONE -P PROJ",
+                            "",
+                            "On a docker-less DSS, an INHERIT container mode can "
+                            "resolve to a container and the job dies with a "
+                            "misleading 'python process failed (exit code: 1)' — "
+                            "set --container-mode NONE to run on the DSS process.",
+                            "",
+                            "To edit non-payload definition keys (inputs, tags, "
+                            "params), drop `payload` from your JSON and re-send.",
+                        ],
+                        status=2,
+                    )
                 exit_with_error(
                     "Recipe payload must be a JSON object, not a "
                     f"{type(new_payload).__name__}.",
@@ -512,7 +780,11 @@ def replace_input(
             )
 
         # Visual recipes mirror the inputs in payload.virtualInputs[].dataset.
-        # When the dataset reference is stored there too, keep them in sync.
+        # When the dataset reference is stored there too, keep them in sync —
+        # including originLabel (the human-readable source tag emitted by Stack
+        # recipes' addOriginColumn). Leaving originLabel pointing at the old
+        # ref makes get-settings output misleading and breaks any downstream
+        # consumer of the origin column.
         try:
             payload = settings.obj_payload
         except (AttributeError, TypeError, ValueError):
@@ -521,6 +793,10 @@ def replace_input(
             for vi in payload.get("virtualInputs") or []:
                 if isinstance(vi, dict) and vi.get("dataset") == old_ref:
                     vi["dataset"] = new_ref
+                    # Only rewrite originLabel when it matches the old ref —
+                    # preserve user-customized labels.
+                    if vi.get("originLabel") == old_ref:
+                        vi["originLabel"] = new_ref
 
         settings.save()
         success(

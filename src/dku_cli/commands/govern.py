@@ -11,6 +11,7 @@ from dku_cli.commands import (
     govern_file,
     govern_group,
     govern_role,
+    govern_role_assignment,
     govern_signoff,
     govern_time_series,
     govern_user,
@@ -30,6 +31,7 @@ app.add_typer(govern_custom_page.app, name="custom-page")
 app.add_typer(govern_file.app, name="file")
 app.add_typer(govern_group.app, name="group")
 app.add_typer(govern_role.app, name="role")
+app.add_typer(govern_role_assignment.app, name="role-assignment")
 app.add_typer(govern_signoff.app, name="signoff")
 app.add_typer(govern_time_series.app, name="time-series")
 app.add_typer(govern_user.app, name="user")

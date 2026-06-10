@@ -148,6 +148,97 @@ def test_library_delete(patch_client):
     f.delete.assert_called_once()
 
 
+# ── recursive folder delete (delete --recursive, tier-3 cascade) ──────────
+
+
+def test_library_delete_folder_emits_prescriptive_error(patch_client):
+    """When the path is a folder, surface the --recursive recovery instead
+    of a bare DSS error.
+
+    Real dataikuapi raises ``DataikuException: The item X is a folder, not a
+    file`` from ``lib.get_file()`` itself (NOT from ``.delete()``) — so the
+    CLI's except-block has to wrap both calls. This regression test pins
+    that contract.
+    """
+    proj = patch_client.get_project("PROJ1")
+    lib = proj.get_library()
+    lib.get_file.side_effect = Exception(
+        "The item python/process_mining is a folder, not a file"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete",
+            "python/process_mining",
+            "--project",
+            "PROJ1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "is a folder, not a file" in result.output
+    assert "--recursive" in result.output
+    assert "--confirm-name" in result.output
+
+
+def test_library_delete_recursive_requires_cascade_guard(patch_client):
+    """--recursive without --yes / --confirm-name is blocked by tier-3 cascade."""
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete",
+            "python/process_mining",
+            "--recursive",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    # Tier-3 CASCADE exits with 77 when --yes is absent.
+    assert result.exit_code != 0
+    proj = patch_client.get_project("PROJ1")
+    lib = proj.get_library()
+    # No deletes should have happened.
+    lib.get_file.return_value.delete.assert_not_called()
+
+
+def test_library_delete_recursive_wipes_folder(patch_client):
+    """With --yes --confirm-name matching path, recursive wipes every file."""
+    from unittest.mock import MagicMock
+
+    proj = patch_client.get_project("PROJ1")
+    lib = proj.get_library()
+
+    # Setup: folder contains 2 files.
+    folder = lib.get_folder.return_value
+    f1 = MagicMock()
+    f1.path = "python/process_mining/__init__.py"
+    f2 = MagicMock()
+    f2.path = "python/process_mining/utils.py"
+    # _walk probes folder.list() then probes each item.list() to detect files.
+    folder.list.return_value = [f1, f2]
+    f1.list.side_effect = Exception("not a folder")
+    f2.list.side_effect = Exception("not a folder")
+
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete",
+            "python/process_mining",
+            "--recursive",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "python/process_mining",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Deleted" in result.output
+
+
 # ── delete-folder (tier-3 cascade) ────────────────────────────────────────
 
 
@@ -244,8 +335,10 @@ def test_library_delete_folder_refuses_root(patch_client):
     assert "root" in result.output
 
 
-def test_library_delete_on_folder_points_to_delete_folder(patch_client):
-    """`delete` on a folder path should steer the agent to `delete-folder`."""
+def test_library_delete_on_folder_points_to_recursive(patch_client):
+    """`delete` on a folder path should steer the agent to the recursive
+    folder-delete recovery (the merged ``delete`` command emits the
+    ``--recursive``/``--confirm-name`` one-liner)."""
     lib = patch_client.get_project("PROJ1").get_library()
     lib.get_file.side_effect = Exception(
         "The item python/temp is a folder, not a file "
@@ -255,7 +348,8 @@ def test_library_delete_on_folder_points_to_delete_folder(patch_client):
         ["library", "delete", "python/temp", "--project", "PROJ1", "--yes"],
     )
     assert result.exit_code != 0
-    assert "delete-folder" in result.output
+    assert "is a folder, not a file" in result.output
+    assert "--recursive" in result.output
 
 
 def test_library_mkdir(patch_client):

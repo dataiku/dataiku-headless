@@ -177,6 +177,84 @@ def test_dataset_set_definition(patch_client):
     ds.set_definition.assert_called_once()
 
 
+def test_dataset_set_definition_merge(patch_client):
+    """--merge overlays top-level keys onto the current definition (no wipe)."""
+    patch_json = json.dumps({"formatParams": {"separator": "\t", "quoteChar": ""}})
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-definition",
+            "ds1",
+            "--definition",
+            patch_json,
+            "--merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "merged" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    sent = ds.set_definition.call_args[0][0]
+    # Existing top-level keys preserved
+    assert sent["type"] == "UploadedFiles"
+    assert sent["formatType"] == "csv"
+    # New key overlaid
+    assert sent["formatParams"]["separator"] == "\t"
+
+
+def test_dataset_set_definition_deep_merge(patch_client):
+    """--deep-merge keeps sibling keys inside nested dicts."""
+    # Seed the mock to have nested params we want to preserve.
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {
+        "type": "UploadedFiles",
+        "params": {"uploadConnection": "filesystem_managed", "keep_me": "yes"},
+        "formatParams": {"separator": ",", "quoteChar": '"'},
+    }
+    patch_json = json.dumps({"formatParams": {"separator": "\t"}})
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-definition",
+            "ds1",
+            "--definition",
+            patch_json,
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    sent = ds.set_definition.call_args[0][0]
+    assert sent["formatParams"]["separator"] == "\t"
+    # Sibling formatParams.quoteChar preserved (deep merge)
+    assert sent["formatParams"]["quoteChar"] == '"'
+    # Sibling params.* preserved
+    assert sent["params"]["keep_me"] == "yes"
+
+
+def test_dataset_set_definition_merge_and_deep_merge_conflict(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-definition",
+            "ds1",
+            "--definition",
+            "{}",
+            "--merge",
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Use either --merge or --deep-merge" in result.output
+
+
 def test_dataset_set_schema(patch_client):
     schema = json.dumps({"columns": [{"name": "new_col", "type": "float"}]})
     result = runner.invoke(
@@ -216,6 +294,58 @@ def test_dataset_upload(patch_client, tmp_path):
     ds.autodetect_settings.assert_called_once_with(infer_storage_types=True)
     ds.autodetect_settings.return_value.save.assert_called_once()
     assert "Format detected" in result.output
+
+
+def test_dataset_upload_header_eaten_warning(patch_client, tmp_path):
+    """Warns with the parseHeaderRow fix when columns auto-detect as col_0, col_1, …
+
+    Reproduces the numeric-header CSV trap (World Bank year columns on
+    Challenge_109): DSS's header heuristic fails when the header row is mostly
+    numeric, leaving generic col_<n> names that downstream recipes KeyError on.
+    """
+    csv_file = tmp_path / "years.csv"
+    csv_file.write_text("Country,1960,1961\nAruba,1,2\nAfg,3,4")
+    ds = patch_client.get_project("PROJ1").get_dataset("year_data")
+    ds.autodetect_settings.return_value.get_raw.return_value = {
+        "formatType": "csv",
+        "formatParams": {"parseHeaderRow": False},
+        "schema": {
+            "columns": [
+                {"name": "col_0", "type": "string"},
+                {"name": "col_1", "type": "string"},
+                {"name": "col_2", "type": "string"},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app, ["dataset", "upload", "year_data", str(csv_file), "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Header row NOT parsed" in result.output
+    assert "parseHeaderRow" in result.output
+    assert "set-schema" in result.output
+
+
+def test_dataset_upload_no_header_warning_when_named(patch_client, tmp_path):
+    """No header-eaten warning when columns have real names."""
+    csv_file = tmp_path / "named.csv"
+    csv_file.write_text("name,age\nA,1\nB,2")
+    ds = patch_client.get_project("PROJ1").get_dataset("named_data")
+    ds.autodetect_settings.return_value.get_raw.return_value = {
+        "formatType": "csv",
+        "formatParams": {"parseHeaderRow": True},
+        "schema": {
+            "columns": [
+                {"name": "name", "type": "string"},
+                {"name": "age", "type": "int"},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app, ["dataset", "upload", "named_data", str(csv_file), "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Header row NOT parsed" not in result.output
 
 
 def test_dataset_create_filesystem_defaults_to_filesystem_managed(patch_client):

@@ -87,12 +87,89 @@ def test_job_status(patch_client):
 
 
 def test_job_status_json(patch_client):
+    """-o json emits a structured dict — not a UI field-table list.
+
+    Agents that debug recipe failures need the state, error, and per-activity
+    breakdown as a navigable dict (PENDING.md 2026-05-11). The prior shape
+    `[{field, value}, ...]` made every field accessor a `.[].select(...)`
+    incantation.
+    """
     result = runner.invoke(
         app, ["job", "status", "job1", "--project", "PROJ1", "-o", "json"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert any(d["field"] == "State" and d["value"] == "DONE" for d in parsed)
+    assert isinstance(parsed, dict)
+    assert parsed["state"] == "DONE"
+    assert parsed["job_id"] == "job1"
+    assert "activities" in parsed
+    # Initiator surfaced as a normal key (not wrapped in a field-row)
+    assert parsed["initiator"] == "testuser"
+
+
+def test_job_status_json_with_failed_activity(patch_client):
+    """A failed activity surfaces with its name + error in the JSON payload.
+
+    Real DSS shape (SerializedJobStatus): ``baseStatus.activities`` is a dict
+    keyed by activity id, with ``startTime``/``endTime``/``firstFailure``.
+    """
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_status.return_value = {
+        "baseStatus": {
+            "def": {"id": "job1", "initiator": "testuser"},
+            "state": "FAILED",
+            "activities": {
+                "build_my_recipe_NP": {
+                    "state": "FAILED",
+                    "startTime": 1700000000000,
+                    "endTime": 1700000060000,
+                    "firstFailure": {"message": "boom"},
+                },
+                "compute_other_NP": {
+                    "state": "DONE",
+                    "startTime": 1700000000000,
+                    "endTime": 1700000030000,
+                    "message": "built 42 rows",
+                },
+            },
+        },
+        "errorMessage": "Recipe failed",
+    }
+    result = runner.invoke(
+        app, ["job", "status", "job1", "--project", "PROJ1", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["state"] == "FAILED"
+    assert parsed["error"] == "Recipe failed"
+    activities = {a["name"]: a for a in parsed["activities"]}
+    assert len(activities) == 2
+    failed = activities["build_my_recipe_NP"]
+    assert failed["state"] == "FAILED"
+    assert failed["error"] == "boom"
+    assert failed["duration_ms"] == 60000
+    # A benign per-activity `message` must NOT surface as an error.
+    assert activities["compute_other_NP"]["error"] is None
+
+
+def test_job_log_docker_socket_hint(patch_client):
+    """A Docker-daemon-unreachable signature in the job log surfaces the
+    recipe-level containerMode=NONE recovery recipe."""
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_log.return_value = (
+        "INFO Executing recipe on Docker with config=local-docker\n"
+        "ERROR Cannot connect to the Docker daemon at unix:///var/run/docker.sock\n"
+    )
+    result = runner.invoke(app, ["job", "log", "job1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "containerMode" in result.output
+    # Rich line-wraps the long examples; just check the load-bearing phrases.
+    assert "Recipe-level containerMode=NONE" in result.output
+    # Code recipes must be steered to set-env, NOT the destructive
+    # set-definition --payload form (which would overwrite their source).
+    assert "set-env" in result.output
+    assert "USE_BUILTIN_MODE" in result.output
+    assert "USE_BUILTIN_ENV" not in result.output
 
 
 def test_job_log(patch_client):

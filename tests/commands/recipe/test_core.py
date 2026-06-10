@@ -1411,3 +1411,165 @@ def test_recipe_add_input_code_recipe_leaves_payload_alone(patch_client):
     # Payload should be untouched — no virtualInputs key added
     assert "virtualInputs" not in settings.obj_payload
     assert settings.obj_payload["some_other_key"] == "unchanged"
+
+
+# ── NET-NEW (PR surface): status --engines / --full, create --input-folder,
+# create -t group routing to the dedicated create-group verb ──────────
+
+
+def test_recipe_status_engines_table(patch_client):
+    """--engines lists every candidate with type / label / variant / severity / message."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    status_mock = recipe.get_status.return_value
+    status_mock.data = {
+        "engines": [
+            {
+                "type": "DSS",
+                "label": "DSS",
+                "variantLabel": "Stream",
+                "statusWarnLevel": "OK",
+                "statusMessage": None,
+                "recommended": False,
+            },
+            {
+                "type": "SQL",
+                "label": "In-database (SQL)",
+                "variantLabel": "",
+                "statusWarnLevel": "ERROR",
+                "statusMessage": "Dataset 'foo' is not a SQL table dataset",
+                "recommended": False,
+            },
+            {
+                "type": "TDCH",
+                "label": "TDCH",
+                "variantLabel": "",
+                "statusWarnLevel": "WARN",
+                "statusMessage": "TDCH is disabled",
+                "recommended": False,
+            },
+        ],
+    }
+    result = runner.invoke(
+        app, ["recipe", "status", "recipe1", "--project", "PROJ1", "--engines"]
+    )
+    assert result.exit_code == 0
+    # Rich may wrap cell text to fit terminal; assert tokens, not full strings
+    assert "DSS" in result.output
+    assert "Stream" in result.output
+    assert "SQL" in result.output
+    assert "In-database" in result.output
+    assert "TDCH" in result.output
+    assert "WARN" in result.output
+    assert "ERROR" in result.output
+    assert "disabled" in result.output
+
+
+def test_recipe_status_engines_empty(patch_client):
+    """--engines on a no-engine recipe (e.g. prediction_training) prints info, not a crash."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_status.return_value.data = {}
+    result = runner.invoke(
+        app, ["recipe", "status", "recipe1", "--project", "PROJ1", "--engines"]
+    )
+    assert result.exit_code == 0
+    assert "no engine candidates" in result.output.lower()
+
+
+def test_recipe_status_full_dumps_payload(patch_client):
+    """--full dumps the entire get_status data dict as JSON (default), including
+    fields the default view hides (sqlWithExecutionPlanList, pivotModalities,
+    outputSchema.originalType, sqlWarning, recipe-type-keyed buckets)."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_status.return_value.data = {
+        "selectedEngine": {"type": "SQL"},
+        "engines": [{"type": "SQL", "label": "In-database (SQL)"}],
+        "splitting": {"messages": []},
+        "sqlWithExecutionPlanList": [
+            {"outputName": "out_a", "sql": "SELECT * FROM x WHERE c = 'A'"},
+            {"outputName": "out_b", "sql": "SELECT * FROM x WHERE NOT (c='A')"},
+        ],
+        "outputSchema": {
+            "columns": [
+                {"name": "id", "type": "bigint", "originalType": "int8"},
+                {"name": "amount", "type": "double", "originalType": "numeric"},
+            ]
+        },
+        "sqlWarning": "Could not get modalities from a previous run that match the current settings",
+    }
+    result = runner.invoke(
+        app, ["recipe", "status", "recipe1", "--project", "PROJ1", "--full"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["selectedEngine"]["type"] == "SQL"
+    assert parsed["sqlWithExecutionPlanList"][0]["outputName"] == "out_a"
+    assert parsed["outputSchema"]["columns"][0]["originalType"] == "int8"
+    assert "modalities" in parsed["sqlWarning"]
+    assert "splitting" in parsed
+
+
+def test_recipe_create_input_folder(patch_client):
+    """--input-folder wires a managed folder (by name→ID) as a code-recipe input.
+
+    Closes the folder-input gap: a Python recipe that parses files out of a
+    managed folder (XML/JSON/PDF) previously had no CLI path and needed the API.
+    """
+    proj = patch_client.get_project("PROJ1")
+    proj.get_managed_folder.return_value.id = "FOLDER123"
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "parse_xml",
+            "--type",
+            "python",
+            "--input-folder",
+            "raw_xml",
+            "--output-ds",
+            "parsed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Created recipe" in result.output
+    builder = proj.new_recipe.return_value
+    wired = [c.args[0] for c in builder.with_input.call_args_list]
+    assert "FOLDER123" in wired  # resolved folder ID, not the name
+    builder.build.assert_called_once()
+
+
+def test_recipe_create_group_routes_to_dedicated_verb(patch_client):
+    """Generic `create -t group` fails in DSS ('Unknown type. Please use create_recipe
+    for custom recipes') because it can't supply the group key — error must point the
+    agent to `create-group`."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    builder.build.side_effect = Exception(
+        "Unknown type. Please use create_recipe for custom recipes"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_group",
+            "--type",
+            "group",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--connection",
+            "filesystem_managed",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "create-group" in result.output
+    # The recommended command keeps the user's recipe name and a group-key placeholder.
+    assert "my_group" in result.output
+    # Rich may wrap the line; check the group-key placeholder tokens are present.
+    assert "<COLUMN>" in result.output

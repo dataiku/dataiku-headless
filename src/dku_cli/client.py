@@ -39,7 +39,7 @@ def resolve_auth(
     key_status = KeyStatus.OK
     key_detail: str | None = None
     if not resolved_url or not resolved_key:
-        active = profile or get_active_profile()
+        active = profile or os.environ.get("DKU_PROFILE") or get_active_profile()
         profile_cfg = get_profile_config(active)
         if not resolved_url:
             resolved_url = profile_cfg.get("url")
@@ -87,11 +87,70 @@ def resolve_node_type(profile: str | None = None) -> str | None:
     Returns one of: 'DESIGN', 'AUTOMATION', 'GOVERN', 'DEPLOYER', 'API', or None
     if not stored (legacy profile from before node-type was tracked).
     """
-    active = profile or get_active_profile()
+    active = profile or os.environ.get("DKU_PROFILE") or get_active_profile()
     nt = get_profile_node_type(active)
     if nt:
         return nt.upper()
     return None
+
+
+# Profile config flag value that opts a profile into in-pod ticket auth.
+# Used inside DSS-launched containers (Code Studios, recipe runtimes, scenario
+# runtimes, …) where DSS injects DKU_API_TICKET + DKU_BACKEND_HOST/PORT and the
+# backend trusts the X-DKU-APITicket header. No service-account API key has to
+# sit in an image layer or env var — auth scopes to the visiting / launching
+# user automatically.
+AUTH_MODE_IN_POD_TICKET = "in_pod_ticket"
+
+
+def _in_pod_ticket_client(profile: str) -> dataikuapi.DSSClient | None:
+    """Return a DSSClient wired to the in-pod backend via X-DKU-APITicket.
+
+    Returns None if the profile is not configured for ticket auth. Raises
+    AuthError if the profile asks for ticket auth but the env vars DSS would
+    inject are missing — that means the CLI is being run outside a
+    DSS-launched container, where ticket mode can't work.
+    """
+    cfg = get_profile_config(profile)
+    if cfg.get("auth_mode") != AUTH_MODE_IN_POD_TICKET:
+        return None
+    ticket = os.environ.get("DKU_API_TICKET")
+    host = os.environ.get("DKU_BACKEND_HOST")
+    port = os.environ.get("DKU_BACKEND_PORT")
+    if not (ticket and host and port):
+        raise AuthError(
+            f"Profile '{profile}' is configured with auth_mode = "
+            f'"{AUTH_MODE_IN_POD_TICKET}" but DKU_API_TICKET / '
+            f"DKU_BACKEND_HOST / DKU_BACKEND_PORT are not set in the "
+            f"environment. This auth mode only works inside a DSS-launched "
+            f"container (Code Studio, recipe runtime, scenario runtime). "
+            f"Either run this command from such a container, or switch the "
+            f"profile back to API-key auth via 'dku auth login --profile "
+            f"{profile}'."
+        )
+    # DSS injects DKU_BACKEND_PROTOCOL = "https" when EncryptedRPC is enabled
+    # on the instance (TLS), else "http". Hardcoding "http" here broke ticket
+    # auth on every TLS instance: the backend port answered the plaintext
+    # request with a TLS alert, surfacing as `BadStatusLine`. Mirror DSS's own
+    # in-pod client (dataiku.core.intercom.get_location_data).
+    proto = os.environ.get("DKU_BACKEND_PROTOCOL", "http")
+    url = f"{proto}://{host}:{port}"
+    no_check = proto == "https"
+    kwargs: dict = {"internal_ticket": ticket}
+    if no_check:
+        kwargs["no_check_certificate"] = True
+    client = dataikuapi.DSSClient(url, **kwargs)
+    if no_check:
+        # The backend uses a self-signed internal RPC cert and is reached over
+        # the cluster-internal network; the short-lived, user-scoped
+        # X-DKU-APITicket is the security boundary (DSS's own internal-RPC
+        # clients verify nothing either). trust_env=False is required because
+        # requests lets REQUESTS_CA_BUNDLE (which the Replicate Code Studio
+        # startup script points at the *base* cert) override session.verify and
+        # re-enable verification against the wrong CA.
+        client._session.trust_env = False
+        client._session.verify = False
+    return client
 
 
 def get_client(
@@ -99,7 +158,17 @@ def get_client(
     api_key: str | None = None,
     profile: str | None = None,
 ) -> dataikuapi.DSSClient:
-    """Create an authenticated DSSClient."""
+    """Create an authenticated DSSClient.
+
+    Honors auth_mode = "in_pod_ticket" on the resolved profile when neither
+    --url nor --api-key are passed (an explicit override means the caller is
+    pointing at a different DSS, where the in-pod ticket would not be valid).
+    """
+    if not url and not api_key:
+        active = profile or os.environ.get("DKU_PROFILE") or get_active_profile()
+        ticket_client = _in_pod_ticket_client(active)
+        if ticket_client is not None:
+            return ticket_client
     resolved_url, resolved_key = resolve_auth(url, api_key, profile)
     return dataikuapi.DSSClient(resolved_url, api_key=resolved_key)
 
@@ -109,7 +178,12 @@ def get_govern_client(
     api_key: str | None = None,
     profile: str | None = None,
 ):
-    """Create an authenticated GovernClient. Used by ``dku govern`` commands."""
+    """Create an authenticated GovernClient. Used by ``dku govern`` commands.
+
+    Note: in-pod ticket auth does not apply to Govern profiles — DSS only
+    injects a ticket valid against the local backend, and Govern always lives
+    on a separate node from the studio that launched the pod.
+    """
     resolved_url, resolved_key = resolve_auth(url, api_key, profile)
     return dataikuapi.GovernClient(resolved_url, api_key=resolved_key)
 

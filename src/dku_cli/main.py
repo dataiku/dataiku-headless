@@ -69,6 +69,29 @@ from dku_cli.commands import (
     workspace,
 )
 
+# Raise the csv field-size limit at startup. dataikuapi streams dataset rows
+# as CSV and parses them with the stdlib `csv` module, whose default
+# field_size_limit (131072 bytes) rejects large cells — geometry WKT/GeoJSON,
+# long JSON blobs, big text columns — with "field larger than field limit",
+# surfacing as a confusing DSS API error on `dataset head` / `sql query`.
+# The limit is a module global, so raising it here fixes every iter_rows read.
+# Use the standard decrement-on-OverflowError idiom (sys.maxsize overflows the
+# C long on some platforms).
+import csv as _csv
+
+
+def _raise_csv_field_limit() -> None:
+    limit = sys.maxsize
+    while True:
+        try:
+            _csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit = int(limit // 10)
+
+
+_raise_csv_field_limit()
+
 # Monkey-patch TyperGroup/Command help rendering. Two overrides:
 #   * DKU_AGENT_HELP=1 → emit compact machine-readable spec JSON instead of
 #     human help, so an agent's reflexive `--help` returns exact flags with
@@ -175,6 +198,10 @@ app.add_typer(model.app, name="model")
 app.add_typer(model_comparison.app, name="model-comparison")
 app.add_typer(notebook.app, name="notebook")
 app.add_typer(folder.app, name="folder")
+# Hidden alias — DSS UI calls them "managed folders". Surfaces the same
+# verbs under the noun agents reach for first.
+app.add_typer(folder.app, name="managedfolder", hidden=True)
+app.add_typer(folder.app, name="managed-folder", hidden=True)
 app.add_typer(group.app, name="group")
 app.add_typer(insight.app, name="insight")
 app.add_typer(knowledge.app, name="knowledge")
@@ -211,7 +238,7 @@ def main(
         None, "--api-key", envvar="DKU_API_KEY", help="API key"
     ),
     profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Auth profile name"
+        None, "--profile", "-p", envvar="DKU_PROFILE", help="Auth profile name"
     ),
     quiet: Optional[bool] = typer.Option(
         None, "--quiet", "-q", help="Suppress info/success messages"

@@ -340,22 +340,8 @@ def test_flow_create_zone_with_color(patch_client):
     assert "Created zone" in result.output
 
 
-# ── delete-zone + KB/eval-store move support ──────────────────────────────
-
-
-def test_flow_delete_zone_guarded(patch_client):
-    blocked = runner.invoke(
-        app, ["flow", "delete-zone", "Processing", "--project", "PROJ1"]
-    )
-    assert blocked.exit_code == 77
-
-    ok = runner.invoke(
-        app, ["flow", "delete-zone", "Processing", "--project", "PROJ1", "-y"]
-    )
-    assert ok.exit_code == 0
-    flow = patch_client.get_project("PROJ1").get_flow()
-    zone = [z for z in flow.list_zones() if z.name == "Processing"][0]
-    zone.delete.assert_called_once()
+# ── KB/eval-store move support ─────────────────────────────────────────────
+# (delete-zone behaviour is covered in the granular "delete-zone" block below.)
 
 
 def test_flow_move_knowledge_bank_type(patch_client):
@@ -469,3 +455,66 @@ def test_flow_move_invalid_type_rejected(patch_client):
     assert result.exit_code == 2
     stripped = strip_ansi(result.output)
     assert "Invalid value" in stripped
+
+
+# --- delete-zone (granular force/protection) ---
+
+
+def _flow_zones(patch_client):
+    flow = patch_client.get_project("PROJ1").get_flow()
+    default_zone, processing_zone = flow.list_zones.return_value
+    return default_zone, processing_zone
+
+
+def test_flow_delete_zone_empty_succeeds(patch_client):
+    _default, processing = _flow_zones(patch_client)
+    processing._raw = {"items": []}
+    result = runner.invoke(
+        app, ["flow", "delete-zone", "Processing", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "Deleted flow zone" in result.output
+    processing.delete.assert_called_once()
+
+
+def test_flow_delete_zone_nonempty_refuses_without_force(patch_client):
+    _default, processing = _flow_zones(patch_client)
+    result = runner.invoke(
+        app, ["flow", "delete-zone", "Processing", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "not deleting" in result.output
+    assert "--force" in result.output
+    processing.delete.assert_not_called()
+
+
+def test_flow_delete_zone_force_yes_deletes_nonempty(patch_client):
+    _default, processing = _flow_zones(patch_client)
+    result = runner.invoke(
+        app,
+        ["flow", "delete-zone", "Processing", "--force", "--yes", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    processing.delete.assert_called_once()
+    assert "moved to the default zone" in result.output
+
+
+def test_flow_delete_zone_force_without_yes_blocked(patch_client):
+    _default, processing = _flow_zones(patch_client)
+    result = runner.invoke(
+        app, ["flow", "delete-zone", "Processing", "--force", "--project", "PROJ1"]
+    )
+    # Safety guard blocks (exit 77) without --yes for a non-empty zone.
+    assert result.exit_code == 77
+    processing.delete.assert_not_called()
+
+
+def test_flow_delete_zone_default_protected(patch_client):
+    default, _processing = _flow_zones(patch_client)
+    default.id = "default"
+    result = runner.invoke(
+        app, ["flow", "delete-zone", "default", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "cannot be deleted" in result.output
+    default.delete.assert_not_called()

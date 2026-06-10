@@ -252,6 +252,9 @@ def create_mock_client():
     zone_settings_mock.color = "#2ab1ac"
     zone_settings_mock.save.return_value = None
     zone_mock.get_settings.return_value = zone_settings_mock
+    # `dku flow delete-zone` reads `zone._raw["items"]` to decide empty-vs-non-empty
+    # (and whether to refuse without --force). Default zone is empty.
+    zone_mock._raw = {"items": []}
 
     zone2_mock = MagicMock()
     zone2_mock.id = "XjxKvHzB"
@@ -261,6 +264,8 @@ def create_mock_client():
     zone2_settings_mock.color = "#FF5500"
     zone2_settings_mock.save.return_value = None
     zone2_mock.get_settings.return_value = zone2_settings_mock
+    # Processing zone holds one dataset → non-empty (delete-zone refuses without --force).
+    zone2_mock._raw = {"items": [{"type": "DATASET", "ref": "ds1"}]}
     flow_mock.list_zones.return_value = [zone_mock, zone2_mock]
     flow_mock.create_zone.return_value = zone_mock
 
@@ -2264,7 +2269,11 @@ def create_mock_client():
         "deploymentMode": "DESIGN_MANAGED",
         "owner": "admin",
         "specPackageList": "pandas\nnumpy\n",
-        "desc": {"pythonInterpreter": "PYTHON39", "corePackagesSet": "PANDAS13"},
+        "desc": {
+            "pythonInterpreter": "PYTHON39",
+            "corePackagesSet": "PANDAS13",
+            "installCorePackages": True,
+        },
     }
     codeenv_mock.delete.return_value = None
     codeenv_mock.update_packages.return_value = {"messages": {"error": False}}

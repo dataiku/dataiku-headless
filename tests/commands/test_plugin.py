@@ -94,6 +94,140 @@ def test_plugin_push_installs_when_plugin_is_missing(tmp_path, patch_client):
     assert "Installed plugin 'real-plugin'" in result.output
 
 
+def test_plugin_push_warns_recipe_still_builds(tmp_path, patch_client):
+    """The post-push guidance must tell agents the recipe still builds and to
+    verify by building (not by opening the UI editor)."""
+    plugin_obj = MagicMock()
+    patch_client.get_plugin.return_value = plugin_obj
+    patch_client.list_plugins.return_value = [
+        {"id": "real-plugin", "version": "1.0.0", "dev": "False"}
+    ]
+    zip_path = tmp_path / "release.zip"
+    _write_plugin_zip(zip_path, "real-plugin")
+
+    result = runner.invoke(app, ["plugin", "push", str(zip_path)])
+
+    assert result.exit_code == 0
+    out = result.output.lower()
+    assert "build" in out
+    assert "ui" in out
+
+
+def _write_wrapped_plugin_zip(path, plugin_id: str, wrapper: str = "my-plugin-main"):
+    """A Dataiku/GitHub-export-style ZIP: everything under one top folder."""
+    with ZipFile(path, "w") as archive:
+        archive.writestr(
+            f"{wrapper}/plugin.json",
+            json.dumps({"id": plugin_id, "version": "1.0.0"}),
+        )
+        archive.writestr(f"{wrapper}/python-lib/foo.py", "x = 1\n")
+
+
+def test_plugin_push_auto_flattens_wrapped_zip(tmp_path, patch_client):
+    """Dataiku exports + GitHub 'Download ZIP' wrap content under one folder;
+    push must repack flat (plugin.json at the ZIP root) before upload."""
+    import io
+
+    uploaded: dict[str, list[str]] = {}
+
+    def _capture(f):
+        with ZipFile(io.BytesIO(f.read())) as z:
+            uploaded["names"] = z.namelist()
+
+    patch_client.list_plugins.return_value = []
+    patch_client.install_plugin_from_archive.side_effect = _capture
+
+    zip_path = tmp_path / "my-plugin-main.zip"
+    _write_wrapped_plugin_zip(zip_path, "real-plugin")
+
+    result = runner.invoke(app, ["plugin", "push", str(zip_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "repacked flat" in result.output
+    patch_client.install_plugin_from_archive.assert_called_once()
+    # Wrapper dir stripped: plugin.json at root, no leading "my-plugin-main/".
+    assert "plugin.json" in uploaded["names"]
+    assert "python-lib/foo.py" in uploaded["names"]
+    assert not any(n.startswith("my-plugin-main/") for n in uploaded["names"])
+
+
+def test_plugin_push_rejects_ambiguous_wrapper(tmp_path, patch_client):
+    """A loose file beside the wrapper folder is NOT auto-flattened — the
+    command errors prescriptively instead of guessing."""
+    zip_path = tmp_path / "weird.zip"
+    with ZipFile(zip_path, "w") as archive:
+        archive.writestr("README.md", "loose\n")
+        archive.writestr("my-plugin/plugin.json", json.dumps({"id": "p"}))
+
+    result = runner.invoke(app, ["plugin", "push", str(zip_path)])
+
+    assert result.exit_code != 0
+    # Wrapper-specific prescriptive guidance (distinguishes this from other
+    # plugin.json failures); single token survives Rich box wrapping.
+    assert "flatten" in result.output.lower()
+    # Must NOT guess-and-upload an ambiguous archive.
+    patch_client.install_plugin_from_archive.assert_not_called()
+
+
+# --- recipes ---
+
+
+def test_plugin_recipes_introspects_dev_plugin(patch_client):
+    """Dev plugins are detected via the STRING 'dev' field (not bool 'isDev')
+    and their custom-recipes/ components are enumerated."""
+    patch_client.list_plugins.return_value = [
+        {"id": "mig-tool", "version": "1.0.0", "dev": "True"},
+    ]
+    plugin_obj = MagicMock()
+    plugin_obj.list_files.return_value = [
+        {"name": "plugin.json", "path": "plugin.json"},
+        {
+            "name": "custom-recipes",
+            "path": "custom-recipes",
+            "children": [
+                {
+                    "name": "extract-table",
+                    "path": "custom-recipes/extract-table",
+                    "children": [
+                        {"name": "recipe.json", "path": "..."},
+                    ],
+                },
+            ],
+        },
+    ]
+    patch_client.get_plugin.return_value = plugin_obj
+
+    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert any(row["type"] == "CustomCode_extract-table" for row in parsed)
+
+
+def test_plugin_recipes_installed_plugin_gives_honest_footer(patch_client):
+    """Installed (non-dev) plugins can't be introspected via API — the verb
+    must say so honestly instead of printing '(check DSS UI)'."""
+    patch_client.list_plugins.return_value = [
+        {"id": "batch-file-processor", "version": "1.0.0", "dev": "False"},
+    ]
+
+    result = runner.invoke(app, ["plugin", "recipes"])
+    assert result.exit_code == 0
+    assert "check DSS UI" not in result.output
+    assert "cannot enumerate" in result.output.lower()
+    assert "CustomCode_<recipeComponentId>" in result.output
+
+
+def test_plugin_recipes_not_found_exits_3(patch_client):
+    patch_client.list_plugins.return_value = [
+        {"id": "some-plugin", "version": "1.0.0", "dev": "False"},
+    ]
+    result = runner.invoke(app, ["plugin", "recipes", "nonexistent"])
+    assert result.exit_code == 3
+    assert "not found" in result.output.lower()
+    # The typer.Exit must not leak through the generic handler as an API error.
+    assert "DSS API error" not in result.output
+
+
 # --- get ---
 
 
@@ -226,12 +360,65 @@ def test_plugin_create_code_env_no_wait(patch_client):
     plugin_obj = MagicMock()
     future = MagicMock()
     plugin_obj.create_code_env.return_value = future
+    # No env bound yet -> proceeds to create.
+    plugin_obj.get_settings.return_value.get_raw.return_value = {}
     patch_client.get_plugin.return_value = plugin_obj
 
     result = runner.invoke(app, ["plugin", "create-code-env", "my-plugin", "--no-wait"])
     assert result.exit_code == 0
     future.wait_for_result.assert_not_called()
     assert "started" in result.output
+
+
+def test_plugin_create_code_env_idempotent_skip(patch_client):
+    """An already-bound managed env -> skip creation, warn, exit 0 (idempotent)."""
+    plugin_obj = MagicMock()
+    plugin_obj.get_settings.return_value.get_raw.return_value = {
+        "codeEnvName": "plugin_replicate_managed_1"
+    }
+    patch_client.get_plugin.return_value = plugin_obj
+
+    result = runner.invoke(app, ["plugin", "create-code-env", "my-plugin"])
+    assert result.exit_code == 0
+    # Must NOT create a duplicate env.
+    plugin_obj.create_code_env.assert_not_called()
+    assert "plugin_replicate_managed_1" in result.output
+    # Prescriptive: point at the rebuild path.
+    assert "dku plugin update-code-env my-plugin" in result.output
+
+
+def test_plugin_create_code_env_idempotent_skip_json(patch_client):
+    plugin_obj = MagicMock()
+    plugin_obj.get_settings.return_value.get_raw.return_value = {
+        "codeEnvName": "plugin_replicate_managed_1"
+    }
+    patch_client.get_plugin.return_value = plugin_obj
+
+    result = runner.invoke(
+        app, ["plugin", "create-code-env", "my-plugin", "-o", "json"]
+    )
+    assert result.exit_code == 0
+    plugin_obj.create_code_env.assert_not_called()
+    parsed = json.loads(result.output)
+    assert parsed["envName"] == "plugin_replicate_managed_1"
+    assert parsed["created"] is False
+
+
+def test_plugin_create_code_env_force_creates_despite_existing(patch_client):
+    """--force creates a (duplicate) env even when one is already bound."""
+    plugin_obj = MagicMock()
+    plugin_obj.get_settings.return_value.get_raw.return_value = {
+        "codeEnvName": "plugin_replicate_managed_1"
+    }
+    future = MagicMock()
+    future.wait_for_result.return_value = {"envName": "plugin_replicate_managed_2"}
+    plugin_obj.create_code_env.return_value = future
+    patch_client.get_plugin.return_value = plugin_obj
+
+    result = runner.invoke(app, ["plugin", "create-code-env", "my-plugin", "--force"])
+    assert result.exit_code == 0
+    plugin_obj.create_code_env.assert_called_once()
+    assert "plugin_replicate_managed_2" in result.output
 
 
 # --- set-code-env ---
@@ -418,7 +605,7 @@ def test_plugin_recipes_with_components(patch_client):
     from unittest.mock import MagicMock
 
     patch_client.list_plugins.return_value = [
-        {"id": "my-plugin", "version": "1.0.0", "isDev": True},
+        {"id": "my-plugin", "version": "1.0.0", "dev": "True"},
     ]
     plugin_mock = MagicMock()
     plugin_mock.list_files.return_value = [
@@ -440,14 +627,15 @@ def test_plugin_recipes_with_components(patch_client):
 
 
 def test_plugin_recipes_without_components(patch_client):
-    """When DSS can't read file tree, show naming pattern."""
+    """Installed (non-dev) plugins can't be introspected — show the honest
+    footer with the naming pattern, not a misleading '(check DSS UI)' row."""
     patch_client.list_plugins.return_value = [
-        {"id": "some-plugin", "version": "2.0.0", "isDev": False},
+        {"id": "some-plugin", "version": "2.0.0", "dev": "False"},
     ]
-    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    result = runner.invoke(app, ["plugin", "recipes"])
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
-    assert parsed[0]["type"] == "CustomCode_<recipeId>"
+    assert "check DSS UI" not in result.output
+    assert "CustomCode_<recipeComponentId>" in result.output
 
 
 def test_plugin_recipes_filter_by_plugin_id(patch_client):
@@ -472,15 +660,26 @@ def test_plugin_recipes_not_found(patch_client):
 
 
 def test_plugin_recipes_json_output(patch_client):
-    """JSON output returns structured data."""
+    """JSON output returns structured data for an introspectable dev plugin."""
     patch_client.list_plugins.return_value = [
-        {"id": "my-plugin", "version": "1.0.0", "isDev": False},
+        {"id": "my-plugin", "version": "1.0.0", "dev": "True"},
     ]
+    plugin_mock = MagicMock()
+    plugin_mock.list_files.return_value = [
+        {
+            "name": "custom-recipes",
+            "children": [
+                {"name": "my-recipe", "children": [{"name": "recipe.json"}]},
+            ],
+        }
+    ]
+    patch_client.get_plugin.return_value = plugin_mock
     result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
     assert parsed[0]["plugin"] == "my-plugin"
+    assert parsed[0]["type"] == "CustomCode_my-recipe"
 
 
 def test_plugin_recipes_no_plugins(patch_client):

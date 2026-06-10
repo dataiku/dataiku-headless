@@ -87,6 +87,23 @@ def test_command_help_surfaces_enum_choices(agent_help):
     assert "SUM" in by_name["agg_type"]["choices"]
 
 
+def test_scenario_python_env_mode_help_uses_canonical_choices(agent_help):
+    """Agent-help must not advertise DSS enum values that serialize to null."""
+    for command in ("add-step-python", "add-trigger-python"):
+        result = runner.invoke(app, ["scenario", command, "--help"])
+        assert result.exit_code == 0
+        spec = json.loads(result.stdout)
+        by_name = {o["name"]: o for o in spec["options"]}
+        env_mode = by_name["env_mode"]
+        assert env_mode["type"] == "choice"
+        assert env_mode["choices"] == [
+            "INHERIT",
+            "USE_BUILTIN_MODE",
+            "EXPLICIT_ENV",
+        ]
+        assert "USE_BUILTIN_ENV" not in result.stdout
+
+
 def test_help_text_has_no_rich_markup(agent_help):
     result = runner.invoke(app, ["--help"])
     spec = json.loads(result.stdout)

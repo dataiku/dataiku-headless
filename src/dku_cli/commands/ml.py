@@ -758,6 +758,24 @@ def set_algorithm(
         mltask = proj.get_ml_task(analysis_id, mltask_id)
         task_settings = mltask.get_settings()
 
+        # Multi-algo footgun: agents who pass `--enable LOGISTIC_REGRESSION`
+        # to "lock to one algorithm" silently end up training Random Forest
+        # alongside it because DSS leaves RF enabled by default. The fix is
+        # always to pair `--disable-all` with `--enable X` — warn loudly
+        # when the user forgot, so they catch it before training.
+        if enable and not disable_all:
+            from dku_cli.output import warn
+
+            warn(
+                "Default-enabled algorithms (typically Random Forest) will train "
+                "alongside the one(s) you just enabled — DSS does NOT auto-disable "
+                "the rest. To lock to a single algorithm, re-run with --disable-all:"
+            )
+            warn(
+                f"  dku ml set-algorithm {analysis_id} {mltask_id} "
+                f"--disable-all {' '.join(f'--enable {a}' for a in enable)} -P {project_key}"
+            )
+
         if disable_all:
             task_settings.disable_all_algorithms()
 

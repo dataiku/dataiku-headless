@@ -260,7 +260,7 @@ def create_sql_script(
                 settings.obj_payload = body
             info(f"Wrote {len(body)} bytes of SQL")
         # Recipe-level params (sql_script-specific knobs live here, not in the payload).
-        rp = settings.get_recipe_params() or {}
+        rp = _get_or_create_recipe_params(settings)
         if use_psql:
             rp["usePsql"] = True
         if sm is not None:

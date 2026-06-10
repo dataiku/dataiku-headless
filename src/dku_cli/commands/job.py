@@ -20,6 +20,7 @@ from dku_cli.output import (
     info,
     print_text,
     render,
+    render_raw,
     resolve_output_format,
     success,
     warn,
@@ -249,6 +250,22 @@ def status(
             "message", ""
         )
 
+        activities = _extract_activities(raw)
+
+        if output == "json":
+            payload = {
+                "job_id": job_id,
+                "state": state,
+                "initiator": base.get("def", {}).get("initiator", ""),
+                "start": _format_epoch_ms(start_ms),
+                "end": _format_epoch_ms(end_ms),
+                "duration_ms": _duration_ms(start_ms, end_ms),
+                "error": error_msg or None,
+                "activities": activities,
+            }
+            render_raw(payload, output_format="json")
+            return
+
         data = [
             {"field": "Job ID", "value": job_id},
             {"field": "State", "value": state},
@@ -262,10 +279,88 @@ def status(
 
         render(data, ["field", "value"], output_format=output, title=f"Job: {job_id}")
 
+        if activities:
+            failed_acts = [a for a in activities if a.get("state") == "FAILED"]
+            if failed_acts:
+                act_rows = [
+                    {
+                        "activity": a.get("name", ""),
+                        "state": a.get("state", ""),
+                        "error": (a.get("error") or "")[:80],
+                    }
+                    for a in failed_acts
+                ]
+                render(
+                    act_rows,
+                    ["activity", "state", "error"],
+                    output_format=output,
+                    title="Failed activities",
+                )
+
         if state == "FAILED" and output != "json":
             info(f"Debug with: dku job log {job_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
+
+
+def _duration_ms(start, end) -> int | None:
+    """Return the wall-clock duration in ms, or None when one of the timestamps
+    is missing / negative."""
+    try:
+        s, e = int(start), int(end)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0 or e <= 0 or e < s:
+        return None
+    return e - s
+
+
+def _extract_activities(raw: dict) -> list[dict]:
+    """Pull the per-activity records out of a raw job status payload.
+
+    DSS shape (SerializedJobStatus): ``baseStatus.activities`` is a *dict*
+    keyed by activity id, each value a SerializedJobActivityStatus with
+    ``state``, ``startTime``, ``endTime``, ``message`` and
+    ``firstFailure.message``. We normalise to ``{name, state, start, end,
+    duration_ms, error}`` and only include activities whose state was set
+    (skips empty stubs).
+    """
+    base = raw.get("baseStatus") or {}
+    raw_acts = base.get("activities") or raw.get("activities") or {}
+    if isinstance(raw_acts, dict):
+        raw_acts = [
+            dict(v, activityId=k) for k, v in raw_acts.items() if isinstance(v, dict)
+        ]
+    out: list[dict] = []
+    for act in raw_acts:
+        if not isinstance(act, dict):
+            continue
+        name = (
+            act.get("activityId")
+            or act.get("name")
+            or (act.get("def") or {}).get("name")
+            or ""
+        )
+        state = act.get("state") or ""
+        if not state and not name:
+            continue
+        start = act.get("startTime") or act.get("beginTime")
+        end = act.get("endTime")
+        err = (act.get("firstFailure") or {}).get("message") or act.get("errorMessage")
+        if not err and str(state).upper() == "FAILED":
+            # `message` is not error-specific; only trust it on a failure.
+            err = act.get("message") or ""
+        out.append(
+            {
+                "name": name,
+                "state": state,
+                "start": _format_epoch_ms(start),
+                "end": _format_epoch_ms(end),
+                "duration_ms": _duration_ms(start, end),
+                "error": err or None,
+            }
+        )
+    return out
 
 
 @app.command()
@@ -292,6 +387,7 @@ def log(
         proj = client.get_project(project_key)
         job = proj.get_job(job_id)
         log_text = job.get_log()
+        full_log = log_text
         if errors_only:
             filtered = _filter_error_lines(log_text)
             if filtered:
@@ -308,8 +404,47 @@ def log(
         if tail is not None:
             log_text = _tail_lines(log_text, tail)
         print_text(log_text)
+        _maybe_emit_docker_socket_hint(full_log)
     except Exception as e:
         handle_api_error(e)
+
+
+def _maybe_emit_docker_socket_hint(log_text: str) -> None:
+    """Surface the containerSelection.containerMode=NONE recovery recipe
+    when a job log shows the recipe tried to run in Docker on a host whose
+    Docker daemon was unreachable.
+
+    The recipe-level override DOES bypass the project-level
+    container-mode inherit chain (verified on PENDING.md 2026-05-11 AYX HTML
+    extractor session). Without this hint agents loop on rebuilds.
+    """
+    if not log_text:
+        return
+    needles = (
+        "Cannot connect to the Docker daemon",
+        "docker.sock",
+        "failed to connect to docker",
+    )
+    if not any(n in log_text for n in needles):
+        return
+    info("")
+    info(
+        "Hint: the recipe was routed to Docker but the daemon is unreachable. "
+        "Override at the recipe level:"
+    )
+    info(
+        "  Code recipe (python/R/SQL):  dku recipe set-env <RECIPE> "
+        "--container-mode NONE --env-mode USE_BUILTIN_MODE -P <PROJ>"
+    )
+    info(
+        "  Visual recipe:               dku recipe set-definition <RECIPE> "
+        '--payload \'{"containerSelection":{"containerMode":"NONE"}}\' --deep-merge -P <PROJ>'
+    )
+    info(
+        "Then re-run. Recipe-level containerMode=NONE overrides the project "
+        "inherit chain even when the project defaults to Docker. NOTE: for a "
+        "code recipe, --payload would overwrite its source code — use set-env."
+    )
 
 
 @app.command()

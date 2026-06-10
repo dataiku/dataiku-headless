@@ -3,12 +3,107 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
 from dku_cli.main import app
 
 runner = CliRunner()
+
+
+def _wire_code_agent_saved_model(patch_client, inline_versions, *, active="v1"):
+    """Wire proj1.get_saved_model to a saved model whose get_raw() returns a
+    single mutable dict (shared across get_settings() calls, mirroring DSS's
+    GET → mutate → PUT → GET round-trip)."""
+    sm_raw = {"activeVersion": active, "inlineVersions": inline_versions}
+    sm_settings = MagicMock()
+    sm_settings.get_raw.return_value = sm_raw
+    sm_settings.save.return_value = None
+    sm = MagicMock()
+    sm.get_settings.return_value = sm_settings
+    sm.set_active_version.return_value = None
+    proj1 = patch_client.get_project("PROJ1")
+    proj1.get_saved_model.side_effect = None
+    proj1.get_saved_model.return_value = sm
+    return sm, sm_settings, sm_raw
+
+
+def test_agent_set_code_happy(patch_client):
+    """set-code mutates the active inline version's code in place + round-trips."""
+    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
+        patch_client, [{"versionId": "v1", "code": "old"}]
+    )
+    sm_raw["savedModelType"] = "PYTHON_AGENT"
+    result = runner.invoke(
+        app,
+        ["agent", "set-code", "agent1", "-f", "def process(): return 1", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    sm_settings.save.assert_called_once()
+    assert sm_raw["inlineVersions"][0]["code"] == "def process(): return 1"
+
+
+def test_agent_set_code_new_version_activate(patch_client):
+    """--new-version appends a fresh version; --activate flips the active pointer."""
+    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
+        patch_client, [{"versionId": "v1", "code": "old"}]
+    )
+    sm_raw["savedModelType"] = "PYTHON_AGENT"
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-code",
+            "agent1",
+            "-f",
+            "new",
+            "--new-version",
+            "--activate",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert len(sm_raw["inlineVersions"]) == 2
+    assert sm_raw["inlineVersions"][1]["versionId"] == "v2"
+    assert sm_raw["inlineVersions"][1]["code"] == "new"
+    sm.set_active_version.assert_called_once_with("v2")
+
+
+def test_agent_set_code_rejects_non_python_agent(patch_client):
+    """A non-PYTHON_AGENT is rejected up front, before any save()."""
+    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
+        patch_client, [{"versionId": "v1"}]
+    )
+    sm_raw["savedModelType"] = "TOOLS_USING_AGENT"
+    result = runner.invoke(
+        app, ["agent", "set-code", "agent1", "-f", "x=1", "-P", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    assert "TOOLS_USING_AGENT" in result.output
+    assert "PYTHON_AGENT" in result.output
+    sm_settings.save.assert_not_called()
+
+
+def test_agent_set_code_no_inline_versions(patch_client):
+    """An agent with no inline versions is not a Code Agent → prescriptive error."""
+    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(patch_client, [])
+    result = runner.invoke(
+        app, ["agent", "set-code", "agent1", "-f", "x=1", "-P", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    assert "not a Code Agent" in result.output
+    sm_settings.save.assert_not_called()
+
+
+def test_agent_set_code_activate_requires_new_version(patch_client):
+    """--activate without --new-version is rejected before touching DSS."""
+    result = runner.invoke(
+        app, ["agent", "set-code", "agent1", "-f", "x=1", "--activate", "-P", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    assert "requires --new-version" in result.output
 
 
 def test_agent_list(patch_client):

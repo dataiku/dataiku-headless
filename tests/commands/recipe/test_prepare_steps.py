@@ -534,9 +534,9 @@ def test_recipe_replace_step_preserves_name_when_provided(patch_client):
     assert settings.obj_payload["steps"][0]["name"] == "Renamed step"
 
 
-def test_recipe_replace_step_blocks_without_yes(patch_client):
-    """Safety guard fires without --yes (exit 77)."""
-    _setup_prepare_mock(
+def test_recipe_replace_step_runs_without_yes(patch_client):
+    """replace-step is a JSON edit (WRITE), not destructive — no --yes needed."""
+    _proj, _recipe, settings = _setup_prepare_mock(
         patch_client,
         steps=[{"metaType": "PROCESSOR", "type": "Old", "params": {}}],
     )
@@ -556,7 +556,8 @@ def test_recipe_replace_step_blocks_without_yes(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 77
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["steps"][0]["type"] == "ColumnRenamer"
 
 
 def test_recipe_replace_step_out_of_range(patch_client):
@@ -1682,3 +1683,338 @@ def test_recipe_create_topn_bottom_columns_rename_and_rank_flags(patch_client):
     assert p["retrievedColumnsSelectionMode"] == "SELECTED"
     assert p["retrievedColumns"] == ["id", "revenue", "rank"]
     assert p["outputColumnNameOverrides"] == {"rank": "rk"}
+
+
+# ── NET-NEW (PR surface): step ordering (--at), DateParser/DateFormatter
+# shape guards, ColumnsSelector SINGLE_COLUMN/COLUMNS guard, fill-empty
+# schema pre-flight, filter-rows GREL unit lint ──────────────────────
+
+
+def test_recipe_add_step_columns_mode_multi_list_no_warning(patch_client):
+    """appliesTo='COLUMNS' with several columns is correct — no false positive."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "ColumnsSelector",
+            "--params",
+            '{"appliesTo":"COLUMNS","keep":true,"columns":["begin_date","end_date"]}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "silently applies" not in result.output
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_step_single_column_multi_list_warns(patch_client):
+    """ColumnsSelector with appliesTo='SINGLE_COLUMN' but several columns is a
+    silent data-loss trap — DSS applies the step to only the first column (e.g.
+    keep:true drops the rest with no error). The guard warns but still saves."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "ColumnsSelector",
+            "--params",
+            '{"appliesTo":"SINGLE_COLUMN","keep":true,"columns":["begin_date","end_date"]}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "COLUMNS" in result.output
+    assert "begin_date" in result.output
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_step_dateformatter_appliesto_columns_shape_rejected(patch_client):
+    """DateFormatter with the appliesTo/columns[] shape (correct for DateParser /
+    StringTransformer, WRONG for DateFormatter) must also be caught — DSS otherwise
+    returns the same misleading 'Empty column name' error only at run time. The
+    example surfaced in the error must pull the column name out of columns[]."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateFormatter",
+            "--params",
+            '{"appliesTo":"SINGLE_COLUMN","columns":["Begin_dt"],'
+            '"format":"yyyy-MM-dd HH:mm:ss","timezone_id":"UTC"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "inCol" in result.output
+    assert "Begin_dt" in result.output  # example carries the real column name
+    settings.save.assert_not_called()
+
+
+def test_recipe_add_step_dateformatter_correct_incol_accepted(patch_client):
+    """The correct inCol/outCol shape must pass the guard (no false positive even
+    though 'columns' could appear in other contexts)."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateFormatter",
+            "--params",
+            '{"inCol":"Begin_dt","outCol":"Begin_Date","format":"yyyy-MM-dd HH:mm:ss"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings.save.assert_called_once()
+
+
+def test_recipe_add_step_dateparser_normalizes_string_outtype(patch_client):
+    """A bare-string outType saves but the build fails — the CLI normalizes it
+    to the object form and warns."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateParser",
+            "--params",
+            '{"appliesTo":"SINGLE_COLUMN","columns":["ts"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"parsed","outType":"dateonly"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "outType" in result.output
+    assert "Normalized" in result.output
+    saved_step = settings.raw_steps[-1]
+    assert saved_step["params"]["outType"] == {"name": "out", "type": "dateonly"}
+
+
+def test_recipe_add_step_dateparser_object_outtype_not_touched(patch_client):
+    """An object outType passes through unchanged (no normalization warning)."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "DateParser",
+            "--params",
+            '{"appliesTo":"SINGLE_COLUMN","columns":["ts"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"parsed","outType":{"name":"out","type":"dateonly"}}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Normalized" not in result.output
+
+
+def test_recipe_add_formula_at_index(patch_client):
+    """add-formula --at inserts mid-pipeline instead of appending."""
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[
+            {"metaType": "PROCESSOR", "type": "Step0", "params": {}},
+            {"metaType": "PROCESSOR", "type": "Step1", "params": {}},
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--column",
+            "Score",
+            "--expr",
+            'if(Score == "__BLANK__", "", Score)',
+            "--at",
+            "1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 3
+    assert steps[1]["type"] == "CreateColumnWithGREL"
+    assert steps[1]["params"]["column"] == "Score"
+    assert steps[0]["type"] == "Step0" and steps[2]["type"] == "Step1"
+
+
+def test_recipe_add_formula_at_out_of_range(patch_client):
+    """--at past the end is a prescriptive error, not a silent append."""
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Step0", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--column",
+            "x",
+            "--expr",
+            "1",
+            "--at",
+            "5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+    settings.save.assert_not_called()
+
+
+def test_recipe_add_fill_empty_at_index(patch_client):
+    """add-fill-empty --at lands a sentinel-fill BEFORE a later fold step."""
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "MultiColumnFold", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-fill-empty",
+            "prep1",
+            "--column",
+            "c1",
+            "--value",
+            "__BLANK__",
+            "--at",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 2
+    assert steps[0]["type"] == "FillEmptyWithValue"
+    assert steps[1]["type"] == "MultiColumnFold"
+
+
+def test_recipe_add_fill_empty_warns_on_unknown_column(patch_client):
+    """Pre-flight warning when --column doesn't match the input schema —
+    catches the silent NB_COMMANDES (uppercase) typo that creates a phantom
+    all-zero column. Warning only; step still appends."""
+    proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    settings.get_flat_input_refs.return_value = ["input_ds"]
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "nb_commandes"}, {"name": "client_id"}]
+    }
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-fill-empty",
+            "prep1",
+            "--column",
+            "NB_COMMANDES",
+            "--value",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    output = result.output
+    # Warning surfaces the typo with a "did you mean" hint
+    assert "NB_COMMANDES" in output
+    assert "not found in input schema" in output
+    assert "nb_commandes" in output  # closest-match suggestion
+    # Step still appended (warning, not block)
+    assert settings.obj_payload["steps"][0]["params"]["columns"] == ["NB_COMMANDES"]
+
+
+def test_recipe_add_fill_empty_silent_when_column_matches(patch_client):
+    """No warning when --column matches the input schema exactly."""
+    proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    settings.get_flat_input_refs.return_value = ["input_ds"]
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "age"}, {"name": "income"}]
+    }
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-fill-empty",
+            "prep1",
+            "--column",
+            "age",
+            "--value",
+            "0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "not found in input schema" not in result.output
+
+
+def test_recipe_add_filter_rows_warns_on_grel_singular_unit(patch_client):
+    """`inc(now(), -5, "year")` silently matches no rows — emit a warning
+    nudging towards plural unit literals."""
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-filter-rows",
+            "prep1",
+            "--formula",
+            'date > inc(now(), -5, "year")',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    output = result.output
+    assert "unrecognized unit literal" in output
+    assert '"years"' in output  # plural suggestion
+
+
+def test_recipe_add_filter_rows_no_warning_on_valid_units(patch_client):
+    """Valid plural units don't trigger the warning."""
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-filter-rows",
+            "prep1",
+            "--formula",
+            'diff(now(), date_col, "years") < 5',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "unrecognized unit" not in result.output

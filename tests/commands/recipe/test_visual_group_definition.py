@@ -15,6 +15,9 @@ def test_recipe_set_definition_payload(patch_client):
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
+    # Visual recipe: a JSON payload is valid config (code recipes have their
+    # source as the payload and get refused — see set_definition_payload tests).
+    settings.get_recipe_raw_definition.return_value = {"type": "grouping"}
     settings.obj_payload = {}
 
     new_payload = json.dumps({"topN": 5, "orders": [{"column": "price", "desc": True}]})
@@ -76,6 +79,7 @@ def test_recipe_set_definition_deep_merge(patch_client):
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {"type": "grouping"}
     settings.obj_payload = {
         "topN": 5,
         "postFilter": {"enabled": False, "distinct": True},
@@ -111,6 +115,7 @@ def test_recipe_set_definition_deep_merge_replaces_non_dict(patch_client):
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {"type": "grouping"}
     settings.obj_payload = {"topN": 5, "keys": ["old_key"]}
 
     result = runner.invoke(
@@ -719,6 +724,12 @@ def test_visual_recipe_auto_applies_schema(patch_client):
 def test_auto_apply_schema_failure_warns_not_crashes(patch_client):
     """Schema auto-apply failure emits warning, doesn't crash."""
     proj = patch_client.get_project("PROJ1")
+    # create-distinct now refuses to build when it can't read the input schema
+    # (no --on + unreadable schema). Give the input a schema so key inference
+    # succeeds and we reach the schema auto-apply path under test.
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "id", "type": "string"}]
+    }
     recipe_mock = proj.get_recipe.return_value
     recipe_mock.compute_schema_updates.side_effect = Exception("schema error")
 
@@ -812,8 +823,9 @@ def test_recipe_create_distinct_with_explicit_on_flag(patch_client):
         {"column": "customer_id"},
         {"column": "order_date"},
     ]
-    # A subset via --on must NOT select all columns; otherwise DSS dedups on the
-    # full row and the keys are ignored.
+    # With an explicit --on subset, selectAllColumns MUST be False so DSS dedupes
+    # on the subset keys. selectAllColumns=True would dedupe on every column,
+    # silently ignoring --on (regression guard — see create-distinct).
     assert settings.obj_payload["selectAllColumns"] is False
 
 
@@ -823,6 +835,11 @@ def test_recipe_create_distinct_with_explicit_on_flag(patch_client):
 def test_ensure_output_finds_managed_connection(patch_client):
     """Uses first connection with allowManagedDatasets=True."""
     proj = patch_client.get_project("PROJ1")
+    # create-distinct infers keys from the input schema when --on is absent;
+    # seed one so it proceeds to the connection-discovery path under test.
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "id", "type": "string"}]
+    }
     proj.get_dataset.return_value.get_definition.side_effect = Exception(
         "NotFoundException"
     )
@@ -854,6 +871,11 @@ def test_ensure_output_finds_managed_connection(patch_client):
 def test_ensure_output_falls_back_on_permission_error(patch_client):
     """Falls back to filesystem_managed when list_connections fails (403)."""
     proj = patch_client.get_project("PROJ1")
+    # Seed an input schema so create-distinct can infer keys without --on and
+    # proceed to the connection fallback under test.
+    proj.get_dataset.return_value.get_schema.return_value = {
+        "columns": [{"name": "id", "type": "string"}]
+    }
     proj.get_dataset.return_value.get_definition.side_effect = Exception(
         "NotFoundException"
     )
@@ -879,3 +901,33 @@ def test_ensure_output_falls_back_on_permission_error(patch_client):
 
 
 # ---------------------------------------------------------------------------
+
+
+# ── NET-NEW (PR surface): create-distinct refuses on unreadable schema ──
+
+
+def test_recipe_create_distinct_refuses_when_keys_cannot_be_inferred(patch_client):
+    """Empty/unbuilt input + no --on => exit with prescriptive error, no recipe created."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_dataset.return_value.get_schema.return_value = {"columns": []}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-distinct",
+            "dedup",
+            "-i",
+            "unbuilt",
+            "--output-ds",
+            "deduped",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Cannot infer distinct keys" in result.output
+    assert "--on" in result.output
+    assert "RECURSIVE_BUILD" in result.output
+    # Should NOT have proceeded to recipe creation.
+    proj.new_recipe.assert_not_called()

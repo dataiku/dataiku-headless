@@ -73,6 +73,23 @@ def _require_lockout_ack(ack: bool, component: str) -> None:
     )
 
 
+def _is_remote_host(host: str | None) -> bool:
+    """Return whether the DSS client targets a NON-local instance.
+
+    Used by ``code-studio-template inspect-build`` to decide whether probing
+    the LOCAL docker daemon for a built image is meaningful. When the active
+    profile points at a remote node the image lives on that host's daemon, so
+    the local probe is guaranteed to miss and "not found" would be misleading.
+    """
+    if not host:
+        return False
+    from urllib.parse import urlparse
+
+    parsed = urlparse(host if "://" in host else f"//{host}")
+    hostname = (parsed.hostname or "").lower()
+    return hostname not in {"localhost", "127.0.0.1", "::1", "0.0.0.0", ""}
+
+
 @app.command()
 def logs(
     ctx: typer.Context,
@@ -893,10 +910,11 @@ def infra_apply_k8s_policies(
 
 
 # =============================================================================
-# dku admin code-studio-template — list templates
+# dku admin code-studio-template — list / get / build / set-dockerfile-append /
+# list-blocks / add-block / remove-block / inspect-build
 # =============================================================================
 
-cst_app = typer.Typer(help="Code studio templates (admin visibility).")
+cst_app = typer.Typer(help="Code studio templates (admin visibility + lifecycle).")
 
 
 @cst_app.command("list")
@@ -935,6 +953,569 @@ def cst_list(
             )
     except Exception as e:
         handle_api_error(e)
+
+
+@cst_app.command("get")
+def cst_get(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Get full template settings as JSON.
+
+    Returns the complete settings dict — including ``params.blocks[]`` with
+    every block's type and params. Pipe through ``jq '.params.blocks[] | "\\(.type)"'``
+    to enumerate block types.
+    """
+    fmt = resolve_output_format(output, allowed=("json",), default="json")
+    try:
+        client = get_client_from_ctx(ctx)
+        tpl = client.get_code_studio_template(template_id)
+        settings = tpl.get_settings()
+        render_raw(settings.get_raw(), output_format=fmt)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command("list-blocks")
+def cst_list_blocks(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """List blocks (index, type, label) in a template.
+
+    Plugin-defined blocks have type ``pycdstdioblk_<plugin>_<block>`` (with
+    underscores between plugin and block IDs — NOT colons).
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        raw = client.get_code_studio_template(template_id).get_settings().get_raw()
+        blocks = raw.get("params", {}).get("blocks", []) or []
+        data = []
+        for i, b in enumerate(blocks):
+            params = b.get("params", {}) or {}
+            data.append(
+                {
+                    "index": i,
+                    "type": b.get("type", ""),
+                    "label": (
+                        params.get("label")
+                        or params.get("name")
+                        or params.get("entrypoint", "")[:40]
+                        or ""
+                    ),
+                }
+            )
+        render(
+            data,
+            ["index", "type", "label"],
+            output_format=fmt,
+            title=f"Blocks of {template_id}",
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command("set-dockerfile-append")
+def cst_set_dockerfile(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    dockerfile: str = typer.Option(
+        ...,
+        "--dockerfile",
+        "-f",
+        help="Dockerfile content (literal, @file, or - for stdin).",
+    ),
+) -> None:
+    """Replace the ``append_dockerfile`` block's content on a template.
+
+    Idempotent: PUT-only, no rebuild. Run ``dku admin code-studio-template
+    build`` afterwards to actually rebuild the image.
+
+    The template MUST already have an ``append_dockerfile`` block — this
+    verb replaces, it does not insert. Use ``add-block`` to insert a fresh
+    block when needed.
+    """
+    from dku_cli.helpers import read_text_input
+
+    new_content = read_text_input(dockerfile)
+    try:
+        client = get_client_from_ctx(ctx)
+        settings = client.get_code_studio_template(template_id).get_settings()
+        raw = settings.get_raw()
+        blocks = raw.get("params", {}).get("blocks", []) or []
+        replaced = 0
+        for b in blocks:
+            if b.get("type") == "append_dockerfile":
+                params = b.setdefault("params", {})
+                params["dockerfile"] = new_content
+                replaced += 1
+        if replaced == 0:
+            from dku_cli.errors import exit_with_error
+
+            exit_with_error(
+                f"Template '{template_id}' has no append_dockerfile block.",
+                code="block_missing",
+                details=[
+                    "Add one first via the DSS UI, or via "
+                    "`dku admin code-studio-template add-block`:",
+                    "",
+                    f"  dku admin code-studio-template add-block {template_id} \\\\",
+                    "    --type append_dockerfile --params '{}'",
+                ],
+                status=2,
+            )
+        settings.save()
+        success(
+            f"Replaced append_dockerfile block ({replaced} found) on '{template_id}' "
+            f"({len(new_content)} bytes). Run 'build' to rebuild the image."
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command("add-block")
+def cst_add_block(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    block_type: str = typer.Option(
+        ...,
+        "--type",
+        "-t",
+        help="Block type. Built-ins: append_dockerfile, entrypoint, "
+        "dss_base_image, simple_deployment. Plugin blocks use "
+        "pycdstdioblk_<plugin>_<block> (underscores, NOT colons).",
+    ),
+    params_json: str = typer.Option(
+        "{}",
+        "--params",
+        "-p",
+        help="Block params JSON (string, @file.json, or - for stdin). Defaults to {}.",
+    ),
+    at: int = typer.Option(
+        -1, "--at", help="Insert position (default -1 = append at end)."
+    ),
+) -> None:
+    """Append (or insert) a block into a template's ``params.blocks[]``."""
+    params = read_json_input(params_json)
+    if params is None:
+        params = {}
+    block = {"type": block_type, "params": params}
+    try:
+        client = get_client_from_ctx(ctx)
+        settings = client.get_code_studio_template(template_id).get_settings()
+        raw = settings.get_raw()
+        blocks = raw.setdefault("params", {}).setdefault("blocks", [])
+        if at < 0 or at >= len(blocks):
+            blocks.append(block)
+            position = len(blocks) - 1
+        else:
+            blocks.insert(at, block)
+            position = at
+        settings.save()
+        success(
+            f"Added block type='{block_type}' at index {position} on '{template_id}'. "
+            "Run 'build' to rebuild the image."
+        )
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command("remove-block")
+def cst_remove_block(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    index: int = typer.Option(
+        ..., "--index", "-i", help="Block index to remove (zero-based)."
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+) -> None:
+    """Remove a block from a template by index."""
+    from dku_cli.safety import Tier, guard
+
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="code-studio-template.remove-block",
+        subject=f"block #{index} of code studio template '{template_id}'",
+        yes=yes,
+        prompt=f"Remove block index {index} from template '{template_id}'?",
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        settings = client.get_code_studio_template(template_id).get_settings()
+        raw = settings.get_raw()
+        blocks = raw.get("params", {}).get("blocks", []) or []
+        if index < 0 or index >= len(blocks):
+            from dku_cli.errors import exit_with_error
+
+            exit_with_error(
+                f"Block index {index} out of range (template has {len(blocks)} block(s)).",
+                code="bad_index",
+                details=[
+                    f"List blocks: dku admin code-studio-template list-blocks {template_id}"
+                ],
+                status=2,
+            )
+        removed = blocks.pop(index)
+        settings.save()
+        success(
+            f"Removed block index={index} type={removed.get('type', '?')!r} "
+            f"from '{template_id}'."
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command("set-block-params")
+def cst_set_block_params(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    index: int = typer.Option(
+        ..., "--index", "-i", help="Block index to edit (zero-based; see list-blocks)."
+    ),
+    params_json: str = typer.Option(
+        ...,
+        "--params",
+        "-p",
+        help="Params JSON (string, @file.json, or - for stdin).",
+    ),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Overwrite the block's params wholesale. Default does a shallow "
+        "MERGE so you can set one key (e.g. llmmesh_model) without "
+        "clobbering the rest.",
+    ),
+) -> None:
+    """Set params on an existing block in ``params.blocks[]``.
+
+    Default is a shallow MERGE — the given keys are written over the block's
+    current params, everything else is preserved (the common case: set
+    ``llmmesh_model``/``webapp_port`` on a plugin block without re-sending the
+    whole object). Pass ``--replace`` to swap the entire params object.
+    PUT-only: run ``build`` afterwards to materialize the change as an image.
+    """
+    new_params = read_json_input(params_json)
+    if not isinstance(new_params, dict):
+        exit_with_error(
+            "--params must be a JSON object.",
+            code="bad_params",
+            details=['Example: --params \'{"llmmesh_model": "openai:gpt-4o"}\''],
+            status=2,
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        settings = client.get_code_studio_template(template_id).get_settings()
+        raw = settings.get_raw()
+        blocks = raw.get("params", {}).get("blocks", []) or []
+        if index < 0 or index >= len(blocks):
+            exit_with_error(
+                f"Block index {index} out of range "
+                f"(template has {len(blocks)} block(s)).",
+                code="bad_index",
+                details=[
+                    f"List blocks: dku admin code-studio-template "
+                    f"list-blocks {template_id}"
+                ],
+                status=2,
+            )
+        block = blocks[index]
+        if replace:
+            block["params"] = new_params
+        else:
+            block.setdefault("params", {}).update(new_params)
+        settings.save()
+        success(
+            f"Updated params on block index={index} "
+            f"type={block.get('type', '?')!r} of '{template_id}' "
+            f"({'replaced' if replace else 'merged'} {len(new_params)} key(s)). "
+            "Run 'build' to rebuild the image."
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command()
+def build(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Build with Docker --no-cache."
+    ),
+    wait: bool = typer.Option(
+        False, "--wait", help="Wait for the build future to complete."
+    ),
+    timeout: int = typer.Option(
+        1800, "--timeout", help="--wait timeout in seconds (default 1800)."
+    ),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Trigger an image build for a template.
+
+    Returns the build's jobId immediately. Pass ``--wait`` to poll until
+    ``alive=False`` and then fetch the full result on the same tick (DSS
+    GCs futures within seconds, so a delay loses the messages array).
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        tpl = client.get_code_studio_template(template_id)
+        future = tpl.build(disable_docker_cache=no_cache)
+        job_id = getattr(future, "job_id", None) or getattr(future, "jobId", None)
+        if not wait:
+            payload = {"jobId": job_id, "template": template_id}
+            if fmt == "json":
+                render_raw(payload, output_format="json")
+            else:
+                success(f"Build triggered for '{template_id}' (jobId={job_id}).")
+                info(
+                    f"Wait via: dku admin code-studio-template build {template_id} --wait"
+                )
+            return
+
+        # Wait loop: peek every 6s, fetch full result on the same tick alive flips.
+        import time
+
+        start = time.time()
+        while True:
+            peek = client._perform_json(
+                "GET", f"/futures/{job_id}", params={"peek": "true"}
+            )
+            if not peek.get("alive", False):
+                break
+            if time.time() - start > timeout:
+                from dku_cli.errors import exit_with_error
+
+                exit_with_error(
+                    f"Build for '{template_id}' did not finish within {timeout}s.",
+                    code="timeout",
+                    details=[
+                        "Future jobId: " + (job_id or "?"),
+                        "The build is still running on DSS — check via the UI "
+                        "or re-poll later. Increase --timeout if your image is large.",
+                    ],
+                    status=4,
+                )
+            time.sleep(6)
+
+        full = client._perform_json("GET", f"/futures/{job_id}")
+        has_result = bool(full.get("hasResult"))
+        # The build outcome lives in result.messages (an InfoMessages with
+        # authoritative error/fatal booleans) — NOT in top-level success/
+        # messages keys, which the futures payload does not have. The build
+        # thread never fails the future itself: Dockerfile and Docker errors
+        # are only recorded here.
+        result = full.get("result")
+        result = result if isinstance(result, dict) else {}
+        im = result.get("messages")
+        im = im if isinstance(im, dict) else {}
+        msgs = [m for m in (im.get("messages") or []) if isinstance(m, dict)]
+        failed = bool(im.get("error") or im.get("fatal"))
+        if fmt == "json":
+            render_raw(full, output_format="json")
+            if has_result and failed:
+                raise typer.Exit(1)
+            return
+
+        if has_result and not failed:
+            success(f"Build succeeded for '{template_id}' (jobId={job_id}).")
+            return
+
+        if has_result:
+            error_msgs = [
+                m
+                for m in msgs
+                if str(m.get("severity", "")).upper() == "ERROR" or m.get("isFatal")
+            ]
+            from dku_cli.output import error as render_error
+
+            render_error(f"Build FAILED for '{template_id}' (jobId={job_id}).")
+            for m in (error_msgs or msgs)[-5:]:
+                info(f"  [{m.get('severity', '?')}] {m.get('message', m)}")
+            raise typer.Exit(1)
+
+        # No result at all: the future was GC'd before we could fetch it (DSS
+        # collects finished futures within seconds — multi-config layer-cache
+        # hits make sub-second builds especially prone to this). Ambiguous,
+        # don't cry wolf.
+        warn(
+            f"Build future for '{template_id}' finished but returned no result "
+            "(likely GC'd before fetch) — the outcome is unknown, NOT "
+            "necessarily a failure."
+        )
+        info(
+            "Verify the actual image state: "
+            f"dku admin code-studio-template inspect-build {template_id}"
+        )
+        info(
+            "If the expected images are present, the build succeeded. Re-run "
+            "with --no-cache for an unambiguous result."
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@cst_app.command("inspect-build")
+def cst_inspect_build(
+    ctx: typer.Context,
+    template_id: str = typer.Argument(help="Template ID"),
+    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+) -> None:
+    """Show last-build metadata: container configs, last-built timestamp,
+    and the live image arch via ``docker image inspect`` if reachable.
+
+    Designed to answer "did I just build an arm64 image on an amd64 node?"
+    without dropping out of the CLI. The Docker probe is best-effort —
+    if Docker isn't on PATH or doesn't see the image, only DSS-side fields
+    are reported.
+    """
+    fmt = resolve_output_format(output)
+    try:
+        client = get_client_from_ctx(ctx)
+        raw = client.get_code_studio_template(template_id).get_settings().get_raw()
+    except Exception as e:
+        handle_api_error(e)
+        return
+
+    info_dict: dict[str, object] = {
+        "id": raw.get("id"),
+        "label": raw.get("label"),
+        "type": raw.get("type"),
+        "allContainerConfs": raw.get("allContainerConfs"),
+        "containerConfs": raw.get("containerConfs", []),
+    }
+
+    # Probe local docker for image arch (best-effort) — but ONLY when the
+    # active profile targets this machine. If the build ran on a remote DSS
+    # node, the image lives on THAT host's docker daemon, never here, so a
+    # local probe is guaranteed to miss and the "not found" line is misleading.
+    image_probe: dict[str, object] = {}
+    remote = _is_remote_host(client.host)
+    if remote:
+        info_dict["dockerImage"] = (
+            "local docker check skipped — image built on remote instance "
+            "(verify via last_built / images-built.json on the instance)"
+        )
+    else:
+        import shutil
+        import subprocess
+
+        docker_bin = shutil.which("docker")
+        if docker_bin:
+            # DSS-built CS image tags follow the pattern dku-kub-<template>:<conf>.
+            # We probe a few tag variants — first match wins.
+            candidates = [
+                f"dku-kub-{template_id}:dss-dev_doesnotmatter",
+                f"dku-kub-{template_id}:latest",
+            ]
+            for tag in candidates:
+                try:
+                    proc = subprocess.run(
+                        [
+                            docker_bin,
+                            "image",
+                            "inspect",
+                            tag,
+                            "--format",
+                            "{{.Os}}/{{.Architecture}}",
+                        ],
+                        capture_output=True,
+                        timeout=5,
+                        text=True,
+                        stdin=subprocess.DEVNULL,
+                    )
+                    if proc.returncode == 0 and proc.stdout.strip():
+                        image_probe = {
+                            "tag": tag,
+                            "platform": proc.stdout.strip(),
+                        }
+                        break
+                except (subprocess.TimeoutExpired, OSError):
+                    continue
+        info_dict["dockerImage"] = image_probe or "not found via local docker"
+
+    if fmt == "json":
+        render_raw(info_dict, output_format="json")
+        return
+
+    from rich.console import Console
+
+    console = Console()
+    console.print(f"[bold]{template_id}[/bold] — {raw.get('label', '')}")
+    console.print(
+        f"  type:                   {raw.get('type', '?')}\n"
+        f"  allContainerConfs:      {raw.get('allContainerConfs', '?')}\n"
+        f"  containerConfs:         {raw.get('containerConfs', [])}\n"
+        f"  blocks:                 {len(raw.get('params', {}).get('blocks', []))}"
+    )
+    if image_probe:
+        console.print(
+            f"  dockerImage:            {image_probe['tag']} "
+            f"({image_probe['platform']})"
+        )
+    elif remote:
+        console.print(
+            "  dockerImage:            local docker check skipped — image "
+            "built on remote instance\n"
+            "                          (verify via last_built / "
+            "images-built.json on the instance)"
+        )
+    else:
+        console.print("  dockerImage:            not found via local docker")
+
+
+# =============================================================================
+# Namespace redirects — `connection` and `code-env` are TOP-LEVEL groups, not
+# admin sub-commands. Agents keep typing `dku admin connection ...` /
+# `dku admin code-env ...` and used to hit a bare "No such command". Capture
+# those nouns here and emit a prescriptive redirect to the real group instead
+# of dead-ending. Extra args are swallowed so `dku admin connection list`
+# (and any verb/flags after it) is captured rather than parsed.
+# =============================================================================
+
+
+def _emit_namespace_redirect(noun: str, extra: list[str]) -> None:
+    """Print the top-level group an admin-prefixed noun really belongs to."""
+    verb = " ".join(extra) if extra else "<verb>"
+    example = f"dku {noun} {extra[0] if extra else 'list'}"
+    exit_with_error(
+        f"`{noun}` is a top-level group, not an `admin` sub-command.",
+        code="admin_namespace_redirect",
+        details=[
+            f"Drop `admin` — run: dku {noun} {verb}",
+            f"e.g. {example}",
+            f"See all verbs: dku {noun} --help",
+        ],
+    )
+
+
+@app.command(
+    "connection",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def _redirect_connection(ctx: typer.Context) -> None:
+    """`connection` is a TOP-LEVEL group — use `dku connection ...`."""
+    _emit_namespace_redirect("connection", ctx.args)
+
+
+@app.command(
+    "code-env",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def _redirect_code_env(ctx: typer.Context) -> None:
+    """`code-env` is a TOP-LEVEL group — use `dku code-env ...`."""
+    _emit_namespace_redirect("code-env", ctx.args)
 
 
 # =============================================================================

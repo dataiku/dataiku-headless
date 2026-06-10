@@ -82,8 +82,9 @@ def test_recipe_create_plugin_recipe_with_params(patch_client, tmp_path):
     recipe_proto = call_args[0][0]
     creation_settings = call_args[0][1]
     assert creation_settings["rawCreation"] is True
-    # Plugin config must land in params.customConfig (NOT the payload), with the
-    # required containerSelection — otherwise the recipe NPEs at run time.
+    # Config lands in params.customConfig (where the plugin reads it), not the
+    # payload, with the required containerSelection — otherwise the recipe NPEs
+    # at run time.
     assert recipe_proto["params"]["customConfig"] == {
         "mode": "advanced",
         "threshold": 0.5,
@@ -557,9 +558,13 @@ def test_recipe_set_settings_blocks_nlp_agent_eval_output_column(patch_client):
 
 
 def test_recipe_set_settings_rejects_stringified_payload(patch_client):
-    """set-settings emits prescriptive error when payload was re-stringified."""
+    """set-settings emits prescriptive error when a visual payload was re-stringified."""
     # User error: ran `get-settings -o json | jq '.payload |= tostring'`
-    # then `set-settings` — payload becomes a JSON string, not a dict.
+    # then `set-settings` — payload becomes a JSON string, not a dict. This
+    # guidance is for VISUAL recipes (code recipes get a different message).
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe("recipe1").get_settings()
+    settings.get_recipe_raw_definition.return_value = {"type": "sampling"}
     settings_json = json.dumps(
         {"payload": json.dumps({"orders": [{"column": "price", "desc": True}]})}
     )
@@ -674,3 +679,440 @@ def test_recipe_create_window_with_partition_col(patch_client):
 
 
 # ---------------------------------------------------------------------------
+
+
+# ── NET-NEW (PR surface): set-env, set-code --file alias, set-definition
+# payload guards (code-recipe refusal + visual ok + wrapper unwrap),
+# set-description, set-settings code-recipe redirect, plugin customConfig ──
+
+
+def test_recipe_set_env_explicit(patch_client):
+    """set-env writes envSelection + containerSelection into recipe params."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    raw_def: dict = {
+        "type": "python",
+        "params": {"envSelection": {"envMode": "INHERIT"}},
+    }
+    settings = recipe.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = raw_def
+    patch_client.list_code_envs.return_value = [
+        {"envName": "migloop_py", "envLang": "PYTHON"},
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-env",
+            "recipe1",
+            "--env-mode",
+            "EXPLICIT_ENV",
+            "--env-name",
+            "migloop_py",
+            "--container-mode",
+            "NONE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Updated env/container" in result.output
+    assert raw_def["params"]["envSelection"] == {
+        "envMode": "EXPLICIT_ENV",
+        "envName": "migloop_py",
+    }
+    assert raw_def["params"]["containerSelection"] == {"containerMode": "NONE"}
+    settings.save.assert_called()
+
+
+def test_recipe_set_env_null_params_persists(patch_client):
+    """set-env on a recipe with NO params key writes into the ATTACHED definition.
+
+    `get_recipe_params()` returns None right after a bare code-recipe create;
+    the old `or {}` idiom wrote into a detached dict, persisted nothing, and
+    still printed success (live-confirmed silent no-op).
+    """
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    raw_def: dict = {"type": "python"}
+    settings = recipe.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = raw_def
+    settings.get_recipe_params.return_value = None
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-env",
+            "recipe1",
+            "--container-mode",
+            "NONE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw_def["params"]["containerSelection"] == {"containerMode": "NONE"}
+    settings.save.assert_called()
+
+
+def test_recipe_set_env_rejects_invalid_env_mode(patch_client):
+    """An invalid --env-mode (e.g. USE_BUILTIN_ENV) is refused with the real values.
+
+    DSS deserializes an unknown envMode to null and only fails at build time.
+    """
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-env",
+            "recipe1",
+            "--env-mode",
+            "USE_BUILTIN_ENV",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "USE_BUILTIN_MODE" in result.output
+    recipe.get_settings.return_value.save.assert_not_called()
+
+
+def test_recipe_set_env_rejects_unknown_env(patch_client):
+    """--env-name that does not exist on the instance is refused up-front.
+
+    DSS accepts any string for envName without validating it, so the bad env
+    only surfaces as a confusing failure at recipe build time. set-env must
+    catch it before writing anything.
+    """
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    patch_client.list_code_envs.return_value = [
+        {"envName": "py39", "envLang": "PYTHON"},
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-env",
+            "recipe1",
+            "--env-mode",
+            "EXPLICIT_ENV",
+            "--env-name",
+            "nonexistent_env",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "does not exist" in result.output
+    assert "dku code-env list" in result.output
+    recipe.get_settings.return_value.save.assert_not_called()
+
+
+def test_recipe_set_env_requires_env_name(patch_client):
+    """EXPLICIT_ENV without --env-name is a prescriptive error, no save."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-env",
+            "recipe1",
+            "--env-mode",
+            "EXPLICIT_ENV",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "requires --env-name" in result.output
+    recipe.get_settings.return_value.save.assert_not_called()
+
+
+def test_recipe_set_env_nothing_to_set(patch_client):
+    """Passing neither --env-mode nor --container-mode is an explicit error."""
+    result = runner.invoke(app, ["recipe", "set-env", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "Nothing to set" in result.output
+
+
+def test_recipe_set_code_from_file_alias(patch_client, tmp_path):
+    """--file is an alias for --code @file, matching curl/kubectl convention."""
+    code_file = tmp_path / "script.py"
+    code_file.write_text("print('via --file alias')")
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-code",
+            "recipe1",
+            "--file",
+            str(code_file),
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    payload_arg = recipe.get_settings().set_payload.call_args[0][0]
+    assert "via --file alias" in payload_arg
+
+
+def test_recipe_set_code_rejects_both_code_and_file(patch_client, tmp_path):
+    """Passing both --code and --file is an explicit error."""
+    code_file = tmp_path / "script.py"
+    code_file.write_text("x")
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-code",
+            "recipe1",
+            "--code",
+            "y",
+            "--file",
+            str(code_file),
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "exactly one of --code / --file" in result.output
+
+
+def test_recipe_set_definition_payload_refuses_code_recipe(patch_client):
+    """--payload on a code recipe must refuse: its payload IS the source code,
+    so seeding a JSON payload would silently wipe it. Regression: the Docker
+    container-mode hint used to suggest exactly this, clobbering the code."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    settings = recipe.get_settings()
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "python",
+        "name": "recipe1",
+    }
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            '{"containerSelection": {"containerMode": "NONE"}}',
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "code recipe" in result.output
+    assert "set-env" in result.output
+    assert "set-code" in result.output
+    settings.save.assert_not_called()
+
+
+def test_recipe_set_definition_payload_visual_ok(patch_client):
+    """--payload still works on a visual recipe (its payload is JSON config)."""
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    settings = recipe.get_settings()
+    settings.get_recipe_raw_definition.return_value = {
+        "type": "grouping",
+        "name": "recipe1",
+    }
+    settings.obj_payload = {"existing": "kept"}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--payload",
+            '{"postFilter": {"enabled": true}}',
+            "--deep-merge",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Updated payload" in result.output
+    assert settings.obj_payload["existing"] == "kept"
+    assert settings.obj_payload["postFilter"] == {"enabled": True}
+    settings.save.assert_called()
+
+
+def test_recipe_set_definition_unwraps_get_definition_wrapper(patch_client):
+    """Passing the full {definition, payload} output of get-definition is
+    auto-unwrapped — only the inner definition lands in raw_definition.
+    Previously this silently wrote 'definition' and 'payload' top-level keys
+    into raw_definition with a 'success' message."""
+    raw = {"type": "python", "name": "recipe1"}
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_settings().get_recipe_raw_definition.return_value = raw
+
+    wrapper = json.dumps(
+        {
+            "definition": {"type": "python", "customFields": {"k": "v"}},
+            "payload": {"some_payload": "ignored"},
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            wrapper,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Unwrapping --definition" in result.output
+    # Inner definition merged; wrapper keys NOT injected into raw_definition.
+    assert raw["customFields"] == {"k": "v"}
+    assert "payload" not in raw
+    assert "$status" not in raw
+
+
+def test_recipe_set_definition_unwraps_dollar_status_wrapper(patch_client):
+    """The raw DSS response shape {definition, $status} is also unwrapped."""
+    raw = {"type": "python", "name": "recipe1"}
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_settings().get_recipe_raw_definition.return_value = raw
+
+    wrapper = json.dumps(
+        {
+            "definition": {"type": "python", "description": "set via dku"},
+            "$status": {"recipeStatus": {}},
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            wrapper,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["description"] == "set via dku"
+    assert "$status" not in raw
+
+
+# ── Prepare step: add-fold ─────────────────────────────────────────────
+
+
+def test_recipe_set_description_inline(patch_client):
+    raw = {"type": "python", "name": "recipe1"}
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_settings().get_recipe_raw_definition.return_value = raw
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-description",
+            "recipe1",
+            "--description",
+            "Computes daily KPIs from raw events.",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Updated description for recipe 'recipe1'" in result.output
+    assert raw["description"] == "Computes daily KPIs from raw events."
+    # Sibling top-level keys preserved (shallow merge semantics).
+    assert raw["type"] == "python"
+    assert raw["name"] == "recipe1"
+    recipe.get_settings().save.assert_called()
+
+
+def test_recipe_set_description_from_file(tmp_path, patch_client):
+    desc_path = tmp_path / "desc.md"
+    desc_path.write_text("# Daily KPIs\n\nLong-form description.")
+    raw = {"type": "python", "name": "recipe1"}
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_settings().get_recipe_raw_definition.return_value = raw
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-description",
+            "recipe1",
+            "--description",
+            f"@{desc_path}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["description"] == "# Daily KPIs\n\nLong-form description."
+    recipe.get_settings().save.assert_called()
+
+
+def test_recipe_set_settings_code_recipe_points_to_set_env(patch_client):
+    """set-settings on a code recipe (string payload) redirects to set-env/set-code."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe("recipe1").get_settings()
+    settings.get_recipe_raw_definition.return_value = {"type": "python"}
+    # User tried to tweak the python recipe's container mode via set-settings,
+    # so the round-tripped payload is the code string.
+    settings_json = json.dumps({"payload": "import dataiku\n"})
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "recipe1",
+            "--settings",
+            settings_json,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    # Must point at the right verbs, not the json.dumps red herring.
+    assert "code recipe" in result.output
+    assert "set-env" in result.output
+    assert "set-code" in result.output
+    assert "container-mode NONE" in result.output
+
+
+def test_recipe_create_plugin_recipe_params_go_to_custom_config(patch_client):
+    """--params for a CustomCode_* recipe must land in params.customConfig (where
+    the plugin reads its config) — NOT in the payload/rawPayload, which left the
+    plugin unconfigured (verified live: plugin_recipe_create_params_bug)."""
+    proj = patch_client.get_project("PROJ1")
+    proj.create_recipe.return_value = MagicMock()
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "my_plugin_step",
+            "--type",
+            "CustomCode_batch-file-processor",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--params",
+            '{"sheet_mode": "all", "flag": true}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    recipe_proto, creation_settings = proj.create_recipe.call_args[0][:2]
+    assert recipe_proto["params"]["customConfig"] == {
+        "sheet_mode": "all",
+        "flag": True,
+    }
+    assert recipe_proto["params"]["containerSelection"] == {"containerMode": "INHERIT"}
+    # The old (broken) path stuffed config into rawPayload — must not happen now.
+    assert "rawPayload" not in creation_settings

@@ -350,7 +350,7 @@ def create_prepare(
 
     Example:
       dku recipe create-prepare clean -i raw --output-ds cleaned -P PROJ \\
-        && dku recipe add-formula clean --output total --expr 'price * qty' -P PROJ
+        && dku recipe add-formula clean --column total --expr 'price * qty' -P PROJ
 
     SQL pushdown:
       dku recipe create-prepare clean -i raw --output-ds cleaned --engine SQL -P PROJ

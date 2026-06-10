@@ -95,11 +95,10 @@ def test_recipe_create_sql_script_statements_mode_case_insensitive(patch_client)
     proj = patch_client.get_project("PROJ1")
     settings = proj.get_recipe.return_value.get_settings.return_value
     settings.obj_payload = ""
-    # The command does `rp = settings.get_recipe_params() or {}`, so seed a
-    # truthy dict to capture the mutations it makes (an empty dict is falsy and
-    # would be replaced by a fresh {}).
-    recipe_params: dict = {"_seed": True}
-    settings.get_recipe_params.return_value = recipe_params
+    # The command writes recipe params through the ATTACHED raw definition
+    # (_get_or_create_recipe_params), so capture mutations via the raw dict.
+    raw_def: dict = {"type": "sql_script"}
+    settings.get_recipe_raw_definition.return_value = raw_def
     result = runner.invoke(
         app,
         [
@@ -117,7 +116,7 @@ def test_recipe_create_sql_script_statements_mode_case_insensitive(patch_client)
         ],
     )
     assert result.exit_code == 0, result.output
-    assert recipe_params["statementsParsingMode"] == "SPLIT"
+    assert raw_def["params"]["statementsParsingMode"] == "SPLIT"
 
 
 def test_recipe_create_sql_script_statements_mode_invalid_rejected(patch_client):

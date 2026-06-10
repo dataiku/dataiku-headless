@@ -267,6 +267,76 @@ def _handle_fold_plugin_missing(msg: str) -> tuple[str, list[str]] | None:
     )
 
 
+def _handle_govern_field_type_enum(msg: str) -> tuple[str, list[str]] | None:
+    """Detect ``IllegalArgumentException: No enum constant ...FieldType.X`` and
+    return prescriptive guidance with the valid Govern field types.
+
+    Govern's backend rejects unknown ``fieldType`` values with a raw Java
+    IllegalArgumentException. The user has no idea what's valid because the
+    9 accepted values aren't in the error. This rewrites the message to list
+    them and points at the reference doc.
+
+    Returns (message, details) or None if the input doesn't match.
+    """
+    import re
+
+    m = re.search(r"No enum constant\s+(?:\S+\.)?FieldType\.(\w+)", msg)
+    if not m:
+        return None
+    bad_value = m.group(1)
+    return (
+        f"'{bad_value}' is not a valid Govern fieldType.",
+        [
+            "Valid values: TEXT, NUMBER, BOOLEAN, DATE, CATEGORY, REFERENCE,",
+            "UPLOADED_FILE, TIME_SERIES, JSON.",
+            "",
+            f"Common mistake: 'STRING' → use 'TEXT'. '{bad_value}' is not a Govern type.",
+            "",
+            "See: dataiku skill's references/govern-field-types.md for the full",
+            "envelope of each type.",
+        ],
+    )
+
+
+def _handle_govern_field_save_npe(msg: str) -> tuple[str, list[str]] | None:
+    """Detect a Govern blueprint-version save NPE caused by missing required
+    keys on a fieldDefinitions entry.
+
+    DSS surfaces this as
+    ``NullPointerException: Cannot invoke ...JsonObject.get(String)
+    .getAsString() because return is null`` when an entry omits a required
+    key (typically ``id``, ``fieldType``, ``sourceType``, or ``label``).
+    The error doesn't say *which* key is missing, so list them all and
+    flag the common-mistake renames.
+
+    Returns (message, details) or None if the input doesn't match.
+    """
+    if "NullPointerException" not in msg or "JsonObject" not in msg:
+        return None
+    if ".getAsString" not in msg and "JsonObject.get(String)" not in msg:
+        return None
+    return (
+        "Govern blueprint-version save failed: a fieldDefinitions entry is "
+        "missing a required key.",
+        [
+            "Each entry under fieldDefinitions needs all four keys:",
+            "  id          (the field identifier)",
+            "  fieldType   (one of TEXT / NUMBER / BOOLEAN / DATE / CATEGORY /",
+            "               REFERENCE / UPLOADED_FILE / TIME_SERIES / JSON)",
+            "  sourceType  (usually 'STORE'; 'COMPUTE' for derived fields)",
+            "  label       (human-readable label shown in the UI)",
+            "",
+            "Common mistakes:",
+            "  - 'name' instead of 'id'",
+            "  - 'type' instead of 'fieldType'",
+            "  - missing 'sourceType' (defaults are NOT applied)",
+            "",
+            "See: dataiku skill's references/govern-field-types.md for the full",
+            "envelope and per-type extras (CATEGORY needs 'categories', etc.).",
+        ],
+    )
+
+
 def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
     """Parse Govern ValidationException messages into prescriptive guidance.
 
@@ -354,10 +424,39 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
         raise e
 
     msg = str(e)
+    # Guarantee a non-empty message — some dataikuapi exceptions surface with
+    # an empty str() (UnboundLocalError, ValueError raised without args, etc.)
+    # and the resulting Rich error box rendered with no body, leaving the
+    # agent staring at the box footer with no diagnostic (PENDING 2026-05-28
+    # `create-topn` silent-failure entry).
+    if not msg.strip():
+        msg = f"<{type(e).__name__} with no message — re-run with --errors json or check `dku recipe get-settings` for state>"
 
     status = 1
     code = "api_error"
     details: list[str] = []
+
+    # Govern field-type enum miss (e.g. fieldType: 'STRING') — list the
+    # accepted values BEFORE the generic 401/404 branches because the message
+    # contains "IllegalArgumentException" not "404"/"401".
+    field_type_result = _handle_govern_field_type_enum(msg)
+    if field_type_result:
+        exit_with_error(
+            field_type_result[0],
+            code="govern_field_type",
+            details=field_type_result[1],
+            status=1,
+        )
+
+    # Govern blueprint-version save NPE on missing fieldDefinitions key
+    field_npe_result = _handle_govern_field_save_npe(msg)
+    if field_npe_result:
+        exit_with_error(
+            field_npe_result[0],
+            code="govern_field_save_npe",
+            details=field_npe_result[1],
+            status=1,
+        )
 
     # Govern-specific validation errors — prescriptive guidance
     govern_result = _handle_govern_validation(msg)

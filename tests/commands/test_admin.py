@@ -344,6 +344,485 @@ def test_admin_code_studio_template_list(patch_client):
     assert "vscode" in result.output
 
 
+def _wire_cst_template_settings(patch_client, blocks=None):
+    """Helper: rig get_code_studio_template(...).get_settings() to return a
+    mutable raw dict containing the given blocks. Returns (raw, settings)."""
+    from unittest.mock import MagicMock
+
+    if blocks is None:
+        blocks = []
+    raw = {
+        "id": "GovernCopilot",
+        "label": "Govern Copilot",
+        "type": "block_based",
+        "params": {"blocks": blocks},
+    }
+    settings = MagicMock()
+    settings.get_raw.return_value = raw
+    tpl = MagicMock()
+    tpl.get_settings.return_value = settings
+    patch_client.get_code_studio_template.return_value = tpl
+    return raw, settings, tpl
+
+
+def test_admin_cst_get_returns_raw_settings(patch_client):
+    raw, _, _ = _wire_cst_template_settings(patch_client)
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "get", "GovernCopilot", "-o", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["id"] == "GovernCopilot"
+    assert data["params"]["blocks"] == raw["params"]["blocks"]
+
+
+def test_admin_cst_list_blocks(patch_client):
+    _wire_cst_template_settings(
+        patch_client,
+        blocks=[
+            {"type": "dss_base_image", "params": {}},
+            {"type": "append_dockerfile", "params": {"label": "Custom DF"}},
+            {"type": "entrypoint", "params": {"label": "webapp"}},
+        ],
+    )
+    result = runner.invoke(
+        app,
+        ["admin", "code-studio-template", "list-blocks", "GovernCopilot", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert [b["type"] for b in data] == [
+        "dss_base_image",
+        "append_dockerfile",
+        "entrypoint",
+    ]
+    assert data[1]["label"] == "Custom DF"
+
+
+def test_admin_cst_set_dockerfile_replaces_block(patch_client):
+    raw, settings, _ = _wire_cst_template_settings(
+        patch_client,
+        blocks=[
+            {
+                "type": "append_dockerfile",
+                "params": {"dockerfile": "OLD", "label": "DF"},
+            },
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "set-dockerfile-append",
+            "GovernCopilot",
+            "--dockerfile",
+            "RUN echo hi",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.save.assert_called_once()
+    assert raw["params"]["blocks"][0]["params"]["dockerfile"] == "RUN echo hi"
+    # Other params (label) preserved.
+    assert raw["params"]["blocks"][0]["params"]["label"] == "DF"
+
+
+def test_admin_cst_set_dockerfile_errors_when_no_block(patch_client):
+    _wire_cst_template_settings(
+        patch_client,
+        blocks=[{"type": "dss_base_image", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "set-dockerfile-append",
+            "GovernCopilot",
+            "--dockerfile",
+            "RUN echo hi",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "no append_dockerfile block" in result.output
+
+
+def test_admin_cst_add_block_appends(patch_client):
+    raw, settings, _ = _wire_cst_template_settings(patch_client, blocks=[])
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "add-block",
+            "GovernCopilot",
+            "--type",
+            "append_dockerfile",
+            "--params",
+            '{"dockerfile":"x"}',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.save.assert_called_once()
+    assert raw["params"]["blocks"] == [
+        {"type": "append_dockerfile", "params": {"dockerfile": "x"}}
+    ]
+
+
+def test_admin_cst_remove_block_requires_yes(patch_client):
+    _wire_cst_template_settings(
+        patch_client,
+        blocks=[{"type": "append_dockerfile", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "remove-block",
+            "GovernCopilot",
+            "--index",
+            "0",
+        ],
+    )
+    # Tier-2 DELETE blocks without --yes (exit 77).
+    assert result.exit_code != 0
+
+
+def test_admin_cst_remove_block_with_yes(patch_client):
+    raw, settings, _ = _wire_cst_template_settings(
+        patch_client,
+        blocks=[
+            {"type": "dss_base_image", "params": {}},
+            {"type": "append_dockerfile", "params": {}},
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "remove-block",
+            "GovernCopilot",
+            "--index",
+            "1",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["params"]["blocks"] == [{"type": "dss_base_image", "params": {}}]
+
+
+def test_admin_cst_remove_block_index_out_of_range(patch_client):
+    _wire_cst_template_settings(
+        patch_client,
+        blocks=[{"type": "dss_base_image", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "remove-block",
+            "GovernCopilot",
+            "--index",
+            "99",
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+
+
+def test_admin_cst_build_returns_job_id(patch_client):
+    from unittest.mock import MagicMock
+
+    fut = MagicMock()
+    fut.job_id = "build-123"
+    tpl = MagicMock()
+    tpl.build.return_value = fut
+    patch_client.get_code_studio_template.return_value = tpl
+
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "build", "GovernCopilot"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "build-123" in result.output
+    tpl.build.assert_called_once_with(disable_docker_cache=False)
+
+
+def test_admin_cst_set_block_params_merges(patch_client):
+    """Default shallow-merge: set one key without clobbering the rest."""
+    raw, settings, _ = _wire_cst_template_settings(
+        patch_client,
+        blocks=[
+            {
+                "type": "pycdstdioblk_replicate_app",
+                "params": {"webapp_port": 5000, "label": "app"},
+            },
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "set-block-params",
+            "GovernCopilot",
+            "--index",
+            "0",
+            "--params",
+            '{"llmmesh_model": "openai:gpt-4o"}',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.save.assert_called_once()
+    params = raw["params"]["blocks"][0]["params"]
+    assert params["llmmesh_model"] == "openai:gpt-4o"
+    assert params["webapp_port"] == 5000  # preserved by merge
+    assert params["label"] == "app"  # preserved by merge
+
+
+def test_admin_cst_set_block_params_replace(patch_client):
+    """--replace overwrites the whole params object."""
+    raw, settings, _ = _wire_cst_template_settings(
+        patch_client,
+        blocks=[{"type": "pycdstdioblk_x_y", "params": {"webapp_port": 5000}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "set-block-params",
+            "GovernCopilot",
+            "--index",
+            "0",
+            "--params",
+            '{"only": "this"}',
+            "--replace",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["params"]["blocks"][0]["params"] == {"only": "this"}
+
+
+def test_admin_cst_set_block_params_bad_index(patch_client):
+    _wire_cst_template_settings(patch_client, blocks=[{"type": "x", "params": {}}])
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "set-block-params",
+            "GovernCopilot",
+            "--index",
+            "5",
+            "--params",
+            "{}",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+
+
+def _wire_cst_build_future(patch_client, job_id, peek, full):
+    """Rig get_code_studio_template(...).build() + the futures poll for a
+    --wait run. `peek` is the first /futures peek body, `full` the result."""
+    from unittest.mock import MagicMock
+
+    fut = MagicMock()
+    fut.job_id = job_id
+    tpl = MagicMock()
+    tpl.build.return_value = fut
+    patch_client.get_code_studio_template.return_value = tpl
+    patch_client._perform_json.side_effect = [peek, full]
+
+
+def test_admin_cst_build_wait_success(patch_client):
+    """The verdict reads result.messages (InfoMessages booleans), not the
+    nonexistent top-level success/messages keys: no error/fatal → succeeded."""
+    _wire_cst_build_future(
+        patch_client,
+        "FUT-1",
+        peek={"alive": False},
+        full={
+            "hasResult": True,
+            "result": {
+                "messages": {
+                    "error": False,
+                    "fatal": False,
+                    "messages": [{"severity": "INFO", "message": "Using cache"}],
+                },
+                "builds": [{"configName": "default"}],
+            },
+        },
+    )
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "build", "tpl1", "--wait"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "succeeded" in result.output
+    assert "FAILED" not in result.output
+
+
+def test_admin_cst_build_wait_genuine_failure(patch_client):
+    """result.messages.error=true is a real failure → exit 1 with the message."""
+    _wire_cst_build_future(
+        patch_client,
+        "FUT-2",
+        peek={"alive": False},
+        full={
+            "hasResult": True,
+            "result": {
+                "messages": {
+                    "error": True,
+                    "messages": [
+                        {"severity": "ERROR", "message": "Dockerfile step failed"}
+                    ],
+                },
+            },
+        },
+    )
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "build", "tpl1", "--wait"]
+    )
+    assert result.exit_code == 1, result.output
+    assert "FAILED" in result.output
+    assert "Dockerfile step failed" in result.output
+
+
+def test_admin_cst_build_wait_genuine_failure_json_exits_nonzero(patch_client):
+    """-o json must carry the same verdict in the exit code, not always 0."""
+    _wire_cst_build_future(
+        patch_client,
+        "FUT-2J",
+        peek={"alive": False},
+        full={
+            "hasResult": True,
+            "result": {
+                "messages": {
+                    "error": True,
+                    "messages": [
+                        {"severity": "ERROR", "message": "Dockerfile step failed"}
+                    ],
+                },
+            },
+        },
+    )
+    result = runner.invoke(
+        app,
+        ["admin", "code-studio-template", "build", "tpl1", "--wait", "-o", "json"],
+    )
+    assert result.exit_code == 1, result.output
+    assert "Dockerfile step failed" in result.output
+
+
+def test_admin_cst_build_wait_no_result_is_ambiguous(patch_client):
+    """hasResult=false (future GC'd before fetch — common on sub-second
+    layer-cache builds) is ambiguous: warn + point at inspect-build, exit 0.
+    Printing FAILED here is the known false-negative."""
+    _wire_cst_build_future(
+        patch_client,
+        "FUT-3",
+        peek={"alive": False},
+        full={"hasResult": False},
+    )
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "build", "tpl1", "--wait"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "inspect-build" in result.output
+    assert "FAILED" not in result.output
+
+
+# =============================================================================
+# admin code-studio-template inspect-build — remote vs local docker probe
+# =============================================================================
+
+
+def test_admin_cst_inspect_build_remote_skips_local_docker(patch_client):
+    """A non-localhost profile must SKIP the local docker probe and say so —
+    the image was built on the remote node, not this machine."""
+    _wire_cst_template_settings(patch_client, blocks=[])
+    patch_client.host = "https://dss.acme.example.com"
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "inspect-build", "GovernCopilot"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "local docker check skipped" in result.output
+    # Rich may wrap the message across lines; normalize whitespace before matching.
+    assert "remote instance" in " ".join(result.output.split())
+    # Must NOT claim a (misleading) local-docker miss.
+    assert "not found via local docker" not in result.output
+
+
+def test_admin_cst_inspect_build_remote_json(patch_client):
+    """JSON output carries the same remote-skip relabel."""
+    _wire_cst_template_settings(patch_client, blocks=[])
+    patch_client.host = "https://dss.acme.example.com"
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "code-studio-template",
+            "inspect-build",
+            "GovernCopilot",
+            "-o",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "local docker check skipped" in data["dockerImage"]
+
+
+def test_admin_cst_inspect_build_localhost_probes_docker(patch_client, monkeypatch):
+    """A localhost profile keeps the local docker probe; with no image found it
+    reports the local miss (NOT the remote-skip relabel)."""
+    _wire_cst_template_settings(patch_client, blocks=[])
+    patch_client.host = "http://localhost:11200"
+    # Force the docker probe to find nothing (docker missing on PATH).
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    result = runner.invoke(
+        app, ["admin", "code-studio-template", "inspect-build", "GovernCopilot"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "not found via local docker" in result.output
+    assert "local docker check skipped" not in result.output
+
+
+# =============================================================================
+# admin connection / code-env — top-level namespace redirect
+# =============================================================================
+
+
+def test_admin_connection_redirects(patch_client):
+    """`dku admin connection list` is captured and redirected, not a bare
+    'No such command'."""
+    result = runner.invoke(app, ["admin", "connection", "list"])
+    assert result.exit_code != 0
+    assert "No such command" not in result.output
+    assert "top-level group" in result.output
+    assert "dku connection list" in result.output
+
+
+def test_admin_code_env_redirects(patch_client):
+    """`dku admin code-env list` is captured and redirected."""
+    result = runner.invoke(app, ["admin", "code-env", "list"])
+    assert result.exit_code != 0
+    assert "No such command" not in result.output
+    assert "top-level group" in result.output
+    assert "dku code-env list" in result.output
+
+
+def test_admin_connection_redirect_no_args(patch_client):
+    """Bare `dku admin connection` still redirects with a sensible example."""
+    result = runner.invoke(app, ["admin", "connection"])
+    assert result.exit_code != 0
+    assert "dku connection list" in result.output
+
+
 # =============================================================================
 # admin llm-cost
 # =============================================================================

@@ -15,7 +15,11 @@ else:
     import tomli as tomllib
 
 
-CONFIG_DIR = Path(user_config_dir("dku", ensure_exists=True))
+# `ensure_exists=False`: do not create the dir at import time. _write_toml
+# creates it lazily on first write. Importing must never crash on a
+# read-only ~/.config (e.g. inside a Code Studio pod where the dir is
+# root-owned and the runtime user can't mkdir into it).
+CONFIG_DIR = Path(user_config_dir("dku", ensure_exists=False))
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 CREDENTIALS_FILE = CONFIG_DIR / "credentials.toml"
 

@@ -7,6 +7,25 @@ from dku_cli.enums import ContainerMode, EnvMode, JobType
 
 from ._common import *
 
+# Visual types whose recipe payload requires extra config (group keys, join keys,
+# a window definition, ...) that the generic `create` path cannot supply. Building
+# one of these through `proj.new_recipe(type)` + `.build()` makes DSS reject it with
+# "Unknown type. Please use create_recipe for custom recipes". Each has a dedicated
+# `create-<verb>` that supplies the mandatory config — route the agent there.
+_DEDICATED_VERB_TYPES = {
+    "group": "create-group",
+    "join": "create-join",
+    "window": "create-window",
+    "distinct": "create-distinct",
+    "topn": "create-topn",
+    "pivot": "create-pivot",
+    "sort": "create-sort",
+    "split": "create-split",
+    "stack": "create-stack",
+    "sampling": "create-sampling",
+    "sample": "create-sampling",
+}
+
 
 @app.command("list")
 def list_recipes(
@@ -346,6 +365,11 @@ def create(
         "--output-folder",
         help="Wire an EXISTING managed folder (by name or ID) as the recipe output instead of a dataset. Create the folder first: dku folder create NAME -P PROJ. Mutually exclusive with --output-ds.",
     ),
+    input_folders: list[str] = typer.Option(
+        [],
+        "--input-folder",
+        help="Wire an EXISTING managed folder (by name or ID) as a recipe input — for code recipes that read files (XML/JSON/PDF/etc.) from a folder. Repeatable. Combine with -i to mix dataset and folder inputs.",
+    ),
     connection: str | None = typer.Option(
         None,
         "--connection",
@@ -516,8 +540,13 @@ def create(
         resolved_model_id: str | None = None
         if model is not None:
             resolved_model_id = resolve_saved_model(proj, model).id
-        # Validate --input is provided for types that require it
-        if not inputs and type_name.lower() not in _INPUT_OPTIONAL_TYPES:
+        # Validate an input is provided for types that require it. A folder
+        # input (code recipes reading files) satisfies the requirement too.
+        if (
+            not inputs
+            and not input_folders
+            and type_name.lower() not in _INPUT_OPTIONAL_TYPES
+        ):
             exit_with_error(
                 f"--input is required for recipe type '{type_name}'.",
                 code="missing_input",
@@ -531,6 +560,11 @@ def create(
         output_folder_id: str | None = None
         if output_folder:
             output_folder_id = resolve_folder(proj, output_folder).id
+        # Resolve --input-folder names/IDs to managed-folder IDs (must exist).
+        # Folder inputs feed code recipes that parse files (XML/JSON/PDF/...).
+        input_folder_ids: list[str] = [
+            resolve_folder(proj, f).id for f in input_folders
+        ]
         # The ref to wire as the recipe output (dataset name or folder ID).
         output_ref = output_folder_id or output_ds
         if _is_plugin_recipe_type(type_name):
@@ -542,17 +576,23 @@ def create(
             builder.set_raw_mode()
             for _input in inputs:
                 builder.with_input(_input, role=input_role)
+            for _fid in input_folder_ids:
+                builder.with_input(_fid, role=input_role)
+            # output_ref resolves folder-or-dataset outputs (upstream fix);
+            # plugin recipes can target a managed folder, not just a dataset.
             builder.with_output(output_ref, role=output_role)
-            # Plugin (custom code) recipes read their config from
-            # params.customConfig and REQUIRE params.containerSelection — without
-            # it the recipe throws a Java NullPointerException at run time.
-            # rawPayload writes to the recipe payload, which plugin recipes ignore,
-            # leaving params null. In raw mode recipe_proto is persisted as-is, so
-            # set params there directly.
-            builder.recipe_proto["params"] = {
-                "customConfig": params_dict if params_dict is not None else {},
+            # Plugin (CustomCode_*) recipes read their configuration from
+            # recipe.params.customConfig — NOT from the payload. Writing --params
+            # to creation_settings["rawPayload"] (the old behavior) left the
+            # plugin unconfigured: it ran with empty config. We also MUST seed
+            # params.containerSelection — DSS NPEs at build time when it is null.
+            # Verified shape (see migration/ayx/alteryx-toolkit.md § Wiring).
+            recipe_params = {
                 "containerSelection": {"containerMode": "INHERIT"},
             }
+            if params_dict is not None:
+                recipe_params["customConfig"] = params_dict
+            builder.recipe_proto["params"] = recipe_params
             built = builder.build()
         else:
             builder = proj.new_recipe(type_name, recipe_name)
@@ -568,6 +608,8 @@ def create(
                 )
             for _input in inputs:
                 builder.with_input(_input)
+            for _fid in input_folder_ids:
+                builder.with_input(_fid)
             # Output wiring:
             # - Code recipes use CodeRecipeCreator.with_new_output_dataset(name, connection)
             # - Everything else with --connection uses
@@ -624,7 +666,7 @@ def create(
         if container_mode or env_mode:
             recipe = proj.get_recipe(recipe_name)
             recipe_settings = recipe.get_settings()
-            rp = recipe_settings.get_recipe_params() or {}
+            rp = _get_or_create_recipe_params(recipe_settings)
             if container_mode:
                 cs = rp.setdefault("containerSelection", {})
                 cs["containerMode"] = container_mode.upper()
@@ -662,12 +704,20 @@ def create(
             # Code recipes (python, r, shell) and sync/sql_query need a --connection for auto-creation.
             if type_name.lower() in _VISUAL_RECIPE_TYPES:
                 exit_with_error(
-                    f"Output dataset '{output_ds}' does not exist. Visual recipes require the output dataset to be created first.",
+                    f"FAILED: recipe '{recipe_name}' was NOT created — output dataset '{output_ds}' must be created first.",
                     code="output_not_found",
                     details=[
-                        f"Create it first: dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
-                        f"Then retry: dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
-                        "Tip: visual recipe shortcuts (create-join, create-group, etc.) auto-create the output dataset.",
+                        f"Output dataset '{output_ds}' does not exist.",
+                        f"`dku recipe create -t {type_name}` does NOT auto-create the output (the typed shortcuts create-join / create-group / ... do).",
+                        "",
+                        "Fix in two commands:",
+                        f"  dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
+                        f"  dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
+                        "",
+                        "If you don't need a generic prepare and a typed shortcut fits the task,",
+                        "those auto-create their output: create-join, create-group, create-stack,",
+                        "create-distinct, create-sort, create-filter, create-window, create-topn,",
+                        "create-pivot, create-sampling, create-split.",
                     ],
                 )
             else:
@@ -681,6 +731,30 @@ def create(
                         f"Example: dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} --connection filesystem_managed -P {project_key}",
                     ],
                 )
+        dedicated_verb = _DEDICATED_VERB_TYPES.get(type_name.lower())
+        if dedicated_verb and "create_recipe" in str(e):
+            # DSS: "Unknown type. Please use create_recipe for custom recipes" —
+            # the generic create path can't supply this type's mandatory config.
+            example_key = (
+                " -k <COLUMN>"
+                if dedicated_verb in ("create-group", "create-window")
+                else ""
+            )
+            exit_with_error(
+                f"recipe '{recipe_name}' was NOT created — type '{type_name}' needs its dedicated verb.",
+                code="use_dedicated_verb",
+                details=[
+                    f"`dku recipe create -t {type_name}` can't supply the config this recipe requires",
+                    "(group keys, join keys, a window definition, ...).",
+                    "",
+                    "Use the typed shortcut instead — it auto-creates the output too:",
+                    f"  dku recipe {dedicated_verb} {recipe_name} "
+                    + " ".join(f"-i {i}" for i in inputs)
+                    + f" --output-ds {output_ds}{example_key} -P {project_key}",
+                    "",
+                    f"See: dku recipe {dedicated_verb} --help",
+                ],
+            )
         if "recipe type" in str(e).lower() and "unknown" in str(e).lower():
             exit_with_error(
                 f"Recipe type '{type_name}' is unknown to DSS.",
@@ -765,15 +839,34 @@ def status(
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
+    engines: bool = typer.Option(
+        False,
+        "--engines",
+        help="List all candidate engines with per-engine status (TYPE, LABEL, VARIANT, SEVERITY, MESSAGE).",
+    ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Dump the full server status payload (engines, sqlWithExecutionPlanList, pivotModalities, outputSchema with originalType, sqlWarning, recipe-type-keyed buckets, etc.). Implies -o json unless overridden.",
+    ),
 ) -> None:
     """Show recipe status: engine, severity, and check messages.
 
-    Reports which engine DSS selected for the recipe, the overall
-    status severity, and any warnings or errors from recipe checks.
+    Default: selected engine + severity + top-level check messages.
 
-    Example:
+    --engines: per-engine candidate table (why DSS picked / rejected each).
+    --full:   the full get-status payload as JSON. Surfaces fields the default
+              view hides — sqlWithExecutionPlanList (per-output compiled SQL on
+              Split), pivotModalities + sqlWarning (Pivot modality cache),
+              outputSchema.columns[].originalType (source-DB column types),
+              and recipe-type-keyed message buckets (group:, splitting:,
+              pivot:, filter:, topn:, retrievedColumns:, ...).
+
+    Examples:
       dku recipe status compute_data -P PROJ
-      dku recipe status compute_data -P PROJ -o json
+      dku recipe status compute_data -P PROJ --engines
+      dku recipe status compute_data -P PROJ --full           # JSON
+      dku recipe status compute_data -P PROJ --full | jq '.engines[]|select(.statusWarnLevel!="OK")'
     """
     project_key = resolve_project(project)
     fmt = resolve_output_format(output)
@@ -783,6 +876,51 @@ def status(
             client.get_project(project_key), recipe_name, project_key
         )
         recipe_status = recipe.get_status()
+
+        if full:
+            # Dump the entire server payload. Default to JSON since the shape
+            # is recipe-type-dependent (Sync has 25 engines; Pivot has nested
+            # pivotModalities; Split has sqlWithExecutionPlanList).
+            full_fmt = "json" if output is None else fmt
+            render_raw(recipe_status.data, output_format=full_fmt)
+            return
+
+        if engines:
+            engine_rows = recipe_status.data.get("engines") or []
+            data = []
+            for eng in engine_rows:
+                data.append(
+                    {
+                        "type": eng.get("type", ""),
+                        "label": eng.get("label", "") or eng.get("typeLabel", ""),
+                        "variant": eng.get("variantLabel", "")
+                        or eng.get("variant", ""),
+                        "severity": eng.get("statusWarnLevel", ""),
+                        "message": eng.get("statusMessage", "") or "",
+                        "recommended": "yes" if eng.get("recommended") else "",
+                    }
+                )
+            if data:
+                render(
+                    data,
+                    ["type", "label", "variant", "severity", "message", "recommended"],
+                    output_format=fmt,
+                    title=f"Engines: {recipe_name}",
+                    headers={
+                        "type": "TYPE",
+                        "label": "LABEL",
+                        "variant": "VARIANT",
+                        "severity": "SEVERITY",
+                        "message": "MESSAGE",
+                        "recommended": "RECOMMENDED",
+                    },
+                )
+            else:
+                info(
+                    f"Recipe '{recipe_name}' has no engine candidates "
+                    "(prediction_training, prompt, and similar types use no flow engine)."
+                )
+            return
 
         # Extract engine info
         engine = None
