@@ -139,10 +139,9 @@ def _plugin_is_dev(p) -> bool:
 @app.command("list")
 def list_plugins(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List installed plugins."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         # dataikuapi quirk: list_plugins() returns dicts, not objects
@@ -266,11 +265,10 @@ def push(
 def settings(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     set_param: list[str] = typer.Option(None, "--set", help="Set parameter: key=value"),
 ) -> None:
     """View or update plugin settings."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
@@ -318,10 +316,9 @@ def settings(
 def get(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show plugin details including version, code env, and dev status."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         # dataikuapi quirk: list_plugins() returns dicts — find this plugin's metadata
@@ -482,7 +479,6 @@ def create_code_env(
         "--force",
         help="Create a new managed env even if one is already bound (creates a numbered duplicate)",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create the managed code environment for a plugin.
 
@@ -491,7 +487,7 @@ def create_code_env(
     Idempotent: if a managed env is already bound, this skips creation (exit 0) and
     points at the rebuild command. Pass --force to create a numbered duplicate anyway.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
@@ -602,10 +598,9 @@ def usages(
     project: str | None = typer.Option(
         None, "--project", "-P", help="Filter by project key"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show where a plugin's components are used across projects."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
@@ -649,7 +644,6 @@ def recipes(
     plugin_id: str | None = typer.Argument(
         None, help="Plugin ID (optional — lists recipes from all plugins if omitted)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List plugin recipe types available for use with 'dku recipe create'.
 
@@ -660,7 +654,7 @@ def recipes(
     The plugin ID is NOT part of the type string. The recipeComponentId comes
     from the directory name in custom-recipes/ inside the plugin.
     """
-    output_fmt = resolve_output_format(output)
+    output_fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         plugins = client.list_plugins()
@@ -758,10 +752,9 @@ def recipes(
 def list_files(
     ctx: typer.Context,
     plugin_id: str = typer.Argument(help="Plugin ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List files in a dev plugin (hierarchical tree)."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
@@ -830,7 +823,6 @@ def get_file(
             except UnicodeDecodeError:
                 exit_with_error(
                     f"File is binary (UTF-8 decode failed at byte {content[:64].hex()}…).",
-                    code="binary_file",
                     details=[
                         f"Re-run with: dku plugin get-file {plugin_id} --path {path} --output-file <local-path>",
                     ],

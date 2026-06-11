@@ -70,7 +70,7 @@ def _resolve_version_id(settings, version_flag: str | None) -> str:
         return active
     ids = settings.get_version_ids()
     if not ids:
-        exit_with_error("Agent has no versions.", code="no_versions", status=1)
+        exit_with_error("Agent has no versions.", status=1)
     return ids[0]
 
 
@@ -79,7 +79,7 @@ def _get_version_data(raw: dict, version_id: str) -> dict:
     for v in raw["versions"]:
         if v["versionId"] == version_id:
             return v
-    exit_with_error(f"Version '{version_id}' not found.", code="not_found", status=3)
+    exit_with_error(f"Version '{version_id}' not found.", status=3)
 
 
 def _get_agent_settings(raw: dict, version_id: str) -> dict:
@@ -227,6 +227,9 @@ def _normalize_blocks(blocks: list[dict]) -> list[str]:
        before any block runs if this field is missing.
     2. Legacy `outputScratchpadKey` → rename to `outputKey`. DSS 14.5+ rejects the
        legacy field with "SAVE_TO_SCRATCHPAD output mode requires an outputKey".
+    3. LLM_REQUEST `systemPrompt` → rename to `systemPromptAfterHistory`. DSS
+       silently ignores `systemPrompt` on LLM_REQUEST (verified live: the block
+       runs with default behavior and the prompt never reaches the model).
     """
     warnings: list[str] = []
     for block in blocks:
@@ -256,6 +259,23 @@ def _normalize_blocks(blocks: list[dict]) -> list[str]:
                 f"Block '{bid}' had both 'outputKey' and legacy 'outputScratchpadKey'; "
                 "dropped the legacy field."
             )
+
+        # Fix 3: LLM_REQUEST systemPrompt -> systemPromptAfterHistory
+        if block.get("type") == "LLM_REQUEST" and "systemPrompt" in block:
+            if "systemPromptAfterHistory" not in block:
+                block["systemPromptAfterHistory"] = block.pop("systemPrompt")
+                warnings.append(
+                    f"Block '{bid}' (LLM_REQUEST) used 'systemPrompt', which DSS "
+                    "silently ignores on this block type; renamed to "
+                    "'systemPromptAfterHistory'."
+                )
+            else:
+                block.pop("systemPrompt")
+                warnings.append(
+                    f"Block '{bid}' (LLM_REQUEST) had both 'systemPromptAfterHistory' "
+                    "and 'systemPrompt'; dropped 'systemPrompt' (DSS ignores it on "
+                    "this block type)."
+                )
     return warnings
 
 
@@ -336,10 +356,9 @@ def list_blocks(
     version: str | None = typer.Option(
         None, "--version", help="Version ID (default: active)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List blocks in an agent's block graph."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
@@ -391,10 +410,9 @@ def get_block(
     version: str | None = typer.Option(
         None, "--version", help="Version ID (default: active)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show a single block definition."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
@@ -404,7 +422,6 @@ def get_block(
         if block is None:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
-                code="not_found",
                 status=3,
             )
 
@@ -432,21 +449,15 @@ def add_block(
     try:
         new_block = read_json_input(block_json)
         if not new_block:
-            exit_with_error(
-                "Block JSON cannot be empty.", code="invalid_input", status=1
-            )
+            exit_with_error("Block JSON cannot be empty.", status=1)
 
         block_id = new_block.get("id")
         if not block_id:
-            exit_with_error(
-                "Block JSON must have an 'id' field.", code="invalid_input", status=1
-            )
+            exit_with_error("Block JSON must have an 'id' field.", status=1)
 
         block_type = new_block.get("type")
         if not block_type:
-            exit_with_error(
-                "Block JSON must have a 'type' field.", code="invalid_input", status=1
-            )
+            exit_with_error("Block JSON must have a 'type' field.", status=1)
 
         if block_type not in _KNOWN_BLOCK_TYPES:
             warn(
@@ -463,7 +474,6 @@ def add_block(
             exit_with_error(
                 f"Agent '{agent_id}' is type '{agent_type}', not STRUCTURED_AGENT. "
                 "Block graphs require STRUCTURED_AGENT — blocks silently vanish on other types.",
-                code="wrong_agent_type",
                 details=[
                     "Fix: dku agent create NAME --type STRUCTURED_AGENT -P PROJ",
                     "Then add blocks to the new agent instead.",
@@ -484,7 +494,6 @@ def add_block(
         if block_errors:
             exit_with_error(
                 block_errors[0],
-                code="invalid_block",
                 status=1,
             )
 
@@ -496,7 +505,6 @@ def add_block(
         if _find_block(agent_cfg, block_id) is not None:
             exit_with_error(
                 f"Block '{block_id}' already exists in agent '{agent_id}'.",
-                code="already_exists",
                 status=1,
             )
 
@@ -549,7 +557,6 @@ def remove_block(
         if len(agent_cfg["blocks"]) == original_len:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
-                code="not_found",
                 status=3,
             )
 
@@ -592,15 +599,11 @@ def connect_blocks(
 
         source = _find_block(agent_cfg, from_id)
         if source is None:
-            exit_with_error(
-                f"Source block '{from_id}' not found.", code="not_found", status=3
-            )
+            exit_with_error(f"Source block '{from_id}' not found.", status=3)
 
         target = _find_block(agent_cfg, to_id)
         if target is None:
-            exit_with_error(
-                f"Target block '{to_id}' not found.", code="not_found", status=3
-            )
+            exit_with_error(f"Target block '{to_id}' not found.", status=3)
 
         block_type = source.get("type", "")
         if block_type == "PYTHON_CODE":
@@ -608,7 +611,6 @@ def connect_blocks(
                 f"Cannot wire PYTHON_CODE blocks with 'connect' — nextBlock is ignored by DSS. "
                 f'Declare \'validNextBlocksFromCode: ["{to_id}"]\' in the block JSON and yield NextBlock("{to_id}") '
                 f"from process(). Use 'dku agent-block set-graph' to push the full graph.",
-                code="unsupported_block_type",
                 status=1,
             )
 
@@ -641,9 +643,7 @@ def disconnect_block(
 
         block = _find_block(agent_cfg, block_id)
         if block is None:
-            exit_with_error(
-                f"Block '{block_id}' not found.", code="not_found", status=3
-            )
+            exit_with_error(f"Block '{block_id}' not found.", status=3)
 
         block_type = block.get("type", "")
         if block_type == "PYTHON_CODE":
@@ -651,7 +651,6 @@ def disconnect_block(
                 "Cannot disconnect PYTHON_CODE blocks with 'disconnect' — nextBlock is ignored by DSS. "
                 "Remove 'validNextBlocksFromCode' and the NextBlock() yield from process(). "
                 "Use 'dku agent-block set-graph' to push the full graph.",
-                code="unsupported_block_type",
                 status=1,
             )
         if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
@@ -683,7 +682,6 @@ def set_start(
         if _find_block(agent_cfg, block_id) is None:
             exit_with_error(
                 f"Block '{block_id}' not found in agent '{agent_id}'.",
-                code="not_found",
                 status=3,
             )
 
@@ -708,7 +706,6 @@ def set_mode(
     if mode not in ("SIMPLE", "BLOCKS_GRAPH"):
         exit_with_error(
             f"Invalid mode '{mode}'. Must be SIMPLE or BLOCKS_GRAPH.",
-            code="invalid_input",
             status=1,
         )
     try:
@@ -738,10 +735,9 @@ def get_graph(
     version: str | None = typer.Option(
         None, "--version", help="Version ID (default: active)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Dump the full block graph definition (auto-detects settings key)."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         settings, raw, agent_cfg, version_id = _fetch_settings(
             ctx, agent_id, project, version
@@ -770,9 +766,7 @@ def set_graph(
     try:
         new_agent_cfg = read_json_input(definition)
         if not new_agent_cfg:
-            exit_with_error(
-                "Definition JSON cannot be empty.", code="invalid_input", status=1
-            )
+            exit_with_error("Definition JSON cannot be empty.", status=1)
 
         # Silent-failure fixes: inject functionName on PYTHON_CODE, rename
         # outputScratchpadKey -> outputKey. Warn loudly so agents see the fix.
@@ -785,7 +779,6 @@ def set_graph(
         if block_errors:
             exit_with_error(
                 block_errors[0],
-                code="invalid_block",
                 status=1,
                 details=block_errors[1:] if len(block_errors) > 1 else None,
             )

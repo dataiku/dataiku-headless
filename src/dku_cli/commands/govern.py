@@ -40,10 +40,9 @@ app.add_typer(govern_user.app, name="user")
 @app.command()
 def whoami(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show current authenticated Govern user."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         auth_info = govern.get_auth_info()
@@ -57,10 +56,9 @@ def whoami(
 @app.command()
 def info(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show Govern instance information."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         inst = govern.get_instance_info()

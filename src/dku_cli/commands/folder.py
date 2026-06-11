@@ -50,7 +50,6 @@ def create(
         "--if-not-exists",
         help="Skip if a folder with this name already exists",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new managed folder.
 
@@ -60,7 +59,7 @@ def create(
     Workflow: create folder → upload files → create-dataset → recipe create-embed-docs
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("table", "json"), default="table")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -104,7 +103,6 @@ def create(
         if is_already_exists_error(e):
             exit_with_error(
                 f"Managed folder '{name}' already exists in {project_key}.",
-                code="already_exists",
                 details=[
                     f'Use --if-not-exists to skip: dku folder create "{name}" --if-not-exists -P {project_key}',
                     f"List folders: dku folder list -P {project_key}",
@@ -123,11 +121,10 @@ def create(
         if folder_refused:
             exit_with_error(
                 f"Connection '{connection}' cannot host managed folders in {project_key}.",
-                code="connection_not_allowed",
                 details=[
                     "Find a connection that accepts managed folders:",
-                    f"  dku folder list -P {project_key} -o json | jq -r '.[0].params.connection'  (reuse what an existing folder uses)",
-                    '  dku connection list -o json | jq -r \'.[] | select(.type | IN("Filesystem","S3","GCS","Azure","HDFS")) | .name\'',
+                    f"  dku --format json folder list -P {project_key} | jq -r '.[0].params.connection'  (reuse what an existing folder uses)",
+                    '  dku --format json connection list | jq -r \'.[] | select(.type | IN("Filesystem","S3","GCS","Azure","HDFS")) | .name\'',
                     f"Then retry with: dku folder create {name} -c <ALLOWED_CONN> -P {project_key}",
                 ],
             )
@@ -219,11 +216,10 @@ def get(
     ctx: typer.Context,
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get managed folder settings (name, type, connection, path)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("table", "json"), default="table")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -244,7 +240,6 @@ def get(
             render(
                 data,
                 ["field", "value"],
-                output_format="table",
                 title=f"Folder: {raw.get('name', folder_ref)}",
             )
     except Exception as e:
@@ -256,7 +251,6 @@ def get_definition(
     ctx: typer.Context,
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full managed-folder definition as JSON.
 
@@ -264,7 +258,7 @@ def get_definition(
     Parallel to `dku dataset get-definition` and `dku recipe get-definition`.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -374,12 +368,10 @@ def create_dataset(
     if (sheet or sheet_index is not None) and format and format.lower() != "excel":
         exit_with_error(
             f"--sheet/--sheet-index is only valid with --format excel (got '{format}').",
-            code="invalid_argument",
         )
     if sheet and sheet_index is not None:
         exit_with_error(
             "Pass either --sheet NAME or --sheet-index N, not both.",
-            code="invalid_argument",
         )
     excel_implied = bool(sheet or sheet_index is not None)
     if excel_implied and not format:
@@ -466,7 +458,6 @@ def create_dataset(
         if is_already_exists_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' already exists in {project_key}.",
-                code="already_exists",
                 details=[
                     f"Choose a different name or delete it first: dku dataset delete {dataset_name} -P {project_key}",
                 ],
@@ -478,11 +469,10 @@ def create_dataset(
 def list_folders(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List managed folders in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -515,11 +505,10 @@ def ls(
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),
     prefix: str = typer.Option("/", "--prefix", help="Path prefix to list"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List contents of a managed folder."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -903,7 +892,6 @@ def decompress(
         help="Delete the archive after extraction",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Extract a zip archive inside a managed folder.
 
@@ -917,7 +905,7 @@ def decompress(
     Example: dku folder decompress FOLDER_ID /Places.zip -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("table", "json"), default="table")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -939,7 +927,6 @@ def decompress(
         if not zipfile.is_zipfile(archive_data):
             exit_with_error(
                 f"'{archive_path}' is not a valid zip file.",
-                code="invalid_archive",
                 details=[
                     "Only .zip archives are supported.",
                     f"Check file: dku folder ls {folder_ref} -P {project_key}",

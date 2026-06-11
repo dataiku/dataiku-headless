@@ -18,7 +18,9 @@ def test_llm_list(patch_client):
 
 
 def test_llm_list_json(patch_client):
-    result = runner.invoke(app, ["llm", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "llm", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "llm1"
@@ -52,7 +54,17 @@ def test_llm_completion(patch_client):
 
 def test_llm_completion_json(patch_client):
     result = runner.invoke(
-        app, ["llm", "completion", "llm1", "Hello", "--project", "PROJ1", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "llm",
+            "completion",
+            "llm1",
+            "Hello",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -146,11 +158,11 @@ def test_llm_embeddings_rejects_non_embedding_model(patch_client):
     assert "TEXT_EMBEDDING_EXTRACTION" in result.output
 
 
-def test_llm_embeddings_json_error_payload_is_single_document(patch_client):
+def test_llm_embeddings_error_is_prescriptive_text_on_stderr(patch_client):
     result = runner.invoke(
         app,
         [
-            "--errors",
+            "--format",
             "json",
             "llm",
             "embeddings",
@@ -163,11 +175,8 @@ def test_llm_embeddings_json_error_payload_is_single_document(patch_client):
     )
     assert result.exit_code == 1
     assert result.stdout == ""
-    parsed = json.loads(result.stderr)
-    assert parsed["error"]["code"] == "invalid_llm_purpose"
-    assert parsed["error"]["details"] == [
-        "Requested LLM ID: azureopenai:Azure_AI_Connection:4o"
-    ]
+    assert "dku llm list --purpose TEXT_EMBEDDING_EXTRACTION" in result.stderr
+    assert "Requested LLM ID: azureopenai:Azure_AI_Connection:4o" in result.stderr
 
 
 # --- completion --json-schema ---
@@ -263,6 +272,8 @@ def test_llm_rerank_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "llm",
             "rerank",
             "llm1",
@@ -274,8 +285,6 @@ def test_llm_rerank_json(patch_client):
             "Sushi",
             "-P",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

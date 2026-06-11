@@ -18,7 +18,7 @@ def test_connection_list(patch_client):
 
 
 def test_connection_list_json(patch_client):
-    result = runner.invoke(app, ["connection", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "connection", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -74,7 +74,7 @@ def test_connection_get(patch_client):
 
 def test_connection_get_json(patch_client):
     result = runner.invoke(
-        app, ["connection", "get", "filesystem_managed", "-o", "json"]
+        app, ["--format", "json", "connection", "get", "filesystem_managed"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -122,7 +122,15 @@ def test_connection_schemas_json(patch_client):
     """JSON output returns raw schema list."""
     result = runner.invoke(
         app,
-        ["connection", "schemas", "my_postgres", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "connection",
+            "schemas",
+            "my_postgres",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -200,7 +208,15 @@ def test_connection_tables_json(patch_client):
     """JSON output returns raw table list."""
     result = runner.invoke(
         app,
-        ["connection", "tables", "my_postgres", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "connection",
+            "tables",
+            "my_postgres",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

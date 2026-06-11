@@ -59,7 +59,6 @@ def create(
                 f"Sign-off step '{step_id}' is not the artifact's current "
                 f"workflow step ('{current}'). DSS only allows sign-off "
                 "creation on the active step.",
-                code="workflow_step_mismatch",
                 details=[
                     "Advance the workflow first, then re-run sign-off create.",
                     "",
@@ -95,10 +94,9 @@ def create(
 def list_signoffs(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID (e.g. ar.5)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List sign-offs for an artifact."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -129,10 +127,9 @@ def get(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID (e.g. exploration)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get sign-off details for an artifact workflow step."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -293,10 +290,9 @@ def list_feedbacks(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all feedbacks for a sign-off step."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -331,10 +327,9 @@ def get_feedback(
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID"),
     feedback_id: str = typer.Argument(help="Feedback ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a specific feedback review from a sign-off."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -353,10 +348,9 @@ def get_approval(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID"),
     step_id: str = typer.Argument(help="Workflow step ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the current approval for a sign-off step."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)

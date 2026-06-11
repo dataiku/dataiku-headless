@@ -6,7 +6,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS notebooks (Jupyter and SQL).")
 
@@ -21,11 +21,10 @@ def list_notebooks(
         help="Filter by type: jupyter, sql (default: all)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List notebooks in a project. Combines Jupyter and SQL notebooks."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -60,11 +59,10 @@ def get(
     ctx: typer.Context,
     name: str = typer.Argument(help="Jupyter notebook name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a Jupyter notebook's content."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -101,6 +99,7 @@ def create(
         }
         proj.create_jupyter_notebook(name, default_content)
         success(f"Created notebook '{name}' in {project_key}")
+        hint(f"dku notebook get {name} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -140,11 +139,10 @@ def delete(
 def sessions(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List running notebook sessions."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -230,11 +228,10 @@ def history(
     ctx: typer.Context,
     name: str = typer.Argument(help="SQL notebook name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show execution history of a SQL notebook."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

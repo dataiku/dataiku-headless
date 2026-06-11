@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.commands._options import OutputOption, ProjectOption, YesOption
+from dku_cli.commands._options import ProjectOption, YesOption
 from dku_cli.errors import exit_with_error, handle_errors
 from dku_cli.helpers import get_client_from_ctx, resolve_project
 from dku_cli.output import (
@@ -25,11 +25,10 @@ app = typer.Typer(help="Manage DSS visual analyses (lab).")
 def list_analyses(
     ctx: typer.Context,
     project: ProjectOption = None,
-    output: OutputOption = None,
 ) -> None:
     """List visual analyses in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     client = get_client_from_ctx(ctx)
     proj = client.get_project(project_key)
     analyses = proj.list_analyses()
@@ -57,11 +56,10 @@ def create(
     ctx: typer.Context,
     dataset: str = typer.Argument(help="Input dataset name"),
     project: ProjectOption = None,
-    output: OutputOption = None,
 ) -> None:
     """Create a new visual analysis for a dataset."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     client = get_client_from_ctx(ctx)
     proj = client.get_project(project_key)
     analysis = proj.create_analysis(dataset)
@@ -76,11 +74,10 @@ def get(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     project: ProjectOption = None,
-    output: OutputOption = None,
 ) -> None:
     """Show visual analysis definition."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     client = get_client_from_ctx(ctx)
     proj = client.get_project(project_key)
     analysis = proj.get_analysis(analysis_id)
@@ -119,7 +116,6 @@ def tasks(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     project: ProjectOption = None,
-    output: OutputOption = None,
 ) -> None:
     """List ML tasks in a visual analysis.
 
@@ -128,7 +124,7 @@ def tasks(
     """
 
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     client = get_client_from_ctx(ctx)
     proj = client.get_project(project_key)
     analysis = proj.get_analysis(analysis_id)
@@ -146,7 +142,6 @@ def tasks(
         exit_with_error(
             f"Unexpected list_ml_tasks() shape for analysis '{analysis_id}': "
             f"got {type(ml_tasks).__name__}.",
-            code="api_shape",
             details=[
                 "Workaround: call dku ml status / models with the mltask_id directly.",
                 f"  dku ml status <ANALYSIS> <MLTASK> -P {project_key}",

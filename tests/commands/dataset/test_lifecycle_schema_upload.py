@@ -150,7 +150,8 @@ def test_dataset_get_definition(patch_client):
 
 def test_dataset_get_definition_with_output_flag(patch_client):
     result = runner.invoke(
-        app, ["dataset", "get-definition", "ds1", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "dataset", "get-definition", "ds1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

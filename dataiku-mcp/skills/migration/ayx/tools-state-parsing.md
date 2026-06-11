@@ -62,7 +62,7 @@ A vanilla `--compute 'avg:Value:r3mo' --window-frame -2,0` yields 209, not 212.
        --partition-key Region --order-key rec_id \
        --compute 'lag:Value:' --compute 'first:Value:'
    # Patch payload.values[] for column "Value": lag=true, lagValues="1,2", first=true
-   dku recipe get-settings w3 -P PROJ -o json > /tmp/w3.json
+   dku --format json recipe get-settings w3 -P PROJ > /tmp/w3.json
    dku recipe set-settings w3 -P PROJ -s @/tmp/w3.json
    dku recipe apply-schema w3 -P PROJ && dku recipe run w3 -P PROJ --wait
    # → Value_lag1, Value_lag2, Value_first

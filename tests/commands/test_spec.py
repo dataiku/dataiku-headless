@@ -1,10 +1,9 @@
-"""Tests for DKU_AGENT_HELP — `--help` rendered as machine-readable spec JSON."""
+"""Tests for `--help` rendered as machine-readable spec JSON — always on."""
 
 from __future__ import annotations
 
 import json
 
-import pytest
 import typer
 from typer.main import get_command
 from typer.testing import CliRunner
@@ -22,17 +21,13 @@ def _click_command(build):
     return get_command(throwaway)
 
 
-@pytest.fixture
-def agent_help(monkeypatch):
-    monkeypatch.setenv("DKU_AGENT_HELP", "1")
-
-
-def test_root_help_lists_groups_and_global_options(agent_help):
+def test_root_help_lists_groups_and_global_options():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     spec = json.loads(result.stdout)
-    assert spec["tool"] == "dku"
-    assert spec["path"] == []
+    # no tool/version/path meta — it would repeat what the agent just typed
+    for key in ("tool", "version", "path"):
+        assert key not in spec
     assert "recipe" in spec["groups"]
     assert "dataset" in spec["groups"]
     assert "whoami" in spec["commands"]
@@ -41,14 +36,21 @@ def test_root_help_lists_groups_and_global_options(agent_help):
     assert any(o["opts"] == ["--url"] for o in spec["global_options"])
 
 
-def test_group_help_surfaces_child_command_signatures(agent_help):
+def test_bare_invocation_prints_root_spec():
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0
+    spec = json.loads(result.stdout)
+    assert "recipe" in spec["groups"]
+
+
+def test_group_help_surfaces_child_command_signatures():
     result = runner.invoke(app, ["recipe", "--help"])
     assert result.exit_code == 0
     spec = json.loads(result.stdout)
-    assert spec["path"] == ["recipe"]
     assert isinstance(spec["commands"], dict)
     create_join = spec["commands"]["create-join"]
-    assert create_join["name"] == "create-join"
+    # entries are keyed by command name; no redundant "name" field
+    assert "name" not in create_join
     assert "help" in create_join
     # Group help is terse: a usage signature string, not full option objects.
     assert isinstance(create_join["signature"], str)
@@ -58,7 +60,7 @@ def test_group_help_surfaces_child_command_signatures(agent_help):
     assert "--input" in create_join["signature"] or "-i" in create_join["signature"]
 
 
-def test_group_help_is_small(agent_help):
+def test_group_help_is_small():
     """The whole point of terse group help: even the 75-command recipe group
     must stay an order of magnitude smaller than full per-command detail."""
     result = runner.invoke(app, ["recipe", "--help"])
@@ -68,17 +70,17 @@ def test_group_help_is_small(agent_help):
     assert len(result.stdout) < 16000
 
 
-def test_command_help_has_args_and_options(agent_help):
+def test_command_help_has_args_and_options():
     result = runner.invoke(app, ["recipe", "create-join", "--help"])
     assert result.exit_code == 0
     spec = json.loads(result.stdout)
-    assert spec["path"] == ["recipe", "create-join"]
+    assert spec["name"] == "create-join"
     assert "arguments" in spec and "options" in spec
     flags = {o["opts"][0] for o in spec["options"] if o["opts"]}
     assert any(f.startswith("--") for f in flags)
 
 
-def test_command_help_surfaces_enum_choices(agent_help):
+def test_command_help_surfaces_enum_choices():
     """Enum flags converted to click.Choice expose a `choices` array."""
     result = runner.invoke(app, ["recipe", "create-pivot", "--help"])
     spec = json.loads(result.stdout)
@@ -87,8 +89,8 @@ def test_command_help_surfaces_enum_choices(agent_help):
     assert "SUM" in by_name["agg_type"]["choices"]
 
 
-def test_scenario_python_env_mode_help_uses_canonical_choices(agent_help):
-    """Agent-help must not advertise DSS enum values that serialize to null."""
+def test_scenario_python_env_mode_help_uses_canonical_choices():
+    """Help must not advertise DSS enum values that serialize to null."""
     for command in ("add-step-python", "add-trigger-python"):
         result = runner.invoke(app, ["scenario", command, "--help"])
         assert result.exit_code == 0
@@ -104,7 +106,7 @@ def test_scenario_python_env_mode_help_uses_canonical_choices(agent_help):
         assert "USE_BUILTIN_ENV" not in result.stdout
 
 
-def test_help_text_has_no_rich_markup(agent_help):
+def test_help_text_has_no_rich_markup():
     result = runner.invoke(app, ["--help"])
     spec = json.loads(result.stdout)
     assert "[blue bold]" not in spec["help"]
@@ -112,29 +114,19 @@ def test_help_text_has_no_rich_markup(agent_help):
     assert "Developer CLI" in spec["help"]
 
 
-def test_agent_help_is_compact_by_default(agent_help):
+def test_help_is_compact():
     result = runner.invoke(app, ["recipe", "--help"])
     assert result.exit_code == 0
     payload = result.stdout.strip()
     assert "\n" not in payload
-    assert json.loads(payload)["path"] == ["recipe"]
+    assert "create-join" in json.loads(payload)["commands"]
 
 
-def test_compact_flag_still_works_with_agent_help(agent_help):
-    result = runner.invoke(app, ["--compact", "recipe", "--help"])
-    assert result.exit_code == 0
-    payload = result.stdout.strip()
-    assert "\n" not in payload
-    assert json.loads(payload)["path"] == ["recipe"]
-
-
-def test_help_is_human_text_when_env_unset(monkeypatch):
-    monkeypatch.delenv("DKU_AGENT_HELP", raising=False)
+def test_help_is_always_spec_json():
+    """--help always emits spec JSON; there is no human/agent help mode."""
     result = runner.invoke(app, ["recipe", "--help"])
     assert result.exit_code == 0
-    with pytest.raises(json.JSONDecodeError):
-        json.loads(result.stdout)
-    assert "Usage" in result.stdout
+    assert "create-join" in json.loads(result.stdout)["commands"]
 
 
 # --- idx 15: secondary opts for bool flags in usage strings ------------------

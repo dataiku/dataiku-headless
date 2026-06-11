@@ -6,7 +6,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS project folders.")
 
@@ -29,15 +29,14 @@ def _collect_tree(folder, depth=0):
 @app.command("list")
 def list_folders(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all project folders (recursive tree from root).
 
     Example:
       dku project-folder list
-      dku project-folder list -o json
+      dku project-folder list
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         root = client.get_root_project_folder()
@@ -68,7 +67,6 @@ def create(
     parent: str = typer.Option(
         "ROOT", "--parent", help="Parent folder ID (default: ROOT)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a project subfolder.
 
@@ -76,7 +74,7 @@ def create(
       dku project-folder create "Analytics"
       dku project-folder create "ML Models" --parent PARENT_FOLDER_ID
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         parent_folder = client.get_project_folder(parent)
@@ -89,6 +87,7 @@ def create(
             )
         else:
             success(f"Created project folder '{name}' (ID: {new_folder.id})")
+            hint("dku project-folder list")
     except typer.Exit:
         raise
     except Exception as e:

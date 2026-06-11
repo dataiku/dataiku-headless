@@ -27,7 +27,7 @@ def test_plugin_list_table(patch_client):
 
 
 def test_plugin_list_json(patch_client):
-    result = runner.invoke(app, ["plugin", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "plugin", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
@@ -197,7 +197,7 @@ def test_plugin_recipes_introspects_dev_plugin(patch_client):
     ]
     patch_client.get_plugin.return_value = plugin_obj
 
-    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "plugin", "recipes"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert any(row["type"] == "CustomCode_extract-table" for row in parsed)
@@ -256,7 +256,7 @@ def test_plugin_get_table(patch_client):
 def test_plugin_get_json(patch_client):
     _mock_plugin_with_settings(patch_client)
 
-    result = runner.invoke(app, ["plugin", "get", "my-plugin", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "plugin", "get", "my-plugin"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "my-plugin"
@@ -348,7 +348,7 @@ def test_plugin_create_code_env_json(patch_client):
     patch_client.get_plugin.return_value = plugin_obj
 
     result = runner.invoke(
-        app, ["plugin", "create-code-env", "my-plugin", "-o", "json"]
+        app, ["--format", "json", "plugin", "create-code-env", "my-plugin"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -395,7 +395,7 @@ def test_plugin_create_code_env_idempotent_skip_json(patch_client):
     patch_client.get_plugin.return_value = plugin_obj
 
     result = runner.invoke(
-        app, ["plugin", "create-code-env", "my-plugin", "-o", "json"]
+        app, ["--format", "json", "plugin", "create-code-env", "my-plugin"]
     )
     assert result.exit_code == 0
     plugin_obj.create_code_env.assert_not_called()
@@ -506,7 +506,7 @@ def test_plugin_usages_json(patch_client):
     plugin_obj.list_usages.return_value = usage_obj
     patch_client.get_plugin.return_value = plugin_obj
 
-    result = runner.invoke(app, ["plugin", "usages", "my-plugin", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "plugin", "usages", "my-plugin"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["usages"][0]["projectKey"] == "PROJ1"
@@ -618,7 +618,7 @@ def test_plugin_recipes_with_components(patch_client):
         }
     ]
     patch_client.get_plugin.return_value = plugin_mock
-    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "plugin", "recipes"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     types = [r["type"] for r in parsed]
@@ -674,7 +674,7 @@ def test_plugin_recipes_json_output(patch_client):
         }
     ]
     patch_client.get_plugin.return_value = plugin_mock
-    result = runner.invoke(app, ["plugin", "recipes", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "plugin", "recipes"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -700,7 +700,9 @@ def test_plugin_list_files(patch_client):
 
 
 def test_plugin_list_files_json(patch_client):
-    result = runner.invoke(app, ["plugin", "list-files", "my-plugin", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "plugin", "list-files", "my-plugin"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2

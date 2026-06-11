@@ -1,4 +1,14 @@
-"""Unified output formatting: table, json, csv."""
+"""Agent-first output. Dense by default; --format json|csv|ids|quiet to override.
+
+Default rendering (no --format):
+  - lists  → TSV: one header row of column keys, then rows. Leanest parseable
+    shape — headers once, values after, no padding, no truncation.
+  - single objects → compact JSON (inherently nested).
+
+Data goes to stdout. Messages, hints, and list titles go to stderr, so stdout
+is always safe to pipe. ``quiet`` keeps the data and silences stderr chatter;
+``ids`` emits one identifier per line for piping.
+"""
 
 from __future__ import annotations
 
@@ -7,23 +17,53 @@ import io
 import json
 from typing import Any, Sequence
 
-import typer
 from rich.console import Console
-from rich.table import Table
 from rich.tree import Tree
 
 from dku_cli.brand import ICON
 
-console = Console()
-err_console = Console(stderr=True)
+# soft_wrap: never hard-wrap messages at terminal width — wrapped commands
+# can't be copy-pasted and break line-based parsing.
+console = Console(soft_wrap=True)
+err_console = Console(stderr=True, soft_wrap=True)
 
 _quiet = False
-_compact = False
-_error_format = "text"
+_output_format = "dense"
+
+# "dense" is the implicit default, never a flag value.
+OUTPUT_FORMATS = ("json", "csv", "ids", "quiet")
+
+
+def set_output_format(value: str | None) -> None:
+    """Set the invocation-wide output format. None restores the dense default."""
+    global _output_format, _quiet
+    if value is None:
+        _output_format = "dense"
+        return
+    normalized = value.strip().lower()
+    if normalized not in OUTPUT_FORMATS:
+        raise ValueError(f"Output format must be one of: {', '.join(OUTPUT_FORMATS)}")
+    _output_format = normalized
+    if normalized in ("quiet", "ids"):
+        _quiet = True
+
+
+def get_output_format() -> str:
+    """Return the active invocation-wide output format."""
+    return _output_format
+
+
+def resolve_output_format() -> str:
+    """The format a command should branch on: dense, json, csv, ids, or quiet.
+
+    Dense (and quiet/ids) callers take their lean summary path; ``json``
+    callers may emit a richer raw payload.
+    """
+    return _output_format
 
 
 def set_quiet(value: bool) -> None:
-    """Enable/disable quiet mode (suppresses info/success/warn on stderr)."""
+    """Enable/disable quiet mode (suppresses info/success/warn/hint on stderr)."""
     global _quiet
     _quiet = value
 
@@ -33,41 +73,16 @@ def is_quiet() -> bool:
     return _quiet
 
 
-def set_compact(value: bool) -> None:
-    """Enable/disable compact mode (minimal JSON, no indentation)."""
-    global _compact
-    _compact = value
-
-
-def is_compact() -> bool:
-    """Check if compact mode is active."""
-    return _compact
-
-
-def set_error_format(value: str) -> None:
-    """Configure how errors are rendered ('text' or 'json')."""
-    if value not in ("text", "json"):
-        raise ValueError(f"Error format must be 'text' or 'json', got {value!r}")
-    global _error_format
-    _error_format = value
-
-
-def get_error_format() -> str:
-    """Return the active error rendering mode."""
-    return _error_format
-
-
 def reset_output_modes() -> None:
     """Restore all output-mode globals to their defaults.
 
-    The single authoritative reset for quiet/compact/error-format — used by
-    the test harness between tests, and the right hook for any embedder that
-    runs multiple CLI invocations in one process. Adding a new output-mode
-    global? Reset it here, or it WILL leak across invocations.
+    The single authoritative reset — used by the test harness between tests,
+    and the right hook for any embedder that runs multiple CLI invocations in
+    one process. Adding a new output-mode global? Reset it here, or it WILL
+    leak across invocations.
     """
+    set_output_format(None)
     set_quiet(False)
-    set_compact(False)
-    set_error_format("text")
 
 
 def filter_fields(
@@ -87,100 +102,59 @@ def filter_fields(
     return filtered, wanted
 
 
-def resolve_output_format(
-    output_format: str | None,
-    *,
-    allowed: Sequence[str] = ("table", "json", "csv"),
-    default: str | None = None,
-) -> str:
-    """Resolve an output format from CLI input and persisted config."""
-    if output_format is not None:
-        resolved = output_format.lower()
-        if resolved not in allowed:
-            raise typer.BadParameter(
-                f"Output format must be one of: {', '.join(allowed)}"
-            )
-        return resolved
-
-    from dku_cli.config import get_default_output
-
-    configured = str(get_default_output()).strip().lower()
-    if configured in allowed:
-        return configured
-
-    return (default or allowed[0]).lower()
-
-
 def render(
     data: Sequence[dict[str, Any]],
     columns: list[str],
     *,
-    output_format: str = "table",
+    output_format: str | None = None,
     title: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> None:
-    """Render data in the requested format.
+    """Render list-shaped data.
 
     Args:
         data: List of dicts to display.
         columns: Keys to include, in order.
-        output_format: "table", "json", or "csv".
-        title: Optional table title.
-        headers: Optional display name mapping {key: "Display Name"}.
+        output_format: Explicit override; defaults to the invocation format.
+        title: Context line (counts, scope) — printed to stderr, never stdout.
+        headers: Display name mapping {key: "Display Name"}, used by csv only.
     """
-    if output_format == "json":
-        _render_json(data, columns)
-    elif output_format == "csv":
-        _render_csv(data, columns, headers)
+    fmt = output_format or _output_format
+    if fmt == "json":
+        filtered = [{k: row.get(k, "") for k in columns} for row in data]
+        print(json.dumps(filtered, indent=2, default=str))
+    elif fmt == "csv":
+        _render_delimited(data, columns, headers=headers, delimiter=",")
+    elif fmt == "ids":
+        for row in data:
+            print(str(row.get(columns[0], "")))
     else:
-        _render_table(data, columns, title=title, headers=headers)
+        if title:
+            info(title)
+        _render_delimited(data, columns, headers=None, delimiter="\t")
 
 
-def _render_table(
+def render_raw(data: Any, output_format: str | None = None) -> None:
+    """Render a single object: compact JSON by default, indented under --format json."""
+    fmt = output_format or _output_format
+    if fmt == "json":
+        print(json.dumps(data, indent=2, default=str))
+    elif isinstance(data, (dict, list)):
+        print(json.dumps(data, default=str, separators=(",", ":")))
+    else:
+        print(str(data))
+
+
+def _render_delimited(
     data: Sequence[dict[str, Any]],
     columns: list[str],
     *,
-    title: str | None = None,
     headers: dict[str, str] | None = None,
-) -> None:
-    headers = headers or {}
-    # Print the title as a separate line above the table. Rich's built-in
-    # Table(title=...) wraps the title into the table's own content width,
-    # which renders horribly for narrow single-column results where the title
-    # is longer than the data.
-    if title:
-        console.print(title)
-    table = Table(show_lines=False)
-    for col in columns:
-        table.add_column(headers.get(col, col.upper()))
-    for row in data:
-        table.add_row(*[str(row.get(col, "")) for col in columns])
-    console.print(table)
-
-
-def _render_json(
-    data: Sequence[dict[str, Any]],
-    columns: list[str],
-) -> None:
-    if _compact:
-        filtered = [
-            {k: row[k] for k in columns if k in row and row[k] not in ("", None)}
-            for row in data
-        ]
-        print(json.dumps(filtered, default=str, separators=(",", ":")))
-    else:
-        filtered = [{k: row.get(k, "") for k in columns} for row in data]
-        print(json.dumps(filtered, indent=2, default=str))
-
-
-def _render_csv(
-    data: Sequence[dict[str, Any]],
-    columns: list[str],
-    headers: dict[str, str] | None = None,
+    delimiter: str,
 ) -> None:
     headers = headers or {}
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, delimiter=delimiter, lineterminator="\n")
     writer.writerow([headers.get(c, c) for c in columns])
     for row in data:
         writer.writerow([str(row.get(c, "")) for c in columns])
@@ -204,6 +178,11 @@ def warn(msg: str) -> None:
 def info(msg: str) -> None:
     if not _quiet:
         err_console.print(f"[dim]{msg}[/dim]")
+
+
+def hint(next_command: str) -> None:
+    if not _quiet:
+        err_console.print(f"[dim]Next: {next_command}[/dim]")
 
 
 def print_text(text: str) -> None:
@@ -250,25 +229,3 @@ def render_dag(nodes: dict[str, Any], title: str) -> None:
     for src in sources:
         add_branch(root, src)
     console.print(root)
-
-
-def render_raw(data: Any, output_format: str = "json") -> None:
-    """Render a single dict/list. JSON: dumps. Table: key-value pairs or auto-detected columns."""
-    if output_format == "json":
-        if _compact:
-            print(json.dumps(data, default=str, separators=(",", ":")))
-        else:
-            print(json.dumps(data, indent=2, default=str))
-    else:
-        if isinstance(data, dict):
-            rows = [{"key": k, "value": str(v)} for k, v in data.items()]
-            render(rows, ["key", "value"], output_format="table")
-        elif isinstance(data, list) and data and isinstance(data[0], dict):
-            # Auto-detect columns from first item for table rendering
-            columns = list(data[0].keys())
-            rows = [{k: str(v) for k, v in item.items()} for item in data]
-            render(rows, columns, output_format="table")
-        elif isinstance(data, list):
-            print(json.dumps(data, indent=2, default=str))
-        else:
-            print(str(data))

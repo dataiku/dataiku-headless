@@ -37,7 +37,7 @@ def test_list(patch_client):
 
 def test_list_json(patch_client):
     result = runner.invoke(
-        app, ["agent-hub", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent-hub", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -59,7 +59,7 @@ def test_config(patch_client):
 
 def test_config_json(patch_client):
     result = runner.invoke(
-        app, ["agent-hub", "config", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent-hub", "config", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

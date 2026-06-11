@@ -62,7 +62,9 @@ def test_webapp_list(patch_client):
 
 
 def test_webapp_list_json(patch_client):
-    result = runner.invoke(app, ["webapp", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "webapp", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "webapp1"
@@ -138,7 +140,7 @@ def test_webapp_status(patch_client):
 
 def test_webapp_status_json(patch_client):
     result = runner.invoke(
-        app, ["webapp", "status", "webapp1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "webapp", "status", "webapp1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -160,7 +162,16 @@ def test_webapp_get_definition(patch_client):
 
 def test_webapp_get_definition_json_flag(patch_client):
     result = runner.invoke(
-        app, ["webapp", "get-definition", "webapp1", "--project", "PROJ1", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "webapp",
+            "get-definition",
+            "webapp1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -250,7 +261,7 @@ def test_webapp_logs_tail_rejects_zero(patch_client):
 def test_webapp_logs_json_output(patch_client):
     """-o json emits the structured payload with all metadata."""
     result = runner.invoke(
-        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "webapp", "logs", "webapp1", "-P", "PROJ1"]
     )
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -266,7 +277,8 @@ def test_webapp_logs_json_output(patch_client):
 def test_webapp_logs_json_with_tail(patch_client):
     """--tail filters the JSON lines too; serverTailSize stays accurate."""
     result = runner.invoke(
-        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json", "--tail", "2"]
+        app,
+        ["--format", "json", "webapp", "logs", "webapp1", "-P", "PROJ1", "--tail", "2"],
     )
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -278,7 +290,7 @@ def test_webapp_logs_json_with_tail(patch_client):
 def test_webapp_logs_follow_rejects_json(patch_client):
     """--follow cannot combine with -o json (text-only streaming)."""
     result = runner.invoke(
-        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-f", "-o", "json"]
+        app, ["--format", "json", "webapp", "logs", "webapp1", "-P", "PROJ1", "-f"]
     )
     assert result.exit_code != 0
     assert "cannot be combined" in result.output
@@ -343,7 +355,7 @@ def test_webapp_logs_crash_tail_json(patch_client):
         },
     }
     result = runner.invoke(
-        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "webapp", "logs", "webapp1", "-P", "PROJ1"]
     )
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -427,7 +439,7 @@ def test_webapp_logs_running_but_no_tail_yet(patch_client):
     state.running = True
     state.state = {"projectKey": "PROJ1", "webAppId": "webapp1"}
     result = runner.invoke(
-        app, ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "webapp", "logs", "webapp1", "-P", "PROJ1"]
     )
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -451,7 +463,17 @@ def test_webapp_logs_grep_json(patch_client):
     """--grep narrows the JSON lines; serverTailSize reflects the full tail."""
     result = runner.invoke(
         app,
-        ["webapp", "logs", "webapp1", "-P", "PROJ1", "-o", "json", "--grep", "INFO"],
+        [
+            "--format",
+            "json",
+            "webapp",
+            "logs",
+            "webapp1",
+            "-P",
+            "PROJ1",
+            "--grep",
+            "INFO",
+        ],
     )
     assert result.exit_code == 0
     payload = json.loads(result.output)

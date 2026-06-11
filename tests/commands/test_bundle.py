@@ -19,7 +19,9 @@ def test_bundle_list_table(patch_client):
 
 
 def test_bundle_list_json(patch_client):
-    result = runner.invoke(app, ["bundle", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "bundle", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2

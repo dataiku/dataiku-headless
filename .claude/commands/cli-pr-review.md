@@ -59,8 +59,7 @@ TASK:
 2. Create and upload test data (generate a CSV with columns relevant to the test)
 3. <INSERT specific test scenarios derived from the PR diff>
 4. Build each recipe and verify output with `dku dataset head`
-5. Delete project: `uv run dku project delete CLI_PR_TEST --confirm`
-   If deletion fails or the subagent exits early, run manually: `echo y | uv run dku project delete CLI_PR_TEST -P CLI_PR_TEST`
+5. Delete project: `uv run dku project delete CLI_PR_TEST --yes --confirm-name CLI_PR_TEST`
 
 REPORT at the end:
 - Which commands succeeded
@@ -102,4 +101,4 @@ Produce a structured review:
 - **The subagent is the test.** If it can't figure out the command from the skill + --help, a real agent won't either.
 - **Real DSS, not mocks.** Unit tests miss payload format issues, property restrictions, and server-side validation.
 - **Minimal context = honest test.** The subagent shouldn't know how the code works internally.
-- **Clean up after yourself.** Always delete CLI_PR_TEST at the end.
+- **Clean up after yourself.** Always delete CLI_PR_TEST at the end. If the subagent exits early, run the delete command yourself.

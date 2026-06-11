@@ -57,7 +57,7 @@ for c in df.select_dtypes(include=['object']).columns:
 df.to_csv('source.csv', index=False)
 ```
 
-After `dku dataset upload + set-schema`, sanity-check with `dku dataset head <ds> -P PROJ -n 3 -o json` and confirm the id values are populated (not `null`). If they're null, the float-formatted-to-bigint silent cast happened — re-run the conversion with the `Int64` cast in place.
+After `dku dataset upload + set-schema`, sanity-check with `dku --format json dataset head <ds> -P PROJ -n 3` and confirm the id values are populated (not `null`). If they're null, the float-formatted-to-bigint silent cast happened — re-run the conversion with the `Int64` cast in place.
 
 ### Python-in-SAS
 

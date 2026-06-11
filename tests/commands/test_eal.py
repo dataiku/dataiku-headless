@@ -43,7 +43,7 @@ def _eal_mock(patch_client):
 
 def test_eal_list_collections(patch_client):
     _eal_mock(patch_client)
-    result = runner.invoke(app, ["eal", "list-collections", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "eal", "list-collections"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert [c["id"] for c in parsed] == ["DATAIKU", "MY_ASSETS"]
@@ -51,7 +51,9 @@ def test_eal_list_collections(patch_client):
 
 def test_eal_list_prompts_restricts_collections(patch_client):
     eal, _, _ = _eal_mock(patch_client)
-    result = runner.invoke(app, ["eal", "list-prompts", "-c", "DATAIKU", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "eal", "list-prompts", "-c", "DATAIKU"]
+    )
     assert result.exit_code == 0
     eal.list_prompts.assert_called_once_with(restrict_collections=["DATAIKU"])
     parsed = json.loads(result.output)
@@ -62,7 +64,7 @@ def test_eal_list_prompts_restricts_collections(patch_client):
 def test_eal_get_prompt(patch_client):
     eal, collection, _ = _eal_mock(patch_client)
     result = runner.invoke(
-        app, ["eal", "get-prompt", "MY_ASSETS", "p_new", "-o", "json"]
+        app, ["--format", "json", "eal", "get-prompt", "MY_ASSETS", "p_new"]
     )
     assert result.exit_code == 0
     eal.get_collection.assert_called_once_with("MY_ASSETS")

@@ -19,7 +19,7 @@ def test_meaning_list_table(patch_client):
 
 
 def test_meaning_list_json(patch_client):
-    result = runner.invoke(app, ["meaning", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "meaning", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1

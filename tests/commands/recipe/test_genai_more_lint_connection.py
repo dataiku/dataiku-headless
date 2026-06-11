@@ -447,7 +447,15 @@ def test_recipe_lint_formula_json(patch_client):
     )
     result = runner.invoke(
         app,
-        ["recipe", "lint-formula", "my_prepare", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "recipe",
+            "lint-formula",
+            "my_prepare",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 1
     parsed = json.loads(result.output[result.output.index("{") :])
@@ -471,7 +479,8 @@ def test_recipe_lint_sql_clean(patch_client):
 def test_recipe_lint_sql_json_passed(patch_client):
     _set_recipe_status(patch_client, "SUCCESS", [], actual_type="sql_query")
     result = runner.invoke(
-        app, ["recipe", "lint-sql", "my_query", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "recipe", "lint-sql", "my_query", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output[result.output.index("{") :])

@@ -18,7 +18,7 @@ def test_admin_logs(patch_client):
 
 
 def test_admin_logs_json(patch_client):
-    result = runner.invoke(app, ["admin", "logs", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "admin", "logs"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["name"] == "backend.log"
@@ -38,7 +38,7 @@ def test_admin_usage(patch_client):
 
 
 def test_admin_usage_json(patch_client):
-    result = runner.invoke(app, ["admin", "usage", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "admin", "usage"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["projects"] == 10
@@ -52,7 +52,7 @@ def test_admin_instance_info(patch_client):
 
 
 def test_admin_instance_info_json(patch_client):
-    result = runner.invoke(app, ["admin", "instance-info", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "admin", "instance-info"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["nodeType"] == "DESIGN"
@@ -77,20 +77,32 @@ def test_admin_license_status(patch_client):
     assert "ENTERPRISE" in result.output
 
 
-def test_admin_license_upload_requires_yes(patch_client, tmp_path):
-    f = tmp_path / "license.json"
-    f.write_text('{"edition":"ENTERPRISE"}')
-    result = runner.invoke(app, ["admin", "license", "upload", str(f)])
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
-    # Confirm SDK was NOT called
-    patch_client.set_license.assert_not_called()
-
-
-def test_admin_license_upload_with_yes(patch_client, tmp_path):
+def test_admin_license_upload_blocks_without_admin_flags(patch_client, tmp_path):
     f = tmp_path / "license.json"
     f.write_text('{"edition":"ENTERPRISE"}')
     result = runner.invoke(app, ["admin", "license", "upload", str(f), "--yes"])
+    # Tier-4: --yes alone is not enough — needs --confirm-name + --i-know.
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
+    patch_client.set_license.assert_not_called()
+
+
+def test_admin_license_upload_with_full_authorization(patch_client, tmp_path):
+    f = tmp_path / "license.json"
+    f.write_text('{"edition":"ENTERPRISE"}')
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "license",
+            "upload",
+            str(f),
+            "--yes",
+            "--confirm-name",
+            "license",
+            "--i-know-what-im-doing",
+        ],
+    )
     assert result.exit_code == 0
     patch_client.set_license.assert_called_once()
 
@@ -147,7 +159,8 @@ def test_admin_sso_set_requires_lockout_ack(patch_client):
     patch_client.get_sso_settings.return_value.save.assert_not_called()
 
 
-def test_admin_sso_set_dry_run(patch_client):
+def test_admin_sso_set_blocks_without_admin_flags(patch_client):
+    # Lockout ack present, but tier-4 still needs --yes + --confirm-name + --i-know.
     result = runner.invoke(
         app,
         [
@@ -159,8 +172,8 @@ def test_admin_sso_set_dry_run(patch_client):
             "--i-understand-lockout-risk",
         ],
     )
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
     patch_client.get_sso_settings.return_value.save.assert_not_called()
 
 
@@ -174,6 +187,9 @@ def test_admin_sso_set_applied(patch_client):
             "-d",
             '{"enabled":true,"protocol":"SAML"}',
             "--yes",
+            "--confirm-name",
+            "sso",
+            "--i-know-what-im-doing",
             "--i-understand-lockout-risk",
         ],
     )
@@ -208,20 +224,32 @@ def test_admin_settings_get(patch_client):
     assert "impersonation" in result.output
 
 
-def test_admin_settings_set_requires_yes(patch_client):
+def test_admin_settings_set_blocks_without_admin_flags(patch_client):
     payload = (
         '{"dssVersion":"14.0.2","impersonation":{"rules":[]},"containerSettings":{}}'
     )
-    result = runner.invoke(app, ["admin", "settings", "set", "-d", payload])
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
+    result = runner.invoke(app, ["admin", "settings", "set", "-d", payload, "--yes"])
+    # Tier-4: --yes alone is blocked.
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
     patch_client.get_general_settings.return_value.save.assert_not_called()
 
 
+_SETTINGS_ADMIN_FLAGS = [
+    "--yes",
+    "--confirm-name",
+    "general-settings",
+    "--i-know-what-im-doing",
+]
+
+
 def test_admin_settings_set_rejects_partial_payload(patch_client):
-    # Missing 'containerSettings' and 'impersonation'
+    # Missing 'containerSettings' and 'impersonation' — partial check runs after
+    # the guard passes, so full tier-4 authorization is supplied here.
     partial = '{"dssVersion":"14.0.2"}'
-    result = runner.invoke(app, ["admin", "settings", "set", "-d", partial, "--yes"])
+    result = runner.invoke(
+        app, ["admin", "settings", "set", "-d", partial, *_SETTINGS_ADMIN_FLAGS]
+    )
     assert result.exit_code == 1
     assert "missing" in result.output.lower()
     patch_client.get_general_settings.return_value.save.assert_not_called()
@@ -229,7 +257,9 @@ def test_admin_settings_set_rejects_partial_payload(patch_client):
 
 def test_admin_settings_set_applied(patch_client):
     full = '{"dssVersion":"14.0.2","impersonation":{"rules":[]},"containerSettings":{}}'
-    result = runner.invoke(app, ["admin", "settings", "set", "-d", full, "--yes"])
+    result = runner.invoke(
+        app, ["admin", "settings", "set", "-d", full, *_SETTINGS_ADMIN_FLAGS]
+    )
     assert result.exit_code == 0
     patch_client.get_general_settings.return_value.save.assert_called_once()
 
@@ -239,15 +269,26 @@ def test_admin_settings_set_applied(patch_client):
 # =============================================================================
 
 
-def test_admin_users_sync_resync_all_requires_yes(patch_client):
-    result = runner.invoke(app, ["admin", "users-sync", "resync-all"])
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
+def test_admin_users_sync_resync_all_blocks_without_confirm_name(patch_client):
+    # Tier-3 cascade: --yes alone is not enough.
+    result = runner.invoke(app, ["admin", "users-sync", "resync-all", "--yes"])
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
     patch_client.start_resync_all_users_from_supplier.assert_not_called()
 
 
 def test_admin_users_sync_resync_all_yes(patch_client):
-    result = runner.invoke(app, ["admin", "users-sync", "resync-all", "--yes"])
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "users-sync",
+            "resync-all",
+            "--yes",
+            "--confirm-name",
+            "resync-all",
+        ],
+    )
     assert result.exit_code == 0
     patch_client.start_resync_all_users_from_supplier.assert_called_once()
 
@@ -294,8 +335,8 @@ def test_admin_messaging_create_requires_yes(patch_client):
             '{"host":"smtp.example.com"}',
         ],
     )
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
     patch_client.create_messaging_channel.assert_not_called()
 
 
@@ -321,8 +362,8 @@ def test_admin_messaging_create_yes(patch_client):
 
 def test_admin_infra_push_base_images_requires_yes(patch_client):
     result = runner.invoke(app, ["admin", "infra", "push-base-images"])
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
     patch_client.push_base_images.assert_not_called()
 
 
@@ -368,7 +409,8 @@ def _wire_cst_template_settings(patch_client, blocks=None):
 def test_admin_cst_get_returns_raw_settings(patch_client):
     raw, _, _ = _wire_cst_template_settings(patch_client)
     result = runner.invoke(
-        app, ["admin", "code-studio-template", "get", "GovernCopilot", "-o", "json"]
+        app,
+        ["--format", "json", "admin", "code-studio-template", "get", "GovernCopilot"],
     )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
@@ -387,7 +429,14 @@ def test_admin_cst_list_blocks(patch_client):
     )
     result = runner.invoke(
         app,
-        ["admin", "code-studio-template", "list-blocks", "GovernCopilot", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "admin",
+            "code-studio-template",
+            "list-blocks",
+            "GovernCopilot",
+        ],
     )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
@@ -712,7 +761,15 @@ def test_admin_cst_build_wait_genuine_failure_json_exits_nonzero(patch_client):
     )
     result = runner.invoke(
         app,
-        ["admin", "code-studio-template", "build", "tpl1", "--wait", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "admin",
+            "code-studio-template",
+            "build",
+            "tpl1",
+            "--wait",
+        ],
     )
     assert result.exit_code == 1, result.output
     assert "Dockerfile step failed" in result.output
@@ -764,12 +821,12 @@ def test_admin_cst_inspect_build_remote_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "admin",
             "code-studio-template",
             "inspect-build",
             "GovernCopilot",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -835,7 +892,7 @@ def test_admin_llm_cost_counters(patch_client):
 
 
 def test_admin_llm_cost_counters_json(patch_client):
-    result = runner.invoke(app, ["admin", "llm-cost", "counters", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "admin", "llm-cost", "counters"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["counters"][0]["id"] == "global-monthly"
@@ -858,15 +915,27 @@ def test_admin_llm_cost_get_found(patch_client):
 # =============================================================================
 
 
-def test_admin_messaging_delete_requires_yes(patch_client):
-    result = runner.invoke(app, ["admin", "messaging", "delete", "ops-smtp"])
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
+def test_admin_messaging_delete_blocks_without_confirm_name(patch_client):
+    # Tier-3 cascade: --yes alone is not enough; needs --confirm-name <channel>.
+    result = runner.invoke(app, ["admin", "messaging", "delete", "ops-smtp", "--yes"])
+    assert result.exit_code == 77
+    assert "BLOCKED" in result.output
     patch_client.get_messaging_channel.return_value.delete.assert_not_called()
 
 
 def test_admin_messaging_delete_yes(patch_client):
-    result = runner.invoke(app, ["admin", "messaging", "delete", "ops-smtp", "--yes"])
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "messaging",
+            "delete",
+            "ops-smtp",
+            "--yes",
+            "--confirm-name",
+            "ops-smtp",
+        ],
+    )
     assert result.exit_code == 0
     patch_client.get_messaging_channel.return_value.delete.assert_called_once()
 
@@ -909,7 +978,7 @@ def test_admin_disk_footprint_project(patch_client):
 
 
 def test_admin_disk_footprint_all_json(patch_client):
-    result = runner.invoke(app, ["admin", "disk-footprint", "all", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "admin", "disk-footprint", "all"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["size"] == 99999

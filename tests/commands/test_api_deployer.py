@@ -19,7 +19,7 @@ def test_list_infras_table(patch_client):
 
 
 def test_list_infras_json(patch_client):
-    result = runner.invoke(app, ["api-deployer", "list-infras", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "api-deployer", "list-infras"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -34,7 +34,7 @@ def test_list_services_table(patch_client):
 
 
 def test_list_services_json(patch_client):
-    result = runner.invoke(app, ["api-deployer", "list-services", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "api-deployer", "list-services"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -42,7 +42,9 @@ def test_list_services_json(patch_client):
 
 
 def test_get_service(patch_client):
-    result = runner.invoke(app, ["api-deployer", "get-service", "svc1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "api-deployer", "get-service", "svc1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "svc1"
@@ -57,7 +59,9 @@ def test_list_deployments_table(patch_client):
 
 
 def test_list_deployments_json(patch_client):
-    result = runner.invoke(app, ["api-deployer", "list-deployments", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "api-deployer", "list-deployments"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -118,7 +122,7 @@ def test_create_deployment_ignore_warnings(patch_client):
 
 def test_get_deployment(patch_client):
     result = runner.invoke(
-        app, ["api-deployer", "get-deployment", "dep1", "-o", "json"]
+        app, ["--format", "json", "api-deployer", "get-deployment", "dep1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -163,7 +167,7 @@ def test_delete_deployment_without_yes(patch_client):
 
 def test_deployment_status(patch_client):
     result = runner.invoke(
-        app, ["api-deployer", "deployment-status", "dep1", "-o", "json"]
+        app, ["--format", "json", "api-deployer", "deployment-status", "dep1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -179,7 +183,7 @@ def test_deployment_status_still_initializing(patch_client):
     status = deployer.get_deployment("dep1").get_status()
     status.get_service_urls.side_effect = ValueError("PublicURL not available")
     result = runner.invoke(
-        app, ["api-deployer", "deployment-status", "dep1", "-o", "json"]
+        app, ["--format", "json", "api-deployer", "deployment-status", "dep1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

@@ -8,11 +8,10 @@ from ._common import *
 def list_semantic_models(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List semantic models in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -67,11 +66,10 @@ def get(
     ctx: typer.Context,
     sm_ref: str = typer.Argument(help="Semantic model ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show semantic model definition."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

@@ -14,10 +14,9 @@ app = typer.Typer(help="Manage API Deployer infras, services, and deployments.")
 @app.command("list-infras")
 def list_infras(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List API Deployer infrastructures."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
@@ -46,10 +45,9 @@ def list_infras(
 @app.command("list-services")
 def list_services(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List API Deployer services."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
@@ -74,10 +72,9 @@ def list_services(
 def get_service(
     ctx: typer.Context,
     service_id: str = typer.Argument(help="Service ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show API Deployer service settings."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
@@ -91,10 +88,9 @@ def get_service(
 @app.command("list-deployments")
 def list_deployments(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List API Deployer deployments."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
@@ -165,10 +161,9 @@ def create_deployment(
 def get_deployment(
     ctx: typer.Context,
     deployment_id: str = typer.Argument(help="Deployment ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show API Deployer deployment settings."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()
@@ -233,7 +228,6 @@ def delete_deployment(
 def deployment_status(
     ctx: typer.Context,
     deployment_id: str = typer.Argument(help="Deployment ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show API Deployer deployment health and live service URLs.
 
@@ -241,9 +235,9 @@ def deployment_status(
     base URLs to query the deployed endpoints (append /<endpoint>/predict).
 
     Example:
-      dku api-deployer deployment-status my_dep -o json
+      dku api-deployer deployment-status my_dep
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_apideployer()

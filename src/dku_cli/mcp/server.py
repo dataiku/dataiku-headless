@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 from pathlib import Path
@@ -133,7 +132,6 @@ def _require_fastmcp():
 
         exit_with_error(
             "The MCP server requires the optional 'mcp' extra (fastmcp).",
-            code="missing_dependency",
             details=[
                 "Install the MCP runtime with:",
                 "  pip install fastmcp",
@@ -184,8 +182,10 @@ def build_server(
         """Run dku/bash/python in an authed shell.
 
         Send a multi-line bash script — chain several `dku` commands, build JSON
-        payloads with heredocs, pipe through `jq`/`python3`. Only stdout/stderr/
-        exit return to you, so filter or aggregate large output before printing.
+        payloads with heredocs, pipe through `jq`/`python3`. The reply is plain
+        text: an `exit N` header line, then raw stdout, then a `--- stderr ---`
+        section if anything was printed there. Filter or aggregate large output
+        before printing.
 
         Local MCP install (stdio): this runs as YOU, in your current project
         directory, with full filesystem + environment access — so you can act on
@@ -201,22 +201,19 @@ def build_server(
         timeout = max(1, min(int(timeout), 1800))
         auth = _resolve_request_auth(is_http=is_http)
         if auth["is_http"] and not auth["api_key"]:
-            return json.dumps(
-                executor.result_to_dict(
-                    executor.ExecResult(
-                        exit_code=1,
-                        stdout="",
-                        stderr=(
-                            "Authentication required: send 'Authorization: Bearer "
-                            "<YOUR_DSS_PERSONAL_API_KEY>'. Every dku command runs as "
-                            "that DSS user. Create a personal key in DSS under "
-                            "Profile & settings > API keys."
-                        ),
-                        duration_ms=0,
-                        truncated=False,
-                    )
-                ),
-                indent=2,
+            return executor.result_to_text(
+                executor.ExecResult(
+                    exit_code=1,
+                    stdout="",
+                    stderr=(
+                        "Authentication required: send 'Authorization: Bearer "
+                        "<YOUR_DSS_PERSONAL_API_KEY>'. Every dku command runs as "
+                        "that DSS user. Create a personal key in DSS under "
+                        "Profile & settings > API keys."
+                    ),
+                    duration_ms=0,
+                    truncated=False,
+                )
             )
         # Defensive guard against the latent "anon" shared-session risk: the
         # empty-bearer rejection above is the ONLY thing that keeps the shared
@@ -247,7 +244,7 @@ def build_server(
                 audit=audit,
                 dss_auth=auth,
             )
-        return json.dumps(executor.result_to_dict(result), indent=2)
+        return executor.result_to_text(result)
 
     return mcp
 

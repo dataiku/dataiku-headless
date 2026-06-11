@@ -18,7 +18,9 @@ def test_signoff_list(patch_client):
 
 
 def test_signoff_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "signoff", "list", "ar.5", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "govern", "signoff", "list", "ar.5"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -32,7 +34,7 @@ def test_signoff_get(patch_client):
 
 def test_signoff_get_json(patch_client):
     result = runner.invoke(
-        app, ["govern", "signoff", "get", "ar.5", "exploration", "-o", "json"]
+        app, ["--format", "json", "govern", "signoff", "get", "ar.5", "exploration"]
     )
     assert result.exit_code == 0
     data = json.loads(result.output)

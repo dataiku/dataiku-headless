@@ -13,7 +13,7 @@ get exact flags from `--help`, open a reference only for JSON payload shapes.
 
 ## Exact flags live in `--help`, not in docs
 
-Under this environment `--help` returns machine-readable JSON:
+`--help` always returns compact machine-readable JSON:
 
 - `dku --help` → groups + root commands + global options
 - `dku recipe --help` → terse one-line signature per command in the group
@@ -30,13 +30,20 @@ Never guess flags and never document them here — drill into command `--help`.
 3. **Sample and schema-check inputs** before transforming.
 4. **Build with** `dku job run --type RECURSIVE_BUILD --auto-update-schema --wait`.
 5. **Verify with real data.** Exit 0 is not proof; empty arrays are data, not success. Check row counts, schema, and sample values.
-6. **Global flags go before the noun:** `dku --errors json recipe list`. Use `-o json` for scripting (pipe only to `jq`); `--compact` minifies and omits empty fields, and list commands take `--fields` to project columns.
+6. **Output is machine-readable by default — skip format flags on normal reads.**
+   Lists render as TSV (header row of column keys, then rows), single objects as
+   compact JSON. Data goes to stdout, messages/hints to stderr — stdout is always
+   pipe-safe. Add a flag only to *parse or round-trip*, before the noun:
+   `--format ids` for one id per line (piping), `--format json` for jq filters
+   and definition round-trips. List commands take `--fields` to project columns.
+7. **One project? Set it once:** `export DKU_PROJECT=PROJ` — every project-scoped
+   command picks it up; drop `-P` from each call.
 
 ## Chain to cut round-trips
 
 Composability is the CLI's edge — do in one shell turn what separate calls can't:
 
-- **Discover + extract:** `dku dataset schema DS -P PROJ -o json | jq -r '.[].name'`
+- **Discover + extract:** `dku --format ids dataset list -P PROJ | while read ds; do ...; done`
 - **Idempotent setup:** `dku project create P --if-not-exists && dku dataset create DS --if-not-exists -P P`
 - **One verified unit:** create → configure → build → verify in a single `&&` chain, ending in a real-data check.
 
@@ -56,7 +63,7 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 
 ## Startup (substantive project work only)
 
-1. `dku project list -o json | jq length`
+1. `dku --format json project list | jq length`
 2. If no project is specified, ask which to use.
 
 Skip this for narrow reads.

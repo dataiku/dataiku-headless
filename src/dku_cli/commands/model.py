@@ -36,11 +36,10 @@ app = typer.Typer(help="Manage DSS saved models.")
 def list_models(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List saved models in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -71,11 +70,10 @@ def get(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show saved model details."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -139,7 +137,6 @@ def get_definition(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full saved-model settings as JSON.
 
@@ -147,7 +144,7 @@ def get_definition(
     Use this to inspect or template a model's training/scoring configuration.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -158,7 +155,6 @@ def get_definition(
         if is_not_found_error(e):
             exit_with_error(
                 f"Saved model '{model_id}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[
                     f"List models: dku model list -P {project_key}",
@@ -199,7 +195,6 @@ def set_definition(
         if is_not_found_error(e):
             exit_with_error(
                 f"Saved model '{model_id}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[
                     f"List models: dku model list -P {project_key}",
@@ -213,11 +208,10 @@ def versions(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List versions of a saved model."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -289,7 +283,6 @@ def set_flow_options(
     ):
         exit_with_error(
             "Pass at least one flow-option flag.",
-            code="invalid_argument",
             details=[
                 "Examples: --virtualizable, --rebuild-behavior NORMAL, --cross-project-build-behavior DEFAULT"
             ],
@@ -317,7 +310,6 @@ def set_flow_options(
         if is_not_found_error(e):
             exit_with_error(
                 f"Saved model '{model_id}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List models: dku model list -P {project_key}"],
             )
@@ -356,7 +348,6 @@ def set_publish_policy(
         if is_not_found_error(e):
             exit_with_error(
                 f"Saved model '{model_id}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List models: dku model list -P {project_key}"],
             )
@@ -383,7 +374,6 @@ def diagnostics(
         "--disable",
         help="Diagnostic key to disable (repeatable). Sets matching entry's enabled=false.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List, enable, or disable model-level diagnostics.
 
@@ -399,10 +389,9 @@ def diagnostics(
     if not (list_only or enable or disable):
         exit_with_error(
             "Pass --list, --enable, or --disable.",
-            code="invalid_argument",
         )
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -446,7 +435,6 @@ def diagnostics(
         if is_not_found_error(e):
             exit_with_error(
                 f"Saved model '{model_id}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List models: dku model list -P {project_key}"],
             )
@@ -479,7 +467,6 @@ def set_active_version(
                 details=[
                     f"List available versions: dku model versions {model_id} -P {project_key}",
                 ],
-                code="not_found",
                 status=3,
             )
         handle_api_error(e)
@@ -493,7 +480,6 @@ def metrics(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show performance metrics for a model version.
 
@@ -502,7 +488,7 @@ def metrics(
     depending on model type.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -517,7 +503,6 @@ def metrics(
                         f"List versions: dku model versions {model_id} -P {project_key}",
                         f"Activate one: dku model set-active-version {model_id} VERSION_ID -P {project_key}",
                     ],
-                    code="no_active_version",
                 )
             version_id = active["id"]
 
@@ -547,7 +532,6 @@ def metrics(
                 details=[
                     f"List versions: dku model versions {model_id} -P {project_key}",
                 ],
-                code="not_found",
                 status=3,
             )
         handle_api_error(e)
@@ -595,7 +579,6 @@ def delete_version(
                 details=[
                     f"List versions: dku model versions {model_id} -P {project_key}",
                 ],
-                code="not_found",
                 status=3,
             )
         handle_api_error(e)
@@ -638,7 +621,6 @@ def delete(
                 details=[
                     f"List models: dku model list -P {project_key}",
                 ],
-                code="not_found",
                 status=3,
             )
         handle_api_error(e)
@@ -649,11 +631,10 @@ def usages(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show where a saved model is used (recipes, endpoints, etc.)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -667,7 +648,6 @@ def usages(
                 details=[
                     f"List models: dku model list -P {project_key}",
                 ],
-                code="not_found",
                 status=3,
             )
         handle_api_error(e)
@@ -721,7 +701,6 @@ def create_mlflow(
         help="BINARY_CLASSIFICATION, MULTICLASS, or REGRESSION (optional)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a saved model for storing MLflow pyfunc models.
 
@@ -732,7 +711,7 @@ def create_mlflow(
       dku model create-mlflow "Custom Model" -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -831,7 +810,6 @@ def create_external(
         help="Full configuration JSON (overrides --protocol/--connection/--region)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a saved model for external remote endpoints (SageMaker, Databricks, etc).
 
@@ -842,7 +820,7 @@ def create_external(
         --protocol vertex-ai --region europe-west1 --connection vertex_conn -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         if config:
             configuration = read_json_input(config)

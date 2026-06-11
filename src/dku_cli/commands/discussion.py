@@ -42,11 +42,10 @@ def list_discussions(
     ),
     name: str = typer.Option(..., "--name", "-n", help="Object name or ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List discussions on a DSS object."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -85,11 +84,10 @@ def get(
     ),
     name: str = typer.Option(..., "--name", "-n", help="Object name or ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a specific discussion with its replies."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

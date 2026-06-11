@@ -15,7 +15,9 @@ def test_recipe_list(patch_client):
 
 
 def test_recipe_list_json(patch_client):
-    result = runner.invoke(app, ["recipe", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "recipe", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["name"] == "recipe1"
@@ -30,7 +32,7 @@ def test_recipe_get(patch_client):
 
 def test_recipe_get_json(patch_client):
     result = runner.invoke(
-        app, ["recipe", "get", "recipe1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "get", "recipe1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -41,7 +43,15 @@ def test_recipe_get_definition_json(patch_client):
     """get-definition returns both definition and payload in JSON mode."""
     result = runner.invoke(
         app,
-        ["recipe", "get-definition", "recipe1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "recipe",
+            "get-definition",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -116,7 +126,16 @@ def test_recipe_get_definition_sql_query_json_output(patch_client):
     settings.get_flat_output_refs.return_value = ["my_sql_out"]
 
     result = runner.invoke(
-        app, ["recipe", "get-definition", "my_sql", "--project", "PROJ1", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "recipe",
+            "get-definition",
+            "my_sql",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0, result.output
     parsed = _json.loads(result.output)
@@ -546,8 +565,8 @@ def test_recipe_create_visual_requires_input(patch_client):
     assert "--input is required" in result.output
 
 
-def test_recipe_create_output_confusion_detected(patch_client):
-    """Using --output with a dataset name suggests --output-ds."""
+def test_recipe_create_output_flag_removed(patch_client):
+    """--output is no longer a recipe-local format flag; use global --format."""
     result = runner.invoke(
         app,
         [
@@ -567,8 +586,7 @@ def test_recipe_create_output_confusion_detected(patch_client):
         ],
     )
     assert result.exit_code != 0
-    assert "--output-ds" in result.output
-    assert "my_dataset" in result.output
+    assert "No such option" in result.output
 
 
 def test_recipe_create_output_dataset_alias(patch_client):
@@ -900,7 +918,7 @@ def test_recipe_status_table(patch_client):
 def test_recipe_status_json(patch_client):
     """JSON output returns structured status."""
     result = runner.invoke(
-        app, ["recipe", "status", "recipe1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "status", "recipe1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -999,7 +1017,7 @@ def test_recipe_get_code(patch_client):
 
 def test_recipe_get_code_json(patch_client):
     result = runner.invoke(
-        app, ["recipe", "get-code", "recipe1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "get-code", "recipe1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

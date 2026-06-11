@@ -70,7 +70,6 @@ def _parse_compute_specs(specs: list[str]) -> list[dict]:
         if comp_type not in _VALID_WINDOW_TYPES:
             exit_with_error(
                 f"Unknown window computation type: '{comp_type}'.",
-                code="invalid_argument",
                 details=[f"Valid types: {', '.join(sorted(_VALID_WINDOW_TYPES))}"],
             )
         if len(parts) == 2:
@@ -92,7 +91,6 @@ def _parse_compute_specs(specs: list[str]) -> list[dict]:
         else:
             exit_with_error(
                 f"Invalid --compute format: '{comp_spec}'.",
-                code="invalid_argument",
                 details=[
                     "Expected forms:",
                     "  'TYPE:column'                  — sum/avg/lag/... (output auto-named '<col>_<type>')",
@@ -104,7 +102,6 @@ def _parse_compute_specs(specs: list[str]) -> list[dict]:
         if comp_type not in _TOP_LEVEL_WINDOW_TYPES and not source_col:
             exit_with_error(
                 f"Computation type '{comp_type}' requires a source column.",
-                code="invalid_argument",
                 details=[
                     f"Use: --compute '{comp_type}:COLUMN' (output auto-named) or "
                     f"--compute '{comp_type}:COLUMN:OUTPUT_COLUMN' (explicit)."
@@ -124,7 +121,6 @@ def _parse_offsets_spec(specs: list[str], flag: str) -> dict[str, list[int]]:
         if ":" not in spec:
             exit_with_error(
                 f"Invalid {flag} '{spec}'. Expected 'COL:OFFSET[,OFFSET...]'.",
-                code="invalid_argument",
             )
         col, offsets_str = spec.split(":", 1)
         offsets: list[int] = []
@@ -137,12 +133,10 @@ def _parse_offsets_spec(specs: list[str], flag: str) -> dict[str, list[int]]:
             except ValueError:
                 exit_with_error(
                     f"Invalid {flag} '{spec}': offsets must be integers (got '{part}').",
-                    code="invalid_argument",
                 )
         if not offsets:
             exit_with_error(
                 f"Invalid {flag} '{spec}': at least one integer offset is required.",
-                code="invalid_argument",
             )
         parsed[col.strip()] = offsets
     return parsed
@@ -471,7 +465,6 @@ def create_window(
             if ":" not in entry:
                 exit_with_error(
                     f"Invalid --rename '{entry}'. Expected 'SRC:DST'.",
-                    code="invalid_argument",
                 )
             src, dst = entry.split(":", 1)
             parsed_renames[src.strip()] = dst.strip()
@@ -484,7 +477,6 @@ def create_window(
     if frame_mode_upper == "RANGE" and (range_lower is None and range_upper is None):
         exit_with_error(
             "--frame-mode RANGE requires --range-lower and/or --range-upper.",
-            code="invalid_argument",
             details=[
                 "Example: --frame-mode RANGE --range-lower -30 --range-upper 0 "
                 "(last 30 days incl. current row, paired with --order-key date_col)."
@@ -495,7 +487,6 @@ def create_window(
     ) and frame_mode_upper != "RANGE":
         exit_with_error(
             "--range-lower/--range-upper require --frame-mode RANGE.",
-            code="invalid_argument",
         )
     try:
         client = get_client_from_ctx(ctx)
@@ -674,6 +665,7 @@ def create_window(
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created window recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

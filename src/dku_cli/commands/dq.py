@@ -187,10 +187,9 @@ def list_rules(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(..., help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List data quality rules defined on a dataset."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         _, project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
         rules = ruleset.list_rules(as_type="dict")
@@ -354,10 +353,9 @@ def get_status(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(..., help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show data quality status for a dataset."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         _, _, ruleset = _get_ruleset(ctx, dataset_name, project)
         status = ruleset.get_status()
@@ -380,10 +378,9 @@ def get_results(
     dataset_name: str = typer.Argument(..., help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     partition: str = typer.Option("NP", "--partition", help="Partition name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show latest data quality rule results for a dataset."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         _, _, ruleset = _get_ruleset(ctx, dataset_name, project)
         results = ruleset.get_last_rules_results(partition=partition)
@@ -466,11 +463,10 @@ def project_status(
     all_datasets: bool = typer.Option(
         False, "--all", help="Include non-monitored datasets"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show data quality status across all datasets in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

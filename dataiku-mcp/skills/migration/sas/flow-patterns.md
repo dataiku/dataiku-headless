@@ -97,7 +97,7 @@ Split by dimension with a Split recipe (for many values) or two Prepare filters 
 
 ### Step 5 — Parity check
 
-Run the same SAS program against inline `datalines;` blocks of the same synthetic source tables (strip `connect to odbc as remote`, replace `to_date` with SAS date literals). Pull both sides via `dku dataset head -o json` and compare row-by-row. On the first run, expect small mismatches on `.5` boundaries — usually engine rounding semantics. See Rounding below.
+Run the same SAS program against inline `datalines;` blocks of the same synthetic source tables (strip `connect to odbc as remote`, replace `to_date` with SAS date literals). Pull both sides via `dku --format json dataset head` and compare row-by-row. On the first run, expect small mismatches on `.5` boundaries — usually engine rounding semantics. See Rounding below.
 
 ### Recognizing enterprise driver scripts
 

@@ -1,14 +1,12 @@
-"""Unit tests for dku_cli.safety — guard, tier resolution, JSON payload shape."""
+"""Unit tests for dku_cli.safety — guard, tier resolution, block message shape."""
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import pytest
 import typer
 
-from dku_cli.output import set_error_format
 from dku_cli.safety import SAFETY_BLOCKED_EXIT, Tier, guard, is_dangerous_mode
 
 
@@ -262,60 +260,46 @@ def test_guard_admin_allows_with_full_authorization(monkeypatch):
     )
 
 
-# ----- JSON error payload shape -----
+# ----- block message shape -----
 
 
-def test_guard_json_error_payload(monkeypatch, capsys):
+def test_guard_block_message_shape(monkeypatch, capsys):
     monkeypatch.delenv("DKU_DANGEROUS", raising=False)
-    set_error_format("json")
-    try:
-        with patch("dku_cli.config.get_dangerous_mode", return_value=False):
-            with pytest.raises(typer.Exit):
-                guard(
-                    _FakeCtx(),
-                    tier=Tier.DELETE,
-                    action="dataset.delete",
-                    subject="dataset 'ds1' in PROJ1",
-                    yes=False,
-                    prompt="Proceed with deletion?",
-                )
-    finally:
-        set_error_format("text")
+    with patch("dku_cli.config.get_dangerous_mode", return_value=False):
+        with pytest.raises(typer.Exit):
+            guard(
+                _FakeCtx(),
+                tier=Tier.DELETE,
+                action="dataset.delete",
+                subject="dataset 'ds1' in PROJ1",
+                yes=False,
+                prompt="Proceed with deletion?",
+            )
 
     err = capsys.readouterr().err
-    payload = json.loads(err)
-    assert payload["error"]["code"] == "safety_blocked"
-    assert payload["error"]["exit_code"] == SAFETY_BLOCKED_EXIT
-    safety = payload["error"]["safety"]
-    assert safety["tier"] == 2
-    assert safety["tier_label"] == "delete"
-    assert safety["action"] == "dataset.delete"
-    assert safety["prompt_to_user"] == "Proceed with deletion?"
-    assert "--yes" in safety["rerun_with_confirmation"]
-    assert safety["session_bypass"] == "DKU_DANGEROUS=1"
+    assert "BLOCKED" in err
+    assert "tier-2" in err
+    assert "AGENT INSTRUCTION" in err
+    assert "Proceed with deletion?" in err
+    assert "--yes" in err
+    assert "DKU_DANGEROUS=1" in err
+    assert str(SAFETY_BLOCKED_EXIT) in err
 
 
-def test_guard_json_cascade_mismatch_payload(monkeypatch, capsys):
+def test_guard_cascade_mismatch_message(monkeypatch, capsys):
     monkeypatch.delenv("DKU_DANGEROUS", raising=False)
-    set_error_format("json")
-    try:
-        with patch("dku_cli.config.get_dangerous_mode", return_value=False):
-            with pytest.raises(typer.Exit):
-                guard(
-                    _FakeCtx(),
-                    tier=Tier.CASCADE,
-                    action="project.delete",
-                    subject="project PROJ1",
-                    yes=True,
-                    target_id="PROJ1",
-                    confirm_name="WRONG",
-                )
-    finally:
-        set_error_format("text")
+    with patch("dku_cli.config.get_dangerous_mode", return_value=False):
+        with pytest.raises(typer.Exit):
+            guard(
+                _FakeCtx(),
+                tier=Tier.CASCADE,
+                action="project.delete",
+                subject="project PROJ1",
+                yes=True,
+                target_id="PROJ1",
+                confirm_name="WRONG",
+            )
 
     err = capsys.readouterr().err
-    payload = json.loads(err)
-    safety = payload["error"]["safety"]
-    assert safety["reason"] == "confirm_name_mismatch"
-    assert safety["expected_confirm_name"] == "PROJ1"
-    assert safety["got_confirm_name"] == "WRONG"
+    assert "PROJ1" in err
+    assert "WRONG" in err

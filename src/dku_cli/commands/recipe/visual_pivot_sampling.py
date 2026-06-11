@@ -209,7 +209,6 @@ def create_pivot(
     if agg_type and agg_type.value in _PIVOT_AGGS_REQUIRING_ORDER and not order_column:
         exit_with_error(
             f"--agg-type {agg_type.value} requires --order-column.",
-            code="invalid_argument",
             details=[
                 "FIRST/LAST/FIRST_LAST_NOT_NULL need a deterministic ordering column.",
                 "Example: --agg-type LAST --value-column reading --order-column timestamp",
@@ -220,12 +219,10 @@ def create_pivot(
     ):
         exit_with_error(
             "--order-column only applies when --agg-type is FIRST, LAST, or FIRST_LAST_NOT_NULL.",
-            code="invalid_argument",
         )
     if value_limit.value == "EXPLICIT" and not explicit_values:
         exit_with_error(
             "--value-limit EXPLICIT requires at least one --explicit-values entry.",
-            code="invalid_argument",
             details=[
                 "Pass --explicit-values once per modality to whitelist, e.g.:",
                 "  --value-limit EXPLICIT --explicit-values 2024 --explicit-values 2025",
@@ -234,7 +231,6 @@ def create_pivot(
     if explicit_values and value_limit.value != "EXPLICIT":
         exit_with_error(
             "--explicit-values requires --value-limit EXPLICIT.",
-            code="invalid_argument",
         )
     # Validate --other-column specs early
     parsed_other_columns: list[dict] = []
@@ -245,7 +241,6 @@ def create_pivot(
             if not col:
                 exit_with_error(
                     f"Invalid --other-column '{spec}': missing column name.",
-                    code="invalid_argument",
                 )
             agg_str = (
                 parts[1].strip().upper()
@@ -256,13 +251,11 @@ def create_pivot(
             if agg_str not in _VALID_OTHER_AGGS:
                 exit_with_error(
                     f"Invalid --other-column aggregation '{agg_str}'.",
-                    code="invalid_argument",
                     details=[f"Valid: {', '.join(sorted(_VALID_OTHER_AGGS))}"],
                 )
             if agg_str in {"FIRST", "LAST", "FIRST_LAST_NOT_NULL"} and not order_col:
                 exit_with_error(
                     f"--other-column {agg_str} on '{col}' requires an ORDER_COL: --other-column '{col}:{agg_str}:order_col'.",
-                    code="invalid_argument",
                 )
             entry = {
                 "column": col,
@@ -436,6 +429,7 @@ def create_pivot(
             f"Output schema for '{output_ds}' will be populated when you run the recipe (pivot modalities are collected at build time)."
         )
         success(f"Created pivot recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -566,7 +560,6 @@ def create_sampling(
     if partition_selection_upper == "LATEST_N" and latest_partitions is None:
         exit_with_error(
             "--partition-selection LATEST_N requires --latest-partitions N.",
-            code="invalid_argument",
         )
     if latest_partitions is not None and partition_selection_upper not in {
         "LATEST_N",
@@ -574,7 +567,6 @@ def create_sampling(
     }:
         exit_with_error(
             "--latest-partitions only applies with --partition-selection LATEST_N.",
-            code="invalid_argument",
         )
     parsed_orders: list[dict] = []
     for entry in order_by:
@@ -646,6 +638,7 @@ def create_sampling(
         success(
             f"Created sampling recipe '{recipe_name}' ({method_upper}) in {project_key}"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

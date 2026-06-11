@@ -94,14 +94,14 @@ def test_dataset_analyze_column_numeric_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "dataset",
             "analyze-column",
             "ds1",
             "col2",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -135,14 +135,14 @@ def test_dataset_analyze_column_string_infers_zero_null(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "dataset",
             "analyze-column",
             "ds1",
             "col1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

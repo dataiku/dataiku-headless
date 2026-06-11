@@ -19,7 +19,7 @@ def test_cluster_list(patch_client):
 
 
 def test_cluster_list_json(patch_client):
-    result = runner.invoke(app, ["cluster", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "cluster", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -67,7 +67,7 @@ def test_cluster_status(patch_client):
 
 
 def test_cluster_status_json(patch_client):
-    result = runner.invoke(app, ["cluster", "status", "k8s-prod", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "cluster", "status", "k8s-prod"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["state"] == "RUNNING"

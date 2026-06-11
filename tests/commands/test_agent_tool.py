@@ -19,7 +19,7 @@ def test_agent_tool_list(patch_client):
 
 def test_agent_tool_list_json(patch_client):
     result = runner.invoke(
-        app, ["agent-tool", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent-tool", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -36,7 +36,7 @@ def test_agent_tool_get(patch_client):
 
 def test_agent_tool_get_json(patch_client):
     result = runner.invoke(
-        app, ["agent-tool", "get", "tool1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent-tool", "get", "tool1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -151,7 +151,7 @@ def test_agent_tool_types(patch_client):
 
 
 def test_agent_tool_types_json(patch_client):
-    result = runner.invoke(app, ["agent-tool", "types", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "agent-tool", "types"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     type_names = [t["type"] for t in parsed]
@@ -470,7 +470,7 @@ def test_agent_tool_run_regular_tool_failure_no_plugin_warning(patch_client):
 def test_agent_tool_types_includes_dss14_catalog(patch_client):
     """The catalog must include the live-verified DSS 14.6 built-ins —
     missing entries cost agents dozens of blind type guesses."""
-    result = runner.invoke(app, ["agent-tool", "types", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "agent-tool", "types"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     type_names = [t["type"] for t in parsed]

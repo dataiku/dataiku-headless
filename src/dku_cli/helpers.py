@@ -117,7 +117,6 @@ def require_node_type(
 
     exit_with_error(
         f"Command not available on {nt} nodes.",
-        code="wrong_node_type",
         details=details,
         status=4,
     )
@@ -227,7 +226,6 @@ def resolve_agent(project, agent_ref: str):
     agent_names = [f"  {a.get('id', '')} ({a.get('name', '')})" for a in agents]
     exit_with_error(
         f"Agent '{agent_ref}' not found (checked as both ID and name).",
-        code="not_found",
         details=[
             "Available agents:",
             *agent_names,
@@ -271,7 +269,6 @@ def resolve_knowledge_bank(project, kb_ref: str):
     kb_names = [f"  {b.get('id', '')} ({b.get('name', '')})" for b in banks]
     exit_with_error(
         f"Knowledge bank '{kb_ref}' not found (checked as both ID and name).",
-        code="not_found",
         details=[
             "Available knowledge banks:",
             *kb_names,
@@ -315,7 +312,6 @@ def resolve_semantic_model(project, sm_ref: str):
     sm_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
     exit_with_error(
         f"Semantic model '{sm_ref}' not found (checked as both ID and name).",
-        code="not_found",
         details=[
             "Available semantic models:",
             *sm_names,
@@ -358,7 +354,6 @@ def resolve_agent_review(project, review_ref: str):
     review_names = [f"  {r.id} ({r.name})" for r in reviews]
     exit_with_error(
         f"Agent review '{review_ref}' not found (checked as both ID and name).",
-        code="not_found",
         details=[
             "Available agent reviews:",
             *review_names,
@@ -402,7 +397,6 @@ def resolve_folder(project, folder_ref: str):
     folder_names = [f"  {f.get('id', '')} ({f.get('name', '')})" for f in folders]
     exit_with_error(
         f"Managed folder '{folder_ref}' not found (checked as both ID and name).",
-        code="not_found",
         details=[
             "Available managed folders:",
             *folder_names,
@@ -444,7 +438,6 @@ def resolve_saved_model(project, model_ref: str):
     model_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
     exit_with_error(
         f"Saved model '{model_ref}' not found (checked as both ID and name).",
-        code="not_found",
         details=[
             "Available saved models:",
             *model_names,
@@ -626,7 +619,6 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
         if resolved is None:
             exit_with_error(
                 f"Dataset '{ref}' not found in this project.",
-                code="not_found",
                 details=[
                     "List datasets: dku dataset list -P PROJ",
                     "If this is a folder, pass --type MANAGED_FOLDER.",
@@ -640,7 +632,6 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
         if resolved is None:
             exit_with_error(
                 f"Managed folder '{ref}' not found in this project.",
-                code="not_found",
                 details=["List folders: dku folder list -P PROJ"],
                 status=3,
             )
@@ -650,7 +641,6 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
         if resolved is None:
             exit_with_error(
                 f"Saved model '{ref}' not found in this project.",
-                code="not_found",
                 details=["List saved models: dku ml models -P PROJ"],
                 status=3,
             )
@@ -671,7 +661,6 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
     if not matches:
         exit_with_error(
             f"'{ref}' is not a dataset, managed folder, or saved model in this project.",
-            code="not_found",
             details=[
                 "List candidates:",
                 "  dku dataset list -P PROJ",
@@ -685,7 +674,6 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
         exit_with_error(
             f"'{ref}' is ambiguous — matches multiple object types: "
             f"{', '.join(k for k, _ in matches)}.",
-            code="ambiguous",
             details=[
                 "Disambiguate with --type DATASET|MANAGED_FOLDER|SAVED_MODEL.",
             ],

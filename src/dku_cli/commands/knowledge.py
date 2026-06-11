@@ -12,6 +12,7 @@ from dku_cli.helpers import (
     resolve_project,
 )
 from dku_cli.output import (
+    hint,
     info,
     render,
     render_raw,
@@ -91,11 +92,10 @@ def _serialize_search_documents(documents: list) -> list:
 def list_knowledge_banks(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List knowledge banks in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -145,7 +145,6 @@ def create(
     if not embedding_llm:
         exit_with_error(
             "Missing required option --embedding-llm.",
-            code="missing_argument",
             details=[
                 "Find embedding model IDs: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJECT",
                 "Example: --embedding-llm openai:connection_name:text-embedding-3-small",
@@ -156,6 +155,7 @@ def create(
         proj = client.get_project(project_key)
         proj.create_knowledge_bank(name, vector_store_type, embedding_llm)
         success(f"Created knowledge bank '{name}'")
+        hint(f"dku knowledge get {name} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(
@@ -170,11 +170,10 @@ def get(
     ctx: typer.Context,
     kb_id: str = typer.Argument(help="Knowledge bank ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show knowledge bank settings."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -200,7 +199,7 @@ def set_definition(
     """Update a knowledge bank's definition from JSON.
 
     Merges the provided JSON into the current settings (shallow merge).
-    Get current settings first: dku knowledge get KB -P PROJ -o json
+    Get current settings first: dku --format json knowledge get KB -P PROJ
 
     Examples:
       dku knowledge set-definition my_kb -d '{"vectorStoreType": "CHROMA"}' -P PROJ
@@ -245,7 +244,6 @@ def build(
             ).lower() or "Computable not found" in str(e):
                 exit_with_error(
                     f"Knowledge bank '{kb_id}' cannot be built — no data source is configured.",
-                    code="not_buildable",
                     details=[
                         "Knowledge banks require a document source before building.",
                         f"Add one with: dku recipe create-embed RECIPE_NAME --input DS --output-kb {kb_id} --embedding-llm LLM_ID --embed-column COLUMN -P {project_key}",
@@ -272,11 +270,10 @@ def search(
         10, "--max", "-n", help="Maximum number of results"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Search a knowledge bank."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

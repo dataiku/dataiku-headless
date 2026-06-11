@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 
+from dku_cli.enums import AgentType
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -19,6 +20,7 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import (
     error,
+    hint,
     info,
     render,
     render_raw,
@@ -113,11 +115,10 @@ def _activate_version(proj, agent_id: str, new_vid: str) -> None:
 def list_agents(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List agents in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -146,21 +147,27 @@ def list_agents(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Agent name"),
-    agent_type: str = typer.Option(
-        "TOOLS_USING_AGENT",
+    agent_type: AgentType = typer.Option(
+        AgentType.TOOLS_USING_AGENT,
         "--type",
         "-t",
-        help="Agent type: TOOLS_USING_AGENT, PYTHON_AGENT, PLUGIN_AGENT, STRUCTURED_AGENT",
+        case_sensitive=False,
+        help="Agent type",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a new agent."""
+    """Create a new agent. Prints the created agent as data (capture the id)."""
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.create_agent(name, type=agent_type)
-        success(f"Created agent '{name}' (id={agent.id}, type={agent_type})")
+        agent = proj.create_agent(name, type=agent_type.value)
+        render_raw(
+            {"id": agent.id, "name": name, "type": agent_type.value},
+            output_format=resolve_output_format(),
+        )
+        success(f"Created agent '{name}' (id={agent.id}, type={agent_type.value})")
+        hint(f"dku agent get {agent.id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -170,11 +177,10 @@ def get(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show agent settings. Accepts agent ID or name."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -258,11 +264,10 @@ def status(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show agent status. Accepts agent ID or name."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -278,11 +283,10 @@ def list_versions(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List versions of an agent. Active version is marked."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -341,6 +345,7 @@ def create_version(
             _activate_version(proj, agent.id, new_vid)
         suffix = " (now active)" if activate else ""
         success(f"Created version '{new_vid}' on agent '{agent_id}'{suffix}")
+        hint(f"dku agent test {agent_id} -P {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -498,6 +503,7 @@ def add_tool(
         ver_settings.add_tool(tool_id)
         settings.save()
         success(f"Added tool '{tool_id}' to agent '{agent_id}'")
+        hint(f"dku agent test {agent_id} -P {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -545,7 +551,6 @@ def set_prompt(
     if (prompt is None) == (file is None):
         exit_with_error(
             "Provide exactly one of --prompt / --file.",
-            code="invalid_argument",
         )
     if activate and not new_version:
         error("--activate requires --new-version.")
@@ -689,7 +694,6 @@ def set_code(
             exit_with_error(
                 f"Agent '{agent_id}' is a {sm_type}, not a PYTHON_AGENT (Code Agent) — "
                 "it has no editable Python code.",
-                code="invalid_argument",
                 details=[
                     f"Inspect the agent with: dku agent get {agent_id} -P {project_key}",
                     "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
@@ -703,7 +707,6 @@ def set_code(
             exit_with_error(
                 f"Agent '{agent_id}' has no inline versions — it is not a Code Agent (PYTHON_AGENT), "
                 "so it has no editable Python code.",
-                code="invalid_argument",
                 details=[
                     "Inspect the agent with: dku agent get "
                     f"{agent_id} -P {project_key}",
@@ -745,7 +748,6 @@ def set_code(
         if landed != code:
             exit_with_error(
                 f"Code did not persist on agent '{agent_id}' after save (round-trip check failed).",
-                code="verification_failed",
                 details=[
                     "The saved-model PUT may have been ignored, or the inline version "
                     "could not be located.",
@@ -866,9 +868,6 @@ def test(
         None, "--query", "-q", help="Alias for the positional query"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(
-        None, "-o", "--output", help="Output format (text or json)"
-    ),
 ) -> None:
     """Send a test query to an agent and display the response.
 
@@ -878,7 +877,7 @@ def test(
 
     Examples:
       dku agent test my_agent "What is the refund policy?" -P PROJ
-      dku agent test my_agent --query "Summarize the latest report" -P PROJ -o json
+      dku agent test my_agent --query "Summarize the latest report" -P PROJ
     """
     # Accept the query positionally or via --query/-q (agents habitually try
     # the flag form; "No such option" wasted a turn per session).
@@ -890,7 +889,7 @@ def test(
         raise typer.Exit(2)
     query = query if query is not None else query_opt
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("text", "json"), default="text")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

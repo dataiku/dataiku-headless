@@ -38,11 +38,10 @@ def list_files(
     ctx: typer.Context,
     path: str = typer.Option("/", "--path", help="Directory path to list"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List files in the project library."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -255,7 +254,6 @@ def delete(
                 exit_with_error(
                     f"'{path}' is not a folder in the project library — "
                     "--recursive only applies to folders.",
-                    code="not_a_folder",
                     details=[
                         "For a single file, drop --recursive:",
                         f"  dku library delete '{path}' -P {project_key} --yes",
@@ -300,7 +298,6 @@ def delete(
                 exit_with_error(
                     f"'{path}' is a folder, not a file. Use --recursive to "
                     "delete the folder and everything beneath it.",
-                    code="is_a_folder",
                     details=[
                         "Tier-3 cascade — wipes every descendant file:",
                         "",
@@ -309,7 +306,7 @@ def delete(
                         "",
                         "Or enumerate-and-delete one file at a time:",
                         "",
-                        f"  dku library list --path '{path}' -P {project_key} -o json \\\\",
+                        f"  dku --format json library list --path '{path}' -P {project_key} \\\\",
                         "    | jq -r '.[].path' \\\\",
                         f"    | xargs -I{{}} dku library delete '{{}}' -P {project_key} --yes",
                     ],

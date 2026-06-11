@@ -18,7 +18,9 @@ def test_model_list(patch_client):
 
 
 def test_model_list_json(patch_client):
-    result = runner.invoke(app, ["model", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "model", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "model1"
@@ -31,7 +33,7 @@ def test_model_get(patch_client):
 
 def test_model_get_json(patch_client):
     result = runner.invoke(
-        app, ["model", "get", "model1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "model", "get", "model1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -45,7 +47,7 @@ def test_model_versions(patch_client):
 
 def test_model_versions_json(patch_client):
     result = runner.invoke(
-        app, ["model", "versions", "model1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "model", "versions", "model1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -90,7 +92,7 @@ def test_model_metrics(patch_client):
 
 def test_model_metrics_json(patch_client):
     result = runner.invoke(
-        app, ["model", "metrics", "model1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "model", "metrics", "model1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -189,7 +191,7 @@ def test_model_usages(patch_client):
 
 def test_model_usages_json(patch_client):
     result = runner.invoke(
-        app, ["model", "usages", "model1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "model", "usages", "model1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -265,7 +267,7 @@ def test_model_create_mlflow_no_type(patch_client):
 def test_model_create_mlflow_json(patch_client):
     result = runner.invoke(
         app,
-        ["model", "create-mlflow", "Test", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "model", "create-mlflow", "Test", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -406,6 +408,8 @@ def test_model_create_external_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "model",
             "create-external",
             "Test",
@@ -415,8 +419,6 @@ def test_model_create_external_json(patch_client):
             "databricks",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

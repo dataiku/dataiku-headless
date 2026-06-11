@@ -18,7 +18,7 @@ def test_codeenv_list(patch_client):
 
 
 def test_codeenv_list_json(patch_client):
-    result = runner.invoke(app, ["code-env", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "code-env", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -32,7 +32,7 @@ def test_codeenv_get(patch_client):
 
 
 def test_codeenv_get_json(patch_client):
-    result = runner.invoke(app, ["code-env", "get", "py39", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "code-env", "get", "py39"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["envName"] == "py39"

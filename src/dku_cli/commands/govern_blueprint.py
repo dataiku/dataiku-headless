@@ -27,6 +27,7 @@ from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import (
     console,
+    hint,
     render,
     render_raw,
     resolve_output_format,
@@ -43,10 +44,9 @@ app = typer.Typer(
 @app.command("list")
 def list_blueprints(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all Govern blueprints."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         blueprints = govern.list_blueprints()
@@ -79,10 +79,9 @@ def get(
     blueprint_id: str = typer.Argument(
         help="Blueprint ID (e.g. bp.system.govern_project)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a blueprint definition."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         bp = govern.get_blueprint(blueprint_id)
@@ -98,14 +97,13 @@ def get(
 def list_versions(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all versions of a blueprint, including DRAFT and ARCHIVED.
 
     Uses the admin designer path so authoring workflows can see DRAFT versions.
     The non-admin /blueprint/{id}/versions endpoint hides DRAFTs.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -166,14 +164,13 @@ def get_version(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID (e.g. bv.system.default)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a blueprint version definition.
 
     Both `get-version` and `get-version-definition` resolve to this command —
     the longer name mirrors `set-version-definition` for symmetry.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         bp = govern.get_blueprint(blueprint_id)
@@ -262,7 +259,6 @@ def describe_version(
         render(
             field_rows,
             ["id", "label", "type", "source", "list", "required", "categories"],
-            output_format="table",
             title=f"Fields ({len(field_rows)})",
             headers={
                 "id": "ID",
@@ -281,7 +277,6 @@ def describe_version(
         render(
             step_rows,
             ["id", "name", "initial"],
-            output_format="table",
             title=f"Workflow steps ({len(step_rows)})",
             headers={"id": "STEP ID", "name": "NAME", "initial": "INIT"},
         )
@@ -298,7 +293,6 @@ def describe_version(
                 "approver_types",
                 "feedback_groups",
             ],
-            output_format="table",
             title=f"Signoffs ({len(signoff_rows)})",
             headers={
                 "step": "STEP ID",
@@ -315,7 +309,6 @@ def describe_version(
         render(
             view_rows,
             ["id", "label", "components", "is_artifact_page", "used_by_steps"],
-            output_format="table",
             title=f"Views ({len(view_rows)})",
             headers={
                 "id": "VIEW ID",
@@ -336,7 +329,6 @@ def describe_version(
         render(
             hook_rows,
             _HOOK_TABLE_COLS,
-            output_format="table",
             title=f"Hooks ({len(hook_rows)})",
             headers=_HOOK_TABLE_HEADERS,
         )
@@ -391,7 +383,6 @@ def fields(
     version_id: Optional[str] = typer.Option(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List fields for a blueprint with type, list/scalar, required, and valid categories.
 
@@ -400,7 +391,7 @@ def fields(
     REFERENCE fields accept artifact IDs (e.g. "ar.123").
     List fields (marked with * in LIST column) must be JSON arrays, even for a single value.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         if not version_id:
@@ -469,7 +460,6 @@ def list_hooks(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID (e.g. bv.default)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List logical hooks on a blueprint version.
 
@@ -482,7 +472,7 @@ def list_hooks(
     JSON output returns the full `logicalHookList` array including each
     hook's `script` source.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         bp = govern.get_blueprint(blueprint_id)
@@ -524,7 +514,6 @@ def create(
         "--definition",
         help="Blueprint definition JSON (string, @file.json, or - for stdin)",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new blueprint (admin/architect). Provide definition as JSON.
 
@@ -533,7 +522,7 @@ def create(
     command now accepts both — pass either ``swag`` or ``bp.swag`` and the
     resulting blueprint ID will always be ``bp.swag``.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
 
     # DSS rejects identifiers containing the "bp." prefix in this endpoint
     # even though every other verb requires it. Strip transparently and warn
@@ -571,6 +560,7 @@ def create(
         bp = designer.create_blueprint(bare_identifier, bp_data)
         defn = bp.get_definition()
         success(f"Created blueprint '{bp.blueprint_id}'")
+        hint(f"dku govern blueprint get {bp.blueprint_id}")
         render_raw(defn.get_raw(), output_format=output)
     except SystemExit:
         raise
@@ -653,7 +643,6 @@ def create_version(
         "-f",
         help="Fork from an existing version (recommended). E.g. 'bv.system.default'.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new blueprint version (DRAFT by default).
 
@@ -664,7 +653,7 @@ def create_version(
     The new version is created in DRAFT status and cannot be applied to artifacts
     until activated. Use 'dku govern blueprint set-version-status BP VER ACTIVE'.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -705,7 +694,7 @@ def set_version_definition(
     logicalHookList, actions, uiDefinition, hierarchicalParentFieldId, instructions.
 
     Typical loop:
-      1. dku govern blueprint get-version BP VER -o json > bv.json
+      1. dku --format json govern blueprint get-version BP VER > bv.json
       2. edit bv.json
       3. dku govern blueprint set-version-definition BP VER --definition @bv.json
 
@@ -724,7 +713,6 @@ def set_version_definition(
         if not isinstance(new_def, dict):
             exit_with_error(
                 "Definition must be a JSON object (got list or scalar).",
-                code="invalid_definition",
             )
         defn.definition = new_def
         lint_warnings = _lint_version_definition(new_def)
@@ -752,10 +740,9 @@ def set_version_definition(
         if "dangerzone" in msg or "danger zone" in msg or "existing artifacts" in msg:
             exit_with_error(
                 "Save blocked: this version has existing artifacts and your change may break them.",
-                code="danger_zone",
                 details=[
                     "Review the diff against the current definition:",
-                    f"  dku govern blueprint get-version {blueprint_id} {version_id} -o json",
+                    f"  dku --format json govern blueprint get-version {blueprint_id} {version_id} ",
                     "If you understand that field removals / type changes will destroy",
                     "data in existing artifacts, retry with --force.",
                     "Safer alternative: create a new version and migrate artifacts to it.",
@@ -799,10 +786,9 @@ def version_status(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the current status of a blueprint version (DRAFT/ACTIVE/ARCHIVED) and its trace."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -867,10 +853,9 @@ def list_signoff_configs(
     ctx: typer.Context,
     blueprint_id: str = typer.Argument(help="Blueprint ID"),
     version_id: str = typer.Argument(help="Version ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List signoff configurations wired to a blueprint version's workflow steps."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -913,10 +898,9 @@ def get_signoff_config(
     step_id: str = typer.Argument(
         help="Workflow step ID (from workflowDefinition.stepDefinitions)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the signoff configuration for a specific workflow step."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -967,7 +951,6 @@ def create_signoff_config(
         if not isinstance(body, dict):
             exit_with_error(
                 "Signoff configuration must be a JSON object.",
-                code="invalid_signoff",
             )
         # Server rejects create if id is set; strip it defensively.
         body.pop("id", None)
@@ -1005,7 +988,6 @@ def set_signoff_config(
         if not isinstance(new_def, dict):
             exit_with_error(
                 "Signoff configuration must be a JSON object.",
-                code="invalid_signoff",
             )
         defn.definition = new_def
         defn.save()
@@ -1111,7 +1093,6 @@ def export_version(
         "--keep-non-role-users",
         help="Preserve user/group/api-key reviewers in the envelope. By default these are stripped because Govern's import endpoint silently drops them — the resulting envelope is not importable as-is. Only enable this when you intend to hand-edit reviewers before importing.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Export a blueprint version as a BlueprintVersionExport envelope.
 
@@ -1132,11 +1113,11 @@ def export_version(
     the Govern UI today.
 
     Pipe to a file and re-import:
-      dku govern blueprint export-version bp.my_bp bv.v1 -o json > bv_export.json
+      dku --format json govern blueprint export-version bp.my_bp bv.v1 > bv_export.json
       # on the target instance:
       dku govern blueprint import-version bp.my_bp --definition @bv_export.json
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         designer = govern.get_blueprint_designer()
@@ -1216,15 +1197,13 @@ def import_version(
         if not isinstance(body, dict):
             exit_with_error(
                 "Import envelope must be a JSON object.",
-                code="invalid_envelope",
             )
         if "blueprintVersion" not in body:
             exit_with_error(
                 "Import envelope must contain a 'blueprintVersion' key.",
-                code="invalid_envelope",
                 details=[
                     "Expected shape: {'blueprintVersion': {...}, 'originVersionId': '...', 'signoffsConfigurations': [...]}",
-                    "Generate a valid envelope with: dku govern blueprint export-version BP VER -o json",
+                    "Generate a valid envelope with: dku --format json govern blueprint export-version BP VER ",
                 ],
             )
 

@@ -161,15 +161,14 @@ def list_steps(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Prepare recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List steps in a prepare recipe.
 
     Shows each step's index, processor type, name, disabled status, and target column/expression.
-    Use -o json for full step parameters.
+    Use --format json for full step parameters.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -278,7 +277,6 @@ def add_step(
                 }
                 exit_with_error(
                     f"Processor '{step_type}' expects 'inCol'/'outCol' (not 'column'/'outputColumn').",
-                    code="wrong_param_names",
                     details=[
                         "DSS returns a misleading 'Empty column name' error when these field names are wrong.",
                         f"Correct params: {json.dumps(example)}",
@@ -300,7 +298,6 @@ def add_step(
                 if wrong in parsed_params and right not in parsed_params:
                     exit_with_error(
                         f"Processor '{step_type}' expects '{right}', got '{wrong}'.",
-                        code="wrong_param_key",
                         details=[
                             "DSS silently ignores unknown processor params — "
                             "the formula never executes but the recipe runs successfully "
@@ -363,7 +360,6 @@ def add_step(
             if at < 0 or at > len(steps):
                 exit_with_error(
                     f"--at {at} out of range. Valid: 0–{len(steps)}.",
-                    code="invalid_index",
                 )
             steps.insert(at, step_dict)
             idx = at
@@ -509,7 +505,6 @@ def replace_step(
             if not isinstance(new_step, dict):
                 exit_with_error(
                     "--definition must be a JSON object describing one step.",
-                    code="invalid_step",
                 )
             # Default the metaType so callers don't have to remember it
             new_step.setdefault("metaType", "PROCESSOR")
@@ -542,14 +537,13 @@ def get_step(
     recipe_name: str = typer.Argument(help="Prepare recipe name"),
     index: int = typer.Option(..., "--index", help="Step index (0-based)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get full details of a single prepare recipe step.
 
     Returns the complete step JSON including all parameters.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -665,7 +659,6 @@ def _add_prepare_step(
             if at < 0 or at > len(steps):
                 exit_with_error(
                     f"--at {at} out of range. Valid: 0–{len(steps)}.",
-                    code="invalid_index",
                 )
             steps.insert(at, step_dict)
             idx = at
@@ -743,14 +736,12 @@ def add_rename(
     if mappings and (rename_from or rename_to):
         exit_with_error(
             "Use --from/--to OR --mappings, not both.",
-            code="invalid_argument",
         )
     if mappings:
         parsed = read_json_input(mappings)
         if not isinstance(parsed, dict):
             exit_with_error(
                 '--mappings must be a JSON object: \'{"old":"new"}\'',
-                code="invalid_argument",
             )
         renamings = [{"from": k, "to": v} for k, v in parsed.items()]
     elif rename_from and rename_to:
@@ -758,7 +749,6 @@ def add_rename(
     else:
         exit_with_error(
             "Provide --from and --to for a single rename, or --mappings for bulk.",
-            code="invalid_argument",
             details=[
                 "Single: dku recipe add-rename RECIPE --from old_name --to new_name -P PROJ",
                 'Bulk: dku recipe add-rename RECIPE --mappings \'{"old1":"new1","old2":"new2"}\' -P PROJ',
@@ -807,15 +797,12 @@ def add_filter_rows(
     Use instead of df[df.col > x] in Python.
     """
     if formula and (column or values):
-        exit_with_error(
-            "Use --column/--values OR --formula, not both.", code="invalid_argument"
-        )
+        exit_with_error("Use --column/--values OR --formula, not both.")
     action_upper = action.upper()
     if action_upper not in {"KEEP_ROW", "REMOVE_ROW"}:
         exit_with_error(
             f"Invalid --action '{action}'. The FilterOnCustomFormula / FilterOnValue "
             "processors this command emits support only KEEP_ROW or REMOVE_ROW.",
-            code="invalid_argument",
             details=[
                 "To clear cells use a Prepare clear/fill step; to write a boolean "
                 "flag column use a FlagOn* processor (not yet exposed as a flag).",
@@ -855,7 +842,6 @@ def add_filter_rows(
     else:
         exit_with_error(
             "Provide --column + --values, or --formula.",
-            code="invalid_argument",
             details=[
                 "Value-based: dku recipe add-filter-rows RECIPE --column status --values 'active,pending' --action KEEP_ROW -P PROJ",
                 "Formula: dku recipe add-filter-rows RECIPE --formula 'price > 100' --action REMOVE_ROW -P PROJ",
@@ -896,7 +882,6 @@ def add_fill_empty(
     if not cols:
         exit_with_error(
             "Provide at least one column via --column (repeatable) or --columns CSV.",
-            code="missing_column",
         )
 
     params: dict
@@ -989,8 +974,7 @@ def add_reorder(
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Add a ColumnReorder step. Auto-fills `appliesTo` so DSS doesn't reject
-    the step with 'Applies mode not selected'.
+    """Add a ColumnReorder step (auto-fills `appliesTo`).
 
     Closes the recurring footgun: the generic `add-step --type ColumnReorder`
     omits `appliesTo`, which DSS silently accepts but renders as broken.
@@ -1008,7 +992,6 @@ def add_reorder(
     if mode_upper in {"BEFORE_COLUMN", "AFTER_COLUMN"} and not anchor:
         exit_with_error(
             f"--mode {mode_upper} requires --anchor (the reference column).",
-            code="missing_anchor",
             details=[
                 "AT_THE_BEGINNING / AT_THE_END do not need --anchor.",
                 "BEFORE_COLUMN / AFTER_COLUMN do.",
@@ -1021,7 +1004,6 @@ def add_reorder(
     if not cols:
         exit_with_error(
             "Provide at least one column via --column (repeatable) or --columns CSV.",
-            code="missing_column",
         )
 
     applies_to = "SINGLE_COLUMN" if len(cols) == 1 else "COLUMNS"
@@ -1113,13 +1095,11 @@ def add_fold(
     if columns and pattern:
         exit_with_error(
             "Use --columns OR --pattern, not both.",
-            code="invalid_argument",
             details=["--columns: explicit list. --pattern: regex match."],
         )
     if not columns and not pattern:
         exit_with_error(
             "Specify --columns or --pattern to select columns to fold.",
-            code="invalid_argument",
             details=[
                 'Example: dku recipe add-fold RECIPE --columns "jan,feb,mar" --key-column month --value-column sales -P PROJ',
                 'Example: dku recipe add-fold RECIPE --pattern ".*-25" --key-column month --value-column sales -P PROJ',

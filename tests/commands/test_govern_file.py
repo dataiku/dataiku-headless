@@ -37,7 +37,7 @@ def test_file_get(patch_client):
 
 
 def test_file_get_json(patch_client):
-    result = runner.invoke(app, ["govern", "file", "get", "uf.1", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "file", "get", "uf.1"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["id"] == "uf.1"

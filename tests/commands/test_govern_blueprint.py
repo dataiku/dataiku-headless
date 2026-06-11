@@ -26,7 +26,7 @@ def test_blueprint_list(patch_client):
 
 
 def test_blueprint_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "blueprint", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "blueprint", "list"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -43,7 +43,8 @@ def test_blueprint_get(patch_client):
 
 def test_blueprint_get_json(patch_client):
     result = runner.invoke(
-        app, ["govern", "blueprint", "get", "bp.system.govern_project", "-o", "json"]
+        app,
+        ["--format", "json", "govern", "blueprint", "get", "bp.system.govern_project"],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -62,12 +63,12 @@ def test_blueprint_list_versions_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "list-versions",
             "bp.system.govern_project",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -101,13 +102,13 @@ def test_blueprint_get_version_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "get-version",
             "bp.system.govern_project",
             "bv.system.default",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -131,7 +132,14 @@ def test_blueprint_fields_json(patch_client):
     """Test fields command in JSON output."""
     result = runner.invoke(
         app,
-        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "blueprint",
+            "fields",
+            "bp.system.govern_project",
+        ],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -146,7 +154,14 @@ def test_blueprint_fields_shows_list_marker(patch_client):
     """Test that list fields are marked with * in the LIST column."""
     result = runner.invoke(
         app,
-        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "blueprint",
+            "fields",
+            "bp.system.govern_project",
+        ],
     )
     data = json.loads(result.output)
     countries = next(f for f in data if f["field"] == "countries")
@@ -159,7 +174,14 @@ def test_blueprint_fields_shows_categories(patch_client):
     """Test that category values are shown."""
     result = runner.invoke(
         app,
-        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "blueprint",
+            "fields",
+            "bp.system.govern_project",
+        ],
     )
     data = json.loads(result.output)
     cost = next(f for f in data if f["field"] == "cost_rating")
@@ -171,7 +193,14 @@ def test_blueprint_fields_shows_allowed_refs(patch_client):
     """Test that REFERENCE fields show allowed blueprints."""
     result = runner.invoke(
         app,
-        ["govern", "blueprint", "fields", "bp.system.govern_project", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "blueprint",
+            "fields",
+            "bp.system.govern_project",
+        ],
     )
     data = json.loads(result.output)
     bi = next(f for f in data if f["field"] == "business_initiative")
@@ -666,13 +695,13 @@ def test_version_status_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "version-status",
             "bp.system.govern_project",
             "bv.system.default",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -766,13 +795,13 @@ def test_list_signoff_configs_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "list-signoff-configs",
             "bp.system.govern_project",
             "bv.system.default",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -786,14 +815,14 @@ def test_get_signoff_config(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "get-signoff-config",
             "bp.system.govern_project",
             "bv.system.default",
             "review",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -918,13 +947,13 @@ def test_export_version_wraps_definition_trace_and_signoffs(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "export-version",
             "bp.system.govern_project",
             "bv.system.default",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -976,7 +1005,7 @@ def test_export_version_strips_non_role_users_by_default(patch_client):
 
     result = runner.invoke(
         app,
-        ["govern", "blueprint", "export-version", "bp.x", "bv.v1", "-o", "json"],
+        ["--format", "json", "govern", "blueprint", "export-version", "bp.x", "bv.v1"],
     )
     assert result.exit_code == 0, result.output
     envelope = json.loads(result.output)
@@ -1021,14 +1050,14 @@ def test_export_version_keep_non_role_users_flag(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "export-version",
             "bp.x",
             "bv.v1",
             "--keep-non-role-users",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1334,13 +1363,13 @@ def test_list_hooks_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "list-hooks",
             "bp.hook_test",
             "bv.default",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1373,13 +1402,13 @@ def test_list_hooks_empty_json_returns_empty_array(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "blueprint",
             "list-hooks",
             "bp.hook_test",
             "bv.default",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output

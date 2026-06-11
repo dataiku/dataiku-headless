@@ -232,7 +232,6 @@ def _build_tile(
 def get(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full app manifest.
 
@@ -241,7 +240,7 @@ def get(
     (export-ZIP fallback). Empty dict means the project has no manifest.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         raw = _read_manifest(client, project_key)
@@ -322,11 +321,10 @@ def set_definition(
 def list_tiles(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all tiles across all sections."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         raw = _read_manifest(client, project_key)

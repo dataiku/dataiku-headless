@@ -8,7 +8,14 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_text_input
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS code environments.")
 
@@ -33,10 +40,9 @@ def _normalize_python_interpreter(value: str) -> str | None:
 @app.command("list")
 def list_envs(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all code environments."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         # dataikuapi quirk: returns dicts, not objects
@@ -68,10 +74,9 @@ def get(
     ctx: typer.Context,
     name: str = typer.Argument(help="Code environment name"),
     lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show code environment details."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         env = client.get_code_env(lang, name)
@@ -175,7 +180,6 @@ def create(
         if interpreter is None:
             exit_with_error(
                 f"Unrecognized Python version: '{python_version}'.",
-                code="invalid_argument",
                 details=[
                     "Accepted forms: '3.9', '3.10', '3.11', '3.12', '3.13',",
                     "or 'PYTHON39' / 'PYTHON310' / 'PYTHON311' / 'PYTHON312' / 'PYTHON313'.",
@@ -228,6 +232,7 @@ def create(
             info("Rebuilding environment...")
             env.update_packages()
             success(f"Rebuild complete for '{name}'")
+        hint(f"dku code-env get {name} --lang {lang}")
     except Exception as e:
         handle_api_error(e)
 
@@ -386,10 +391,9 @@ def usages(
     ctx: typer.Context,
     name: str = typer.Argument(help="Code environment name"),
     lang: str = typer.Option("PYTHON", "--lang", "-l", help="Language (PYTHON or R)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show what uses a code environment."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         env = client.get_code_env(lang, name)

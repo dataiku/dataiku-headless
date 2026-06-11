@@ -12,7 +12,7 @@ The `llmId` is instance-specific — every DSS install has a different set of co
 
 ```bash
 # Pick a completion LLM available on this instance
-LLM_ID=$(dku llm list -P PROJ -o json | jq -r '.[0].id')
+LLM_ID=$(dku --format ids llm list -P PROJ | head -1)
 ```
 
 The dataset-create steps below use the `filesystem_managed` default managed connection. If your project already has a different default, omit `-c filesystem_managed` and let DSS pick; if you need a non-default connection, discover it with `dku connection list`.
@@ -73,7 +73,7 @@ dku recipe set-settings my_recipe -P PROJ -s @prompt_settings.json
 
 | Key | Required | Value |
 |---|---|---|
-| `llmId` | **yes** | LLM ID in `provider:connection:model` format. Discover with `dku llm list -P PROJ -o json`. For agent-as-LLM: `agent:AGENT_ID`. |
+| `llmId` | **yes** | LLM ID in `provider:connection:model` format. Discover with `dku --format json llm list -P PROJ`. For agent-as-LLM: `agent:AGENT_ID`. |
 | `prompt` | **yes** | The prompt configuration object (see next table). |
 | `completionSettings` | no | `{"stopSequences": [], "temperature": 0.7, "maxTokens": 1024}`. Omit for provider defaults. |
 | `filter` | no | Pre-LLM row filter. `{"enabled": false, "distinct": false, "uiData": {"mode": "&&", "conditions": []}}` is the inert default. |
@@ -123,7 +123,7 @@ These columns are **not configurable**. To drop the noise columns downstream, us
 
 ```bash
 # 0. Discover the LLM ID — do NOT hardcode it (varies per instance)
-LLM_ID=$(dku llm list -P PROJ -o json | jq -r '.[0].id') && \
+LLM_ID=$(dku --format ids llm list -P PROJ | head -1) && \
 
 # Setup: create an input dataset of extraction tasks
 dku dataset create extraction_tasks --type UploadedFiles -P PROJ && \
@@ -162,7 +162,7 @@ dku dataset head extraction_parsed -P PROJ -n 5
 If you need fields not documented here (STRUCTURED mode, guardrails, custom completion settings), the fastest way to discover the schema is to create a working recipe in the DSS UI and dump it:
 
 ```bash
-dku recipe get-settings my_ui_recipe -P PROJ -o json | jq '.payload' > payload_template.json
+dku --format json recipe get-settings my_ui_recipe -P PROJ | jq '.payload' > payload_template.json
 ```
 
 Then diff against the minimal payload above to see what changed, and copy the new fields into your programmatic builder.

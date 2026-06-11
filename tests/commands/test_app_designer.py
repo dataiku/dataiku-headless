@@ -262,7 +262,7 @@ def test_app_designer_list_tiles(patch_client):
 
 def test_app_designer_list_tiles_json(patch_client):
     result = runner.invoke(
-        app, ["app-designer", "list-tiles", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "app-designer", "list-tiles", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

@@ -19,7 +19,7 @@ def test_artifact_list(patch_client):
 
 
 def test_artifact_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "artifact", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "artifact", "list"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -49,6 +49,8 @@ def test_artifact_list_with_field_filter(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "artifact",
             "list",
@@ -56,8 +58,6 @@ def test_artifact_list_with_field_filter(patch_client):
             "bp.system.govern_project",
             "--field",
             "sensitive_data=Yes",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -94,7 +94,9 @@ def test_artifact_get(patch_client):
 
 
 def test_artifact_get_json(patch_client):
-    result = runner.invoke(app, ["govern", "artifact", "get", "ar.5", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "govern", "artifact", "get", "ar.5"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["id"] == "ar.5"
@@ -237,7 +239,9 @@ def test_artifact_list_with_name_filter(patch_client):
 
 def test_artifact_list_all_pages(patch_client):
     """Test --all fetches multiple pages."""
-    result = runner.invoke(app, ["govern", "artifact", "list", "--all", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "govern", "artifact", "list", "--all"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1  # Only 1 hit before empty page stops iteration
@@ -314,13 +318,13 @@ def test_artifact_list_no_warning_in_json_mode(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "artifact",
             "list",
             "--page-size",
             "1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0, result.output

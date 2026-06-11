@@ -107,26 +107,9 @@ def _emit_block(
     rerun_with_confirmation: str,
     session_bypass: str,
     extra_lines: list[str],
-) -> dict:
-    """Emit the AGENT INSTRUCTION block to stderr and return structured payload.
-
-    Renders as text (Rich) or JSON based on the active error format.
-    """
-    from dku_cli.output import err_console, get_error_format
-
-    payload = {
-        "tier": int(tier),
-        "tier_label": _tier_label(tier),
-        "action": action,
-        "subject": subject,
-        "prompt_to_user": prompt_to_user,
-        "rerun_with_confirmation": rerun_with_confirmation,
-        "session_bypass": session_bypass,
-    }
-
-    if get_error_format() == "json":
-        _emit_json(action, tier, payload)
-        return payload
+) -> None:
+    """Emit the AGENT INSTRUCTION block to stderr."""
+    from dku_cli.output import err_console
 
     err_console.print(
         f"[red]◆[/red] BLOCKED by guarded mode — tier-{int(tier)} "
@@ -147,23 +130,6 @@ def _emit_block(
         err_console.print(f"  [dim]{line}[/dim]")
     err_console.print("")
     err_console.print(f"[dim]Exit code: {SAFETY_BLOCKED_EXIT}  (safety_blocked)[/dim]")
-
-    return payload
-
-
-def _emit_json(action: str, tier: Tier, payload: dict) -> None:
-    import json as _json
-
-    wrapper = {
-        "error": {
-            "code": "safety_blocked",
-            "message": f"Tier-{int(tier)} op blocked: {action}.",
-            "details": [],
-            "exit_code": SAFETY_BLOCKED_EXIT,
-            "safety": payload,
-        }
-    }
-    print(_json.dumps(wrapper, indent=2), file=sys.stderr)
 
 
 def _warn_dangerous_once(ctx: Optional[typer.Context], reason: str) -> None:
@@ -274,23 +240,8 @@ def _emit_cascade_name_mismatch(
     confirm_name: Optional[str],
 ) -> None:
     rerun = _reconstruct_rerun(["--yes", "--confirm-name", target_id or "<TARGET>"])
-    payload = {
-        "tier": int(Tier.CASCADE),
-        "tier_label": "cascade",
-        "action": action,
-        "subject": subject,
-        "reason": "confirm_name_mismatch",
-        "expected_confirm_name": target_id,
-        "got_confirm_name": confirm_name,
-        "rerun_with_confirmation": rerun,
-        "session_bypass": "DKU_DANGEROUS=1",
-    }
 
-    from dku_cli.output import err_console, get_error_format
-
-    if get_error_format() == "json":
-        _emit_json(action, Tier.CASCADE, payload)
-        return
+    from dku_cli.output import err_console
 
     err_console.print(
         "[red]◆[/red] BLOCKED — tier-3 cascade requires --confirm-name to match the target."
@@ -324,22 +275,8 @@ def _emit_admin_refusal(
     rerun = _reconstruct_rerun(
         ["--yes", "--confirm-name", target_id or "<TARGET>", "--i-know-what-im-doing"]
     )
-    payload = {
-        "tier": int(Tier.ADMIN),
-        "tier_label": "admin",
-        "action": action,
-        "subject": subject,
-        "reason": "admin_authorization_incomplete",
-        "missing": missing,
-        "rerun_with_confirmation": rerun,
-        "bypass_allowed": False,
-    }
 
-    from dku_cli.output import err_console, get_error_format
-
-    if get_error_format() == "json":
-        _emit_json(action, Tier.ADMIN, payload)
-        return
+    from dku_cli.output import err_console
 
     err_console.print(
         "[red]◆[/red] BLOCKED — tier-4 admin op requires explicit full authorization."

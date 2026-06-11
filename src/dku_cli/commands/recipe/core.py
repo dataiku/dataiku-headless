@@ -31,7 +31,6 @@ _DEDICATED_VERB_TYPES = {
 def list_recipes(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     fields: str = typer.Option(
         None,
         "--fields",
@@ -40,7 +39,7 @@ def list_recipes(
 ) -> None:
     """List recipes in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -75,11 +74,10 @@ def get(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show recipe details."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -115,7 +113,6 @@ def get_definition(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full recipe definition (raw definition + payload).
 
@@ -124,11 +121,11 @@ def get_definition(
     Use 'dku recipe set-definition' to update these values.
 
     Examples:
-      dku recipe get-definition my_group -P PROJ -o json
+      dku --format json recipe get-definition my_group -P PROJ
       dku recipe get-definition my_join -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -227,10 +224,9 @@ def run(
         if not output_refs:
             exit_with_error(
                 f"Recipe '{recipe_name}' has no outputs to build.",
-                code="no_outputs",
                 status=1,
                 details=[
-                    f"Check wiring: dku recipe get {recipe_name} -P {project_key} -o json",
+                    f"Check wiring: dku recipe get {recipe_name} -P {project_key}",
                 ],
             )
 
@@ -247,6 +243,9 @@ def run(
 
         success(f"Recipe '{recipe_name}' started")
         info(f"Job ID: {job_id}")
+        from dku_cli.output import hint
+
+        hint(f"dku job log {job_id} -P {project_key}")
         if auto_update_schema:
             info("Auto-update schema: enabled")
 
@@ -261,7 +260,6 @@ def run(
                 if timeout is not None and (time.time() - start) > timeout:
                     exit_with_error(
                         f"Recipe '{recipe_name}' did not finish within {timeout}s (job {job.id}).",
-                        code="timeout",
                         details=[
                             f"Job is still running — poll status: dku job status {job.id} -P {project_key}",
                             f"View log: dku job log {job.id} -P {project_key}",
@@ -312,7 +310,6 @@ def run(
             details.append(f"Full status: dku job status {job_id} -P {project_key}")
             exit_with_error(
                 f"Recipe '{recipe_name}' {state.lower()} (job {job_id}).",
-                code="job_failed",
                 status=4,
                 details=details,
             )
@@ -326,11 +323,10 @@ def run(
         if job_id:
             exit_with_error(
                 f"Recipe '{recipe_name}' run failed: {e}",
-                code="job_failed",
                 status=4,
                 details=[
                     f"Inspect the log: dku job log {job_id} -P {project_key}",
-                    f"Job status: dku job status {job_id} -P {project_key} -o json",
+                    f"Job status: dku job status {job_id} -P {project_key}",
                 ],
             )
         handle_api_error(e)
@@ -435,12 +431,6 @@ def create(
         ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(
-        None,
-        "-o",
-        "--output",
-        help="Output FORMAT (table/json/csv). For output dataset, use --output-ds",
-    ),
 ) -> None:
     """Create a new recipe.
 
@@ -472,26 +462,14 @@ def create(
     if recipe_name.lower() in _KNOWN_RECIPE_TYPES:
         exit_with_error(
             f"'{recipe_name}' looks like a recipe type, not a recipe name.",
-            code="invalid_argument",
             details=[
                 f"Correct syntax: dku recipe create <NAME> --type {recipe_name} --input <DS> --output-ds <DS> -P <PROJ>",
-            ],
-        )
-    # Detect --output/--output-ds confusion
-    if output is not None and output.lower() not in ("table", "json", "csv"):
-        exit_with_error(
-            f"Invalid output format '{output}'.",
-            code="invalid_argument",
-            details=[
-                f"Did you mean --output-ds '{output}'?",
-                "Use --output-ds for the output dataset name, -o for output format (table/json/csv).",
             ],
         )
     # Resolve the output target: exactly one of --output-ds / --output-folder.
     if output_ds and output_folder:
         exit_with_error(
             "Pass only one of --output-ds and --output-folder.",
-            code="invalid_argument",
             details=[
                 "--output-ds wires/creates a dataset output.",
                 "--output-folder wires an existing managed folder output.",
@@ -500,7 +478,6 @@ def create(
     if not output_ds and not output_folder:
         exit_with_error(
             "No output specified. Provide --output-ds <DATASET> or --output-folder <FOLDER>.",
-            code="missing_param",
             details=[
                 f"Dataset output: dku recipe create {recipe_name} -t {type_name} -i <INPUT> --output-ds <DATASET> -P {project_key}",
                 f"Folder output:  dku recipe create {recipe_name} -t {type_name} -i <INPUT> --output-folder <FOLDER> -P {project_key}",
@@ -515,7 +492,6 @@ def create(
         except json.JSONDecodeError as exc:
             exit_with_error(
                 f"Invalid JSON in --params: {exc}",
-                code="invalid_argument",
                 details=[
                     'Pass a JSON object: --params \'{"key": "value"}\'',
                     "Or from file: --params @config.json",
@@ -527,7 +503,6 @@ def create(
     if is_scoring_type and model is None:
         exit_with_error(
             f"Recipe type '{type_name}' requires a saved model. Pass --model SAVED_MODEL_ID_OR_NAME.",
-            code="missing_param",
             details=[
                 "List saved models: dku ml models -P " + project_key,
                 f"Example: dku recipe create {recipe_name} -t {type_name} -i <INPUT_DS> "
@@ -549,7 +524,6 @@ def create(
         ):
             exit_with_error(
                 f"--input is required for recipe type '{type_name}'.",
-                code="missing_input",
                 details=[
                     "Only code recipes (python, r, shell, pyspark, cpython, sparkr) support creation without an input dataset.",
                     f"Example: dku recipe create {recipe_name} -t {type_name} -i <INPUT_DS> --output-ds {output_ds} -P {project_key}",
@@ -599,7 +573,6 @@ def create(
             if builder is None:
                 exit_with_error(
                     f"Unknown recipe type '{type_name}'.",
-                    code="unknown_recipe_type",
                     details=[
                         "Built-in types: python, sql, join, group, sort, distinct, topn, window, stack, split, prepare, filter, sync",
                         "Plugin recipe types use format: CustomCode_<recipeComponentId>",
@@ -655,13 +628,11 @@ def create(
             if container_mode.value == "EXPLICIT_CONTAINER" and not container_conf:
                 exit_with_error(
                     "--container-mode EXPLICIT_CONTAINER requires --container-conf.",
-                    code="invalid_argument",
                 )
         if env_mode is not None:
             if env_mode.value == "EXPLICIT_ENV" and not env_name:
                 exit_with_error(
                     "--env-mode EXPLICIT_ENV requires --env-name.",
-                    code="invalid_argument",
                 )
         if container_mode or env_mode:
             recipe = proj.get_recipe(recipe_name)
@@ -688,11 +659,13 @@ def create(
         if output_folder_id:
             info(f"Output folder: {output_folder_id}")
         success(f"Created recipe '{recipe_name}' in {project_key}")
+        from dku_cli.output import hint
+
+        hint(f"dku recipe run {recipe_name} -P {project_key}")
     except Exception as e:
         if is_already_exists_error(e):
             exit_with_error(
                 f"Output dataset '{output_ds}' already exists in {project_key}.",
-                code="already_exists",
                 details=[
                     "Code recipes (python, sql) auto-create their output dataset.",
                     f"Delete it first: dku dataset delete {output_ds} -P {project_key}",
@@ -705,7 +678,6 @@ def create(
             if type_name.lower() in _VISUAL_RECIPE_TYPES:
                 exit_with_error(
                     f"FAILED: recipe '{recipe_name}' was NOT created — output dataset '{output_ds}' must be created first.",
-                    code="output_not_found",
                     details=[
                         f"Output dataset '{output_ds}' does not exist.",
                         f"`dku recipe create -t {type_name}` does NOT auto-create the output (the typed shortcuts create-join / create-group / ... do).",
@@ -723,7 +695,6 @@ def create(
             else:
                 exit_with_error(
                     f"Cannot auto-create output dataset '{output_ds}' — no default managed connection configured.",
-                    code="connection_required",
                     details=[
                         "This DSS project has no default managed connection for auto-creating datasets.",
                         "Fix: add --connection <NAME> to specify where the output should be stored.",
@@ -742,7 +713,6 @@ def create(
             )
             exit_with_error(
                 f"recipe '{recipe_name}' was NOT created — type '{type_name}' needs its dedicated verb.",
-                code="use_dedicated_verb",
                 details=[
                     f"`dku recipe create -t {type_name}` can't supply the config this recipe requires",
                     "(group keys, join keys, a window definition, ...).",
@@ -758,7 +728,6 @@ def create(
         if "recipe type" in str(e).lower() and "unknown" in str(e).lower():
             exit_with_error(
                 f"Recipe type '{type_name}' is unknown to DSS.",
-                code="unknown_recipe_type",
                 details=[
                     "Plugin recipe type format is: CustomCode_<recipeComponentId>",
                     "  The plugin ID is NOT part of the type. Only the recipe directory name.",
@@ -823,7 +792,6 @@ def rename(
         # dataikuapi raises ValueError if new_name == old name
         exit_with_error(
             str(e),
-            code="invalid_argument",
             details=[
                 f"The recipe is already named '{recipe_name}'.",
                 "Provide a different name with --name.",
@@ -838,7 +806,6 @@ def status(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     engines: bool = typer.Option(
         False,
         "--engines",
@@ -847,7 +814,7 @@ def status(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Dump the full server status payload (engines, sqlWithExecutionPlanList, pivotModalities, outputSchema with originalType, sqlWarning, recipe-type-keyed buckets, etc.). Implies -o json unless overridden.",
+        help="Dump the full server status payload (engines, sqlWithExecutionPlanList, pivotModalities, outputSchema with originalType, sqlWarning, recipe-type-keyed buckets, etc.). Renders as JSON.",
     ),
 ) -> None:
     """Show recipe status: engine, severity, and check messages.
@@ -869,7 +836,7 @@ def status(
       dku recipe status compute_data -P PROJ --full | jq '.engines[]|select(.statusWarnLevel!="OK")'
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(
@@ -878,11 +845,10 @@ def status(
         recipe_status = recipe.get_status()
 
         if full:
-            # Dump the entire server payload. Default to JSON since the shape
-            # is recipe-type-dependent (Sync has 25 engines; Pivot has nested
+            # Dump the entire server payload as JSON — the shape is
+            # recipe-type-dependent (Sync has 25 engines; Pivot has nested
             # pivotModalities; Split has sqlWithExecutionPlanList).
-            full_fmt = "json" if output is None else fmt
-            render_raw(recipe_status.data, output_format=full_fmt)
+            render_raw(recipe_status.data, output_format=fmt)
             return
 
         if engines:

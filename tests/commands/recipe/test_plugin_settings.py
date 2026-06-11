@@ -315,13 +315,13 @@ def test_recipe_get_settings_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "recipe",
             "get-settings",
             "recipe1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -349,7 +349,7 @@ def test_recipe_get_settings_python_recipe_with_code(patch_client):
 
     result = runner.invoke(
         app,
-        ["recipe", "get-settings", "my_py", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "recipe", "get-settings", "my_py", "--project", "PROJ1"],
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -376,7 +376,7 @@ def test_recipe_get_settings_sql_query_recipe_with_code(patch_client):
 
     result = runner.invoke(
         app,
-        ["recipe", "get-settings", "extract", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "recipe", "get-settings", "extract", "--project", "PROJ1"],
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -404,7 +404,7 @@ def test_recipe_get_settings_visual_payload_always_dict(patch_client):
     )
 
     result = runner.invoke(
-        app, ["recipe", "get-settings", "j1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "get-settings", "j1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -430,7 +430,7 @@ def test_recipe_get_settings_visual_payload_dict_passthrough(patch_client):
     )
 
     result = runner.invoke(
-        app, ["recipe", "get-settings", "g1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "get-settings", "g1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -456,7 +456,7 @@ def test_recipe_get_settings_visual_payload_falls_back_to_raw_params(patch_clien
     settings.raw_params = {"payload": '{"mode":"UNION","virtualInputs":[]}'}
 
     result = runner.invoke(
-        app, ["recipe", "get-settings", "s1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "get-settings", "s1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -480,7 +480,7 @@ def test_recipe_get_settings_visual_empty_payload_returns_empty_dict(patch_clien
     settings.raw_params = {}
 
     result = runner.invoke(
-        app, ["recipe", "get-settings", "p1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "get-settings", "p1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)

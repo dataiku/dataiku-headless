@@ -11,7 +11,7 @@ from dku_cli.helpers import (
     resolve_knowledge_bank,
     resolve_project,
 )
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 
 # Built-in agent tool types, live-verified on DSS 14.6 by probe-creating each
 # via new_agent_tool() — DSS exposes NO endpoint to list tool types, so this
@@ -54,11 +54,10 @@ app = typer.Typer(help="Manage DSS agent tools.")
 def list_agent_tools(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List agent tools in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -164,7 +163,6 @@ def create(
         if not isinstance(parsed_params, dict):
             exit_with_error(
                 "--params must be a JSON object.",
-                code="bad_argument",
                 details=[
                     'Pass a JSON object, e.g. \'{"key":"value"}\', @file.json, '
                     "or '-' for stdin.",
@@ -182,7 +180,6 @@ def create(
             if knowledge_bank is None:
                 exit_with_error(
                     "VectorStoreSearch tools require --knowledge-bank.",
-                    code="missing_param",
                     details=[
                         "Example: dku agent-tool create my_search --type VectorStoreSearch --kb my_kb -P PROJ",
                         "List knowledge banks with: dku knowledge list -P PROJ",
@@ -224,7 +221,6 @@ def create(
                 _cleanup_orphan()
                 exit_with_error(
                     f"--dataset is only for DatasetRowLookup/DatasetRowAppend tools, not {tool_type}.",
-                    code="invalid_param",
                     details=[
                         f"Example: dku agent-tool create {name} --type DatasetRowLookup --dataset my_ds -P {project_key}",
                     ],
@@ -238,7 +234,6 @@ def create(
                 _cleanup_orphan()
                 exit_with_error(
                     f"--llm is only for LLMMeshLLMQuery tools, not {tool_type}.",
-                    code="invalid_param",
                     details=[
                         f"Example: dku agent-tool create {name} --type LLMMeshLLMQuery --llm openai:conn:gpt-4o -P {project_key}",
                     ],
@@ -259,7 +254,6 @@ def create(
                 _cleanup_orphan()
                 exit_with_error(
                     f"--saved-model is only for ClassicalPredictionModelPredict tools, not {tool_type}.",
-                    code="invalid_param",
                     details=[
                         f"Example: dku agent-tool create {name} --type ClassicalPredictionModelPredict --saved-model my_model -P {project_key}",
                     ],
@@ -282,6 +276,7 @@ def create(
             raise
 
         success(f"Created agent tool '{name}' (id={tool.id}, type={tool_type})")
+        hint(f"dku agent-tool get {tool.id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -318,7 +313,6 @@ def set_definition(
     if definition is None and params is None:
         exit_with_error(
             "Pass --definition and/or --params.",
-            code="missing_param",
             details=[
                 'Merge params only:  dku agent-tool set-definition ID --params \'{"smRef":"model_id"}\' -P PROJ',
                 "Replace top-level keys: dku agent-tool set-definition ID -d @definition.json -P PROJ",
@@ -330,7 +324,6 @@ def set_definition(
         if not isinstance(parsed_params, dict):
             exit_with_error(
                 "--params must be a JSON object.",
-                code="bad_argument",
                 details=[
                     'Pass a JSON object, e.g. \'{"key":"value"}\', @file.json, '
                     "or '-' for stdin.",
@@ -358,7 +351,6 @@ def set_definition(
 @app.command()
 def types(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     project: str | None = typer.Option(
         None,
         "--project",
@@ -379,7 +371,7 @@ def types(
       dku agent-tool create "Web Search" --type Custom_agent_tool_my-tools_web-search -P PROJ
     """
     del project  # accepted for ergonomic parity with project-scoped commands
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     data = [{"type": t, "description": d} for t, d in BUILTIN_TOOL_TYPES.items()]
     data.append(
         {
@@ -397,11 +389,10 @@ def get(
     ctx: typer.Context,
     tool_id: str = typer.Argument(help="Agent tool ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show agent tool settings."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -421,7 +412,6 @@ def run(
     input_data: str | None = typer.Option(
         None, "--input", help="Input JSON (string, @file.json, or - for stdin)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run an agent tool.
 
@@ -433,12 +423,12 @@ def run(
       DatasetRowLookup:                lookup values for the configured columns
 
     The exact shape for a configured tool is in its descriptor:
-    dku agent-tool get TOOL_ID -P PROJ -o json | jq -r '.quickTestQueryStr'
+    dku --format json agent-tool get TOOL_ID -P PROJ | jq -r '.quickTestQueryStr'
     (note: quickTestQueryStr shows the ENVELOPED form — strip the outer
     {"input": ...} wrapper when passing --input).
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -451,7 +441,6 @@ def run(
             if "NullPointerException" in str(e) or "null" in str(e).lower():
                 exit_with_error(
                     f"Agent tool '{tool_id}' failed with a server-side null error.",
-                    code="tool_run_error",
                     details=[
                         "If this is a VectorStoreSearch tool, the knowledge bank must be built first.",
                         f"Build it with: dku knowledge build <KB_ID> --wait -P {project_key}",
@@ -462,7 +451,6 @@ def run(
             if tool_id.startswith("Custom_agent_tool_"):
                 exit_with_error(
                     f"Plugin tool '{tool_id}' failed: {e}",
-                    code="plugin_tool_error",
                     details=[
                         "Plugin tools may fail when tested directly — presets and "
                         "connections are only resolved inside agent execution context.",

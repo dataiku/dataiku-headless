@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="Manage Govern users (admin).")
@@ -17,10 +17,9 @@ app = typer.Typer(help="Manage Govern users (admin).")
 @app.command("list")
 def list_users(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all Govern users. Requires admin API key."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         users = govern.list_users()
@@ -51,10 +50,9 @@ def list_users(
 def get(
     ctx: typer.Context,
     login: str = typer.Argument(help="User login"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a user's settings. Requires admin API key."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         user = govern.get_user(login)
@@ -98,6 +96,7 @@ def create(
             email=email,
         )
         success(f"Created user '{login}'")
+        hint(f"dku govern user get {login}")
     except SystemExit:
         raise
     except Exception as e:
@@ -112,13 +111,12 @@ def create_bulk(
         "--definition",
         help="JSON array of user dicts (string, @file.json, or - for stdin)",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Bulk create multiple users from JSON. Requires admin API key.
 
     Each user dict should contain: login, password, displayName, sourceType, groups, userProfile, email.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         users = read_json_input(definition)
@@ -143,13 +141,12 @@ def edit_bulk(
         "--definition",
         help="JSON array of user change dicts (string, @file.json, or - for stdin)",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Bulk edit multiple users from JSON. Requires admin API key.
 
     Each dict must contain 'login' key. Other keys: displayName, email, groups, userProfile, enabled, sourceType.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         changes = read_json_input(definition)
@@ -182,10 +179,9 @@ def delete_bulk(
         "--confirm-name",
         help="Required for bulk deletion; must be 'delete-users'.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Bulk delete multiple users. Requires admin API key and cascade confirmation."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     logins = read_json_input(definition)
     count = len(logins) if isinstance(logins, list) else 0
     guard(
@@ -216,10 +212,9 @@ def delete_bulk(
 @app.command("get-own")
 def get_own(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get your own user settings."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         own = govern.get_own_user()
@@ -237,10 +232,9 @@ def list_activity(
     enabled_only: bool = typer.Option(
         False, "--enabled-only", help="Only show enabled users"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List user activity (last login, etc.). Requires admin API key."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         activities = govern.list_users_activity(enabled_users_only=enabled_only)

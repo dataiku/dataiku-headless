@@ -47,8 +47,7 @@ dku ml set-algorithm <ANALYSIS> <MLTASK> \
 #    In a SAS PROC LOGISTIC `MODEL y = a b c;` only a/b/c are in scope; every
 #    other column on the input dataset is implicitly excluded. DSS guess-time
 #    accepts every column — you must reject the extras explicitly.
-for col in $(dku dataset schema joined_applicants -P PROJ -o json \
-              | jq -r '.[].name' \
+for col in $(dku --format ids dataset schema joined_applicants -P PROJ \
               | grep -vxE 'annual_inc|dti|delinq_2yrs|inq_last_6mths|open_acc|total_acc|total_pymnt|home_ownership|initial_list_status|loan_status'); do
     dku ml set-feature <ANALYSIS> <MLTASK> "$col" --role REJECT -P PROJ
 done
@@ -127,7 +126,7 @@ Most SAS installs orchestrate their jobs outside the `.sas` files: a batch sched
 | `if &rc. ne 0 then %abort;` after each step | Scenario step `onFailure: "FAIL"` (default) | Scenarios stop on first failure unless the step is marked non-blocking |
 | Retry loop around a failing step | Step `onFailure: "CONTINUE"` + a downstream `check_dataset` | Don't replicate the retry loop — let the scheduler re-fire the scenario |
 | Per-month expansion (`%do m = 1 %to 12`) running the same pipeline 12× | Scenario with a `custom_python` step looping and invoking each build | `project.get_scenario().run(variables={...})` from the Python step |
-| `%JOB_CONTROL_UPDT` writing run metadata | Scenario run history — automatic | `dku scenario last-run NAME -P PROJ -o json` returns start/end/status |
+| `%JOB_CONTROL_UPDT` writing run metadata | Scenario run history — automatic | `dku --format json scenario last-run NAME -P PROJ` returns start/end/status |
 
 ### Checks (QA / data quality)
 

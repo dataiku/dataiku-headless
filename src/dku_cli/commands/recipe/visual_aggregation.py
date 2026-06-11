@@ -184,7 +184,6 @@ def create_group(
             if ":" not in agg_spec:
                 exit_with_error(
                     f"Invalid --agg format: '{agg_spec}'.",
-                    code="invalid_argument",
                     details=[
                         "Expected: 'column:func1,func2'. Example: --agg 'amount:sum,avg'"
                     ],
@@ -195,7 +194,6 @@ def create_group(
             if invalid:
                 exit_with_error(
                     f"Unknown aggregation functions: {', '.join(sorted(invalid))}.",
-                    code="invalid_argument",
                     details=[f"Valid: {', '.join(sorted(_VALID_AGGS))}"],
                 )
     # Parse --agg-order col=order_col  (and --agg-separator col=sep)
@@ -204,7 +202,6 @@ def create_group(
         if "=" not in entry:
             exit_with_error(
                 f"Invalid --agg-order '{entry}'. Expected 'col=order_col'.",
-                code="invalid_argument",
             )
         c, o = entry.split("=", 1)
         agg_order_map[c.strip()] = o.strip()
@@ -213,7 +210,6 @@ def create_group(
         if "=" not in entry:
             exit_with_error(
                 f"Invalid --agg-separator '{entry}'. Expected 'col=sep' (sep may be empty).",
-                code="invalid_argument",
             )
         c, sep = entry.split("=", 1)
         agg_sep_map[c.strip()] = sep
@@ -347,6 +343,7 @@ def create_group(
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created group recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
         if group_key:
             info(f"Grouped by: {', '.join(group_key)}")
     except typer.Exit:
@@ -496,7 +493,6 @@ def create_stack(
     if len(inputs) < 2:
         exit_with_error(
             "Stack recipes need at least 2 input datasets.",
-            code="invalid_argument",
             details=[
                 "Use: dku recipe create-stack NAME -i ds1 -i ds2 --output-ds out -P PROJ"
             ],
@@ -504,7 +500,6 @@ def create_stack(
     if origin_labels and not origin_column:
         exit_with_error(
             "--origin-label requires --origin-column.",
-            code="invalid_argument",
             details=[
                 "Add --origin-column COL to name the source column, then repeat "
                 "--origin-label INDEX:VALUE to override labels.",
@@ -517,7 +512,6 @@ def create_stack(
             if ":" not in entry:
                 exit_with_error(
                     f"Invalid --origin-label '{entry}'. Expected 'INDEX:VALUE'.",
-                    code="invalid_argument",
                     details=[
                         "Example: --origin-label 0:customers --origin-label 1:prospects",
                     ],
@@ -528,12 +522,10 @@ def create_stack(
             except ValueError:
                 exit_with_error(
                     f"Invalid input index in --origin-label '{entry}': '{idx_str}' is not an integer.",
-                    code="invalid_argument",
                 )
             if idx < 0 or idx >= len(inputs):
                 exit_with_error(
                     f"--origin-label index {idx} out of range (0..{len(inputs) - 1}).",
-                    code="invalid_argument",
                     details=[
                         f"Inputs in order: {', '.join(f'{i}={n}' for i, n in enumerate(inputs))}",
                     ],
@@ -556,12 +548,10 @@ def create_stack(
                 exit_with_error(
                     f"Invalid --mode '{mode}': FROM_INDEX requires an integer "
                     f"(got '{suffix}').",
-                    code="invalid_argument",
                 )
         else:
             exit_with_error(
                 f"Invalid --mode '{mode}'.",
-                code="invalid_argument",
                 details=[
                     _STACK_MODE_HELP,
                     "Only FROM_DATASET / FROM_INDEX accept a ':' suffix.",
@@ -572,18 +562,15 @@ def create_stack(
     if mode_upper not in _STACK_MODES:
         exit_with_error(
             f"Invalid --mode '{mode}'.",
-            code="invalid_argument",
             details=[_STACK_MODE_HELP],
         )
     if mode_upper == "FROM_DATASET" and not from_dataset_name:
         exit_with_error(
             "--mode FROM_DATASET requires the dataset name: --mode FROM_DATASET:DS.",
-            code="invalid_argument",
         )
     if mode_upper == "FROM_DATASET" and from_dataset_name not in inputs:
         exit_with_error(
             f"--mode FROM_DATASET:{from_dataset_name} references a dataset that is not an input.",
-            code="invalid_argument",
             details=[
                 f"Inputs in order: {', '.join(inputs)}",
                 "Use one of the -i/--input dataset names after FROM_DATASET:.",
@@ -593,13 +580,11 @@ def create_stack(
         if from_index_value is None:
             exit_with_error(
                 "--mode FROM_INDEX requires an integer index: --mode FROM_INDEX:0.",
-                code="invalid_argument",
             )
         if from_index_value < 0 or from_index_value >= len(inputs):
             exit_with_error(
                 f"--mode FROM_INDEX:{from_index_value} out of range "
                 f"(0..{len(inputs) - 1}).",
-                code="invalid_argument",
                 details=[
                     f"Inputs in order: {', '.join(f'{i}={n}' for i, n in enumerate(inputs))}",
                 ],
@@ -615,7 +600,6 @@ def create_stack(
             if ":" not in entry:
                 exit_with_error(
                     f"Invalid --columns-match '{entry}'. Expected 'INDEX:c1,c2,c3'.",
-                    code="invalid_argument",
                 )
             idx_str, cols_str = entry.split(":", 1)
             try:
@@ -623,12 +607,10 @@ def create_stack(
             except ValueError:
                 exit_with_error(
                     f"Invalid input index in --columns-match '{entry}': '{idx_str}' is not an integer.",
-                    code="invalid_argument",
                 )
             if idx < 0 or idx >= len(inputs):
                 exit_with_error(
                     f"--columns-match index {idx} out of range (0..{len(inputs) - 1}).",
-                    code="invalid_argument",
                 )
             columns_match_map[idx] = [c.strip() for c in cols_str.split(",")]
 
@@ -638,7 +620,6 @@ def create_stack(
             if ":" not in entry:
                 exit_with_error(
                     f"Invalid --input-filter '{entry}'. Expected 'INDEX:GREL_EXPR'.",
-                    code="invalid_argument",
                 )
             idx_str, expr = entry.split(":", 1)
             try:
@@ -646,12 +627,10 @@ def create_stack(
             except ValueError:
                 exit_with_error(
                     f"Invalid input index in --input-filter '{entry}': '{idx_str}' is not an integer.",
-                    code="invalid_argument",
                 )
             if idx < 0 or idx >= len(inputs):
                 exit_with_error(
                     f"--input-filter index {idx} out of range (0..{len(inputs) - 1}).",
-                    code="invalid_argument",
                 )
             input_filter_map[idx] = expr
 
@@ -659,7 +638,6 @@ def create_stack(
         if not columns_list:
             exit_with_error(
                 "--mode REMAP requires --columns 'a,b,c' to define the output schema.",
-                code="invalid_argument",
                 details=[
                     "REMAP aligns mis-named columns into one output schema. The schema is the "
                     "list of output column names; --columns-match positionally maps each input.",
@@ -669,14 +647,12 @@ def create_stack(
         if not columns_match_map:
             exit_with_error(
                 "--mode REMAP requires at least one --columns-match INDEX:c1,c2,c3.",
-                code="invalid_argument",
             )
         for idx, src_cols in columns_match_map.items():
             if len(src_cols) != len(columns_list):
                 exit_with_error(
                     f"--columns-match {idx}: got {len(src_cols)} source columns "
                     f"but --columns has {len(columns_list)} output columns.",
-                    code="invalid_argument",
                     details=[
                         "The number of source columns per input MUST equal the number of output columns.",
                         "Use an empty slot (',,') if an input does not provide a given output column.",
@@ -685,7 +661,6 @@ def create_stack(
     elif columns_match:
         exit_with_error(
             "--columns-match is only valid with --mode REMAP.",
-            code="invalid_argument",
         )
 
     try:
@@ -750,6 +725,7 @@ def create_stack(
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created stack recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
         if engine_upper:
             info(f"Engine: {engine_upper}")
         if origin_column:
@@ -864,7 +840,6 @@ def create_distinct(
             if not key_cols:
                 exit_with_error(
                     f"Cannot infer distinct keys: input '{input_ds}' has no readable schema.",
-                    code="missing_distinct_keys",
                     details=[
                         "The input dataset either does not exist or has never been built (zero columns).",
                         "Either pass explicit keys, or build the input first:",
@@ -919,5 +894,6 @@ def create_distinct(
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created distinct recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except Exception as e:
         handle_api_error(e)

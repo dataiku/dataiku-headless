@@ -19,7 +19,9 @@ def test_library_list_table(patch_client):
 
 
 def test_library_list_json(patch_client):
-    result = runner.invoke(app, ["library", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "library", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
@@ -360,7 +362,9 @@ def test_library_mkdir(patch_client):
 
 
 def test_library_list_csv(patch_client):
-    result = runner.invoke(app, ["library", "list", "--project", "PROJ1", "-o", "csv"])
+    result = runner.invoke(
+        app, ["--format", "csv", "library", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "utils.py" in result.output
 

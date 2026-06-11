@@ -240,7 +240,7 @@ clone — split sections or move rich content to a wiki article instead.
 Cross-refs use wiki link syntax, exact IDs (case- and separator-sensitive —
 `Build_All` ≠ `BUILDALL`): `[label](article:ID)`, `(scenario:ID)`,
 `(dataset:NAME)`, `(dashboard:ID)`, `(folder:ID)`, `(recipe:NAME)`. Get the
-exact id from `dku <noun> list -o json`; don't guess by uppercasing.
+exact id from `dku --format json <noun> list`; don't guess by uppercasing.
 
 `visibilityCondition` (CEL-like: `model.<name>`, `&&`, `==`) gates a param or a
 whole section against `model.<paramName>`. Always pair a toggle param with a

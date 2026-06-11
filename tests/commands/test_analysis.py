@@ -19,7 +19,7 @@ def test_analysis_list(patch_client):
 
 def test_analysis_list_json(patch_client):
     result = runner.invoke(
-        app, ["analysis", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "analysis", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -36,7 +36,7 @@ def test_analysis_create(patch_client):
 
 def test_analysis_get(patch_client):
     result = runner.invoke(
-        app, ["analysis", "get", "a1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "analysis", "get", "a1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -65,7 +65,7 @@ def test_analysis_tasks(patch_client):
 
 def test_analysis_tasks_json(patch_client):
     result = runner.invoke(
-        app, ["analysis", "tasks", "a1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "analysis", "tasks", "a1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

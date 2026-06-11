@@ -15,7 +15,6 @@ from dku_cli.helpers import (
     resolve_project,
 )
 from dku_cli.output import (
-    console,
     error,
     info,
     print_text,
@@ -123,12 +122,11 @@ def _filter_error_lines(text: str, context: int = 1) -> str:
 def list_jobs(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     limit: int = typer.Option(20, "--limit", "-n", help="Max jobs to show"),
 ) -> None:
     """List recent jobs."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -162,27 +160,20 @@ def list_jobs(
 def last(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(
-        None,
-        "-o",
-        "--output",
-        help="Output format: plain id (default), 'table', or 'json'",
-    ),
 ) -> None:
     """Show the most recent job id (shortcut for 'dku job list | .[0]').
 
     Default output is the plain job id on stdout — designed for shell
     capture: ``dku job log $(dku job last -P PROJ) -P PROJ``.
 
-    Pass ``-o json`` to get the full job record (id, state, initiator,
-    start time) or ``-o table`` for a single-row table.
+    Use ``dku --format json job last`` to get the full job record.
     """
     project_key = resolve_project(project)
-    # Do NOT call resolve_output_format here — we want the unset default
-    # to be "plain id on stdout", not the configured "table" fallback.
-    fmt = output.lower() if output else "plain"
-    if fmt not in ("plain", "table", "json"):
-        raise typer.BadParameter("Output format must be one of: plain, table, json")
+    from dku_cli.output import get_output_format
+
+    # Keep the default optimized for shell capture; only explicit --format json
+    # requests the full structured record.
+    fmt = get_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -205,16 +196,9 @@ def last(
             from dku_cli.output import render_raw
 
             render_raw(record, output_format="json")
-        elif fmt == "table":
-            render(
-                [record],
-                ["id", "state", "initiator", "start"],
-                output_format="table",
-                title=f"Most recent job ({project_key})",
-            )
         else:
             # Plain id on stdout — composable with $(dku job last -P PROJ)
-            console.print(record["id"], highlight=False)
+            print(record["id"])
     except typer.Exit:
         raise
     except Exception as e:
@@ -228,14 +212,13 @@ def status(
         help="Job ID (positional — pass it as the first argument, not via -j)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show job status details.
 
     Job ID is positional. Example: `dku job status 2026-04-27-123 -P PROJ`.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -544,6 +527,9 @@ def run(
         job = builder.start()
         success(f"Job started: {job.id}")
         info(f"Type: {job_type}, Targets: {', '.join(target)}")
+        from dku_cli.output import hint
+
+        hint(f"dku job log {job.id} -P {project_key}")
         if auto_update_schema:
             info("Auto-update schema: enabled")
 

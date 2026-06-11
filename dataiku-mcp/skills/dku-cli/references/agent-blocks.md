@@ -7,7 +7,7 @@ configuration, and LLM tool definitions. Workflow lives in
 **Version paths** (CLI auto-detects): DSS 14.5+ blocks live in
 `versions[0].structuredAgentSettings`; DSS 13.x in `toolsUsingAgentSettings`.
 Aliases: `CORE_LOOP`=`STANDARD_REACT`, `GENERATE_OUTPUT`=`EMIT_OUTPUT`. Always
-`dku agent get ID -o json` a working agent to confirm the path on your instance.
+`dku --format json agent get ID` a working agent to confirm the path on your instance.
 
 ---
 
@@ -42,7 +42,7 @@ scoped to the current branch.
 `defaultNextBlock` (or a `defaultNextBlock` targetting a non-existent/terminal
 block) returns `response:null` with `success:true` — no error. Always set
 `defaultNextBlock` to an `EMIT_OUTPUT` block, and verify the graph with
-`dku agent-block get-graph AGENT_ID -o json | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`
+`dku --format json agent-block get-graph AGENT_ID | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`
 after every `set-graph`.
 
 > **Don't chain a tool-calling CORE_LOOP *after* a PARALLEL gather** (verified

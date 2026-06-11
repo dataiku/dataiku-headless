@@ -9,7 +9,7 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 from dku_cli.safety import Tier, guard
 
 app = typer.Typer(
@@ -85,7 +85,6 @@ def _validate_reference_fields(
 
     exit_with_error(
         f"REFERENCE field '{first_key}' expects an artifact ID, not {first_val!r}.",
-        code="invalid_reference_value",
         details=details,
     )
 
@@ -120,20 +119,19 @@ def list_artifacts(
     all_pages: bool = typer.Option(
         False, "--all", "-a", help="Fetch all pages (not just the first)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Search and list Govern artifacts.
 
     Default page size is 50. Without --all, the listing stops at the first
     page and prints a "showing N (more available)" footer when truncation is
     detected — agents counting artifacts MUST pass --all (or pipe through
-    `-o json | jq length`) to get a reliable count.
+    `--format json ... | jq length`) to get a reliable count.
 
     To count/filter by a FIELD VALUE (the plain listing only carries
     id/name/blueprint/archived, never field values), use --field. Example:
     count projects exposed to PII —
-      dku govern artifact list -b bp.system.govern_project \\
-        --field sensitive_data=Yes --all -o json | jq length
+      dku --format json govern artifact list -b bp.system.govern_project \\
+        --field sensitive_data=Yes --all | jq length
     """
     from dataikuapi.govern.artifact_search import (
         GovernArtifactFilterArchivedStatus,
@@ -143,7 +141,7 @@ def list_artifacts(
         GovernArtifactSearchSourceAll,
     )
 
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
 
@@ -228,7 +226,7 @@ def list_artifacts(
 
             warn(
                 f"Showing {len(data)} (more available). "
-                f"Pass --all for full list, or -o json | jq length for a count."
+                f"Pass --all for full list, or --format json + jq length for a count."
             )
         if field_keys and not data and output != "json":
             from dku_cli.output import warn
@@ -248,10 +246,9 @@ def list_artifacts(
 def get(
     ctx: typer.Context,
     artifact_id: str = typer.Argument(help="Artifact ID (e.g. ar.5)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get an artifact definition."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
@@ -284,7 +281,6 @@ def create(
         "--definition",
         help="Full artifact JSON (string, @file.json, or - for stdin). Overrides --blueprint/--name/--field.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new Govern artifact.
 
@@ -305,12 +301,11 @@ def create(
     """
     import json as json_mod
 
-    output = resolve_output_format(output)
+    output = resolve_output_format()
 
     if definition is None and blueprint is None:
         exit_with_error(
             "Either --blueprint or --definition is required.",
-            code="missing_argument",
             details=[
                 "Ergonomic: dku govern artifact create -b bp.system.govern_project -n 'Name' -f key=value",
                 "Raw JSON:  dku govern artifact create --definition '{...}'",
@@ -374,6 +369,7 @@ def create(
 
         art = govern.create_artifact(artifact_data)
         success(f"Created artifact '{art.artifact_id}'")
+        hint(f"dku govern artifact get {art.artifact_id}")
         defn = art.get_definition()
         render_raw(defn.get_raw(), output_format=output)
     except SystemExit:
@@ -494,7 +490,6 @@ def set_fields(
 
         exit_with_error(
             "set-fields requires at least one 'field_id=value' pair.",
-            code="invalid_argument",
             details=[
                 "Example: dku govern artifact set-fields ar.5 cost=High region=EU"
             ],
@@ -507,7 +502,6 @@ def set_fields(
 
             exit_with_error(
                 f"Invalid pair '{entry}'. Expected 'field_id=value'.",
-                code="invalid_argument",
             )
         field_id, value = entry.split("=", 1)
         field_id = field_id.strip()

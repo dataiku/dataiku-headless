@@ -7,8 +7,8 @@ The **Tier-2** pass — Phase 3.5, on the **built** DSS graph, same rules for ev
 ```bash
 dku flow graph -P PROJ                       # node/type table — find chains and fan-ins
 dku flow visualize -P PROJ                   # DAG shape — fan-outs, parallel branches
-diff <(dku recipe get-settings A -P PROJ -o json | jq .payload) \
-     <(dku recipe get-settings B -P PROJ -o json | jq .payload)   # byte-identical siblings?
+diff <(dku --format json recipe get-settings A -P PROJ | jq .payload) \
+     <(dku --format json recipe get-settings B -P PROJ | jq .payload)   # byte-identical siblings?
 ```
 
 An identical `.payload` diff proves rule 1. For the rest, read each recipe's `keys`, `values`, `preFilter`, join `type`.
@@ -57,7 +57,7 @@ Record what you find as extra Verdict rows. Every first-principles collapse earn
 Never delete the old nodes until the replacement is proven equivalent on real data.
 
 1. Build the new recipe into a **fresh** output (don't overwrite yet).
-2. `dku dataset info OLD/NEW -P PROJ --recompute` — row counts must match; `dku dataset head OLD/NEW -n 20 -o json` — spot-check per-key values. A row-count *increase* after rule 2 = the missing postFilter; fix before proceeding.
+2. `dku dataset info OLD/NEW -P PROJ --recompute` — row counts must match; `dku --format json dataset head OLD/NEW -n 20` — spot-check per-key values. A row-count *increase* after rule 2 = the missing postFilter; fix before proceeding.
 3. Only when counts and values match: repoint consumers to the new output, delete the old nodes.
 4. After **each** rewrite, restate three lines so a regression is traceable to its cause: `recipes: N → M`, `rows: <old final> → <new final>` (must match), `<rule>: <which nodes>`.
 

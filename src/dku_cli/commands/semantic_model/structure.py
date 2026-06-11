@@ -56,7 +56,6 @@ def add_entity(
     if not from_dataset:
         exit_with_error(
             "--from-dataset is required (no manual-entity path yet).",
-            code="missing_argument",
             details=[
                 "Example: dku semantic-model add-entity SM --from-dataset Customers --pk CustomerID -P PROJ",
                 "For manual JSON, read current version, edit with jq, then: dku semantic-model set-version SM --version VID --definition @file.json",
@@ -77,7 +76,6 @@ def add_entity(
         except Exception as e:
             exit_with_error(
                 f"Could not read dataset '{from_dataset}' in project '{project_key}'.",
-                code="dataset_not_found",
                 details=[
                     f"Original error: {e}",
                     f"List datasets: dku dataset list -P {project_key}",
@@ -87,7 +85,6 @@ def add_entity(
         if not columns:
             exit_with_error(
                 f"Dataset '{from_dataset}' has no schema columns — nothing to map.",
-                code="empty_schema",
                 details=[
                     f"Check schema: dku dataset schema {from_dataset} -P {project_key}",
                     "Datasets without a defined schema can't be used as entity sources.",
@@ -148,7 +145,6 @@ def add_entity(
                 return
             exit_with_error(
                 f"Entity '{entity_name}' already exists on version '{version_id}'.",
-                code="already_exists",
                 details=[
                     f"Remove first: dku semantic-model remove-entity {sm_ref} {entity_name} --version {version_id} -P {project_key}",
                     "Or pass --if-not-exists to skip.",
@@ -198,7 +194,6 @@ def remove_entity(
         if len(new_entities) == len(entities):
             exit_with_error(
                 f"Entity '{entity_name}' not found on version '{version_id}'.",
-                code="not_found",
                 details=[
                     "Available entities: "
                     + ", ".join(e.get("name", "") for e in entities)
@@ -275,7 +270,6 @@ def add_relationship(
     if bool(on) == bool(expression):
         exit_with_error(
             "Exactly one of --on or --expression is required.",
-            code="invalid_argument",
             details=[
                 "Simple: --on CustomerID",
                 "Composite: --on ACCOUNT_SK,MONTH",
@@ -298,7 +292,6 @@ def add_relationship(
         if missing:
             exit_with_error(
                 f"Entity not found on version '{version_id}': {', '.join(missing)}",
-                code="not_found",
                 details=[
                     "Available entities: "
                     + (", ".join(sorted(entity_names)) if entity_names else "(none)"),
@@ -311,7 +304,6 @@ def add_relationship(
             if not cols:
                 exit_with_error(
                     "--on produced no valid join columns (empty or whitespace only).",
-                    code="invalid_argument",
                     details=[
                         "Simple: --on CustomerID",
                         "Composite: --on ACCOUNT_SK,MONTH",
@@ -323,7 +315,6 @@ def add_relationship(
             if not pseudo_sql:
                 exit_with_error(
                     "--expression cannot be empty or whitespace.",
-                    code="invalid_argument",
                     details=[
                         'Example: --expression "LOWER(left.email) = LOWER(right.email)"'
                     ],
@@ -343,7 +334,6 @@ def add_relationship(
                     return
                 exit_with_error(
                     f"Relationship between '{first_entity}' and '{second_entity}' already exists on version '{version_id}'.",
-                    code="already_exists",
                     details=[
                         f"Existing predicate: {r.get('pseudoSQLExpression')}",
                         f"Remove first: dku semantic-model remove-relationship {sm_ref} --from {first_entity} --to {second_entity} -P {project_key}",
@@ -402,7 +392,6 @@ def remove_relationship(
         if removed == 0:
             exit_with_error(
                 f"No relationship found between '{first_entity}' and '{second_entity}' on version '{version_id}'.",
-                code="not_found",
                 details=[
                     "List relationships: dku semantic-model list-relationships "
                     f"{sm_ref} -P {project_key}",
@@ -428,11 +417,10 @@ def list_entities(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List entities in a semantic model version (name, dataset, attribute count, PK)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -472,11 +460,10 @@ def list_relationships(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List relationships in a semantic model version."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -541,7 +528,6 @@ def set_manual_values(
     if bool(values) == bool(clear):
         exit_with_error(
             "Exactly one of --values or --clear is required.",
-            code="invalid_argument",
             details=[
                 'Set:   --values "Low,Medium,High"',
                 "Clear: --clear",
@@ -562,7 +548,6 @@ def set_manual_values(
         if target is None:
             exit_with_error(
                 f"Attribute '{attribute}' not found on entity '{entity}'.",
-                code="not_found",
                 details=[
                     "Available attributes: "
                     + (", ".join(a.get("name", "") for a in attrs) or "(none)"),
@@ -580,7 +565,6 @@ def set_manual_values(
         if not vals:
             exit_with_error(
                 "--values must be a non-empty comma-separated list.",
-                code="invalid_argument",
                 details=['Example: --values "Low,Medium,High"'],
             )
         target["distinctValuesHandlingMode"] = "MANUAL"

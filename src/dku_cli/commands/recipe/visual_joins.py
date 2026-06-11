@@ -224,7 +224,6 @@ def create_join(
     if len(inputs) < 2:
         exit_with_error(
             "Join recipes need at least 2 input datasets.",
-            code="invalid_argument",
             details=[
                 "Use: dku recipe create-join NAME -i ds1 -i ds2 --output-ds out -P PROJ"
             ],
@@ -237,7 +236,6 @@ def create_join(
         if len(parts) not in (2, 3):
             exit_with_error(
                 f"Invalid --date-window '{date_window}'. Expected 'FROM:TO[:UNIT]'.",
-                code="invalid_argument",
                 details=[
                     "Example: --date-window -7:7:DAY (rows whose dates differ by ≤ 7 days)"
                 ],
@@ -247,7 +245,6 @@ def create_join(
         except ValueError:
             exit_with_error(
                 f"--date-window '{date_window}': FROM and TO must be integers.",
-                code="invalid_argument",
             )
         unit = parts[2].upper() if len(parts) == 3 else "DAY"
         _VALID_DATE_UNITS = {
@@ -264,7 +261,6 @@ def create_join(
         if unit not in _VALID_DATE_UNITS:
             exit_with_error(
                 f"--date-window unit '{unit}' is not valid.",
-                code="invalid_argument",
                 details=[f"Valid units: {', '.join(sorted(_VALID_DATE_UNITS))}"],
             )
         parsed_date_window = (wf, wt, unit)
@@ -287,7 +283,6 @@ def create_join(
             "--case-insensitive / --normalize-text / --strict-eq / "
             "--max-distance / --max-matches / --date-window need an EQ "
             "join condition to apply to, but no join key was set.",
-            code="invalid_argument",
             details=[
                 "Pass --join-key COL (e.g. --join-key id) so the modifiers have",
                 "a condition to attach to. For multi-input joins, prefix with",
@@ -314,7 +309,6 @@ def create_join(
         ):
             exit_with_error(
                 f"--right-limit-keep {rl_keep_upper} requires --right-limit-decision-column.",
-                code="invalid_argument",
                 details=[
                     "KEEP_LARGEST / KEEP_SMALLEST need a column to compare. "
                     "Use --right-limit-decision-column COL (the right-side tiebreaker column)."
@@ -383,7 +377,6 @@ def create_join(
                 if idx >= len(joins):
                     exit_with_error(
                         f"Join index {idx} out of range — recipe has {len(joins)} join pair(s) (0-indexed).",
-                        code="invalid_argument",
                         details=[
                             f"With {len(inputs)} inputs, valid join indices are 0..{len(joins) - 1}",
                         ],
@@ -460,7 +453,6 @@ def create_join(
                     "--case-insensitive / --normalize-text / --strict-eq / "
                     "--max-distance / --max-matches / --date-window need an EQ "
                     "join condition to apply to, but no join key was set.",
-                    code="invalid_argument",
                     details=[
                         "Pass --join-key COL (e.g. --join-key id) so there is a "
                         "condition to modify.",
@@ -548,7 +540,6 @@ def create_join(
                 if ":" not in entry:
                     exit_with_error(
                         f"Invalid --cols '{entry}'. Expected 'INDEX:c1,c2,c3'.",
-                        code="invalid_argument",
                     )
                 idx_str, cols_str = entry.split(":", 1)
                 try:
@@ -556,12 +547,10 @@ def create_join(
                 except ValueError:
                     exit_with_error(
                         f"Invalid input index in --cols '{entry}'.",
-                        code="invalid_argument",
                     )
                 if idx < 0 or idx >= len(inputs):
                     exit_with_error(
                         f"--cols index {idx} out of range (0..{len(inputs) - 1}).",
-                        code="invalid_argument",
                     )
                 col_list = [c.strip() for c in cols_str.split(",") if c.strip()]
                 # Pad virtualInputs if needed (some setups create them lazily).
@@ -600,6 +589,7 @@ def create_join(
                 )
 
         success(f"Created {jt} join recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -725,7 +715,6 @@ def create_geojoin(
     if len(inputs) != 2:
         exit_with_error(
             f"Geo join requires exactly 2 input datasets, got {len(inputs)}.",
-            code="invalid_argument",
             details=[
                 "Use: dku recipe create-geojoin NAME -i left_ds -i right_ds --output-ds out -P PROJ"
             ],
@@ -733,7 +722,6 @@ def create_geojoin(
     if geo_column and len(geo_column) != 2:
         exit_with_error(
             f"--geo-column must be specified exactly twice (left and right), got {len(geo_column)}.",
-            code="invalid_argument",
             details=[
                 "Use: -g left_geo_col -g right_geo_col",
                 "Or omit --geo-column to let DSS auto-detect from geopoint/geometry columns.",
@@ -797,7 +785,6 @@ def create_geojoin(
                     ]
                     exit_with_error(
                         f"--geo-column '{col}' does not exist in dataset '{ds_name}'.",
-                        code="bad_column",
                         details=[
                             (
                                 f"Geo columns in {ds_name}: {', '.join(geo_names)}"
@@ -854,6 +841,7 @@ def create_geojoin(
         settings.save()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created geo join recipe '{recipe_name}' ({op}) in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -913,7 +901,6 @@ def create_fuzzy_join(
     if len(inputs) != 2:
         exit_with_error(
             f"Fuzzy join requires exactly 2 input datasets, got {len(inputs)}.",
-            code="invalid_argument",
             details=[
                 "Use: dku recipe create-fuzzy-join NAME -i left_ds -i right_ds --output-ds out -P PROJ"
             ],
@@ -983,6 +970,7 @@ def create_fuzzy_join(
         settings.save()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created fuzzy join recipe '{recipe_name}' ({m}) in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

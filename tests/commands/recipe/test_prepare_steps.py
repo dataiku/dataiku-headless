@@ -47,7 +47,7 @@ def test_recipe_list_steps_json(patch_client):
     ]
     _setup_prepare_mock(patch_client, steps=steps)
     result = runner.invoke(
-        app, ["recipe", "list-steps", "prep1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "recipe", "list-steps", "prep1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -645,13 +645,13 @@ def test_recipe_get_step(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "recipe",
             "get-step",
             "prep1",
             "--index",
             "0",
-            "-o",
-            "json",
             "--project",
             "PROJ1",
         ],

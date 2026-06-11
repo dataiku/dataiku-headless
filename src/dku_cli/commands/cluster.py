@@ -6,7 +6,14 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS clusters (admin only).")
 
@@ -14,10 +21,9 @@ app = typer.Typer(help="Manage DSS clusters (admin only).")
 @app.command("list")
 def list_clusters(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all clusters."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         clusters = client.list_clusters()
@@ -58,10 +64,9 @@ def list_clusters(
 def get(
     ctx: typer.Context,
     cluster_id: str = typer.Argument(help="Cluster ID/name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get cluster settings."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         cluster = client.get_cluster(cluster_id)
@@ -97,6 +102,7 @@ def create(
         success(
             f"Created cluster '{name}' (type: {cluster_type}, arch: {architecture})"
         )
+        hint(f"dku cluster get {name}")
     except Exception as e:
         handle_api_error(e)
 
@@ -116,6 +122,7 @@ def start(
         cluster = client.get_cluster(cluster_id)
         cluster.start()
         success(f"Started cluster '{cluster_id}'")
+        hint(f"dku cluster status {cluster_id}")
     except Exception as e:
         handle_api_error(e)
 
@@ -148,14 +155,13 @@ def stop(
 def status(
     ctx: typer.Context,
     cluster_id: str = typer.Argument(help="Cluster ID/name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get cluster status and usage.
 
     Example:
       dku cluster status my-k8s
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         cluster = client.get_cluster(cluster_id)

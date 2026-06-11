@@ -138,7 +138,6 @@ def create_split(
     if len(output_ds) < 2:
         exit_with_error(
             "Split recipes need at least 2 output datasets.",
-            code="invalid_argument",
             details=[
                 "Repeat --output-ds: --output-ds out1 --output-ds out2 [...]",
             ],
@@ -149,46 +148,38 @@ def create_split(
         if not column:
             exit_with_error(
                 "--mode VALUES requires --column COL.",
-                code="invalid_argument",
             )
         if not value_splits:
             exit_with_error(
                 "--mode VALUES requires at least one --value-split VAL=OUT_INDEX.",
-                code="invalid_argument",
             )
     elif mode_upper == "RANDOM":
         if not random_shares:
             exit_with_error(
                 "--mode RANDOM requires --random-share OUT_INDEX:PERCENT.",
-                code="invalid_argument",
             )
     elif mode_upper == "RANGE":
         if not column:
             exit_with_error(
                 "--mode RANGE requires --column COL.",
-                code="invalid_argument",
             )
         if not range_splits:
             exit_with_error(
                 "--mode RANGE requires at least one --range-split MIN..MAX=OUT_INDEX.",
-                code="invalid_argument",
             )
     elif mode_upper == "FILTER":
         if not filter_splits:
             exit_with_error(
                 "--mode FILTER requires at least one --filter-split EXPR=OUT_INDEX.",
-                code="invalid_argument",
             )
     elif mode_upper == "CENTILE":
         if not centile_orders:
             exit_with_error(
                 "--mode CENTILE requires at least one --centile-order COL[:desc].",
-                code="invalid_argument",
             )
         if not random_shares:
             exit_with_error(
                 "--mode CENTILE requires --random-share OUT_INDEX:PERCENT.",
-                code="invalid_argument",
             )
 
     if default_output is not None and (
@@ -196,7 +187,6 @@ def create_split(
     ):
         exit_with_error(
             f"--default-output {default_output} out of range (0..{len(output_ds) - 1}).",
-            code="invalid_argument",
         )
 
     try:
@@ -222,7 +212,6 @@ def create_split(
                 if "=" not in entry:
                     exit_with_error(
                         f"Invalid --value-split '{entry}'. Expected 'VALUE=OUT_INDEX'.",
-                        code="invalid_argument",
                     )
                 value, idx_str = entry.rsplit("=", 1)
                 try:
@@ -230,12 +219,10 @@ def create_split(
                 except ValueError:
                     exit_with_error(
                         f"Invalid OUT_INDEX in --value-split '{entry}'.",
-                        code="invalid_argument",
                     )
                 if idx < 0 or idx >= len(output_ds):
                     exit_with_error(
                         f"--value-split OUT_INDEX {idx} out of range.",
-                        code="invalid_argument",
                     )
                 splits.append({"outputIndex": idx, "value": value})
             payload["valueSplits"] = splits
@@ -252,7 +239,6 @@ def create_split(
                 if "=" not in entry:
                     exit_with_error(
                         f"Invalid --range-split '{entry}'. Expected 'MIN..MAX=OUT_INDEX'.",
-                        code="invalid_argument",
                     )
                 rng, idx_str = entry.rsplit("=", 1)
                 try:
@@ -260,12 +246,10 @@ def create_split(
                 except ValueError:
                     exit_with_error(
                         f"Invalid OUT_INDEX in --range-split '{entry}'.",
-                        code="invalid_argument",
                     )
                 if ".." not in rng:
                     exit_with_error(
                         f"Invalid range in --range-split '{entry}'. Expected 'MIN..MAX' (either bound may be empty).",
-                        code="invalid_argument",
                     )
                 min_str, max_str = rng.split("..", 1)
                 split_obj = {
@@ -285,7 +269,6 @@ def create_split(
                 if "=" not in entry:
                     exit_with_error(
                         f"Invalid --filter-split '{entry}'. Expected 'EXPR=OUT_INDEX'.",
-                        code="invalid_argument",
                     )
                 expr, idx_str = entry.rsplit("=", 1)
                 try:
@@ -293,7 +276,6 @@ def create_split(
                 except ValueError:
                     exit_with_error(
                         f"Invalid OUT_INDEX in --filter-split '{entry}'.",
-                        code="invalid_argument",
                     )
                 # DSS evaluates the TOP-LEVEL `expression` field when
                 # uiData.mode == "CUSTOM"; placing it only inside uiData makes
@@ -332,6 +314,7 @@ def create_split(
             f"Created split recipe '{recipe_name}' (mode={mode_upper}, "
             f"outputs={len(output_ds)}) in {project_key}"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -346,7 +329,6 @@ def _build_share_splits(
         if ":" not in entry:
             exit_with_error(
                 f"Invalid {flag} '{entry}'. Expected 'OUT_INDEX:PERCENT'.",
-                code="invalid_argument",
             )
         idx_str, share_str = entry.split(":", 1)
         try:
@@ -355,12 +337,10 @@ def _build_share_splits(
         except ValueError:
             exit_with_error(
                 f"Invalid {flag} '{entry}'. OUT_INDEX must be int and PERCENT a number.",
-                code="invalid_argument",
             )
         if idx < 0 or idx >= n_outputs:
             exit_with_error(
                 f"{flag} index {idx} out of range (0..{n_outputs - 1}).",
-                code="invalid_argument",
             )
         splits.append({"outputIndex": idx, "share": share})
     return splits
@@ -474,15 +454,12 @@ def create_topn(
     project_key = resolve_project(project)
     engine_upper = _enum_value(engine)
     if bottom is not None and bottom < 0:
-        exit_with_error(
-            "--bottom must be a non-negative integer.", code="invalid_argument"
-        )
+        exit_with_error("--bottom must be a non-negative integer.")
     # --bottom and --n are mutually exclusive (see --bottom help). Reject both
     # rather than silently discarding --n. `n` defaults to 10.
     if bottom is not None and n != 10:
         exit_with_error(
             "--bottom and --n are mutually exclusive.",
-            code="invalid_argument",
             details=[
                 "Use --n for top-N or --bottom for bottom-N, not both.",
                 "For the bottom 3 rows, drop --n: --bottom 3.",
@@ -497,7 +474,6 @@ def create_topn(
             if ":" not in entry:
                 exit_with_error(
                     f"Invalid --rename '{entry}'. Expected 'SRC:DST'.",
-                    code="invalid_argument",
                 )
             src, dst = entry.split(":", 1)
             renames_map[src.strip()] = dst.strip()
@@ -579,6 +555,7 @@ def create_topn(
         success(
             f"Created topn recipe '{recipe_name}' ({kind} {amount}) in {project_key}"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

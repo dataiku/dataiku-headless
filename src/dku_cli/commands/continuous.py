@@ -6,7 +6,14 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage continuous recipe activities.")
 
@@ -15,11 +22,10 @@ app = typer.Typer(help="Manage continuous recipe activities.")
 def list_activities(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List continuous activities in a project."""
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -74,6 +80,7 @@ def start(
         activity = proj.get_continuous_activity(recipe_id)
         activity.start()
         success(f"Started continuous activity for recipe '{recipe_id}'")
+        hint(f"dku continuous status {recipe_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -105,16 +112,15 @@ def status(
     ctx: typer.Context,
     recipe_id: str = typer.Argument(help="Recipe ID of the continuous activity"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the status of a continuous activity.
 
     Example:
       dku continuous status my_streaming_recipe -P PROJ
-      dku continuous status my_streaming_recipe -P PROJ -o json
+      dku continuous status my_streaming_recipe -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

@@ -52,7 +52,6 @@ def create_prediction(
         "PY_MEMORY", "--backend", help="ML backend: PY_MEMORY, MLLIB, or H2O"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a prediction ML task from a dataset.
 
@@ -60,7 +59,7 @@ def create_prediction(
     Returns the analysis_id and mltask_id needed for 'dku ml train' and 'dku ml deploy'.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -92,14 +91,13 @@ def create_clustering(
         "PY_MEMORY", "--backend", help="ML backend: PY_MEMORY, MLLIB, or H2O"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a clustering ML task from a dataset.
 
     Creates a visual analysis + ML task and waits for feature guessing to complete.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -136,14 +134,13 @@ def create_timeseries(
         help="TIMESERIES_DEFAULT, TIMESERIES_STATISTICAL, or TIMESERIES_DEEP_LEARNING",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a time series forecasting ML task from a dataset.
 
     Creates a visual analysis + ML task and waits for feature guessing to complete.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -177,14 +174,13 @@ def create_causal(
         help="CAUSAL_BINARY_CLASSIFICATION or CAUSAL_REGRESSION (auto-detected if omitted)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a causal prediction ML task from a dataset.
 
     Creates a visual analysis + ML task for estimating treatment effects.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -213,11 +209,10 @@ def create_causal(
 def list_tasks(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all ML tasks in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -252,11 +247,10 @@ def status(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show status of an ML task (guessing, training, model count)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -299,7 +293,6 @@ def train(
         True, "--wait/--no-wait", help="Wait for training to complete"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Train models for an ML task.
 
@@ -307,7 +300,7 @@ def train(
     Use --no-wait to start asynchronously, then check with 'dku ml status'.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -406,7 +399,6 @@ def models(
         None, "--algorithm", help="Filter by algorithm name"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List trained models in an ML task with their headline metric.
 
@@ -414,10 +406,10 @@ def models(
     additionally includes SCORE_DIRECTION, RANK_SCORE, and every scalar metric
     present in the snippet (auc, f1, accuracy, logLoss, r2, rmse, ...). Pick
     the best model with:
-    dku ml models A M -P PROJ -o json | jq 'max_by(.rank_score)'
+    dku --format json ml models A M -P PROJ | jq 'max_by(.rank_score)'
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -472,11 +464,10 @@ def details(
     mltask_id: str = typer.Argument(help="ML task ID"),
     model_id: str = typer.Argument(help="Trained model ID (from 'dku ml models')"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show performance metrics for a trained model."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -528,7 +519,6 @@ def deploy(
         help="Redo hyperparameter optimization on full train set",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Deploy a trained model from the lab to the flow.
 
@@ -536,7 +526,7 @@ def deploy(
     Returns the saved model ID and training recipe name.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -593,14 +583,13 @@ def redeploy(
         help="Redo hyperparameter optimization",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Redeploy a trained model to an existing saved model in the flow.
 
     Either --saved-model-id or --recipe-name must be provided.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
 
     if saved_model_id is None and recipe_name is None:
         exit_with_error(
@@ -680,14 +669,13 @@ def settings(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show ML task settings (algorithms, features, validation).
 
     Returns the full settings as JSON.
     """
     project_key = resolve_project(project)
-    resolve_output_format(output)
+    resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -704,11 +692,10 @@ def algorithms(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List available algorithms and which are enabled."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -829,7 +816,6 @@ def set_feature(
         except Exception:
             exit_with_error(
                 f"Feature '{feature}' not found in ML task {mltask_id}.",
-                code="not_found",
                 details=[
                     f"Inspect features: dku ml settings {analysis_id} {mltask_id} -P {project_key} | jq '.preprocessing.per_feature | keys'",
                 ],
@@ -902,7 +888,6 @@ def set_features(
         exit_with_error(
             "No feature roles given. Provide at least one of "
             "--reject / --input / --target / --weight.",
-            code="invalid_param",
             details=[
                 "Example: dku ml set-features A M --reject id --input age -P PROJ",
             ],
@@ -927,8 +912,7 @@ def set_features(
             settings_cmd = f"dku ml settings {analysis_id} {mltask_id} -P {project_key}"
             exit_with_error(
                 f"Feature(s) not found in ML task {mltask_id}: {', '.join(missing)}.",
-                code="not_found",
-                details=[f"Inspect features: {settings_cmd} -o json"],
+                details=[f"Inspect features: {settings_cmd}"],
                 status=3,
             )
 

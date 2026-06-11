@@ -23,7 +23,9 @@ def test_folder_list(patch_client):
 
 
 def test_folder_list_json(patch_client):
-    result = runner.invoke(app, ["folder", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "folder", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "folder1"
@@ -153,7 +155,7 @@ def test_folder_create_if_not_exists_new(patch_client):
 def test_folder_create_json(patch_client):
     result = runner.invoke(
         app,
-        ["folder", "create", "JSON Folder", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "folder", "create", "JSON Folder", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -216,7 +218,7 @@ def test_folder_get_table(patch_client):
 
 def test_folder_get_json(patch_client):
     result = runner.invoke(
-        app, ["folder", "get", "folder1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "folder", "get", "folder1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -655,19 +657,18 @@ def test_folder_decompress_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "--quiet",
+            "--format",
+            "json",
             "folder",
             "decompress",
             "folder1",
             "/test.zip",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
+    parsed = json.loads(result.stdout)
     assert parsed["files_extracted"] == 1
     assert parsed["archive_deleted"] is False
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.commands._options import OutputOption
 from dku_cli.errors import handle_errors
 from dku_cli.helpers import get_client_from_ctx, read_json_input
 from dku_cli.output import info, render, render_raw, resolve_output_format, success
@@ -16,10 +15,9 @@ app = typer.Typer(help="Manage DSS data dictionary meanings.")
 @handle_errors
 def list_meanings(
     ctx: typer.Context,
-    output: OutputOption = None,
 ) -> None:
     """List all user-defined meanings."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     client = get_client_from_ctx(ctx)
     meanings = client.list_meanings()
 
@@ -59,10 +57,9 @@ def list_meanings(
 def get(
     ctx: typer.Context,
     meaning_id: str = typer.Argument(help="Meaning ID"),
-    output: OutputOption = None,
 ) -> None:
     """Get a meaning's definition."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     client = get_client_from_ctx(ctx)
     meaning = client.get_meaning(meaning_id)
     definition = meaning.get_definition()

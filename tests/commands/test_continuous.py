@@ -20,7 +20,7 @@ def test_continuous_list_table(patch_client):
 
 def test_continuous_list_json(patch_client):
     result = runner.invoke(
-        app, ["continuous", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "continuous", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -67,7 +67,15 @@ def test_continuous_status_table(patch_client):
 def test_continuous_status_json(patch_client):
     result = runner.invoke(
         app,
-        ["continuous", "status", "stream_events", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "continuous",
+            "status",
+            "stream_events",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

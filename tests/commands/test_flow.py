@@ -18,7 +18,9 @@ def test_flow_graph(patch_client):
 
 
 def test_flow_graph_json(patch_client):
-    result = runner.invoke(app, ["flow", "graph", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "flow", "graph", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert "nodes" in parsed
@@ -37,7 +39,9 @@ def test_flow_zones(patch_client):
 
 
 def test_flow_zones_json(patch_client):
-    result = runner.invoke(app, ["flow", "zones", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "flow", "zones", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
@@ -108,7 +112,9 @@ def test_flow_check(patch_client):
 
 def test_flow_check_json(patch_client):
     """Flow check with JSON output."""
-    result = runner.invoke(app, ["flow", "check", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "flow", "check", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     assert "summary" in result.output
 
@@ -121,7 +127,9 @@ def test_flow_sources(patch_client):
 
 
 def test_flow_sources_json(patch_client):
-    result = runner.invoke(app, ["flow", "sources", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "flow", "sources", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     source_ids = [s["id"] for s in parsed]

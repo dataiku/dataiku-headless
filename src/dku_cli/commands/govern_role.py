@@ -6,7 +6,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="Manage Govern roles.")
@@ -15,10 +15,9 @@ app = typer.Typer(help="Manage Govern roles.")
 @app.command("list")
 def list_roles(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all Govern roles."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         handler = govern.get_roles_permissions_handler()
@@ -49,10 +48,9 @@ def list_roles(
 def get(
     ctx: typer.Context,
     role_id: str = typer.Argument(help="Role ID (e.g. ro.project_manager)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a role definition."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         handler = govern.get_roles_permissions_handler()
@@ -84,6 +82,7 @@ def create(
         role_data = read_json_input(definition)
         role = handler.create_role(identifier, role_data)
         success(f"Created role '{role.role_id}'")
+        hint(f"dku govern role get {role.role_id}")
     except SystemExit:
         raise
     except Exception as e:

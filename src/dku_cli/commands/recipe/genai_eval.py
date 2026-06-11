@@ -28,6 +28,7 @@ def create_extract(
         builder.with_existing_output(output_ds)
         builder.build()
         success(f"Created extract recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except Exception as e:
         handle_api_error(e)
 
@@ -140,7 +141,6 @@ def create_llm_eval(
             if "eval" in msg or "evaluation" in msg or "store" in msg:
                 exit_with_error(
                     f"Failed to create LLM eval recipe — eval store '{eval_store}' may not exist.",
-                    code="eval_store_not_found",
                     details=[
                         f"Create one first: dku evaluation-store create MY_STORE --flavor LLM -P {project_key}",
                         f"Then retry: dku recipe create-llm-eval {recipe_name} --eval-store MY_STORE --input {input_ds} -P {project_key}",
@@ -208,6 +208,7 @@ def create_llm_eval(
             settings.save()
 
         success(f"Created LLM eval recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -274,7 +275,6 @@ def create_agent_eval(
             if "eval" in msg or "evaluation" in msg or "store" in msg:
                 exit_with_error(
                     f"Failed to create agent eval recipe — eval store '{eval_store}' may not exist.",
-                    code="eval_store_not_found",
                     details=[
                         f"Create one first: dku evaluation-store create MY_STORE --flavor AGENT -P {project_key}",
                         f"Then retry: dku recipe create-agent-eval {recipe_name} --eval-store MY_STORE --input {input_ds} -P {project_key}",
@@ -295,6 +295,7 @@ def create_agent_eval(
         settings.save()
 
         success(f"Created agent eval recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

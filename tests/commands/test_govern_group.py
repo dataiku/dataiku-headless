@@ -18,7 +18,7 @@ def test_group_list(patch_client):
 
 
 def test_group_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "group", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "group", "list"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -32,7 +32,9 @@ def test_group_get(patch_client):
 
 
 def test_group_get_json(patch_client):
-    result = runner.invoke(app, ["govern", "group", "get", "data_team", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "govern", "group", "get", "data_team"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["name"] == "data_team"

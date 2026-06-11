@@ -32,7 +32,7 @@ def test_sql_query_table(patch_client):
 
 def test_sql_query_json(patch_client):
     result = runner.invoke(
-        app, ["sql", "query", "SELECT 1", "--connection", "myconn", "-o", "json"]
+        app, ["--format", "json", "sql", "query", "SELECT 1", "--connection", "myconn"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -66,9 +66,7 @@ def test_sql_query_empty_result(patch_client):
         app, ["sql", "query", "SELECT * FROM empty_table", "-c", "myconn"]
     )
     assert result.exit_code == 0
-    # Rich uppercases headers in table output
-    assert "ID" in result.output
-    assert "NAME" in result.output
+    assert "id\tname" in result.output
 
 
 def test_sql_query_empty_result_json(patch_client):
@@ -78,7 +76,16 @@ def test_sql_query_empty_result_json(patch_client):
         [],
     )
     result = runner.invoke(
-        app, ["sql", "query", "SELECT * FROM empty_table", "-c", "myconn", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "sql",
+            "query",
+            "SELECT * FROM empty_table",
+            "-c",
+            "myconn",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -105,7 +112,16 @@ def test_sql_query_single_column_json(patch_client):
         [[42]],
     )
     result = runner.invoke(
-        app, ["sql", "query", "SELECT COUNT(*) as count", "-c", "myconn", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "sql",
+            "query",
+            "SELECT COUNT(*) as count",
+            "-c",
+            "myconn",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -119,7 +135,7 @@ def test_sql_query_many_columns(patch_client):
     row = [f"v{i}" for i in range(20)]
     patch_client.sql_query.return_value = _make_sql_result(cols, [row])
     result = runner.invoke(
-        app, ["sql", "query", "SELECT *", "-c", "myconn", "-o", "json"]
+        app, ["--format", "json", "sql", "query", "SELECT *", "-c", "myconn"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -135,7 +151,8 @@ def test_sql_query_null_values(patch_client):
         [[1, None], [None, "hello"]],
     )
     result = runner.invoke(
-        app, ["sql", "query", "SELECT id, name FROM t", "-c", "myconn", "-o", "json"]
+        app,
+        ["--format", "json", "sql", "query", "SELECT id, name FROM t", "-c", "myconn"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -151,7 +168,7 @@ def test_sql_query_special_characters(patch_client):
         [['it\'s a "test"'], ["line1\nline2"], ["emoji: \u2603"]],
     )
     result = runner.invoke(
-        app, ["sql", "query", "SELECT text FROM t", "-c", "myconn", "-o", "json"]
+        app, ["--format", "json", "sql", "query", "SELECT text FROM t", "-c", "myconn"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -168,7 +185,8 @@ def test_sql_query_many_rows(patch_client):
         rows,
     )
     result = runner.invoke(
-        app, ["sql", "query", "SELECT * FROM big_table", "-c", "myconn", "-o", "json"]
+        app,
+        ["--format", "json", "sql", "query", "SELECT * FROM big_table", "-c", "myconn"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

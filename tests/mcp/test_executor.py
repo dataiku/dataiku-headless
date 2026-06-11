@@ -204,3 +204,39 @@ def test_run_exec_local_runs_in_given_cwd(tmp_path):
     )
     assert result.exit_code == 0
     assert "present" in result.stdout
+
+
+def test_result_to_text_plain_framing():
+    """Tool replies are plain text — header, raw stdout, optional stderr section."""
+    out = executor.result_to_text(
+        executor.ExecResult(
+            exit_code=0,
+            stdout='line "one"\nline two\n',
+            stderr="",
+            duration_ms=5,
+            truncated=False,
+        )
+    )
+    assert out == 'exit 0\nline "one"\nline two'
+
+
+def test_result_to_text_stderr_and_truncation():
+    out = executor.result_to_text(
+        executor.ExecResult(
+            exit_code=1,
+            stdout="partial",
+            stderr="boom\n",
+            duration_ms=5,
+            truncated=True,
+        )
+    )
+    assert out == "exit 1 (output truncated)\npartial\n--- stderr ---\nboom"
+
+
+def test_result_to_text_empty_streams():
+    out = executor.result_to_text(
+        executor.ExecResult(
+            exit_code=0, stdout="", stderr="", duration_ms=1, truncated=False
+        )
+    )
+    assert out == "exit 0"

@@ -9,11 +9,10 @@ def versions(
     ctx: typer.Context,
     sm_ref: str = typer.Argument(help="Semantic model ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List versions of a semantic model."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -49,7 +48,6 @@ def get_version(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show version settings (entities, relationships, glossary, etc.).
 
@@ -61,7 +59,7 @@ def get_version(
     a prescriptive next-step instead of a bare "not found".
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -88,7 +86,6 @@ def get_version(
                 if version_id in known_ids:
                     exit_with_error(
                         f"Version '{version_id}' exists but has no settings yet.",
-                        code="version_uninitialized",
                         details=[
                             "Newly-created semantic-model versions lazy-materialise",
                             "the settings doc on first write. Add at least one entity",
@@ -168,7 +165,7 @@ def set_version(
     """Update a version's settings from JSON.
 
     Merges the provided JSON into the current version settings (shallow merge).
-    Get current settings first: dku semantic-model get-version SM -P PROJ -o json
+    Get current settings first: dku --format json semantic-model get-version SM -P PROJ
 
     Examples:
       dku semantic-model set-version my_sm -d '{"description": "Updated"}' -P PROJ
@@ -231,7 +228,6 @@ def distinct_values(
         1000, "--max", "-n", help="Maximum distinct values to return"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show indexed distinct values for a semantic model version.
 
@@ -240,12 +236,11 @@ def distinct_values(
     Run 'dku semantic-model update-index' first to populate the index.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
 
     if (entity is None) != (attribute is None):
         exit_with_error(
             "Both --entity and --attribute are required together.",
-            code="missing_argument",
             details=[
                 "For all attributes: dku semantic-model distinct-values SM -P PROJ",
                 "For one attribute: dku semantic-model distinct-values SM --entity ENT --attribute ATTR -P PROJ",

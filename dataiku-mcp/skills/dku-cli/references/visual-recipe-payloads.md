@@ -6,7 +6,7 @@ Get flags from `--help`; open this only for payload shapes.
 ## Read → edit → write
 
 ```bash
-dku recipe get-settings R -P PROJ -o json          # full recipe object; config is under `payload`
+dku --format json recipe get-settings R -P PROJ          # full recipe object; config is under `payload`
 dku recipe set-definition R --payload '{...}' -P PROJ              # shallow merge (replaces top-level keys)
 dku recipe set-definition R --payload '{...}' --deep-merge -P PROJ  # merge nested objects
 ```

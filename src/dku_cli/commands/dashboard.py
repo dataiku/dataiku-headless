@@ -13,6 +13,7 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import (
     error,
+    hint,
     render,
     render_raw,
     resolve_output_format,
@@ -45,11 +46,10 @@ def _default_page() -> dict:
 def list_dashboards(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List dashboards in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -79,11 +79,10 @@ def get(
     ctx: typer.Context,
     dashboard_id: str = typer.Argument(help="Dashboard ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get dashboard details."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -106,7 +105,6 @@ def get(
             render(
                 data,
                 ["field", "value"],
-                output_format="table",
                 title=f"Dashboard: {dashboard_id}",
             )
     except Exception as e:
@@ -118,7 +116,6 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Dashboard name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     definition: str | None = typer.Option(
         None,
         "--definition",
@@ -131,7 +128,7 @@ def create(
 ) -> None:
     """Create a new dashboard."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -149,6 +146,7 @@ def create(
             )
         else:
             success(f"Created dashboard '{name}' (id={dashboard.dashboard_id})")
+            hint(f"dku dashboard get {dashboard.dashboard_id} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Dashboard '{name}' already exists in {project_key}, skipping create")
@@ -192,11 +190,10 @@ def get_definition(
     ctx: typer.Context,
     dashboard_id: str = typer.Argument(help="Dashboard ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the raw definition of a dashboard as JSON."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -277,14 +274,13 @@ def list_tiles(
     ctx: typer.Context,
     dashboard_id: str = typer.Argument(help="Dashboard ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List tiles across all pages of a dashboard.
 
     dku dashboard list-tiles DASH_ID -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

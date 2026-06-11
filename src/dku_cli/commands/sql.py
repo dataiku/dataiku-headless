@@ -84,7 +84,6 @@ def query(
             "project-scoped. Find connections with: dku connection list"
         ),
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     no_auto_commit: bool = typer.Option(
         False,
         "--no-auto-commit",
@@ -105,7 +104,7 @@ def query(
     with other commands but has no effect.
     """
     del project  # accepted for ergonomic parity; SQL is connection-scoped
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     query_text = _read_query(sql)
     is_mutation = _is_ddl_or_dml(query_text)
     post_queries = ["COMMIT"] if (is_mutation and not no_auto_commit) else None
@@ -149,14 +148,12 @@ def query(
         if "Connection '" in msg and "does not exist" in msg:
             exit_with_error(
                 f"Connection '{connection}' does not exist.",
-                code="not_found",
                 status=3,
                 details=["List connections: dku connection list"],
             )
         if "Unexpected connection type" in msg or "AbstractSQLConnection" in msg:
             exit_with_error(
                 f"Connection '{connection}' is not a SQL connection.",
-                code="wrong_connection_type",
                 status=2,
                 details=[
                     "dku sql query only works on SQL connections.",
@@ -166,7 +163,6 @@ def query(
         if "PSQLException" in msg or "SQLException" in msg or "ERROR:" in msg:
             exit_with_error(
                 "SQL query failed.",
-                code="sql_error",
                 status=1,
                 details=[f"Database: {msg.strip()}"],
             )

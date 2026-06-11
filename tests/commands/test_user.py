@@ -18,7 +18,7 @@ def test_user_list(patch_client):
 
 
 def test_user_list_json(patch_client):
-    result = runner.invoke(app, ["user", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "user", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
@@ -86,7 +86,7 @@ def test_user_get(patch_client):
 
 
 def test_user_get_json(patch_client):
-    result = runner.invoke(app, ["user", "get", "testuser", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "user", "get", "testuser"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["email"] == "test@test.com"
@@ -114,7 +114,7 @@ def test_user_activity(patch_client):
 
 
 def test_user_activity_json(patch_client):
-    result = runner.invoke(app, ["user", "activity", "admin", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "user", "activity", "admin"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["login"] == "admin"

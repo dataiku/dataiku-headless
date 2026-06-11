@@ -6,7 +6,14 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS workspaces.")
 
@@ -14,10 +21,9 @@ app = typer.Typer(help="Manage DSS workspaces.")
 @app.command("list")
 def list_workspaces(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all workspaces."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         items = client.list_workspaces()
@@ -58,7 +64,6 @@ def create(
         None, "--description", "-d", help="Description"
     ),
     color: str | None = typer.Option(None, "--color", help="Color (e.g. #4CAF50)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new workspace.
 
@@ -66,7 +71,7 @@ def create(
       dku workspace create ANALYTICS --name "Analytics Hub"
       dku workspace create TEAM_DS --name "Data Science" --color "#4CAF50"
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         client.create_workspace(
@@ -80,6 +85,7 @@ def create(
             )
         else:
             success(f"Created workspace '{name}' (key: {workspace_key})")
+            hint(f"dku workspace get {workspace_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -90,10 +96,9 @@ def create(
 def get(
     ctx: typer.Context,
     workspace_key: str = typer.Argument(help="Workspace key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get workspace settings."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ws = client.get_workspace(workspace_key)
@@ -107,14 +112,13 @@ def get(
 def list_objects(
     ctx: typer.Context,
     workspace_key: str = typer.Argument(help="Workspace key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List objects in a workspace (datasets, dashboards, articles, etc).
 
     Example:
       dku workspace list-objects ANALYTICS
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ws = client.get_workspace(workspace_key)

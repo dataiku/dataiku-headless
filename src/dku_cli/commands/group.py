@@ -9,7 +9,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
-from dku_cli.output import render, resolve_output_format, success
+from dku_cli.output import hint, render, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS groups.")
 
@@ -17,10 +17,9 @@ app = typer.Typer(help="Manage DSS groups.")
 @app.command("list")
 def list_groups(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List DSS groups."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         groups = client.list_groups()
@@ -49,10 +48,9 @@ def list_groups(
 def get(
     ctx: typer.Context,
     name: str = typer.Argument(help="Group name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show group details."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         group = client.get_group(name)
@@ -98,6 +96,7 @@ def create(
             name, description=description or "", source_type=source_type
         )
         success(f"Created group '{name}'")
+        hint(f"dku group get {name}")
     except Exception as e:
         handle_api_error(e)
 

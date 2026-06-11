@@ -34,6 +34,8 @@ def test_discussion_list_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "discussion",
             "list",
             "--type",
@@ -42,8 +44,6 @@ def test_discussion_list_json(patch_client):
             "ds1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -95,6 +95,8 @@ def test_discussion_get_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "discussion",
             "get",
             "disc1",
@@ -104,8 +106,6 @@ def test_discussion_get_json(patch_client):
             "ds1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

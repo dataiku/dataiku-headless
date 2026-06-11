@@ -9,7 +9,6 @@ import typer
 from dku_cli.config import (
     CONFIG_FILE,
     get_config,
-    get_default_output,
     get_default_project,
     set_dangerous_mode,
     set_default_project,
@@ -19,12 +18,12 @@ from dku_cli.output import error, info, render, render_raw, success
 app = typer.Typer(help="Manage CLI configuration.")
 
 # Keys that can be set via 'dku config set'
-_SETTABLE_KEYS = {"default_project", "output"}
+_SETTABLE_KEYS = {"default_project"}
 
 
 @app.command("set")
 def set_value(
-    key: str = typer.Argument(help="Config key (default_project, output)"),
+    key: str = typer.Argument(help="Config key (default_project)"),
     value: str = typer.Argument(help="Config value"),
 ) -> None:
     """Set a configuration value."""
@@ -32,19 +31,7 @@ def set_value(
         error(f"Unknown key: {key}. Valid keys: {', '.join(sorted(_SETTABLE_KEYS))}")
         raise typer.Exit(1)
 
-    if key == "default_project":
-        set_default_project(value)
-    elif key == "output":
-        if value not in ("table", "json", "csv"):
-            error("Output format must be one of: table, json, csv")
-            raise typer.Exit(1)
-        # Write output format to root config level
-        from dku_cli.config import _write_toml
-
-        cfg = get_config()
-        cfg["output"] = value
-        _write_toml(CONFIG_FILE, cfg)
-
+    set_default_project(value)
     success(f"Set {key} = {value}")
 
 
@@ -55,8 +42,6 @@ def get_value(
     """Get a configuration value."""
     if key == "default_project":
         val = get_default_project()
-    elif key == "output":
-        val = get_default_output()
     else:
         error(f"Unknown key: {key}. Valid keys: {', '.join(sorted(_SETTABLE_KEYS))}")
         raise typer.Exit(1)
@@ -86,9 +71,7 @@ def list_config() -> None:
     render(
         data,
         ["section", "key", "value"],
-        output_format="table",
         title="Configuration",
-        headers={"section": "PROFILE", "key": "KEY", "value": "VALUE"},
     )
 
 
@@ -110,11 +93,7 @@ def list_profiles_alias() -> None:
     """
     from dku_cli.commands.auth_cmd import list_profiles as _auth_list_profiles
 
-    # Call the underlying command function directly. Its `output` parameter
-    # defaults to a Typer OptionInfo (only resolved when invoked through the
-    # CLI), so we must pass an explicit value — otherwise resolve_output_format
-    # receives the OptionInfo and crashes on `.lower()`.
-    _auth_list_profiles(output=None)
+    _auth_list_profiles()
 
 
 @app.command("set-safety")
@@ -158,18 +137,15 @@ def get_safety(ctx: typer.Context) -> None:
 @app.command("variables")
 def variables(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show instance-level variables."""
     from dku_cli.errors import handle_api_error
     from dku_cli.helpers import get_client_from_ctx
-    from dku_cli.output import resolve_output_format
 
-    output = resolve_output_format(output)
     try:
         client = get_client_from_ctx(ctx)
         vars_data = client.get_variables()
-        render_raw(vars_data, output_format=output)
+        render_raw(vars_data)
     except Exception as e:
         handle_api_error(e)
 

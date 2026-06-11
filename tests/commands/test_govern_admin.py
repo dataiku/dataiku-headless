@@ -35,15 +35,14 @@ def test_blueprint_create_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "--quiet",
+            "--format",
+            "quiet",
             "govern",
             "blueprint",
             "create",
             "my_bp",
             "--definition",
             '{"name": "My Blueprint"}',
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

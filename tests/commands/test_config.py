@@ -60,9 +60,11 @@ def test_config_set_unknown_key():
     assert result.exit_code != 0
 
 
-def test_config_set_output_invalid():
-    result = runner.invoke(app, ["config", "set", "output", "yaml"])
-    assert result.exit_code != 0
+def test_config_set_output_is_unknown_key():
+    """The `output` config key was removed; only default_project is settable."""
+    result = runner.invoke(app, ["config", "set", "output", "json"])
+    assert result.exit_code == 1
+    assert "Unknown key" in result.output
 
 
 def test_config_list():

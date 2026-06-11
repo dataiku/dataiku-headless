@@ -69,7 +69,6 @@ def create_update(
         except Exception:
             exit_with_error(
                 f"Output dataset '{output_ds}' does not exist in {project_key}.",
-                code="missing_output",
                 details=[
                     "Update recipes write into an EXISTING target. Create it first:",
                     f"  dku dataset create {output_ds} -P {project_key} --type Filesystem",
@@ -99,6 +98,7 @@ def create_update(
             f"(key={','.join(unique_key)}, +rows={add_missing_rows}, "
             f"-rows={delete_missing_rows}, +cols={add_missing_cols}, -cols={delete_missing_cols})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -166,7 +166,6 @@ def create_extract_failed_rows(
         if ":" not in entry:
             exit_with_error(
                 f"Invalid --rule-column '{entry}'. Expected 'RULE_ID:column'.",
-                code="invalid_argument",
             )
         rid, col = entry.split(":", 1)
         rule_column_map[rid.strip()] = col.strip()
@@ -204,6 +203,7 @@ def create_extract_failed_rows(
             f"Created extract_failed_rows recipe '{recipe_name}' in {project_key} "
             f"({len(column_rules) or 'all'} rule(s))"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -278,6 +278,7 @@ def create_list_folder_contents(
         settings.save()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created list_folder_contents recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -318,7 +319,6 @@ def create_merge_folder(
     if conflict_handling not in {"OVERWRITE", "SKIP", "FAIL"}:
         exit_with_error(
             f"Invalid --conflict '{conflict_handling}'. Use OVERWRITE, SKIP, or FAIL.",
-            code="invalid_argument",
         )
     project_key = resolve_project(project)
     try:
@@ -349,6 +349,7 @@ def create_merge_folder(
             f"Created merge_folder recipe '{recipe_name}' in {project_key} "
             f"({len(input_ids)} source(s) → {output_folder})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -408,7 +409,6 @@ def create_download(
         if ":" not in entry:
             exit_with_error(
                 f"Invalid --source '{entry}'. Expected 'PROVIDER:URL'.",
-                code="invalid_argument",
                 details=[f"Valid providers: {', '.join(sorted(_VALID_PROVIDERS))}"],
             )
         provider, url = entry.split(":", 1)
@@ -416,7 +416,6 @@ def create_download(
         if provider_upper not in _VALID_PROVIDERS:
             exit_with_error(
                 f"Invalid --source provider '{provider}'.",
-                code="invalid_argument",
                 details=[f"Valid: {', '.join(sorted(_VALID_PROVIDERS))}"],
             )
         sources_payload.append(
@@ -449,6 +448,7 @@ def create_download(
             f"Created download recipe '{recipe_name}' in {project_key} "
             f"({len(sources_payload)} source(s) → {output_folder})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -525,6 +525,7 @@ def create_export(
             f"Created export recipe '{recipe_name}' in {project_key} "
             f"({input_ds} → {output_folder} as {fmt_lower})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -614,7 +615,6 @@ def create_prediction_scoring(
                     exit_with_error(
                         f"Prediction-scoring recipe build did not produce a recipe "
                         f"named '{recipe_name}' or '{auto_name}'.",
-                        code="recipe_not_created",
                         details=[
                             "Re-check the inputs:",
                             f"  Input dataset: {input_ds}",
@@ -649,6 +649,7 @@ def create_prediction_scoring(
         success(
             f"Created prediction_scoring recipe '{recipe_name}' in {project_key} (model={model})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -784,7 +785,6 @@ def create_evaluation(
     if not (output_metrics or output_predictions or output_evaluation_store):
         exit_with_error(
             "Provide at least one output: --output-metrics-ds, --output-predictions-ds, or --output-evaluation-store.",
-            code="invalid_argument",
         )
     parsed_custom_metrics: list[dict] = []
     if custom_metric:
@@ -792,7 +792,6 @@ def create_evaluation(
             if "=" not in spec:
                 exit_with_error(
                     f"Invalid --custom-metric '{spec}'. Expected 'NAME=GREL_OR_PYTHON'.",
-                    code="invalid_argument",
                 )
             name, expr = spec.split("=", 1)
             name = name.strip()
@@ -881,6 +880,7 @@ def create_evaluation(
         success(
             f"Created evaluation recipe '{recipe_name}' in {project_key} (model={model})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

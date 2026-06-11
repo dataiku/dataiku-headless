@@ -18,7 +18,9 @@ def test_wiki_list(patch_client):
 
 
 def test_wiki_list_json(patch_client):
-    result = runner.invoke(app, ["wiki", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "wiki", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -104,7 +106,7 @@ def test_wiki_get(patch_client):
 
 def test_wiki_get_json(patch_client):
     result = runner.invoke(
-        app, ["wiki", "get", "article1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "wiki", "get", "article1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

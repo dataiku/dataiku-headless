@@ -15,11 +15,10 @@ app = typer.Typer(help="Manage DSS streaming endpoints.")
 def list_endpoints(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List streaming endpoints in a project."""
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -99,11 +98,10 @@ def get(
     ctx: typer.Context,
     name: str = typer.Argument(help="Streaming endpoint name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get streaming endpoint settings."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -150,11 +148,10 @@ def schema(
     ctx: typer.Context,
     name: str = typer.Argument(help="Streaming endpoint name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show streaming endpoint schema."""
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

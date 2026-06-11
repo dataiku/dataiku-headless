@@ -25,6 +25,7 @@ from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_projec
 from dku_cli.output import (
     error,
     filter_fields,
+    hint,
     info,
     render,
     render_raw,
@@ -104,7 +105,6 @@ def _dataset_exists(proj, name: str) -> bool:
 def list_datasets(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     fields: str = typer.Option(
         None,
         "--fields",
@@ -113,7 +113,7 @@ def list_datasets(
 ) -> None:
     """List datasets in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -287,7 +287,6 @@ def analyze_column(
         10, "--top-k", help="Number of top values to show (distribution)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Analyze a column: distribution, null rate, top-K values, and basic stats.
 
@@ -302,10 +301,10 @@ def analyze_column(
 
     Example:
       dku dataset analyze-column my_ds age -P PROJ
-      dku dataset analyze-column my_ds age --top-k 5 -P PROJ -o json
+      dku dataset analyze-column my_ds age --top-k 5 -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -317,7 +316,6 @@ def analyze_column(
         if col_def is None:
             exit_with_error(
                 f"Column '{column}' not found in '{dataset_name}'.",
-                code="column_not_found",
                 details=[
                     f"Check schema: dku dataset schema {dataset_name} -P {project_key}",
                 ],
@@ -453,7 +451,6 @@ def schema(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     fields: str = typer.Option(
         None,
         "--fields",
@@ -467,7 +464,7 @@ def schema(
     with `get-definition`. Recurring miss across migration sessions.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -680,7 +677,6 @@ def info_cmd(
         ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     recompute: bool = typer.Option(
         False,
         "--recompute",
@@ -700,11 +696,11 @@ def info_cmd(
     Example:
       dku dataset info my_data -P PROJ
       dku dataset info ds1 ds2 ds3 -P PROJ
-      dku dataset info my_data -P PROJ -o json
+      dku --format json dataset info my_data -P PROJ
       dku dataset info my_data -P PROJ --recompute
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -768,7 +764,6 @@ def head(
         "-C",
         help="Comma-separated column names to display (default: all). Use to inspect specific columns before transforming.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Preview first rows of a dataset.
 
@@ -776,7 +771,7 @@ def head(
       dku dataset head INPUT --columns "order_date,price" -P PROJ -n 10
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -796,7 +791,6 @@ def head(
         if not all_columns:
             exit_with_error(
                 f"Dataset '{dataset_name}' has no columns — it likely has never been built.",
-                code="empty_schema",
                 details=[
                     "An unbuilt managed dataset has zero columns; `head` cannot show data.",
                     f"  dku dataset build {dataset_name} -P {project_key} --type RECURSIVE_BUILD --auto-update-schema --wait",
@@ -811,7 +805,6 @@ def head(
             if missing:
                 exit_with_error(
                     f"Column(s) not found: {missing}",
-                    code="invalid_column",
                     details=[
                         f"Available columns: {', '.join(all_columns[:20])}"
                         + (
@@ -846,13 +839,6 @@ def head(
             # silent nulls / dropped rows. Show 'StateANSI', not 'STATEANSI'.
             headers={c: c for c in display_columns},
         )
-        # Table rendering truncates columns aggressively once there are more
-        # than ~6 on a typical terminal. Hint the agent toward JSON output.
-        if output == "table" and len(display_columns) > 6:
-            info(
-                f"{len(display_columns)} columns — table output truncates. Use "
-                f"'-o json' or '--columns col1,col2' for readable output."
-            )
     except typer.Exit:
         raise
     except Exception as e:
@@ -935,6 +921,7 @@ def build(
 
         success(f"Build started for {dataset_name}")
         info(f"Job ID: {job.id}")
+        hint(f"dku job log {job.id} -P {project_key}")
         if auto_update_schema:
             info("Auto-update schema: enabled")
 
@@ -1255,6 +1242,7 @@ def create(
                     project_key=project_key,
                 )
                 raise
+        hint(f"dku dataset build {dataset_name} -P {project_key}")
         success(
             f"Created dataset '{dataset_name}' (type={dataset_type}) in {project_key}"
         )
@@ -1269,7 +1257,6 @@ def create(
         if is_already_exists_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' already exists in {project_key}.",
-                code="already_exists",
                 details=[
                     "Use --if-not-exists to skip creation when the dataset exists.",
                     f"Or delete first: dku dataset delete {dataset_name} -P {project_key} --yes",
@@ -1336,6 +1323,7 @@ def upload(
         success(f"Uploaded {local_path.name} → {dataset_name}")
         if not no_autodetect:
             _autodetect_and_warn(ds, dataset_name, project_key)
+        hint(f"dku dataset schema {dataset_name} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -1388,7 +1376,6 @@ def create_from_file(
     if exists and not overwrite:
         exit_with_error(
             f"Dataset '{dataset_name}' already exists in project {project_key}.",
-            code="already_exists",
             details=[
                 f"Replace it: dku dataset create-from-file {dataset_name} {local_path} --overwrite -P {project_key}",
                 f"Add to it:  dku dataset upload {dataset_name} {local_path} -P {project_key}",
@@ -1423,6 +1410,7 @@ def create_from_file(
         )
         if not no_autodetect:
             _autodetect_and_warn(ds, dataset_name, project_key)
+        hint(f"dku dataset schema {dataset_name} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -1623,11 +1611,10 @@ def get_definition(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full definition of a dataset as JSON."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -1669,7 +1656,6 @@ def set_definition(
     if merge and deep_merge:
         exit_with_error(
             "Use either --merge or --deep-merge, not both.",
-            code="invalid_argument",
         )
     project_key = resolve_project(project)
     try:
@@ -1717,7 +1703,7 @@ def set_schema(
 
     Accepts either {"columns": [{name, type}, ...]} or a plain
     [{name, type}, ...] array (auto-wrapped). The array form lets you
-    round-trip with 'dku dataset schema -o json'.
+    round-trip with 'dku --format json dataset schema'.
 
     Shorthand: pass 'col1 type1, col2 type2' directly to -d for quick
     edits without a temp file. Example:
@@ -1836,11 +1822,10 @@ def partitions(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List partitions of a dataset."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -1919,7 +1904,6 @@ def set_column_description(
     if len(columns) % 2 != 0:
         exit_with_error(
             "Arguments must be column-description pairs (even count).",
-            code="invalid_argument",
             details=[
                 'Usage: dku dataset set-column-description DS col1 "desc1" col2 "desc2" -P PROJ',
                 f"Got {len(columns)} arguments — must be even (column name, description, column name, description, ...).",
@@ -1967,7 +1951,6 @@ def ai_describe(
     save: bool = typer.Option(
         False, "--save", help="Save generated descriptions to the dataset"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Generate AI-powered descriptions for a dataset and its columns.
 
@@ -1977,7 +1960,7 @@ def ai_describe(
     Without --save, displays suggestions. With --save, persists to the dataset.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -1998,7 +1981,6 @@ def exists(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Check whether a dataset exists (exit code 0 = yes, 1 = no).
 
@@ -2007,10 +1989,10 @@ def exists(
 
     Example:
       dku dataset exists my_data -P PROJ && echo "found"
-      dku dataset exists my_data -P PROJ -o json
+      dku dataset exists my_data -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -2125,7 +2107,6 @@ def usages(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     include_charts: bool = typer.Option(
         False,
         "--include-charts",
@@ -2146,10 +2127,10 @@ def usages(
     Example:
       dku dataset usages my_data -P PROJ
       dku dataset usages my_data -P PROJ --include-charts
-      dku dataset usages my_data -P PROJ -o json
+      dku dataset usages my_data -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -2230,7 +2211,6 @@ def lineage(
         help="Maximum number of datasets to query for lineage (default: DSS hard limit)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Trace a column's provenance across the flow graph.
 
@@ -2239,10 +2219,10 @@ def lineage(
 
     Example:
       dku dataset lineage my_data --column revenue -P PROJ
-      dku dataset lineage my_data -c customer_id -P PROJ -o json
+      dku dataset lineage my_data -c customer_id -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -2315,7 +2295,6 @@ def detect(
         "--infer-types",
         help="Infer storage types (e.g. int vs string) instead of defaulting to string",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Detect format and schema for a dataset.
 
@@ -2329,7 +2308,7 @@ def detect(
       dku dataset detect my_data --save --infer-types -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -2381,7 +2360,6 @@ def detect(
     except ValueError as e:
         exit_with_error(
             str(e),
-            code="unsupported_type",
             details=[
                 "Dataset type may not support auto-detection.",
                 f"Check type: dku dataset info {dataset_name} -P {project_key}",
@@ -2394,7 +2372,6 @@ def detect(
         if "Format detection failed" in msg or "empty" in msg.lower():
             exit_with_error(
                 f"Format detection failed for '{dataset_name}'.",
-                code="detection_failed",
                 details=[
                     "The dataset may be empty or have no data to detect from.",
                     f"Upload data first: dku dataset upload {dataset_name} FILE -P {project_key}",
@@ -2409,7 +2386,6 @@ def zone(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show which flow zone a dataset belongs to.
 
@@ -2417,7 +2393,7 @@ def zone(
       dku dataset zone my_data -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -2567,7 +2543,6 @@ def count(
         "unquoted identifiers to UPPER — quote lowercase columns.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Count rows in a dataset by its logical name.
 
@@ -2581,7 +2556,7 @@ def count(
       dku dataset count orders --where "\\"status\\" = 'SETTLED'" -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -2602,7 +2577,6 @@ def count(
                 exit_with_error(
                     f"--where is only supported on SQL-backed datasets; "
                     f"'{dataset_name}' is type '{ds_def.get('type')}'.",
-                    code="invalid_param",
                     details=[
                         "Filter first with a recipe: dku recipe create-filter ...",
                         "Or count unfiltered (drop --where).",
@@ -2614,7 +2588,6 @@ def count(
                 build_cmd = f"dku dataset build {dataset_name} -P {project_key}"
                 exit_with_error(
                     f"Could not compute a row count for '{dataset_name}'.",
-                    code="not_found",
                     details=[f"Build it first: {build_cmd} --wait"],
                 )
             n = int(n)
@@ -2648,7 +2621,6 @@ def query(
         help="SQL to run. Use {{table}} for the dataset's resolved physical table.",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run SQL against a dataset's backing table by logical name.
 
@@ -2660,7 +2632,7 @@ def query(
       dku dataset query orders -q "SELECT COUNT(*) FROM {{table}}" -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -2671,7 +2643,6 @@ def query(
             exit_with_error(
                 f"'{dataset_name}' is not a SQL-table-backed dataset "
                 f"(type '{ds_def.get('type')}') — cannot run SQL against it.",
-                code="wrong_dataset_type",
                 details=[
                     "Use this on Snowflake/PostgreSQL/BigQuery table-mode datasets.",
                     f"For file datasets, read rows: {head_cmd}",

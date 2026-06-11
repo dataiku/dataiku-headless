@@ -24,7 +24,7 @@ BigQuery adds `useBigQueryPartitioning`, `bigQueryPartitioningType/Period`, `big
 SQL table names interpolate DSS variables: `"EAD_${TENANT}_${projectKey}"`.
 
 **Secret leak:** plugin-connector dataset definitions with `mode: INLINE` credentials expose the secret
-verbatim in `dku dataset get-definition -o json`. Treat plugin-typed definitions as sensitive.
+verbatim in `dku --format json dataset get-definition`. Treat plugin-typed definitions as sensitive.
 
 ### Format-specific knobs (`formatParams`)
 

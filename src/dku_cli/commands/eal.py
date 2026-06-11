@@ -18,10 +18,9 @@ app = typer.Typer(help="Enterprise Asset Library — governed, reusable prompts.
 @app.command("list-collections")
 def list_collections(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List Enterprise Asset Library collections you can read."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         eal = client.get_enterprise_asset_library()
@@ -53,10 +52,9 @@ def list_prompts(
         "-c",
         help="Restrict to these collection IDs (repeatable). Default: all readable.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List governed prompts across readable collections."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         eal = client.get_enterprise_asset_library()
@@ -86,10 +84,9 @@ def get_prompt(
     ctx: typer.Context,
     collection_id: str = typer.Argument(help="Collection ID (see list-collections)"),
     prompt_id: str = typer.Argument(help="Prompt ID (see list-prompts)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show a governed prompt, including its full content."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         eal = client.get_enterprise_asset_library()
@@ -113,10 +110,9 @@ def create_prompt(
         None, "--description", "-d", help="Prompt description"
     ),
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a governed prompt in a collection (needs contributor rights)."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         eal = client.get_enterprise_asset_library()

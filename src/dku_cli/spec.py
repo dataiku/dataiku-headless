@@ -1,8 +1,8 @@
 """Machine-readable command spec generator for dku CLI.
 
 Introspects a Typer command/group and produces structured JSON so agents learn
-exact flags from the command they already reach for. When ``DKU_AGENT_HELP=1``
-is set, ``--help`` renders this JSON instead of human help text:
+exact flags from the command they already reach for. ``--help`` always renders
+this JSON:
 
     dku --help                    groups + root command details + global options
     dku recipe --help             commands in the `recipe` group (concise signatures)
@@ -19,10 +19,12 @@ import re
 
 import click
 
+from dku_cli.examples import examples_for
+
 # ``UNSET`` is the sentinel Click uses for "no default given". It is only
 # importable from ``click.core`` on Click >= 8.3 (pyproject pins ``click>=8.3``).
-# Keep this import-safe with a private sentinel fallback so spec generation /
-# ``DKU_AGENT_HELP=1`` degrade rather than crash on a host that ignores the pin.
+# Keep this import-safe with a private sentinel fallback so spec generation
+# degrades rather than crashes on a host that ignores the pin.
 try:
     from click.core import UNSET
 except ImportError:  # pragma: no cover - click < 8.3 fallback
@@ -176,8 +178,8 @@ def _usage_string(cmd: click.Command) -> str:
 
 
 def _command_signature(cmd: click.Command) -> dict:
+    # No "name": the group listing keys each entry by command name already.
     return {
-        "name": cmd.name,
         "help": _one_line(cmd),
         "signature": _usage_string(cmd),
     }
@@ -217,7 +219,9 @@ def _root_detail(group: click.Group) -> dict:
         if isinstance(cmd, click.Group):
             groups[name] = _clean(cmd.help).split("\n", 1)[0]
         else:
-            commands[name] = _command_detail(cmd)
+            detail = _command_detail(cmd)
+            detail.pop("name")  # keyed by name already
+            commands[name] = detail
     out: dict = {}
     if group.help:
         out["help"] = _clean(group.help).split("\n", 1)[0]
@@ -231,19 +235,16 @@ def _root_detail(group: click.Group) -> dict:
 def spec_node_for(cmd: click.Command, ctx: click.Context | None = None) -> dict:
     """Spec node for a single Click command/group, built from the object itself.
 
-    Used by `--help` under ``DKU_AGENT_HELP=1``: a group renders concise
+    Used by ``--help``: a group renders concise
     signatures for its direct child commands, and a command renders its own
-    full arg/flag detail.
-    The root group also surfaces global options. *ctx* supplies the command path
-    for the ``meta`` block.
+    full arg/flag detail. The root group also surfaces global options.
+    *ctx* supplies the command path for the examples lookup. No tool/version/
+    path meta is emitted — it would repeat what the agent just typed, on
+    every probe.
     """
-    from dku_cli import __version__
-
     path: list[str] = []
     if ctx is not None and ctx.command_path:
         path = ctx.command_path.split()[1:]  # drop the "dku" tool name
-
-    meta = {"tool": "dku", "version": __version__, "path": path}
 
     if isinstance(cmd, click.Group):
         if not path:
@@ -257,6 +258,10 @@ def spec_node_for(cmd: click.Command, ctx: click.Context | None = None) -> dict:
                 body["global_options"] = globals_
         else:
             body = _group_detail(cmd)
-        return {**meta, **body}
+        return body
 
-    return {**meta, **_command_detail(cmd)}
+    body = _command_detail(cmd)
+    examples = examples_for(path)
+    if examples:
+        body["examples"] = examples
+    return body

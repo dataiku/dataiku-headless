@@ -34,7 +34,7 @@ def test_list(patch_client):
 
 def test_list_json(patch_client):
     result = runner.invoke(
-        app, ["agent-review", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent-review", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -60,7 +60,8 @@ def test_create(patch_client):
 
 def test_get(patch_client):
     result = runner.invoke(
-        app, ["agent-review", "get", "review1", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "agent-review", "get", "review1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -330,7 +331,15 @@ def test_list_tests(patch_client):
 def test_list_tests_json(patch_client):
     result = runner.invoke(
         app,
-        ["agent-review", "list-tests", "review1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "agent-review",
+            "list-tests",
+            "review1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -518,7 +527,15 @@ def test_list_runs(patch_client):
 def test_list_runs_json(patch_client):
     result = runner.invoke(
         app,
-        ["agent-review", "list-runs", "review1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "agent-review",
+            "list-runs",
+            "review1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -550,6 +567,8 @@ def test_results_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "agent-review",
             "results",
             "review1",
@@ -557,8 +576,6 @@ def test_results_json(patch_client):
             "run1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -592,6 +609,8 @@ def test_results_by_trait_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "agent-review",
             "results",
             "review1",
@@ -600,8 +619,6 @@ def test_results_by_trait_json(patch_client):
             "--by-trait",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -616,6 +633,8 @@ def test_results_show_justifications_implies_by_trait(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "agent-review",
             "results",
             "review1",
@@ -624,8 +643,6 @@ def test_results_show_justifications_implies_by_trait(patch_client):
             "--show-justifications",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -663,6 +680,8 @@ def test_compare_runs_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "agent-review",
             "compare",
             "review1",
@@ -670,8 +689,6 @@ def test_compare_runs_json(patch_client):
             "run1,run2",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -728,13 +745,13 @@ def test_get_result_json(patch_client):
         result = runner.invoke(
             app,
             [
+                "--format",
+                "json",
                 "agent-review",
                 "get-result",
                 "result1",
                 "--project",
                 "PROJ1",
-                "-o",
-                "json",
             ],
         )
     assert result.exit_code == 0

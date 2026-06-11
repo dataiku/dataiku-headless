@@ -79,7 +79,6 @@ def create_eda_univariate(
         if ":" not in spec:
             exit_with_error(
                 f"Invalid --analyse '{spec}'. Expected 'COLUMN:TYPE' (TYPE in CATEGORICAL/NUMERICAL).",
-                code="invalid_argument",
             )
         col, t = spec.split(":", 1)
         col = col.strip()
@@ -87,13 +86,11 @@ def create_eda_univariate(
         if t_upper not in _VALID_UNIVARIATE_TYPES:
             exit_with_error(
                 f"Invalid --analyse type '{t}'.",
-                code="invalid_argument",
                 details=[f"Valid: {', '.join(sorted(_VALID_UNIVARIATE_TYPES))}"],
             )
         if not col:
             exit_with_error(
                 f"Invalid --analyse '{spec}': missing column name.",
-                code="invalid_argument",
             )
         entry = {
             "column": {"name": col, "type": t_upper},
@@ -133,6 +130,7 @@ def create_eda_univariate(
             settings.str_payload = json.dumps(payload)
         settings.save()
         success(f"Created eda_univariate recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -273,6 +271,7 @@ def create_sql_script(
             rp["skipPrerunValidate"] = True
         settings.save()
         success(f"Created sql_script recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -318,6 +317,7 @@ def create_generate_features(
         builder.build()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created generate_features recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -401,7 +401,6 @@ def create_prompt(
             if "=" not in spec:
                 exit_with_error(
                     f"Invalid --input-var '{spec}'. Expected 'NAME=COLUMN'.",
-                    code="invalid_argument",
                 )
             name, col = spec.split("=", 1)
             parsed_input_vars.append(
@@ -420,7 +419,6 @@ def create_prompt(
         else:
             exit_with_error(
                 f"Invalid --response-format '{response_format}'.",
-                code="invalid_argument",
                 details=["Currently supported: 'json'."],
             )
 
@@ -458,6 +456,7 @@ def create_prompt(
         settings.str_payload = json.dumps(payload)
         settings.save()
         success(f"Created prompt recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -538,7 +537,6 @@ def create_llm_classify(
         exit_with_error(
             "create-llm-classify needs at least two --class values; got "
             + str(len(classes)),
-            code="invalid_argument",
             details=[
                 "DSS silently produces empty predictions when possibleClasses has < 2 entries.",
                 "Pass --class twice or more, e.g. --class urgent --class routine.",
@@ -551,7 +549,6 @@ def create_llm_classify(
             if "||" not in spec:
                 exit_with_error(
                     f"Invalid --example '{spec}'. Expected 'TEXT||LABEL'.",
-                    code="invalid_argument",
                 )
             text, label = spec.split("||", 1)
             label = label.strip()
@@ -591,6 +588,7 @@ def create_llm_classify(
             settings.str_payload = json.dumps(payload)
         settings.save()
         success(f"Created llm_classify recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

@@ -29,7 +29,8 @@ def test_notebook_list_jupyter_only(patch_client):
 
 def test_notebook_list_sql_only(patch_client):
     result = runner.invoke(
-        app, ["notebook", "list", "--project", "PROJ1", "--type", "sql", "-o", "json"]
+        app,
+        ["--format", "json", "notebook", "list", "--project", "PROJ1", "--type", "sql"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -39,7 +40,7 @@ def test_notebook_list_sql_only(patch_client):
 
 def test_notebook_list_json(patch_client):
     result = runner.invoke(
-        app, ["notebook", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "notebook", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -59,7 +60,8 @@ def test_notebook_get(patch_client):
 
 def test_notebook_get_json(patch_client):
     result = runner.invoke(
-        app, ["notebook", "get", "my_notebook", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "notebook", "get", "my_notebook", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -100,7 +102,7 @@ def test_notebook_sessions(patch_client):
 
 def test_notebook_sessions_json(patch_client):
     result = runner.invoke(
-        app, ["notebook", "sessions", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "notebook", "sessions", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -161,7 +163,15 @@ def test_notebook_history(patch_client):
 def test_notebook_history_json(patch_client):
     result = runner.invoke(
         app,
-        ["notebook", "history", "my_sql_notebook", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "notebook",
+            "history",
+            "my_sql_notebook",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

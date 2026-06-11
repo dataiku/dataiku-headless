@@ -21,7 +21,7 @@ def test_scenario_list(patch_client):
 
 def test_scenario_list_json(patch_client):
     result = runner.invoke(
-        app, ["scenario", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "scenario", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -45,7 +45,7 @@ def test_scenario_status(patch_client):
 
 def test_scenario_status_json(patch_client):
     result = runner.invoke(
-        app, ["scenario", "status", "scen1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "scenario", "status", "scen1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -162,7 +162,16 @@ def test_scenario_get_definition(patch_client):
 
 def test_scenario_get_definition_with_output_flag(patch_client):
     result = runner.invoke(
-        app, ["scenario", "get-definition", "scen1", "--project", "PROJ1", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "scenario",
+            "get-definition",
+            "scen1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -458,7 +467,7 @@ def test_scenario_last_run(patch_client):
 
 def test_scenario_last_run_json(patch_client):
     result = runner.invoke(
-        app, ["scenario", "last-run", "scen1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "scenario", "last-run", "scen1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -484,7 +493,7 @@ def test_scenario_runs(patch_client):
 
 def test_scenario_runs_json(patch_client):
     result = runner.invoke(
-        app, ["scenario", "runs", "scen1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "scenario", "runs", "scen1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -526,7 +535,7 @@ def test_scenario_runs_json_still_running(patch_client):
     scenario.get_last_runs.return_value = [running]
 
     result = runner.invoke(
-        app, ["scenario", "runs", "scen1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "scenario", "runs", "scen1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -541,7 +550,7 @@ def test_scenario_runs_json_empty(patch_client):
     scenario.get_last_runs.return_value = []
 
     result = runner.invoke(
-        app, ["scenario", "runs", "scen1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "scenario", "runs", "scen1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -632,7 +641,7 @@ def test_scenario_avg_duration_json(patch_client):
     """JSON output returns structured result."""
     result = runner.invoke(
         app,
-        ["scenario", "avg-duration", "scen1", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "scenario", "avg-duration", "scen1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -825,7 +834,15 @@ def test_scenario_set_metadata_no_args(patch_client):
 def test_scenario_list_triggers_json(patch_client):
     result = runner.invoke(
         app,
-        ["scenario", "list-triggers", "scen1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "scenario",
+            "list-triggers",
+            "scen1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -1724,7 +1741,15 @@ def test_scenario_list_reporters_json(patch_client):
     )
     result = runner.invoke(
         app,
-        ["scenario", "list-reporters", "nightly", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "scenario",
+            "list-reporters",
+            "nightly",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

@@ -14,10 +14,9 @@ app = typer.Typer(help="Manage Project Deployer infras, projects, and deployment
 @app.command("list-infras")
 def list_infras(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List Project Deployer infrastructures."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()
@@ -46,10 +45,9 @@ def list_infras(
 @app.command("list-projects")
 def list_projects(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List Project Deployer published projects."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()
@@ -73,10 +71,9 @@ def list_projects(
 @app.command("list-deployments")
 def list_deployments(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List Project Deployer deployments."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()
@@ -143,10 +140,9 @@ def create_deployment(
 def get_deployment(
     ctx: typer.Context,
     deployment_id: str = typer.Argument(help="Deployment ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show Project Deployer deployment settings."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()
@@ -211,16 +207,15 @@ def delete_deployment(
 def deployment_status(
     ctx: typer.Context,
     deployment_id: str = typer.Argument(help="Deployment ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show Project Deployer deployment health and messages.
 
     Health is HEALTHY when the deployed bundle is running on the Automation node.
 
     Example:
-      dku project-deployer deployment-status my_dep -o json
+      dku project-deployer deployment-status my_dep
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         deployer = client.get_projectdeployer()

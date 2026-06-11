@@ -8,7 +8,7 @@ Maps datasets to business entities, relationships, and metrics for NL→SQL. One
 dku semantic-model list -P PROJ
 dku semantic-model get SM_REF -P PROJ
 dku semantic-model versions SM_REF -P PROJ
-dku semantic-model get-version SM_REF -P PROJ -o json
+dku --format json semantic-model get-version SM_REF -P PROJ
 dku semantic-model list-entities SM_REF -P PROJ
 dku semantic-model list-relationships SM_REF -P PROJ
 dku semantic-model list-golden-queries SM_REF -P PROJ
@@ -55,7 +55,7 @@ dku semantic-model distinct-values SM_REF --entity ENT --attribute ATTR -P PROJ
 ## Bulk edit via `set-version` (shallow merge)
 
 ```bash
-dku semantic-model get-version SM_REF -P PROJ -o json > sm.json
+dku --format json semantic-model get-version SM_REF -P PROJ > sm.json
 # edit with jq
 dku semantic-model set-version SM_REF -d @sm.json -P PROJ
 ```

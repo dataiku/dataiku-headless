@@ -16,6 +16,7 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import (
     error,
+    hint,
     info,
     render,
     render_raw,
@@ -83,7 +84,6 @@ def _chart_column_type(proj, raw: dict, column: str, project_key: str) -> str | 
     if column not in by_name:
         exit_with_error(
             f"Column '{column}' does not exist in dataset '{ds_name}'.",
-            code="bad_column",
             details=[
                 "Chart column names are not validated server-side — a wrong "
                 "name saves but renders a blank chart.",
@@ -103,7 +103,6 @@ def _chart_column_type(proj, raw: dict, column: str, project_key: str) -> str | 
 def list_insights(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     dataset: str | None = typer.Option(
         None, "--dataset", "--ds", help="Filter by bound dataset name"
     ),
@@ -120,7 +119,7 @@ def list_insights(
       dku insight list --dataset Branch_Orders --type chart -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -162,11 +161,10 @@ def get(
     ctx: typer.Context,
     insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get insight details."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -184,7 +182,6 @@ def get(
             render(
                 data,
                 ["field", "value"],
-                output_format="table",
                 title=f"Insight: {insight_id}",
             )
     except Exception as e:
@@ -196,7 +193,6 @@ def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Insight name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     insight_type: str = typer.Option(
         "dataset_table",
         "--type",
@@ -226,7 +222,7 @@ def create(
     grouped_columns, pie, scatter, boxplots, treemap, pivot_table, stacked_area.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -255,6 +251,7 @@ def create(
             )
         else:
             success(f"Created insight '{name}' (id={insight.insight_id})")
+            hint(f"dku insight get {insight.insight_id} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Insight '{name}' already exists in {project_key}, skipping create")
@@ -298,11 +295,10 @@ def get_definition(
     ctx: typer.Context,
     insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the raw definition of an insight as JSON."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -476,7 +472,6 @@ def head(
     insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     rows: int = typer.Option(10, "-n", "--rows", help="Number of rows"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Preview rows from the dataset bound to an insight.
 
@@ -487,7 +482,7 @@ def head(
     from dku_cli.errors import exit_with_error
 
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -740,7 +735,6 @@ def add_measure(
                 exit_with_error(
                     f"{agg}({column}) needs a numerical column, but "
                     f"'{column}' is {col_type}.",
-                    code="bad_aggregation",
                     details=[
                         "Use --agg COUNT (row count) or --agg COUNT_DISTINCT "
                         "for non-numeric columns,",

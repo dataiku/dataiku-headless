@@ -3,7 +3,7 @@
 Each is a ``str``-mixin Enum whose member name equals its value, so:
 
 * Typer renders it as a ``click.Choice`` (the value list shows up in
-  `dku <cmd> --help` / the machine-readable spec under ``DKU_AGENT_HELP=1``);
+  the machine-readable spec from `dku <cmd> --help`);
 * members compare equal to their string value and expose ``str`` methods, so
   existing command bodies that did ``x.upper()`` or ``x in {...}`` keep working;
 * an invalid value fails fast at parse time with the valid set shown.
@@ -363,3 +363,10 @@ class JobType(_StrEnum):
     RECURSIVE_BUILD = "RECURSIVE_BUILD"
     RECURSIVE_FORCED_BUILD = "RECURSIVE_FORCED_BUILD"
     RECURSIVE_MISSING_ONLY_BUILD = "RECURSIVE_MISSING_ONLY_BUILD"
+
+
+class AgentType(_StrEnum):
+    TOOLS_USING_AGENT = "TOOLS_USING_AGENT"
+    PYTHON_AGENT = "PYTHON_AGENT"
+    PLUGIN_AGENT = "PLUGIN_AGENT"
+    STRUCTURED_AGENT = "STRUCTURED_AGENT"

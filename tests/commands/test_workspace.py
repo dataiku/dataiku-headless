@@ -19,7 +19,7 @@ def test_workspace_list_table(patch_client):
 
 
 def test_workspace_list_json(patch_client):
-    result = runner.invoke(app, ["workspace", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "workspace", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -46,7 +46,7 @@ def test_workspace_create(patch_client):
 
 def test_workspace_create_json(patch_client):
     result = runner.invoke(
-        app, ["workspace", "create", "TEST", "--name", "Test", "-o", "json"]
+        app, ["--format", "json", "workspace", "create", "TEST", "--name", "Test"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -69,7 +69,7 @@ def test_workspace_list_objects_table(patch_client):
 
 def test_workspace_list_objects_json(patch_client):
     result = runner.invoke(
-        app, ["workspace", "list-objects", "ANALYTICS", "-o", "json"]
+        app, ["--format", "json", "workspace", "list-objects", "ANALYTICS"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

@@ -35,6 +35,7 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import (
     filter_fields,
+    hint,
     info,
     render,
     render_raw,
@@ -44,6 +45,11 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS recipes.")
+
+
+def recipe_created_hint(recipe_name: str, project_key: str) -> None:
+    hint(f"dku recipe run {recipe_name} -P {project_key}")
+
 
 _KNOWN_RECIPE_TYPES = frozenset(
     {
@@ -136,7 +142,6 @@ def _require_existing_dataset(
             exit_with_error(
                 f"{role} dataset '{dataset_name}' does not exist in project '{project_key}'. "
                 "Create it first, then retry.",
-                code="missing_dataset",
             )
         handle_api_error(e)
 
@@ -157,11 +162,10 @@ def _get_recipe_or_exit(proj, recipe_name: str, project_key: str):
         if is_not_found_error(e) or str(e).strip("'") == "recipe":
             exit_with_error(
                 f"Recipe '{recipe_name}' not found in project '{project_key}'.",
-                code="not_found",
                 status=3,
                 details=[
                     f"List recipes: dku recipe list -P {project_key}",
-                    f"Inspect the project flow: dku project inspect {project_key} -o json",
+                    f"Inspect the project flow: dku project inspect {project_key}",
                 ],
             )
         raise
@@ -333,7 +337,6 @@ def _parse_computed_cols(specs: list[str] | None) -> list[dict]:
 
             exit_with_error(
                 f"Invalid --computed-col '{spec}'. Expected 'name=expr[:type]'.",
-                code="invalid_argument",
             )
         name, rest = spec.split("=", 1)
         col_type = "string"
@@ -378,7 +381,6 @@ def _parse_renames(specs: list[str] | None) -> dict[str, str]:
         if ":" not in spec:
             exit_with_error(
                 f"Invalid --rename '{spec}'. Expected 'SRC:DST'.",
-                code="invalid_argument",
             )
         src, dst = spec.split(":", 1)
         out[src.strip()] = dst.strip()
@@ -460,7 +462,6 @@ def _get_prepare_settings(proj, recipe_name: str, project_key: str):
         exit_with_error(
             f"Recipe '{recipe_name}' is type '{rtype}', not 'prepare'. "
             "Step commands only work on prepare recipes.",
-            code="wrong_recipe_type",
             details=[
                 f"Create a prepare recipe first: dku recipe create <NAME> -t prepare -i <INPUT> --output-ds <OUTPUT> -P {project_key}",
             ],
@@ -483,7 +484,6 @@ def _validate_step_index(steps: list, index: int, recipe_name: str) -> None:
         if count == 0:
             exit_with_error(
                 f"Recipe '{recipe_name}' has no steps.",
-                code="invalid_index",
                 details=[
                     f"Add steps first: dku recipe add-step {recipe_name} --type <TYPE> --params '<JSON>' -P <PROJ>"
                 ],
@@ -491,7 +491,6 @@ def _validate_step_index(steps: list, index: int, recipe_name: str) -> None:
         else:
             exit_with_error(
                 f"Step index {index} out of range. Recipe '{recipe_name}' has {count} steps (0–{count - 1}).",
-                code="invalid_index",
                 details=[f"List steps: dku recipe list-steps {recipe_name} -P <PROJ>"],
             )
 
@@ -680,6 +679,7 @@ __all__ = [
     "render",
     "render_raw",
     "resolve_output_format",
+    "recipe_created_hint",
     "success",
     "warn",
     # The shared Typer app.

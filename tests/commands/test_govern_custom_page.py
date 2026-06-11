@@ -18,7 +18,7 @@ def test_custom_page_list(patch_client):
 
 
 def test_custom_page_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "custom-page", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "custom-page", "list"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -36,7 +36,14 @@ def test_custom_page_get(patch_client):
 def test_custom_page_get_json(patch_client):
     result = runner.invoke(
         app,
-        ["govern", "custom-page", "get", "cp.system.governable-items", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "custom-page",
+            "get",
+            "cp.system.governable-items",
+        ],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)

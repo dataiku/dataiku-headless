@@ -8,7 +8,7 @@ optional ``mcp`` extra (fastmcp) is installed.
 from __future__ import annotations
 
 import asyncio
-import json
+
 import pytest
 
 pytest.importorskip("fastmcp")
@@ -65,10 +65,10 @@ def test_dku_exec_runs_bash_and_python(tmp_path):
                 )
             )
 
-    payload = json.loads(_run(go()))
-    assert payload["exit_code"] == 0
-    assert "hi" in payload["stdout"]
-    assert "42" in payload["stdout"]
+    payload = _run(go())
+    assert payload.startswith("exit 0\n")
+    assert "hi" in payload
+    assert "42" in payload
 
 
 def test_dku_exec_strips_dangerous_flag(tmp_path):
@@ -82,9 +82,9 @@ def test_dku_exec_strips_dangerous_flag(tmp_path):
                 )
             )
 
-    payload = json.loads(_run(go()))
-    assert "--dangerous" not in payload["stdout"]
-    assert "keep" in payload["stdout"] and "end" in payload["stdout"]
+    payload = _run(go())
+    assert "--dangerous" not in payload
+    assert "keep" in payload and "end" in payload
 
 
 def test_dku_exec_isolated_per_session_workdir(tmp_path):
@@ -98,9 +98,9 @@ def test_dku_exec_isolated_per_session_workdir(tmp_path):
                 await client.call_tool("dku_exec", {"commands": "cat probe.txt"})
             )
 
-    payload = json.loads(_run(go()))
-    assert payload["exit_code"] == 0
-    assert "marker" in payload["stdout"]
+    payload = _run(go())
+    assert payload.startswith("exit 0\n")
+    assert "marker" in payload
 
 
 def test_build_server_uses_passed_backend_without_reprobing(tmp_path, monkeypatch):
@@ -141,10 +141,11 @@ def test_http_dku_exec_rejects_missing_bearer(tmp_path):
                 await client.call_tool("dku_exec", {"commands": "echo should-not-run"})
             )
 
-    payload = json.loads(_run(go()))
-    assert payload["exit_code"] == 1
-    assert "Authentication required" in payload["stderr"]
-    assert "should-not-run" not in payload.get("stdout", "")
+    payload = _run(go())
+    assert payload.startswith("exit 1\n")
+    assert "--- stderr ---" in payload
+    assert "Authentication required" in payload
+    assert "should-not-run" not in payload
     # No 'anon' session workdir was minted for the rejected caller.
     sessions_dir = tmp_path / "sessions"
     assert not sessions_dir.exists() or not any(sessions_dir.iterdir())

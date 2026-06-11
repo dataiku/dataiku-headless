@@ -20,7 +20,9 @@ def test_insight_list(patch_client):
 
 
 def test_insight_list_json(patch_client):
-    result = runner.invoke(app, ["insight", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "insight", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "insight1"
@@ -35,7 +37,7 @@ def test_insight_get(patch_client):
 
 def test_insight_get_json(patch_client):
     result = runner.invoke(
-        app, ["insight", "get", "insight1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "insight", "get", "insight1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -58,7 +60,8 @@ def test_insight_create(patch_client):
 
 def test_insight_create_json(patch_client):
     result = runner.invoke(
-        app, ["insight", "create", "My Insight", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "insight", "create", "My Insight", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

@@ -15,7 +15,6 @@ def check_schema(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Check if recipe outputs need schema updates.
 
@@ -23,7 +22,7 @@ def check_schema(
     Note: does not work for code recipes (Python, R) — only visual recipes.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(
@@ -71,14 +70,13 @@ def apply_schema(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Compute and apply required schema updates to recipe outputs.
 
     Note: does not work for code recipes (Python, R) — only visual recipes.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("table", "json"), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(
@@ -95,7 +93,6 @@ def apply_schema(
             exit_with_error(
                 f"Recipe '{recipe_name}' is type '{rtype}' — code recipes set "
                 "their output schema at run-time, not via apply-schema.",
-                code="wrong_recipe_type",
                 status=2,
                 details=[
                     "Code recipes write their output schema inside the recipe body:",

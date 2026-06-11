@@ -88,7 +88,6 @@ def lint_formula(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Prepare recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Lint a prepare recipe — validate formula/GREL expressions and step config.
 
@@ -98,9 +97,9 @@ def lint_formula(
 
     Example:
       dku recipe lint-formula my_prepare -P PROJ
-      dku recipe lint-formula my_prepare -P PROJ -o json
+      dku recipe lint-formula my_prepare -P PROJ
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         _lint_from_status(client, resolve_project(project), recipe_name, "formula", fmt)
@@ -113,7 +112,6 @@ def lint_sql(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="SQL recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Lint an SQL recipe — validate syntax and engine configuration.
 
@@ -123,7 +121,7 @@ def lint_sql(
     Example:
       dku recipe lint-sql my_query -P PROJ
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         _lint_from_status(client, resolve_project(project), recipe_name, "SQL", fmt)
@@ -136,7 +134,6 @@ def lint_python(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Python recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Lint a Python recipe — validate code env and engine configuration.
 
@@ -147,7 +144,7 @@ def lint_python(
     Example:
       dku recipe lint-python my_script -P PROJ
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         _lint_from_status(client, resolve_project(project), recipe_name, "Python", fmt)

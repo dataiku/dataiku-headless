@@ -219,7 +219,7 @@ Symptom of a rounding-mode mismatch in a parity check: off-by-step mismatches in
    txn_date >= "2026-02-01" && txn_date <= "2026-02-28" # range
    max(txn_date)                                        # latest per group
    ```
-3. **`dateonly` JSON quirk** — `dku dataset head -o json` renders as `"2026-02-06 00:00:00"` (trailing midnight). Cosmetic; strip the time component in parity checks.
+3. **`dateonly` JSON quirk** — `dku --format json dataset head` renders as `"2026-02-06 00:00:00"` (trailing midnight). Cosmetic; strip the time component in parity checks.
 4. **SAS missing date (`.`) → Dataiku null.** In LEFT JOINs with no match, SAS emits `.`, Dataiku emits `null`. Normalize both to `None` in parity checks.
 5. **Force `yymmdd10` display format in SAS goldens** used for string parity: change `format=date9.` to `format=yymmdd10.` on any SQL alias you'll compare.
 

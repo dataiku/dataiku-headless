@@ -67,7 +67,7 @@ Some PROCs migrate to Dataiku features outside the Flow. Don't force them into a
 | `PROC SGPLOT` / `SGPANEL` / `SGSCATTER` | Dataiku **Chart** on the output dataset, or **Dashboard tile** | Plots don't produce data. Migrate to a chart definition (`dku chart create`) or a dashboard insight, not a Python recipe that writes a PNG |
 | `PROC TEMPLATE` (ODS graphics templates) | Dashboard styling / shared chart config | Presentation layer, not a pipeline step |
 | `PROC REPORT` / `PROC TABULATE` | Dashboard with **pivot-table insight** + cross-tab Group/Pivot recipes for the data | These are reporting, not transformation. Migrate the *data prep* as Group + Pivot; migrate the *layout* as a dashboard |
-| `PROC COMPARE` | **Phase 4 verification**, not a migrated step | A parity/QA tool. Replace with `dku dataset head -o json` on both sides during integration test (see SKILL.md § Phase 4) |
+| `PROC COMPARE` | **Phase 4 verification**, not a migrated step | A parity/QA tool. Replace with `dku --format json dataset head` on both sides during integration test (see SKILL.md § Phase 4) |
 | `PROC PRINT` | Implicit (DSS shows data in the Explore tab) | Not a migration target |
 | `PROC CONTENTS` | `dku dataset schema DS -P PROJ` | Metadata lookup, not a recipe |
 

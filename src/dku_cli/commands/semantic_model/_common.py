@@ -69,7 +69,6 @@ def _require_identifier(value: str, field_label: str) -> str:
     if not stripped:
         exit_with_error(
             f"{field_label} cannot be empty or whitespace.",
-            code="invalid_argument",
             details=[
                 f"Provide a non-blank {field_label.lower()}.",
             ],
@@ -89,10 +88,9 @@ def _validate_columns_in_schema(
     if missing:
         exit_with_error(
             f"{flag_name} references column(s) not in dataset '{dataset}': {', '.join(missing)}",
-            code="invalid_argument",
             details=[
                 f"Available columns: {', '.join(sorted(schema_names)) if schema_names else '(none)'}",
-                f"Check schema: dku dataset schema {dataset} -o json",
+                f"Check schema: dku dataset schema {dataset}",
                 "Column names are case-sensitive.",
             ],
         )
@@ -115,7 +113,6 @@ def _find_entity(raw: dict, entity_name: str) -> dict:
             return e
     exit_with_error(
         f"Entity '{entity_name}' not found on version.",
-        code="not_found",
         details=[
             "Available entities: "
             + (", ".join(e.get("name", "") for e in entities) or "(none)"),
@@ -132,7 +129,6 @@ def _resolve_version_id(sm, version: str | None) -> str:
     except Exception:
         exit_with_error(
             "No active version set and --version not provided.",
-            code="no_active_version",
             details=[
                 f"List versions: dku semantic-model versions {sm.semantic_model_id} -P PROJECT",
                 f"Set active: dku semantic-model set-active-version {sm.semantic_model_id} VERSION_ID -P PROJECT",
@@ -173,7 +169,6 @@ def _append_named_item(
             return False
         exit_with_error(
             f"{label} '{name}' already exists{duplicate_scope}.",
-            code="already_exists",
             details=[
                 remove_hint,
                 "Or pass --if-not-exists to skip.",
@@ -200,7 +195,6 @@ def _remove_named_item(
     if removed == 0:
         exit_with_error(
             f"{label} '{name}' not found{missing_scope}.",
-            code="not_found",
             details=[list_hint],
         )
     container[collection_key] = kept

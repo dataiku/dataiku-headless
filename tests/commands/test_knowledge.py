@@ -42,7 +42,7 @@ def test_knowledge_list(patch_client):
 
 def test_knowledge_list_json(patch_client):
     result = runner.invoke(
-        app, ["knowledge", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "knowledge", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -142,7 +142,7 @@ def test_knowledge_get_json(patch_client):
     response.json.return_value = {"id": "kb1", "name": "My KB"}
     patch_client._perform_http.return_value = response
     result = runner.invoke(
-        app, ["knowledge", "get", "kb1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "knowledge", "get", "kb1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -190,6 +190,8 @@ def test_knowledge_search_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "knowledge",
             "search",
             "kb1",
@@ -197,8 +199,6 @@ def test_knowledge_search_json(patch_client):
             "test query",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

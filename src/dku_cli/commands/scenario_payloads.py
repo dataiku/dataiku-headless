@@ -142,20 +142,16 @@ def _validate_temporal_inputs(
     if frequency not in VALID_FREQUENCIES:
         exit_with_error(
             f"Invalid --frequency '{frequency}'.",
-            code="invalid_input",
             details=[f"Valid: {', '.join(sorted(VALID_FREQUENCIES))}"],
         )
     if not 0 <= hour <= 23:
-        exit_with_error(f"--hour {hour} out of range (0-23).", code="invalid_input")
+        exit_with_error(f"--hour {hour} out of range (0-23).")
     if not 0 <= minute <= 59:
         exit_with_error(
             f"--minute {minute} out of range (0-59).",
-            code="invalid_input",
         )
     if repeat_every < 1:
-        exit_with_error(
-            f"--repeat-every {repeat_every} must be >= 1.", code="invalid_input"
-        )
+        exit_with_error(f"--repeat-every {repeat_every} must be >= 1.")
 
 
 def _time_params(hour: int, minute: int) -> dict:
@@ -166,7 +162,6 @@ def _weekly_params(days: str | None, hour: int, minute: int) -> dict:
     if not days:
         exit_with_error(
             "--days is required for Weekly frequency.",
-            code="invalid_input",
             details=["Example: --days Monday,Wednesday,Friday"],
         )
     days_list = [d.strip() for d in days.split(",") if d.strip()]
@@ -174,7 +169,6 @@ def _weekly_params(days: str | None, hour: int, minute: int) -> dict:
     if invalid:
         exit_with_error(
             f"Invalid day(s): {', '.join(invalid)}.",
-            code="invalid_input",
             details=[f"Valid: {', '.join(sorted(VALID_DAYS_OF_WEEK))}"],
         )
     return {**_time_params(hour, minute), "daysOfWeek": days_list}
@@ -184,7 +178,6 @@ def _monthly_params(monthly_run_on: str, hour: int, minute: int) -> dict:
     if monthly_run_on not in VALID_MONTHLY_RUN_ON:
         exit_with_error(
             f"Invalid --monthly-run-on '{monthly_run_on}'.",
-            code="invalid_input",
             details=[f"Valid: {', '.join(sorted(VALID_MONTHLY_RUN_ON))}"],
         )
     return {**_time_params(hour, minute), "monthlyRunOn": monthly_run_on}
@@ -195,7 +188,6 @@ def env_selection(env_mode: EnvMode, env_name: str | None) -> dict:
     if env_mode == EnvMode.EXPLICIT_ENV and not env_name:
         exit_with_error(
             "--env-mode EXPLICIT_ENV requires --env-name.",
-            code="invalid_argument",
         )
     selection = {"envMode": env_mode.value}
     if env_name:
@@ -247,7 +239,6 @@ def validate_handle_warnings_as(value: str | None) -> str | None:
     details.append("DSS silently replaces an unknown value with the default WARNING.")
     exit_with_error(
         f"Invalid --handle-warnings-as '{value}'.",
-        code="invalid_argument",
         details=details,
     )
     return None
@@ -264,7 +255,6 @@ def _reject_run_condition_type(value: str) -> None:
     )
     exit_with_error(
         f"Invalid --run-condition-type '{value}'.",
-        code="invalid_argument",
         details=details,
     )
 
@@ -280,7 +270,6 @@ def validate_run_options(
     if delay_between_retries is not None and max_retries is None:
         exit_with_error(
             "--delay-between-retries requires --max-retries.",
-            code="invalid_argument",
         )
     if run_condition_type and run_condition_type not in VALID_RUN_CONDITION_TYPES:
         _reject_run_condition_type(run_condition_type)
@@ -297,7 +286,6 @@ def validate_run_options(
                 if v not in VALID_STEP_STATUSES:
                     exit_with_error(
                         f"Invalid status '{v}' in --run-condition-statuses.",
-                        code="invalid_argument",
                         details=[
                             f"Valid: {', '.join(sorted(VALID_STEP_STATUSES))}",
                             "DSS UI default for 'run if previous succeeded' "
@@ -366,7 +354,6 @@ def validate_build_job_type(job_type: str) -> str:
     )
     exit_with_error(
         f"Invalid --job-type '{job_type}'.",
-        code="invalid_argument",
         details=details,
     )
     return job_type

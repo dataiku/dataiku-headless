@@ -46,7 +46,7 @@ def test_list(patch_client):
 
 def test_list_json(patch_client):
     result = runner.invoke(
-        app, ["semantic-model", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "semantic-model", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -119,7 +119,7 @@ def test_get(patch_client):
 
 def test_get_json(patch_client):
     result = runner.invoke(
-        app, ["semantic-model", "get", "sm1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "semantic-model", "get", "sm1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -159,7 +159,7 @@ def test_versions(patch_client):
 def test_versions_json(patch_client):
     result = runner.invoke(
         app,
-        ["semantic-model", "versions", "sm1", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "semantic-model", "versions", "sm1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -184,13 +184,13 @@ def test_get_version_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "get-version",
             "sm1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -385,13 +385,13 @@ def test_distinct_values_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "distinct-values",
             "sm1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -969,7 +969,15 @@ def test_list_entities(patch_client):
 
     result = runner.invoke(
         app,
-        ["semantic-model", "list-entities", "sm1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "semantic-model",
+            "list-entities",
+            "sm1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -993,13 +1001,13 @@ def test_list_relationships(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "list-relationships",
             "sm1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -1023,13 +1031,13 @@ def test_list_glossary(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "list-glossary",
             "sm1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -1171,6 +1179,8 @@ def test_list_metrics(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "list-metrics",
             "sm1",
@@ -1178,8 +1188,6 @@ def test_list_metrics(patch_client):
             "customer",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -1260,6 +1268,8 @@ def test_list_filters(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "list-filters",
             "sm1",
@@ -1267,8 +1277,6 @@ def test_list_filters(patch_client):
             "customer",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -1459,13 +1467,13 @@ def test_list_golden_queries(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "semantic-model",
             "list-golden-queries",
             "sm1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

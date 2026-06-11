@@ -14,10 +14,9 @@ app = typer.Typer(help="Manage DSS global API keys (admin only).")
 @app.command("list")
 def list_keys(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all global API keys."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         keys = client.list_global_api_keys()
@@ -53,10 +52,9 @@ def list_keys(
 def get(
     ctx: typer.Context,
     key_id: str = typer.Argument(help="API key ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get an API key's definition."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         key = client.get_global_api_key_by_id(key_id)
@@ -74,7 +72,6 @@ def create(
         None, "--description", "-d", help="Description"
     ),
     admin: bool = typer.Option(False, "--admin", help="Grant admin rights"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new global API key.
 
@@ -82,7 +79,7 @@ def create(
       dku api-key create --label "CI/CD Key" --description "For automation"
       dku api-key create --label "Admin Key" --admin
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         key = client.create_global_api_key(
@@ -135,13 +132,12 @@ def delete(
 @app.command("list-personal")
 def list_personal(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List personal API keys visible to the caller (admin sees all).
 
     Useful for auditing keys before an offboarding or key-rotation sweep.
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         keys = client.list_personal_api_keys(as_type="listitems")

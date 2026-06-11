@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="Manage Govern groups (admin).")
@@ -17,10 +17,9 @@ app = typer.Typer(help="Manage Govern groups (admin).")
 @app.command("list")
 def list_groups(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all Govern groups. Requires admin API key."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         groups = govern.list_groups()
@@ -49,10 +48,9 @@ def list_groups(
 def get(
     ctx: typer.Context,
     name: str = typer.Argument(help="Group name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a group's definition. Requires admin API key."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         group = govern.get_group(name)
@@ -80,6 +78,7 @@ def create(
         govern = get_govern_client_from_ctx(ctx)
         govern.create_group(name, description=description, source_type=source_type)
         success(f"Created group '{name}'")
+        hint(f"dku govern group get {name}")
     except SystemExit:
         raise
     except Exception as e:

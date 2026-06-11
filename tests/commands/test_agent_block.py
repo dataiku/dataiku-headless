@@ -25,7 +25,16 @@ def test_list_blocks(patch_client):
 
 def test_list_blocks_json(patch_client):
     result = runner.invoke(
-        app, ["agent-block", "list", "agent_blocks", "--project", "PROJ1", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "agent-block",
+            "list",
+            "agent_blocks",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -70,14 +79,14 @@ def test_get_block_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "agent-block",
             "get",
             "agent_blocks",
             "classify",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -712,7 +721,15 @@ def test_list_blocks_default_next_block_json(patch_client):
     """JSON output should include defaultNextBlock with (default) suffix."""
     result = runner.invoke(
         app,
-        ["agent-block", "list", "structured_agent", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "agent-block",
+            "list",
+            "structured_agent",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -1304,6 +1321,77 @@ def test_add_block_renames_legacy_output_scratchpad_key(patch_client):
     save_block = next(b for b in blocks if b["id"] == "save_to_pad")
     assert save_block["outputKey"] == "result"
     assert "outputScratchpadKey" not in save_block
+
+
+def test_add_block_renames_llm_request_system_prompt(patch_client):
+    """LLM_REQUEST `systemPrompt` is renamed to `systemPromptAfterHistory`.
+
+    Regression: DSS silently ignores `systemPrompt` on LLM_REQUEST — the block
+    runs with default behavior and the prompt never reaches the model.
+    """
+    block = json.dumps(
+        {
+            "type": "LLM_REQUEST",
+            "id": "answer",
+            "llmId": "llm1",
+            "systemPrompt": "You answer pricing questions.",
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "add",
+            "structured_agent",
+            "--block",
+            block,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "systemPromptAfterHistory" in result.output
+
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
+    answer = next(b for b in blocks if b["id"] == "answer")
+    assert answer["systemPromptAfterHistory"] == "You answer pricing questions."
+    assert "systemPrompt" not in answer
+
+
+def test_add_block_keeps_system_prompt_on_other_block_types(patch_client):
+    """MANDATORY_TOOL_CALL legitimately uses `systemPrompt` — no rename there."""
+    from dku_cli.commands.agent_block import _normalize_blocks
+
+    block = {
+        "type": "MANDATORY_TOOL_CALL",
+        "id": "call",
+        "llmId": "llm1",
+        "systemPrompt": "Generate the args.",
+    }
+    warnings = _normalize_blocks([block])
+    assert warnings == []
+    assert block["systemPrompt"] == "Generate the args."
+
+
+def test_normalize_drops_system_prompt_when_both_present():
+    from dku_cli.commands.agent_block import _normalize_blocks
+
+    block = {
+        "type": "LLM_REQUEST",
+        "id": "answer",
+        "systemPromptAfterHistory": "keep me",
+        "systemPrompt": "ignored by DSS",
+    }
+    warnings = _normalize_blocks([block])
+    assert any("dropped 'systemPrompt'" in w for w in warnings)
+    assert block["systemPromptAfterHistory"] == "keep me"
+    assert "systemPrompt" not in block
 
 
 def test_set_graph_applies_normalizations(patch_client):

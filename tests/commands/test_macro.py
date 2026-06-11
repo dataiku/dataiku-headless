@@ -18,7 +18,9 @@ def test_macro_list(patch_client):
 
 
 def test_macro_list_json(patch_client):
-    result = runner.invoke(app, ["macro", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "macro", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "pyrunnable_test_run-macro"

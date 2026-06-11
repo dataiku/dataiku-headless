@@ -20,7 +20,7 @@ def test_streaming_list_table(patch_client):
 
 def test_streaming_list_json(patch_client):
     result = runner.invoke(
-        app, ["streaming", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "streaming", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -94,7 +94,15 @@ def test_streaming_schema(patch_client):
 def test_streaming_schema_json(patch_client):
     result = runner.invoke(
         app,
-        ["streaming", "schema", "events_stream", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "streaming",
+            "schema",
+            "events_stream",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

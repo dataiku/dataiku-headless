@@ -32,7 +32,10 @@ def test_doctor_table():
 
 
 def test_doctor_json_reports_backend():
-    result = runner.invoke(app, ["doctor", "-o", "json"])
+    from dku_cli.output import set_output_format
+
+    set_output_format("json")
+    result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     rows = json.loads(result.output)
     by_check = {r["check"]: r for r in rows}

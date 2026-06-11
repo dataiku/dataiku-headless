@@ -44,7 +44,6 @@ def _explain_reset_to_upstream_failure(e: Exception, git, project_key: str) -> N
     if not any(_local_name(b) == current for b in remote_branches):
         exit_with_error(
             f"Cannot reset to upstream: branch '{current}' has no branch on the remote to reset onto.",
-            code="git_no_upstream",
             details=[
                 f"'{current}' looks like a local-only branch (never pushed), so there",
                 "is no upstream commit to hard-reset onto. DSS reports this as an",
@@ -64,11 +63,10 @@ def _explain_reset_to_upstream_failure(e: Exception, git, project_key: str) -> N
 def status(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the current state of the project's git repository."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -97,7 +95,7 @@ def status(
                 if files:
                     summary[key.capitalize()] = ", ".join(files)
 
-            render_raw(summary, output_format="table")
+            render_raw(summary)
     except Exception as e:
         handle_api_error(e)
 
@@ -115,11 +113,10 @@ def log(
         None, "--start-commit", help="Start listing from this commit ID"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List commits in the project's git repository."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -155,7 +152,6 @@ def diff(
     commit_from: str | None = typer.Option(None, "--from", help="Start commit ID"),
     commit_to: str | None = typer.Option(None, "--to", help="End commit ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show changes between commits or working copy and last commit.
 
@@ -164,7 +160,7 @@ def diff(
     --from and --to: changes between two commits.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -179,7 +175,7 @@ def diff(
                 "Removed lines": data.get("removedLines", 0),
                 "Changed files": data.get("changedFiles", 0),
             }
-            render_raw(summary, output_format="table")
+            render_raw(summary)
     except Exception as e:
         handle_api_error(e)
 
@@ -213,11 +209,10 @@ def pull(
         None, "--branch", "-b", help="Branch to pull (default: current)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Pull changes from the remote repository (rebase)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -243,11 +238,10 @@ def push(
         None, "--branch", "-b", help="Branch to push (default: current)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Push local commits to the remote repository."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -270,11 +264,10 @@ def push(
 def fetch(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Fetch refs from the remote repository."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -299,11 +292,10 @@ def branches(
         False, "--remote", "-r", help="Include remote branches"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List branches in the project's git repository."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -402,11 +394,10 @@ def switch(
     ctx: typer.Context,
     branch_name: str = typer.Argument(help="Name of the branch to switch to"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Switch to a different branch."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -424,11 +415,10 @@ def switch(
 def tags(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List tags in the project's git repository."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -489,7 +479,6 @@ def remote(
     ),
     name: str = typer.Option("origin", "--name", help="Remote name (default: origin)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get or set the remote URL for the project's git repository.
 
@@ -497,7 +486,7 @@ def remote(
     With --set URL: sets the remote URL.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

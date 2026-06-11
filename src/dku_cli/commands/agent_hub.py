@@ -58,7 +58,6 @@ def _resolve_hub(ctx: typer.Context, project_key: str, hub_id: str | None):
     if len(hubs) == 0:
         exit_with_error(
             f"No Agent Hub webapp found in project {project_key}.",
-            code="not_found",
             details=[
                 "Agent Hub is a plugin webapp — create it in the DSS UI:",
                 "  Project > Web Apps > New Web App > Agent Hub",
@@ -69,7 +68,6 @@ def _resolve_hub(ctx: typer.Context, project_key: str, hub_id: str | None):
         hub_list = [f"  {h.get('id', '')} ({h.get('name', '')})" for h in hubs]
         exit_with_error(
             f"Multiple Agent Hub webapps found in {project_key}. Use --hub to specify one.",
-            code="ambiguous",
             details=["Available hubs:", *hub_list],
         )
 
@@ -91,11 +89,10 @@ def _save_config(webapp, config: dict) -> None:
 def list_hubs(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List Agent Hub instances in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -129,7 +126,6 @@ def config(
         None, "--hub", help="Agent Hub webapp ID (auto-detected if only one exists)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the Agent Hub webapp's plugin-runtime config.
 
@@ -139,7 +135,7 @@ def config(
     NOT visible here. Configure those in the DSS Agent Hub UI.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         _, cfg = _resolve_hub(ctx, project_key, hub)
         render_raw(cfg, output_format=output)

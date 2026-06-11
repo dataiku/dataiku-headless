@@ -13,6 +13,7 @@ from dku_cli.helpers import (
     resolve_project,
 )
 from dku_cli.output import (
+    hint,
     info,
     render,
     render_raw,
@@ -48,7 +49,6 @@ def _ensure_review_agent_version(proj, review) -> tuple[str | None, bool]:
     if source_vid is None:
         exit_with_error(
             f"Agent '{agent_id}' has no version to publish for review execution.",
-            code="no_agent_version",
             details=[
                 f"Create one first: dku agent create-version {agent_id} --activate -P {proj.project_key}",
             ],
@@ -66,11 +66,10 @@ def _ensure_review_agent_version(proj, review) -> tuple[str | None, bool]:
 def list_reviews(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List agent reviews in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -110,6 +109,7 @@ def create(
         proj = client.get_project(project_key)
         review = proj.create_agent_review(name)
         success(f"Created agent review '{name}' (id={review.id})")
+        hint(f"dku agent-review get {review.id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -119,11 +119,10 @@ def get(
     ctx: typer.Context,
     review_id: str = typer.Argument(help="Review ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show agent review settings. Accepts review ID or name."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -340,11 +339,10 @@ def list_tests(
     ctx: typer.Context,
     review_id: str = typer.Argument(help="Review ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List tests in an agent review."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -404,6 +402,7 @@ def create_test(
             expectations=expectations,
         )
         success(f"Created test (id={test.id}) in review '{review_id}'")
+        hint(f"dku agent-review run {review_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -455,6 +454,7 @@ def import_tests(
         if err:
             warn(f"Import completed with error: {err}")
         success(f"Imported {len(created_ids)} tests into review '{review_id}'")
+        hint(f"dku agent-review run {review_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -526,10 +526,10 @@ def run_review(
             run_id = result.id if hasattr(result, "id") else "unknown"
             status = result.status if hasattr(result, "status") else "completed"
             success(f"Run complete (id={run_id}, status={status})")
+            hint(f"dku agent-review results {review_id} -P {project_key}")
         else:
-            success(
-                f"Run started. Check progress: dku agent-review list-runs {review_id} -P {project_key}"
-            )
+            success("Run started.")
+            hint(f"dku agent-review list-runs {review_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -539,11 +539,10 @@ def list_runs(
     ctx: typer.Context,
     review_id: str = typer.Argument(help="Review ID or name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List runs of an agent review."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -694,11 +693,10 @@ def results(
         "--show-justifications",
         help=(
             "Include per-trait LLM-judge justifications (DSS 14.5+). Implies "
-            "--by-trait. Best with -o json — table mode truncates."
+            "--by-trait. Best with --format json — table mode truncates."
         ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show results of a review run — per-test trait evaluations.
 
@@ -709,10 +707,10 @@ def results(
     Examples:
       dku agent-review results REV1 --run RUN_ID -P PROJ
       dku agent-review results REV1 --run RUN_ID --by-trait -P PROJ
-      dku agent-review results REV1 --run RUN_ID --show-justifications -P PROJ -o json
+      dku agent-review results REV1 --run RUN_ID --show-justifications -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     # --show-justifications implies --by-trait (pivot is the only structure
     # that has a meaningful place to surface them).
     if show_justifications:
@@ -800,7 +798,6 @@ def compare_runs(
         help="Comma-separated run IDs to compare (e.g. RUN_A,RUN_B,RUN_C)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Compare trait pass/fail across multiple runs of the same review.
 
@@ -812,17 +809,16 @@ def compare_runs(
 
     Examples:
       dku agent-review compare REV1 --runs RUN_A,RUN_B,RUN_C -P PROJ
-      dku agent-review compare REV1 --runs RUN_A,RUN_B -P PROJ -o json
+      dku agent-review compare REV1 --runs RUN_A,RUN_B -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     run_ids = [r.strip() for r in runs.split(",") if r.strip()]
     if len(run_ids) < 2:
         from dku_cli.errors import exit_with_error
 
         exit_with_error(
             "Compare needs at least two runs.",
-            code="bad_args",
             details=[
                 "Pass comma-separated run IDs, e.g.:",
                 f"  dku agent-review compare {review_id} --runs RUN_A,RUN_B -P {project_key}",
@@ -848,7 +844,6 @@ def compare_runs(
 
                 exit_with_error(
                     f"Run '{rid}' not found on review '{review_id}'.",
-                    code="not_found",
                     details=[
                         f"List runs: dku agent-review list-runs {review_id} -P {project_key}",
                         f"Underlying error: {exc}",
@@ -945,7 +940,6 @@ def get_result(
     ctx: typer.Context,
     result_id: str = typer.Argument(help="Result ID (from `agent-review results`)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show one result's detail with its human-verification state.
 
@@ -956,10 +950,10 @@ def get_result(
 
     Examples:
       dku agent-review get-result RESULT_ID -P PROJ
-      dku agent-review get-result RESULT_ID -P PROJ -o json
+      dku agent-review get-result RESULT_ID -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -1114,7 +1108,7 @@ def override_trait(
     trait: str = typer.Option(
         ...,
         "--trait",
-        help="Trait ID to override (see `get-result` or `get REVIEW -o json`).",
+        help="Trait ID to override (see `get-result` or `get REVIEW`).",
     ),
     verdict: bool = typer.Option(
         ...,
@@ -1127,7 +1121,7 @@ def override_trait(
 
     This sets the trait's FINAL status; the AI verdict is preserved separately so
     you can measure AI-vs-human agreement. The trait ID must come from the result's
-    review — list them with `get-result RESULT_ID` or `get REVIEW_ID -o json`.
+    review — list them with `get-result RESULT_ID` or `get REVIEW_ID`.
 
     Examples:
       dku agent-review override-trait RESULT_ID --trait TRAIT_ID --fail -P PROJ

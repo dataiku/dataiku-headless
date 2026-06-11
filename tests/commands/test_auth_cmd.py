@@ -191,7 +191,7 @@ def test_auth_list_json_round_trips_url_and_node_type():
             ),
         ),
     ):
-        result = runner.invoke(app, ["auth", "list", "-o", "json"])
+        result = runner.invoke(app, ["--format", "json", "auth", "list"])
 
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
@@ -239,6 +239,6 @@ def test_auth_list_text_keeps_legacy_layout():
 def test_auth_list_json_empty_profiles():
     """No profiles → empty JSON array (not an info message in JSON mode)."""
     with patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value={}):
-        result = runner.invoke(app, ["auth", "list", "-o", "json"])
+        result = runner.invoke(app, ["--format", "json", "auth", "list"])
     assert result.exit_code == 0
     assert json.loads(result.output) == []

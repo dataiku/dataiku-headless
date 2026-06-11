@@ -16,7 +16,7 @@ recipes is reviewable on the graph; one giant Python recipe is a black box.
 **inspect → sample → wire → build → verify.** Never skip verify.
 
 ```bash
-dku project inspect PROJ -o json                 # 1. project shape
+dku --format json project inspect PROJ                 # 1. project shape
 dku dataset info IN -P PROJ && \
 dku dataset schema IN -P PROJ && \
 dku dataset head IN -P PROJ -n 5                  # 2. gauge + sample inputs
@@ -31,7 +31,7 @@ dku dataset head OUT -P PROJ -n 5 && dku dataset info OUT -P PROJ --recompute
 When a recipe outputs to a managed **folder** (not a dataset), build with
 `dku recipe run RECIPE -P PROJ --wait`.
 
-**Verify means rows, not exit code.** `dku dataset head -o json` returning `[]`
+**Verify means rows, not exit code.** `dku --format json dataset head` returning `[]`
 is 0 rows, not success. Empty arrays are data. Check row count, schema, and
 sample values against expectations before declaring done.
 
@@ -88,7 +88,7 @@ dku dataset head raw -P PROJ -n 5
   Prepare `DateParser`; ISO strings sort/aggregate chronologically anyway.
 - **`set-schema` only updates metadata, not the on-disk column ORDER.** If your
   declared order differs from the file's actual order, DSS reads by POSITION →
-  silent garbage. Match schema order to file order (use `head -o json` to see
+  silent garbage. Match schema order to file order (use `dku --format json dataset head` to see
   the real order, or a `ColumnReorder` step at the end of the Prepare).
 - **Manual Filesystem dataset needs `-c CONNECTION`** (rare; recipe create
   usually does this): `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ`.
@@ -185,7 +185,7 @@ separately-referenced logical dataset, or when stages need different engines.
 block on each filter after `set-settings`/`set-definition`. Gate on it:
 
 ```bash
-dku recipe get-settings R -P PROJ -o json | jq '.payload | {pre: .preFilter."$status".ok, post: .postFilter."$status".ok}'
+dku --format json recipe get-settings R -P PROJ | jq '.payload | {pre: .preFilter."$status".ok, post: .postFilter."$status".ok}'
 ```
 
 `ok:false` → read `.message` and fix. `fullyTranslated:false` → part of the
@@ -220,7 +220,7 @@ Processor IDs and params: `references/prepare-processors.md`. GREL syntax:
   re-`apply-schema` and re-run).
 - **Formula columns default to STRING regardless of expression type.** A
   downstream Window `sum:col` then fails `Cannot sum non-numeric column`. Fix:
-  after the Prepare runs, retype with `dku dataset set-schema OUT -d "$(dku dataset schema OUT -o json | jq 'map(if .name=="col" then .type="bigint" else . end)' -c)"`.
+  after the Prepare runs, retype with `dku dataset set-schema OUT -d "$(dku --format json dataset schema OUT | jq 'map(if .name=="col" then .type="bigint" else . end)' -c)"`.
 - **`MultiColumnFold` (`add-fold`) silently DROPS rows where the value is null.**
   Pre-impute with `add-fill-empty` on each folded column BEFORE the fold.
 - **Schema does NOT auto-propagate downstream when an input's types change.**
@@ -316,7 +316,7 @@ flow stages, and a rebuild runbook.
 
 ## Job / build recovery
 
-Timeout is NOT failure. `dku job list -P PROJ -o json` to find the job,
+Timeout is NOT failure. `dku --format json job list -P PROJ` to find the job,
 `dku job wait JOB_ID`, `dku job log JOB_ID` on failure, then verify outputs.
 `job run --wait` and `job wait` exit non-zero on FAILED/ABORTED, so an `&&` chain
 stops at a failed build — safe to chain.
@@ -350,6 +350,6 @@ before LLM-heavy runs (sample 100 rows first to validate output format).
 | Output columns missing | `dku recipe check-schema RECIPE -P PROJ` |
 | Row count stale | `dku dataset info DS -P PROJ --recompute` |
 | Wrong column names | `dku dataset schema DS -P PROJ` |
-| Flow topology unclear | `dku flow graph -P PROJ -o json` |
+| Flow topology unclear | `dku --format json flow graph -P PROJ` |
 | `output dataset does not exist` | pre-create it (`dataset create ... -c CONN`) |
 | Recipe run fails | `apply-schema` first, then check connection/schema/formula |

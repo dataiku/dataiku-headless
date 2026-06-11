@@ -34,7 +34,7 @@ def test_time_series_create_with_datapoints(patch_client):
 
 def test_time_series_create_json(patch_client):
     result = runner.invoke(
-        app, ["--quiet", "govern", "time-series", "create", "-o", "json"]
+        app, ["--format", "quiet", "govern", "time-series", "create"]
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -47,7 +47,9 @@ def test_time_series_get(patch_client):
 
 
 def test_time_series_get_json(patch_client):
-    result = runner.invoke(app, ["govern", "time-series", "get", "ts.1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "govern", "time-series", "get", "ts.1"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1

@@ -12,7 +12,14 @@ from dku_cli.errors import (
     is_not_found_error,
 )
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS connections.")
 
@@ -26,7 +33,6 @@ def list_connections(
         "-t",
         help="Filter by connection type (e.g. Snowflake, PostgreSQL, S3)",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List connections. Use --type to filter by connection type.
 
@@ -34,7 +40,7 @@ def list_connections(
       dku connection list
       dku connection list --type Snowflake
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
 
@@ -101,6 +107,7 @@ def create(
         client.create_connection(name, conn_type, params)
 
         success(f"Created connection '{name}' (type: {conn_type})")
+        hint(f"dku connection test {name}")
     except Exception as e:
         handle_api_error(e)
 
@@ -126,7 +133,6 @@ def test(
             if "NotImplementedException" in msg or "Not implemented" in msg:
                 exit_with_error(
                     f"Connection '{connection_name}' does not support testing.",
-                    code="unsupported_operation",
                     status=2,
                     details=[
                         "Test only works on SQL and cloud connections.",
@@ -136,7 +142,6 @@ def test(
             if is_not_found_error(e) or "does not exist" in msg:
                 exit_with_error(
                     f"Connection '{connection_name}' does not exist.",
-                    code="not_found",
                     status=3,
                     details=[
                         "List connections: dku connection list",
@@ -156,7 +161,6 @@ def test(
             )
             exit_with_error(
                 f"Connection '{connection_name}' test failed.",
-                code="test_failed",
                 status=1,
                 details=[f"DSS: {msg}"],
             )
@@ -170,10 +174,9 @@ def test(
 def get(
     ctx: typer.Context,
     name: str = typer.Argument(help="Connection name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get connection details as JSON (admin only)."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         conn = client.get_connection(name)
@@ -235,7 +238,7 @@ def set_definition(
     """Replace a connection's full definition (credential rotation, param changes).
 
     Workflow:
-      dku connection get CONN -o json > /tmp/conn.json
+      dku --format json connection get CONN > /tmp/conn.json
       # edit /tmp/conn.json
       dku connection set-definition CONN -d @/tmp/conn.json --yes
 
@@ -246,7 +249,6 @@ def set_definition(
     if not isinstance(new_def, dict):
         exit_with_error(
             "Connection definition must be a JSON object.",
-            code="connection_bad_payload",
         )
     if not yes:
         info(
@@ -299,18 +301,15 @@ def update(
         exit_with_error(
             "Nothing to update — pass at least one of --params, --usable-by, "
             "--allowed-groups, --description.",
-            code="connection_update_noop",
         )
     if usable_by is not None and usable_by not in {"ALL", "ALLOWED"}:
         exit_with_error(
             f"--usable-by must be ALL or ALLOWED, got '{usable_by}'.",
-            code="connection_bad_usable_by",
         )
     params_patch = read_json_input(params) if params else None
     if params_patch is not None and not isinstance(params_patch, dict):
         exit_with_error(
             "--params must be a JSON object.",
-            code="connection_bad_params",
         )
 
     if not yes:
@@ -350,7 +349,6 @@ def schemas(
     ctx: typer.Context,
     connection_name: str = typer.Argument(help="Connection name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List schemas/namespaces available in a SQL or Iceberg connection.
 
@@ -361,10 +359,10 @@ def schemas(
 
     Example:
       dku connection schemas my_postgres -P PROJ
-      dku connection schemas my_iceberg -P PROJ -o json
+      dku connection schemas my_iceberg -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -415,7 +413,6 @@ def tables(
         help="Schema/namespace to list tables from (default: all)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List tables available for import in a SQL or Iceberg connection.
 
@@ -425,10 +422,10 @@ def tables(
     Example:
       dku connection tables my_postgres -P PROJ
       dku connection tables my_postgres --schema public -P PROJ
-      dku connection tables my_iceberg --schema my_namespace -P PROJ -o json
+      dku connection tables my_iceberg --schema my_namespace -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

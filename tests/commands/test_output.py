@@ -45,27 +45,10 @@ def test_filter_fields_ignores_missing_keys():
     assert filtered == [{"a": 1}]
 
 
-# --- compact JSON output ---
+# --- JSON output ---
 
 
-def test_render_json_compact(capsys):
-    output.set_compact(True)
-    try:
-        output.render(
-            [{"a": 1, "b": "", "c": None}],
-            ["a", "b", "c"],
-            output_format="json",
-        )
-    finally:
-        output.set_compact(False)
-    out = capsys.readouterr().out
-    # Compact: no spaces in separators, no indentation, empty/None dropped.
-    assert out.strip() == '[{"a":1}]'
-    assert ": " not in out
-    assert "\n  " not in out
-
-
-def test_render_json_non_compact(capsys):
+def test_render_json_is_indented(capsys):
     output.render(
         [{"a": 1, "b": 2}],
         ["a", "b"],
@@ -74,16 +57,12 @@ def test_render_json_non_compact(capsys):
     out = capsys.readouterr().out
     parsed = json.loads(out)
     assert parsed == [{"a": 1, "b": 2}]
-    # Non-compact uses indentation.
+    # --format json uses indentation.
     assert "\n  " in out
 
 
-def test_render_raw_compact(capsys):
-    output.set_compact(True)
-    try:
-        output.render_raw({"a": 1, "b": 2}, output_format="json")
-    finally:
-        output.set_compact(False)
+def test_render_raw_default_is_compact(capsys):
+    output.render_raw({"a": 1, "b": 2})
     out = capsys.readouterr().out
     assert out.strip() == '{"a":1,"b":2}'
     assert ": " not in out
@@ -95,7 +74,7 @@ def test_render_raw_compact(capsys):
 def test_fields_filtering_via_cli(patch_client):
     result = runner.invoke(
         app,
-        ["project", "list", "--fields", "key", "-o", "json"],
+        ["--format", "json", "project", "list", "--fields", "key"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

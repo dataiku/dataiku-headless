@@ -26,7 +26,6 @@ app = typer.Typer(help="Manage DSS projects.")
 @app.command("list")
 def list_projects(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
     fields: str = typer.Option(
         None,
         "--fields",
@@ -34,7 +33,7 @@ def list_projects(
     ),
 ) -> None:
     """List all projects."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         # Single GET /projects/ returns all metadata; do NOT fetch per-project
@@ -69,31 +68,35 @@ def list_projects(
 def get(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get project details.
 
     Output contract:
-      - Text/table: human-friendly Field/Value summary.
-      - JSON: the canonical project dict from `proj.get_metadata()` merged
-        with `key` and entity counts (datasets, recipes, scenarios). Lets
-        callers pipe through `jq` without a second `dataikuapi` call.
+      - Default/quiet: compact JSON, because this is a single object.
+      - JSON: the same canonical project dict, indented for `jq`/inspection.
+      - CSV: a Field/Value summary.
+      - IDs: the project key.
     """
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         meta = proj.get_metadata()
 
-        if output == "json":
-            payload = dict(meta)
-            payload["key"] = project_key
-            payload["counts"] = {
-                "datasets": len(proj.list_datasets()),
-                "recipes": len(proj.list_recipes()),
-                "scenarios": len(proj.list_scenarios()),
-            }
-            render_raw(payload, output_format="json")
+        payload = dict(meta)
+        payload["key"] = project_key
+        payload["counts"] = {
+            "datasets": len(proj.list_datasets()),
+            "recipes": len(proj.list_recipes()),
+            "scenarios": len(proj.list_scenarios()),
+        }
+
+        if output in ("dense", "quiet", "json"):
+            render_raw(payload, output_format=output)
+            return
+
+        if output == "ids":
+            render([{"key": project_key}], ["key"], output_format="ids")
             return
 
         data = [
@@ -120,12 +123,11 @@ def inspect(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """One-shot project summary: datasets, recipes, flow, scenarios, jobs, wiki, variables."""
     key = project_key or project
     key = resolve_project(key)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)
@@ -214,82 +216,87 @@ def inspect(
             standard_vars = {}
             warn(f"Could not fetch variables: {exc}")
 
-        if output == "json":
-            result_data = {
-                "key": key,
-                "name": meta.get("label", key),
-                "description": meta.get("shortDesc", ""),
-                "datasets": ds_info,
-                "recipes": recipe_info,
-                "folders": folder_info,
-                "scenarios": scen_info,
-                "flow_sources": source_nodes,
-                "recent_jobs": job_info,
-                "wiki_articles": wiki_info,
-                "variables": standard_vars,
-                "counts": {
-                    "datasets": len(datasets),
-                    "recipes": len(recipes),
-                    "folders": len(folders),
-                    "scenarios": len(scenarios),
-                    "jobs": len(jobs),
-                    "wiki_articles": len(articles),
-                },
-            }
-            render_raw(result_data, output_format="json")
-        else:
-            data = [
-                {"section": "Name", "detail": meta.get("label", key)},
-                {"section": "Description", "detail": meta.get("shortDesc", "")},
-                {
-                    "section": "Datasets",
-                    "detail": f"{len(datasets)}: {', '.join(d['name'] for d in ds_info[:10])}"
-                    + ("..." if len(ds_info) > 10 else ""),
-                },
-                {
-                    "section": "Recipes",
-                    "detail": f"{len(recipes)}: {', '.join(r['name'] for r in recipe_info[:10])}"
-                    + ("..." if len(recipe_info) > 10 else ""),
-                },
-                {
-                    "section": "Folders",
-                    "detail": f"{len(folders)}: {', '.join(f['name'] for f in folder_info[:10])}"
-                    + ("..." if len(folder_info) > 10 else ""),
-                },
-                {
-                    "section": "Scenarios",
-                    "detail": f"{len(scenarios)}: {', '.join(s['id'] for s in scen_info[:10])}"
-                    + ("..." if len(scen_info) > 10 else ""),
-                },
-                {
-                    "section": "Flow Sources",
-                    "detail": ", ".join(source_nodes[:10]) or "(none)",
-                },
-                {
-                    "section": "Recent Jobs",
-                    "detail": ", ".join(f"{j['id']}({j['state']})" for j in job_info)
-                    or "(none)",
-                },
-                {
-                    "section": "Wiki Articles",
-                    "detail": f"{len(articles)}: {', '.join(w['title'] for w in wiki_info[:10])}"
-                    + ("..." if len(wiki_info) > 10 else ""),
-                },
-                {
-                    "section": "Variables",
-                    "detail": ", ".join(
-                        f"{k}={v}" for k, v in list(standard_vars.items())[:10]
-                    )
-                    or "(none)",
-                },
-            ]
-            render(
-                data,
-                ["section", "detail"],
-                output_format="table",
-                title=f"Project Inspect: {key}",
-                headers={"section": "SECTION", "detail": "DETAIL"},
-            )
+        result_data = {
+            "key": key,
+            "name": meta.get("label", key),
+            "description": meta.get("shortDesc", ""),
+            "datasets": ds_info,
+            "recipes": recipe_info,
+            "folders": folder_info,
+            "scenarios": scen_info,
+            "flow_sources": source_nodes,
+            "recent_jobs": job_info,
+            "wiki_articles": wiki_info,
+            "variables": standard_vars,
+            "counts": {
+                "datasets": len(datasets),
+                "recipes": len(recipes),
+                "folders": len(folders),
+                "scenarios": len(scenarios),
+                "jobs": len(jobs),
+                "wiki_articles": len(articles),
+            },
+        }
+        if output in ("dense", "quiet", "json"):
+            render_raw(result_data, output_format=output)
+            return
+
+        if output == "ids":
+            render([{"key": key}], ["key"], output_format="ids")
+            return
+
+        data = [
+            {"section": "Name", "detail": meta.get("label", key)},
+            {"section": "Description", "detail": meta.get("shortDesc", "")},
+            {
+                "section": "Datasets",
+                "detail": f"{len(datasets)}: {', '.join(d['name'] for d in ds_info[:10])}"
+                + ("..." if len(ds_info) > 10 else ""),
+            },
+            {
+                "section": "Recipes",
+                "detail": f"{len(recipes)}: {', '.join(r['name'] for r in recipe_info[:10])}"
+                + ("..." if len(recipe_info) > 10 else ""),
+            },
+            {
+                "section": "Folders",
+                "detail": f"{len(folders)}: {', '.join(f['name'] for f in folder_info[:10])}"
+                + ("..." if len(folder_info) > 10 else ""),
+            },
+            {
+                "section": "Scenarios",
+                "detail": f"{len(scenarios)}: {', '.join(s['id'] for s in scen_info[:10])}"
+                + ("..." if len(scen_info) > 10 else ""),
+            },
+            {
+                "section": "Flow Sources",
+                "detail": ", ".join(source_nodes[:10]) or "(none)",
+            },
+            {
+                "section": "Recent Jobs",
+                "detail": ", ".join(f"{j['id']}({j['state']})" for j in job_info)
+                or "(none)",
+            },
+            {
+                "section": "Wiki Articles",
+                "detail": f"{len(articles)}: {', '.join(w['title'] for w in wiki_info[:10])}"
+                + ("..." if len(wiki_info) > 10 else ""),
+            },
+            {
+                "section": "Variables",
+                "detail": ", ".join(
+                    f"{k}={v}" for k, v in list(standard_vars.items())[:10]
+                )
+                or "(none)",
+            },
+        ]
+        render(
+            data,
+            ["section", "detail"],
+            output_format=output,
+            title=f"Project Inspect: {key}",
+            headers={"section": "SECTION", "detail": "DETAIL"},
+        )
     except Exception as e:
         handle_api_error(e, project_key=key)
 
@@ -402,7 +409,6 @@ def import_project(
         if not archive_path.is_file():
             exit_with_error(
                 f"Archive not found: {archive_path}",
-                code="archive_not_found",
                 details=[
                     "Pass a path to an existing project export .zip.",
                     "Create one with: dku project export <KEY> --with-data --dest .",
@@ -417,7 +423,6 @@ def import_project(
             if "=" not in pair:
                 exit_with_error(
                     f"Invalid --remap-connection value: {pair!r}",
-                    code="bad_remap",
                     details=[
                         "Use SRC=TGT, e.g. --remap-connection pg_old=pg_new",
                     ],
@@ -427,7 +432,6 @@ def import_project(
             if not src or not tgt:
                 exit_with_error(
                     f"Invalid --remap-connection value: {pair!r}",
-                    code="bad_remap",
                     details=[
                         "Both sides are required: --remap-connection SRC=TGT",
                     ],
@@ -471,7 +475,6 @@ def import_project(
             )
             exit_with_error(
                 "Project import failed (DSS reported success=false).",
-                code="import_failed",
                 details=details,
             )
 
@@ -504,10 +507,9 @@ def create(
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if project already exists"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new project."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         project_owner = owner or client.get_auth_info()["authIdentifier"]
@@ -534,6 +536,9 @@ def create(
             title="Project Created",
         )
         success(f"Created project {project_key}")
+        from dku_cli.output import hint
+
+        hint(f"dku project get {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Project '{project_key}' already exists, skipping create")
@@ -541,7 +546,6 @@ def create(
         if is_already_exists_error(e):
             exit_with_error(
                 f"Project '{project_key}' already exists.",
-                code="already_exists",
                 details=[
                     "Use --if-not-exists to skip creation when the project exists.",
                     f"Or delete first: dku project delete {project_key} --yes",
@@ -621,10 +625,9 @@ def duplicate(
     project_key: str = typer.Argument(help="Source project key"),
     target_key: str = typer.Option(..., "--target-key", help="New project key"),
     target_name: str = typer.Option(..., "--target-name", help="New project name"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Duplicate a project."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -726,19 +729,16 @@ def set_metadata(
         handle_api_error(e, project_key=project_key)
 
 
-@app.command()
 @app.command("get-variables")
 def variables(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
-    """Show project variables. Aliased as ``get-variables`` for parity with
-    set-variables and the get/set convention used elsewhere in the CLI."""
+    """Show project variables (pairs with set-variables)."""
     key = project_key or project
     key = resolve_project(key)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)
@@ -813,12 +813,11 @@ def permissions(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show project permissions."""
     key = project_key or project
     key = resolve_project(key)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)
@@ -868,12 +867,11 @@ def tags(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show project tags."""
     key = project_key or project
     key = resolve_project(key)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)
@@ -908,7 +906,6 @@ def ai_describe(
     save: bool = typer.Option(
         False, "--save", help="Save generated description to the project"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Generate AI-powered description for a project.
 
@@ -920,7 +917,7 @@ def ai_describe(
     """
     key = project_key or project
     key = resolve_project(key)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)
@@ -1003,7 +1000,6 @@ def find_column_refs(
         "-t",
         help="Comma-separated kinds to scan: recipe, insight, scenario, dataset (chart configs).",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Find every reference to a column name across the project.
 
@@ -1019,10 +1015,10 @@ def find_column_refs(
 
     Example:
       dku project find-column-refs projects_count -P SOL_SAS_INVENTORY_SCORER
-      dku project find-column-refs price -P PROJ -t recipe -o json
+      dku project find-column-refs price -P PROJ -t recipe
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     kinds = {k.strip().lower() for k in types.split(",") if k.strip()}
 
     try:
@@ -1172,17 +1168,16 @@ def timeline(
     project_key: str = typer.Argument(None, help="Project key"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     limit: int = typer.Option(20, "--limit", help="Max number of timeline items"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show project timeline: creation, contributors, recent modifications.
 
     Example:
       dku project timeline PROJ
-      dku project timeline PROJ --limit 50 -o json
+      dku project timeline PROJ --limit 50
     """
     key = project_key or project
     key = resolve_project(key)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(key)

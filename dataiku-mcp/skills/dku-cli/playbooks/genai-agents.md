@@ -7,7 +7,7 @@ prompt/LLM recipe → embed + KB + RAG → visual (tool-using) agent → structu
 
 **Discover IDs first, never hardcode.** LLM IDs are `provider:connection:model` and
 instance-specific.
-- Completion: `dku llm list -P PROJ -o json | jq -r '.[].id'`
+- Completion: `dku --format ids llm list -P PROJ`
 - Embedding (REQUIRED for embed/KB/eval — hidden by default):
   `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ`
 - Agent-as-LLM: `agent:AGENT_ID`. RAG-as-LLM: `retrieval-augmented-llm:RAG_ID`.
@@ -23,7 +23,7 @@ agents.
 
 ```bash
 # LLM / Prompt recipe
-dku llm list -P PROJ -o json | jq -r '.[].id'
+dku --format ids llm list -P PROJ
 dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ
 dku recipe create-prompt NAME -i INPUT --output-ds OUT --completion-llm LLM_ID --prompt '...{{var}}...' --input-var NAME=COL -P PROJ
 dku job run --target OUT --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait -P PROJ
@@ -40,11 +40,11 @@ dku agent add-tool AGENT_ID --tool TOOL_ID -P PROJ
 dku agent set-prompt AGENT_ID --prompt @sys.txt --new-version --activate -P PROJ
 
 # Structured agent (deterministic blocks)
-dku agent create NAME --type STRUCTURED_AGENT -P PROJ
-dku agent-block add AGENT_ID --set-start -b @block.json -P PROJ
-dku agent-block get-graph AGENT_ID -P PROJ -o json
-dku agent-block set-graph AGENT_ID -d @graph.json -P PROJ
-dku agent-block get-graph AGENT_ID -P PROJ -o json | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'
+AGENT_ID=$(dku agent create NAME --type STRUCTURED_AGENT -P PROJ | jq -r .id)
+dku agent-block add $AGENT_ID --set-start -b @block.json -P PROJ
+dku --format json agent-block get-graph $AGENT_ID -P PROJ
+dku agent-block set-graph $AGENT_ID -d @graph.json -P PROJ
+dku --format json agent-block get-graph $AGENT_ID -P PROJ | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'
 
 # Agent evaluation
 dku evaluation-store create NAME --flavor LLM --task-type QUESTION_ANSWERING -P PROJ
@@ -72,7 +72,7 @@ This is the default for "run an LLM over a dataset".
    NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait`. Use `RECURSIVE_BUILD` instead
    when upstream datasets must build too.
 4. Verify: `dku dataset head OUT -P PROJ -n 5`, and confirm the recipe shape with
-   `dku recipe get-definition NAME -o json` (`prompt.promptMode=PROMPT_TEMPLATE_TEXT`,
+   `dku --format json recipe get-definition NAME` (`prompt.promptMode=PROMPT_TEMPLATE_TEXT`,
    `llmId`, `textPromptTemplateInputs`).
 
 Multi-line prompts: pass `@file.txt` or `-` (stdin) to `--prompt` — a backslash `\n`
@@ -93,7 +93,7 @@ inside a literal string stays literal.
 "agent:AGENT_ID"` (agent exposed via LLM Mesh). No `run_conversation()` API exists.
 
 **Enterprise Asset Library (governed prompts):** the `dku eal` group manages
-instance-scoped, reusable governed prompts (no `-P`). `eal get-prompt -o json` returns
+instance-scoped, reusable governed prompts (no `-P`). `dku --format json eal get-prompt` returns
 `content` — reuse a governed prompt instead of re-writing it inline. Prompt Studios are
 UI-only (no CLI/`dataikuapi` surface); for programmatic prompt work use `dku llm
 completion` (ad-hoc), `dku recipe create-prompt` (in-flow), and `dku eal` (governed).
@@ -105,7 +105,7 @@ completion` (ad-hoc), `dku recipe create-prompt` (in-flow), and `dku eal` (gover
 **When:** semantic search / RAG over a text column or document folder.
 
 **Sequence (text column → KB):**
-1. `EMBED_LLM=$(dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ -o json | jq -r '.[0].id')`
+1. `EMBED_LLM=$(dku --format ids llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ | head -1)`
 2. `dku recipe create-embed NAME --input DS --output-kb KB --embedding-llm "$EMBED_LLM" --embed-column COL -P PROJ`
 3. `dku recipe run NAME -P PROJ --wait` — **the KB is empty until this runs.**
 4. Verify: `dku knowledge search KB --query "test" -P PROJ`.
@@ -113,10 +113,10 @@ completion` (ad-hoc), `dku recipe create-prompt` (in-flow), and `dku eal` (gover
 **Document folder → KB (DSS 14.5+, canonical):** use `create-embed-docs --input-folder
 FOLDER_ID` (wires `embed_documents.inputs.main` straight to the managed folder; pass
 `--vlm` for scanned PDFs). Get the ID with
-`dku folder list -P PROJ -o json | jq -r '.[]|select(.name=="x").id'`.
+`dku --format json folder list -P PROJ | jq -r '.[]|select(.name=="x").id'`.
 
 **RAG LLM (KB + completion LLM bundled):**
-`KB_ID=$(dku knowledge list -P PROJ -o json | jq -r '.[]|select(.name=="KB").id')` →
+`KB_ID=$(dku --format json knowledge list -P PROJ | jq -r '.[]|select(.name=="KB").id')` →
 `dku rag create "My RAG" --kb "$KB_ID" --llm "$LLM_ID" -P PROJ`. Attach to an agent as
 LLM source `retrieval-augmented-llm:RAG_ID`, or expose to a STANDARD_REACT block via a
 VectorStoreSearch tool (section 5).
@@ -191,10 +191,10 @@ audit/compliance, HITL gates, parallel gathering, or report generation. `STRUCTU
    blocks add (exit 0) but never persist.**
 2. Add blocks: `dku agent-block add AGENT_ID --set-start -b @block.json -P PROJ` (one
    `--set-start`). Block JSON schemas → `references/agent-blocks.md`.
-3. `dku agent-block get-graph AGENT_ID -P PROJ -o json > /tmp/g.json`.
+3. `dku --format json agent-block get-graph AGENT_ID -P PROJ > /tmp/g.json`.
 4. Patch wiring in Python (`nextBlock` / `defaultNextBlock` / `validNextBlocksFromCode`
    / ROUTING clauses), then `dku agent-block set-graph AGENT_ID -d @/tmp/g.json -P PROJ`.
-5. Verify: `dku agent-block get-graph AGENT_ID -o json | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`.
+5. Verify: `dku --format json agent-block get-graph AGENT_ID | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`.
 
 `connect` is a convenience shortcut for simple `LLM_REQUEST`/`ROUTING`/`STANDARD_REACT`
 wiring only — it errors on PYTHON_CODE (by design).
@@ -205,7 +205,7 @@ wiring only — it errors on PYTHON_CODE (by design).
   `process()` and declare `validNextBlocksFromCode: ["id"]`.
 - **CORE_LOOP with no `defaultNextBlock` returns `response:null` silently** —
   always set `defaultNextBlock` to an `EMIT_OUTPUT` block. Verify wiring with
-  `dku agent-block get-graph AGENT_ID -o json | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`.
+  `dku --format json agent-block get-graph AGENT_ID | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`.
 - **Every CORE_LOOP / LLM_REQUEST / MANDATORY_TOOL_CALL needs its own `llmId`** — the
   agent-level LLM is NOT inherited (DSS 14.5+). Runtime error: "Please select a valid LLM".
 - **Unique block IDs** — duplicates make DSS pick the wrong one.
@@ -250,7 +250,7 @@ model query, custom Python).
   plugin (`python-agent-tools/` folder) and pushed with `dku plugin push`. Tool/plugin
   JSON + `BaseAgentTool` lifecycle → `references/agent-blocks.md`.
 - To discover any tool's exact `params` shape, build it once in the DSS UI then
-  `dku agent-tool get TOOL_ID -o json`.
+  `dku --format json agent-tool get TOOL_ID`.
 
 ---
 

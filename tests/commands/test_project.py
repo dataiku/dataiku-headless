@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -19,7 +18,7 @@ def test_project_list_table(patch_client):
 
 
 def test_project_list_json(patch_client):
-    result = runner.invoke(app, ["project", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
@@ -29,7 +28,7 @@ def test_project_list_json(patch_client):
 def test_project_list_uses_single_call_not_n_plus_1(patch_client):
     """list must use one list_projects() call, not a per-project get_metadata()
     loop (the N+1 that made it ~25s on busy instances)."""
-    result = runner.invoke(app, ["project", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "list"])
     assert result.exit_code == 0, result.output
     patch_client.list_projects.assert_called_once()
     patch_client.get_project.assert_not_called()
@@ -40,12 +39,15 @@ def test_project_list_uses_single_call_not_n_plus_1(patch_client):
 def test_project_get(patch_client):
     result = runner.invoke(app, ["project", "get", "PROJ1"])
     assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["key"] == "PROJ1"
+    assert parsed["counts"]["datasets"] == 1
 
 
 def test_project_get_json(patch_client):
     """JSON returns the canonical project dict (metadata + key + counts), not
     a re-shaped {field, value} list."""
-    result = runner.invoke(app, ["project", "get", "PROJ1", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "get", "PROJ1"])
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
     assert isinstance(parsed, dict)
@@ -57,7 +59,7 @@ def test_project_get_json(patch_client):
 
 def test_project_get_shows_counts(patch_client):
     """Counts come back as a typed `counts` sub-dict in JSON output."""
-    result = runner.invoke(app, ["project", "get", "PROJ1", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "get", "PROJ1"])
     parsed = json.loads(result.output)
     assert parsed["counts"] == {
         "datasets": 1,
@@ -66,28 +68,33 @@ def test_project_get_shows_counts(patch_client):
     }
 
 
-def test_project_get_text_keeps_field_value_layout(patch_client):
-    """Default text output preserves the human Field/Value summary."""
-    result = runner.invoke(app, ["project", "get", "PROJ1"])
+def test_project_get_csv_keeps_field_value_layout(patch_client):
+    """CSV is the explicit Field/Value summary escape hatch."""
+    result = runner.invoke(app, ["--format", "csv", "project", "get", "PROJ1"])
     assert result.exit_code == 0
-    # Smoke-check the human layout — labels and values appear
     assert "Key" in result.output
     assert "PROJ1" in result.output
     assert "Project One" in result.output
     assert "Datasets" in result.output
 
 
-def test_project_list_uses_config_default_output(patch_client):
-    with patch("dku_cli.config.get_default_output", return_value="json"):
-        result = runner.invoke(app, ["project", "list"])
+def test_project_get_ids_outputs_key_only(patch_client):
+    result = runner.invoke(app, ["--format", "ids", "project", "get", "PROJ1"])
+    assert result.exit_code == 0
+    assert result.output == "PROJ1\n"
+
+
+def test_project_list_default_is_tsv(patch_client):
+    result = runner.invoke(app, ["project", "list"])
 
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
-    assert parsed[0]["key"] == "PROJ1"
+    lines = result.stdout.splitlines()
+    assert lines[0].split("\t")[0] == "key"
+    assert any(line.split("\t")[0] == "PROJ1" for line in lines[1:])
 
 
 def test_project_list_rejects_invalid_output(patch_client):
-    result = runner.invoke(app, ["project", "list", "-o", "yaml"])
+    result = runner.invoke(app, ["--format", "yaml", "project", "list"])
     assert result.exit_code != 0
     assert "Output format must be one of" in result.output
 
@@ -110,18 +117,17 @@ def test_project_create_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "--quiet",
+            "--format",
+            "json",
             "project",
             "create",
             "NEW_PROJ",
             "--name",
             "New Project",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
+    parsed = json.loads(result.stdout)
     assert any(d["field"] == "Key" and d["value"] == "NEW_PROJ" for d in parsed)
     assert any(d["field"] == "Owner" and d["value"] == "testuser" for d in parsed)
 
@@ -379,7 +385,8 @@ def test_project_duplicate_json(patch_client):
     result = runner.invoke(
         app,
         [
-            "--quiet",
+            "--format",
+            "json",
             "project",
             "duplicate",
             "PROJ1",
@@ -387,12 +394,10 @@ def test_project_duplicate_json(patch_client):
             "PROJ_COPY",
             "--target-name",
             "Project Copy",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
+    parsed = json.loads(result.stdout)
     assert any(d["field"] == "Source" and d["value"] == "PROJ1" for d in parsed)
     assert any(d["field"] == "Target Key" and d["value"] == "PROJ_COPY" for d in parsed)
 
@@ -402,7 +407,7 @@ def test_project_duplicate_json(patch_client):
 
 def test_project_variables(patch_client):
     result = runner.invoke(
-        app, ["project", "variables", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "project", "get-variables", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -465,7 +470,7 @@ def test_project_set_variables_no_args(patch_client):
 
 def test_project_permissions(patch_client):
     result = runner.invoke(
-        app, ["project", "permissions", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "project", "permissions", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -516,7 +521,7 @@ def test_project_tags(patch_client):
 
 
 def test_project_tags_positional(patch_client):
-    result = runner.invoke(app, ["project", "tags", "PROJ1", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "tags", "PROJ1"])
     assert result.exit_code == 0
 
 
@@ -524,7 +529,7 @@ def test_project_tags_positional(patch_client):
 
 
 def test_project_inspect_json(patch_client):
-    result = runner.invoke(app, ["project", "inspect", "PROJ1", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "inspect", "PROJ1"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["key"] == "PROJ1"
@@ -535,14 +540,31 @@ def test_project_inspect_json(patch_client):
     assert "counts" in parsed
 
 
-def test_project_inspect_table(patch_client):
+def test_project_inspect_default_is_compact_json(patch_client):
     result = runner.invoke(app, ["project", "inspect", "PROJ1"])
     assert result.exit_code == 0
-    assert "Project Inspect" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["key"] == "PROJ1"
+    assert parsed["counts"]["datasets"] == 1
+    assert parsed["datasets"][0]["name"] == "ds1"
+
+
+def test_project_inspect_csv_summary(patch_client):
+    result = runner.invoke(app, ["--format", "csv", "project", "inspect", "PROJ1"])
+    assert result.exit_code == 0
+    assert "SECTION,DETAIL" in result.output
+
+
+def test_project_inspect_ids_outputs_key_only(patch_client):
+    result = runner.invoke(app, ["--format", "ids", "project", "inspect", "PROJ1"])
+    assert result.exit_code == 0
+    assert result.output == "PROJ1\n"
 
 
 def test_project_inspect_with_flag(patch_client):
-    result = runner.invoke(app, ["project", "inspect", "-P", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "project", "inspect", "-P", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["key"] == "PROJ1"
@@ -582,23 +604,20 @@ def test_project_inspect_unknown_project_is_not_auth_error(patch_client):
     assert "KEY" in err and "NAME" in err
 
 
-def test_project_inspect_unknown_project_json_error(patch_client):
+def test_project_inspect_unknown_project_error_is_text_under_json(patch_client):
+    """Errors always render as text on stderr — even under --format json."""
     from dataikuapi.utils import DataikuException
 
     proj = patch_client.get_project.return_value
     proj.get_metadata.side_effect = DataikuException(_DSS_PROJECT_401)
 
     result = runner.invoke(
-        app, ["--errors", "json", "project", "inspect", "AdvisorGPT"]
+        app, ["--format", "json", "project", "inspect", "AdvisorGPT"]
     )
     assert result.exit_code == 3
     assert result.stdout == ""
-    parsed = json.loads(result.stderr)
-    assert parsed["error"]["code"] == "project_not_found"
-    assert parsed["error"]["exit_code"] == 3
-    assert "AdvisorGPT" in parsed["error"]["message"]
-    # The misleading classification must be gone.
-    assert parsed["error"]["code"] != "auth_error"
+    assert "AdvisorGPT" in result.stderr
+    assert "not found" in result.stderr
 
 
 def test_project_get_unknown_project_is_not_auth_error(patch_client):
@@ -622,7 +641,7 @@ def test_project_variables_unknown_project_is_not_auth_error(patch_client):
     proj.get_variables.side_effect = DataikuException(_DSS_PROJECT_401)
 
     result = runner.invoke(
-        app, ["project", "variables", "-P", "AdvisorGPT", "-o", "json"]
+        app, ["--format", "json", "project", "get-variables", "-P", "AdvisorGPT"]
     )
     assert result.exit_code == 3
     assert "check your API key" not in result.stderr
@@ -633,14 +652,16 @@ def test_project_variables_unknown_project_is_not_auth_error(patch_client):
 
 
 def test_project_variables_positional(patch_client):
-    result = runner.invoke(app, ["project", "variables", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "project", "get-variables", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["standard"]["key1"] == "val1"
 
 
 def test_project_permissions_positional(patch_client):
-    result = runner.invoke(app, ["project", "permissions", "PROJ1", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project", "permissions", "PROJ1"])
     assert result.exit_code == 0
 
 
@@ -686,7 +707,7 @@ def test_project_ai_describe_save(patch_client):
 
 def test_project_ai_describe_json(patch_client):
     result = runner.invoke(
-        app, ["project", "ai-describe", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "project", "ai-describe", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -874,7 +895,7 @@ def test_project_timeline_table(patch_client):
 
 def test_project_timeline_json(patch_client):
     result = runner.invoke(
-        app, ["project", "timeline", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "project", "timeline", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

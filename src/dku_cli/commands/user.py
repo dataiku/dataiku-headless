@@ -8,7 +8,14 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS users.")
 
@@ -16,10 +23,9 @@ app = typer.Typer(help="Manage DSS users.")
 @app.command("list")
 def list_users(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List DSS users."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         users = client.list_users()
@@ -69,6 +75,7 @@ def create(
         client.create_user(login, password, display_name, email, groups=group_list)
 
         success(f"Created user '{login}'")
+        hint(f"dku user get {login}")
     except Exception as e:
         handle_api_error(e)
 
@@ -77,10 +84,9 @@ def create(
 def get(
     ctx: typer.Context,
     login: str = typer.Argument(help="User login"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get user details."""
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
@@ -122,14 +128,13 @@ def delete(
 def activity(
     ctx: typer.Context,
     login: str = typer.Argument(help="User login"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show user activity (last login, last session, etc).
 
     Example:
       dku user activity admin
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
@@ -207,7 +212,6 @@ def _load_users_from_csv(path: str) -> list[dict]:
     if not p.exists():
         exit_with_error(
             f"CSV file not found: {path}",
-            code="user_bulk_csv_not_found",
             details=["Check the file path and try again."],
         )
     users: list[dict] = []
@@ -216,7 +220,6 @@ def _load_users_from_csv(path: str) -> list[dict]:
         if reader.fieldnames is None or "login" not in reader.fieldnames:
             exit_with_error(
                 "CSV must have a 'login' column.",
-                code="user_bulk_csv_missing_login",
                 details=[
                     f"Found columns: {reader.fieldnames}",
                     "Required: login",
@@ -249,7 +252,6 @@ def bulk_create(
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Confirm creation of all users in the input"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Bulk-create users from JSON or CSV. Returns per-user status list.
 
@@ -264,7 +266,6 @@ def bulk_create(
     if (from_json is None) == (from_csv is None):
         exit_with_error(
             "Pass exactly one of --from or --from-csv.",
-            code="user_bulk_input_missing",
         )
 
     if from_csv:
@@ -274,7 +275,6 @@ def bulk_create(
         if not isinstance(parsed, list):
             exit_with_error(
                 "--from must be a JSON array of user objects.",
-                code="user_bulk_bad_payload",
             )
         users = parsed
 
@@ -297,7 +297,7 @@ def bulk_create(
     try:
         client = get_client_from_ctx(ctx)
         results = client.create_users(users)
-        fmt = resolve_output_format(output)
+        fmt = resolve_output_format()
         if fmt == "json":
             render_raw(results, output_format="json")
         else:
@@ -335,7 +335,6 @@ def bulk_edit(
         help="JSON list of user-change dicts (each must have 'login')",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm mass edit"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Bulk-edit existing users. Each change dict MUST include 'login'.
 
@@ -351,13 +350,11 @@ def bulk_edit(
     if not isinstance(changes, list):
         exit_with_error(
             "--from must be a JSON array of change objects.",
-            code="user_bulk_bad_payload",
         )
     missing_login = [c for c in changes if not isinstance(c, dict) or "login" not in c]
     if missing_login:
         exit_with_error(
             f"{len(missing_login)} change entries missing 'login' — required for bulk-edit.",
-            code="user_bulk_missing_login",
         )
 
     if not yes:
@@ -370,7 +367,7 @@ def bulk_edit(
     try:
         client = get_client_from_ctx(ctx)
         results = client.edit_users(changes)
-        fmt = resolve_output_format(output)
+        fmt = resolve_output_format()
         if fmt == "json":
             render_raw(results, output_format=fmt)
         else:

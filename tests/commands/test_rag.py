@@ -22,7 +22,9 @@ def test_rag_list_table(patch_client):
 
 
 def test_rag_list_json(patch_client):
-    result = runner.invoke(app, ["rag", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "rag", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -66,6 +68,8 @@ def test_rag_create_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "rag",
             "create",
             "My RAG",
@@ -75,8 +79,6 @@ def test_rag_create_json(patch_client):
             "openai:gpt-4o",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -97,7 +99,7 @@ def test_rag_get_table(patch_client):
 
 def test_rag_get_json(patch_client):
     result = runner.invoke(
-        app, ["rag", "get", "rag1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "rag", "get", "rag1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

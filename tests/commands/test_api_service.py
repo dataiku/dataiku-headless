@@ -19,7 +19,7 @@ def test_api_service_list(patch_client):
 
 def test_api_service_list_json(patch_client):
     result = runner.invoke(
-        app, ["api-service", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "api-service", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -46,7 +46,8 @@ def test_api_service_get(patch_client):
 
 def test_api_service_get_json(patch_client):
     result = runner.invoke(
-        app, ["api-service", "get", "myservice", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "api-service", "get", "myservice", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -117,13 +118,13 @@ def test_api_service_list_packages_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "api-service",
             "list-packages",
             "myservice",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -222,13 +223,13 @@ def test_api_service_list_endpoints_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "api-service",
             "list-endpoints",
             "myservice",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

@@ -6,7 +6,14 @@ import typer
 
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS model comparisons.")
 
@@ -15,11 +22,10 @@ app = typer.Typer(help="Manage DSS model comparisons.")
 def list_comparisons(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List model comparisons in a project."""
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -65,7 +71,6 @@ def create(
         help="BINARY_CLASSIFICATION, REGRESSION, MULTICLASS, TIMESERIES_FORECAST, CAUSAL_BINARY_CLASSIFICATION, CAUSAL_REGRESSION",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new model comparison.
 
@@ -73,7 +78,7 @@ def create(
       dku model-comparison create "Churn Models" -t BINARY_CLASSIFICATION -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -86,6 +91,7 @@ def create(
             )
         else:
             success(f"Created model comparison '{name}' (ID: {mc.id}) in {project_key}")
+            hint(f"dku model-comparison get {mc.id} -P {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -97,11 +103,10 @@ def get(
     ctx: typer.Context,
     comparison_id: str = typer.Argument(help="Comparison ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get model comparison settings."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

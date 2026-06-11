@@ -13,13 +13,13 @@ Destructive-op tiers and exit 77: see `references/safety.md`.
 dku plugin push <dir|zip> --install
 dku plugin create-code-env PLUGIN_ID -P PROJ
 dku plugin set-code-env PLUGIN_ID ENV_ID -P PROJ
-dku plugin get PLUGIN_ID -o json
+dku --format json plugin get PLUGIN_ID
 dku plugin recipes PLUGIN_ID -P PROJ
 
 # Admin
 dku auth login --url URL --api-key KEY --profile NAME
 dku whoami
-dku connection list -o json
+dku --format json connection list
 dku code-env list
 dku admin instance-info
 dku user list
@@ -65,7 +65,7 @@ dku plugin set-code-env <plugin> <env>    # without this, backend runs on bare D
 dku plugin push <dir|zip>
 dku plugin update-code-env <plugin>       # only if deps changed
 # Verify
-dku plugin get <plugin> -o json
+dku --format json plugin get <plugin>
 dku plugin recipes <plugin>               # registered recipe types
 dku plugin usages <plugin>                # check before delete
 ```
@@ -147,7 +147,7 @@ All admin commands need an admin API key (403 otherwise). Instance-level command
 dku api-service create-package <svc> --package v1     # --package is required
 dku api-service publish-package <svc> v1
 dku api-deployer create-deployment --service-id <svc> --infra-id <infra> ...
-dku api-deployer deployment-status <dep> -o json      # health, service_urls
+dku --format json api-deployer deployment-status <dep>      # health, service_urls
 ```
 Flags are `--service-id`/`--infra-id` (not `--service`/`--infra`). On a `WARNING :`
 validation failure (e.g. Govern unreachable on a sandbox) retry with `--ignore-warnings`.
@@ -173,5 +173,5 @@ dku whoami                                      # confirm node type (DESIGN/AUTO
 ```
 Env vars `DKU_URL` / `DKU_API_KEY` / `DKU_PROJECT` override saved profiles (CI). A profile
 showing `[?]` node type predates node-type tracking — re-run `auth login --profile <name>`.
-Don't merge stderr into stdout before `jq`: parse stdout on success; for machine-readable
-failures use the global `dku --errors json …` (before the noun).
+Don't merge stderr into stdout before `jq`: data lands on stdout; errors and hints are
+prescriptive text on stderr. Parse stdout on success, read stderr on failure.

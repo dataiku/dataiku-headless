@@ -14,12 +14,12 @@ hooks, audit, custom-html embedding: `references/govern.md`.
 dku govern blueprint list
 dku govern blueprint fields BP             # ALWAYS inspect fields before creating an artifact
 dku govern artifact list -b BP --all       # --all: past the 50/page default; -n NAME to search
-dku govern artifact list -b BP -f sensitive_data=Yes --all -o json | jq length   # count by a field value
+dku --format json govern artifact list -b BP -f sensitive_data=Yes --all | jq length   # count by a field value
 
 # create / edit an artifact (list fields need a JSON array even for one value)
 dku govern artifact create -b BP -n "Churn model" -f cost_rating=High -f countries='["France"]'
 dku govern artifact set-field AR cost_rating "Medium low"
-dku govern artifact get AR -o json
+dku --format json govern artifact get AR
 
 # advance a sign-off  (update-status STATUS is POSITIONAL + uppercase; add-* take --status)
 dku govern signoff list AR
@@ -40,7 +40,7 @@ caller is in the feedback/approval group (else `delegate-feedback` / `delegate-a
 ```bash
 # fork an ACTIVE system version (it carries fields/steps Govern needs); new version = DRAFT
 dku govern blueprint create-version BP v1 --from bv.system.default
-dku govern blueprint get-version BP bv.v1 -o json > bv.json
+dku --format json govern blueprint get-version BP bv.v1 > bv.json
 #   edit bv.json: fieldDefinitions{} (dict by id), workflowDefinition, uiDefinition.views, logicalHookList[]
 dku govern blueprint set-version-definition BP bv.v1 --definition @bv.json
 dku govern blueprint describe-version BP bv.v1            # lint: empty views, unmapped steps, unreferenced fields
@@ -60,7 +60,7 @@ reviewers survive** the round-trip — put reviewers in a Govern role).
 
 ```bash
 dku govern custom-page create cp.x --definition @page.json   # {"type":"custom-html","htmlContent":"<iframe …>"}
-dku govern custom-page get cp.x -o json                      # round-trip an existing one to see the full shape
+dku --format json govern custom-page get cp.x                      # round-trip an existing one to see the full shape
 ```
 
 Embed a DSS webapp by its **bare** view URL `http://<dss>/webapps/<PROJ>/<id>/` (the URL the
@@ -69,7 +69,7 @@ user's **browser** hits, not Govern's internal one), NOT the Angular-shell `…/
 ## Attachments & metrics
 
 ```bash
-UF=$(dku govern file upload ./doc.pdf -o json | jq -r '.id')   # uf.<n> → into an UPLOADED_FILE field: '["uf.1"]'
+UF=$(dku --format json govern file upload ./doc.pdf | jq -r '.id')   # uf.<n> → into an UPLOADED_FILE field: '["uf.1"]'
 dku govern time-series push-values TS --datapoints '[{"timestamp":1700000000000,"value":42}]'   # epoch MILLIS
 ```
 
@@ -89,4 +89,4 @@ dku govern time-series push-values TS --datapoints '[{"timestamp":1700000000000,
 - **Hooks** block with `raise` / `handler.status="ERROR"` (there is **no** `handler.fail()`);
   `print()` is dropped (use `logging`). **Audit is OFF by default** — an empty `audit.log`
   isn't proof hooks aren't firing. Both in `references/govern.md`.
-- Global flags go **before** the noun: `dku --errors json govern artifact get AR`.
+- Global flags go **before** the noun: `dku --format json govern artifact get AR`.

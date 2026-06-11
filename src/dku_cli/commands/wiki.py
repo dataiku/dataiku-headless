@@ -9,7 +9,14 @@ import typer
 
 from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success, warn
+from dku_cli.output import (
+    hint,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
+)
 
 app = typer.Typer(help="Manage DSS wiki articles.")
 
@@ -32,11 +39,10 @@ def _read_body(value: str | None) -> str:
 def list_articles(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List wiki articles in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -84,8 +90,9 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         wiki = proj.get_wiki()
-        wiki.create_article(title, content=body_content)
+        article = wiki.create_article(title, content=body_content)
         success(f"Created wiki article '{title}' in {project_key}")
+        hint(f"dku wiki get {article.article_id} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(
@@ -100,11 +107,10 @@ def get(
     ctx: typer.Context,
     article_id: str = typer.Argument(help="Article ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get a wiki article's content."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

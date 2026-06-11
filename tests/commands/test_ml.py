@@ -35,14 +35,14 @@ def test_ml_create_prediction_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "ml",
             "create-prediction",
             "customers",
             "churn",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -192,7 +192,9 @@ def test_ml_list(patch_client):
 
 
 def test_ml_list_json(patch_client):
-    result = runner.invoke(app, ["ml", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "ml", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["analysis_id"] == "a1"
@@ -229,7 +231,7 @@ def test_ml_status(patch_client):
 
 def test_ml_status_json(patch_client):
     result = runner.invoke(
-        app, ["ml", "status", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "status", "a1", "t1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -248,7 +250,7 @@ def test_ml_train(patch_client):
 
 def test_ml_train_json(patch_client):
     result = runner.invoke(
-        app, ["ml", "train", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "train", "a1", "t1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     assert '"count": 1' in result.output
@@ -277,7 +279,7 @@ def test_ml_models(patch_client):
 
 def test_ml_models_json(patch_client):
     result = runner.invoke(
-        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "models", "a1", "t1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -297,7 +299,18 @@ def test_ml_details(patch_client):
 
 def test_ml_details_json(patch_client):
     result = runner.invoke(
-        app, ["ml", "details", "a1", "t1", "model1", "--project", "PROJ1", "-o", "json"]
+        app,
+        [
+            "--format",
+            "json",
+            "ml",
+            "details",
+            "a1",
+            "t1",
+            "model1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -333,6 +346,8 @@ def test_ml_deploy_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "ml",
             "deploy",
             "a1",
@@ -344,8 +359,6 @@ def test_ml_deploy_json(patch_client):
             "customers",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -407,7 +420,7 @@ def test_ml_algorithms(patch_client):
 
 def test_ml_algorithms_json(patch_client):
     result = runner.invoke(
-        app, ["ml", "algorithms", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "algorithms", "a1", "t1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -505,7 +518,7 @@ def test_ml_models_surfaces_headline_metric(patch_client):
 
 def test_ml_models_json_includes_all_snippet_metrics(patch_client):
     result = runner.invoke(
-        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "models", "a1", "t1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -543,7 +556,7 @@ def test_ml_models_rank_score_handles_lower_is_better_metrics(patch_client):
     ]
 
     result = runner.invoke(
-        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "models", "a1", "t1", "--project", "PROJ1"]
     )
 
     assert result.exit_code == 0
@@ -568,7 +581,7 @@ def test_ml_models_bool_score_excluded_consistently(patch_client):
     }
 
     result = runner.invoke(
-        app, ["ml", "models", "a1", "t1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "ml", "models", "a1", "t1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     row = json.loads(result.output)[0]

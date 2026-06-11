@@ -19,7 +19,9 @@ def test_role_assignment_list(patch_client):
 
 
 def test_role_assignment_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "role-assignment", "list", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "govern", "role-assignment", "list"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data[0]["blueprint_id"] == "bp.system.govern_project"

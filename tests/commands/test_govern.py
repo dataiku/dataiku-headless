@@ -34,7 +34,7 @@ def test_govern_whoami_json():
         patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"),
         patch("dku_cli.helpers.get_govern_client", return_value=client),
     ):
-        result = runner.invoke(app, ["govern", "whoami", "-o", "json"])
+        result = runner.invoke(app, ["--format", "json", "govern", "whoami"])
 
     assert result.exit_code == 0
     assert '"authIdentifier": "api:govern_key"' in result.output
@@ -68,7 +68,7 @@ def test_govern_info_json():
         patch("dku_cli.helpers.resolve_node_type", return_value="GOVERN"),
         patch("dku_cli.helpers.get_govern_client", return_value=client),
     ):
-        result = runner.invoke(app, ["govern", "info", "-o", "json"])
+        result = runner.invoke(app, ["--format", "json", "govern", "info"])
 
     assert result.exit_code == 0
     assert '"node_type": "GOVERN"' in result.output

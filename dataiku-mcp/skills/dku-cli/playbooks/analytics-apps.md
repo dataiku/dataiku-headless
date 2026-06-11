@@ -13,7 +13,7 @@ dku insight set-definition INSIGHT_ID -d @chart.json -P PROJ
 dku insight validate INSIGHT_ID -P PROJ
 dku dashboard create "Name" -P PROJ
 dku dashboard set-definition DASH_ID -d @dashboard.json -P PROJ
-dku dashboard get-definition DASH_ID -P PROJ -o json
+dku --format json dashboard get-definition DASH_ID -P PROJ
 
 # App Designer
 dku app-designer enable -P PROJ --label "..." --description "..."
@@ -26,7 +26,7 @@ dku ml create-prediction DS label --type BINARY_CLASSIFICATION -P PROJ
 dku ml settings ANALYSIS MLTASK -P PROJ
 dku ml set-features ANALYSIS MLTASK --reject col1,col2 --input col3,col4 -P PROJ
 dku ml train ANALYSIS MLTASK --wait -P PROJ
-dku ml models ANALYSIS MLTASK -o json -P PROJ | jq 'max_by(.rank_score)'
+dku --format json ml models ANALYSIS MLTASK -P PROJ | jq 'max_by(.rank_score)'
 dku ml deploy ANALYSIS MLTASK MODEL_ID -n model_name --train-dataset DS -P PROJ
 ```
 
@@ -77,7 +77,7 @@ Full tile/field reference: `references/dashboards.md`.
 - **DSS normalizes payloads on save — fields silently dropped.** After every `set-definition`, re-read and diff:
   ```bash
   dku dashboard set-definition DASH_ID -d @dashboard.json -P KEY && \
-    dku dashboard get-definition DASH_ID -P KEY -o json > after.json && \
+    dku --format json dashboard get-definition DASH_ID -P KEY > after.json && \
     diff <(jq -S . dashboard.json) <(jq -S . after.json) || true
   ```
 - **`TEXT` tile `htmlContent` is often stripped.** Use the markdown form (`tileParams.text` + `displayedText`, both set to the same value) which persists; or use a chart insight with a large title instead of a scripted header.
@@ -109,7 +109,7 @@ Design: number sections as linear steps (upload → configure → run → result
 ### Gotchas — with fix
 
 - **`--mode` matters.** `setup` (default) keeps the project `REGULAR` with `useAppHomepage` (Project Setup page). `template` flips it to `APP_TEMPLATE` (instantiable Dataiku App). Picking the wrong mode turns a reference project into an App or vice versa; reverting `template`→`setup` has no CLI verb (manual `projectAppType='REGULAR'` save).
-- **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but **`PUT` accepts writes** — a probe `PUT {}` silently wipes `homepageSections` (200 OK). The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku app-designer get -P KEY -o json | jq '.homepageSections | length'`.
+- **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but **`PUT` accepts writes** — a probe `PUT {}` silently wipes `homepageSections` (200 OK). The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
 - **`datasetName` required on every dataset tile** — without it DSS opens a blank "New dataset" page instead of erroring.
 - **Folder tiles fail in instances** unless the folder is in `projectExportManifest.includedManagedFolders`.
 - Create/test instances with `dku app create-instance PROJECT_KEY --key INST1 --name "..."`; test `INLINE_PYTHON_RUN` tiles in an **instance**, not the template (frontend scope bug).
@@ -126,7 +126,7 @@ dku ml create-prediction training_ds label --type BINARY_CLASSIFICATION -P KEY  
 dku ml settings ANALYSIS MLTASK -P KEY                                 # AUDIT for leakage — do not skip
 dku ml set-features ANALYSIS MLTASK --reject leaky_col,order_id --input quantity,price -P KEY
 dku ml train ANALYSIS MLTASK --wait -P KEY                             # trains every enabled algorithm
-dku ml models ANALYSIS MLTASK -o json -P KEY | jq 'max_by(.rank_score)' # → best MODEL_ID
+dku --format json ml models ANALYSIS MLTASK -P KEY | jq 'max_by(.rank_score)' # → best MODEL_ID
 dku ml deploy ANALYSIS MLTASK MODEL_ID -n sm_label --train-dataset training_ds -P KEY  # → SAVED_MODEL
 dku ml details ANALYSIS MLTASK MODEL_ID -P KEY                         # AUC / accuracy / RMSE of that model
 ```
@@ -160,7 +160,7 @@ Scoring-recipe naming reconcile rationale (DSS auto-names `score_<input>`): see 
 
 - **Auto-guess does NOT detect label leakage.** After `create-prediction` always audit `dku ml settings` and reject post-event columns, IDs, and any column derived from the target — before training, not after.
 - **Use `set-features` (one transactional write), NOT a `set-feature` loop.** Each `set-feature` is a full get→modify→save; firing several back-to-back races and silently drops some rejects, so you train on columns you meant to drop. `set-features` reads once, applies all roles, saves once, and aborts on a typo'd feature name.
-- **Pick the best model by `rank_score`, not the raw metric.** `dku ml models -o json | jq 'max_by(.rank_score)'` — `rank_score` normalizes higher-is-better (AUC) and lower-is-better (RMSE, logLoss) metrics so `max_by` is always correct.
+- **Pick the best model by `rank_score`, not the raw metric.** `dku --format json ml models | jq 'max_by(.rank_score)'` — `rank_score` normalizes higher-is-better (AUC) and lower-is-better (RMSE, logLoss) metrics so `max_by` is always correct.
 - **`deploy` REQUIRES `--train-dataset`** (DSS re-fits on the full set). Pass `--no-redo-optimization` when the best model is already DONE and full hyperparameter optimization fails on a small dataset.
 - **`redeploy` updates an existing flow model** — target it with `--saved-model-id` OR `--recipe-name`. `--activate` is the default (downstream recipes pick up the new version); pass `--no-activate` to stage it while the previous version stays live.
 - **`prediction_scoring` / `clustering_scoring` recipes REQUIRE `--model`** (saved-model ID or name) — omitting it errors before the server call.

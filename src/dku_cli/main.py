@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from typing import Optional
 
-import click
 import typer
 from typer.core import TyperCommand, TyperGroup
 
@@ -92,69 +91,112 @@ def _raise_csv_field_limit() -> None:
 
 _raise_csv_field_limit()
 
-# Monkey-patch TyperGroup/Command help rendering. Two overrides:
-#   * DKU_AGENT_HELP=1 → emit compact machine-readable spec JSON instead of
-#     human help, so an agent's reflexive `--help` returns exact flags with
-#     minimal token overhead.
-#   * --compact → use Click plain-text help for non-agent output paths.
-_original_group_help = TyperGroup.format_help
-_original_command_help = TyperCommand.format_help
 
-
-def _agent_help_json(self, ctx, formatter) -> bool:
-    """If DKU_AGENT_HELP=1, write this command's spec JSON and return True."""
-    import os
-
-    if os.environ.get("DKU_AGENT_HELP") != "1":
-        return False
+# Monkey-patch TyperGroup/Command help rendering: --help always emits the
+# compact machine-readable spec JSON for the node asked about, so a reflexive
+# `--help` returns exact flags, types, and choices with minimal token overhead.
+def _spec_help(self, ctx, formatter) -> None:
     import json
 
     from dku_cli.spec import spec_node_for
 
     node = spec_node_for(self, ctx)
     formatter.write(json.dumps(node, default=str, separators=(",", ":")) + "\n")
-    return True
 
 
-def _help_renderer(compact_render, rich_render):
-    """Build a format_help override: agent-help JSON > compact plain text > Rich.
-
-    One factory instead of two hand-rolled near-identical patches, so the
-    interception order is defined in exactly one place.
-    """
-
-    def render(self, ctx, formatter):
-        from dku_cli.output import is_compact
-
-        if _agent_help_json(self, ctx, formatter):
-            return
-        if is_compact():
-            compact_render(self, ctx, formatter)
-        else:
-            rich_render(self, ctx, formatter)
-
-    return render
+TyperGroup.format_help = _spec_help
+TyperCommand.format_help = _spec_help
 
 
-TyperGroup.format_help = _help_renderer(click.Group.format_help, _original_group_help)
-TyperCommand.format_help = _help_renderer(
-    click.Command.format_help, _original_command_help
-)
+# The output format flag is global (`--format`/`-o` on the root callback), but
+# agents and humans reflexively append it after the subcommand
+# (`dku agent list --format json`). Click only accepts group-level options
+# before the noun, so each parse level extracts the flag from its own args and
+# applies it directly — the flag works at any position. Two guards keep this
+# from colliding with command-owned flags:
+#   * a command that defines `--format`/`-o` itself (e.g. file/export formats)
+#     keeps it — those spellings are never extracted there;
+#   * groups only scan their leading flag run (a subcommand name ends it), so
+#     a trailing flag is always interpreted by the leaf that owns it.
+# Tokens after `--` are left untouched.
+_FORMAT_FLAGS = ("--format", "-o")
 
-# --compact is normally consumed by the app callback, but --help is an eager
-# Click option that renders before the callback runs. Detect --compact from
-# argv at import time so `dku --compact --help` actually produces plain help.
-if "--compact" in sys.argv:
-    from dku_cli.output import set_compact
 
-    set_compact(True)
+def _extract_format_flag(
+    args: list[str],
+    ctx,
+    *,
+    owned: frozenset[str] = frozenset(),
+    prefix_only: bool = False,
+) -> list[str]:
+    import click
+
+    flags = tuple(f for f in _FORMAT_FLAGS if f not in owned)
+    rest: list[str] = []
+    value: str | None = None
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--" or (prefix_only and not tok.startswith("-")):
+            rest.extend(args[i:])
+            break
+        if tok in flags:
+            if i + 1 >= len(args):
+                raise click.exceptions.UsageError(
+                    f"Option '{tok}' requires an argument.", ctx=ctx
+                )
+            value = args[i + 1]
+            i += 2
+            continue
+        if any(tok.startswith(f + "=") for f in flags):
+            value = tok.split("=", 1)[1]
+            i += 1
+            continue
+        rest.append(tok)
+        i += 1
+    if value is not None:
+        from dku_cli.output import OUTPUT_FORMATS, set_output_format
+
+        if value.lower() not in OUTPUT_FORMATS:
+            raise click.exceptions.UsageError(
+                f"Invalid value for '--format': must be one of: "
+                f"{', '.join(OUTPUT_FORMATS)}",
+                ctx=ctx,
+            )
+        set_output_format(value)
+    return rest
+
+
+def _owned_opts(cmd) -> frozenset[str]:
+    return frozenset(
+        o for p in cmd.params for o in (*p.opts, *getattr(p, "secondary_opts", ()))
+    )
+
+
+_original_group_parse_args = TyperGroup.parse_args
+_original_command_parse_args = TyperCommand.parse_args
+
+
+def _group_parse_args(self, ctx, args):
+    args = _extract_format_flag(args, ctx, owned=_owned_opts(self), prefix_only=True)
+    return _original_group_parse_args(self, ctx, args)
+
+
+def _command_parse_args(self, ctx, args):
+    args = _extract_format_flag(args, ctx, owned=_owned_opts(self))
+    return _original_command_parse_args(self, ctx, args)
+
+
+TyperGroup.parse_args = _group_parse_args
+TyperCommand.parse_args = _command_parse_args
 
 app = typer.Typer(
     name="dku",
-    help="[blue bold]◆[/blue bold] Developer CLI for Dataiku DSS",
+    help="Developer CLI for Dataiku DSS",
     no_args_is_help=False,
     invoke_without_command=True,
-    rich_markup_mode="rich",
+    # Plain Click error rendering — no Rich panel boxes around usage errors.
+    rich_markup_mode=None,
 )
 
 # Register sub-commands
@@ -222,10 +264,23 @@ app.add_typer(streaming.app, name="streaming")
 
 def _version_callback(value: bool) -> None:
     if value:
-        from dku_cli.brand import print_logo
-
-        print_logo(subtitle=version_string())
+        print(version_string())
         raise typer.Exit()
+
+
+def _configure_output(format_: str | None) -> None:
+    from dku_cli.output import OUTPUT_FORMATS, set_output_format
+
+    # None means "flag not passed here" — never reset, because the flag may
+    # already have been applied by _extract_format_flag at any parse level.
+    if format_ is None:
+        return
+    if format_.lower() not in OUTPUT_FORMATS:
+        raise typer.BadParameter(
+            f"Output format must be one of: {', '.join(OUTPUT_FORMATS)}",
+            param_hint="--format",
+        )
+    set_output_format(format_)
 
 
 @app.callback()
@@ -240,16 +295,14 @@ def main(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", envvar="DKU_PROFILE", help="Auth profile name"
     ),
-    quiet: Optional[bool] = typer.Option(
-        None, "--quiet", "-q", help="Suppress info/success messages"
-    ),
-    compact: Optional[bool] = typer.Option(
+    format_: Optional[str] = typer.Option(
         None,
-        "--compact",
-        help="Compact machine-readable output (no indentation, omit empty fields, plain help text)",
-    ),
-    errors: str = typer.Option(
-        "text", "--errors", help="Error output format (text or json)"
+        "--format",
+        "-o",
+        envvar="DKU_FORMAT",
+        help="Output override: json (indented), csv, ids (one id per line, "
+        "to pipe), or quiet (data only, no stderr messages). Default: TSV "
+        "for lists, compact JSON for objects. Accepted at any position.",
     ),
     dangerous: Optional[bool] = typer.Option(
         None,
@@ -266,7 +319,7 @@ def main(
         help="Show version",
     ),
 ) -> None:
-    """[blue bold]◆[/blue bold] Developer CLI for Dataiku DSS — like kubectl for your DSS instance."""
+    """Developer CLI for Dataiku DSS — like kubectl for your DSS instance."""
     ctx.ensure_object(dict)
     if url:
         ctx.obj["url"] = url
@@ -276,40 +329,21 @@ def main(
         ctx.obj["profile"] = profile
     if dangerous:
         ctx.obj["dangerous"] = True
-    if quiet:
-        from dku_cli.output import set_quiet
 
-        set_quiet(True)
-    if compact:
-        from dku_cli.output import set_compact
-
-        set_compact(True)
-    if errors not in ("text", "json"):
-        raise typer.BadParameter(
-            "Error output format must be one of: text, json", param_hint="--errors"
-        )
-    from dku_cli.output import set_error_format
-
-    set_error_format(errors)
+    _configure_output(format_)
 
     if ctx.invoked_subcommand is None:
-        from dku_cli.brand import print_logo
-
-        print_logo(subtitle=version_string())
-        help_text = ctx.get_help()
-        if help_text:
-            # Compact mode: get_help() returns plain text from Click
-            print(help_text)
+        print(ctx.get_help())
         raise typer.Exit()
 
 
 @app.command()
 def whoami(ctx: typer.Context) -> None:
     """Show current authenticated user."""
-    from dku_cli.brand import ICON
     from dku_cli.client import resolve_node_type
     from dku_cli.errors import handle_api_error
     from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
+    from dku_cli.output import render, render_raw, resolve_output_format
 
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
@@ -327,16 +361,23 @@ def whoami(ctx: typer.Context) -> None:
         opts = ctx.obj or {}
         node_type = resolve_node_type(profile=opts.get("profile"))
 
-        parts = [f"{ICON} {user_name}"]
-        if url:
-            parts.append(f"on {url}")
-        if version:
-            parts.append(f"(DSS {version})")
-        if node_type:
-            parts.append(f"[{node_type}]")
-        if groups:
-            parts.append(f"[{', '.join(groups)}]")
-
-        print(" ".join(parts))
+        payload = {
+            "user": user_name,
+            "url": url,
+            "dss_version": version,
+            "node_type": node_type,
+            "groups": groups,
+        }
+        output = resolve_output_format()
+        if output == "ids":
+            render([{"user": user_name}], ["user"], output_format="ids")
+        elif output == "csv":
+            render(
+                [{**payload, "groups": ",".join(groups)}],
+                ["user", "url", "dss_version", "node_type", "groups"],
+                output_format="csv",
+            )
+        else:
+            render_raw(payload, output_format=output)
     except Exception as e:
         handle_api_error(e)

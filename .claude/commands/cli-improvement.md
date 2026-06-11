@@ -33,7 +33,7 @@ Every benchmark issue should be evaluated first through this lens: **could a bui
 - **Grounded** — no invented APIs or flags. Verify against `dataikuapi` source
 - **Descriptive** — error messages guide agents to the right next step
 - **Idempotent** — safe re-runs where possible (`--if-not-exists`, clear conflict errors)
-- **Composable** — commands chain with `&&`, JSON output via `-o json`
+- **Composable** — commands chain with `&&`, structured output via the global `--format json` (before the noun)
 
 ## Key Files
 
@@ -42,7 +42,7 @@ Every benchmark issue should be evaluated first through this lens: **could a bui
 | `dataiku-mcp/skills/dku-cli/SKILL.md` | Agent-facing router: rules, capability→playbook map, reference map |
 | `dataiku-mcp/skills/dku-cli/playbooks/` | Task-complete workflows (one per task family) |
 | `dataiku-mcp/skills/dku-cli/references/` | Durable payload shapes, schemas, processor/param tables, safety |
-| `dku <group> [command] --help` | Self-describing CLI: exact flags as JSON under `DKU_AGENT_HELP=1` |
+| `dku <group> [command] --help` | Self-describing CLI: always structured spec JSON, scoped per node |
 | `src/dku_cli/commands/` | Command implementations |
 | `src/dku_cli/errors.py` | Error handling |
 

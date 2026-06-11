@@ -113,7 +113,9 @@ def test_agent_list(patch_client):
 
 
 def test_agent_list_json(patch_client):
-    result = runner.invoke(app, ["agent", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "agent", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "agent1"
@@ -128,6 +130,18 @@ def test_agent_create(patch_client):
     )
 
 
+def test_agent_create_prints_id_as_data(patch_client):
+    """The created agent is data on stdout — `$(... | jq -r .id)` must work."""
+    result = runner.invoke(app, ["agent", "create", "My Agent", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    created = json.loads(result.stdout.strip().splitlines()[0])
+    assert created == {
+        "id": "new_agent_1",
+        "name": "My Agent",
+        "type": "TOOLS_USING_AGENT",
+    }
+
+
 def test_agent_create_custom_type(patch_client):
     result = runner.invoke(
         app,
@@ -139,6 +153,27 @@ def test_agent_create_custom_type(patch_client):
     )
 
 
+def test_agent_create_type_case_insensitive(patch_client):
+    result = runner.invoke(
+        app,
+        ["agent", "create", "My Agent", "--type", "structured_agent", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    patch_client.get_project("PROJ1").create_agent.assert_called_once_with(
+        "My Agent", type="STRUCTURED_AGENT"
+    )
+
+
+def test_agent_create_invalid_type_fails_at_parse(patch_client):
+    result = runner.invoke(
+        app,
+        ["agent", "create", "My Agent", "--type", "VISUAL_AGENT", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 2
+    assert "structured_agent" in result.output.lower()
+    patch_client.get_project("PROJ1").create_agent.assert_not_called()
+
+
 def test_agent_get(patch_client):
     result = runner.invoke(app, ["agent", "get", "agent1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -147,7 +182,7 @@ def test_agent_get(patch_client):
 
 def test_agent_get_json(patch_client):
     result = runner.invoke(
-        app, ["agent", "get", "agent1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent", "get", "agent1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -182,7 +217,7 @@ def test_agent_status(patch_client):
 
 def test_agent_status_json(patch_client):
     result = runner.invoke(
-        app, ["agent", "status", "agent1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "agent", "status", "agent1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -447,14 +482,14 @@ def test_agent_test_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "agent",
             "test",
             "agent1",
             "What is the refund policy?",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -531,7 +566,8 @@ def test_agent_list_versions(patch_client):
 
 def test_agent_list_versions_json(patch_client):
     result = runner.invoke(
-        app, ["agent", "list-versions", "agent1", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "agent", "list-versions", "agent1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

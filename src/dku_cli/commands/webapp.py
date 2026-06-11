@@ -13,6 +13,7 @@ from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
     error,
+    hint,
     info,
     render,
     render_raw,
@@ -30,11 +31,10 @@ app = typer.Typer(
 def list_webapps(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List web applications in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -95,6 +95,7 @@ def create(
         proj = client.get_project(project_key)
         webapp = proj.create_webapp(name, webapp_type=upper_type)
         success(f"Created {upper_type} web app '{name}' (id={webapp.webapp_id})")
+        hint(f"dku webapp start {webapp.webapp_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -147,6 +148,7 @@ def start(
             _print_crash_tail(webapp, webapp_id)
             raise typer.Exit(1)
         success(f"Started web app '{webapp_id}'")
+        hint(f"dku webapp logs {webapp_id} -P {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -207,11 +209,10 @@ def status(
     ctx: typer.Context,
     webapp_id: str = typer.Argument(help="Web app ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show web app backend status."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -238,11 +239,10 @@ def get_definition(
     ctx: typer.Context,
     webapp_id: str = typer.Argument(help="Web app ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the raw definition of a web app as JSON (includes source code in params)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -327,7 +327,6 @@ def _fetch_log_tail(
         if not running:
             exit_with_error(
                 f"Web app '{webapp_id}' has no logs — backend is not running.",
-                code="webapp_not_running",
                 details=[
                     f"Start it with: dku webapp start {webapp_id} -P {project_key}",
                     "Then re-run `dku webapp logs` after a few seconds.",
@@ -355,7 +354,6 @@ def _grep_lines(lines: list[str], grep: str | None) -> list[str]:
 def _exit_cannot_follow_crash_tail(webapp_id: str, project_key: str) -> None:
     exit_with_error(
         f"Web app '{webapp_id}' is not running — cannot follow logs.",
-        code="webapp_not_running",
         details=[
             "The backend crashed. Use `dku webapp logs` (without --follow) "
             "to see the crash log.",
@@ -430,12 +428,6 @@ def logs(
         "--grep",
         help="Show only lines containing this text (case-insensitive).",
     ),
-    output: str | None = typer.Option(
-        None,
-        "-o",
-        "--output",
-        help="Output format: text (default, one line per row, pipe-friendly) or json.",
-    ),
 ) -> None:
     """Read recent backend logs for a web app.
 
@@ -446,21 +438,20 @@ def logs(
         dku webapp logs WEBAPP_ID -P PROJ | grep ERROR
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output, allowed=("text", "json"), default="text")
+    fmt = resolve_output_format()
 
     if follow and fmt == "json":
         exit_with_error(
-            "`--follow` cannot be combined with `-o json`.",
-            code="invalid_flag_combo",
+            "`--follow` cannot be combined with `--format json`.",
             details=[
                 "Streaming requires line-by-line text output.",
-                "Use --follow alone, or drop --follow and use -o json for a snapshot.",
+                "Use --follow alone, or drop --follow and use --format json "
+                "for a snapshot.",
             ],
         )
     if tail is not None and tail <= 0:
         exit_with_error(
             f"--tail must be a positive integer (got {tail}).",
-            code="invalid_argument",
             details=["Example: dku webapp logs WEBAPP_ID -P PROJ --tail 20"],
         )
 

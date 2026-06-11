@@ -12,7 +12,7 @@ def _unwrap_recipe_definition_payload(new_def):
     """Strip get-definition / DSS-raw wrappers from --definition JSON.
 
     Without this, passing back the full output of ``dku recipe get-definition
-    -o json`` (shape ``{"definition": {...}, "payload": {...}}``) or a raw DSS
+    --format json`` (shape ``{"definition": {...}, "payload": {...}}``) or a raw DSS
     response (``{"definition": {...}, "$status": ...}``) silently writes the
     *wrapper keys* into ``raw_definition`` instead of the recipe fields —
     "Updated definition" reports success and nothing changes.
@@ -61,7 +61,6 @@ def set_code(
     if (code is None) == (file is None):
         exit_with_error(
             "Provide exactly one of --code / --file.",
-            code="invalid_argument",
             details=[
                 'Literal: dku recipe set-code RECIPE --code "print(\\"hi\\")" -P PROJ',
                 "From file (either form):",
@@ -100,7 +99,6 @@ def get_code(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the code payload of a code recipe.
 
@@ -109,7 +107,7 @@ def get_code(
     inspect the recipe definition.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("text", "json"), default="text")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(
@@ -120,7 +118,6 @@ def get_code(
             rtype = settings.get_recipe_raw_definition().get("type", "")
             exit_with_error(
                 f"Recipe '{recipe_name}' is type '{rtype}', which has no code payload.",
-                code="wrong_recipe_type",
                 status=2,
                 details=[
                     "get-code only works on code recipes (python, sql, r, shell, etc.).",
@@ -177,7 +174,6 @@ def set_definition(
     if not definition and not payload_json:
         exit_with_error(
             "Provide either --definition or --payload.",
-            code="invalid_argument",
             details=[
                 "--definition: updates raw recipe definition (connection, I/O mappings)",
                 "--payload: updates obj_payload (visual recipe config: aggregations, computations)",
@@ -186,12 +182,10 @@ def set_definition(
     if definition and payload_json:
         exit_with_error(
             "Cannot use both --definition and --payload. Provide one.",
-            code="invalid_argument",
         )
     if deep_merge and not payload_json:
         exit_with_error(
             "--deep-merge can only be used with --payload.",
-            code="invalid_argument",
         )
     project_key = resolve_project(project)
     try:
@@ -217,7 +211,6 @@ def set_definition(
                     f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
                     "its payload is source code, not JSON config. --payload would "
                     "OVERWRITE the code.",
-                    code="wrong_recipe_type",
                     status=2,
                     details=[
                         f"Change the code:      dku recipe set-code {recipe_name} --file CODE -P {project_key}",
@@ -328,14 +321,12 @@ def set_env(
     if not (env_mode or container_mode):
         exit_with_error(
             "Nothing to set — pass --env-mode and/or --container-mode.",
-            code="invalid_argument",
         )
     # DSS deserializes an unknown enum value to null and only fails at build
     # time — validate up-front against the same enums `recipe create` uses.
     if env_mode and env_mode.upper() not in {m.value for m in EnvMode}:
         exit_with_error(
             f"Invalid --env-mode '{env_mode}'.",
-            code="invalid_argument",
             details=[f"Use {', '.join(m.value for m in EnvMode)}."],
         )
     if container_mode and container_mode.upper() not in {
@@ -343,13 +334,11 @@ def set_env(
     }:
         exit_with_error(
             f"Invalid --container-mode '{container_mode}'.",
-            code="invalid_argument",
             details=[f"Use {', '.join(m.value for m in ContainerMode)}."],
         )
     if env_mode and env_mode.upper() == "EXPLICIT_ENV" and not env_name:
         exit_with_error(
             "--env-mode EXPLICIT_ENV requires --env-name.",
-            code="invalid_argument",
         )
     if (
         container_mode
@@ -358,7 +347,6 @@ def set_env(
     ):
         exit_with_error(
             "--container-mode EXPLICIT_CONTAINER requires --container-conf.",
-            code="invalid_argument",
         )
     project_key = resolve_project(project)
     try:
@@ -371,7 +359,6 @@ def set_env(
             if env_name not in known:
                 exit_with_error(
                     f"Code env '{env_name}' does not exist on this instance.",
-                    code="not_found",
                     status=2,
                     details=[
                         "List available envs: dku code-env list",
@@ -411,7 +398,6 @@ def get_settings_cmd(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get full recipe settings as JSON (includes visual recipe payload).
 
@@ -428,7 +414,7 @@ def get_settings_cmd(
         body).
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(
@@ -546,7 +532,6 @@ def set_settings_cmd(
                     exit_with_error(
                         "This is a code recipe — its `payload` is the source "
                         "code (a string), so `set-settings` cannot edit it.",
-                        code="code_recipe_payload",
                         details=[
                             "Use the dedicated verbs instead:",
                             "  • change the code   → dku recipe set-code R -c @file -P PROJ",
@@ -566,15 +551,14 @@ def set_settings_cmd(
                 exit_with_error(
                     "Recipe payload must be a JSON object, not a "
                     f"{type(new_payload).__name__}.",
-                    code="payload_type",
                     details=[
-                        "`get-settings -o json` already returns `payload` as a "
+                        "`get-settings` JSON output already returns `payload` as a "
                         "parsed object — do NOT re-stringify it with "
                         "`json.dumps(payload)` before sending to `set-settings`.",
                         "",
                         "Fix: keep `payload` as a nested dict in your input "
                         "JSON. Example with jq:",
-                        "  dku recipe get-settings R -P PROJ -o json \\\\",
+                        "  dku --format json recipe get-settings R -P PROJ  \\\\",
                         "    | jq '.payload.engineType = \"SQL\"' \\\\",
                         "    | dku recipe set-settings R -P PROJ -s -",
                     ],
@@ -592,7 +576,6 @@ def set_settings_cmd(
             ):
                 exit_with_error(
                     "Cannot change `outputColumnName` on a `nlp_agent_evaluation` recipe.",
-                    code="immutable_field",
                     details=[
                         "DSS hard-pins this field to `llm_raw_response` and silently",
                         "reverts edits at save time — your update would appear to",
@@ -759,7 +742,6 @@ def replace_input(
         if not role_obj:
             exit_with_error(
                 f"Recipe '{recipe_name}' has no input role '{role}'.",
-                code="not_found",
                 details=[
                     f"Available roles: {', '.join(sorted(inputs.keys())) or '(none)'}.",
                     f"List inputs: dku recipe get-definition {recipe_name} -P {project_key} | jq .inputs",
@@ -775,7 +757,6 @@ def replace_input(
             existing = ", ".join(it.get("ref", "?") for it in items) or "(empty)"
             exit_with_error(
                 f"Recipe '{recipe_name}' role '{role}' has no input '{old_ref}'.",
-                code="not_found",
                 details=[f"Existing refs in role '{role}': {existing}"],
             )
 

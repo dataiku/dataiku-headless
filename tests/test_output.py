@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 import pytest
-import typer
 
-from dku_cli.output import error, render, resolve_output_format, set_error_format
+from dku_cli.output import (
+    error,
+    get_output_format,
+    info,
+    is_quiet,
+    render,
+    render_raw,
+    resolve_output_format,
+    set_output_format,
+)
 
 
 def test_render_json(capsys):
@@ -21,6 +28,12 @@ def test_render_json(capsys):
     assert parsed[0]["value"] == "123"
 
 
+def test_render_json_is_indented(capsys):
+    render([{"name": "test"}], ["name"], output_format="json")
+    captured = capsys.readouterr()
+    assert captured.out.startswith("[\n")
+
+
 def test_render_csv(capsys):
     data = [{"name": "test", "value": "123"}]
     render(data, ["name", "value"], output_format="csv")
@@ -31,12 +44,65 @@ def test_render_csv(capsys):
     assert "test" in lines[1]
 
 
+def test_render_csv_uses_display_headers(capsys):
+    data = [{"name": "test"}]
+    render(data, ["name"], output_format="csv", headers={"name": "Display Name"})
+    captured = capsys.readouterr()
+    assert captured.out.splitlines()[0] == "Display Name"
+
+
+def test_render_default_is_tsv(capsys):
+    data = [{"name": "test", "value": "123"}]
+    render(data, ["name", "value"])
+    captured = capsys.readouterr()
+    assert captured.out == "name\tvalue\ntest\t123\n"
+
+
+def test_render_default_title_goes_to_stderr(capsys):
+    data = [{"name": "test"}]
+    render(data, ["name"], title="Datasets (1)")
+    captured = capsys.readouterr()
+    assert "Datasets (1)" not in captured.out
+    assert "Datasets (1)" in captured.err
+
+
+def test_render_default_missing_keys_are_empty(capsys):
+    render([{"name": "test"}], ["name", "value"])
+    captured = capsys.readouterr()
+    assert captured.out == "name\tvalue\ntest\t\n"
+
+
+def test_render_raw_default_is_compact_json(capsys):
+    render_raw({"name": "test"})
+    captured = capsys.readouterr()
+    assert captured.out == '{"name":"test"}\n'
+
+
+def test_render_raw_json_is_indented(capsys):
+    render_raw({"name": "test"}, output_format="json")
+    captured = capsys.readouterr()
+    assert captured.out == '{\n  "name": "test"\n}\n'
+
+
+def test_render_raw_non_dict_prints_str(capsys):
+    render_raw("plain text")
+    captured = capsys.readouterr()
+    assert captured.out == "plain text\n"
+
+
 def test_render_json_filters_columns(capsys):
     data = [{"name": "test", "value": "123", "extra": "hidden"}]
     render(data, ["name", "value"], output_format="json")
     captured = capsys.readouterr()
     parsed = json.loads(captured.out)
     assert "extra" not in parsed[0]
+
+
+def test_render_json_fills_missing_keys(capsys):
+    render([{"name": "test"}], ["name", "value"], output_format="json")
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert parsed[0]["value"] == ""
 
 
 def test_render_empty_data(capsys):
@@ -46,79 +112,52 @@ def test_render_empty_data(capsys):
     assert parsed == []
 
 
-def test_error_always_writes_rich_text(capsys):
-    """error() always writes Rich text to stderr, even in JSON error mode."""
-    set_error_format("json")
+def test_error_always_writes_text(capsys):
+    """error() writes plain text to stderr, even in quiet mode."""
+    set_output_format("quiet")
     error("something went wrong")
     captured = capsys.readouterr()
     assert "something went wrong" in captured.err
-    # Should NOT be JSON — error() is a human-readable stderr helper
-    assert '"error"' not in captured.err
-    set_error_format("text")
 
 
-def test_exit_with_error_text_mode(capsys):
-    """exit_with_error in text mode prints to stderr and exits."""
-    from dku_cli.errors import exit_with_error
-
-    set_error_format("text")
-    with pytest.raises(SystemExit) as exc_info:
-        exit_with_error("bad thing happened", code="test_error", status=1)
-    assert exc_info.value.code == 1
+def test_quiet_suppresses_info(capsys):
+    set_output_format("quiet")
+    info("chatter")
     captured = capsys.readouterr()
-    assert "bad thing happened" in captured.err
+    assert captured.err == ""
 
 
-def test_exit_with_error_json_mode(capsys):
-    """exit_with_error in JSON mode emits structured error to stderr."""
+def test_exit_with_error_prints_message_and_details(capsys):
     from dku_cli.errors import exit_with_error
 
-    set_error_format("json")
     with pytest.raises(SystemExit) as exc_info:
-        exit_with_error("broken", code="my_code", details=["detail1"], status=3)
+        exit_with_error("broken", details=["detail1"], status=3)
     assert exc_info.value.code == 3
     captured = capsys.readouterr()
-    payload = json.loads(captured.err)
-    assert payload["error"]["code"] == "my_code"
-    assert payload["error"]["message"] == "broken"
-    assert payload["error"]["details"] == ["detail1"]
-    assert payload["error"]["exit_code"] == 3
-    set_error_format("text")
+    assert "broken" in captured.err
+    assert "detail1" in captured.err
 
 
-def test_exit_with_error_json_defaults(capsys):
-    """exit_with_error defaults: code='cli_error', status=1, details=[]."""
-    from dku_cli.errors import exit_with_error
-
-    set_error_format("json")
-    with pytest.raises(SystemExit) as exc_info:
-        exit_with_error("oops")
-    assert exc_info.value.code == 1
-    captured = capsys.readouterr()
-    payload = json.loads(captured.err)
-    assert payload["error"]["code"] == "cli_error"
-    assert payload["error"]["details"] == []
-    set_error_format("text")
+def test_set_output_format_rejects_invalid():
+    with pytest.raises(ValueError, match="Output format must be"):
+        set_output_format("table")
 
 
-def test_set_error_format_rejects_invalid():
-    with pytest.raises(ValueError, match="Error format must be"):
-        set_error_format("xml")
+def test_set_output_format_none_restores_dense():
+    set_output_format("json")
+    set_output_format(None)
+    assert get_output_format() == "dense"
 
 
-def test_resolve_output_format_uses_config_default():
-    with patch("dku_cli.config.get_default_output", return_value="json"):
-        assert resolve_output_format(None) == "json"
+def test_set_output_format_ids_implies_quiet():
+    set_output_format("ids")
+    assert is_quiet()
 
 
-def test_resolve_output_format_rejects_invalid_explicit_value():
-    with pytest.raises(typer.BadParameter):
-        resolve_output_format("yaml")
+def test_resolve_output_format_defaults_to_dense():
+    assert resolve_output_format() == "dense"
 
 
-def test_resolve_output_format_falls_back_when_config_is_incompatible():
-    with patch("dku_cli.config.get_default_output", return_value="csv"):
-        assert (
-            resolve_output_format(None, allowed=("text", "json"), default="text")
-            == "text"
-        )
+def test_resolve_output_format_returns_active_format():
+    set_output_format("json")
+    assert resolve_output_format() == "json"

@@ -15,7 +15,9 @@ def test_dataset_list_table(patch_client):
 
 
 def test_dataset_list_json(patch_client):
-    result = runner.invoke(app, ["dataset", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "dataset", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     names = [d["name"] for d in parsed]
@@ -37,7 +39,7 @@ def test_dataset_schema(patch_client):
 
 def test_dataset_schema_json(patch_client):
     result = runner.invoke(
-        app, ["dataset", "schema", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "schema", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -49,7 +51,7 @@ def test_dataset_get_schema_alias(patch_client):
     """`get-schema` is a hidden alias for `schema` (recurring agent miss —
     reached for by analogy with get-definition)."""
     result = runner.invoke(
-        app, ["dataset", "get-schema", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "get-schema", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -97,6 +99,8 @@ def test_dataset_head_columns_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "dataset",
             "head",
             "ds1",
@@ -104,8 +108,6 @@ def test_dataset_head_columns_json(patch_client):
             "col2",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

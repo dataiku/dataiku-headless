@@ -176,11 +176,6 @@ def set_default_project(project_key: str) -> None:
     _write_toml(CONFIG_FILE, config)
 
 
-def get_default_output() -> str:
-    config = get_config()
-    return config.get("output", "table")
-
-
 def get_dangerous_mode() -> bool:
     config = get_config()
     return bool(config.get("dangerous_mode", False))

@@ -102,11 +102,10 @@ def list_glossary(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List glossary terms in a semantic model version."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         version_id, _, raw = _load_command_version(ctx, project_key, sm_ref, version)
         _render_collection(
@@ -218,11 +217,10 @@ def list_metrics(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List metrics defined on an entity."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         _list_entity_expression_items(
             ctx,
@@ -331,11 +329,10 @@ def list_filters(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List filters defined on an entity."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         _list_entity_expression_items(
             ctx,
@@ -462,11 +459,10 @@ def list_golden_queries(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List golden queries on a semantic model version."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         version_id, _, raw = _load_command_version(ctx, project_key, sm_ref, version)
         _render_collection(

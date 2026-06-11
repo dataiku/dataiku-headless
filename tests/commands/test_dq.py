@@ -23,7 +23,7 @@ def test_dq_list_table(patch_client):
 
 def test_dq_list_json(patch_client):
     result = runner.invoke(
-        app, ["dq", "list", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dq", "list", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -398,7 +398,7 @@ def test_dq_status(patch_client):
 
 def test_dq_status_json(patch_client):
     result = runner.invoke(
-        app, ["dq", "status", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dq", "status", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -417,7 +417,7 @@ def test_dq_results(patch_client):
 
 def test_dq_results_json(patch_client):
     result = runner.invoke(
-        app, ["dq", "results", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dq", "results", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -475,7 +475,7 @@ def test_dq_project_status(patch_client):
 
 def test_dq_project_status_json(patch_client):
     result = runner.invoke(
-        app, ["dq", "project-status", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dq", "project-status", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

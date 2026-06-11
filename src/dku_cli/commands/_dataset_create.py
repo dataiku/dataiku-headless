@@ -80,7 +80,6 @@ def _reject_misplaced_inline_flags(
         exit_with_error(
             "--keep-track-of-changes / --enable-clipboard-api / --import-source "
             "are Inline-dataset flags.",
-            code="invalid_argument",
             details=[f"Use --type Inline (got '{dataset_type}'), or drop these flags."],
         )
 
@@ -418,7 +417,6 @@ def _translate_create_dataset_error(
     if dataset_type == "UploadedFiles" and ("connection" in msg or "target" in msg):
         exit_with_error(
             "Cannot create UploadedFiles dataset — no upload connection found.",
-            code="connection_required",
             details=[
                 "Cloud DSS instances require an explicit upload connection.",
                 f"Fix: dku dataset create {dataset_name} --type UploadedFiles --connection <CONNECTION_NAME> -P {project_key}",
@@ -428,7 +426,6 @@ def _translate_create_dataset_error(
     if dataset_type == "SQL" and ("license" in msg and "sql" in msg):
         exit_with_error(
             "'--type SQL' is a catch-all name and is rejected by the DSS license system.",
-            code="invalid_type",
             details=[
                 "Use the concrete DB subtype instead:",
                 "  --type PostgreSQL / --type MySQL / --type Snowflake /",

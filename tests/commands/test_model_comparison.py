@@ -20,7 +20,7 @@ def test_model_comparison_list_table(patch_client):
 
 def test_model_comparison_list_json(patch_client):
     result = runner.invoke(
-        app, ["model-comparison", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "model-comparison", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -62,6 +62,8 @@ def test_model_comparison_create_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "model-comparison",
             "create",
             "Test",
@@ -69,8 +71,6 @@ def test_model_comparison_create_json(patch_client):
             "REGRESSION",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

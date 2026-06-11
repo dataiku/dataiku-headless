@@ -17,6 +17,7 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import (
     error,
+    hint,
     info,
     render,
     render_dag,
@@ -32,11 +33,10 @@ app = typer.Typer(help="Inspect and manage DSS project flow.")
 def graph(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show flow graph summary."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -86,7 +86,6 @@ def visualize(
 def zones(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List flow zones with their items (objectType + objectId per member).
 
@@ -97,7 +96,7 @@ def zones(
     that lies. Derived members carry objectType=null and itemsDerived=true.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -152,9 +151,11 @@ def zones(
                 }
             )
 
-        # Table view only shows id/name/itemCount; items[] shipped in JSON/CSV
-        # via render_raw to preserve the nested list.
-        if output == "table":
+        # Default view only shows id/name/itemCount; items[] shipped via
+        # --format json through render_raw to preserve the nested list.
+        if output == "json":
+            render_raw(data, output)
+        else:
             render(
                 data,
                 ["id", "name", "itemCount"],
@@ -167,8 +168,6 @@ def zones(
                     f"Empty zone(s): {', '.join(empty)} — no objects assigned. "
                     "(Default-zone members are derived; items[] is empty in the API.)"
                 )
-        else:
-            render_raw(data, output)
     except Exception as e:
         handle_api_error(e)
 
@@ -232,6 +231,7 @@ def create_zone(
             settings.color = color
             settings.save()
         success(f"Created zone '{name}' (id: {zone.id})")
+        hint(f"dku flow graph -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -298,14 +298,12 @@ def delete_zone(
         if zone.id == "default":
             exit_with_error(
                 "The 'default' zone cannot be deleted.",
-                code="invalid_argument",
             )
 
         item_count = len(zone._raw.get("items", []))
         if item_count and not force:
             exit_with_error(
                 f"Zone '{zone_ref}' has {item_count} item(s) — not deleting.",
-                code="zone_not_empty",
                 details=[
                     "Pass --force to delete it anyway (items move to the default "
                     "zone; they are NOT deleted).",
@@ -368,7 +366,6 @@ def _resolve_zone(
     zone_list = ", ".join(f"'{z.name}' (id: {z.id})" for z in zones)
     exit_with_error(
         f"Zone '{zone_ref}' not found in project '{project_key}'.",
-        code="not_found",
         details=[
             f"Available zones: {zone_list}",
             f"List zones: dku flow zones -P {project_key}",
@@ -558,7 +555,6 @@ def move(
                         f"'{name}' is not a dataset, recipe, managed folder, "
                         f"saved model, knowledge bank, or evaluation store "
                         f"in '{project_key}'.",
-                        code="not_found",
                         details=[
                             "Verify the name exists:",
                             f"  dku dataset list -P {project_key}",
@@ -611,7 +607,6 @@ def move(
                 )
             exit_with_error(
                 f"{item_type_upper} '{name}' not found in project '{project_key}'.",
-                code="not_found",
                 details=details,
             )
 
@@ -643,11 +638,10 @@ def propagate(
     no_auto_rebuild: bool = typer.Option(
         False, "--no-auto-rebuild", help="Disable automatic rebuild during propagation"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run schema propagation from a dataset through downstream recipes."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("table", "json"), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -673,11 +667,10 @@ def propagate(
 def check(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run flow consistency check (schema + data consistency)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("table", "json"), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -747,7 +740,6 @@ def sources(
         None, help="Dataset to find upstream sources for (omit for all project sources)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Find source datasets (nodes with no upstream dependencies).
 
@@ -755,7 +747,7 @@ def sources(
     With a dataset argument, traces upstream from that dataset to find its sources.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -832,11 +824,10 @@ def successors(
     ctx: typer.Context,
     node: str = typer.Argument(help="Node ID to find successors for"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show downstream successors of a flow node."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

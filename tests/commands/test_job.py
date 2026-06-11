@@ -31,7 +31,9 @@ def test_job_list(patch_client):
 
 
 def test_job_list_json(patch_client):
-    result = runner.invoke(app, ["job", "list", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "job", "list", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -47,8 +49,10 @@ def test_job_last_prints_id(patch_client):
 
 
 def test_job_last_json(patch_client):
-    """-o json returns the full record."""
-    result = runner.invoke(app, ["job", "last", "--project", "PROJ1", "-o", "json"])
+    """--format json returns the full record."""
+    result = runner.invoke(
+        app, ["--format", "json", "job", "last", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "job1"
@@ -56,12 +60,12 @@ def test_job_last_json(patch_client):
     assert parsed["initiator"] == "testuser"
 
 
-def test_job_last_table(patch_client):
-    """-o table shows a one-row table."""
+def test_job_last_old_output_flag_value_rejected(patch_client):
+    """`-o` is the global --format alias now; the legacy `table` value gets the
+    prescriptive valid-set error instead of a bare 'No such option'."""
     result = runner.invoke(app, ["job", "last", "--project", "PROJ1", "-o", "table"])
-    assert result.exit_code == 0
-    assert "job1" in result.output
-    assert "DONE" in result.output
+    assert result.exit_code == 2
+    assert "json, csv, ids, quiet" in result.output
 
 
 def test_job_last_no_jobs(patch_client):
@@ -74,11 +78,13 @@ def test_job_last_no_jobs(patch_client):
     assert "dku recipe run" in result.output  # prescriptive fix
 
 
-def test_job_last_invalid_format(patch_client):
+def test_job_last_invalid_global_format(patch_client):
     """Invalid output format should raise BadParameter."""
-    result = runner.invoke(app, ["job", "last", "--project", "PROJ1", "-o", "yaml"])
+    result = runner.invoke(
+        app, ["--format", "yaml", "job", "last", "--project", "PROJ1"]
+    )
     assert result.exit_code != 0
-    assert "plain, table, json" in result.output
+    assert "Output format must be one of" in result.output
 
 
 def test_job_status(patch_client):
@@ -95,7 +101,7 @@ def test_job_status_json(patch_client):
     incantation.
     """
     result = runner.invoke(
-        app, ["job", "status", "job1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "job", "status", "job1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -136,7 +142,7 @@ def test_job_status_json_with_failed_activity(patch_client):
         "errorMessage": "Recipe failed",
     }
     result = runner.invoke(
-        app, ["job", "status", "job1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "job", "status", "job1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

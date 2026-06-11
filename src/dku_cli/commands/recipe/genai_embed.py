@@ -143,6 +143,7 @@ def create_embed(
             )
 
         success(f"Created embed recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except Exception as e:
         handle_api_error(e)
 
@@ -303,7 +304,6 @@ def create_embed_docs(
     if not input_ds and not input_folder:
         exit_with_error(
             "create-embed-docs requires either --input or --input-folder.",
-            code="missing_argument",
             details=[
                 "Folder-direct (canonical):",
                 f"  dku recipe create-embed-docs {recipe_name} --input-folder FOLDER_ID \\",
@@ -363,7 +363,6 @@ def create_embed_docs(
             else:
                 exit_with_error(
                     "--rule must be a JSON object or array.",
-                    code="invalid_argument",
                 )
             if effective_extraction_mode is None:
                 effective_extraction_mode = "CUSTOM_RULES"
@@ -461,5 +460,6 @@ def create_embed_docs(
                     )
             settings.save()
         success(f"Created embed-docs recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except Exception as e:
         handle_api_error(e)

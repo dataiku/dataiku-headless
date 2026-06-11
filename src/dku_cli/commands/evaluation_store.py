@@ -9,7 +9,7 @@ import typer
 from dku_cli.enums import EvalFlavor
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import render, render_raw, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS evaluation stores (TABULAR, LLM, AGENT).")
 
@@ -25,11 +25,10 @@ def list_stores(
         help="Filter by flavor: TABULAR, LLM, or AGENT",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List evaluation stores in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -73,11 +72,10 @@ def create(
         False, "--if-not-exists", help="Skip if a store with this name already exists"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a new evaluation store (TABULAR, LLM, or AGENT)."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     flavor_upper = flavor.upper()
     try:
         client = get_client_from_ctx(ctx)
@@ -86,6 +84,7 @@ def create(
         result = {"id": store.id, "flavor": flavor_upper}
         render_raw(result, output)
         success(f"Created {flavor_upper} evaluation store {store.id}")
+        hint(f"dku evaluation-store get {store.id} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             success(f"Evaluation store '{name}' already exists, skipping.")
@@ -98,11 +97,10 @@ def get(
     ctx: typer.Context,
     store_id: str = typer.Argument(help="Evaluation store ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show evaluation store settings."""
     project_key = resolve_project(project)
-    resolve_output_format(output)
+    resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -118,11 +116,10 @@ def evaluations(
     ctx: typer.Context,
     store_id: str = typer.Argument(help="Evaluation store ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List evaluations in a model evaluation store."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -147,11 +144,10 @@ def latest(
     ctx: typer.Context,
     store_id: str = typer.Argument(help="Evaluation store ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the latest evaluation in a store."""
     project_key = resolve_project(project)
-    resolve_output_format(output)
+    resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -286,7 +282,6 @@ def build(
                 details.extend(_extract_eval_error_summary(log_text))
                 exit_with_error(
                     f"Build failed for evaluation store '{store_id}'.",
-                    code="job_failed",
                     details=details,
                 )
             success(f"Build complete for evaluation store {store_id} (job: {job.id})")

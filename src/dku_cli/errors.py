@@ -9,7 +9,6 @@ Exit codes:
 
 from __future__ import annotations
 
-import json
 import sys
 from collections.abc import Callable
 from functools import wraps
@@ -18,7 +17,7 @@ from typing import TypeVar, cast
 import click
 import typer
 
-from dku_cli.output import error, get_error_format
+from dku_cli.output import error
 
 F = TypeVar("F", bound=Callable[..., object])
 
@@ -30,27 +29,12 @@ class AuthError(Exception):
 def exit_with_error(
     message: str,
     *,
-    code: str = "cli_error",
     details: list[str] | None = None,
     status: int = 1,
 ) -> None:
     """Render a single error payload and exit."""
-    details = details or []
-
-    if get_error_format() == "json":
-        payload = {
-            "error": {
-                "code": code,
-                "message": message,
-                "details": details,
-                "exit_code": status,
-            }
-        }
-        print(json.dumps(payload, indent=2), file=sys.stderr)
-    else:
-        error(message)
-        for line in details:
-            error(line)
+    for line in [message, *(details or [])]:
+        error(line)
 
     sys.exit(status)
 
@@ -433,7 +417,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
         msg = f"<{type(e).__name__} with no message — re-run with --errors json or check `dku recipe get-settings` for state>"
 
     status = 1
-    code = "api_error"
     details: list[str] = []
 
     # Govern field-type enum miss (e.g. fieldType: 'STRING') — list the
@@ -443,7 +426,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if field_type_result:
         exit_with_error(
             field_type_result[0],
-            code="govern_field_type",
             details=field_type_result[1],
             status=1,
         )
@@ -453,7 +435,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if field_npe_result:
         exit_with_error(
             field_npe_result[0],
-            code="govern_field_save_npe",
             details=field_npe_result[1],
             status=1,
         )
@@ -463,7 +444,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if govern_result:
         exit_with_error(
             govern_result[0],
-            code="govern_validation",
             details=govern_result[1],
             status=1,
         )
@@ -473,7 +453,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if pivot_result:
         exit_with_error(
             pivot_result[0],
-            code="pivot_modality_scan",
             details=pivot_result[1],
             status=1,
         )
@@ -483,7 +462,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if fold_result:
         exit_with_error(
             fold_result[0],
-            code="fold_plugin_missing",
             details=fold_result[1],
             status=1,
         )
@@ -496,7 +474,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if invalid_key_result:
         exit_with_error(
             invalid_key_result[0],
-            code="auth_error",
             details=invalid_key_result[1],
             status=2,
         )
@@ -511,7 +488,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     if project_denied:
         exit_with_error(
             project_denied[0],
-            code="project_not_found",
             details=project_denied[1],
             status=3,
         )
@@ -525,7 +501,6 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
         or "Not found" in msg.lower()
     ):
         status = 3
-        code = "not_found"
         details = [
             f"Not found: {msg}",
             "Check the name and project (-P), then list what exists with the",
@@ -533,27 +508,23 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
         ]
     elif "401" in msg or "Unauthorized" in msg:
         status = 2
-        code = "auth_error"
         details = [
             "Authentication failed — check your API key.",
             "Run 'dku auth login' to re-authenticate.",
         ]
     elif "403" in msg or "Forbidden" in msg:
         status = 2
-        code = "permission_denied"
         details = ["Permission denied — your API key lacks access to this resource."]
     # Match capital-C "Connection" only — NOT a lowercased "connect" substring,
     # which collides with DSS payload fields like "connectionOK".
     elif "Connection" in msg:
         status = 4
-        code = "connection_error"
         details = [
             f"Cannot connect to DSS: {msg}",
             "Check the URL and ensure DSS is running.",
         ]
     elif is_already_exists_error(e):
         status = 1
-        code = "already_exists"
         details = [
             f"Resource already exists: {msg}",
             "Use --if-not-exists to skip creation when the resource exists.",
@@ -562,7 +533,7 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     else:
         details = [f"DSS API error: {msg}"]
 
-    exit_with_error(details[0], code=code, details=details[1:], status=status)
+    exit_with_error(details[0], details=details[1:], status=status)
 
 
 def handle_errors(func: F) -> F:

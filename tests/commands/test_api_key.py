@@ -19,7 +19,7 @@ def test_api_key_list(patch_client):
 
 
 def test_api_key_list_json(patch_client):
-    result = runner.invoke(app, ["api-key", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "api-key", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -44,7 +44,9 @@ def test_api_key_create(patch_client):
 
 
 def test_api_key_create_json(patch_client):
-    result = runner.invoke(app, ["api-key", "create", "--label", "Test", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "api-key", "create", "--label", "Test"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "ak1"
@@ -64,7 +66,7 @@ def test_api_key_list_personal(patch_client):
 
 
 def test_api_key_list_personal_json(patch_client):
-    result = runner.invoke(app, ["api-key", "list-personal", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "api-key", "list-personal"])
     assert result.exit_code == 0
     import json as _json
 

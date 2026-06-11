@@ -85,7 +85,7 @@ dku recipe create-filter filter_active -i DS --output-ds active \
 
 # 3.3 — Validate BEFORE running (catches formula errors early)
 # (a) For visual recipes with formula filters / computed cols, check $status.ok
-dku recipe get-settings filter_active -P PROJ -o json \
+dku --format json recipe get-settings filter_active -P PROJ \
   | jq '.payload | {pre: .preFilter."$status".ok, post: .postFilter."$status".ok}'
 # Both should be true. If false, read .message and fix before continuing.
 # (b) Then apply-schema
@@ -125,8 +125,8 @@ Tier-1 collapse (Phase 2) reasons on the draft plan, per source, branch-by-branc
 ```bash
 dku flow visualize -P PROJ                 # spot fan-outs and parallel branches
 # Two recipes byte-identical? Diff their payloads:
-diff <(dku recipe get-settings A -P PROJ -o json | jq .payload) \
-     <(dku recipe get-settings B -P PROJ -o json | jq .payload)
+diff <(dku --format json recipe get-settings A -P PROJ | jq .payload) \
+     <(dku --format json recipe get-settings B -P PROJ | jq .payload)
 ```
 
 Five named rewrites to hunt — full detect / precondition / rewrite / verify in `references/flow-collapse.md`:
@@ -148,7 +148,7 @@ Five named rewrites to hunt — full detect / precondition / rewrite / verify in
 ```bash
 dku recipe list -P PROJ
 dku dataset list -P PROJ
-dku dataset head FINAL_OUTPUT -P PROJ -n 5 -o json
+dku --format json dataset head FINAL_OUTPUT -P PROJ -n 5
 ```
 
 Present a migration summary: source step → recipe → output dataset → row count → status. Note anything skipped (non-migratable patterns; alternative implementations).

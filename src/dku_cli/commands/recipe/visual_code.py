@@ -79,13 +79,13 @@ def create_sync(
                 engine["maxThreads"] = max_threads
             settings.save()
         success(f"Created sync recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
         if is_already_exists_error(e):
             exit_with_error(
                 f"Output dataset '{output_ds}' already exists in {project_key}.",
-                code="already_exists",
                 details=[
                     "Sync auto-creates its output dataset.",
                     f"Delete it first: dku dataset delete {output_ds} -P {project_key}",
@@ -95,7 +95,6 @@ def create_sync(
         if is_connection_required_error(e):
             exit_with_error(
                 f"Project {project_key} has no default managed connection.",
-                code="no_default_connection",
                 details=[
                     "Pass --connection / -c with a managed connection name.",
                     "Find one: dku connection list",
@@ -160,6 +159,7 @@ def create_sql(
             settings.save()
             info(f"Wrote {len(body)} bytes of SQL")
         success(f"Created sql_query recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
         info(
             "Tip: dku recipe apply-schema "
             + recipe_name
@@ -255,6 +255,7 @@ def create_r(
             settings.save()
             info(f"Wrote {len(body)} bytes of R code")
         success(f"Created R recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -299,6 +300,7 @@ def create_clustering_scoring(
         success(
             f"Created clustering_scoring recipe '{recipe_name}' in {project_key} (model={model})"
         )
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -372,6 +374,7 @@ def create_prepare(
             settings.save()
         _auto_apply_schema(proj, recipe_name)
         success(f"Created prepare recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except Exception as e:
         handle_api_error(e)
 
@@ -529,6 +532,7 @@ def create_sort(
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created sort recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except Exception as e:
         handle_api_error(e)
 
@@ -604,6 +608,7 @@ def create_filter(
 
         _auto_apply_schema(proj, recipe_name)
         success(f"Created filter recipe '{recipe_name}' in {project_key}")
+        recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

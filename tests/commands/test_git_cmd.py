@@ -21,7 +21,9 @@ def test_git_status(patch_client):
 
 
 def test_git_status_json(patch_client):
-    result = runner.invoke(app, ["git", "status", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "status", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["currentBranch"] == "master"
@@ -39,7 +41,9 @@ def test_git_log(patch_client):
 
 
 def test_git_log_json(patch_client):
-    result = runner.invoke(app, ["git", "log", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "log", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert "entries" in parsed
@@ -64,7 +68,9 @@ def test_git_diff(patch_client):
 
 
 def test_git_diff_json(patch_client):
-    result = runner.invoke(app, ["git", "diff", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "diff", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["addedLines"] == 10
@@ -95,7 +101,9 @@ def test_git_pull(patch_client):
 
 
 def test_git_pull_json(patch_client):
-    result = runner.invoke(app, ["git", "pull", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "pull", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["success"] is True
@@ -121,7 +129,9 @@ def test_git_push(patch_client):
 
 
 def test_git_push_json(patch_client):
-    result = runner.invoke(app, ["git", "push", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "push", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["success"] is True
@@ -137,7 +147,9 @@ def test_git_fetch(patch_client):
 
 
 def test_git_fetch_json(patch_client):
-    result = runner.invoke(app, ["git", "fetch", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "fetch", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["success"] is True
@@ -154,7 +166,9 @@ def test_git_branches(patch_client):
 
 
 def test_git_branches_json(patch_client):
-    result = runner.invoke(app, ["git", "branches", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "branches", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert "master" in parsed
@@ -279,7 +293,7 @@ def test_git_switch(patch_client):
 
 def test_git_switch_json(patch_client):
     result = runner.invoke(
-        app, ["git", "switch", "feature/test", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "git", "switch", "feature/test", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -296,7 +310,9 @@ def test_git_tags(patch_client):
 
 
 def test_git_tags_json(patch_client):
-    result = runner.invoke(app, ["git", "tags", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "tags", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -348,7 +364,9 @@ def test_git_remote_get(patch_client):
 
 
 def test_git_remote_get_json(patch_client):
-    result = runner.invoke(app, ["git", "remote", "--project", "PROJ1", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "git", "remote", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["url"] == "https://github.com/example/project.git"

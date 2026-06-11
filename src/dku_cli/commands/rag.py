@@ -7,6 +7,7 @@ import typer
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
+    hint,
     info,
     render,
     render_raw,
@@ -21,11 +22,10 @@ app = typer.Typer(help="Manage Retrieval Augmented LLMs (RAG).")
 def list_rags(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List RAG LLMs in a project."""
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -78,7 +78,6 @@ def create(
         help="LLM ID to use for RAG (e.g. openai:gpt-4o)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Create a RAG LLM that combines a knowledge bank with an LLM.
 
@@ -92,7 +91,7 @@ def create(
       dku rag create "Customer Support RAG" --kb kb_docs --llm openai:gpt-4o -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -105,10 +104,8 @@ def create(
             )
         else:
             success(f"Created RAG LLM '{name}' (ID: {rag.id}) in {project_key}")
-            info(
-                f"Use as LLM: retrieval-augmented-llm:{rag.id}\n"
-                f"Get settings: dku rag get-definition {rag.id} -P {project_key}"
-            )
+            info(f"Use as LLM: retrieval-augmented-llm:{rag.id}")
+            hint(f"dku rag get-definition {rag.id} -P {project_key}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -120,11 +117,10 @@ def get(
     ctx: typer.Context,
     rag_id: str = typer.Argument(help="RAG LLM ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show RAG LLM details."""
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -204,11 +200,10 @@ def get_definition(
     ctx: typer.Context,
     rag_id: str = typer.Argument(help="RAG LLM ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the full definition of a RAG LLM as JSON."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

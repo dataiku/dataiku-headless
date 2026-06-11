@@ -67,7 +67,7 @@ def test_dataset_partitions(patch_client):
 
 def test_dataset_partitions_json(patch_client):
     result = runner.invoke(
-        app, ["dataset", "partitions", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "partitions", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -207,7 +207,7 @@ def test_dataset_set_column_description_unknown_column(patch_client):
 def test_dataset_ai_describe(patch_client):
     result = runner.invoke(
         app,
-        ["dataset", "ai-describe", "ds1", "--project", "PROJ1", "-o", "json"],
+        ["--format", "json", "dataset", "ai-describe", "ds1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     assert "Customer transactions" in result.output
@@ -241,7 +241,7 @@ def test_dataset_schema_shows_descriptions(patch_client):
         },
     }
     result = runner.invoke(
-        app, ["dataset", "schema", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "schema", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -261,7 +261,7 @@ def test_dataset_info_table(patch_client):
 
 def test_dataset_info_json(patch_client):
     result = runner.invoke(
-        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "info", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -309,7 +309,7 @@ def test_dataset_info_stale_metrics_json_suppresses_hint(patch_client):
         "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
     }
     result = runner.invoke(
-        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "info", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -346,7 +346,7 @@ def test_dataset_info_partial_metrics(patch_client):
 
     metrics_mock.get_global_value.side_effect = _partial_metrics
     result = runner.invoke(
-        app, ["dataset", "info", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "info", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -396,7 +396,7 @@ def test_dataset_exists_false(patch_client):
 def test_dataset_exists_json_true(patch_client):
     """JSON output returns {exists: true} with exit code 0."""
     result = runner.invoke(
-        app, ["dataset", "exists", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "exists", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -410,7 +410,7 @@ def test_dataset_exists_json_false(patch_client):
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.exists.return_value = False
     result = runner.invoke(
-        app, ["dataset", "exists", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "exists", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 1
     parsed = json.loads(result.output)
@@ -445,7 +445,7 @@ def test_dataset_usages_json(patch_client):
     shape regardless of source — JSON consumers can always filter on `type`.
     """
     result = runner.invoke(
-        app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "usages", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -468,7 +468,7 @@ def test_dataset_usages_empty_json(patch_client):
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.get_usages.return_value = []
     result = runner.invoke(
-        app, ["dataset", "usages", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "usages", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -504,6 +504,8 @@ def test_dataset_lineage_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "dataset",
             "lineage",
             "ds1",
@@ -511,8 +513,6 @@ def test_dataset_lineage_json(patch_client):
             "revenue",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -601,7 +601,7 @@ def test_dataset_detect_infer_types(patch_client):
 def test_dataset_detect_json(patch_client):
     """JSON output returns format_type, format_params, columns."""
     result = runner.invoke(
-        app, ["dataset", "detect", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "detect", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -641,7 +641,7 @@ def test_dataset_zone(patch_client):
 
 def test_dataset_zone_json(patch_client):
     result = runner.invoke(
-        app, ["dataset", "zone", "ds1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dataset", "zone", "ds1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

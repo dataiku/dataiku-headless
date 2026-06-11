@@ -22,11 +22,10 @@ def list_llms(
         "--purpose",
         help="LLM purpose: GENERIC_COMPLETION, TEXT_EMBEDDING_EXTRACTION, IMAGE_EMBEDDING_EXTRACTION, RERANKING, IMAGE_GENERATION",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List available LLMs."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -74,9 +73,6 @@ def completion(
         "--json-schema",
         help="JSON schema for structured output (string or @file.json)",
     ),
-    output: str | None = typer.Option(
-        None, "-o", "--output", help="Output format (text or json)"
-    ),
 ) -> None:
     """Send a completion request to an LLM.
 
@@ -84,7 +80,7 @@ def completion(
     output conforming to a specific schema.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("text", "json"), default="text")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -142,7 +138,6 @@ def embeddings(
             exit_with_error(
                 f"Selected LLM is not available for text embeddings in project '{project_key}'. "
                 "Use 'dku llm list --purpose TEXT_EMBEDDING_EXTRACTION' to find a compatible model.",
-                code="invalid_llm_purpose",
                 details=[f"Requested LLM ID: {llm_id}"],
             )
 
@@ -191,7 +186,6 @@ def generate_image(
         if not result.success:
             exit_with_error(
                 "Image generation failed.",
-                code="image_gen_failed",
                 details=[
                     "The LLM may not support image generation.",
                     f"List image LLMs: dku llm list --purpose IMAGE_GENERATION -P {project_key}",
@@ -225,7 +219,6 @@ def rerank(
         ..., "--doc", help="Document text (repeat for multiple)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Rerank documents by relevance to a query.
 
@@ -233,7 +226,7 @@ def rerank(
       dku llm rerank RERANK_LLM -q "best restaurant" --doc "Pizza place" --doc "Sushi bar" -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

@@ -9,12 +9,12 @@ Get exact flags from `dku <group> <cmd> --help`. Open a reference only for JSON 
 # Project lifecycle
 dku project create KEY --name "Name" --if-not-exists
 dku project inspect -P KEY
-dku project variables -P KEY -o json
+dku --format json project get-variables -P KEY
 dku project set-variables -P KEY --set k=v --set k2=v2
 
 # Scenario
 dku scenario create NAME -P KEY
-dku scenario get-definition NAME -P KEY -o json
+dku --format json scenario get-definition NAME -P KEY
 dku scenario set-definition NAME -P KEY -d @scen.json
 dku scenario run NAME -P KEY --wait
 dku scenario add-trigger-dataset NAME --dataset DS -P KEY
@@ -50,7 +50,7 @@ dku project delete KEY -y                               # see gotcha below
 ### Variables
 
 ```bash
-dku project variables -P KEY -o json                   # read
+dku --format json project get-variables -P KEY                   # read
 dku project set-variables -P KEY --set k=v --set k2=v2  # patch individual standard vars
 dku project set-variables -P KEY --definition @vars.json # replace ALL (standard + local)
 ```
@@ -66,7 +66,7 @@ A scenario = **triggers** (when) + **steps** (what) + **reporters** (who is told
 ```bash
 dku scenario create daily_build -P KEY
 # steps go through set-definition (FULL replace — include params.steps)
-dku scenario get-definition daily_build -P KEY -o json   # header-only: NO steps, NO triggers
+dku --format json scenario get-definition daily_build -P KEY   # header-only: NO steps, NO triggers
 dku scenario set-definition daily_build -P KEY -d @scen.json
 dku scenario run daily_build -P KEY --wait
 ```

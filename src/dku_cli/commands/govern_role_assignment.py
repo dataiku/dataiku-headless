@@ -29,10 +29,9 @@ app = typer.Typer(help="Bind Govern roles to groups/users (per blueprint).")
 @app.command("list")
 def list_assignments(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List blueprint role assignments across all blueprints."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         handler = govern.get_roles_permissions_handler()
@@ -65,10 +64,9 @@ def get(
     blueprint_id: str = typer.Argument(
         help="Blueprint ID (e.g. bp.system.dataiku_project)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the full role-assignment rules for one blueprint."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         handler = govern.get_roles_permissions_handler()

@@ -2,16 +2,24 @@
 
 **Safety rules for destructive ops:**
 
-- Every admin mutation (`license upload`, `sso/ldap/azure-ad/settings set`,
-  `infra push-base-images`, `infra apply-k8s-policies`, `messaging delete`)
-  requires ``--yes`` to execute. Without it, the command prints what it WOULD do
-  and exits with code 0. This prevents agent-driven lockouts.
+All destructive admin ops go through ``safety.guard()`` — a refusal exits with
+``77`` (safety_blocked) and an AGENT INSTRUCTION block, never a silent exit 0.
+
+- Tier-4 ADMIN (``license upload``, ``settings set``, ``sso/ldap/azure-ad set``):
+  require ``--yes`` + ``--confirm-name <id>`` + ``--i-know-what-im-doing``, and are
+  NOT bypassable by ``--dangerous`` / ``DKU_DANGEROUS``. ``sso/ldap/azure-ad set``
+  additionally require ``--i-understand-lockout-risk`` (a bad config can lock every
+  user out of the instance).
+- Tier-3 CASCADE (``messaging delete``, ``users-sync resync-all``): require
+  ``--yes`` + ``--confirm-name`` matching the target, because they affect resources
+  the caller did not explicitly name (scenarios using a channel; users dropped
+  from the external supplier).
+- Tier-2 DELETE (``messaging create``, ``infra push-base-images``,
+  ``infra apply-k8s-policies``): require ``--yes``.
 - ``settings set`` is a FULL REPLACE, not a merge. Always GET → edit → SET.
   The CLI refuses to save if the payload is missing fields present in
   the live config (fail-closed).
 - ``license upload`` overwrites the active license — there is no rollback.
-- SSO/LDAP mis-config can lock every user out of the instance. The CLI warns
-  and requires ``--yes`` + `--i-understand-lockout-risk` for ``sso/ldap/azure-ad set``.
 """
 
 from __future__ import annotations
@@ -24,6 +32,7 @@ import typer
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
 from dku_cli.output import (
+    hint,
     info,
     render,
     render_raw,
@@ -31,6 +40,7 @@ from dku_cli.output import (
     success,
     warn,
 )
+from dku_cli.safety import Tier, guard
 
 app = typer.Typer(help="DSS instance administration (admin only).")
 
@@ -41,29 +51,12 @@ app = typer.Typer(help="DSS instance administration (admin only).")
 # ---------------------------------------------------------------------------
 
 
-def _require_confirmation(
-    yes: bool, action: str, details: list[str] | None = None
-) -> None:
-    """Abort unless ``--yes`` was passed. Used for destructive admin ops.
-
-    Prints the full action the user is about to take, then either returns
-    (when yes=True) or exits 0 with a dry-run message.
-    """
-    if yes:
-        return
-    warn(f"Dry run — would {action}. Pass --yes to execute.")
-    for line in details or []:
-        info(f"  • {line}")
-    raise typer.Exit(code=0)
-
-
 def _require_lockout_ack(ack: bool, component: str) -> None:
     """Refuse IAM writes unless caller explicitly acknowledges lockout risk."""
     if ack:
         return
     exit_with_error(
         f"Refusing to write {component} settings without --i-understand-lockout-risk.",
-        code="admin_lockout_guard",
         details=[
             "Misconfigured SSO/LDAP/AzureAD can lock every user out of DSS.",
             "Always GET current settings, diff against your change, and keep a",
@@ -93,10 +86,9 @@ def _is_remote_host(host: str | None) -> bool:
 @app.command()
 def logs(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List available log files."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         log_list = client.list_logs()
@@ -154,15 +146,14 @@ def usage(
     per_project: bool = typer.Option(
         False, "--per-project", help="Include per-project breakdown"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show global usage summary (projects, datasets, users, etc).
 
     Example:
       dku admin usage
-      dku admin usage --per-project -o json
+      dku admin usage --per-project
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         summary = client.get_global_usage_summary(with_per_project=per_project)
@@ -190,14 +181,13 @@ def usage(
 @app.command("instance-info")
 def instance_info(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show DSS instance information (node ID, type, version, etc).
 
     Example:
       dku admin instance-info
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info_obj = client.get_instance_info()
@@ -225,7 +215,6 @@ def instance_info(
 def sanity_check(
     ctx: typer.Context,
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for completion"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Run an instance sanity check.
 
@@ -233,9 +222,9 @@ def sanity_check(
 
     Example:
       dku admin sanity-check
-      dku admin sanity-check -o json
+      dku admin sanity-check
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info("Running sanity check...")
@@ -295,10 +284,9 @@ license_app = typer.Typer(help="License status and upload.")
 @license_app.command("status")
 def license_status(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show licensing status (edition, expiry, user caps)."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         status = client.get_licensing_status()
@@ -325,16 +313,25 @@ def license_upload(
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Confirm license overwrite (no rollback)."
     ),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must equal 'license' literally to proceed (tier-4 guard).",
+    ),
+    i_know: bool = typer.Option(
+        False,
+        "--i-know-what-im-doing",
+        help="Tier-4 admin acknowledgement (not bypassable by --dangerous).",
+    ),
 ) -> None:
     """Install a new DSS license. Overwrites active license — NO ROLLBACK.
 
     Example:
-      dku admin license upload ./new-license.json --yes
+      dku admin license upload ./new-license.json --yes --confirm-name license --i-know-what-im-doing
     """
     if not file.exists():
         exit_with_error(
             f"License file not found: {file}",
-            code="license_file_missing",
             details=[
                 "Provide a path to a valid DSS license JSON (typically from",
                 "https://account.dataiku.com/ or your Dataiku account manager).",
@@ -346,18 +343,22 @@ def license_upload(
     except json.JSONDecodeError as exc:
         exit_with_error(
             f"License file is not valid JSON: {exc}",
-            code="license_invalid_json",
             details=["Download a fresh license from Dataiku — don't hand-edit."],
         )
 
-    _require_confirmation(
-        yes,
-        "overwrite the active DSS license",
-        details=[
-            f"source: {file}",
-            "This replaces the current license IMMEDIATELY with no rollback.",
-            "Confirm expiry, user caps, and edition BEFORE running with --yes.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.ADMIN,
+        action="admin.license.upload",
+        subject=f"the active DSS license (source: {file})",
+        yes=yes,
+        target_id="license",
+        confirm_name=confirm_name,
+        i_know=i_know,
+        prompt=(
+            f"Overwrite the active DSS license with {file}? This replaces it "
+            "IMMEDIATELY with no rollback — confirm expiry, user caps, and edition first."
+        ),
     )
 
     try:
@@ -381,7 +382,7 @@ _IAM_DICT_ATTR = {
 
 
 def _iam_get(ctx: typer.Context, getter: str, label: str, output: str | None) -> None:
-    fmt = resolve_output_format(output, allowed=("json",), default="json")
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         settings_obj = getattr(client, getter)()
@@ -399,31 +400,39 @@ def _iam_set(
     definition: str | None,
     yes: bool,
     ack: bool,
+    confirm_name: str | None,
+    i_know: bool,
 ) -> None:
     new_settings = read_json_input(definition)
     if new_settings is None:
         exit_with_error(
             f"--definition is required for '{label} set'.",
-            code="admin_missing_definition",
             details=[
-                f"Workflow: dku admin {label} get -o json > /tmp/{label}.json",
+                f"Workflow: dku --format json admin {label} get > /tmp/{label}.json",
                 "         # edit the file",
-                f"         dku admin {label} set --definition @/tmp/{label}.json --yes --i-understand-lockout-risk",
+                f"         dku admin {label} set --definition @/tmp/{label}.json --yes "
+                f"--confirm-name {label} --i-know-what-im-doing --i-understand-lockout-risk",
             ],
         )
     if not isinstance(new_settings, dict):
         exit_with_error(
             f"{label} settings must be a JSON object, not {type(new_settings).__name__}.",
-            code="admin_bad_payload",
         )
     _require_lockout_ack(ack, label)
-    _require_confirmation(
-        yes,
-        f"overwrite DSS {label.upper()} settings",
-        details=[
-            "All authentication goes through this config — a bad value can lock",
-            "every user out. Test in a dry run first by GET-ing and diff-ing.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.ADMIN,
+        action=f"admin.{label}.set",
+        subject=f"DSS {label.upper()} settings",
+        yes=yes,
+        target_id=label,
+        confirm_name=confirm_name,
+        i_know=i_know,
+        prompt=(
+            f"Overwrite DSS {label.upper()} settings? All authentication goes "
+            "through this config — a bad value can lock every user out. GET and "
+            "diff the live config first."
+        ),
     )
 
     try:
@@ -446,10 +455,9 @@ sso_app = typer.Typer(help="SSO (OpenID / SAML) settings.")
 @sso_app.command("get")
 def sso_get(
     ctx: typer.Context,
-    output: str | None = typer.Option("json", "-o", "--output", help="Output format"),
 ) -> None:
     """Dump current SSO settings as JSON."""
-    _iam_get(ctx, "get_sso_settings", "sso", output)
+    _iam_get(ctx, "get_sso_settings", "sso", "json")
 
 
 @sso_app.command("set")
@@ -459,14 +467,28 @@ def sso_set(
         None, "--definition", "-d", help="JSON object (inline, @file, or - for stdin)"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm write"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must equal 'sso' literally to proceed (tier-4 guard).",
+    ),
+    i_know: bool = typer.Option(
+        False,
+        "--i-know-what-im-doing",
+        help="Tier-4 admin acknowledgement (not bypassable by --dangerous).",
+    ),
     ack: bool = typer.Option(
         False,
         "--i-understand-lockout-risk",
         help="Acknowledge that a bad config can lock all users out of DSS",
     ),
 ) -> None:
-    """Replace SSO settings. Refuses without --yes AND --i-understand-lockout-risk."""
-    _iam_set(ctx, "get_sso_settings", "sso", definition, yes, ack)
+    """Replace SSO settings.
+
+    Tier-4: needs --yes, --confirm-name sso, --i-know-what-im-doing,
+    and --i-understand-lockout-risk.
+    """
+    _iam_set(ctx, "get_sso_settings", "sso", definition, yes, ack, confirm_name, i_know)
 
 
 ldap_app = typer.Typer(help="LDAP settings.")
@@ -475,10 +497,9 @@ ldap_app = typer.Typer(help="LDAP settings.")
 @ldap_app.command("get")
 def ldap_get(
     ctx: typer.Context,
-    output: str | None = typer.Option("json", "-o", "--output", help="Output format"),
 ) -> None:
     """Dump current LDAP settings as JSON."""
-    _iam_get(ctx, "get_ldap_settings", "ldap", output)
+    _iam_get(ctx, "get_ldap_settings", "ldap", "json")
 
 
 @ldap_app.command("set")
@@ -488,14 +509,30 @@ def ldap_set(
         None, "--definition", "-d", help="JSON object (inline, @file, or -)"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm write"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must equal 'ldap' literally to proceed (tier-4 guard).",
+    ),
+    i_know: bool = typer.Option(
+        False,
+        "--i-know-what-im-doing",
+        help="Tier-4 admin acknowledgement (not bypassable by --dangerous).",
+    ),
     ack: bool = typer.Option(
         False,
         "--i-understand-lockout-risk",
         help="Acknowledge lockout risk",
     ),
 ) -> None:
-    """Replace LDAP settings. Refuses without --yes AND --i-understand-lockout-risk."""
-    _iam_set(ctx, "get_ldap_settings", "ldap", definition, yes, ack)
+    """Replace LDAP settings.
+
+    Tier-4: needs --yes, --confirm-name ldap, --i-know-what-im-doing,
+    and --i-understand-lockout-risk.
+    """
+    _iam_set(
+        ctx, "get_ldap_settings", "ldap", definition, yes, ack, confirm_name, i_know
+    )
 
 
 azure_ad_app = typer.Typer(help="Azure AD / Microsoft Entra ID settings.")
@@ -504,10 +541,9 @@ azure_ad_app = typer.Typer(help="Azure AD / Microsoft Entra ID settings.")
 @azure_ad_app.command("get")
 def azure_ad_get(
     ctx: typer.Context,
-    output: str | None = typer.Option("json", "-o", "--output", help="Output format"),
 ) -> None:
     """Dump current Azure AD settings as JSON."""
-    _iam_get(ctx, "get_azure_ad_settings", "azure-ad", output)
+    _iam_get(ctx, "get_azure_ad_settings", "azure-ad", "json")
 
 
 @azure_ad_app.command("set")
@@ -517,14 +553,37 @@ def azure_ad_set(
         None, "--definition", "-d", help="JSON object (inline, @file, or -)"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm write"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must equal 'azure-ad' literally to proceed (tier-4 guard).",
+    ),
+    i_know: bool = typer.Option(
+        False,
+        "--i-know-what-im-doing",
+        help="Tier-4 admin acknowledgement (not bypassable by --dangerous).",
+    ),
     ack: bool = typer.Option(
         False,
         "--i-understand-lockout-risk",
         help="Acknowledge lockout risk",
     ),
 ) -> None:
-    """Replace Azure AD settings. Refuses without --yes AND --i-understand-lockout-risk."""
-    _iam_set(ctx, "get_azure_ad_settings", "azure-ad", definition, yes, ack)
+    """Replace Azure AD settings.
+
+    Tier-4: needs --yes, --confirm-name azure-ad, --i-know-what-im-doing,
+    and --i-understand-lockout-risk.
+    """
+    _iam_set(
+        ctx,
+        "get_azure_ad_settings",
+        "azure-ad",
+        definition,
+        yes,
+        ack,
+        confirm_name,
+        i_know,
+    )
 
 
 # =============================================================================
@@ -537,10 +596,9 @@ settings_app = typer.Typer(help="DSS general settings (impersonation, container-
 @settings_app.command("get")
 def settings_get(
     ctx: typer.Context,
-    output: str | None = typer.Option("json", "-o", "--output", help="Output format"),
 ) -> None:
     """Dump general settings as JSON. Use as the starting point for 'set'."""
-    fmt = resolve_output_format(output, allowed=("json",), default="json")
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         gs = client.get_general_settings()
@@ -559,27 +617,43 @@ def settings_set(
         help="JSON object from 'settings get' (inline, @file, or -)",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm write"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must equal 'general-settings' literally to proceed (tier-4 guard).",
+    ),
+    i_know: bool = typer.Option(
+        False,
+        "--i-know-what-im-doing",
+        help="Tier-4 admin acknowledgement (not bypassable by --dangerous).",
+    ),
 ) -> None:
     """Replace DSS general settings. Always GET → edit → SET.
 
     Example:
       dku admin settings get > /tmp/gs.json
       # edit /tmp/gs.json
-      dku admin settings set -d @/tmp/gs.json --yes
+      dku admin settings set -d @/tmp/gs.json --yes --confirm-name general-settings --i-know-what-im-doing
     """
     new_settings = read_json_input(definition)
     if not isinstance(new_settings, dict):
         exit_with_error(
             "General settings must be a JSON object.",
-            code="admin_bad_payload",
         )
-    _require_confirmation(
-        yes,
-        "overwrite DSS general settings",
-        details=[
-            "This replaces impersonation rules, container-exec config, code-env",
-            "permissions, and global policies. Always GET current settings first.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.ADMIN,
+        action="admin.settings.set",
+        subject="DSS general settings",
+        yes=yes,
+        target_id="general-settings",
+        confirm_name=confirm_name,
+        i_know=i_know,
+        prompt=(
+            "Overwrite DSS general settings? This replaces impersonation rules, "
+            "container-exec config, code-env permissions, and global policies. "
+            "Always GET current settings first."
+        ),
     )
     try:
         client = get_client_from_ctx(ctx)
@@ -589,8 +663,8 @@ def settings_set(
         missing = live_keys - new_keys
         if missing:
             exit_with_error(
-                f"Refusing to save — payload is missing {len(missing)} key(s) present in live config.",
-                code="admin_settings_partial",
+                "Refusing to save — payload is missing "
+                f"{len(missing)} key(s) present in live config.",
                 details=[
                     f"Missing: {sorted(missing)[:10]}",
                     "General settings save is a FULL replace, not a merge.",
@@ -617,19 +691,30 @@ users_sync_app = typer.Typer(help="External user/group sync from LDAP/Azure AD/c
 def users_sync_resync_all(
     ctx: typer.Context,
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm resync"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must equal 'resync-all' literally to proceed (tier-3 guard).",
+    ),
     wait: bool = typer.Option(False, "--wait", help="Block until complete"),
 ) -> None:
     """Resync ALL existing users from their external supplier.
 
     May deactivate users no longer present in the external source.
     """
-    _require_confirmation(
-        yes,
-        "resync all users from the external supplier",
-        details=[
-            "Users removed from LDAP/AzureAD will be deactivated in DSS.",
-            "Their projects/tokens remain but they can no longer log in.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.CASCADE,
+        action="admin.users-sync.resync-all",
+        subject="all users from the external supplier",
+        yes=yes,
+        target_id="resync-all",
+        confirm_name=confirm_name,
+        prompt=(
+            "Resync ALL users from the external supplier? Users removed from "
+            "LDAP/AzureAD will be DEACTIVATED in DSS — their projects/tokens "
+            "remain but they can no longer log in."
+        ),
     )
     try:
         client = get_client_from_ctx(ctx)
@@ -654,15 +739,13 @@ def users_sync_fetch_users(
     group_name: str | None = typer.Option(
         None, "--group", help="External group members"
     ),
-    output: str | None = typer.Option("json", "-o", "--output", help="Output format"),
 ) -> None:
     """Search the external directory WITHOUT provisioning any DSS accounts."""
     if source not in {"LDAP", "AZURE_AD", "CUSTOM"}:
         exit_with_error(
             f"Invalid --source '{source}'. Must be LDAP, AZURE_AD, or CUSTOM.",
-            code="admin_bad_source",
         )
-    fmt = resolve_output_format(output, allowed=("json",), default="json")
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         future = client.start_fetch_external_users(
@@ -680,15 +763,13 @@ def users_sync_fetch_groups(
     source: str = typer.Option(
         ..., "--source", help="Source type: LDAP | AZURE_AD | CUSTOM"
     ),
-    output: str | None = typer.Option("json", "-o", "--output", help="Output format"),
 ) -> None:
     """List groups visible in the external directory."""
     if source not in {"LDAP", "AZURE_AD", "CUSTOM"}:
         exit_with_error(
             f"Invalid --source '{source}'. Must be LDAP, AZURE_AD, or CUSTOM.",
-            code="admin_bad_source",
         )
-    fmt = resolve_output_format(output, allowed=("json",), default="json")
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         future = client.start_fetch_external_groups(user_source_type=source)
@@ -712,10 +793,9 @@ def messaging_list(
     family: str | None = typer.Option(
         None, "--family", help="Filter by family (e.g. mail)"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List configured messaging channels."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         channels = client.list_messaging_channels(
@@ -754,19 +834,29 @@ def messaging_delete(
     ctx: typer.Context,
     channel_id: str = typer.Argument(help="Channel ID (from 'messaging list')"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm deletion"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help="Must match the channel ID literally to proceed (tier-3 guard).",
+    ),
 ) -> None:
     """Delete a messaging channel.
 
     Scenarios that reference this channel will FAIL to send alerts after
     deletion. Check scenario definitions first.
     """
-    _require_confirmation(
-        yes,
-        f"delete messaging channel '{channel_id}'",
-        details=[
-            "Scenarios that reference this channel will fail to send alerts.",
-            "Grep scenario JSON for the channel id before deleting.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.CASCADE,
+        action="admin.messaging.delete",
+        subject=f"messaging channel '{channel_id}'",
+        yes=yes,
+        target_id=channel_id,
+        confirm_name=confirm_name,
+        prompt=(
+            f"Delete messaging channel '{channel_id}'? Scenarios that reference "
+            "it will fail to send alerts — grep scenario JSON for the channel id first."
+        ),
     )
     try:
         client = get_client_from_ctx(ctx)
@@ -798,7 +888,6 @@ def messaging_send_test(
         if not hasattr(channel, "send"):
             exit_with_error(
                 f"Channel '{channel_id}' is not a mail channel (no send method).",
-                code="messaging_not_mail",
                 details=[
                     "send-test is supported on smtp / aws-ses-mail / microsoft-graph-mail.",
                 ],
@@ -824,7 +913,10 @@ def messaging_create(
     channel_type: str = typer.Option(
         ...,
         "--type",
-        help="smtp | aws-ses-mail | microsoft-graph-mail | slack | msft-teams | google-chat | twilio | shell",
+        help=(
+            "smtp | aws-ses-mail | microsoft-graph-mail | slack | "
+            "msft-teams | google-chat | twilio | shell"
+        ),
     ),
     channel_id: str | None = typer.Option(
         None, "--id", help="Channel ID (auto if omitted)"
@@ -841,10 +933,18 @@ def messaging_create(
         --config '{"host":"smtp.example.com","port":587,"sender":"dss@example.com"}' --yes
     """
     cfg = read_json_input(config) if config else None
-    _require_confirmation(
-        yes,
-        f"create messaging channel of type '{channel_type}'",
-        details=[f"id: {channel_id or '(auto)'}", f"config keys: {list(cfg or {})}"],
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="admin.messaging.create",
+        subject=(
+            f"messaging channel of type '{channel_type}' (id: {channel_id or '(auto)'})"
+        ),
+        yes=yes,
+        prompt=(
+            f"Create messaging channel of type '{channel_type}' "
+            f"(id: {channel_id or '(auto)'}, config keys: {list(cfg or {})})?"
+        ),
     )
     try:
         client = get_client_from_ctx(ctx)
@@ -853,6 +953,7 @@ def messaging_create(
         )
         raw = getattr(channel, "_data", None) or getattr(channel, "raw", {})
         success(f"Created channel {raw.get('id', '') if isinstance(raw, dict) else ''}")
+        hint("dku admin messaging list")
         render_raw(raw, output_format="json")
     except Exception as e:
         handle_api_error(e)
@@ -871,13 +972,17 @@ def infra_push_base_images(
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm push"),
 ) -> None:
     """Push container-exec base images to the configured registry."""
-    _require_confirmation(
-        yes,
-        "push container-exec base images to the configured registry",
-        details=[
-            "Requires: container-exec configured in general settings AND registry",
-            "credentials valid. Can take minutes. Safe to retry.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="admin.infra.push-base-images",
+        subject="container-exec base images to the configured registry",
+        yes=yes,
+        prompt=(
+            "Push container-exec base images to the configured registry? Requires "
+            "container-exec configured and valid registry credentials. Can take "
+            "minutes. Safe to retry."
+        ),
     )
     try:
         client = get_client_from_ctx(ctx)
@@ -893,13 +998,17 @@ def infra_apply_k8s_policies(
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm apply"),
 ) -> None:
     """Apply Kubernetes namespace policies from general settings to the cluster."""
-    _require_confirmation(
-        yes,
-        "apply Kubernetes namespace policies",
-        details=[
-            "Reads namespace policies from DSS general settings and pushes them",
-            "to the target cluster. Verify policies first with 'settings get'.",
-        ],
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="admin.infra.apply-k8s-policies",
+        subject="Kubernetes namespace policies",
+        yes=yes,
+        prompt=(
+            "Apply Kubernetes namespace policies? Reads namespace policies from "
+            "DSS general settings and pushes them to the target cluster. Verify "
+            "policies first with 'settings get'."
+        ),
     )
     try:
         client = get_client_from_ctx(ctx)
@@ -920,10 +1029,9 @@ cst_app = typer.Typer(help="Code studio templates (admin visibility + lifecycle)
 @cst_app.command("list")
 def cst_list(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List registered code studio templates."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         templates = client.list_code_studio_templates(as_type="listitems")
@@ -959,7 +1067,6 @@ def cst_list(
 def cst_get(
     ctx: typer.Context,
     template_id: str = typer.Argument(help="Template ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get full template settings as JSON.
 
@@ -967,7 +1074,7 @@ def cst_get(
     every block's type and params. Pipe through ``jq '.params.blocks[] | "\\(.type)"'``
     to enumerate block types.
     """
-    fmt = resolve_output_format(output, allowed=("json",), default="json")
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         tpl = client.get_code_studio_template(template_id)
@@ -981,14 +1088,13 @@ def cst_get(
 def cst_list_blocks(
     ctx: typer.Context,
     template_id: str = typer.Argument(help="Template ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List blocks (index, type, label) in a template.
 
     Plugin-defined blocks have type ``pycdstdioblk_<plugin>_<block>`` (with
     underscores between plugin and block IDs — NOT colons).
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         raw = client.get_code_studio_template(template_id).get_settings().get_raw()
@@ -1057,7 +1163,6 @@ def cst_set_dockerfile(
 
             exit_with_error(
                 f"Template '{template_id}' has no append_dockerfile block.",
-                code="block_missing",
                 details=[
                     "Add one first via the DSS UI, or via "
                     "`dku admin code-studio-template add-block`:",
@@ -1155,7 +1260,6 @@ def cst_remove_block(
 
             exit_with_error(
                 f"Block index {index} out of range (template has {len(blocks)} block(s)).",
-                code="bad_index",
                 details=[
                     f"List blocks: dku admin code-studio-template list-blocks {template_id}"
                 ],
@@ -1206,7 +1310,6 @@ def cst_set_block_params(
     if not isinstance(new_params, dict):
         exit_with_error(
             "--params must be a JSON object.",
-            code="bad_params",
             details=['Example: --params \'{"llmmesh_model": "openai:gpt-4o"}\''],
             status=2,
         )
@@ -1219,7 +1322,6 @@ def cst_set_block_params(
             exit_with_error(
                 f"Block index {index} out of range "
                 f"(template has {len(blocks)} block(s)).",
-                code="bad_index",
                 details=[
                     f"List blocks: dku admin code-studio-template "
                     f"list-blocks {template_id}"
@@ -1257,7 +1359,6 @@ def build(
     timeout: int = typer.Option(
         1800, "--timeout", help="--wait timeout in seconds (default 1800)."
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Trigger an image build for a template.
 
@@ -1265,7 +1366,7 @@ def build(
     ``alive=False`` and then fetch the full result on the same tick (DSS
     GCs futures within seconds, so a delay loses the messages array).
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         tpl = client.get_code_studio_template(template_id)
@@ -1297,7 +1398,6 @@ def build(
 
                 exit_with_error(
                     f"Build for '{template_id}' did not finish within {timeout}s.",
-                    code="timeout",
                     details=[
                         "Future jobId: " + (job_id or "?"),
                         "The build is still running on DSS — check via the UI "
@@ -1370,7 +1470,6 @@ def build(
 def cst_inspect_build(
     ctx: typer.Context,
     template_id: str = typer.Argument(help="Template ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show last-build metadata: container configs, last-built timestamp,
     and the live image arch via ``docker image inspect`` if reachable.
@@ -1380,7 +1479,7 @@ def cst_inspect_build(
     if Docker isn't on PATH or doesn't see the image, only DSS-side fields
     are reported.
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         raw = client.get_code_studio_template(template_id).get_settings().get_raw()
@@ -1491,7 +1590,6 @@ def _emit_namespace_redirect(noun: str, extra: list[str]) -> None:
     example = f"dku {noun} {extra[0] if extra else 'list'}"
     exit_with_error(
         f"`{noun}` is a top-level group, not an `admin` sub-command.",
-        code="admin_namespace_redirect",
         details=[
             f"Drop `admin` — run: dku {noun} {verb}",
             f"e.g. {example}",
@@ -1543,7 +1641,6 @@ llm_cost_app = typer.Typer(help="LLM Mesh cost-limiting counters (read-only).")
 @llm_cost_app.command("counters")
 def llm_cost_counters(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all LLM cost-limiting counters and their current state.
 
@@ -1551,7 +1648,7 @@ def llm_cost_counters(
     the SDK exposes read access. Use this to monitor how close projects /
     users / LLMs are to their caps.
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         counters_obj = client.get_llm_cost_limiting_counters()
@@ -1597,7 +1694,6 @@ def llm_cost_get(
         if counter is None:
             exit_with_error(
                 f"No counter found with id '{counter_id}'.",
-                code="llm_cost_counter_not_found",
                 details=[
                     "Run 'dku admin llm-cost counters' to list available counter IDs.",
                     "Counter configuration is UI-only — add/edit quotas in",
@@ -1655,10 +1751,9 @@ def _format_footprint(fp) -> list[dict]:
 @footprint_app.command("global")
 def global_(  # noqa: A001 — "global" is a Python keyword
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Size of instance-wide directories (code envs, plugins, libs)."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         fp = client.get_data_directories_footprint().compute_global_only_footprint(
@@ -1681,10 +1776,9 @@ def global_(  # noqa: A001 — "global" is a Python keyword
 def project(
     ctx: typer.Context,
     project_key: str = typer.Argument(help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Size of a single project's owned directories."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         fp = client.get_data_directories_footprint().compute_project_footprint(
@@ -1706,10 +1800,9 @@ def project(
 @footprint_app.command("all")
 def all_footprint(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Size of ALL DSS data directories (global + all projects). Can be slow."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         fp = client.get_data_directories_footprint().compute_all_dss_footprint(
@@ -1734,10 +1827,9 @@ def unknown(
     summary_only: bool = typer.Option(
         True, "--summary-only/--detailed", help="Aggregate per location"
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Directories in the data root that don't belong to DSS (leaked data)."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         fp = client.get_data_directories_footprint().compute_unknown_footprint(
@@ -1785,12 +1877,10 @@ def catalog_index(
     if not all_conns and not connections:
         exit_with_error(
             "Pass --all or --connections NAME1,NAME2.",
-            code="catalog_index_no_target",
         )
     if mode not in {"FULL", "INCREMENTAL"}:
         exit_with_error(
             f"--mode must be FULL or INCREMENTAL, got '{mode}'.",
-            code="catalog_index_bad_mode",
         )
     names = (
         [n.strip() for n in connections.split(",") if n.strip()] if connections else []
@@ -1815,10 +1905,9 @@ assets_app = typer.Typer(help="Enterprise Asset Library (read-only).")
 @assets_app.command("list-collections")
 def assets_list_collections(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List enterprise asset collections."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         eal = client.get_enterprise_asset_library()
@@ -1857,10 +1946,9 @@ def assets_list_prompts(
         "--collections",
         help="Comma-separated collection IDs to restrict to",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List enterprise prompts (optionally filtered by collection)."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     restrict = (
         [c.strip() for c in collections.split(",") if c.strip()]
         if collections
@@ -1919,7 +2007,6 @@ def audit_log(
     if parsed is not None and not isinstance(parsed, dict):
         exit_with_error(
             "--params must be a JSON object.",
-            code="audit_log_bad_params",
         )
     try:
         client = get_client_from_ctx(ctx)

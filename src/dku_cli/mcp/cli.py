@@ -90,7 +90,6 @@ def serve(
     if transport not in ("stdio", "http", "streamable-http"):
         exit_with_error(
             f"Unknown transport: {transport!r}.",
-            code="bad_argument",
             details=[
                 "Use --transport stdio (local agent) or --transport http (remote)."
             ],
@@ -100,7 +99,6 @@ def serve(
     if trust not in ("auto", "local", "hosted"):
         exit_with_error(
             f"Unknown trust level: {trust!r}.",
-            code="bad_argument",
             details=["Use --trust local, --trust hosted, or --trust auto."],
             status=1,
         )
@@ -113,7 +111,6 @@ def serve(
         if trust == "local":
             exit_with_error(
                 "Refusing --trust local on an HTTP transport.",
-                code="bad_argument",
                 details=[
                     "local trust runs the executor with your full environment, no",
                     "--dangerous sanitization, and no ulimits — unsafe for a",
@@ -129,7 +126,6 @@ def serve(
         if backend.name != "bubblewrap" and not allow_insecure_sandbox:
             exit_with_error(
                 "Refusing to serve HTTP without bubblewrap isolation.",
-                code="insecure_sandbox",
                 details=[
                     f"Selected sandbox backend: {backend.name} (no kernel isolation).",
                     "HTTP exposes the executor to remote agents. Run it under bubblewrap:",
@@ -160,11 +156,7 @@ def serve(
 
 
 @app.command()
-def doctor(
-    output: str = typer.Option(
-        None, "--output", "-o", help="Output format: table or json"
-    ),
-) -> None:
+def doctor() -> None:
     """Check MCP prerequisites: fastmcp, bubblewrap/userns, dku, auth env."""
     import os
     import shutil
@@ -172,7 +164,7 @@ def doctor(
     from dku_cli.mcp import sandbox
     from dku_cli.output import render, resolve_output_format
 
-    fmt = resolve_output_format(output, allowed=("table", "json"), default="table")
+    fmt = resolve_output_format()
     rows: list[dict] = []
 
     def check(name: str, ok: bool, detail: str) -> None:

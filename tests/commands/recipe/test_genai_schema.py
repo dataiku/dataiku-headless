@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock
 from tests.commands.recipe.helpers import app, runner
 
@@ -692,21 +691,13 @@ def test_recipe_get_json_error_payload(patch_client):
     ).get_recipe.return_value.get_settings.side_effect = Exception("'recipe'")
     result = runner.invoke(
         app,
-        ["--errors", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
+        ["--format", "json", "recipe", "get", "missing_recipe", "--project", "PROJ1"],
     )
     assert result.exit_code == 3
     assert result.stdout == ""
-    parsed = json.loads(result.stderr)
-    assert parsed["error"]["code"] == "not_found"
-    assert parsed["error"]["exit_code"] == 3
-    assert (
-        parsed["error"]["message"]
-        == "Recipe 'missing_recipe' not found in project 'PROJ1'."
-    )
-    assert parsed["error"]["details"] == [
-        "List recipes: dku recipe list -P PROJ1",
-        "Inspect the project flow: dku project inspect PROJ1 -o json",
-    ]
+    assert "Recipe 'missing_recipe' not found in project 'PROJ1'." in result.stderr
+    assert "List recipes: dku recipe list -P PROJ1" in result.stderr
+    assert "Inspect the project flow: dku project inspect PROJ1" in result.stderr
 
 
 # ── Schema inspection commands ───────────────────────────────────────
@@ -769,13 +760,13 @@ def test_recipe_check_schema_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "recipe",
             "check-schema",
             "recipe1",
             "--project",
             "PROJ1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0

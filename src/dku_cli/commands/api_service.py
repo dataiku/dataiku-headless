@@ -6,7 +6,14 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    hint,
+    info,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 app = typer.Typer(help="Manage DSS API services.")
 
@@ -15,11 +22,10 @@ app = typer.Typer(help="Manage DSS API services.")
 def list_api_services(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List API services in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -57,6 +63,7 @@ def create_api_service(
         proj = client.get_project(project_key)
         proj.create_api_service(service_id)
         success(f"Created API service '{service_id}' in project {project_key}")
+        hint(f"dku api-service get {service_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
 
@@ -66,11 +73,10 @@ def get_api_service(
     ctx: typer.Context,
     service_id: str = typer.Argument(help="API service ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get API service settings."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -122,11 +128,10 @@ def list_packages(
     ctx: typer.Context,
     service_id: str = typer.Argument(help="API service ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List packages for an API service."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -191,7 +196,6 @@ def add_endpoint(
     if ep_type_lower not in _ENDPOINT_TYPES:
         exit_with_error(
             f"Unknown endpoint type: '{endpoint_type}'",
-            code="invalid_argument",
             details=[
                 f"Supported types: {', '.join(_ENDPOINT_TYPES.keys())}",
                 "Example: dku api-service add-endpoint SVC -e ep1 -m model1 -t prediction -P PROJ",
@@ -228,7 +232,6 @@ def list_endpoints(
     ctx: typer.Context,
     service_id: str = typer.Argument(help="API service ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List endpoints of an API service.
 
@@ -236,7 +239,7 @@ def list_endpoints(
       dku api-service list-endpoints myservice -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

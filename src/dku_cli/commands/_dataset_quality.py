@@ -38,7 +38,6 @@ def metrics_list(
         "--partition",
         help="Partition identifier. 'ALL' for the whole dataset; default reads the non-partitioned partition.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List configured probes and their last computed values.
 
@@ -49,7 +48,7 @@ def metrics_list(
     `dku dataset metrics run`.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -125,7 +124,6 @@ def metrics_list(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )
@@ -145,7 +143,6 @@ def metrics_get(
         "--partition",
         help="Partition identifier. 'ALL' for the whole dataset.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the cached value of a single metric.
 
@@ -154,7 +151,7 @@ def metrics_get(
     last build — re-run with `dku dataset metrics run`.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json", "table"), default="table")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -164,7 +161,6 @@ def metrics_get(
         except Exception:
             exit_with_error(
                 f"Metric '{metric_id}' is not computed for dataset '{dataset_name}'.",
-                code="metric_not_found",
                 details=[
                     f"List metrics: dku dataset metrics list {dataset_name} -P {project_key}",
                     f"Compute metrics first: dku dataset metrics run {dataset_name} -P {project_key}",
@@ -205,7 +201,6 @@ def metrics_get(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )
@@ -227,7 +222,6 @@ def metrics_run(
         "--metric-id",
         help="Restrict computation to these metric IDs (repeatable). Default: every configured probe.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Recompute metrics on the dataset.
 
@@ -239,7 +233,7 @@ def metrics_run(
         dku dataset metrics run my_data --metric-id records:COUNT_RECORDS -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -266,7 +260,6 @@ def metrics_run(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )
@@ -284,7 +277,6 @@ def metrics_history(
         "--partition",
         help="Partition identifier. 'ALL' for the whole dataset.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the time-series history of a metric value.
 
@@ -292,7 +284,7 @@ def metrics_history(
     several builds to confirm a join hasn't started silently dropping rows.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -302,7 +294,6 @@ def metrics_history(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )
@@ -333,7 +324,6 @@ def checks_list(
         "--partition",
         help="Partition identifier. Default 'NP' (non-partitioned). 'ALL' for full dataset.",
     ),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List data-quality rules with their last results.
 
@@ -342,7 +332,7 @@ def checks_list(
     outcome='(no result)'.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -392,7 +382,6 @@ def checks_list(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )
@@ -404,7 +393,6 @@ def checks_status(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the overall data-quality status of the dataset.
 
@@ -412,7 +400,7 @@ def checks_status(
     computed partitions.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json", "table"), default="table")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
@@ -433,7 +421,6 @@ def checks_status(
                 if is_not_found_error(inner):
                     exit_with_error(
                         f"Dataset '{dataset_name}' not found in {project_key}.",
-                        code="not_found",
                         status=3,
                         details=[f"List datasets: dku dataset list -P {project_key}"],
                     )
@@ -467,7 +454,6 @@ def checks_status(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )
@@ -513,7 +499,6 @@ def checks_run(
         if is_not_found_error(e):
             exit_with_error(
                 f"Dataset '{dataset_name}' not found in {project_key}.",
-                code="not_found",
                 status=3,
                 details=[f"List datasets: dku dataset list -P {project_key}"],
             )

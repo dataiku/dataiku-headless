@@ -23,7 +23,7 @@ def test_list(patch_client):
 
 def test_list_json(patch_client):
     result = runner.invoke(
-        app, ["code-studio", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "code-studio", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -62,7 +62,7 @@ def test_create(patch_client):
 
 def test_get(patch_client):
     result = runner.invoke(
-        app, ["code-studio", "get", "cs1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "code-studio", "get", "cs1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -87,7 +87,7 @@ def test_delete(patch_client):
 
 def test_status(patch_client):
     result = runner.invoke(
-        app, ["code-studio", "status", "cs1", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "code-studio", "status", "cs1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -174,7 +174,7 @@ def test_templates(patch_client):
 
 
 def test_templates_json(patch_client):
-    result = runner.invoke(app, ["code-studio", "templates", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "code-studio", "templates"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed[0]["id"] == "tpl1"

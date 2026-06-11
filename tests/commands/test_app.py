@@ -19,7 +19,7 @@ def test_app_list_table(patch_client):
 
 
 def test_app_list_json(patch_client):
-    result = runner.invoke(app, ["app", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "app", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -34,7 +34,7 @@ def test_app_list_empty(patch_client):
 
 
 def test_app_get(patch_client):
-    result = runner.invoke(app, ["app", "get", "PROJECT_MYAPP", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "app", "get", "PROJECT_MYAPP"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["appId"] == "PROJECT_MYAPP"
@@ -49,7 +49,7 @@ def test_app_list_instances(patch_client):
 
 def test_app_list_instances_json(patch_client):
     result = runner.invoke(
-        app, ["app", "list-instances", "PROJECT_MYAPP", "-o", "json"]
+        app, ["--format", "json", "app", "list-instances", "PROJECT_MYAPP"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

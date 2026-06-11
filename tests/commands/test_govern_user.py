@@ -18,7 +18,7 @@ def test_user_list(patch_client):
 
 
 def test_user_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "user", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "user", "list"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -32,7 +32,7 @@ def test_user_get(patch_client):
 
 
 def test_user_get_json(patch_client):
-    result = runner.invoke(app, ["govern", "user", "get", "alice", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "user", "get", "alice"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["login"] == "alice"
@@ -127,7 +127,7 @@ def test_user_get_own(patch_client):
 
 
 def test_user_get_own_json(patch_client):
-    result = runner.invoke(app, ["govern", "user", "get-own", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "user", "get-own"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["login"] == "me"
@@ -140,7 +140,7 @@ def test_user_list_activity(patch_client):
 
 
 def test_user_list_activity_json(patch_client):
-    result = runner.invoke(app, ["govern", "user", "list-activity", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "user", "list-activity"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1

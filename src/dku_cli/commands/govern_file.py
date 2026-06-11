@@ -17,12 +17,11 @@ app = typer.Typer(help="Manage Govern uploaded files.")
 def upload(
     ctx: typer.Context,
     file_path: str = typer.Argument(help="Path to the file to upload"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Upload a file to Govern."""
     import os
 
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         file_name = os.path.basename(file_path)
@@ -38,7 +37,6 @@ def upload(
 
         exit_with_error(
             f"File not found: {file_path}",
-            code="file_not_found",
             details=[f"Check the path and try again: {file_path}"],
         )
     except Exception as e:
@@ -49,10 +47,9 @@ def upload(
 def get(
     ctx: typer.Context,
     file_id: str = typer.Argument(help="Uploaded file ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get metadata for an uploaded file."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
         uploaded = govern.get_uploaded_file(file_id)

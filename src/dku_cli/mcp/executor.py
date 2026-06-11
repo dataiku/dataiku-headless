@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from dku_cli.mcp import policy
 from dku_cli.mcp.audit import AuditLog
@@ -35,8 +35,24 @@ class ExecResult:
     truncated: bool
 
 
-def result_to_dict(result: ExecResult) -> dict:
-    return asdict(result)
+def result_to_text(result: ExecResult) -> str:
+    """Render an ExecResult as the plain-text tool reply.
+
+    No JSON envelope: stdout/stderr reach the model unescaped, which is both
+    cheaper (no JSON escaping of every newline/quote in every command's output)
+    and unambiguous (agents pattern-matched the envelope's 'stdout' key and
+    tried to unwrap it inside their own shell pipelines).
+    """
+    header = f"exit {result.exit_code}"
+    if result.truncated:
+        header += " (output truncated)"
+    parts = [header]
+    if result.stdout:
+        parts.append(result.stdout.rstrip("\n"))
+    if result.stderr:
+        parts.append("--- stderr ---")
+        parts.append(result.stderr.rstrip("\n"))
+    return "\n".join(parts)
 
 
 # Non-secret operational vars the sandbox shell legitimately needs. The
@@ -73,6 +89,12 @@ _ENV_ALLOWLIST = frozenset(
         "CONDA_DEFAULT_ENV",
         # DSS backend location (not secret). The auth KEY is injected separately.
         "DKU_URL",
+        # Harness markers (not secret) — kept out of hosted agent shells.
+        "CLAUDECODE",
+        "CLAUDE_CODE",
+        "CODEX_SANDBOX",
+        "CURSOR",
+        "AI_AGENT",
         "DKU_SERVER_HOST",
         "DKU_BACKEND_HOST",
         "DKU_BASE_PROTOCOL",

@@ -19,7 +19,7 @@ def test_dashboard_list(patch_client):
 
 def test_dashboard_list_json(patch_client):
     result = runner.invoke(
-        app, ["dashboard", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "dashboard", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -47,7 +47,8 @@ def test_dashboard_get_tile_count(patch_client):
 
 def test_dashboard_get_json(patch_client):
     result = runner.invoke(
-        app, ["dashboard", "get", "dashboard1", "--project", "PROJ1", "-o", "json"]
+        app,
+        ["--format", "json", "dashboard", "get", "dashboard1", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -72,7 +73,15 @@ def test_dashboard_create(patch_client):
 def test_dashboard_create_json(patch_client):
     result = runner.invoke(
         app,
-        ["dashboard", "create", "New Dashboard", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "dashboard",
+            "create",
+            "New Dashboard",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -253,7 +262,15 @@ def test_dashboard_list_tiles(patch_client):
 def test_dashboard_list_tiles_json(patch_client):
     result = runner.invoke(
         app,
-        ["dashboard", "list-tiles", "dashboard1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "dashboard",
+            "list-tiles",
+            "dashboard1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

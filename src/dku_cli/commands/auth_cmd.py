@@ -197,12 +197,9 @@ def logout(
 @app.command()
 def status(
     ctx: typer.Context,
-    output: str | None = typer.Option(
-        None, "-o", "--output", help="Output format (text or json)"
-    ),
 ) -> None:
     """Show current authentication status."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     opts = ctx.obj or {}
     profile = opts.get("profile") or get_active_profile()
     flag_url = opts.get("url")
@@ -358,16 +355,14 @@ def status(
 
 
 @app.command("list")
-def list_profiles(
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
-) -> None:
+def list_profiles() -> None:
     """List all configured profiles.
 
     JSON output round-trips every persisted profile field (name, url,
     node_type, default_project, active flag, has_key) so callers can pipe
     through `jq` without needing a second `auth status` call.
     """
-    output_fmt = resolve_output_format(output)
+    output_fmt = resolve_output_format()
     profiles = get_all_profiles()
     active = get_active_profile()
 

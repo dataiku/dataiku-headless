@@ -67,7 +67,15 @@ def test_signoff_list_feedbacks(patch_client):
 def test_signoff_list_feedbacks_json(patch_client):
     result = runner.invoke(
         app,
-        ["govern", "signoff", "list-feedbacks", "ar.5", "exploration", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "signoff",
+            "list-feedbacks",
+            "ar.5",
+            "exploration",
+        ],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -86,14 +94,14 @@ def test_signoff_get_feedback_json(patch_client):
     result = runner.invoke(
         app,
         [
+            "--format",
+            "json",
             "govern",
             "signoff",
             "get-feedback",
             "ar.5",
             "exploration",
             "fb.1",
-            "-o",
-            "json",
         ],
     )
     assert result.exit_code == 0
@@ -112,7 +120,15 @@ def test_signoff_get_approval(patch_client):
 def test_signoff_get_approval_json(patch_client):
     result = runner.invoke(
         app,
-        ["govern", "signoff", "get-approval", "ar.5", "exploration", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "govern",
+            "signoff",
+            "get-approval",
+            "ar.5",
+            "exploration",
+        ],
     )
     assert result.exit_code == 0
     data = json.loads(result.output)

@@ -18,7 +18,7 @@ def test_role_list(patch_client):
 
 
 def test_role_list_json(patch_client):
-    result = runner.invoke(app, ["govern", "role", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "govern", "role", "list"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 1
@@ -34,7 +34,7 @@ def test_role_get(patch_client):
 
 def test_role_get_json(patch_client):
     result = runner.invoke(
-        app, ["govern", "role", "get", "ro.project_manager", "-o", "json"]
+        app, ["--format", "json", "govern", "role", "get", "ro.project_manager"]
     )
     assert result.exit_code == 0
     data = json.loads(result.output)

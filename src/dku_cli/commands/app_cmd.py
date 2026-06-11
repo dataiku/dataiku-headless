@@ -20,10 +20,9 @@ app = typer.Typer(
 @app.command("list")
 def list_apps(
     ctx: typer.Context,
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List all applications (app templates)."""
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         items = client.list_apps()
@@ -59,10 +58,9 @@ def list_apps(
 def get(
     ctx: typer.Context,
     app_id: str = typer.Argument(help="App ID (e.g. PROJECT_MYAPP)"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get app manifest/details."""
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         app_handle = client.get_app(app_id)
@@ -86,9 +84,7 @@ def get(
                     "value": raw.get("instantiationPermission", ""),
                 },
             ]
-            render(
-                data, ["field", "value"], output_format="table", title=f"App: {app_id}"
-            )
+            render(data, ["field", "value"], title=f"App: {app_id}")
     except Exception as e:
         handle_api_error(e)
 
@@ -97,14 +93,13 @@ def get(
 def list_instances(
     ctx: typer.Context,
     app_id: str = typer.Argument(help="App ID"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List instances of an application.
 
     Example:
       dku app list-instances PROJECT_MYAPP
     """
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         application = client.get_app(app_id)

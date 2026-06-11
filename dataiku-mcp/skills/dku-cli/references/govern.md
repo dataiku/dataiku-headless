@@ -29,7 +29,7 @@ via `set-version-definition`. Only **ACTIVE** versions can host new artifacts.
 1. **Fork, don't start blank:** `create-version BP NEW --from bv.system.default`
    (system versions carry under-the-hood fields/steps Govern needs). New
    versions land in **DRAFT**.
-2. `get-version BP VER -o json > bv.json` → edit the full JSON (there is no
+2. `dku --format json govern blueprint get-version BP VER > bv.json` → edit the full JSON (there is no
    add-field command; round-trip the whole definition).
 3. `set-version-definition BP VER --definition @bv.json`.
 4. `create-signoff-config BP VER STEP --definition @signoff.json` per gated step.
@@ -214,7 +214,7 @@ views over artifacts. Custom HTML runs through `DomSanitizer.bypassSecurityTrust
   **NOT** the Angular-shell `…/projects/<PROJECT>/webapps/<id>_<slug>/` (the shell won't
   render in an iframe). The card takes 100% width/height; let the iframe own scrolling.
 - Author via `dku govern custom-page create <id> --definition @page.json`; round-trip an
-  existing custom-html page (`custom-page get <id> -o json`) to confirm the full shape.
+  existing custom-html page (`dku --format json govern custom-page get <id>`) to confirm the full shape.
 - **Embedding auth:** the iframe renders only if the user has a live DSS session in the same
   browser AND Govern+DSS are same-site (`SameSite=Lax` cookie). Different domains → user must be
   logged into both, or make the webapp public. For no-login embeds set `forceAuthentication=false`

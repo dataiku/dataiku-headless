@@ -124,7 +124,7 @@ def test_clear_profile_configs_preserves_root_settings(tmp_path):
         path,
         {
             "active_profile": "default",
-            "output": "json",
+            "dangerous_mode": True,
             "default": {"url": "https://default.example.com"},
         },
     )
@@ -134,7 +134,7 @@ def test_clear_profile_configs_preserves_root_settings(tmp_path):
         result = get_config()
 
     assert removed == 1
-    assert result == {"output": "json"}
+    assert result == {"dangerous_mode": True}
 
 
 def test_set_profile_credential_store_preserves_existing_values(tmp_path):

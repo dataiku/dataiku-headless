@@ -80,11 +80,10 @@ def _poll_scenario_outcome(
 def list_scenarios(
     ctx: typer.Context,
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List scenarios in a project."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -167,11 +166,10 @@ def status(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show last run status of a scenario."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -233,6 +231,9 @@ def create(
             kwargs["definition"] = defn
         scenario = proj.create_scenario(**kwargs)
         success(f"Created scenario '{name}' (id={scenario.id})")
+        from dku_cli.output import hint
+
+        hint(f"dku scenario run {scenario.id} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(f"Scenario '{name}' already exists in {project_key}, skipping create")
@@ -276,7 +277,6 @@ def get_definition(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Get the raw definition of a scenario as JSON.
 
@@ -286,7 +286,7 @@ def get_definition(
     omits params.steps — this command deliberately does NOT use it.
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output, allowed=("json",), default="json")
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -486,7 +486,6 @@ def last_run(
         help="Show only the last *successful* run (SUCCESS or WARNING)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show the last finished run of a scenario.
 
@@ -498,7 +497,7 @@ def last_run(
       dku scenario last-run BUILD_ALL --successful -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -543,7 +542,6 @@ def runs(
         None, "--to", help="End date (YYYY-MM-DD), exclusive"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List recent runs of a scenario.
 
@@ -554,7 +552,7 @@ def runs(
       dku scenario runs BUILD_ALL --from 2026-04-01 --to 2026-04-08 -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -584,7 +582,7 @@ def runs(
             # fresh runs ("outcome not available for this scenario run. Maybe
             # still running?"). getattr's default only catches AttributeError,
             # so we must guard explicitly — otherwise the whole command crashes
-            # (and -o json emits a partial/invalid stream).
+            # (and --format json emits a partial/invalid stream).
             try:
                 state = r.outcome or "RUNNING"
             except (ValueError, AttributeError):
@@ -615,7 +613,6 @@ def avg_duration(
         3, "--limit", help="Number of recent successful runs to average"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """Show average duration of recent successful scenario runs.
 
@@ -624,10 +621,10 @@ def avg_duration(
 
     Example:
       dku scenario avg-duration BUILD_ALL -P PROJ
-      dku scenario avg-duration BUILD_ALL --limit 5 -P PROJ -o json
+      dku scenario avg-duration BUILD_ALL --limit 5 -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format(output)
+    fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -862,11 +859,10 @@ def list_triggers(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List triggers on a scenario."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -933,12 +929,10 @@ def add_trigger(
     if not trigger_dict:
         exit_with_error(
             "Trigger JSON cannot be empty.",
-            code="invalid_input",
         )
     if "type" not in trigger_dict:
         exit_with_error(
             "Trigger JSON must have a 'type' field.",
-            code="invalid_input",
             details=[
                 "Valid types: temporal, ds_modified, sql_query, custom_python",
                 "Example: dku scenario add-trigger SCEN --trigger "
@@ -1196,7 +1190,6 @@ def remove_trigger(
         if index < 0 or index >= len(triggers):
             exit_with_error(
                 f"Index {index} out of range (0–{len(triggers) - 1}).",
-                code="invalid_index",
                 details=[
                     f"Use: dku scenario list-triggers {scenario_id} -P {project_key}",
                 ],
@@ -1227,7 +1220,6 @@ def _resolve_step_settings(scenario):
     if not hasattr(settings, "raw_steps"):
         exit_with_error(
             "This scenario is not step-based — it has no steps to manage.",
-            code="wrong_scenario_type",
             details=[
                 "Scenario type must be 'step_based'. For custom_python scenarios, "
                 "use 'dku scenario set-code SCEN --code @file.py' to update the script.",
@@ -1273,16 +1265,15 @@ def list_steps(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List steps in a step-based scenario.
 
     Examples:
         dku scenario list-steps daily_refresh -P PROJ
-        dku scenario list-steps daily_refresh -o json -P PROJ
+        dku --format json scenario list-steps daily_refresh -P PROJ
     """
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -1346,7 +1337,6 @@ def remove_step(
         if index < 0 or index >= len(steps):
             exit_with_error(
                 f"Index {index} out of range (0–{len(steps) - 1}).",
-                code="invalid_index",
                 details=[
                     f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
                 ],
@@ -1412,7 +1402,6 @@ def add_step(
     if not isinstance(params_dict, dict):
         exit_with_error(
             "--params must be a JSON object.",
-            code="invalid_argument",
         )
     if proceed_on_failure:
         params_dict["proceedOnFailure"] = True
@@ -1713,7 +1702,6 @@ def add_step_sql(
             if "=" not in entry:
                 exit_with_error(
                     f"Invalid --extra-conf '{entry}'. Expected 'KEY=VALUE'.",
-                    code="invalid_argument",
                 )
             k, v = entry.split("=", 1)
             parsed_conf.append({"key": k.strip(), "value": v.strip()})
@@ -1845,7 +1833,6 @@ def add_step_compute_metrics(
     if not (dataset or folder or saved_model):
         exit_with_error(
             "compute-metrics needs at least one --dataset, --folder, or --saved-model.",
-            code="invalid_argument",
         )
     rct, rcs = validate_run_options(
         run_condition_type,
@@ -2116,7 +2103,6 @@ def add_step_clear_items(
         exit_with_error(
             "clear-items needs at least one --clear (dataset), --clear-folder, "
             "or --clear-model.",
-            code="invalid_argument",
         )
     rct, rcs = validate_run_options(
         run_condition_type,
@@ -2198,7 +2184,6 @@ def add_step_propagate_schema(
     if behavior not in _VALID_BEHAVIORS:
         exit_with_error(
             f"Invalid --behavior '{behavior}'.",
-            code="invalid_argument",
             details=[f"Valid: {', '.join(sorted(_VALID_BEHAVIORS))}"],
         )
     rct, rcs = validate_run_options(
@@ -2440,27 +2425,23 @@ def add_step_export_dashboard(
     if fmt not in _VALID_DASHBOARD_EXPORT_FORMATS:
         exit_with_error(
             f"Invalid --format '{format}'.",
-            code="invalid_argument",
             details=[f"Valid: {', '.join(sorted(_VALID_DASHBOARD_EXPORT_FORMATS))}"],
         )
     ps = paper_size.upper()
     if ps not in _VALID_DASHBOARD_PAPER_SIZES:
         exit_with_error(
             f"Invalid --paper-size '{paper_size}'.",
-            code="invalid_argument",
             details=[f"Valid: {', '.join(sorted(_VALID_DASHBOARD_PAPER_SIZES))}"],
         )
     orient = orientation.upper()
     if orient not in _VALID_DASHBOARD_ORIENTATIONS:
         exit_with_error(
             f"Invalid --orientation '{orientation}'.",
-            code="invalid_argument",
             details=[f"Valid: {', '.join(sorted(_VALID_DASHBOARD_ORIENTATIONS))}"],
         )
     if (width is None) != (height is None):
         exit_with_error(
             "--width and --height must be provided together.",
-            code="invalid_argument",
         )
     rct, rcs = validate_run_options(
         run_condition_type,
@@ -2516,11 +2497,10 @@ def list_reporters(
     ctx: typer.Context,
     scenario_id: str = typer.Argument(help="Scenario ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    output: str | None = typer.Option(None, "-o", "--output", help="Output format"),
 ) -> None:
     """List reporters on a scenario."""
     project_key = resolve_project(project)
-    output = resolve_output_format(output)
+    output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -2599,7 +2579,6 @@ def add_reporter(
     if condition not in _REPORTER_CONDITIONS:
         exit_with_error(
             f"Unknown condition '{condition}'.",
-            code="invalid_input",
             details=["Valid conditions: failure, success, always"],
         )
     run_condition, cond_enabled = _REPORTER_CONDITIONS[condition]

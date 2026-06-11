@@ -25,7 +25,7 @@ def test_evaluation_store_list(patch_client):
 
 def test_evaluation_store_list_json(patch_client):
     result = runner.invoke(
-        app, ["evaluation-store", "list", "--project", "PROJ1", "-o", "json"]
+        app, ["--format", "json", "evaluation-store", "list", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -168,7 +168,15 @@ def test_evaluation_store_evaluations(patch_client):
 def test_evaluation_store_evaluations_json(patch_client):
     result = runner.invoke(
         app,
-        ["evaluation-store", "evaluations", "mes1", "--project", "PROJ1", "-o", "json"],
+        [
+            "--format",
+            "json",
+            "evaluation-store",
+            "evaluations",
+            "mes1",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

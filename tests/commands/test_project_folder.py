@@ -19,7 +19,7 @@ def test_project_folder_list_table(patch_client):
 
 
 def test_project_folder_list_json(patch_client):
-    result = runner.invoke(app, ["project-folder", "list", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project-folder", "list"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2  # root + 1 child
@@ -39,7 +39,9 @@ def test_project_folder_create(patch_client):
 
 
 def test_project_folder_create_json(patch_client):
-    result = runner.invoke(app, ["project-folder", "create", "Test", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "project-folder", "create", "Test"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["name"] == "Test"

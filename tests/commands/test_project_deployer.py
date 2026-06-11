@@ -19,7 +19,7 @@ def test_list_infras_table(patch_client):
 
 
 def test_list_infras_json(patch_client):
-    result = runner.invoke(app, ["project-deployer", "list-infras", "-o", "json"])
+    result = runner.invoke(app, ["--format", "json", "project-deployer", "list-infras"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -34,7 +34,9 @@ def test_list_projects_table(patch_client):
 
 
 def test_list_projects_json(patch_client):
-    result = runner.invoke(app, ["project-deployer", "list-projects", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "project-deployer", "list-projects"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -50,7 +52,9 @@ def test_list_deployments_table(patch_client):
 
 
 def test_list_deployments_json(patch_client):
-    result = runner.invoke(app, ["project-deployer", "list-deployments", "-o", "json"])
+    result = runner.invoke(
+        app, ["--format", "json", "project-deployer", "list-deployments"]
+    )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -108,7 +112,7 @@ def test_create_deployment_ignore_warnings(patch_client):
 
 def test_get_deployment(patch_client):
     result = runner.invoke(
-        app, ["project-deployer", "get-deployment", "pdep1", "-o", "json"]
+        app, ["--format", "json", "project-deployer", "get-deployment", "pdep1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
@@ -154,7 +158,7 @@ def test_delete_deployment_without_yes(patch_client):
 
 def test_deployment_status(patch_client):
     result = runner.invoke(
-        app, ["project-deployer", "deployment-status", "pdep1", "-o", "json"]
+        app, ["--format", "json", "project-deployer", "deployment-status", "pdep1"]
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)

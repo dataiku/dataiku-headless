@@ -11,7 +11,7 @@ from `--help`.
 | `READ` / `WRITE` | Lists, reads, or makes a reversible create/update | none |
 | `DELETE` | Deletes or clears one named resource | `--yes` / `-y` |
 | `CASCADE` | Irreversible, or can destroy/orphan resources the user did not name | `--yes` + `--confirm-name <TARGET>` |
-| `ADMIN` | Mutates instance-wide admin config | `--yes` + `--confirm-name` + lockout ack (e.g. `--i-understand-lockout-risk` / `--i-know-what-im-doing`) |
+| `ADMIN` | Mutates instance-wide admin config | `--yes` + `--confirm-name <id>` + `--i-know-what-im-doing`; IAM writes (`sso`/`ldap`/`azure-ad set`) additionally require `--i-understand-lockout-risk` |
 
 `--confirm-name` must match the target resource exactly. Never guess it.
 
@@ -28,7 +28,7 @@ confirmation question and an exact rerun command.
 3. If the user confirms, copy the provided rerun command **exactly**.
 4. Do not guess `--confirm-name`; do not re-run without asking.
 
-Global options (`--errors json`, `--profile`, `--dangerous`, `--url`,
+Global options (`--format json`, `--profile`, `--dangerous`, `--url`,
 `--api-key`) must appear **before the noun**. The rerun command in the block
 already preserves correct flag position.
 
@@ -54,7 +54,7 @@ secrets in plain text. NEVER pipe their raw output to chat, a wiki, or git.
 |---|---|---|
 | `dataset get-definition` on a plugin connector (`type: CustomPython_<plugin>`) | raw PAT/token in `params.customConfig.<sa>.inlinedConfig` | `jq 'del(.params.customConfig)'` |
 | `webapp get-definition` | top-level webapp-scoped `apiKey` | `jq 'del(.apiKey, .config.apiKey)'` |
-| `connection list -o json` | `params.password`, `aws_secret_access_key`, OAuth refresh tokens | `jq 'del(.params.customConfig)'`; for support, use the UI export (DSS redacts) |
+| `dku --format json connection list` | `params.password`, `aws_secret_access_key`, OAuth refresh tokens | `jq 'del(.params.customConfig)'`; for support, use the UI export (DSS redacts) |
 
 ---
 
@@ -66,28 +66,31 @@ before any `dku admin` write** (anything that isn't `logs`, `get-log`, `usage`,
 
 ## Hard rules
 
-1. **`--yes` is never optional for admin writes.** Without it the CLI dry-runs
-   and prints the planned action. Use the dry-run to confirm target, payload,
-   and side effects BEFORE re-running with `--yes`.
-2. **IAM writes (`sso`/`ldap`/`azure-ad` `set`) require a lockout ack.** A bad
-   SAML/OIDC/LDAP config locks EVERY user out — only a DSS admin with local
-   filesystem access to `install.ini` can recover. Keep a second authenticated
-   session open and verify login before closing your current one.
+1. **Admin writes are blocked, not dry-run, until fully authorized.** Missing a
+   required flag exits `77` with an `AGENT INSTRUCTION:` block and an exact rerun
+   command — it does NOT preview-and-continue. `license upload`, `settings set`,
+   and the IAM `set` verbs are tier-4 ADMIN (`--yes` + `--confirm-name <id>` +
+   `--i-know-what-im-doing`) and are NOT bypassable by `--dangerous`.
+2. **IAM writes (`sso`/`ldap`/`azure-ad` `set`) require a lockout ack on top of
+   tier-4.** Add `--i-understand-lockout-risk`. A bad SAML/OIDC/LDAP config locks
+   EVERY user out — only a DSS admin with local filesystem access to `install.ini`
+   can recover. Keep a second authenticated session open and verify login before
+   closing your current one.
 3. **`settings set` is a FULL replace, not a merge.** Always `get` first, edit
    the JSON, `set` the entire object.
 4. **`license upload` has no rollback.** Wrong edition can revoke user caps
    immediately. Save the current license JSON to disk first.
-5. **`users-sync resync-all` can mass-deactivate users.** Anyone removed from
-   the external supplier is deactivated. Run `fetch-external-users` first to
-   preview.
+5. **`users-sync resync-all` can mass-deactivate users.** Tier-3 CASCADE
+   (`--yes` + `--confirm-name resync-all`). Anyone removed from the external
+   supplier is deactivated. Run `fetch-external-users` first to preview.
 
 ## Destructive verb → worst failure → safe pattern
 
 | Verb | Worst failure | Safe pattern |
 |---|---|---|
-| `license upload` | No-login; no rollback | `license status -o json` → save → `upload --yes` → verify `status` |
-| `sso`/`ldap`/`azure-ad set` | All SSO/LDAP/Azure users locked out | GET → smallest one-field edit → dry-run → keep 2nd session open → `set --yes <lockout-ack>` → verify login in incognito |
-| `settings set` | Bad impersonation rule breaks code envs/container-exec project-wide | GET → diff intended change → SET full payload |
+| `license upload` | No-login; no rollback | `dku --format json admin license status` → save → `upload --yes --confirm-name license --i-know-what-im-doing` → verify `status` |
+| `sso`/`ldap`/`azure-ad set` | All SSO/LDAP/Azure users locked out | GET → smallest one-field edit → keep 2nd session open → `set --yes --confirm-name <sso\|ldap\|azure-ad> --i-know-what-im-doing --i-understand-lockout-risk` → verify login in incognito |
+| `settings set` | Bad impersonation rule breaks code envs/container-exec project-wide | GET → diff intended change → SET full payload with `--yes --confirm-name general-settings --i-know-what-im-doing` |
 | `infra push-base-images` / `apply-k8s-policies` | Broken registry/namespace stops container-exec / pods | `sanity-check` + verify creds first; apply in low-traffic window; retryable |
 | `users-sync resync-all` | External source unreachable → mass deactivation | `fetch-external-users --source LDAP` first |
 | `messaging create`/`delete` | Wrong/removed SMTP channel silently stops scenario alerts | `messaging send-test` before delete; create replacement first; grep scenario JSON for channel id |
@@ -95,7 +98,7 @@ before any `dku admin` write** (anything that isn't `logs`, `get-log`, `usage`,
 | `api-key delete` | Revokes a key a scenario depends on | grep scenario defs for the key label first |
 | `plugin delete`/`uninstall` | Breaks every recipe/webapp using it | check usages via `project inspect` across projects |
 | `user delete`/`deactivate` | Sole-admin's projects become un-editable | reassign ownership via `project set-permissions` first |
-| `code-env delete` | Breaks every recipe/webapp using the env | `code-env usages ENV -o json` first |
+| `code-env delete` | Breaks every recipe/webapp using the env | `dku --format json code-env usages ENV` first |
 | `cluster delete` | In-flight jobs lose executor | check `job list --state RUNNING`; drain first |
 
 Non-destructive/idempotent admin verbs (safe, reversible): `codeenv update
@@ -114,10 +117,10 @@ update-images`, `catalog-index` (prefer `--mode INCREMENTAL`), `audit-log`
 
 ## IAM edit loop (SSO / LDAP / Azure AD)
 
-GET current settings → make the SMALLEST possible change (one field) → dry-run
-(no `--yes`) → open and keep a second logged-in session → apply with `--yes`
-+ lockout ack → immediately verify login in a new incognito window; revert from
-the second session if it fails.
+GET current settings → make the SMALLEST possible change (one field) → open and
+keep a second logged-in session → apply with `--yes --confirm-name <sso|ldap|azure-ad>
+--i-know-what-im-doing --i-understand-lockout-risk` → immediately verify login in a
+new incognito window; revert from the second session if it fails.
 
 ## Recovery from lockout
 
