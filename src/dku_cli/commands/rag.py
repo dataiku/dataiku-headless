@@ -5,14 +5,22 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    clean_llm_id,
+    get_client_from_ctx,
+    read_json_input,
+    resolve_knowledge_bank,
+    resolve_project,
+)
 from dku_cli.output import (
+    emit_created,
     hint,
     info,
     render,
     render_raw,
     resolve_output_format,
     success,
+    warn,
 )
 
 app = typer.Typer(help="Manage Retrieval Augmented LLMs (RAG).")
@@ -70,12 +78,16 @@ def create(
         ...,
         "--knowledge-bank",
         "--kb",
-        help="Knowledge bank ID to use",
+        help="Knowledge bank ID or name to use",
     ),
     llm_id: str = typer.Option(
         ...,
         "--llm",
-        help="LLM ID to use for RAG (e.g. openai:gpt-4o)",
+        help=(
+            "LLM ID for RAG, passed BARE with no quotes: "
+            "--llm openai:OpenAI-All-Enterprise:gpt-4o (provider:service:model). "
+            "Discover IDs with: dku llm list -P PROJ"
+        ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -91,19 +103,20 @@ def create(
       dku rag create "Customer Support RAG" --kb kb_docs --llm openai:gpt-4o -P PROJ
     """
     project_key = resolve_project(project)
-    fmt = resolve_output_format()
+    llm_id, quotes_stripped = clean_llm_id(llm_id)
+    if quotes_stripped:
+        warn(f"Stripped stray quotes from --llm; using '{llm_id}'.")
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        rag = proj.create_retrieval_augmented_llm(name, kb_ref, llm_id)
+        kb_id = resolve_knowledge_bank(proj, kb_ref).id
+        rag = proj.create_retrieval_augmented_llm(name, kb_id, llm_id)
 
-        if fmt == "json":
-            render_raw(
-                {"id": rag.id, "name": name, "project": project_key},
-                output_format="json",
-            )
-        else:
-            success(f"Created RAG LLM '{name}' (ID: {rag.id}) in {project_key}")
+        emit_created(
+            {"id": rag.id, "name": name, "project": project_key},
+            message=f"Created RAG LLM '{name}' (ID: {rag.id}) in {project_key}",
+        )
+        if resolve_output_format() != "json":
             info(f"Use as LLM: retrieval-augmented-llm:{rag.id}")
             hint(f"dku rag get-definition {rag.id} -P {project_key}")
     except typer.Exit:

@@ -133,24 +133,4 @@ These still migrate to SQL recipes — the passthrough is data + a query, both w
 
 Do NOT translate passthrough SQL or downstream DATA steps to Python recipes just to avoid setting up a SQL connection.
 
----
-
-## Flow patterns
-
-**Linear:** `raw → [Prepare] → clean → [Sort] → sorted → [Group] → summary`
-
-**Fan-out (split by value):** One Prepare recipe per output:
-```bash
-dku recipe create-filter prep_mortgages -i source --output-ds mortgages \
-    -f 'ACCT_TYPE == "MORT"' -P PROJ
-```
-
-**Fan-in:** Join recipe — left join on key, no pre-sort needed.
-
-**Stack / append:** Stack recipe — union all inputs.
-
-**Macros reminder:**
-- `%LET var=val` → `dku project set-variable KEY VALUE`
-- `%MACRO do_thing(ds)` → project Python library (only if a pure helper)
-- `%DO i=1 %TO &count;` → one recipe per iteration, or Scenario loop
-- `%INCLUDE` → identify which macros are actually called, migrate only those
+Macro translation (`%LET`, `%MACRO`, `%DO`, `%INCLUDE`) → `semantics.md` § Macro patterns.

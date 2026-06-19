@@ -10,6 +10,244 @@ from dku_cli.enums import GeoDistanceUnitMiles, ReorderMode
 # Prepare recipe step commands
 # ---------------------------------------------------------------------------
 
+# Processor types agents repeatedly guess that DO NOT exist as stock
+# processors. DSS accepts them at add time and fails only at RUN time with a
+# misleading "Type X was available in a plugin that is not installed" — so
+# reject them at add time with the real alternative.
+_WRONG_PROCESSOR_TYPES: dict[str, str] = {
+    "AddId": (
+        "There is no row-id processor in Prepare. Pre-bake the id at "
+        "extraction, or use a Window recipe: create-window ... --compute "
+        "'rowNumber::row_id'."
+    ),
+    "Enumerator": (
+        "There is no row-counter processor in Prepare. Use a Window recipe: "
+        "create-window ... --compute 'rowNumber::row_id'."
+    ),
+    "FilterOnFormula": (
+        "Use FilterOnCustomFormula "
+        '(params: {"expression": ..., "action": "KEEP_ROW"}), '
+        "or the add-filter-rows shortcut."
+    ),
+    "FoldColumnsByName": (
+        "That is a plugin processor. Use the stock MultiColumnFold "
+        "(or the add-fold shortcut)."
+    ),
+}
+
+# Stock processors the CLI knows about (curated from
+# references/prepare-processors.md + the types this CLI emits). DSS has more;
+# an unknown type only triggers an advisory warning, never a block.
+_KNOWN_STOCK_PROCESSORS: frozenset[str] = frozenset(
+    {
+        "ArraySortProcessor",
+        "ArrayUnfold",
+        "BinnerProcessor",
+        "CityLevelReverseGeocoder",
+        "Coalesce",
+        "ColumnCopier",
+        "ColumnRenamer",
+        "ColumnReorder",
+        "ColumnSplitter",
+        "ColumnsConcat",
+        "ColumnsSelector",
+        "ComputeNTile",
+        "CreateColumnWithGREL",
+        "DateComponentsExtractor",
+        "DateDifference",
+        "DateFormatter",
+        "DateIncrement",
+        "DateParser",
+        "DateTruncate",
+        "EnrichWithBuildContextProcessor",
+        "ExtractNumbers",
+        "FillColumn",
+        "FillEmptyWithValue",
+        "FilterOnBadType",
+        "FilterOnCustomFormula",
+        "FilterOnDate",
+        "FilterOnNumericalRange",
+        "FilterOnValue",
+        "FindReplace",
+        "FlagOnBadType",
+        "FlagOnCustomFormula",
+        "FlagOnDate",
+        "FlagOnNumericalRange",
+        "FlagOnValue",
+        "GeoDistanceProcessor",
+        "GeoIPResolver",
+        "GeoPointCreator",
+        "GeometryInfoExtractor",
+        "JSONFlattener",
+        "MemoryEquiJoiner",
+        "MergeLongTailValues",
+        "MinMaxProcessor",
+        "MultiColumnByPrefixFold",
+        "MultiColumnFold",
+        "NumericalFormatConverter",
+        "PythonUDF",
+        "RegexpExtractor",
+        "RemoveRowsOnEmpty",
+        "RoundProcessor",
+        "StringTransformer",
+        "TextSimplifierProcessor",
+        "UNIXTimestampParser",
+        "Unfold",
+        "UpDownFiller",
+        "VisualIfRule",
+        "ZipCodeGeocoder",
+    }
+)
+
+
+def _validate_processor_type(step_type: str) -> None:
+    """Validate a processor type at add/replace time.
+
+    DSS happily saves a step with a nonexistent type; the failure surfaces
+    only at RUN time as a misleading "Type X was available in a plugin that
+    is not installed" (no plugin is involved — the type just doesn't exist).
+    Known-wrong guesses die here with the real alternative; unknown types get
+    an advisory warning (the curated list is not exhaustive and plugin
+    processors are legitimate).
+    """
+    if step_type in _WRONG_PROCESSOR_TYPES:
+        exit_with_error(
+            f"'{step_type}' is not a stock Prepare processor.",
+            details=[
+                _WRONG_PROCESSOR_TYPES[step_type],
+                "",
+                "DSS would save this step and fail only at run time with the",
+                'misleading error "Type was available in a plugin that is not',
+                'installed".',
+            ],
+        )
+    if step_type not in _KNOWN_STOCK_PROCESSORS:
+        warn(
+            f"'{step_type}' is not in the CLI's known stock-processor list. "
+            "If it is not from an installed plugin, the recipe will fail at "
+            'RUN time with a misleading "plugin that is not installed" '
+            "error. Check the dataiku skill's references/prepare-processors.md "
+            "for valid types (ignore this if the build succeeds)."
+        )
+
+
+def _normalize_raw_step(step_type: str, parsed_params):
+    """Validate + normalize a raw processor step's params in place.
+
+    Shared by `add-step` and `apply-spec`'s raw (`type`+`params`) escape so the
+    full guard set — inCol/outCol traps, param-key typos, GREL lint, DateParser
+    outType normalization, SINGLE_COLUMN multi-column warning — lives in one
+    place. May call `exit_with_error` (illegal shapes) or `warn` (silent
+    footguns). Returns the possibly-mutated params.
+    """
+    # Catch the "Empty column name" trap: several date processors use
+    # inCol/outCol, but agents often pass column/outputColumn from older
+    # docs. DSS returns a misleading "Empty column name" error that makes
+    # agents assume the processor doesn't exist.
+    _INCOL_PROCESSORS = {
+        "DateFormatter": ("format", "yyyy-MM-dd HH:mm:ss"),
+        "DateTruncate": ("datePart", "MONTH"),
+        "UNIXTimestampParser": ("milliseconds", False),
+    }
+    if step_type in _INCOL_PROCESSORS and isinstance(parsed_params, dict):
+        # Two wrong shapes both yield DSS's "Empty column name":
+        #   (a) column/outputColumn (from older docs), and
+        #   (b) appliesTo + columns[] — the style that DateParser,
+        #       DateComponentsExtractor, StringTransformer DO use, so
+        #       agents copy it onto sibling date processors that don't.
+        has_wrong = any(
+            k in parsed_params
+            for k in ("column", "outputColumn", "columns", "appliesTo")
+        )
+        has_right = "inCol" in parsed_params
+        if has_wrong and not has_right:
+            extra_key, extra_val = _INCOL_PROCESSORS[step_type]
+            wrong_cols = parsed_params.get("columns")
+            src_col = parsed_params.get("column") or (
+                wrong_cols[0] if isinstance(wrong_cols, list) and wrong_cols else "COL"
+            )
+            example = {
+                "inCol": src_col,
+                "outCol": parsed_params.get("outputColumn", "NEW_COL"),
+                extra_key: extra_val,
+            }
+            exit_with_error(
+                f"Processor '{step_type}' expects 'inCol'/'outCol' (not 'column'/'outputColumn').",
+                details=[
+                    "DSS returns a misleading 'Empty column name' error when these field names are wrong.",
+                    f"Correct params: {json.dumps(example)}",
+                    "See: dataiku skill's references/prepare-processors.md",
+                ],
+            )
+
+    # Catch param-key typos that DSS silently accepts (unknown keys are
+    # ignored by the processor, leaving the step a no-op). The recipe
+    # builds and runs "successfully", but the column appears in the
+    # output schema as empty — surfaces only when real data arrives.
+    _PARAM_KEY_TYPOS: dict[str, dict[str, str]] = {
+        # add-formula --expr maps to params.expression; agents passing
+        # raw --params often write "expr" instead of "expression".
+        "CreateColumnWithGREL": {"expr": "expression"},
+    }
+    if step_type in _PARAM_KEY_TYPOS and isinstance(parsed_params, dict):
+        for wrong, right in _PARAM_KEY_TYPOS[step_type].items():
+            if wrong in parsed_params and right not in parsed_params:
+                exit_with_error(
+                    f"Processor '{step_type}' expects '{right}', got '{wrong}'.",
+                    details=[
+                        "DSS silently ignores unknown processor params — "
+                        "the formula never executes but the recipe runs successfully "
+                        "and the output schema gains an empty column.",
+                        f"Fix: rename '{wrong}' to '{right}' in --params, or use the "
+                        "shortcut 'add-formula --expr ... --column ...'.",
+                    ],
+                )
+
+    if step_type == "CreateColumnWithGREL" and isinstance(parsed_params, dict):
+        expr = parsed_params.get("expression")
+        if isinstance(expr, str):
+            _warn_grel_aliases(expr)
+            _warn_grel_date_units(expr)
+
+    # DateParser outType must be an OBJECT ({"name": "...", "type": "..."}).
+    # The string shorthand ("dateonly") saves fine but the build fails with
+    # 'Expected BEGIN_OBJECT but was STRING at path $.outType'. Several docs
+    # suggested the string form, so agents hit this repeatedly — normalize
+    # it client-side and warn rather than letting the build blow up later.
+    if step_type == "DateParser" and isinstance(parsed_params.get("outType"), str):
+        out_type_str = parsed_params["outType"]
+        parsed_params["outType"] = {"name": "out", "type": out_type_str}
+        warn(
+            f"DateParser 'outType' must be an object, not the string "
+            f"{out_type_str!r} (the build fails with 'Expected BEGIN_OBJECT "
+            f"but was STRING'). Normalized to "
+            f'{{"name": "out", "type": "{out_type_str}"}}.'
+        )
+
+    # Warn about DateParser without outCol (silently produces all nulls)
+    if step_type == "DateParser" and "outCol" not in parsed_params:
+        warn(
+            "DateParser without 'outCol' silently produces all nulls. "
+            "Add outCol to write to a new column."
+        )
+
+    # Warn when SINGLE_COLUMN is paired with a multi-column list. DSS
+    # silently applies the step to only the FIRST listed column — e.g.
+    # ColumnsSelector keep:true drops every listed column but the first,
+    # with no error. COLUMNS is the multi-column mode.
+    if isinstance(parsed_params, dict):
+        applies_to = parsed_params.get("appliesTo")
+        cols = parsed_params.get("columns")
+        if applies_to == "SINGLE_COLUMN" and isinstance(cols, list) and len(cols) > 1:
+            warn(
+                f"'{step_type}' has appliesTo='SINGLE_COLUMN' but lists "
+                f"{len(cols)} columns — DSS silently applies it to only "
+                f"'{cols[0]}' (the rest are ignored, no error). "
+                "Use appliesTo='COLUMNS' to apply to all listed columns."
+            )
+
+    return parsed_params
+
 
 def _step_target(step: dict) -> str:
     """Extract a short 'target' summary from step params for table display."""
@@ -49,27 +287,35 @@ def _prepare_known_columns(proj, settings) -> set[str] | None:
     for step in payload.get("steps", []):
         if step.get("disabled"):
             continue
-        params = step.get("params") or {}
-        stype = step.get("type", "")
-        if stype == "ColumnRenamer":
-            for r in params.get("renamings", []) or []:
-                src = r.get("from")
-                dst = r.get("to")
-                if src in known:
-                    known.discard(src)
-                if dst:
-                    known.add(dst)
-        elif stype == "CreateColumnWithGREL":
-            col = params.get("column")
-            if col:
-                known.add(col)
-        elif stype == "FillEmptyWithValue":
-            for c in params.get("columns") or []:
-                known.add(c)
-        elif stype == "ColumnsSelector" and params.get("keep") is False:
-            for c in params.get("columns") or []:
-                known.discard(c)
+        _replay_step_on_known(known, step.get("type", ""), step.get("params") or {})
     return known
+
+
+def _replay_step_on_known(known: set[str], stype: str, params: dict) -> None:
+    """Mutate `known` to reflect the simple add/rename/delete effect of one step.
+
+    Shared by `_prepare_known_columns` (replaying saved steps) and `apply-spec`
+    (evolving the column set across a batch so a step that references a column
+    an earlier batch step created is not falsely flagged as unknown).
+    """
+    if stype == "ColumnRenamer":
+        for r in params.get("renamings", []) or []:
+            src = r.get("from")
+            dst = r.get("to")
+            if src in known:
+                known.discard(src)
+            if dst:
+                known.add(dst)
+    elif stype == "CreateColumnWithGREL":
+        col = params.get("column")
+        if col:
+            known.add(col)
+    elif stype == "FillEmptyWithValue":
+        for c in params.get("columns") or []:
+            known.add(c)
+    elif stype == "ColumnsSelector" and params.get("keep") is False:
+        for c in params.get("columns") or []:
+            known.discard(c)
 
 
 _GREL_DATE_UNITS = {
@@ -117,6 +363,53 @@ def _warn_grel_date_units(formula: str) -> None:
             "DSS silently treats bad units as no-match, so a build with this "
             "step may produce 0 rows with no error."
         )
+
+
+def _warn_grel_aliases(formula: str) -> None:
+    """Warn on common non-GREL function names before DSS rejects the build."""
+    import re
+
+    aliases = {
+        "toLong": "toNumber",
+        "toInt": "toNumber",
+        "toInteger": "toNumber",
+    }
+    found = []
+    for wrong, right in aliases.items():
+        if re.search(rf"\b{wrong}\s*\(", formula):
+            found.append(f"{wrong}() -> {right}()")
+    if found:
+        warn(
+            "Unknown GREL numeric cast name(s): "
+            + ", ".join(found)
+            + ". Dataiku GREL uses toNumber(value) for numeric casts."
+        )
+
+
+def _warn_expression_status_errors(recipe, recipe_name: str, project_key: str) -> None:
+    """Best-effort post-save lint for steps that carry a GREL expression.
+
+    Runs the same DSS status check as `recipe lint-formula` so a bad
+    expression (e.g. `substr` — GREL only has `substring`) surfaces at
+    submit time, not two commands later at apply-schema/build (where the
+    usual recovery is an expensive delete-recreate of the whole recipe).
+    Never blocks: the step is already saved, and status errors can also
+    come from elsewhere in the recipe.
+    """
+    try:
+        messages = recipe.get_status().get_status_messages()
+        errors = [m for m in messages if m.get("severity") in ("ERROR", "FATAL")]
+    except Exception:
+        return
+    if not errors:
+        return
+    warn(f"Step saved, but the recipe status check now reports {len(errors)} error(s):")
+    for e in errors[:5]:
+        warn(f"  [{e.get('code', '?')}] {e.get('title', '')}: {e.get('message', '')}")
+    info(
+        f"Fix the expression (edit or remove-step), then re-check: "
+        f"dku recipe lint-formula {recipe_name} -P {project_key}"
+    )
 
 
 def _warn_unknown_columns(
@@ -234,6 +527,7 @@ def add_step(
     Use add-step for advanced or unusual processors.
     """
     project_key = resolve_project(project)
+    _validate_processor_type(step_type)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -241,112 +535,7 @@ def add_step(
         steps = _ensure_steps_array(settings)
 
         parsed_params = read_json_input(params)
-
-        # Catch the "Empty column name" trap: several date processors use
-        # inCol/outCol, but agents often pass column/outputColumn from older
-        # docs. DSS returns a misleading "Empty column name" error that makes
-        # agents assume the processor doesn't exist.
-        _INCOL_PROCESSORS = {
-            "DateFormatter": ("format", "yyyy-MM-dd HH:mm:ss"),
-            "DateTruncate": ("datePart", "MONTH"),
-            "UNIXTimestampParser": ("milliseconds", False),
-        }
-        if step_type in _INCOL_PROCESSORS and isinstance(parsed_params, dict):
-            # Two wrong shapes both yield DSS's "Empty column name":
-            #   (a) column/outputColumn (from older docs), and
-            #   (b) appliesTo + columns[] — the style that DateParser,
-            #       DateComponentsExtractor, StringTransformer DO use, so
-            #       agents copy it onto sibling date processors that don't.
-            has_wrong = any(
-                k in parsed_params
-                for k in ("column", "outputColumn", "columns", "appliesTo")
-            )
-            has_right = "inCol" in parsed_params
-            if has_wrong and not has_right:
-                extra_key, extra_val = _INCOL_PROCESSORS[step_type]
-                wrong_cols = parsed_params.get("columns")
-                src_col = parsed_params.get("column") or (
-                    wrong_cols[0]
-                    if isinstance(wrong_cols, list) and wrong_cols
-                    else "COL"
-                )
-                example = {
-                    "inCol": src_col,
-                    "outCol": parsed_params.get("outputColumn", "NEW_COL"),
-                    extra_key: extra_val,
-                }
-                exit_with_error(
-                    f"Processor '{step_type}' expects 'inCol'/'outCol' (not 'column'/'outputColumn').",
-                    details=[
-                        "DSS returns a misleading 'Empty column name' error when these field names are wrong.",
-                        f"Correct params: {json.dumps(example)}",
-                        "See: dataiku skill's references/prepare-processors.md",
-                    ],
-                )
-
-        # Catch param-key typos that DSS silently accepts (unknown keys are
-        # ignored by the processor, leaving the step a no-op). The recipe
-        # builds and runs "successfully", but the column appears in the
-        # output schema as empty — surfaces only when real data arrives.
-        _PARAM_KEY_TYPOS: dict[str, dict[str, str]] = {
-            # add-formula --expr maps to params.expression; agents passing
-            # raw --params often write "expr" instead of "expression".
-            "CreateColumnWithGREL": {"expr": "expression"},
-        }
-        if step_type in _PARAM_KEY_TYPOS and isinstance(parsed_params, dict):
-            for wrong, right in _PARAM_KEY_TYPOS[step_type].items():
-                if wrong in parsed_params and right not in parsed_params:
-                    exit_with_error(
-                        f"Processor '{step_type}' expects '{right}', got '{wrong}'.",
-                        details=[
-                            "DSS silently ignores unknown processor params — "
-                            "the formula never executes but the recipe runs successfully "
-                            "and the output schema gains an empty column.",
-                            f"Fix: rename '{wrong}' to '{right}' in --params, or use the "
-                            "shortcut 'add-formula --expr ... --column ...'.",
-                        ],
-                    )
-
-        # DateParser outType must be an OBJECT ({"name": "...", "type": "..."}).
-        # The string shorthand ("dateonly") saves fine but the build fails with
-        # 'Expected BEGIN_OBJECT but was STRING at path $.outType'. Several docs
-        # suggested the string form, so agents hit this repeatedly — normalize
-        # it client-side and warn rather than letting the build blow up later.
-        if step_type == "DateParser" and isinstance(parsed_params.get("outType"), str):
-            out_type_str = parsed_params["outType"]
-            parsed_params["outType"] = {"name": "out", "type": out_type_str}
-            warn(
-                f"DateParser 'outType' must be an object, not the string "
-                f"{out_type_str!r} (the build fails with 'Expected BEGIN_OBJECT "
-                f"but was STRING'). Normalized to "
-                f'{{"name": "out", "type": "{out_type_str}"}}.'
-            )
-
-        # Warn about DateParser without outCol (silently produces all nulls)
-        if step_type == "DateParser" and "outCol" not in parsed_params:
-            warn(
-                "DateParser without 'outCol' silently produces all nulls. "
-                "Add outCol to write to a new column."
-            )
-
-        # Warn when SINGLE_COLUMN is paired with a multi-column list. DSS
-        # silently applies the step to only the FIRST listed column — e.g.
-        # ColumnsSelector keep:true drops every listed column but the first,
-        # with no error. COLUMNS is the multi-column mode.
-        if isinstance(parsed_params, dict):
-            applies_to = parsed_params.get("appliesTo")
-            cols = parsed_params.get("columns")
-            if (
-                applies_to == "SINGLE_COLUMN"
-                and isinstance(cols, list)
-                and len(cols) > 1
-            ):
-                warn(
-                    f"'{step_type}' has appliesTo='SINGLE_COLUMN' but lists "
-                    f"{len(cols)} columns — DSS silently applies it to only "
-                    f"'{cols[0]}' (the rest are ignored, no error). "
-                    "Use appliesTo='COLUMNS' to apply to all listed columns."
-                )
+        parsed_params = _normalize_raw_step(step_type, parsed_params)
 
         step_dict: dict = {
             "metaType": "PROCESSOR",
@@ -369,6 +558,8 @@ def add_step(
 
         settings.save()
         success(f"Added {step_type} step to '{recipe_name}' at index {idx}")
+        if isinstance(parsed_params, dict) and "expression" in parsed_params:
+            _warn_expression_status_errors(_recipe, recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -485,6 +676,8 @@ def replace_step(
     del yes  # legacy flag — see docstring
 
     project_key = resolve_project(project)
+    if step_type:
+        _validate_processor_type(step_type)
     if not definition and not (step_type and params):
         exit_with_error(
             "Provide either --definition or both --type and --params.",
@@ -667,10 +860,145 @@ def _add_prepare_step(
             idx = len(steps) - 1
         settings.save()
         success(f"Added {step_type} step to '{recipe_name}' (index {idx})")
+        if "expression" in params:
+            _warn_expression_status_errors(_recipe, recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+# Pure param builders — single source of truth for each shortcut's step shape.
+# Both the named `add-*` commands and `apply-spec`'s op DSL route through these,
+# so a payload shape lives in exactly one place. Each returns
+# (step_type, params, validate_cols) where validate_cols is a list of
+# (label, columns) pairs fed to the input-schema column check.
+
+
+def _formula_step(expr: str, column: str):
+    _warn_grel_aliases(expr)
+    _warn_grel_date_units(expr)
+    return "CreateColumnWithGREL", {"expression": expr, "column": column}, []
+
+
+def _rename_step(renamings: list[dict]):
+    sources = [r["from"] for r in renamings if r.get("from")]
+    return "ColumnRenamer", {"renamings": renamings}, [("--from", sources)]
+
+
+def _filter_rows_step(*, column=None, values=None, formula=None, action="KEEP_ROW"):
+    if formula:
+        _warn_grel_date_units(formula)
+        return "FilterOnCustomFormula", {"expression": formula, "action": action}, []
+    return (
+        "FilterOnValue",
+        {
+            "appliesTo": "SINGLE_COLUMN",
+            "columns": [column],
+            "values": values,
+            "action": action,
+            "matchingMode": "FULL_STRING",
+            "normalizationMode": "EXACT",
+            "booleanMode": "AND",
+        },
+        [("--column", [column])],
+    )
+
+
+def _fill_empty_step(cols: list[str], value: str):
+    applies = "SINGLE_COLUMN" if len(cols) == 1 else "COLUMNS"
+    return (
+        "FillEmptyWithValue",
+        {"appliesTo": applies, "columns": cols, "value": value},
+        [("--column", cols)],
+    )
+
+
+def _delete_columns_step(cols: list[str]):
+    return (
+        "ColumnsSelector",
+        {"appliesTo": "COLUMNS", "columns": cols, "keep": False},
+        [("--columns", cols)],
+    )
+
+
+def _reorder_step(cols: list[str], mode: str, anchor: str | None = None):
+    applies = "SINGLE_COLUMN" if len(cols) == 1 else "COLUMNS"
+    params: dict = {"appliesTo": applies, "columns": cols, "reorderAction": mode}
+    if anchor:
+        params["referenceColumn"] = anchor
+    return "ColumnReorder", params, []
+
+
+def _find_replace_step(
+    column: str, find: str, replace: str, matching="SUBSTRING", ignore_case=False
+):
+    return (
+        "FindReplace",
+        {
+            "appliesTo": "SINGLE_COLUMN",
+            "columns": [column],
+            "output": "",
+            "mapping": [{"from": find, "to": replace}],
+            "matching": matching,
+            "normalization": "LOWERCASE" if ignore_case else "EXACT",
+        },
+        [],
+    )
+
+
+def _fold_step(
+    columns=None, pattern=None, key_column="fold_key", value_column="fold_value"
+):
+    if columns:
+        return (
+            "MultiColumnFold",
+            {
+                "columns": columns,
+                "foldNameColumn": key_column,
+                "foldValueColumn": value_column,
+                "foldRemoveFoldedColumns": True,
+            },
+            [],
+        )
+    return (
+        "MultiColumnByPrefixFold",
+        {
+            "columnNamePattern": pattern,
+            "columnNameColumn": key_column,
+            "columnContentColumn": value_column,
+            "foldRemoveFoldedColumns": True,
+        },
+        [],
+    )
+
+
+def _geopoint_step(lat_column: str, lon_column: str, output_column="geopoint"):
+    return (
+        "GeoPointCreator",
+        {
+            "lat_column": lat_column,
+            "lon_column": lon_column,
+            "out_column": output_column,
+        },
+        [],
+    )
+
+
+def _geodistance_step(
+    from_column: str, to_column: str, output_column="geo_distance", unit="MILES"
+):
+    return (
+        "GeoDistanceProcessor",
+        {
+            "input1": from_column,
+            "input2": to_column,
+            "output": output_column,
+            "outputUnit": unit,
+            "compareTo": "COLUMN",
+        },
+        [],
+    )
 
 
 @app.command("add-formula")
@@ -680,6 +1008,7 @@ def add_formula(
     expr: str = typer.Option(
         ...,
         "--expr",
+        "--expression",
         "-e",
         help="GREL expression (e.g. 'upper(city)', 'price * 1.1', 'if(age>=18,\"adult\",\"minor\")')",
     ),
@@ -696,16 +1025,9 @@ def add_formula(
     Use instead of Python for computed columns, string transforms, and conditionals.
     Formula reference: skills/dataiku/references/formulas.md
     """
+    step_type, params, vcols = _formula_step(expr, column)
     _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "CreateColumnWithGREL",
-        {
-            "expression": expr,
-            "column": column,
-        },
-        at=at,
+        ctx, recipe_name, project, step_type, params, validate_cols=vcols, at=at
     )
 
 
@@ -722,7 +1044,11 @@ def add_rename(
     mappings: str = typer.Option(
         None,
         "--mappings",
-        help='Bulk renames as JSON: \'{"old1":"new1","old2":"new2"}\' or @file.json',
+        help=(
+            'Bulk renames: \'{"old1":"new1","old2":"new2"}\' (JSON or @file.json) '
+            "or shorthand 'old1:new1,old2:new2' (no JSON needed; names must not "
+            "contain ':' or ',')"
+        ),
     ),
     at: int | None = typer.Option(
         None, "--at", help="Insert at this index (0-based). Default: append to end."
@@ -738,10 +1064,43 @@ def add_rename(
             "Use --from/--to OR --mappings, not both.",
         )
     if mappings:
-        parsed = read_json_input(mappings)
+        # Accept the 'old:new,old2:new2' shorthand the CLI trains elsewhere
+        # (--sort-col Total:desc, --agg col:sum). Agents guess it here too;
+        # previously it died with a raw 'Invalid JSON ... Extra data'.
+        stripped = mappings.strip()
+        if not stripped.startswith(("{", "@", "-")):
+            pairs = [p for p in stripped.split(",") if p.strip()]
+            if pairs and all(p.count(":") == 1 for p in pairs):
+                parsed = dict(
+                    (k.strip(), v.strip()) for k, v in (p.split(":") for p in pairs)
+                )
+            else:
+                exit_with_error(
+                    f"Could not parse --mappings {mappings!r}.",
+                    details=[
+                        "Accepted forms:",
+                        "  shorthand: --mappings 'old1:new1,old2:new2'",
+                        '  JSON:      --mappings \'{"old1":"new1","old2":"new2"}\' (or @file.json)',
+                        "For a single rename use --from OLD --to NEW.",
+                        "Names containing ':' or ',' require the JSON form.",
+                    ],
+                )
+        else:
+            try:
+                parsed = read_json_input(mappings)
+            except Exception:
+                exit_with_error(
+                    f"--mappings is not valid JSON: {mappings!r}",
+                    details=[
+                        'Expected: \'{"old1":"new1","old2":"new2"}\' (or @file.json),',
+                        "or the shorthand 'old1:new1,old2:new2'.",
+                        "For a single rename use --from OLD --to NEW.",
+                    ],
+                )
         if not isinstance(parsed, dict):
             exit_with_error(
-                '--mappings must be a JSON object: \'{"old":"new"}\'',
+                '--mappings must be a JSON object: \'{"old":"new"}\' '
+                "or shorthand 'old:new,old2:new2'",
             )
         renamings = [{"from": k, "to": v} for k, v in parsed.items()]
     elif rename_from and rename_to:
@@ -754,15 +1113,9 @@ def add_rename(
                 'Bulk: dku recipe add-rename RECIPE --mappings \'{"old1":"new1","old2":"new2"}\' -P PROJ',
             ],
         )
-    sources = [r["from"] for r in renamings if r.get("from")]
+    step_type, params, vcols = _rename_step(renamings)
     _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "ColumnRenamer",
-        {"renamings": renamings},
-        validate_cols=[("--from", sources)],
-        at=at,
+        ctx, recipe_name, project, step_type, params, validate_cols=vcols, at=at
     )
 
 
@@ -779,6 +1132,8 @@ def add_filter_rows(
     formula: str = typer.Option(
         None,
         "--formula",
+        "--expr",
+        "--expression",
         help="GREL formula for expression-based filtering (e.g. 'price > 100')",
     ),
     action: str = typer.Option(
@@ -809,35 +1164,20 @@ def add_filter_rows(
             ],
         )
     if formula:
-        _warn_grel_date_units(formula)
+        step_type, params, vcols = _filter_rows_step(
+            formula=formula, action=action_upper
+        )
         _add_prepare_step(
-            ctx,
-            recipe_name,
-            project,
-            "FilterOnCustomFormula",
-            {
-                "expression": formula,
-                "action": action_upper,
-            },
-            at=at,
+            ctx, recipe_name, project, step_type, params, validate_cols=vcols, at=at
         )
     elif column and values:
+        step_type, params, vcols = _filter_rows_step(
+            column=column,
+            values=[v.strip() for v in values.split(",")],
+            action=action_upper,
+        )
         _add_prepare_step(
-            ctx,
-            recipe_name,
-            project,
-            "FilterOnValue",
-            {
-                "appliesTo": "SINGLE_COLUMN",
-                "columns": [column],
-                "values": [v.strip() for v in values.split(",")],
-                "action": action_upper,
-                "matchingMode": "FULL_STRING",
-                "normalizationMode": "EXACT",
-                "booleanMode": "AND",
-            },
-            validate_cols=[("--column", [column])],
-            at=at,
+            ctx, recipe_name, project, step_type, params, validate_cols=vcols, at=at
         )
     else:
         exit_with_error(
@@ -884,28 +1224,9 @@ def add_fill_empty(
             "Provide at least one column via --column (repeatable) or --columns CSV.",
         )
 
-    params: dict
-    if len(cols) == 1:
-        params = {
-            "appliesTo": "SINGLE_COLUMN",
-            "columns": cols,
-            "value": value,
-        }
-    else:
-        params = {
-            "appliesTo": "COLUMNS",
-            "columns": cols,
-            "value": value,
-        }
-
+    step_type, params, vcols = _fill_empty_step(cols, value)
     _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "FillEmptyWithValue",
-        params,
-        validate_cols=[("--column", cols)],
-        at=at,
+        ctx, recipe_name, project, step_type, params, validate_cols=vcols, at=at
     )
 
 
@@ -926,18 +1247,9 @@ def add_delete_columns(
     Use instead of df.drop(columns=[...]) in Python.
     """
     cols_list = [c.strip() for c in columns.split(",")]
+    step_type, params, vcols = _delete_columns_step(cols_list)
     _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "ColumnsSelector",
-        {
-            "appliesTo": "COLUMNS",
-            "columns": cols_list,
-            "keep": False,
-        },
-        validate_cols=[("--columns", cols_list)],
-        at=at,
+        ctx, recipe_name, project, step_type, params, validate_cols=vcols, at=at
     )
 
 
@@ -1006,23 +1318,8 @@ def add_reorder(
             "Provide at least one column via --column (repeatable) or --columns CSV.",
         )
 
-    applies_to = "SINGLE_COLUMN" if len(cols) == 1 else "COLUMNS"
-    params: dict = {
-        "appliesTo": applies_to,
-        "columns": cols,
-        "reorderAction": mode_upper,
-    }
-    if anchor:
-        params["referenceColumn"] = anchor
-
-    _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "ColumnReorder",
-        params,
-        at=at,
-    )
+    step_type, params, _vcols = _reorder_step(cols, mode_upper, anchor)
+    _add_prepare_step(ctx, recipe_name, project, step_type, params, at=at)
 
 
 @app.command("add-find-replace")
@@ -1037,27 +1334,23 @@ def add_find_replace(
         "--matching",
         help="Match mode: SUBSTRING (default), FULL_STRING (exact cell match), or PATTERN (regex).",
     ),
+    ignore_case: bool = typer.Option(
+        False,
+        "--ignore-case",
+        "-i",
+        help="Match case-insensitively (normalization: LOWERCASE — 'europe', "
+        "'EUROPE' and 'Europe' all match --find 'Europe').",
+    ),
     at: int | None = typer.Option(
         None, "--at", help="Insert at this index (0-based). Default: append to end."
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Add a find-and-replace step on a column."""
-    _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "FindReplace",
-        {
-            "appliesTo": "SINGLE_COLUMN",
-            "columns": [column],
-            "output": "",
-            "mapping": [{"from": find, "to": replace}],
-            "matching": matching.upper(),
-            "normalization": "EXACT",
-        },
-        at=at,
+    step_type, params, _vcols = _find_replace_step(
+        column, find, replace, matching.upper(), ignore_case
     )
+    _add_prepare_step(ctx, recipe_name, project, step_type, params, at=at)
 
 
 @app.command("add-fold")
@@ -1107,33 +1400,14 @@ def add_fold(
         )
     if columns:
         col_list = [c.strip() for c in columns.split(",")]
-        _add_prepare_step(
-            ctx,
-            recipe_name,
-            project,
-            "MultiColumnFold",
-            {
-                "columns": col_list,
-                "foldNameColumn": key_column,
-                "foldValueColumn": value_column,
-                "foldRemoveFoldedColumns": True,
-            },
-            at=at,
+        step_type, params, _vcols = _fold_step(
+            columns=col_list, key_column=key_column, value_column=value_column
         )
     else:
-        _add_prepare_step(
-            ctx,
-            recipe_name,
-            project,
-            "MultiColumnByPrefixFold",
-            {
-                "columnNamePattern": pattern,
-                "columnNameColumn": key_column,
-                "columnContentColumn": value_column,
-                "foldRemoveFoldedColumns": True,
-            },
-            at=at,
+        step_type, params, _vcols = _fold_step(
+            pattern=pattern, key_column=key_column, value_column=value_column
         )
+    _add_prepare_step(ctx, recipe_name, project, step_type, params, at=at)
 
 
 @app.command("add-geopoint")
@@ -1161,18 +1435,8 @@ def add_geopoint(
 
     Example: dku recipe add-geopoint prep1 --lat-column lat --lon-column lon -P PROJ
     """
-    _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "GeoPointCreator",
-        {
-            "lat_column": lat_column,
-            "lon_column": lon_column,
-            "out_column": output_column,
-        },
-        at=at,
-    )
+    step_type, params, _vcols = _geopoint_step(lat_column, lon_column, output_column)
+    _add_prepare_step(ctx, recipe_name, project, step_type, params, at=at)
 
 
 @app.command("add-geodistance")
@@ -1209,17 +1473,376 @@ def add_geodistance(
     """
     # --unit is a GeoDistanceUnitMiles click.Choice: invalid values are rejected
     # at parse time, so no body-level validation is needed.
-    _add_prepare_step(
-        ctx,
-        recipe_name,
-        project,
-        "GeoDistanceProcessor",
-        {
-            "input1": from_column,
-            "input2": to_column,
-            "output": output_column,
-            "outputUnit": unit.value,
-            "compareTo": "COLUMN",
-        },
-        at=at,
+    step_type, params, _vcols = _geodistance_step(
+        from_column, to_column, output_column, unit.value
     )
+    _add_prepare_step(ctx, recipe_name, project, step_type, params, at=at)
+
+
+# ---------------------------------------------------------------------------
+# apply-spec — build a full multi-step prepare recipe from one declarative spec
+# ---------------------------------------------------------------------------
+
+
+def _spec_err(i: int, op: str, msg: str, details: list[str] | None = None) -> None:
+    exit_with_error(f"Spec entry [{i}] (op '{op}'): {msg}", details=details)
+
+
+def _spec_columns(val) -> list[str]:
+    """Accept a CSV string or a JSON list; return a clean column-name list."""
+    if isinstance(val, str):
+        return [c.strip() for c in val.split(",") if c.strip()]
+    if isinstance(val, list):
+        return [str(c) for c in val]
+    return []
+
+
+def _resolve_spec_renamings(i: int, e: dict) -> list[dict]:
+    mappings = e.get("mappings")
+    if mappings is not None:
+        if isinstance(mappings, dict):
+            parsed = mappings
+        elif isinstance(mappings, str):
+            parsed = {}
+            for p in (p.strip() for p in mappings.split(",")):
+                if not p:
+                    continue
+                if p.count(":") != 1:
+                    _spec_err(
+                        i,
+                        "rename",
+                        f"could not parse 'mappings' shorthand {mappings!r}.",
+                        [
+                            'Object: {"mappings": {"old1":"new1","old2":"new2"}}',
+                            'Shorthand: {"mappings": "old1:new1,old2:new2"}',
+                            "Names containing ':' or ',' require the object form.",
+                        ],
+                    )
+                k, v = p.split(":")
+                parsed[k.strip()] = v.strip()
+        else:
+            _spec_err(
+                i, "rename", "'mappings' must be an object or 'old:new,...' shorthand."
+            )
+        return [{"from": k, "to": v} for k, v in parsed.items()]
+    rf, rt = e.get("from"), e.get("to")
+    if rf and rt:
+        return [{"from": rf, "to": rt}]
+    _spec_err(
+        i,
+        "rename",
+        "requires 'from'+'to' (single) or 'mappings' (bulk).",
+        [
+            '{"op":"rename","from":"old","to":"new"}',
+            '{"op":"rename","mappings":{"old1":"new1","old2":"new2"}}',
+        ],
+    )
+
+
+def _op_formula(i, e):
+    expr = e.get("expr") or e.get("expression")
+    column = e.get("column")
+    if not expr or not column:
+        _spec_err(
+            i,
+            "formula",
+            "requires 'expr' (or 'expression') and 'column'.",
+            ['{"op":"formula","column":"total","expr":"price*qty"}'],
+        )
+    return _formula_step(expr, column)
+
+
+def _op_rename(i, e):
+    return _rename_step(_resolve_spec_renamings(i, e))
+
+
+def _op_filter_rows(i, e):
+    formula = e.get("formula") or e.get("expr") or e.get("expression")
+    column, values = e.get("column"), e.get("values")
+    action = str(e.get("action", "KEEP_ROW")).upper()
+    if action not in {"KEEP_ROW", "REMOVE_ROW"}:
+        _spec_err(
+            i, "filter-rows", f"invalid action '{action}'. Use KEEP_ROW or REMOVE_ROW."
+        )
+    if formula:
+        return _filter_rows_step(formula=formula, action=action)
+    if column and values is not None:
+        return _filter_rows_step(
+            column=column, values=_spec_columns(values), action=action
+        )
+    _spec_err(
+        i,
+        "filter-rows",
+        "requires 'formula', or 'column' + 'values'.",
+        [
+            '{"op":"filter-rows","formula":"price > 100","action":"REMOVE_ROW"}',
+            '{"op":"filter-rows","column":"status","values":["active","pending"]}',
+        ],
+    )
+
+
+def _op_fill_empty(i, e):
+    cols = _spec_columns(
+        e.get("columns") if e.get("columns") is not None else e.get("column")
+    )
+    value = e.get("value")
+    if not cols or value is None:
+        _spec_err(
+            i,
+            "fill-empty",
+            "requires 'column'/'columns' and 'value'.",
+            ['{"op":"fill-empty","columns":["a","b"],"value":"0"}'],
+        )
+    return _fill_empty_step(cols, str(value))
+
+
+def _op_delete_columns(i, e):
+    cols = _spec_columns(
+        e.get("columns") if e.get("columns") is not None else e.get("column")
+    )
+    if not cols:
+        _spec_err(
+            i,
+            "delete-columns",
+            "requires 'columns'.",
+            ['{"op":"delete-columns","columns":["tmp","scratch"]}'],
+        )
+    return _delete_columns_step(cols)
+
+
+def _op_reorder(i, e):
+    cols = _spec_columns(
+        e.get("columns") if e.get("columns") is not None else e.get("column")
+    )
+    mode = str(e.get("mode", "")).upper()
+    anchor = e.get("anchor")
+    if not cols:
+        _spec_err(i, "reorder", "requires 'columns'.")
+    valid = {m.value for m in ReorderMode}
+    if mode not in valid:
+        _spec_err(
+            i, "reorder", f"invalid 'mode' {mode!r}. Valid: {', '.join(sorted(valid))}."
+        )
+    if mode in {"BEFORE_COLUMN", "AFTER_COLUMN"} and not anchor:
+        _spec_err(i, "reorder", f"mode {mode} requires 'anchor' (reference column).")
+    return _reorder_step(cols, mode, anchor)
+
+
+def _op_find_replace(i, e):
+    column, find, replace = e.get("column"), e.get("find"), e.get("replace")
+    if not column or find is None or replace is None:
+        _spec_err(
+            i,
+            "find-replace",
+            "requires 'column', 'find', and 'replace'.",
+            [
+                '{"op":"find-replace","column":"cat","find":"Electronics","replace":"Tech"}'
+            ],
+        )
+    matching = str(e.get("matching", "SUBSTRING")).upper()
+    return _find_replace_step(
+        column, find, replace, matching, bool(e.get("ignore_case", False))
+    )
+
+
+def _op_fold(i, e):
+    columns, pattern = e.get("columns"), e.get("pattern")
+    if columns and pattern:
+        _spec_err(i, "fold", "use 'columns' OR 'pattern', not both.")
+    if not columns and not pattern:
+        _spec_err(
+            i,
+            "fold",
+            "requires 'columns' or 'pattern'.",
+            [
+                '{"op":"fold","columns":["jan","feb"],"key_column":"month","value_column":"sales"}'
+            ],
+        )
+    key_column = e.get("key_column", "fold_key")
+    value_column = e.get("value_column", "fold_value")
+    if columns:
+        return _fold_step(
+            columns=_spec_columns(columns),
+            key_column=key_column,
+            value_column=value_column,
+        )
+    return _fold_step(pattern=pattern, key_column=key_column, value_column=value_column)
+
+
+def _op_geopoint(i, e):
+    lat = e.get("lat_column") or e.get("lat")
+    lon = e.get("lon_column") or e.get("lon")
+    if not lat or not lon:
+        _spec_err(
+            i,
+            "geopoint",
+            "requires 'lat_column' and 'lon_column'.",
+            ['{"op":"geopoint","lat_column":"lat","lon_column":"lon"}'],
+        )
+    return _geopoint_step(lat, lon, e.get("output_column", "geopoint"))
+
+
+def _op_geodistance(i, e):
+    fr = e.get("from_column") or e.get("from")
+    to = e.get("to_column") or e.get("to")
+    if not fr or not to:
+        _spec_err(
+            i,
+            "geodistance",
+            "requires 'from_column' and 'to_column'.",
+            [
+                '{"op":"geodistance","from_column":"origin","to_column":"dest","unit":"KILOMETERS"}'
+            ],
+        )
+    unit = str(e.get("unit", "MILES")).upper()
+    valid = {m.value for m in GeoDistanceUnitMiles}
+    if unit not in valid:
+        _spec_err(
+            i,
+            "geodistance",
+            f"invalid 'unit' {unit!r}. Valid: {', '.join(sorted(valid))}.",
+        )
+    return _geodistance_step(fr, to, e.get("output_column", "geo_distance"), unit)
+
+
+_SPEC_OPS = {
+    "formula": _op_formula,
+    "rename": _op_rename,
+    "filter-rows": _op_filter_rows,
+    "fill-empty": _op_fill_empty,
+    "delete-columns": _op_delete_columns,
+    "reorder": _op_reorder,
+    "find-replace": _op_find_replace,
+    "fold": _op_fold,
+    "geopoint": _op_geopoint,
+    "geodistance": _op_geodistance,
+}
+
+
+def _build_spec_entry(i: int, entry: dict):
+    """Resolve one spec entry to (step_type, params, validate_cols, name, disabled)."""
+    name = entry.get("name")
+    disabled = bool(entry.get("disabled", False))
+    op = entry.get("op")
+    if op is not None:
+        handler = _SPEC_OPS.get(op)
+        if handler is None:
+            _spec_err(
+                i,
+                str(op),
+                f"unknown op '{op}'.",
+                [
+                    f"Valid ops: {', '.join(sorted(_SPEC_OPS))}.",
+                    'Or a raw step: {"type": "<Processor>", "params": {...}}.',
+                ],
+            )
+        step_type, params, vcols = handler(i, entry)
+        return step_type, params, vcols, name, disabled
+    # Raw escape: any of the ~95 processors with no op shortcut.
+    step_type = entry.get("type")
+    if not step_type:
+        exit_with_error(
+            f"Spec entry [{i}] needs an 'op' (DSL) or a 'type'+'params' (raw step).",
+            details=[
+                f"Valid ops: {', '.join(sorted(_SPEC_OPS))}.",
+                'Raw: {"type": "DateParser", "params": {"inCol":"d","outCol":"d2",...}}',
+            ],
+        )
+    _validate_processor_type(step_type)
+    params = _normalize_raw_step(step_type, entry.get("params", {}))
+    return step_type, params, [], name, disabled
+
+
+def _spec_step_dict(i: int, entry, known: set[str] | None, recipe_name: str) -> dict:
+    """Resolve one spec entry to a step dict, emitting column warnings and
+    evolving `known` so a later step can reference an earlier batch step's
+    output column without a false 'unknown column' warning."""
+    if not isinstance(entry, dict):
+        exit_with_error(
+            f"Spec entry [{i}] must be a JSON object, got {type(entry).__name__}."
+        )
+    step_type, params, vcols, name, disabled = _build_spec_entry(i, entry)
+    for label, cols in vcols:
+        _warn_unknown_columns(
+            cols, known, label=f"[{i}] {label}", recipe_name=recipe_name
+        )
+    step_dict: dict = {"metaType": "PROCESSOR", "type": step_type, "params": params}
+    if name:
+        step_dict["name"] = name
+    if disabled:
+        step_dict["disabled"] = True
+    if known is not None and not disabled and isinstance(params, dict):
+        _replay_step_on_known(known, step_type, params)
+    return step_dict
+
+
+@app.command("apply-spec")
+def apply_spec(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Prepare recipe name"),
+    spec: str = typer.Argument(
+        ...,
+        help="Step spec: @file.json, '-' for stdin, or a literal JSON array.",
+    ),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Clear existing steps first (idempotent rebuild). Default: append.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Build a full multi-step prepare recipe from one declarative spec.
+
+    Replaces N separate add-* calls (each with its own --help lookup) with a
+    single artifact. Each array entry is either an `op` mirroring an add-*
+    shortcut (formula, rename, filter-rows, fill-empty, delete-columns,
+    reorder, find-replace, fold, geopoint, geodistance) or a raw
+    {"type","params"} step for any of the ~95 processors. Entries may carry an
+    optional "name" and "disabled": true. Steps append by default; --replace
+    clears existing steps first. The whole spec is validated before anything is
+    saved — a bad entry aborts with its index, leaving the recipe untouched.
+    """
+    project_key = resolve_project(project)
+    parsed = read_json_input(spec)
+    if not isinstance(parsed, list):
+        exit_with_error(
+            "apply-spec expects a JSON array of step entries.",
+            details=[
+                'Example: [{"op":"formula","column":"total","expr":"price*qty"},'
+                '{"op":"delete-columns","columns":["tmp"]}]',
+                "Pass the spec as @file.json, '-' for stdin, or a literal array.",
+            ],
+        )
+    if not parsed:
+        exit_with_error("Spec array is empty — provide at least one step entry.")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        steps = _ensure_steps_array(settings)
+        if replace:
+            steps.clear()
+        # Column visibility for warnings; evolves across the batch so a step
+        # that references a column an earlier batch step created is not flagged.
+        known = _prepare_known_columns(proj, settings)
+        built = [
+            _spec_step_dict(i, entry, known, recipe_name)
+            for i, entry in enumerate(parsed)
+        ]
+        any_expression = any(
+            isinstance(s["params"], dict) and "expression" in s["params"] for s in built
+        )
+        start = len(steps)
+        steps.extend(built)
+        settings.save()
+        end = start + len(built) - 1
+        success(
+            f"Applied {len(built)} step(s) to '{recipe_name}' "
+            f"({'replaced existing; ' if replace else ''}indices {start}–{end})"
+        )
+        if any_expression:
+            _warn_expression_status_errors(_recipe, recipe_name, project_key)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)

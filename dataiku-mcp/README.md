@@ -1,15 +1,17 @@
-# dataiku-mcp
+# dataiku-mcp — Dataiku Headless
 
-Local MCP packaging for Claude Code and Codex.
+Local MCP packaging for Claude Code and Codex — the headless DSS control plane
+for AI agents.
 
-It exposes one MCP tool, `dku_exec`, which runs the `dku` CLI as your DSS user.
-The plugin also installs the bundled Dataiku skills through the host agent's
-plugin/skill mechanism; skills are intentionally not exposed as an MCP tool.
+It exposes one MCP code-mode tool, `dku_exec`, which runs the `dku` CLI as your
+DSS user. The plugin also installs the bundled Dataiku Headless skills through
+the host agent's plugin/skill mechanism; skills are intentionally not exposed as
+an MCP tool.
 
 ## Install
 
 ```bash
-claude plugin marketplace add dataiku/dataiku-cli
+claude plugin marketplace add dataiku/dataiku-headless
 claude plugin install dataiku-mcp
 ```
 
@@ -26,7 +28,7 @@ if needed.
 This same directory is also a Codex plugin:
 
 ```bash
-codex plugin marketplace add dataiku/dataiku-cli
+codex plugin marketplace add dataiku/dataiku-headless
 codex plugin install dataiku-mcp
 ```
 
@@ -43,7 +45,7 @@ same guidance surface as the Claude/Codex plugins (see
 [`examples/opencode.json`](examples/opencode.json)):
 
 ```bash
-uv tool install --from git+https://github.com/dataiku/dataiku-cli.git "dku-cli[mcp]"
+uv tool install --from git+https://github.com/dataiku/dataiku-headless.git "dataiku-headless[mcp]"
 ```
 ```json
 {
@@ -101,7 +103,7 @@ make test-plugin
 
 ```bash
 # verify prerequisites and auth
-uvx --from <plugin>/wheels/dku_cli-*.whl --with "fastmcp>=2.0,<4" dku-mcp doctor
+uvx --from <plugin>/wheels/*.whl --with "fastmcp>=2.0,<4" dku-mcp doctor
 ```
 
 - **`uv: command not found`** → the launcher installs it; if your shell blocks
@@ -112,7 +114,7 @@ uvx --from <plugin>/wheels/dku_cli-*.whl --with "fastmcp>=2.0,<4" dku-mcp doctor
 
 The plugin bundles:
 
-- `wheels/`: the `dku-cli` wheel
+- `wheels/`: the Dataiku Headless wheel
 - `skills/`: the skill corpus installed by supported plugin hosts
 
 Refresh both after CLI or skill changes:

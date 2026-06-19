@@ -4,7 +4,7 @@ DSS has more visual geospatial capability than is obvious — try the visual pat
 
 **Contents:** Spatial tool→recipe table · Shapefile length/area · Make Grid focal smoothing · County/trade-area coverage · Fill polygon holes · PolyBuild + SpatialInfo · PolyBuild → exact GeoJSON · Point-to-polyline nearest distance · Fixed-width DMS parsing.
 
-DSS has more visual geospatial capability than is obvious — try the visual path before Python. **GeoPoint columns need `set-schema` to type `geopoint`/`geometry`** or downstream GeoJoin warns "no geospatial columns" → 0 matches.
+DSS has more visual geospatial capability than is obvious — try the visual path before Python. **GeoPoint columns need `set-schema` to type `geopoint`/`geometry`** or downstream GeoJoin warns "no geospatial columns" → 0 matches. **Syncing geopoint columns to PostgreSQL maps them to `geography`** — fails on a non-PostGIS instance (`type "geography" does not exist`); drop the geopoints before the sync and keep lon/lat/distance numerics.
 
 | Alteryx tool | Dataiku answer |
 |---|---|
@@ -74,7 +74,7 @@ Gotchas (each a real failure):
 - **Invalid input polygons throw** `GEOSException: side location conflict` — wrap every input in `make_valid()` (or `.buffer(0)`) before any boolean op.
 - **Embedded `.yxmd` spatial data is GeoJSON text** in `<c>` content (`value=` empty) — `shapely.geometry.shape(json.loads(cell))`.
 - **Validation is tolerance-based** — pct within ~0.1 on large overlaps; tiny slivers drift ~0.25 pct (vertex discretization) = match.
-- **Geo code env, container-mode NONE** — `../../dku-cli/playbooks/tabular-flow.md` § "Code env for a Python recipe".
+- **Geo code env, container-mode NONE** — env setup commands (`dku code-env set-packages` + `recipe set-env`): `tools-predictive-ml.md` § ARIMA code-env.
 
 ### Fill polygon holes (`PolySplit` Region + `SpatialObjCombine`)
 
@@ -96,7 +96,7 @@ def fill_holes(geojson_str):
 
 **Critical: Alteryx distinguishes exterior rings from holes by WINDING ORDER, not position.** Do NOT assume `coordinates[0]`=exterior, `[1:]`=holes — one part packs exteriors AND holes flat. Exteriors have **negative** `signed_area`, holes positive → keep `signed_area < 0`. "Keep `coordinates[0]`" silently corrupts any multi-region part.
 
-**"Coverage smoothing" variant** (`PolySplit(Region) → SpatialInfo(AreaMi) → Filter(!IsHole & AreaSqMi>=N) → SpatialObjCombine`): same ring-split + a per-ring **geodesic area threshold** dropping small slivers/islands (one shapely+pyproj recipe). Keep ring iff `signed_area < 0` AND `abs(Geod.polygon_area_perimeter(lons,lats)[0])/2589988.110336 >= N`; `unary_union(make_valid(Polygon(ring))…)` dissolves survivors. Filtering holes (not subtracting) FILLS them; the area filter smooths. Decode the `.yxdb` SpatialObj BLOB to per-ring POLYGON WKT (`tools-io-apps-ml.md` § YXDB files) and upload. A dissolved WKT cell can exceed 128 KB — `dku dataset head` needs the csv field-limit raise (`../../dku-cli/playbooks/tabular-flow.md`).
+**"Coverage smoothing" variant** (`PolySplit(Region) → SpatialInfo(AreaMi) → Filter(!IsHole & AreaSqMi>=N) → SpatialObjCombine`): same ring-split + a per-ring **geodesic area threshold** dropping small slivers/islands (one shapely+pyproj recipe). Keep ring iff `signed_area < 0` AND `abs(Geod.polygon_area_perimeter(lons,lats)[0])/2589988.110336 >= N`; `unary_union(make_valid(Polygon(ring))…)` dissolves survivors. Filtering holes (not subtracting) FILLS them; the area filter smooths. Decode the `.yxdb` SpatialObj BLOB to per-ring POLYGON WKT (`tools-io-apps-ml.md` § YXDB files) and upload. A dissolved WKT cell can exceed the CSV reader's 131072-byte per-field limit — `dku dataset head` errors on it (`overview.md` § TextInput extraction, mega-field).
 
 ### PolyBuild + SpatialInfo (sequence → length)
 
@@ -123,7 +123,7 @@ When the answer key is the **built geometry as exact coordinates**, the migratio
                         to_char("LAT"::numeric,'FM999990.000000') || ' ]', ', ' ORDER BY ord) ||
    ' ] }' AS "SpatialObj_Built"
    ```
-   `FM999990.000000` strips left padding, keeps exactly 6 decimals, prints a leading `0` for `|x|<1`; `-` is free. `NULL` `STORMTYPE` on bridge rows recovered with `MAX(...)`. Validate geometry by parsing both sides' coord arrays as floats (average column won't string-match). Standard `sql_query` mechanics — `../../dku-cli/playbooks/tabular-flow.md` § SQL recipes.
+   `FM999990.000000` strips left padding, keeps exactly 6 decimals, prints a leading `0` for `|x|<1`; `-` is free. `NULL` `STORMTYPE` on bridge rows recovered with `MAX(...)`. Validate geometry by parsing both sides' coord arrays as floats (average column won't string-match). Standard `sql_query` mechanics — `../../dku-cli/playbooks/tabular-flow.md` § SQL recipe.
 
 ### Point-to-polyline nearest distance (`Distance` ReturnNearest → built line)
 
@@ -165,4 +165,4 @@ def dec(d, m, h):
 
 - **Token-count filter beats row-index filter** — keep rows with ≥N coord tokens; no hardcoded line numbers.
 - **`DD MM.mH` is degrees + decimal-minutes + hemisphere** (`deg + min/60`, negate W/S) — do NOT treat `59.7` as fractional degree.
-- See `../../dku-cli/playbooks/tabular-flow.md` § "Fixed-width text upload" for landing such a file as one column.
+- Landing such a report as one column: tab separator + `quoteChar:""` upload-prep — `overview.md` § TextInput extraction (fixed-width / line-wrapped rules).

@@ -601,6 +601,8 @@ def test_recipe_create_fuzzy_join(patch_client):
                 "ds2",
                 "--output-ds",
                 "matched",
+                "--fuzzy-key",
+                "name",
                 "--project",
                 "PROJ1",
             ],
@@ -612,6 +614,81 @@ def test_recipe_create_fuzzy_join(patch_client):
         builder.with_existing_output.assert_called_once_with("matched")
     finally:
         patcher.stop()
+
+
+def test_recipe_create_fuzzy_join_condition_shape(patch_client):
+    """Conditions carry type=FUZZY + fuzzyMatchDesc; no ignored join-level keys.
+
+    Live-verified on DSS 14.6: join-level fuzzyJoinMethod/fuzzyJoinMaxDistance
+    are persisted but ignored (recipe silently does exact matching), and a
+    condition without type=FUZZY is dropped (silent cross join).
+    """
+    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-fuzzy-join",
+                "my_fuzzy",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "matched",
+                "--fuzzy-key",
+                "name=ref_name",
+                "--max-distance",
+                "2",
+                "--join-key",
+                "country",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        join = settings.obj_payload["joins"][0]
+        assert "fuzzyJoinMethod" not in join
+        assert "fuzzyJoinMaxDistance" not in join
+        assert join["conditionsMode"] == "AND"
+        fuzzy_cond, exact_cond = join["on"]
+        assert fuzzy_cond == {
+            "column1": {"name": "name", "table": 0},
+            "column2": {"name": "ref_name", "table": 1},
+            "type": "FUZZY",
+            "fuzzyMatchDesc": {"distanceType": "LEVENSHTEIN", "threshold": 2},
+        }
+        assert exact_cond["fuzzyMatchDesc"] == {
+            "distanceType": "EXACT",
+            "threshold": 0,
+        }
+        assert exact_cond["column1"]["name"] == "country"
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_fuzzy_join_requires_a_key(patch_client):
+    """No --fuzzy-key and no --join-key = empty conditions = silent cross join."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-fuzzy-join",
+            "my_fuzzy",
+            "-i",
+            "ds1",
+            "-i",
+            "ds2",
+            "--output-ds",
+            "out",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "--fuzzy-key or --join-key" in result.output
+    assert "cross-join" in result.output
 
 
 def test_recipe_create_fuzzy_join_requires_two_inputs(patch_client):
@@ -684,10 +761,12 @@ def test_recipe_create_fuzzy_join_with_fuzzy_key(patch_client):
         )
         assert result.exit_code == 0
         fj = settings.obj_payload["joins"][0]
-        assert fj["fuzzyJoinMethod"] == "LEVENSHTEIN"
-        assert fj["fuzzyJoinMaxDistance"] == 3
         assert len(fj["on"]) == 1
         assert fj["on"][0]["type"] == "FUZZY"
+        assert fj["on"][0]["fuzzyMatchDesc"] == {
+            "distanceType": "LEVENSHTEIN",
+            "threshold": 3,
+        }
         assert fj["on"][0]["column1"]["name"] == "name"
     finally:
         patcher.stop()
@@ -721,12 +800,12 @@ def test_recipe_create_fuzzy_join_with_exact_and_fuzzy_keys(patch_client):
         fj = settings.obj_payload["joins"][0]
         conditions = fj["on"]
         assert len(conditions) == 2
-        fuzzy_conds = [c for c in conditions if c["type"] == "FUZZY"]
-        eq_conds = [c for c in conditions if c["type"] == "EQ"]
-        assert len(fuzzy_conds) == 1
-        assert len(eq_conds) == 1
-        assert fuzzy_conds[0]["column1"]["name"] == "name"
-        assert eq_conds[0]["column1"]["name"] == "city"
+        # Every condition is type=FUZZY; exact keys use distanceType=EXACT.
+        assert all(c["type"] == "FUZZY" for c in conditions)
+        by_distance = {c["fuzzyMatchDesc"]["distanceType"]: c for c in conditions}
+        assert by_distance["LEVENSHTEIN"]["column1"]["name"] == "name"
+        assert by_distance["EXACT"]["column1"]["name"] == "city"
+        assert by_distance["EXACT"]["fuzzyMatchDesc"]["threshold"] == 0
     finally:
         patcher.stop()
 

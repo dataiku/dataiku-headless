@@ -114,7 +114,7 @@ def add_entity(
         attrs = []
         for c in columns:
             a = _default_attribute(
-                c["name"], c.get("type", "string"), c.get("description", "")
+                c["name"], c.get("type", "string"), _column_description(c)
             )
             if c["name"] in index_cols:
                 a["indexDistinctValues"] = True
@@ -122,9 +122,11 @@ def add_entity(
                 a["resolveInUserRequests"] = True
             attrs.append(a)
 
+        entity_description = description or (ds_def.get("shortDesc") or "").strip()
+
         entity = {
             "name": entity_name,
-            "description": description,
+            "description": entity_description,
             "tags": _split_csv(tags),
             "type": "DATASET",
             "datasetRef": f"{project_key}.{from_dataset}",
@@ -153,13 +155,211 @@ def add_entity(
 
         raw.setdefault("entities", []).append(entity)
         settings.save()
+        described, total = _described_ratio(attrs)
         success(
-            f"Added entity '{entity_name}' ({len(attrs)} attributes, PK {pk_cols}) to version '{version_id}' on '{sm_ref}'"
+            f"Added entity '{entity_name}' ({total} attributes, {described} "
+            f"described, PK {pk_cols}) to version '{version_id}' on '{sm_ref}'"
         )
+        if described == 0:
+            warn(
+                f"0/{total} columns on dataset '{from_dataset}' carry "
+                "descriptions — the text2SQL agent gets no column context. "
+                "Descriptions are snapshotted now; describing the dataset "
+                "later does NOT update this entity."
+            )
+            info(
+                f"Fix: dku dataset ai-describe {from_dataset} --save "
+                f"-P {project_key} && dku semantic-model sync-descriptions "
+                f"{sm_ref} -P {project_key}"
+            )
         info(
             "Run 'dku semantic-model update-index {} --wait -P {}' to populate distinct values.".format(
                 sm_ref, project_key
             )
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _sync_entity_descriptions(
+    client, project_key: str, ent: dict, overwrite: bool
+) -> tuple[int, int, int, str | None, str | None]:
+    """Copy descriptions from an entity's backing dataset onto the entity.
+
+    Returns (attrs_updated, entity_updated, available, coverage_line, failure).
+    `failure` is a reason string (entity left untouched) or None.
+    """
+    ent_name = ent.get("name", "?")
+    dataset_ref = ent.get("datasetRef", "")
+    if not dataset_ref:
+        return 0, 0, 0, None, f"{ent_name}: no datasetRef (manual entity?)"
+    ref_project, _, ref_dataset = dataset_ref.rpartition(".")
+    try:
+        proj = client.get_project(ref_project or project_key)
+        ds_def = proj.get_dataset(ref_dataset).get_definition()
+    except Exception as e:
+        return 0, 0, 0, None, f"{ent_name}: cannot read dataset '{dataset_ref}' ({e})"
+
+    col_desc = {
+        c["name"]: _column_description(c)
+        for c in ds_def.get("schema", {}).get("columns", [])
+    }
+    available = sum(1 for d in col_desc.values() if d)
+
+    attrs_updated = 0
+    ent_attrs = ent.get("attributes", [])
+    before, total = _described_ratio(ent_attrs)
+    for attr in ent_attrs:
+        if attr.get("type") not in (None, "COLUMN"):
+            continue
+        desc = col_desc.get(attr.get("column") or attr.get("name"), "")
+        writable = overwrite or not attr.get("description")
+        if desc and writable and attr.get("description") != desc:
+            attr["description"] = desc
+            attrs_updated += 1
+
+    entity_updated = 0
+    short_desc = (ds_def.get("shortDesc") or "").strip()
+    writable = overwrite or not ent.get("description")
+    if short_desc and writable and ent.get("description") != short_desc:
+        ent["description"] = short_desc
+        entity_updated = 1
+
+    after, _ = _described_ratio(ent_attrs)
+    line = f"{ent_name}: {before}->{after} of {total} attributes described"
+    if not available:
+        line += f" (dataset '{ref_dataset}' has no column descriptions)"
+    return attrs_updated, entity_updated, available, line, None
+
+
+def _report_sync_results(
+    *,
+    version_id: str,
+    sm_ref: str,
+    project_key: str,
+    targets: list[dict],
+    attrs_updated: int,
+    entities_updated: int,
+    available_total: int,
+    coverage: list[str],
+    failures: list[str],
+) -> None:
+    """Report sync outcome; exit non-zero on failures or nothing-to-copy."""
+    success(
+        f"Synced descriptions on version '{version_id}': {attrs_updated} "
+        f"attribute(s), {entities_updated} entity description(s) updated"
+    )
+    for line in coverage:
+        info(f"  {line}")
+
+    if failures:
+        exit_with_error(
+            f"{len(failures)} entity(ies) could not be synced "
+            "(changes for the others are saved):",
+            details=[
+                *failures,
+                f"List datasets: dku dataset list -P {project_key}",
+            ],
+        )
+    if available_total == 0:
+        describe_cmds = " && ".join(
+            "dku dataset ai-describe "
+            f"{e.get('datasetRef', '').rpartition('.')[2]} --save -P {project_key}"
+            for e in targets
+            if e.get("datasetRef")
+        )
+        exit_with_error(
+            "No column descriptions exist on any backing dataset — nothing to copy.",
+            details=[
+                f"Generate them first: {describe_cmds}",
+                "Then re-run: dku semantic-model sync-descriptions "
+                f"{sm_ref} -P {project_key}",
+            ],
+        )
+
+
+@app.command("sync-descriptions")
+def sync_descriptions(
+    ctx: typer.Context,
+    sm_ref: str = typer.Argument(help="Semantic model ID or name"),
+    entity: str = typer.Option(
+        None, "--entity", "-e", help="Sync only this entity (default: all entities)"
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Replace existing descriptions too (default: only fill empty ones)",
+    ),
+    version: str | None = typer.Option(
+        None, "--version", "-v", help="Version ID (default: active version)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Backfill entity and attribute descriptions from backing dataset schemas.
+
+    Entities snapshot the dataset schema at add-entity time — descriptions
+    added to the dataset afterwards (via `dku dataset ai-describe --save` or
+    `set-column-description`) do not propagate. This command re-reads each
+    backing dataset and copies column descriptions onto attributes, and the
+    dataset's short description onto the entity. Nothing is ever blanked;
+    existing descriptions are kept unless --overwrite.
+
+    Typical flow:
+      dku dataset ai-describe DS --save -P PROJ
+      dku semantic-model sync-descriptions SM -P PROJ
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        sm = resolve_semantic_model(proj, sm_ref)
+        version_id = _resolve_version_id(sm, version)
+        settings, raw = _load_version_settings(sm, version_id)
+
+        if entity:
+            targets = [_find_entity(raw, entity)]
+        else:
+            targets = raw.get("entities", [])
+        if not targets:
+            exit_with_error(
+                f"No entities on version '{version_id}' — nothing to sync.",
+                details=[
+                    "Add one: dku semantic-model add-entity "
+                    f"{sm_ref} --from-dataset DS -P {project_key}",
+                ],
+            )
+
+        attrs_updated = 0
+        entities_updated = 0
+        available_total = 0
+        failures: list[str] = []
+        coverage: list[str] = []
+        for ent in targets:
+            a_upd, e_upd, avail, line, failure = _sync_entity_descriptions(
+                client, project_key, ent, overwrite
+            )
+            if failure:
+                failures.append(failure)
+                continue
+            attrs_updated += a_upd
+            entities_updated += e_upd
+            available_total += avail
+            coverage.append(line)
+
+        if attrs_updated or entities_updated:
+            settings.save()
+        _report_sync_results(
+            version_id=version_id,
+            sm_ref=sm_ref,
+            project_key=project_key,
+            targets=targets,
+            attrs_updated=attrs_updated,
+            entities_updated=entities_updated,
+            available_total=available_total,
+            coverage=coverage,
+            failures=failures,
         )
     except SystemExit:
         raise
@@ -431,18 +631,20 @@ def list_entities(
         data = []
         for e in raw.get("entities", []):
             pk_attrs = e.get("primaryKey", {}).get("attributes", [])
+            described, total = _described_ratio(e.get("attributes", []))
             data.append(
                 {
                     "name": e.get("name", ""),
                     "dataset": e.get("datasetRef", ""),
-                    "attributes": str(len(e.get("attributes", []))),
+                    "attributes": str(total),
+                    "described": f"{described}/{total}",
                     "primary_key": ",".join(pk_attrs),
                 }
             )
 
         render(
             data,
-            ["name", "dataset", "attributes", "primary_key"],
+            ["name", "dataset", "attributes", "described", "primary_key"],
             output_format=output,
             title=f"Entities (version {version_id})",
         )

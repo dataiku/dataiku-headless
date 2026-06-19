@@ -7,12 +7,13 @@ import typer
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    probe_knowledge_bank,
     read_json_input,
     resolve_knowledge_bank,
     resolve_project,
 )
 from dku_cli.output import (
-    hint,
+    emit_created,
     info,
     render,
     render_raw,
@@ -153,9 +154,12 @@ def create(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        proj.create_knowledge_bank(name, vector_store_type, embedding_llm)
-        success(f"Created knowledge bank '{name}'")
-        hint(f"dku knowledge get {name} -P {project_key}")
+        kb = proj.create_knowledge_bank(name, vector_store_type, embedding_llm)
+        emit_created(
+            {"id": kb.id, "name": name},
+            message=f"Created knowledge bank '{name}' (id={kb.id})",
+            next_command=f"dku knowledge get {kb.id} -P {project_key}",
+        )
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
             warn(
@@ -246,14 +250,49 @@ def build(
                     f"Knowledge bank '{kb_id}' cannot be built — no data source is configured.",
                     details=[
                         "Knowledge banks require a document source before building.",
-                        f"Add one with: dku recipe create-embed RECIPE_NAME --input DS --output-kb {kb_id} --embedding-llm LLM_ID --embed-column COLUMN -P {project_key}",
-                        f"Find embedding models with: dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P {project_key}",
+                        "Add one with: dku recipe create-embed RECIPE_NAME "
+                        f"--input DS --output-kb {kb_id} --embedding-llm LLM_ID "
+                        f"--embed-column COLUMN -P {project_key}",
+                        "Find embedding models with: dku llm list "
+                        f"--purpose TEXT_EMBEDDING_EXTRACTION -P {project_key}",
                     ],
                 )
             raise
 
         if wait:
-            success(f"Knowledge bank '{kb_id}' build completed")
+            count, probe_err = probe_knowledge_bank(kb)
+            if probe_err is not None:
+                success(f"Knowledge bank '{kb_id}' build completed")
+                warn(
+                    "Could not verify indexed content; the KB search probe "
+                    f"failed: {probe_err}"
+                )
+                info(
+                    f"Re-check directly: dku knowledge search {kb_id} "
+                    f"-q 'test' -P {project_key}"
+                )
+            elif count == 0:
+                warn(
+                    f"Knowledge bank '{kb_id}' build job completed but the KB returned no "
+                    "documents — it has no indexed content."
+                )
+                info(
+                    "A build job reporting DONE does not populate the KB by itself: the "
+                    "embed recipe must run and write rows into it."
+                )
+                info(
+                    "Run the embed recipe: "
+                    f"dku recipe run EMBED_RECIPE --wait -P {project_key} "
+                    f"(find it: dku --format json flow list -P {project_key})"
+                )
+                info(
+                    f"Then confirm content: dku knowledge search {kb_id} "
+                    f"-q 'test' -P {project_key}"
+                )
+            else:
+                success(
+                    f"Knowledge bank '{kb_id}' build completed ({count}+ documents indexed)"
+                )
         else:
             success(f"Knowledge bank '{kb_id}' build started")
             info("Use --wait to wait for completion")

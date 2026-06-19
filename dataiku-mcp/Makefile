@@ -3,7 +3,7 @@ REPO_ROOT := $(abspath ..)
 .PHONY: help bundle clean
 
 help:
-	@echo "bundle         Build the dku-cli wheel"
+	@echo "bundle         Build the Dataiku Headless wheel"
 	@echo "clean          Remove vendored wheels"
 
 bundle:

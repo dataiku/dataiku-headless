@@ -1,4 +1,4 @@
-# Contributing to dku-cli
+# Contributing to Dataiku Headless
 
 Thanks for your interest in contributing!
 
@@ -9,8 +9,8 @@ We expect everyone participating in this project to be respectful, inclusive, an
 ## Quick Start
 
 ```bash
-git clone https://github.com/dataiku/dataiku-cli.git
-cd dataiku-cli
+git clone https://github.com/dataiku/dataiku-headless.git
+cd dataiku-headless
 uv sync
 uv run dku --help
 uv run pytest -v
@@ -18,7 +18,7 @@ uv run pytest -v
 
 ## Development
 
-- Python 3.12+ required, [uv](https://docs.astral.sh/uv/) recommended
+- Python 3.10+ required, [uv](https://docs.astral.sh/uv/) recommended
 - Private repo — not on PyPI. Install from local clone only.
 - Tests mock `DSSClient` — no real DSS instance needed
 - All formatting goes through `output.py` — command modules never import `rich` directly
@@ -30,11 +30,11 @@ uv run pytest -v
 
 Before opening a new issue:
 1. Check you're on the latest version.
-2. Search existing issues (open and closed) at [github.com/dataiku/dataiku-cli/issues](https://github.com/dataiku/dataiku-cli/issues).
+2. Search existing issues (open and closed) at [github.com/dataiku/dataiku-headless/issues](https://github.com/dataiku/dataiku-headless/issues).
 3. If the bug involves a security risk, do **not** file a public issue — see [Security issues](#security-issues).
 
 When opening a bug report, please use our [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) and include:
-- **dku-cli version** (`dku --version`).
+- **Dataiku Headless version** (`dku --version`).
 - **Python version** and **OS**.
 - **DSS version**.
 - **Reproduction steps** from a clean install.
@@ -42,7 +42,7 @@ When opening a bug report, please use our [bug report template](.github/ISSUE_TE
 
 ### Suggesting enhancements
 
-Feature requests should be opened in [GitHub Discussions](https://github.com/dataiku/dataiku-cli/discussions/new/choose), not Issues. Describe the problem you're trying to solve, not just the solution you have in mind.
+Feature requests should be opened in [GitHub Discussions](https://github.com/dataiku/dataiku-headless/discussions/new/choose), not Issues. Describe the problem you're trying to solve, not just the solution you have in mind.
 
 ### Your first code contribution
 

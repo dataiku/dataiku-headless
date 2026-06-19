@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # ruff: noqa: F403,F405
-from dku_cli.enums import ContainerMode, EnvMode
+from dku_cli.enums import ContainerMode, EngineType, EnvMode
 
 from ._common import *
 
@@ -237,6 +237,63 @@ def set_definition(
         handle_api_error(e)
 
 
+@app.command("set-engine")
+def set_engine(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    engine: EngineType = typer.Option(
+        ...,
+        "--engine",
+        case_sensitive=False,
+        help=(
+            "Execution engine: DSS, SQL, SPARK_SQL, IMPALA, HIVE. "
+            "Sets payload.engineType (the top-level engine selector)."
+        ),
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Change a visual recipe's execution engine after creation.
+
+    When DSS auto-selects a broken engine (e.g. SPARK on an instance whose
+    Spark integration is down) or a FULL OUTER join fails on the DSS engine,
+    switch with one flag instead of payload surgery or delete-and-recreate:
+
+      dku recipe set-engine my_join --engine SQL -P PROJ
+
+    Note: --engine SQL requires the recipe's inputs/outputs to live on a SQL
+    connection.
+    """
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
+        settings = recipe.get_settings()
+        if _is_text_payload_recipe(settings):
+            rtype = settings.get_recipe_raw_definition().get("type", "")
+            exit_with_error(
+                f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
+                "engineType applies to visual recipes only.",
+                details=[
+                    "Code recipes run where their container/env selection says:",
+                    f"  dku recipe set-env {recipe_name} --container-mode NONE -P {project_key}",
+                ],
+            )
+        payload = _get_recipe_payload(settings)
+        previous = payload.get("engineType")
+        payload["engineType"] = engine.value
+        settings.save()
+        success(f"Engine for '{recipe_name}': {previous or '(auto)'} -> {engine.value}")
+        from dku_cli.output import hint
+
+        hint(f"dku recipe run {recipe_name} -P {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command("set-description")
 def set_description(
     ctx: typer.Context,
@@ -267,6 +324,59 @@ def set_description(
         raw["description"] = text
         settings.save()
         success(f"Updated description for recipe '{recipe_name}'")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("set-metadata")
+def set_metadata(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    description: str | None = typer.Option(
+        None,
+        "--description",
+        "-d",
+        help="Long description: literal string, @file.md, or '-' for stdin.",
+    ),
+    short_desc: str | None = typer.Option(
+        None, "--short-desc", help="Short description (shown on the flow/recipe list)"
+    ),
+    tags: str | None = typer.Option(
+        None, "--tags", help="Comma-separated tags (replaces existing)"
+    ),
+) -> None:
+    """Update recipe short description, description, and/or tags.
+
+    Targeted update, no JSON needed — parity with `dataset set-metadata`.
+    shortDesc/description live on the recipe definition; tags go through the
+    metadata endpoint.
+    """
+    if description is None and short_desc is None and tags is None:
+        exit_with_error(
+            "Provide --description, --short-desc, and/or --tags to update.",
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        recipe = _get_recipe_or_exit(
+            client.get_project(project_key), recipe_name, project_key
+        )
+        if description is not None or short_desc is not None:
+            settings = recipe.get_settings()
+            raw = settings.get_recipe_raw_definition()
+            if description is not None:
+                raw["description"] = read_text_input(description)
+            if short_desc is not None:
+                raw["shortDesc"] = short_desc
+            settings.save()
+        if tags is not None:
+            meta = recipe.get_metadata()
+            meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+            recipe.set_metadata(meta)
+        success(f"Updated metadata for recipe '{recipe_name}'")
     except typer.Exit:
         raise
     except Exception as e:
@@ -481,8 +591,8 @@ def _normalize_visual_payload(settings) -> dict:
 def set_settings_cmd(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    settings_json: str = typer.Option(
-        ...,
+    settings_json: str | None = typer.Option(
+        None,
         "--settings",
         "-s",
         "--definition",
@@ -506,6 +616,19 @@ def set_settings_cmd(
     to preserve existing nested configuration.
     """
     project_key = resolve_project(project)
+    if settings_json is None:
+        if sys.stdin.isatty():
+            exit_with_error(
+                "Provide settings JSON with --settings/-s, or pipe JSON on stdin.",
+                details=[
+                    f"dku --format json recipe get-settings {recipe_name} "
+                    f"-P {project_key} | jq '...' | "
+                    f"dku recipe set-settings {recipe_name} -P {project_key}",
+                    f"dku recipe set-settings {recipe_name} "
+                    f"-s @settings.json -P {project_key}",
+                ],
+            )
+        settings_json = "-"
     try:
         client = get_client_from_ctx(ctx)
         recipe = _get_recipe_or_exit(

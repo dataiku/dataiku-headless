@@ -7,6 +7,7 @@ from typing import List, Optional
 
 import typer
 
+from dku_cli.enums import AuditBucket
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
@@ -29,7 +30,7 @@ def list_projects(
     fields: str = typer.Option(
         None,
         "--fields",
-        help="Comma-separated fields to include (key,name,short_desc)",
+        help="Comma-separated fields to include (projectKey,name,shortDesc)",
     ),
 ) -> None:
     """List all projects."""
@@ -41,24 +42,33 @@ def list_projects(
         # agents wrapping calls in `timeout` give up). Verified live: the list
         # payload populates `name` and `shortDesc` directly, so no per-project
         # get_metadata() call is needed for names to render.
+        # Field names ARE the API nouns (projectKey/name/shortDesc) — agents
+        # pipe to `jq .[].projectKey` because every other surface says
+        # projectKey; a CLI-private rename ('key') made that guess fail.
         projects = client.list_projects()
         data = [
             {
-                "key": p["projectKey"],
+                "projectKey": p["projectKey"],
                 "name": p.get("name", p["projectKey"]),
-                "short_desc": p.get("shortDesc", ""),
+                "shortDesc": p.get("shortDesc", ""),
             }
             for p in projects
         ]
 
-        data, keys = filter_fields(data, ["key", "name", "short_desc"], fields)
+        # Legacy --fields names from the pre-noun shape keep working.
+        if fields:
+            legacy = {"key": "projectKey", "short_desc": "shortDesc"}
+            fields = ",".join(
+                legacy.get(f.strip(), f.strip()) for f in fields.split(",")
+            )
+        data, keys = filter_fields(data, ["projectKey", "name", "shortDesc"], fields)
 
         render(
             data,
             keys,
             output_format=output,
             title="Projects",
-            headers={"key": "KEY", "name": "NAME", "short_desc": "DESCRIPTION"},
+            headers={"projectKey": "KEY", "name": "NAME", "shortDesc": "DESCRIPTION"},
         )
     except Exception as e:
         handle_api_error(e)
@@ -653,7 +663,8 @@ def duplicate(
 @app.command("set-metadata")
 def set_metadata(
     ctx: typer.Context,
-    project_key: str = typer.Argument(help="Project key"),
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help="Project key"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="New display name"),
     description: Optional[str] = typer.Option(
         None, "--description", "-d", help="New short description"
@@ -666,6 +677,7 @@ def set_metadata(
     if name is None and description is None and tags is None:
         error("Provide --name, --description, and/or --tags to update.")
         raise typer.Exit(1)
+    project_key = resolve_project(project_key or project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -704,7 +716,10 @@ def set_metadata(
                     mismatches.append(f"description='{got}' (sent '{description}')")
             if tags is not None:
                 sent_tags = [t.strip() for t in tags.split(",") if t.strip()]
-                if (after.get("tags") or []) != sent_tags:
+                # DSS re-orders tags on read — compare as SETS. Order-only
+                # differences aborted whole metadata batches (recurring:
+                # PENDING 2026-05-12 cantines + dynamic-Excel entries).
+                if set(after.get("tags") or []) != set(sent_tags):
                     mismatches.append(
                         f"tags={after.get('tags', [])} (sent {sent_tags})"
                     )
@@ -754,7 +769,13 @@ def set_variables(
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     set_var: Optional[List[str]] = typer.Option(
-        None, "--set", help="Set standard variable (key=value)"
+        None,
+        "--set",
+        help=(
+            "Set standard variable (key=value). Values are stored as STRINGS "
+            "('--set flag=true' lands as 'true'); for typed values (bool/"
+            "number/object) use --definition with JSON."
+        ),
     ),
     definition: Optional[str] = typer.Option(
         None,
@@ -1238,3 +1259,81 @@ def timeline(
         raise
     except Exception as e:
         handle_api_error(e, project_key=key)
+
+
+@app.command()
+def audit(
+    ctx: typer.Context,
+    project_key: str = typer.Argument(None, help="Project key (or use -P)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    bucket: list[AuditBucket] = typer.Option(
+        None,
+        "--bucket",
+        case_sensitive=False,
+        help="Run only these check buckets (repeatable). Skipping a bucket skips "
+        "its work — drop 'evidence' to avoid the flow check and metric reads.",
+    ),
+    contract: str = typer.Option(
+        None,
+        "--contract",
+        help="Expected-output contract for value parity: literal JSON, "
+        "@file.json, or - for stdin.",
+    ),
+) -> None:
+    """Audit whether an SME could open this project cold, follow the flow, and trust it.
+
+    A read-only finish gate (reads cached metrics — it never writes to DSS). Every
+    failing check names the offending objects and prints the exact `dku ...`
+    command to fix them. The gate fails (exit 1) only on fail-severity checks;
+    warnings are advisory and always shown but never block. Read the full verdict
+    (score + inventory) with `--format json`.
+
+    Buckets: structure (orphans, references, zones), documentation (dataset/
+    recipe/zone/column descriptions, wiki purpose+sources headings), evidence
+    (built outputs, blank/type smells, flow check), maintainability
+    (visual-first, naming). Use --bucket to run a subset and --contract to
+    assert value expectations.
+    """
+    from dku_cli.commands import _project_audit
+
+    key = resolve_project(project_key or project)
+    output = resolve_output_format()
+    try:
+        contract_spec = _project_audit.load_json_arg(contract)
+    except (OSError, ValueError) as e:
+        exit_with_error(f"Could not read --contract: {e}", status=2)
+    buckets = {b.lower() for b in bucket} if bucket else None
+    if contract_spec and buckets is not None and "evidence" not in buckets:
+        exit_with_error(
+            "--contract runs evidence checks; remove --bucket or include "
+            "--bucket evidence.",
+            status=2,
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(key)
+        payload = _project_audit.run_audit(
+            proj,
+            key,
+            contract=contract_spec,
+            buckets=buckets,
+        )
+    except Exception as e:
+        handle_api_error(e, project_key=key)
+        return
+
+    if output == "json":
+        render_raw(payload, output_format="json")
+    else:
+        problems = [c for c in payload["checks"] if c["status"] != "pass"]
+        render(
+            problems,
+            ["id", "status", "bucket", "detail", "fix"],
+            output_format=output,
+            title=f"{payload['summary']} (score={payload['score']}) — {key}",
+        )
+        if not problems:
+            info("All checks passed — the project reads as reviewable.")
+
+    if not payload["passed"]:
+        raise typer.Exit(1)

@@ -72,6 +72,7 @@ def test_render_raw_default_is_compact(capsys):
 
 
 def test_fields_filtering_via_cli(patch_client):
+    # Legacy --fields name 'key' maps to the API noun 'projectKey'.
     result = runner.invoke(
         app,
         ["--format", "json", "project", "list", "--fields", "key"],
@@ -79,4 +80,4 @@ def test_fields_filtering_via_cli(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed
-    assert all(set(row.keys()) == {"key"} for row in parsed)
+    assert all(set(row.keys()) == {"projectKey"} for row in parsed)

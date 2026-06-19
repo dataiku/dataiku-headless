@@ -500,6 +500,7 @@ def list_folders(
 
 
 @app.command()
+@app.command("list-files", hidden=True)  # alias — common agent guess for `ls`
 def ls(
     ctx: typer.Context,
     folder_ref: str = typer.Argument(help="Managed folder ID or name"),

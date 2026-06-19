@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import click
 import typer
 from typer.main import get_command
 from typer.testing import CliRunner
@@ -34,6 +35,14 @@ def test_root_help_lists_groups_and_global_options():
     assert "options" in spec["commands"]["whoami"]
     # global options surface only at the root
     assert any(o["opts"] == ["--url"] for o in spec["global_options"])
+
+
+def test_root_help_skips_hidden_groups():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    spec = json.loads(result.stdout)
+    assert "managedfolder" not in spec["groups"]
+    assert "managed-folder" not in spec["groups"]
 
 
 def test_bare_invocation_prints_root_spec():
@@ -111,7 +120,7 @@ def test_help_text_has_no_rich_markup():
     spec = json.loads(result.stdout)
     assert "[blue bold]" not in spec["help"]
     assert "[/blue bold]" not in spec["help"]
-    assert "Developer CLI" in spec["help"]
+    assert "Dataiku Headless" in spec["help"]
 
 
 def test_help_is_compact():
@@ -190,6 +199,17 @@ def test_usage_string_skips_hidden_required_option():
     sig = spec._usage_string(_click_command(build))
     assert "--req" in sig
     assert "--sneaky" not in sig
+
+
+def test_group_detail_skips_hidden_child_commands():
+    group = click.Group("g")
+    group.add_command(click.Command("visible", help="Visible command"))
+    group.add_command(click.Command("secret", help="Hidden command", hidden=True))
+
+    detail = spec._group_detail(group)
+
+    assert "visible" in detail["commands"]
+    assert "secret" not in detail["commands"]
 
 
 # --- idx 17: default serialization still works after dead-guard removal ------

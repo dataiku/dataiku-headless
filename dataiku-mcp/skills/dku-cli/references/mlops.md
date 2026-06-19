@@ -5,8 +5,31 @@ Durable shapes and payloads for the LLM Mesh / MLOps surface. Exact CLI flags:
 
 ## Model lifecycle (monitor → retrain → deploy → serve)
 
-Visual ML training and saved-model versioning are **UI/`dataikuapi`-only** (no `dku`
-verbs). These are the non-obvious `dataikuapi` call shapes.
+Training, configuration, and thresholds have `dku ml` / `dku model` verbs (see
+`playbooks/analytics-apps.md`). The flows below are the non-obvious `dataikuapi`
+call shapes for what the CLI does not cover (drift gates, MLflow import, API node).
+
+### ML-task settings payload shapes (when editing raw settings)
+
+`dku ml set-params / set-split / set-feature` handle these correctly; if you must
+edit raw settings via `dataikuapi`, the shapes (verified DSS 14.6):
+
+- **Prediction hyperparameters are grid dicts** `{"values": [...], "limit": {...},
+  "range": {...}, "gridMode": ...}`. Replace ONLY `values`; rebuilding the dict
+  drops `limit` and training fails later with `dimension.limit is null` (save
+  succeeds — the error surfaces at TRAIN time).
+- **Clustering hyperparameters are plain JSON arrays** (`kmeans_clustering.k:
+  [3, 4]`) — a different shape from prediction; writing a string or grid dict
+  fails the save with `Expected BEGIN_ARRAY`.
+- **Tree-depth grids require values ≥ 1** — DSS visual RF/GBT has NO "unlimited";
+  use a high cap (30) to mirror sklearn `None` / KNIME `maxLevels: -1`.
+- **`per_feature[col].rescaling` is a string enum** (`"NONE" | "AVGSTD" |
+  "MINMAX"`), not an object — `{"method": "NONE"}` fails the save.
+- **`splitParams.ssdTrainingRatio`** is the train fraction (default 0.8);
+  clustering tasks have no `splitParams` at all.
+- **DSS auto-optimizes the binary classification threshold at deploy** (metric-
+  optimal, often ≈0.1 — NOT 0.5). `userMeta.activeClassifierThreshold` on the
+  version details is the live cut-off; set via `dku model set-threshold`.
 
 **Performance-drift check** — compare the active version's training metric against
 freshly-scored data, gate on a threshold:

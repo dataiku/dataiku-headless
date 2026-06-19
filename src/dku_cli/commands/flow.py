@@ -1,4 +1,4 @@
-"""dku flow — graph, zones, create-zone, set-zone, move, propagate, check, sources, successors."""
+"""dku flow — graph, zones, create-zone, set-zone, ai-describe-zone, move, propagate, check, sources, successors."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from dku_cli.enums import MoveItemType
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    read_text_input,
     resolve_folder,
     resolve_knowledge_bank,
     resolve_project,
@@ -121,7 +122,8 @@ def zones(
 
         data = []
         for z in zone_list:
-            raw_items = getattr(z, "_raw", {}).get("items", []) or []
+            raw = getattr(z, "_raw", {}) or {}
+            raw_items = raw.get("items", []) or []
             items = [
                 {
                     "objectType": i.get("objectType"),
@@ -145,20 +147,23 @@ def zones(
                 {
                     "id": z.id,
                     "name": z.name,
+                    "shortDesc": raw.get("shortDesc", ""),
+                    "description": raw.get("description", ""),
                     "itemCount": len(items),
                     "itemsDerived": derived,
                     "items": items,
                 }
             )
 
-        # Default view only shows id/name/itemCount; items[] shipped via
-        # --format json through render_raw to preserve the nested list.
+        # Default view only shows id/name/shortDesc/itemCount; items[] and the
+        # long description ship via --format json through render_raw to
+        # preserve the nested list.
         if output == "json":
             render_raw(data, output)
         else:
             render(
                 data,
-                ["id", "name", "itemCount"],
+                ["id", "name", "shortDesc", "itemCount"],
                 output_format=output,
                 title=f"Flow Zones ({project_key})",
             )
@@ -196,6 +201,8 @@ def _zone_noun_alias(ctx: typer.Context) -> None:
         "set": "set-zone",
         "update": "set-zone",
         "rename": "set-zone --name",
+        "describe": "set-zone --short-desc",
+        "ai-describe": "ai-describe-zone",
     }
     suggestion = rewrites.get(verb)
     error("`dku flow zone <verb>` is not a command — zone verbs live at the flow root.")
@@ -205,9 +212,28 @@ def _zone_noun_alias(ctx: typer.Context) -> None:
     else:
         info(
             "Available zone verbs: `dku flow create-zone NAME`, `dku flow zones` (list), "
-            "`dku flow set-zone REF [--name X] [--color #...]`, `dku flow delete-zone REF [--force]`."
+            "`dku flow set-zone REF [--name X] [--color #...] [--short-desc TEXT] "
+            "[--description TEXT]`, `dku flow ai-describe-zone REF`, "
+            "`dku flow delete-zone REF [--force]`."
         )
     raise typer.Exit(2)
+
+
+def _ensure_zone_descriptions_visible(proj) -> None:
+    """The flow UI renders zone shortDescs only when the project display
+    setting showFlowZoneDescriptions is on — tick it when writing one."""
+    try:
+        ps = proj.get_settings()
+        fds = ps.get_raw()["settings"].setdefault("flowDisplaySettings", {})
+        if not fds.get("showFlowZoneDescriptions", False):
+            fds["showFlowZoneDescriptions"] = True
+            ps.save()
+            info(
+                "Enabled 'Show flow zone descriptions' in the project's flow "
+                "display settings (it was off — the description would not render)."
+            )
+    except Exception:
+        pass  # display preference only — never fail the zone update
 
 
 @app.command("create-zone")
@@ -217,20 +243,44 @@ def create_zone(
     color: str | None = typer.Option(
         None, "--color", "-c", help="Zone color (hex, e.g. #FF5500)"
     ),
+    short_desc: str | None = typer.Option(
+        None,
+        "--short-desc",
+        "-s",
+        help="One-paragraph summary shown on the zone in the flow UI",
+    ),
+    description: str | None = typer.Option(
+        None,
+        "--description",
+        "-d",
+        help="Long description (zone details panel; literal, @file, or - for stdin)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a new flow zone."""
+    """Create a new flow zone.
+
+    Give every zone a --short-desc: it renders on the zone in the flow UI, so
+    one functional-unit paragraph per zone makes the whole flow self-explaining.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         flow = proj.get_flow()
         zone = flow.create_zone(name)
-        if color is not None:
+        if color is not None or short_desc is not None or description is not None:
             settings = zone.get_settings()
-            settings.color = color
+            if color is not None:
+                settings.color = color
+            raw = settings.get_raw()
+            if short_desc is not None:
+                raw["shortDesc"] = short_desc
+            if description is not None:
+                raw["description"] = read_text_input(description)
             settings.save()
         success(f"Created zone '{name}' (id: {zone.id})")
+        if short_desc:
+            _ensure_zone_descriptions_visible(proj)
         hint(f"dku flow graph -P {project_key}")
     except Exception as e:
         handle_api_error(e)
@@ -245,10 +295,27 @@ def set_zone(
     color: str | None = typer.Option(
         None, "--color", "-c", help="Zone color (hex, e.g. #FF5500)"
     ),
+    short_desc: str | None = typer.Option(
+        None,
+        "--short-desc",
+        "-s",
+        help="One-paragraph summary shown on the zone in the flow UI ('' to clear)",
+    ),
+    description: str | None = typer.Option(
+        None,
+        "--description",
+        "-d",
+        help="Long description (zone details panel; literal, @file, or - for stdin)",
+    ),
 ) -> None:
-    """Update a flow zone's name and/or color."""
-    if name is None and color is None:
-        error("Provide --name and/or --color to update.")
+    """Update a flow zone's name, color, and/or descriptions.
+
+    --short-desc renders on the zone in the flow UI — one functional-unit
+    paragraph per zone makes the whole flow self-explaining. --description is
+    the long-form text in the zone's details panel.
+    """
+    if name is None and color is None and short_desc is None and description is None:
+        error("Provide --name, --color, --short-desc, and/or --description to update.")
         raise typer.Exit(1)
     project_key = resolve_project(project)
     try:
@@ -261,10 +328,100 @@ def set_zone(
             settings.name = name
         if color is not None:
             settings.color = color
+        raw = settings.get_raw()
+        if short_desc is not None:
+            raw["shortDesc"] = short_desc
+        if description is not None:
+            raw["description"] = read_text_input(description)
         settings.save()
         success(f"Updated zone '{zone_ref}'")
+        if short_desc:
+            _ensure_zone_descriptions_visible(proj)
     except typer.Exit:
         raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("ai-describe-zone")
+def ai_describe_zone(
+    ctx: typer.Context,
+    zone_ref: str = typer.Argument(help="Zone name or ID"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    language: str = typer.Option(
+        "english",
+        "--language",
+        "-l",
+        help="Language (english, french, german, dutch, portuguese, spanish)",
+    ),
+    purpose: str = typer.Option(
+        "generic",
+        "--purpose",
+        help="Purpose: generic, technical, business_oriented, executive",
+    ),
+    length: str = typer.Option(
+        "medium",
+        "--length",
+        help="Length: low, medium, high",
+    ),
+    save: bool = typer.Option(
+        False, "--save", help="Save generated description to the zone"
+    ),
+) -> None:
+    """Generate an AI-powered description for a flow zone.
+
+    Requires 'Generate Metadata' enabled in DSS AI Services admin settings.
+    To write a description yourself, use `dku flow set-zone --short-desc/--description`.
+
+    Example:
+      dku flow ai-describe-zone Ingestion -P PROJ
+      dku flow ai-describe-zone Ingestion --purpose business_oriented --save -P PROJ
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format()
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        flow = proj.get_flow()
+        zone = _resolve_zone(flow, zone_ref, project_key)
+        result = zone.generate_ai_description(
+            language=language,
+            purpose=purpose,
+            length=length,
+            save_description=save,
+        )
+
+        if fmt == "json":
+            render_raw(result, output_format="json")
+        else:
+            if save:
+                success(f"AI description saved for zone '{zone.name}' ({zone.id})")
+                info(
+                    "--save fills the long description (details panel). The flow UI "
+                    "shows shortDesc — set it with: dku flow set-zone "
+                    f"{zone.id} --short-desc '<one paragraph>' -P {project_key}"
+                )
+            else:
+                info("AI-generated description (not saved — use --save to persist):")
+            msg = result.get("msg", "")
+            if msg:
+                info(msg)
+    except typer.Exit:
+        raise
+    except ValueError as e:
+        # DSS answers with an empty (non-JSON) body when there is nothing to
+        # describe — typically an empty zone — or when AI Services are off.
+        exit_with_error(
+            f"DSS returned no description for zone '{zone_ref}' ({e}).",
+            details=[
+                "An empty zone cannot be described — check membership: "
+                f"dku flow zones -P {project_key}",
+                "Verify 'Generate Metadata' is enabled in DSS AI Services "
+                "admin settings.",
+                "Or write one yourself: dku flow set-zone "
+                f"{zone_ref} --short-desc '<one paragraph>' -P {project_key}",
+            ],
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -496,6 +653,7 @@ def move(
         ...,
         "--zone",
         "-z",
+        "--to-zone",
         help="Target zone name or ID. Use 'dku flow zones' to list.",
     ),
     item_type: MoveItemType = typer.Option(
@@ -544,6 +702,10 @@ def move(
         target_zone = _resolve_zone(
             flow, zone, project_key, create_if_missing=create_zone
         )
+
+        # Accept comma-separated lists ('ds1,ds2,ds3') as well as space-separated
+        # args — flow object names cannot contain commas, so splitting is safe.
+        items = [part for name in items for part in name.split(",") if part.strip()]
 
         # Resolve item objects
         resolved = []
@@ -658,9 +820,90 @@ def propagate(
         result = builder.start().wait_for_result()
 
         render_raw(result, output_format=output)
+
+        # Schema propagation can finish "complete" while leaving recipes in a
+        # conflict/error state — exit 0 there would let an agent chaining
+        # `flow propagate && job run` rebuild on a flow whose schemas never
+        # reconciled. Inspect the result and fail non-zero on partial failure.
+        problems = _propagation_problems(result)
+        if problems:
+            error(
+                f"Schema propagation from '{dataset}' finished with "
+                f"{len(problems)} unresolved conflict/error(s)."
+            )
+            for line in problems[:10]:
+                info(f"  - {line}")
+            info(
+                "Resolve the flagged recipes (mark OK or fix the schema), "
+                f"then re-run: dku flow propagate {dataset} -P {project_key}"
+            )
+            raise typer.Exit(1)
+
         success(f"Schema propagation from '{dataset}' complete.")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
+
+
+def _propagation_problems(result: object) -> list[str]:
+    """Extract conflict/error signals from a schema-propagation result.
+
+    DSS returns a loosely-typed dict. We treat the run as failed when it
+    carries an explicit failure flag (``success: False`` / ``error`` /
+    ``hasError``) or any non-empty per-recipe error/conflict collection.
+    A bare ``{"success": True}`` (or any result with no failure signal)
+    yields no problems so the happy path stays exit 0.
+    """
+    if not isinstance(result, dict):
+        return []
+
+    problems: list[str] = []
+
+    if result.get("success") is False:
+        problems.append(
+            result.get("error")
+            or result.get("message")
+            or "propagation reported success=false"
+        )
+    if result.get("hasError") or result.get("hasErrors"):
+        problems.append(result.get("error") or "propagation reported errors")
+
+    # Per-recipe / per-node error & conflict collections (key names vary
+    # across DSS versions — accept the common ones).
+    for key in ("errors", "conflicts", "schemaConflicts", "unresolvedConflicts"):
+        coll = result.get(key)
+        if isinstance(coll, (list, tuple)) and coll:
+            for item in coll:
+                if isinstance(item, dict):
+                    label = (
+                        item.get("recipe") or item.get("node") or item.get("name") or ""
+                    )
+                    detail = (
+                        item.get("message")
+                        or item.get("error")
+                        or item.get("code")
+                        or ""
+                    )
+                    problems.append(f"{key}: {label} {detail}".strip())
+                else:
+                    problems.append(f"{key}: {item}")
+
+    # Some shapes nest per-recipe outcomes under a results/recipes map with a
+    # per-entry status — flag anything explicitly errored or conflicting.
+    for key in ("results", "recipeResults", "stepResults"):
+        coll = result.get(key)
+        entries = coll.values() if isinstance(coll, dict) else coll
+        if isinstance(entries, (list, tuple)):
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                status = str(item.get("status") or item.get("state") or "").upper()
+                if status in ("ERROR", "FAILED", "CONFLICT"):
+                    label = item.get("recipe") or item.get("name") or ""
+                    problems.append(f"{label or 'recipe'}: {status}".strip())
+
+    return problems
 
 
 @app.command()
@@ -723,12 +966,30 @@ def check(
                         output_format=output,
                         title="Errors",
                     )
-                success("Consistency check complete.")
+                else:
+                    success("Consistency check complete.")
+
+            # Fatal/ERROR consistency messages mean the flow is broken — exit
+            # non-zero on BOTH paths so an agent chaining `flow check &&
+            # next-step` (or parsing the JSON) does not march on past a flow
+            # that won't build.
+            if errors:
+                error(
+                    f"Flow consistency check found {len(errors)} fatal error(s) "
+                    f"in {project_key}."
+                )
+                info(
+                    "Fix the flagged nodes, then re-run: "
+                    f"dku flow check -P {project_key}"
+                )
+                raise typer.Exit(1)
         finally:
             try:
                 tool.stop()
             except Exception:
                 pass
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

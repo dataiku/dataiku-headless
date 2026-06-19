@@ -43,7 +43,7 @@ def list_code_studios(
             title=f"Code Studios ({project_key})",
         )
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -69,8 +69,15 @@ def create(
         cs = proj.create_code_studio(name, template)
         cs_id = getattr(cs, "code_studio_id", getattr(cs, "id", "unknown"))
         success(f"Created Code Studio '{name}' (id={cs_id})")
+        # The id is DATA (the create→start chain needs it) — emit it on
+        # stdout so `--format ids`/json work instead of stderr-prose regex.
+        render(
+            [{"id": str(cs_id), "name": name}],
+            ["id", "name"],
+            output_format=resolve_output_format(),
+        )
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -90,7 +97,7 @@ def get(
         raw = settings.get_raw()
         render_raw(raw, output_format=output)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -121,7 +128,7 @@ def delete(
     except typer.Exit:
         raise
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -140,7 +147,7 @@ def status(
         st = cs.get_status()
         render_raw(st.get_raw(), output_format=output)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -167,7 +174,7 @@ def start(
             success(f"Code Studio '{code_studio_id}' start initiated")
             info("Check status with: dku code-studio status " + code_studio_id)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()
@@ -194,7 +201,7 @@ def stop(
             success(f"Code Studio '{code_studio_id}' stop initiated")
             info("Check status with: dku code-studio status " + code_studio_id)
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command("change-owner")
@@ -213,7 +220,7 @@ def change_owner(
         cs.change_owner(owner)
         success(f"Changed owner of Code Studio '{code_studio_id}' to '{owner}'")
     except Exception as e:
-        handle_api_error(e)
+        handle_api_error(e, project_key=project_key)
 
 
 @app.command()

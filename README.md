@@ -1,19 +1,39 @@
-# ◆ dataiku-mcp + dku-cli
+# ◆ Dataiku Headless
+
+**The headless DSS control plane for AI agents.**
+
+Dataiku Headless turns a Dataiku DSS instance into something an agent can drive
+end to end — no UI, no clicking, no screen-scraping. It ships three things that
+work together:
+
+- **One MCP code-mode tool — `dku_exec`.** A single tool that runs the `dku` CLI
+  as your DSS user. Agents compose real shell commands instead of juggling
+  hundreds of narrow tool definitions.
+- **A full `dku` CLI — ~70 command groups.** Projects, datasets, recipes, jobs,
+  scenarios, dashboards, models, agents, knowledge banks, plugins, webapps,
+  Govern, admin, and more. Typed options, self-describing `--help`, prescriptive
+  errors — built so an agent succeeds on the first try.
+- **A skill corpus.** Task-complete playbooks and cold-detail references the host
+  agent installs alongside the MCP server, so agents get the latest DSS guidance
+  without anyone managing skill files by hand.
+
+Everything runs through **sandboxed execution** with **OS-keychain auth** — every
+command executes as you, with your DSS permissions and audit trail.
 
 This repo ships:
 
-- `dku`: the Dataiku CLI
+- `dku`: the Dataiku Headless command-line interface
 - `dataiku-mcp`: local MCP packaging for Claude Code, Codex, and Claude Desktop
-- `dataiku-mcp/skills/dku-cli`: agent reference material installed by the plugins alongside the MCP server
+- `dataiku-mcp/skills/dku-cli`: the agent skill corpus installed by the plugins alongside the MCP server
 
 ## Install
 
 ### CLI
 
 ```bash
-git clone git@github.com:dataiku/dataiku-cli.git
-cd dataiku-cli
-uv tool install --from . dku-cli
+git clone git@github.com:dataiku/dataiku-headless.git
+cd dataiku-headless
+uv tool install --from . dataiku-headless
 dku auth login
 dku whoami
 ```
@@ -21,14 +41,14 @@ dku whoami
 ### Local MCP
 
 ```bash
-claude plugin marketplace add dataiku/dataiku-cli
+claude plugin marketplace add dataiku/dataiku-headless
 claude plugin install dataiku-mcp
 ```
 
 For Codex:
 
 ```bash
-codex plugin marketplace add dataiku/dataiku-cli
+codex plugin marketplace add dataiku/dataiku-headless
 codex plugin install dataiku-mcp
 ```
 
@@ -67,9 +87,9 @@ make test-plugin
 
 ```bash
 # CLI
-cd /path/to/dataiku-cli
+cd /path/to/dataiku-headless
 git pull
-uv tool install --from . dku-cli --force --reinstall
+uv tool install --from . dataiku-headless --force --reinstall
 ```
 
 ---

@@ -537,6 +537,89 @@ def metrics(
         handle_api_error(e)
 
 
+@app.command("set-threshold")
+def set_threshold(
+    ctx: typer.Context,
+    model_id: str = typer.Argument(help="Saved model ID"),
+    threshold: float = typer.Argument(
+        help="Classification cut-off in [0, 1] applied by scoring recipes"
+    ),
+    version_id: str = typer.Option(
+        None, "--version", "-v", help="Version ID (default: active version)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the classification threshold of a binary saved model version.
+
+    Scoring recipes and API endpoints compare proba_1 against this cut-off to
+    emit the prediction column. DSS auto-optimizes the threshold on a metric
+    at deploy time (it is often NOT 0.5) — set it explicitly when migrating a
+    workflow that hard-codes a cut-off (e.g. a KNIME Rule Engine
+    '$P (Class=1)$ > 0.3' after a Predictor).
+
+    Example:
+      dku model set-threshold sm_fraud 0.3 -P PROJ
+    """
+    project_key = resolve_project(project)
+    if not 0.0 <= threshold <= 1.0:
+        exit_with_error(
+            f"Threshold must be between 0 and 1, got {threshold}.",
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        model = proj.get_saved_model(model_id)
+
+        if version_id is None:
+            active = model.get_active_version()
+            if active is None:
+                exit_with_error(
+                    "No active version on this model.",
+                    details=[
+                        f"List versions: dku model versions {model_id} "
+                        f"-P {project_key}",
+                        f"Activate one: dku model set-active-version {model_id} "
+                        f"VERSION_ID -P {project_key}",
+                    ],
+                )
+            version_id = active["id"]
+
+        details = model.get_version_details(version_id)
+        raw = details.get_raw()
+        prediction_type = (raw.get("coreParams") or {}).get("prediction_type", "")
+        if prediction_type and prediction_type != "BINARY_CLASSIFICATION":
+            exit_with_error(
+                f"Threshold only applies to BINARY_CLASSIFICATION models; "
+                f"'{model_id}' version {version_id} is {prediction_type}.",
+            )
+        user_meta = raw.get("userMeta")
+        if user_meta is None:
+            exit_with_error(
+                f"Version {version_id} has no userMeta block — cannot set a threshold.",
+                details=[
+                    f"Inspect: dku model versions {model_id} -P {project_key}",
+                ],
+            )
+        old = user_meta.get("activeClassifierThreshold")
+        user_meta["activeClassifierThreshold"] = threshold
+        details.save_user_meta()
+        success(
+            f"Set threshold on {model_id} version {version_id}: {old} -> {threshold}"
+        )
+    except SystemExit:
+        raise
+    except Exception as e:
+        if is_not_found_error(e):
+            exit_with_error(
+                "Model or version not found.",
+                details=[
+                    f"List versions: dku model versions {model_id} -P {project_key}",
+                ],
+                status=3,
+            )
+        handle_api_error(e)
+
+
 @app.command("delete-version")
 def delete_version(
     ctx: typer.Context,

@@ -711,7 +711,7 @@ def test_recipe_create_visual_with_connection_auto_creates_output(patch_client):
 
 
 def test_recipe_create_visual_without_connection_uses_existing_output(patch_client):
-    """Visual recipes without --connection still require a pre-existing output."""
+    """Visual recipes without --connection still wire a pre-existing output."""
     result = runner.invoke(
         app,
         [
@@ -733,6 +733,88 @@ def test_recipe_create_visual_without_connection_uses_existing_output(patch_clie
     builder = patch_client.get_project("PROJ1").new_recipe.return_value
     builder.with_existing_output.assert_called_once_with("output_ds")
     builder.with_new_output.assert_not_called()
+
+
+def test_recipe_create_prepare_without_connection_auto_creates_output(patch_client):
+    """Generic prepare creation auto-creates then wires the output."""
+    proj = patch_client.get_project("PROJ1")
+    existing_ds = proj.get_dataset.return_value
+
+    def get_dataset(name):
+        ds = MagicMock()
+        if name == "output_ds":
+            ds.get_definition.side_effect = Exception("NotFoundException")
+        else:
+            ds = existing_ds
+        return ds
+
+    proj.get_dataset.side_effect = get_dataset
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "prep_recipe",
+            "--type",
+            "prepare",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created recipe" in result.output
+    builder = proj.new_recipe.return_value
+    proj.new_managed_dataset.assert_called_once_with("output_ds")
+    builder.with_existing_output.assert_called_once_with("output_ds")
+    builder.with_new_output.assert_not_called()
+
+
+def test_recipe_create_python_alias(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    existing_ds = proj.get_dataset.return_value
+    created = {"output": False}
+
+    def get_dataset(name):
+        if name != "output_ds":
+            return existing_ds
+        ds = MagicMock()
+        if not created["output"]:
+            ds.get_definition.side_effect = Exception("NotFoundException")
+        else:
+            ds.get_definition.return_value = {
+                "type": "Filesystem",
+                "params": {"connection": "filesystem_managed"},
+            }
+        return ds
+
+    proj.get_dataset.side_effect = get_dataset
+    proj.new_managed_dataset.return_value.create.side_effect = lambda: created.update(
+        output=True
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-python",
+            "py_step",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    proj.new_recipe.assert_called_with("python", "py_step")
+    proj.new_managed_dataset.assert_called_once_with("output_ds")
+    builder = proj.new_recipe.return_value
+    builder.with_output.assert_called_once_with("output_ds")
+    builder.with_new_output_dataset.assert_not_called()
 
 
 def test_recipe_create_sync_with_connection(patch_client):
@@ -1591,3 +1673,73 @@ def test_recipe_create_group_routes_to_dedicated_verb(patch_client):
     assert "my_group" in result.output
     # Rich may wrap the line; check the group-key placeholder tokens are present.
     assert "<COLUMN>" in result.output
+
+
+def test_recipe_create_prepare_missing_output_tail_safe_and_one_command(patch_client):
+    """The missing-output error must (a) lead the fix with the one-command
+    create-prepare path for prepare types, and (b) restate FAILED as the LAST
+    line so `2>&1 | tail -N` pipes never mistake the hint lines for success."""
+    proj = patch_client.get_project("PROJ1")
+    builder = proj.new_recipe.return_value
+    builder.with_existing_output.side_effect = None
+    builder.build.side_effect = Exception(
+        "java.lang.IllegalArgumentException: Need to create output dataset or folder, "
+        "but creationInfo params are suppressing it"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create",
+            "prep1",
+            "--type",
+            "prepare",
+            "--input",
+            "input_ds",
+            "--output-ds",
+            "output_ds",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "dku recipe create-prepare prep1" in result.output
+    last_line = result.output.strip().splitlines()[-1]
+    assert "FAILED" in last_line and "NOT created" in last_line
+
+
+def test_recipe_set_engine_visual(patch_client):
+    """set-engine patches payload.engineType in one flag."""
+    proj = patch_client.get_project("PROJ1")
+    recipe = proj.get_recipe.return_value
+    settings = recipe.get_settings.return_value
+    settings.get_recipe_raw_definition.return_value = {"type": "join", "name": "j1"}
+    payload = {"engineType": "SPARK_SQL", "joins": []}
+    settings.obj_payload = payload
+    result = runner.invoke(
+        app,
+        ["recipe", "set-engine", "j1", "--engine", "SQL", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert payload["engineType"] == "SQL"
+    settings.save.assert_called_once()
+    assert "SPARK_SQL -> SQL" in result.output
+
+
+def test_recipe_set_engine_rejects_code_recipe(patch_client):
+    """engineType is a visual-recipe concept; code recipes get set-env."""
+    result = runner.invoke(
+        app,
+        ["recipe", "set-engine", "recipe1", "--engine", "SQL", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "code recipe" in result.output
+    assert "set-env" in result.output
+
+
+def test_recipe_set_engine_bad_value_rejected_at_parse(patch_client):
+    result = runner.invoke(
+        app,
+        ["recipe", "set-engine", "j1", "--engine", "TURBO", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 2

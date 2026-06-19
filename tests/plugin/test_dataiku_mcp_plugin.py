@@ -72,7 +72,7 @@ def test_launcher_is_executable_valid_bash_and_self_contained():
     assert text.startswith("#!")
     # serves stdio from the bundled wheel via uvx, bootstrapping uv if needed
     assert "--transport stdio" in text
-    assert "uvx" in text and "wheels/dku_cli-" in text
+    assert "uvx" in text and "wheels/*.whl" in text
     assert "astral.sh/uv/install.sh" in text  # uv self-bootstrap
     # the fastmcp runtime constraint is upper-bounded so a breaking 4.x can't be
     # resolved at launch (fastmcp 3.x is the validated current major).
@@ -85,7 +85,7 @@ def test_launcher_is_executable_valid_bash_and_self_contained():
 
 
 def test_a_wheel_is_bundled():
-    wheels = list((PLUGIN / "wheels").glob("dku_cli-*.whl"))
+    wheels = list((PLUGIN / "wheels").glob("*.whl"))
     assert wheels, "run `make bundle` in dataiku-mcp/ to vendor the wheel"
 
 
@@ -93,8 +93,8 @@ def test_bundled_wheel_matches_current_version():
     """Catch a stale wheel after a version bump — `make bundle` must be re-run."""
     import dku_cli
 
-    names = [w.name for w in (PLUGIN / "wheels").glob("dku_cli-*.whl")]
-    assert any(f"dku_cli-{dku_cli.__version__}-" in n for n in names), (
+    names = [w.name for w in (PLUGIN / "wheels").glob("*.whl")]
+    assert any(f"-{dku_cli.__version__}-" in n for n in names), (
         f"bundled wheel {names} != current version {dku_cli.__version__}; "
         "run `make bundle` in dataiku-mcp/"
     )
@@ -102,7 +102,7 @@ def test_bundled_wheel_matches_current_version():
 
 def test_bundled_wheel_contains_current_mcp_sources():
     """Catch stale wheels when MCP source changes without a version bump."""
-    wheels = sorted((PLUGIN / "wheels").glob("dku_cli-*.whl"))
+    wheels = sorted((PLUGIN / "wheels").glob("*.whl"))
     assert wheels, "run `make bundle` in dataiku-mcp/ to vendor the wheel"
     wheel = wheels[-1]
 
@@ -134,7 +134,7 @@ def test_launcher_executes_like_an_installed_plugin(tmp_path):
     (staged / "bin").mkdir(parents=True)
     (staged / "wheels").mkdir(parents=True)
     shutil.copy2(LAUNCHER, staged / "bin" / LAUNCHER.name)
-    wheel = sorted((PLUGIN / "wheels").glob("dku_cli-*.whl"))[-1]
+    wheel = sorted((PLUGIN / "wheels").glob("*.whl"))[-1]
     shutil.copy2(wheel, staged / "wheels" / wheel.name)
 
     fakebin = tmp_path / "fakebin"

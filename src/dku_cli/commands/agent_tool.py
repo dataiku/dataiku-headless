@@ -11,7 +11,13 @@ from dku_cli.helpers import (
     resolve_knowledge_bank,
     resolve_project,
 )
-from dku_cli.output import hint, render, render_raw, resolve_output_format, success
+from dku_cli.output import (
+    emit_created,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+)
 
 # Built-in agent tool types, live-verified on DSS 14.6 by probe-creating each
 # via new_agent_tool() — DSS exposes NO endpoint to list tool types, so this
@@ -21,15 +27,22 @@ from dku_cli.output import hint, render, render_raw, resolve_output_format, succ
 # are plugin-distributed: use the Custom_agent_tool_<plugin>_<tool> type format.
 BUILTIN_TOOL_TYPES = {
     "DatasetRowLookup": (
-        "Query rows from a dataset by column values (use --dataset; "
-        "params: retrievalMode, maxRecords)"
+        "Query rows from a dataset by a single configured filter "
+        "(use --dataset; run input is "
+        '{"filter":{"column":"col","operator":"EQUALS","value":"x"}})'
     ),
     "DatasetRowAppend": (
         "Append rows to a dataset (set the target via --dataset or "
         "set-definition --params)"
     ),
-    "VectorStoreSearch": "Search a knowledge bank (use --knowledge-bank)",
-    "LLMMeshLLMQuery": "Call another LLM or agent via LLM Mesh (use --llm)",
+    "VectorStoreSearch": (
+        "Search a knowledge bank (use --knowledge-bank). If direct run returns "
+        "a DSS null error, wrap the KB as a RAG LLM and use LLMMeshLLMQuery."
+    ),
+    "LLMMeshLLMQuery": (
+        "Call another LLM or agent via LLM Mesh (use --llm; run input is "
+        '{"question":"..."} at the root)'
+    ),
     "ClassicalPredictionModelPredict": (
         "Predict with a saved ML model (use --saved-model → params.smRef; "
         'run input is {"record": {...}} at the root)'
@@ -181,7 +194,8 @@ def create(
                 exit_with_error(
                     "VectorStoreSearch tools require --knowledge-bank.",
                     details=[
-                        "Example: dku agent-tool create my_search --type VectorStoreSearch --kb my_kb -P PROJ",
+                        "Example: dku agent-tool create my_search "
+                        "--type VectorStoreSearch --kb my_kb -P PROJ",
                         "List knowledge banks with: dku knowledge list -P PROJ",
                     ],
                 )
@@ -222,7 +236,8 @@ def create(
                 exit_with_error(
                     f"--dataset is only for DatasetRowLookup/DatasetRowAppend tools, not {tool_type}.",
                     details=[
-                        f"Example: dku agent-tool create {name} --type DatasetRowLookup --dataset my_ds -P {project_key}",
+                        f"Example: dku agent-tool create {name} "
+                        f"--type DatasetRowLookup --dataset my_ds -P {project_key}",
                     ],
                 )
 
@@ -255,13 +270,15 @@ def create(
                 exit_with_error(
                     f"--saved-model is only for ClassicalPredictionModelPredict tools, not {tool_type}.",
                     details=[
-                        f"Example: dku agent-tool create {name} --type ClassicalPredictionModelPredict --saved-model my_model -P {project_key}",
+                        f"Example: dku agent-tool create {name} "
+                        "--type ClassicalPredictionModelPredict "
+                        f"--saved-model my_model -P {project_key}",
                     ],
                 )
 
             # --params merges arbitrary fields into settings.params. This is
             # the documented escape hatch for plugin tools that have no
-            # dedicated flag (e.g. Custom_agent_tool_semantic-models-lab_semantic-model-query).
+            # dedicated flag.
             if parsed_params:
                 settings = tool.get_settings()
                 # settings.params is a dict-like proxy on real DSS; on the
@@ -275,8 +292,11 @@ def create(
             _cleanup_orphan()
             raise
 
-        success(f"Created agent tool '{name}' (id={tool.id}, type={tool_type})")
-        hint(f"dku agent-tool get {tool.id} -P {project_key}")
+        emit_created(
+            {"id": tool.id, "name": name, "type": tool_type},
+            message=f"Created agent tool '{name}' (id={tool.id}, type={tool_type})",
+            next_command=f"dku agent-tool get {tool.id} -P {project_key}",
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -314,7 +334,8 @@ def set_definition(
         exit_with_error(
             "Pass --definition and/or --params.",
             details=[
-                'Merge params only:  dku agent-tool set-definition ID --params \'{"smRef":"model_id"}\' -P PROJ',
+                "Merge params only: dku agent-tool set-definition ID "
+                '--params \'{"smRef":"model_id"}\' -P PROJ',
                 "Replace top-level keys: dku agent-tool set-definition ID -d @definition.json -P PROJ",
             ],
         )
@@ -368,7 +389,8 @@ def types(
     the type format: Custom_agent_tool_<plugin-id>_<tool-folder-name>
 
     Example: plugin 'my-tools' with tool folder 'web-search' →
-      dku agent-tool create "Web Search" --type Custom_agent_tool_my-tools_web-search -P PROJ
+      dku agent-tool create "Web Search"
+      --type Custom_agent_tool_my-tools_web-search -P PROJ
     """
     del project  # accepted for ergonomic parity with project-scoped commands
     output = resolve_output_format()
@@ -404,6 +426,77 @@ def get(
         handle_api_error(e)
 
 
+def _diagnose_vectorstore_null(client, project_key, settings, tool_id) -> None:
+    """Diagnose a VectorStoreSearch null by probing its KB — never returns.
+
+    A null from `agent-tool run` does NOT mean the KB is unbuilt. Probe the
+    referenced KB directly: if it returns documents the tool is fine (the null is
+    the direct-invocation context, not the build) and must not be deleted; if it
+    returns nothing the KB was never populated and the embed recipe must run.
+    """
+    from dataikuapi.dss.utils import AnyLoc
+
+    from dku_cli.helpers import probe_knowledge_bank
+
+    kb_ref = settings.get_raw().get("params", {}).get("knowledgeBankRef")
+    if not kb_ref:
+        exit_with_error(
+            f"VectorStoreSearch tool '{tool_id}' has no knowledgeBankRef configured.",
+            details=[
+                f"Point it at a KB: dku agent-tool set-definition {tool_id} "
+                '-d \'{"params":{"knowledgeBankRef":"KB_ID"}}\' '
+                f"-P {project_key}",
+            ],
+        )
+
+    loc = AnyLoc.from_ref(project_key, kb_ref)
+    kb = client.get_project(loc.project_key).get_knowledge_bank(loc.object_id)
+    count, probe_err = probe_knowledge_bank(kb)
+
+    if count:
+        exit_with_error(
+            f"Tool '{tool_id}' returned a server-side null, but its knowledge bank "
+            f"'{loc.object_id}' IS built and queryable (probe returned documents).",
+            details=[
+                "Do NOT delete or rebuild this tool — it is correctly configured.",
+                "Direct `agent-tool run` does not resolve full runtime context for "
+                "VectorStoreSearch (same limitation as plugin tools).",
+                f"Confirm the KB directly: dku knowledge search {loc.object_id} "
+                f"-q 'your query' -P {loc.project_key}",
+                "Use the tool through an agent: "
+                f"dku agent test AGENT_ID -P {project_key}",
+            ],
+        )
+
+    if probe_err is not None:
+        exit_with_error(
+            f"Tool '{tool_id}' returned null and its knowledge bank '{loc.object_id}' "
+            f"could not be probed to diagnose further (search failed: {probe_err}).",
+            details=[
+                "This is likely a transient DSS/search/auth issue, not "
+                "necessarily an empty KB.",
+                f"Probe the KB directly: dku knowledge search {loc.object_id} "
+                f"-q 'test' -P {loc.project_key}",
+                "If that returns documents the tool is fine; retry the run or "
+                "use it through an agent.",
+            ],
+        )
+
+    exit_with_error(
+        f"Tool '{tool_id}' returned null: knowledge bank '{loc.object_id}' has no "
+        "indexed content (search returned 0 documents).",
+        details=[
+            "A `knowledge build` job reporting DONE does not populate a KB by "
+            "itself — the embed recipe must run and write rows into it.",
+            "Run the embed recipe: "
+            f"dku recipe run EMBED_RECIPE --wait -P {loc.project_key} "
+            f"(find it: dku --format json flow list -P {loc.project_key})",
+            "Then confirm: "
+            f"dku knowledge search {loc.object_id} -q 'test' -P {loc.project_key}",
+        ],
+    )
+
+
 @app.command()
 def run(
     ctx: typer.Context,
@@ -420,12 +513,18 @@ def run(
 
       ClassicalPredictionModelPredict: '{"record": {"feat1": 1, "feat2": "a"}}'
       VectorStoreSearch:               '{"query": "search terms"}'
-      DatasetRowLookup:                lookup values for the configured columns
+      LLMMeshLLMQuery:                 '{"question": "question to ask"}'
+      DatasetRowLookup:
+        '{"filter": {"column": "sku", "operator": "EQUALS", "value": "ABC"}}'
+
+    DatasetRowLookup is single-filter. For multi-column lookup, create a
+    deterministic key column upstream (for example model_family || "|" ||
+    trim_grade) and filter that key.
 
     The exact shape for a configured tool is in its descriptor:
     dku --format json agent-tool get TOOL_ID -P PROJ | jq -r '.quickTestQueryStr'
-    (note: quickTestQueryStr shows the ENVELOPED form — strip the outer
-    {"input": ...} wrapper when passing --input).
+    quickTestQueryStr shows the ENVELOPED form used by DSS, so strip the outer
+    {"input": ...} wrapper when passing --input.
     """
     project_key = resolve_project(project)
     output = resolve_output_format()
@@ -438,15 +537,12 @@ def run(
         try:
             result = tool.run(input_dict)
         except Exception as e:
-            if "NullPointerException" in str(e) or "null" in str(e).lower():
-                exit_with_error(
-                    f"Agent tool '{tool_id}' failed with a server-side null error.",
-                    details=[
-                        "If this is a VectorStoreSearch tool, the knowledge bank must be built first.",
-                        f"Build it with: dku knowledge build <KB_ID> --wait -P {project_key}",
-                        "To check knowledge banks: dku knowledge list -P "
-                        + project_key,
-                    ],
+            is_null = "NullPointerException" in str(e) or "null" in str(e).lower()
+            if is_null and tool.get_settings().get_raw().get("type") == (
+                "VectorStoreSearch"
+            ):
+                _diagnose_vectorstore_null(
+                    client, project_key, tool.get_settings(), tool_id
                 )
             if tool_id.startswith("Custom_agent_tool_"):
                 exit_with_error(
@@ -454,7 +550,20 @@ def run(
                     details=[
                         "Plugin tools may fail when tested directly — presets and "
                         "connections are only resolved inside agent execution context.",
-                        f"Test via the agent instead: dku agent test AGENT_ID -P {project_key}",
+                        "Test via the agent instead: "
+                        f"dku agent test AGENT_ID -P {project_key}",
+                    ],
+                )
+            if is_null:
+                exit_with_error(
+                    f"Agent tool '{tool_id}' failed with a server-side null error.",
+                    details=[
+                        "Most often the --input shape is wrong. Inspect the "
+                        "expected form: "
+                        f"dku --format json agent-tool get {tool_id} -P {project_key} "
+                        "| jq -r '.quickTestQueryStr'",
+                        "quickTestQueryStr shows the ENVELOPED form — strip the outer "
+                        '{"input": ...} wrapper when passing --input.',
                     ],
                 )
             raise

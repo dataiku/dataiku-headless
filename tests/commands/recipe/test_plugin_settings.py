@@ -6,6 +6,7 @@ import json
 from unittest.mock import MagicMock
 from tests.commands.recipe.helpers import app, runner
 from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_mock
+from tests.helpers import strip_ansi as _strip_ansi
 
 
 # ── Plugin recipe tests ────────────────────────────────────────────
@@ -526,6 +527,24 @@ def test_recipe_set_settings_updates_payload(patch_client):
         ],
     )
     assert result.exit_code == 0
+
+
+def test_recipe_set_settings_reads_piped_stdin_without_flag(patch_client):
+    """set-settings defaults to stdin when JSON is piped and -s is omitted."""
+    settings_json = json.dumps({"payload": {"orders": [{"column": "price"}]}})
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "recipe1",
+            "--project",
+            "PROJ1",
+        ],
+        input=settings_json,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Updated settings" in result.output
 
 
 def test_recipe_set_settings_blocks_nlp_agent_eval_output_column(patch_client):
@@ -1052,6 +1071,66 @@ def test_recipe_set_description_from_file(tmp_path, patch_client):
     assert result.exit_code == 0, result.output
     assert raw["description"] == "# Daily KPIs\n\nLong-form description."
     recipe.get_settings().save.assert_called()
+
+
+def test_recipe_set_metadata_short_desc_and_description(patch_client):
+    raw = {"type": "join", "name": "recipe1"}
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_settings().get_recipe_raw_definition.return_value = raw
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-metadata",
+            "recipe1",
+            "--short-desc",
+            "Joins orders to rates.",
+            "--description",
+            "Long-form description.",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Updated metadata for recipe 'recipe1'" in result.output
+    assert raw["shortDesc"] == "Joins orders to rates."
+    assert raw["description"] == "Long-form description."
+    recipe.get_settings().save.assert_called()
+    # Tags untouched → the metadata endpoint is not hit.
+    recipe.set_metadata.assert_not_called()
+
+
+def test_recipe_set_metadata_tags_only(patch_client):
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_metadata.return_value = {"tags": ["old"]}
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-metadata",
+            "recipe1",
+            "--tags",
+            "kpi, daily",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    sent = recipe.set_metadata.call_args[0][0]
+    assert sent["tags"] == ["kpi", "daily"]
+    # No description/shortDesc → the recipe definition is not saved.
+    recipe.get_settings().save.assert_not_called()
+
+
+def test_recipe_set_metadata_no_args(patch_client):
+    result = runner.invoke(
+        app, ["recipe", "set-metadata", "recipe1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    flat = " ".join(_strip_ansi(result.output).split())
+    assert "--short-desc" in flat
 
 
 def test_recipe_set_settings_code_recipe_points_to_set_env(patch_client):

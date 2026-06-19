@@ -280,6 +280,10 @@ def test_recipe_create_group(patch_client):
     )
     assert result.exit_code == 0
     assert "Created group recipe" in result.output
+    # The default-added global 'count' column is announced loudly so the agent
+    # knows it lands in the downstream schema.
+    assert "count" in result.output
+    assert "--no-global-count" in result.output
     proj = patch_client.get_project("PROJ1")
     proj.new_recipe.assert_called_once_with("grouping", "my_group")
     builder = proj.new_recipe.return_value
@@ -314,6 +318,8 @@ def test_recipe_create_group_no_global_count(patch_client):
     assert result.exit_code == 0, result.output
     settings.set_global_count_enabled.assert_called_once_with(False)
     settings.save.assert_called()
+    # When suppressed, the default-count notice must NOT also fire.
+    assert "Output includes a global 'count'" not in result.output
 
 
 def test_recipe_create_group_with_agg(patch_client):
@@ -383,6 +389,54 @@ def test_recipe_create_group_multiple_agg(patch_client):
     )
     assert result.exit_code == 0
     assert settings.set_column_aggregations.call_count == 2
+
+
+def test_recipe_create_group_repeated_agg_same_column_merges(patch_client):
+    """Repeated --agg flags on the SAME column merge instead of last-wins.
+
+    The dataikuapi helper writes every kwarg (True or False) to the column's
+    values[] entry, so applying one spec at a time made
+    `--agg amount:sum --agg amount:avg --agg amount:count` materialize only
+    count — while the CLI echoed all three.
+    """
+    proj = patch_client.get_project("PROJ1")
+    recipe_mock = proj.get_recipe.return_value
+    settings = recipe_mock.get_settings.return_value
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-group",
+            "my_group",
+            "-i",
+            "sales",
+            "--output-ds",
+            "sales_grouped",
+            "-k",
+            "region",
+            "--agg",
+            "amount:sum",
+            "--agg",
+            "amount:avg",
+            "--agg",
+            "amount:count",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings.set_column_aggregations.assert_called_once_with(
+        "amount",
+        sum=True,
+        avg=True,
+        min=False,
+        max=False,
+        count=True,
+        count_distinct=False,
+        concat=False,
+        stddev=False,
+    )
 
 
 def test_recipe_create_group_prunes_empty_values(patch_client):

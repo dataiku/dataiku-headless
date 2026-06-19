@@ -76,7 +76,11 @@ def create(
     ctx: typer.Context,
     title: str = typer.Argument(help="Article title"),
     body: str = typer.Option(
-        "", "--body", "-b", help="Article body (literal, @file.md, or - for stdin)"
+        "",
+        "--body",
+        "--content",
+        "-b",
+        help="Article body (literal, @file.md, or - for stdin)",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     if_not_exists: bool = typer.Option(

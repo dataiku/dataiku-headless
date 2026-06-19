@@ -12,6 +12,7 @@ import typer
 from dku_cli.enums import AgentType
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
+    clean_llm_id,
     get_client_from_ctx,
     read_text_input,
     resolve_agent,
@@ -26,6 +27,7 @@ from dku_cli.output import (
     render_raw,
     resolve_output_format,
     success,
+    warn,
 )
 
 app = typer.Typer(help="Manage DSS agents.")
@@ -111,6 +113,25 @@ def _activate_version(proj, agent_id: str, new_vid: str) -> None:
     proj.get_saved_model(agent_id).set_active_version(new_vid)
 
 
+_LOOP_BLOCK_TYPES = frozenset({"CORE_LOOP", "STANDARD_REACT"})
+
+
+def _find_loop_block(cfg: dict) -> dict | None:
+    """Return the tool-calling loop block, or None if the graph has none.
+
+    Prefers the starting block when it is a loop; otherwise the first loop block.
+    """
+    blocks = cfg.get("blocks") or []
+    start_id = cfg.get("startingBlockId")
+    for b in blocks:
+        if b.get("id") == start_id and b.get("type") in _LOOP_BLOCK_TYPES:
+            return b
+    for b in blocks:
+        if b.get("type") in _LOOP_BLOCK_TYPES:
+            return b
+    return None
+
+
 @app.command("list")
 def list_agents(
     ctx: typer.Context,
@@ -168,6 +189,166 @@ def create(
         )
         success(f"Created agent '{name}' (id={agent.id}, type={agent_type.value})")
         hint(f"dku agent get {agent.id} -P {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _resolve_tool_id(tools: list, tool_ref: str) -> str:
+    """Resolve a tool NAME or ID to its ID, failing loudly on miss/ambiguity.
+
+    Agents reference tools by ID; a name written as toolRef saves fine but the
+    tool silently never fires at runtime. Mirrors add-tool's resolver.
+    """
+    known_ids = {t.get("id") for t in tools}
+    if tool_ref in known_ids:
+        return tool_ref
+    by_name = [t.get("id") for t in tools if t.get("name") == tool_ref]
+    if len(by_name) == 1:
+        return by_name[0]
+    if len(by_name) > 1:
+        error(
+            f"Tool name '{tool_ref}' is ambiguous ({len(by_name)} matches: "
+            f"{', '.join(by_name)}). Use the tool ID."
+        )
+        raise typer.Exit(1)
+    available = ", ".join(f"{t.get('id')} ({t.get('name')})" for t in tools)
+    error(
+        f"Tool '{tool_ref}' not found (checked as both ID and name). "
+        f"Available: {available or 'none — create one with dku agent-tool create'}"
+    )
+    raise typer.Exit(3)
+
+
+@app.command("create-react")
+def create_react(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="Agent name"),
+    llm: str = typer.Option(
+        ...,
+        "--llm",
+        "--llm-id",
+        help=(
+            "LLM ID for the loop block (e.g. 'openai:conn:gpt-4o'). "
+            "Discover: dku llm list -P PROJ"
+        ),
+    ),
+    tools: list[str] = typer.Option(
+        [], "--tool", help="Tool ID or name to wire into the loop (repeatable)"
+    ),
+    system_prompt: str | None = typer.Option(
+        None,
+        "--system-prompt",
+        help="System prompt: literal string, @file.txt, or '-' for stdin",
+    ),
+    max_iterations: int = typer.Option(
+        25, "--max-iterations", help="Max tool-calling loop iterations"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create a tool-calling (ReAct) agent in one call.
+
+    Builds a STRUCTURED_AGENT with a CORE_LOOP (LLM + tools) wired to an
+    EMIT_OUTPUT block — the complete, valid tool-calling-loop graph that
+    `agent create` + `add-tool` cannot produce. No hand-authored block JSON,
+    no get-graph/patch/set-graph round-trip.
+
+    Use this for "an LLM that calls tools in a loop and answers". For
+    multi-stage graphs (ROUTING, FOR_EACH, PARALLEL, PYTHON_CODE) use
+    `agent-block add` / `set-graph`.
+
+    Example:
+      dku agent create-react researcher --llm LLM_ID --tool web_search -P PROJ
+    """
+    project_key = resolve_project(project)
+    llm, quotes_stripped = clean_llm_id(llm)
+    if quotes_stripped:
+        warn(f"Stripped stray quotes from --llm; using '{llm}'.")
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+
+        # Resolve every --tool name→ID before creating anything.
+        known_tools = proj.list_agent_tools(include_shared=True)
+        tool_ids = [_resolve_tool_id(known_tools, t) for t in tools]
+
+        prompt_text = (
+            read_text_input(system_prompt) if system_prompt is not None else ""
+        )
+
+        loop_block = {
+            "type": "CORE_LOOP",
+            "id": "react_loop",
+            "llmId": llm,
+            "tools": [
+                {
+                    "toolRef": tid,
+                    "type": "EXPLICIT_TOOL",
+                    "forwardContext": True,
+                    "returnSources": True,
+                    "enableSetArgs": False,
+                    "setArgs": [],
+                    "outputHandling": "ADD_TO_MESSAGES",
+                    "treatAsJSON": False,
+                }
+                for tid in tool_ids
+            ],
+            "systemPromptAfterHistory": prompt_text,
+            "outputMode": "SAVE_TO_STATE",
+            "outputKey": "react_loop_output",
+            "maxLoopIterations": max_iterations,
+            "streamOutput": False,
+            "passConversationHistory": True,
+            "defaultNextBlock": "emit",
+        }
+        emit_block = {
+            "type": "EMIT_OUTPUT",
+            "id": "emit",
+            "template": "{{state.react_loop_output}}",
+            "addToMessages": True,
+        }
+        blocks = [loop_block, emit_block]
+
+        # Share agent-block's one validation home (normalize → validate → warn).
+        from dku_cli.commands.agent_block import (
+            _collect_block_warnings,
+            _normalize_blocks,
+            _validate_blocks,
+        )
+
+        for w in _normalize_blocks(blocks):
+            warn(w)
+        block_errors = _validate_blocks(blocks)
+        if block_errors:
+            exit_with_error(block_errors[0], status=1)
+        for w in _collect_block_warnings(blocks):
+            warn(w)
+
+        agent = proj.create_agent(name, type="STRUCTURED_AGENT")
+        settings = agent.get_settings()
+        raw = settings.get_raw()
+        version = raw["versions"][0]
+        version.setdefault("structuredAgentSettings", {})
+        version["structuredAgentSettings"]["startingBlockId"] = "react_loop"
+        version["structuredAgentSettings"]["blocks"] = blocks
+        settings.save()
+
+        render_raw(
+            {
+                "id": agent.id,
+                "name": name,
+                "type": "STRUCTURED_AGENT",
+                "llm": llm,
+                "tools": tool_ids,
+            },
+            output_format=resolve_output_format(),
+        )
+        success(
+            f"Created ReAct agent '{name}' (id={agent.id}) — "
+            f"CORE_LOOP + EMIT_OUTPUT, {len(tool_ids)} tool(s)"
+        )
+        hint(f'dku agent test {agent.id} "your question" -P {project_key}')
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -580,8 +761,20 @@ def set_prompt(
             cfg_key = "structuredAgentSettings"
         else:
             cfg_key = "toolsUsingAgentSettings"
-        prompt_field = "systemPromptAppend"
-        target_ver_raw.setdefault(cfg_key, {})[prompt_field] = prompt_text
+        cfg = target_ver_raw.setdefault(cfg_key, {})
+
+        # When a tool-calling loop exists, the runtime reads the prompt from the
+        # loop block's `systemPromptAfterHistory`, NOT `systemPromptAppend`.
+        # Retarget the loop block (start block if it's a loop, else first loop)
+        # so the documented command lands where DSS actually reads. Fall back to
+        # `systemPromptAppend` for simple/multi-stage agents with no loop block.
+        loop_block = _find_loop_block(cfg)
+        if loop_block is not None:
+            loop_block["systemPromptAfterHistory"] = prompt_text
+            field_desc = f"systemPromptAfterHistory (block={loop_block['id']})"
+        else:
+            cfg["systemPromptAppend"] = prompt_text
+            field_desc = "systemPromptAppend"
         settings.save()
         if new_version and activate:
             _activate_version(proj, agent.id, new_vid)
@@ -590,11 +783,11 @@ def set_prompt(
             suffix = " (now active)" if activate else ""
             success(
                 f"Set system prompt on agent '{agent_id}' as version '{new_vid}'{suffix} "
-                f"({len(prompt_text)} chars, field={prompt_field})"
+                f"({len(prompt_text)} chars, field={field_desc})"
             )
         else:
             success(
-                f"Set system prompt on agent '{agent_id}' ({len(prompt_text)} chars, field={prompt_field})"
+                f"Set system prompt on agent '{agent_id}' ({len(prompt_text)} chars, field={field_desc})"
             )
     except typer.Exit:
         raise

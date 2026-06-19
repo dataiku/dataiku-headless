@@ -238,7 +238,11 @@ def test_insight_set_definition_from_file(tmp_path, patch_client):
 
 
 def _setup_chart_insight(
-    patch_client, chart_columns, schema_columns, insight_type="chart"
+    patch_client,
+    chart_columns,
+    schema_columns,
+    insight_type="chart",
+    include_sampling=True,
 ):
     """Helper to configure mocks for validate tests."""
     proj = patch_client.get_project("PROJ1")
@@ -257,15 +261,22 @@ def _setup_chart_insight(
         ],
     }
 
+    params = {
+        "datasetSmartName": "sales",
+        "def": chart_def,
+    }
+    if include_sampling:
+        params["refreshableSelection"] = {
+            "selection": {"samplingMethod": "FULL", "maxRecords": 10000},
+            "autoRefreshSample": False,
+        }
+
     insight_settings = MagicMock()
     insight_settings.get_raw.return_value = {
         "id": "insight1",
         "name": "Test Chart",
         "type": insight_type,
-        "params": {
-            "datasetSmartName": "sales",
-            "def": chart_def,
-        },
+        "params": params,
     }
     insight_mock = MagicMock()
     insight_mock.get_settings.return_value = insight_settings
@@ -1115,3 +1126,131 @@ def test_set_colors_bad_category_pair(patch_client):
     )
     assert result.exit_code != 0
     assert "VALUE=HEX" in result.output
+
+
+# ── sampling-block guard: validate fails fast, set-definition self-heals ──
+
+
+def test_insight_validate_fails_without_sampling_block(patch_client):
+    """A chart with valid columns but no params.refreshableSelection cannot
+    render (DSS 14.6 NPE) — validate must fail it, not report green."""
+    _setup_chart_insight(
+        patch_client,
+        chart_columns={"dim0": ["month"], "measures": ["revenue"]},
+        schema_columns=["month", "revenue"],
+        include_sampling=False,
+    )
+    result = runner.invoke(
+        app, ["insight", "validate", "insight1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "sampling block" in result.output
+    assert "spec.sampleSettings" in result.output
+    assert "set-definition" in result.output
+
+
+def test_insight_validate_fails_on_empty_sampling_block(patch_client):
+    """A refreshableSelection without a selection inside still NPEs."""
+    proj = _setup_chart_insight(
+        patch_client,
+        chart_columns={"dim0": ["month"]},
+        schema_columns=["month"],
+        include_sampling=False,
+    )
+    raw = proj.get_insight.return_value.get_settings.return_value.get_raw.return_value
+    raw["params"]["refreshableSelection"] = {"autoRefreshSample": False}
+    result = runner.invoke(
+        app, ["insight", "validate", "insight1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "sampling block" in result.output
+
+
+def test_insight_set_definition_chart_injects_sampling_block(patch_client):
+    new_def = json.dumps(
+        {"id": "insight1", "name": "Chart", "type": "chart", "params": {"x": 1}}
+    )
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "set-definition",
+            "insight1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Injected default sampling block" in result.output
+    written = (
+        patch_client.get_project("PROJ1")
+        .get_insight("insight1")
+        .get_settings()
+        .get_raw()
+    )
+    assert (
+        written["params"]["refreshableSelection"]["selection"]["samplingMethod"]
+        == "FULL"
+    )
+
+
+def test_insight_set_definition_chart_keeps_caller_sampling_block(patch_client):
+    new_def = json.dumps(
+        {
+            "type": "chart",
+            "params": {
+                "refreshableSelection": {
+                    "selection": {"samplingMethod": "HEAD_SEQUENTIAL", "maxRecords": 50}
+                }
+            },
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "set-definition",
+            "insight1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Injected" not in result.output
+    written = (
+        patch_client.get_project("PROJ1")
+        .get_insight("insight1")
+        .get_settings()
+        .get_raw()
+    )
+    sel = written["params"]["refreshableSelection"]["selection"]
+    assert sel["samplingMethod"] == "HEAD_SEQUENTIAL"
+
+
+def test_insight_set_definition_non_chart_untouched(patch_client):
+    new_def = json.dumps({"type": "dataset_table", "params": {"shakerScript": {}}})
+    result = runner.invoke(
+        app,
+        [
+            "insight",
+            "set-definition",
+            "insight1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            new_def,
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Injected" not in result.output
+    written = (
+        patch_client.get_project("PROJ1")
+        .get_insight("insight1")
+        .get_settings()
+        .get_raw()
+    )
+    assert "refreshableSelection" not in written["params"]

@@ -137,8 +137,21 @@ def run(
 
             if outcome == "SUCCESS":
                 success(f"Scenario completed: {outcome}")
+            elif outcome == "WARNING":
+                # WARNING = finished, but a step emitted a warning. Distinguish
+                # it from a hard failure yet keep exit 0 so chained `&&` steps
+                # proceed — matches DSS's own treatment of WARNING as a
+                # successful terminal outcome.
+                warn(f"Scenario completed with warnings: {outcome}")
             else:
+                # FAILED / ABORTED / TIMEOUT must exit non-zero — agents chain
+                # `scenario run --wait && next-step`; exit 0 here would let the
+                # chain march on past a failed scenario.
                 error(f"Scenario completed: {outcome}")
+                info(f"Inspect why: dku scenario runs {scenario_id} -P {project_key}")
+                raise typer.Exit(1)
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -2550,7 +2563,9 @@ def add_reporter(
     condition: str = typer.Option(
         "always",
         "--condition",
-        help="When to send: failure (outcome != SUCCESS), success, or always",
+        help="When to send: failure (outcome != SUCCESS), success, always, or a "
+        "raw DSS run-condition expression such as "
+        '\'outcome == "SUCCESS" && parseInt(variables["n_alerts"]) > 0\'',
     ),
     channel: str = typer.Option(
         "mail",
@@ -2570,20 +2585,36 @@ def add_reporter(
     """Add an email reporter to a scenario.
 
     Wires a `mail-scenario` reporter that fires at the end of a run. Use
-    --condition to branch on outcome.
+    --condition to branch on outcome, or pass a raw run-condition expression
+    for variable-driven alerting (set the variable in an earlier scenario
+    step, e.g. a custom_python step calling set_scenario_variables).
 
     Examples:
         Alert on failure:   dku scenario add-reporter nightly --recipient ops@example.com --condition failure -P PROJ
         Notice on success:  dku scenario add-reporter nightly --recipient team@example.com --condition success -P PROJ
+        Variable-driven:    dku scenario add-reporter alerts --recipient ops@x \\
+            --condition 'parseInt(variables["n_alerts"]) > 0' -P PROJ
     """
-    if condition not in _REPORTER_CONDITIONS:
+    if condition in _REPORTER_CONDITIONS:
+        run_condition, cond_enabled = _REPORTER_CONDITIONS[condition]
+        condition_label = condition
+    elif condition.replace("_", "").isalnum():
+        # A bare word that isn't a known keyword is a typo, not an expression.
         exit_with_error(
             f"Unknown condition '{condition}'.",
-            details=["Valid conditions: failure, success, always"],
+            details=[
+                "Valid conditions: failure, success, always",
+                "Or pass a raw run-condition expression, e.g. "
+                '\'outcome == "SUCCESS" && parseInt(variables["n_alerts"]) > 0\'',
+            ],
         )
-    run_condition, cond_enabled = _REPORTER_CONDITIONS[condition]
+    else:
+        # A raw DSS run-condition expression, evaluated by the backend at
+        # reporter time. Saved as-is; DSS validates at send time.
+        run_condition, cond_enabled = condition, True
+        condition_label = "custom-condition"
     reporter = {
-        "name": name or f"email on {condition}",
+        "name": name or f"email on {condition_label}",
         "active": True,
         "phase": "END",
         "runConditionEnabled": cond_enabled,
@@ -2612,7 +2643,7 @@ def add_reporter(
         idx = len(settings.raw_reporters) - 1
         settings.save()
         success(
-            f"Added '{condition}' email reporter to '{recipient}' on scenario "
+            f"Added '{condition_label}' email reporter to '{recipient}' on scenario "
             f"'{scenario_id}' at index {idx}"
         )
     except typer.Exit:

@@ -177,6 +177,41 @@ def test_knowledge_build_wait(patch_client):
     kb.build.assert_called_with(wait=True)
 
 
+def test_knowledge_build_wait_warns_on_empty_kb(patch_client):
+    kb = patch_client.get_project("PROJ1").get_knowledge_bank("kb1")
+    kb.search.return_value = []
+    result = runner.invoke(
+        app, ["knowledge", "build", "kb1", "--project", "PROJ1", "--wait"]
+    )
+    assert result.exit_code == 0
+    assert "no indexed content" in result.output or "no documents" in result.output
+    assert "recipe run" in result.output
+    assert "build completed" not in result.output
+
+
+def test_knowledge_build_wait_probe_failure_is_not_empty(patch_client):
+    kb = patch_client.get_project("PROJ1").get_knowledge_bank("kb1")
+    kb.search.side_effect = Exception("401 Unauthorized")
+    result = runner.invoke(
+        app, ["knowledge", "build", "kb1", "--project", "PROJ1", "--wait"]
+    )
+    assert result.exit_code == 0
+    assert "build completed" in result.output
+    assert "Could not verify indexed content" in result.output
+    assert "401 Unauthorized" in result.output
+    assert "no indexed content" not in result.output
+    assert "recipe run" not in result.output
+
+
+def test_knowledge_build_wait_reports_indexed_docs(patch_client):
+    result = runner.invoke(
+        app, ["knowledge", "build", "kb1", "--project", "PROJ1", "--wait"]
+    )
+    assert result.exit_code == 0
+    assert "build completed" in result.output
+    assert "documents indexed" in result.output
+
+
 def test_knowledge_search(patch_client):
     result = runner.invoke(
         app,

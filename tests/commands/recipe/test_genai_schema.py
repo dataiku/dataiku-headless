@@ -171,6 +171,29 @@ def test_recipe_create_embed_without_embed_column_warns(patch_client):
     proj.get_recipe.assert_not_called()
 
 
+def test_recipe_create_embed_rejects_full_rebuild_update_method(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed",
+            "my_embed",
+            "--input",
+            "text_data",
+            "--output-kb",
+            "my_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--vector-store-update-method",
+            "FULL_REBUILD",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2
+    patch_client.get_project("PROJ1").new_recipe.assert_not_called()
+
+
 def test_recipe_create_embed_existing_kb(patch_client):
     """Existing KB: uses set_raw_mode + direct ref instead of with_output_knowledge_bank."""
     proj = patch_client.get_project("PROJ1")
@@ -264,6 +287,48 @@ def test_recipe_create_embed_docs_with_vlm(patch_client):
     builder.with_vlm.assert_called_once_with("openai:gpt-4o")
 
 
+def test_recipe_create_embed_docs_existing_kb_seeds_payload(patch_client):
+    """Existing KB raw-mode creation must still save a non-null visual payload."""
+    proj = patch_client.get_project("PROJ1")
+    existing_kb = MagicMock()
+    existing_kb.name = "doc_kb"
+    existing_kb.id = "existing_kb_id"
+    proj.list_knowledge_banks.return_value = [existing_kb]
+    builder = proj.new_recipe.return_value
+    builder.recipe_proto = {"outputs": {}}
+    recipe_obj = proj.get_recipe.return_value
+    settings = recipe_obj.get_settings.return_value
+    settings.obj_payload = {}
+    raw_def: dict = {"inputs": {"main": {"items": [{"ref": "folder1"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw_def
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--input-folder",
+            "Data Folder",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Using existing knowledge bank" in result.output
+    assert settings.obj_payload["chunkSizeCharacters"] == 3000
+    assert settings.obj_payload["vectorStoreUpdateMethod"] == "SMART_OVERWRITE"
+    assert raw_def["inputs"]["main"]["items"][0]["ref"] == "folder1"
+    assert builder.recipe_proto["outputs"]["knowledge_bank"]["items"][0]["ref"] == (
+        "existing_kb_id"
+    )
+    settings.save.assert_called()
+
+
 def test_recipe_create_embed_docs_requires_input_or_folder(patch_client):
     """Neither --input nor --input-folder ⇒ prescriptive error."""
     result = runner.invoke(
@@ -311,8 +376,75 @@ def test_recipe_create_embed_docs_folder_only_rewires_main(patch_client):
         ],
     )
     assert result.exit_code == 0, result.output
-    # The post-build rewire wrote inputs.main with the folder ref.
-    assert raw_def["inputs"]["main"]["items"][0]["ref"] == "FOLDER_42"
+    # The post-build rewire wrote inputs.main with the resolved folder ID.
+    assert raw_def["inputs"]["main"]["items"][0]["ref"] == "folder1"
+    settings.save.assert_called()
+
+
+def test_recipe_create_embed_docs_resolves_folder_names(patch_client):
+    """Managed-folder names are resolved before writing recipe refs."""
+    proj = patch_client.get_project("PROJ1")
+    proj.list_knowledge_banks.return_value = []
+    recipe_obj = proj.get_recipe.return_value
+    settings = recipe_obj.get_settings.return_value
+    raw_def: dict = {"inputs": {"main": {"items": [{"ref": "Data Folder"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw_def
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--input-folder",
+            "Data Folder",
+            "--output-images-folder",
+            "Data Folder",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    builder = proj.new_recipe.return_value
+    builder.with_input.assert_called_once_with("folder1")
+    assert raw_def["inputs"]["main"]["items"][0]["ref"] == "folder1"
+    assert raw_def["outputs"]["images"]["items"][0]["ref"] == "folder1"
+    settings.save.assert_called()
+
+
+def test_recipe_create_embed_docs_legacy_folder_role_resolves_name(patch_client):
+    """--input plus --input-folder writes the legacy documents role with folder ID."""
+    proj = patch_client.get_project("PROJ1")
+    proj.list_knowledge_banks.return_value = []
+    recipe_obj = proj.get_recipe.return_value
+    settings = recipe_obj.get_settings.return_value
+    raw_def: dict = {"inputs": {"main": {"items": [{"ref": "documents"}]}}}
+    settings.get_recipe_raw_definition.return_value = raw_def
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-embed-docs",
+            "doc_embed",
+            "--input",
+            "documents",
+            "--input-folder",
+            "Data Folder",
+            "--output-kb",
+            "doc_kb",
+            "--embedding-llm",
+            "openai:text-embedding-3-small",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw_def["inputs"]["documents"]["items"][0]["ref"] == "folder1"
     settings.save.assert_called()
 
 

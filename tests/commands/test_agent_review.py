@@ -55,6 +55,34 @@ def test_create(patch_client):
     )
 
 
+def test_create_emits_id_on_stdout_in_dense(patch_client):
+    # The dense default must print the id as data so `... | jq -r .id` works
+    # without remembering --format json (the chaining bug behind the crash).
+    result = runner.invoke(
+        app, ["agent-review", "create", "My Review", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert '"id":"review1"' in result.stdout
+
+
+def test_create_json_is_pure_json(patch_client):
+    result = runner.invoke(
+        app, ["--format", "json", "agent-review", "create", "My Review", "-P", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.stdout)
+    assert parsed["id"] == "review1"
+
+
+def test_run_empty_review_id_fails_cleanly(patch_client):
+    # Empty id used to reach the list endpoint and crash with a raw Python error
+    # ("Invalid loc: empty name"). It must now exit prescriptively instead.
+    result = runner.invoke(app, ["agent-review", "run", "", "--project", "PROJ1"])
+    assert result.exit_code == 3
+    assert "empty" in result.output.lower()
+    assert "agent-review list" in result.output
+
+
 # --- get ---
 
 
@@ -103,6 +131,37 @@ def test_set_agent(patch_client):
         ],
     )
     assert result.exit_code == 0
+
+
+def test_set_agent_fails_when_dss_drops_binding(patch_client):
+    # DSS silently strips agentSmartId when the agent isn't reviewable (no
+    # published version). save() returns the authoritative review without it —
+    # the CLI must fail loudly, not report a false success.
+    from unittest.mock import MagicMock
+
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    dropped = MagicMock()
+    dropped.get_raw.return_value = {"id": "review1", "name": "Quality Check"}
+    review.save.return_value = dropped
+    result = runner.invoke(
+        app,
+        ["agent-review", "set-agent", "review1", "--agent", "agent1", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 3
+    assert "did not bind" in result.output.lower()
+    assert "create-version" in result.output
+
+
+def test_run_no_bound_agent_fails_cleanly(patch_client):
+    # Backstop: a review with no agent must not reach perform_run (which dies
+    # with the opaque "Invalid loc: empty name").
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    review.get_raw.return_value = {"id": "review1", "name": "Quality Check"}
+    review.agent_id = ""
+    result = runner.invoke(app, ["agent-review", "run", "review1", "-P", "PROJ1"])
+    assert result.exit_code == 3
+    assert "no agent bound" in result.output.lower()
+    assert "set-agent" in result.output
 
 
 # --- set-llm ---

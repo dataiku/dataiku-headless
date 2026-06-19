@@ -1,4 +1,4 @@
-Review a dku-cli PR by running real integration tests on a live Dataiku DSS instance.
+Review a Dataiku Headless PR by running real integration tests on a live Dataiku DSS instance.
 
 ## What This Does
 

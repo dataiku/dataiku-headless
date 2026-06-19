@@ -7,13 +7,14 @@ from typing import List, Optional
 
 import typer
 
-from dku_cli.enums import FeatureRole
+from dku_cli.enums import FeatureRescaling, FeatureRole
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
     resolve_project,
 )
 from dku_cli.output import (
+    error,
     info,
     render,
     render_raw,
@@ -280,6 +281,25 @@ def status(
 # Train
 # ---------------------------------------------------------------------------
 
+# Terminal trainInfo.state values that count as a successfully trained model.
+# DSS uses "DONE" for a model that trained and can be deployed (the deploy
+# verb rejects anything else with "non-DONE model"). Verified live on DSS 14.6.
+_SUCCESS_TRAIN_STATES = frozenset({"DONE"})
+
+
+def _model_states(mltask, model_ids: list[str]) -> list[tuple[str, str]]:
+    """Return [(model_id, trainInfo.state)] for each trained model id.
+
+    Reads trainInfo.state from the per-model snippet, the same field the
+    `models` command surfaces.
+    """
+    states: list[tuple[str, str]] = []
+    for mid in model_ids:
+        snippet = mltask.get_trained_model_snippet(id=mid)
+        state = (snippet.get("trainInfo", {}) or {}).get("state", "") or ""
+        states.append((mid, state))
+    return states
+
 
 @app.command()
 def train(
@@ -308,10 +328,48 @@ def train(
 
         if wait:
             model_ids = mltask.train(session_name=session_name)
-            result = {"model_ids": model_ids, "count": len(model_ids)}
+            states = _model_states(mltask, model_ids)
+            succeeded = [m for m, s in states if s in _SUCCESS_TRAIN_STATES]
+            result = {
+                "model_ids": model_ids,
+                "count": len(model_ids),
+                "succeeded": len(succeeded),
+                "states": [{"id": m, "state": s} for m, s in states],
+            }
             render_raw(result, output)
+
+            # Training that produces zero models, or whose every model FAILED,
+            # is a failure — exit 0 here would let an agent chain
+            # `ml train && ml deploy` march on and deploy nothing (or a
+            # broken model). Fail loudly with a non-zero exit.
+            if not model_ids:
+                error(
+                    f"Training produced 0 models for ML task {mltask_id}. "
+                    "No algorithm reached a trained state."
+                )
+                info(
+                    "Inspect why: dku ml status "
+                    f"{analysis_id} {mltask_id} -P {project_key} "
+                    "(check that at least one algorithm is enabled: "
+                    f"dku ml algorithms {analysis_id} {mltask_id} -P {project_key})"
+                )
+                raise typer.Exit(1)
+            if not succeeded:
+                failed_summary = "; ".join(f"{m}={s or '?'}" for m, s in states)
+                error(
+                    f"All {len(model_ids)} trained model(s) failed for ML task "
+                    f"{mltask_id}: {failed_summary}"
+                )
+                info(
+                    "Inspect why: dku ml models "
+                    f"{analysis_id} {mltask_id} -P {project_key} "
+                    "(look for STATE=DONE) · logs: dku ml status "
+                    f"{analysis_id} {mltask_id} -P {project_key}"
+                )
+                raise typer.Exit(1)
+
             success(
-                f"Trained {len(model_ids)} model(s). "
+                f"Trained {len(succeeded)}/{len(model_ids)} model(s) successfully. "
                 f"Deploy best: dku ml deploy {analysis_id} {mltask_id} MODEL_ID "
                 f"--name NAME --train-dataset DS -P {project_key}"
             )
@@ -320,6 +378,8 @@ def train(
             success(
                 f"Training started. Check progress: dku ml status {analysis_id} {mltask_id} -P {project_key}"
             )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -778,33 +838,282 @@ def set_algorithm(
         handle_api_error(e)
 
 
+def _parse_param_scalar(text: str) -> object:
+    """Parse one --set value element: bool, int, float, then string."""
+    low = text.strip().lower()
+    if low in ("true", "false"):
+        return low == "true"
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            continue
+    return text.strip()
+
+
+def _apply_param(algo: dict, key: str, value: str) -> tuple[object, object]:
+    """Apply one key=value onto an algorithm settings dict.
+
+    DSS hyperparameters come in three shapes (all verified live on 14.6):
+    - grid dicts ``{"values": [...], "limit": {...}, ...}`` (prediction
+      algorithms): only ``values`` may be replaced — rebuilding the dict
+      drops ``limit`` and training fails with 'dimension.limit is null'.
+    - plain JSON arrays (clustering algorithms, e.g. kmeans ``k``): replaced
+      with the parsed comma list.
+    - plain scalars (``selection_mode``, ``seed``, ``enabled``): assigned
+      directly. Returns (old, new) for the change summary.
+    """
+    current = algo[key]
+    if isinstance(current, dict) and "values" in current:
+        old = current["values"]
+        current["values"] = [_parse_param_scalar(p) for p in value.split(",")]
+        return old, current["values"]
+    if isinstance(current, dict):
+        raise ValueError(
+            f"'{key}' is a nested settings object, not a value or grid. "
+            "Edit it via dataikuapi or request a dedicated flag."
+        )
+    if isinstance(current, list):
+        new_list = [_parse_param_scalar(p) for p in value.split(",")]
+        algo[key] = new_list
+        return current, new_list
+    new = _parse_param_scalar(value)
+    algo[key] = new
+    return current, new
+
+
+@app.command("set-params")
+def set_params(
+    ctx: typer.Context,
+    analysis_id: str = typer.Argument(help="Analysis ID"),
+    mltask_id: str = typer.Argument(help="ML task ID"),
+    algorithm: str = typer.Option(
+        ...,
+        "--algorithm",
+        "-a",
+        help="Algorithm name in UPPERCASE (from 'dku ml algorithms'), e.g. "
+        "RANDOM_FOREST_CLASSIFICATION or KMEANS",
+    ),
+    set_values: List[str] = typer.Option(
+        ...,
+        "--set",
+        help="param=value (repeatable). Grid hyperparameters take comma lists: "
+        "--set k=3,4,5,6 --set n_estimators=100. Strings/bools assign "
+        "directly: --set selection_mode=sqrt --set enabled=true",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set algorithm hyperparameters for an ML task.
+
+    Replaces only each grid's `values` list, preserving the grid structure
+    (limit/range/gridMode) that DSS requires. Unknown parameter names abort
+    with the list of valid keys — nothing is half-applied.
+
+    Examples:
+      dku ml set-params A M -a RANDOM_FOREST_CLASSIFICATION \\
+          --set n_estimators=100 --set max_tree_depth=30 -P PROJ
+      dku ml set-params A M -a KMEANS --set k=3,4,5,6 -P PROJ
+
+    Note: tree-depth grids require values >= 1; DSS has no 'unlimited' —
+    use a high cap (e.g. 30) to mirror sklearn/KNIME unlimited depth.
+    """
+    project_key = resolve_project(project)
+    assignments: list[tuple[str, str]] = []
+    for sv in set_values:
+        key, sep, value = sv.partition("=")
+        if not sep or not key.strip() or not value.strip():
+            exit_with_error(
+                f"Invalid --set '{sv}': expected param=value.",
+                details=["Example: --set n_estimators=100 --set k=3,4,5,6"],
+            )
+        assignments.append((key.strip(), value.strip()))
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        mltask = proj.get_ml_task(analysis_id, mltask_id)
+        task_settings = mltask.get_settings()
+
+        try:
+            algo = task_settings.get_algorithm_settings(algorithm.upper())
+        except ValueError:
+            available = sorted(task_settings.get_all_possible_algorithm_names())
+            exit_with_error(
+                f"Unknown algorithm '{algorithm}' for ML task {mltask_id}.",
+                details=[f"Available: {', '.join(available)}"],
+                status=3,
+            )
+
+        missing = [k for k, _ in assignments if k not in algo]
+        if missing:
+            valid = sorted(k for k in algo.keys() if not k.endswith("_Internals"))
+            exit_with_error(
+                f"Parameter(s) not found on {algorithm.upper()}: {', '.join(missing)}.",
+                details=[f"Valid parameters: {', '.join(valid)}"],
+                status=3,
+            )
+
+        changes = []
+        for key, value in assignments:
+            try:
+                old, new = _apply_param(algo, key, value)
+            except ValueError as ve:
+                exit_with_error(str(ve))
+            changes.append(f"{key}: {old} -> {new}")
+
+        task_settings.save()
+        success(
+            f"Updated {algorithm.upper()} on ML task {mltask_id}: " + "; ".join(changes)
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _validate_split_flags(
+    train_ratio: Optional[float],
+    seed: Optional[int],
+    kfold: Optional[int],
+    no_kfold: bool,
+) -> None:
+    if train_ratio is None and seed is None and kfold is None and not no_kfold:
+        exit_with_error(
+            "Nothing to change. Provide --train-ratio, --seed, --kfold or --no-kfold.",
+            details=["Example: dku ml set-split A M --train-ratio 0.7 -P PROJ"],
+        )
+    if train_ratio is not None and not 0.0 < train_ratio < 1.0:
+        exit_with_error(
+            f"--train-ratio must be between 0 and 1 exclusive, got {train_ratio}.",
+        )
+    if kfold is not None and kfold < 2:
+        exit_with_error(f"--kfold needs at least 2 folds, got {kfold}.")
+    if kfold is not None and no_kfold:
+        exit_with_error(
+            "--kfold and --no-kfold are mutually exclusive.",
+            details=["Pass --kfold N to enable k-fold, or --no-kfold to disable it."],
+        )
+
+
+def _apply_split_changes(
+    split: dict,
+    train_ratio: Optional[float],
+    seed: Optional[int],
+    kfold: Optional[int],
+    no_kfold: bool,
+) -> list[str]:
+    changes = []
+    if train_ratio is not None:
+        changes.append(
+            f"ssdTrainingRatio: {split.get('ssdTrainingRatio')} -> {train_ratio}"
+        )
+        split["ssdTrainingRatio"] = train_ratio
+    if seed is not None:
+        changes.append(f"ssdSeed: {split.get('ssdSeed')} -> {seed}")
+        split["ssdSeed"] = seed
+    if kfold is not None:
+        changes.append(f"kfold: {split.get('kfold')} -> True (nFolds={kfold})")
+        split["kfold"] = True
+        split["nFolds"] = kfold
+    elif no_kfold:
+        changes.append(f"kfold: {split.get('kfold')} -> False")
+        split["kfold"] = False
+    return changes
+
+
+@app.command("set-split")
+def set_split(
+    ctx: typer.Context,
+    analysis_id: str = typer.Argument(help="Analysis ID"),
+    mltask_id: str = typer.Argument(help="ML task ID"),
+    train_ratio: Optional[float] = typer.Option(
+        None,
+        "--train-ratio",
+        help="Train fraction for the random split, e.g. 0.7 for 70/30",
+    ),
+    seed: Optional[int] = typer.Option(None, "--seed", help="Split random seed"),
+    kfold: Optional[int] = typer.Option(
+        None, "--kfold", help="Enable k-fold cross-test with this many folds"
+    ),
+    no_kfold: bool = typer.Option(
+        False, "--no-kfold", help="Disable k-fold (back to simple split)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the train/test split policy of a prediction ML task.
+
+    Patches splitParams on the task (ssdTrainingRatio / ssdSeed / kfold).
+    Clustering tasks have no split — this errors on them.
+
+    Example:
+      dku ml set-split A M --train-ratio 0.7 -P PROJ
+    """
+    project_key = resolve_project(project)
+    _validate_split_flags(train_ratio, seed, kfold, no_kfold)
+
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        mltask = proj.get_ml_task(analysis_id, mltask_id)
+        task_settings = mltask.get_settings()
+        raw = task_settings.get_raw()
+        split = raw.get("splitParams")
+        if split is None:
+            exit_with_error(
+                f"ML task {mltask_id} has no splitParams "
+                "(clustering tasks have no train/test split).",
+                details=[
+                    "Inspect: dku ml settings "
+                    f"{analysis_id} {mltask_id} -P {project_key}"
+                ],
+            )
+
+        changes = _apply_split_changes(split, train_ratio, seed, kfold, no_kfold)
+        task_settings.save()
+        success(f"Updated split policy on ML task {mltask_id}: " + "; ".join(changes))
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command("set-feature")
 def set_feature(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     feature: str = typer.Argument(help="Feature (column) name"),
-    role: FeatureRole = typer.Option(
-        ...,
+    role: Optional[FeatureRole] = typer.Option(
+        None,
         "--role",
         case_sensitive=False,
         help="INPUT | REJECT | TARGET (prediction only) | WEIGHT (prediction only)",
     ),
+    rescaling: Optional[FeatureRescaling] = typer.Option(
+        None,
+        "--rescaling",
+        case_sensitive=False,
+        help="NONE | AVGSTD | MINMAX — numeric feature rescaling (DSS default "
+        "is AVGSTD; set NONE to mirror tools that train on raw values)",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Change the role of a feature in an ML task (e.g. reject a leaky column).
+    """Change the role and/or rescaling of a feature in an ML task.
 
-    After create-prediction / create-clustering, DSS auto-guesses feature roles.
-    Use this to reject columns that leak the target (labels, post-event columns)
-    without rebuilding the upstream dataset.
+    After create-prediction / create-clustering, DSS auto-guesses feature roles
+    and applies AVGSTD rescaling to numerics. Use --role to reject columns that
+    leak the target; use --rescaling NONE when migrating from a tool that
+    clustered/trained on raw values (KNIME k-Means, raw-distance pipelines).
 
-    Example:
+    Examples:
       dku ml set-feature ml_analysis_1 mltask_1 true_label --role REJECT -P PROJ
+      dku ml set-feature ml_analysis_1 mltask_1 amount --rescaling NONE -P PROJ
     """
-    role_upper = role.value
-    # DSS stores rejected role as "REJECT" internally.
-    if role_upper == "REJECTED":
-        role_upper = "REJECT"
+    if role is None and rescaling is None:
+        exit_with_error(
+            "Nothing to change. Provide --role and/or --rescaling.",
+            details=["Example: dku ml set-feature A M amount --rescaling NONE -P PROJ"],
+        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -817,13 +1126,37 @@ def set_feature(
             exit_with_error(
                 f"Feature '{feature}' not found in ML task {mltask_id}.",
                 details=[
-                    f"Inspect features: dku ml settings {analysis_id} {mltask_id} -P {project_key} | jq '.preprocessing.per_feature | keys'",
+                    f"Inspect features: dku ml settings {analysis_id} {mltask_id} "
+                    f"-P {project_key} | jq '.preprocessing.per_feature | keys'",
                 ],
                 status=3,
             )
-        feat["role"] = role_upper
+        applied = []
+        if role is not None:
+            role_upper = role.value
+            # DSS stores rejected role as "REJECT" internally.
+            if role_upper == "REJECTED":
+                role_upper = "REJECT"
+            feat["role"] = role_upper
+            applied.append(f"role = {role_upper}")
+        if rescaling is not None:
+            if feat.get("type") != "NUMERIC":
+                exit_with_error(
+                    f"--rescaling only applies to NUMERIC features; '{feature}' "
+                    f"is {feat.get('type', 'unknown')}.",
+                    details=[
+                        f"Inspect feature types: dku ml settings {analysis_id} "
+                        f"{mltask_id} -P {project_key} -o json "
+                        "| jq '.preprocessing.per_feature | map_values(.type)'",
+                    ],
+                )
+            # DSS expects a plain string enum here, not an object (DSS 14.6).
+            feat["rescaling"] = rescaling.value
+            applied.append(f"rescaling = {rescaling.value}")
         task_settings.save()
-        success(f"Set feature '{feature}' role = {role_upper} in ML task {mltask_id}.")
+        success(f"Set feature '{feature}' {', '.join(applied)} in ML task {mltask_id}.")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

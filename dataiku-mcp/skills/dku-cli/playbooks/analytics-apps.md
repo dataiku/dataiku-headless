@@ -34,7 +34,9 @@ dku ml deploy ANALYSIS MLTASK MODEL_ID -n model_name --train-dataset DS -P PROJ
 
 - **Insight + dashboard** — present results to humans (charts, KPI tiles, tables).
 - **App Designer** — turn a project into a self-service tool: upload → configure → run → download, no flow knowledge needed.
-- **Visual ML / AutoML** — classification / regression / clustering. Prefer over hand-written Python models.
+- **Visual ML / AutoML** — classification / regression / clustering. Always over
+  hand-rolled sklearn in a notebook or code recipe: the SME gets reviewable feature
+  handling, metrics, and model comparisons, and the flow gets a deployable saved model.
 
 ---
 
@@ -125,10 +127,15 @@ Lifecycle: **create ML task → audit features → train → pick best model →
 dku ml create-prediction training_ds label --type BINARY_CLASSIFICATION -P KEY   # → ANALYSIS, MLTASK
 dku ml settings ANALYSIS MLTASK -P KEY                                 # AUDIT for leakage — do not skip
 dku ml set-features ANALYSIS MLTASK --reject leaky_col,order_id --input quantity,price -P KEY
+dku ml set-algorithm ANALYSIS MLTASK --disable-all --enable RANDOM_FOREST_CLASSIFICATION -P KEY
+dku ml set-params ANALYSIS MLTASK -a RANDOM_FOREST_CLASSIFICATION \
+    --set n_estimators=100 --set max_tree_depth=30 -P KEY              # explicit hyperparams (migrations)
+dku ml set-split ANALYSIS MLTASK --train-ratio 0.7 -P KEY              # default split is 0.8
 dku ml train ANALYSIS MLTASK --wait -P KEY                             # trains every enabled algorithm
 dku --format json ml models ANALYSIS MLTASK -P KEY | jq 'max_by(.rank_score)' # → best MODEL_ID
 dku ml deploy ANALYSIS MLTASK MODEL_ID -n sm_label --train-dataset training_ds -P KEY  # → SAVED_MODEL
 dku ml details ANALYSIS MLTASK MODEL_ID -P KEY                         # AUC / accuracy / RMSE of that model
+dku model set-threshold SAVED_MODEL 0.3 -P KEY                         # binary cut-off; DSS auto-optimized it on deploy
 ```
 
 Other task types — same flow, different `create-*`:
@@ -166,3 +173,6 @@ Scoring-recipe naming reconcile rationale (DSS auto-names `score_<input>`): see 
 - **`prediction_scoring` / `clustering_scoring` recipes REQUIRE `--model`** (saved-model ID or name) — omitting it errors before the server call.
 - Scoring uses the model's **active version**. After retraining, `dku model set-active-version` to point downstream recipes/endpoints at the new one.
 - Compare candidates with `dku model-comparison` before promoting.
+- **`set-params` knows the three DSS hyperparameter shapes** (prediction grid dicts, clustering plain arrays, scalars) and replaces only values — never hand-rebuild a grid dict via the API; dropping its `limit` key fails at TRAIN time with `dimension.limit is null`. Tree-depth grids require ≥ 1: DSS has no "unlimited", use a high cap like 30.
+- **DSS auto-optimizes the binary threshold at deploy** (often lands at ~0.1, not 0.5). Scoring output silently shifts vs. a tool that assumed 0.5 — set it explicitly with `dku model set-threshold` when the source workflow hard-codes a cut-off.
+- **`set-feature --rescaling NONE`** mirrors tools that train on raw values (e.g. KNIME k-Means without a Normalizer); DSS defaults numerics to AVGSTD, which changes clusters/coefficients.

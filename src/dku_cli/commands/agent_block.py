@@ -225,8 +225,9 @@ def _normalize_blocks(blocks: list[dict]) -> list[str]:
     1. PYTHON_CODE without `functionName` → inject `"functionName": "process"` when the
        code defines `def process(`. DSS 14.5.1+ NPEs with a bare 'functionName' KeyError
        before any block runs if this field is missing.
-    2. Legacy `outputScratchpadKey` → rename to `outputKey`. DSS 14.5+ rejects the
-       legacy field with "SAVE_TO_SCRATCHPAD output mode requires an outputKey".
+    2. Legacy `outputScratchpadKey` / `outputStateKey` → rename to `outputKey`. DSS
+       14.5+ rejects both legacy fields — `SAVE_TO_STATE` with `outputStateKey` NPEs at
+       runtime with `RequestFailedException: 'outputKey'` (verified live on 14.6).
     3. LLM_REQUEST `systemPrompt` → rename to `systemPromptAfterHistory`. DSS
        silently ignores `systemPrompt` on LLM_REQUEST (verified live: the block
        runs with default behavior and the prompt never reaches the model).
@@ -245,20 +246,23 @@ def _normalize_blocks(blocks: list[dict]) -> list[str]:
                     "auto-injected functionName='process'. DSS 14.5.1+ requires this field."
                 )
 
-        # Fix 2: rename legacy outputScratchpadKey -> outputKey
-        if "outputScratchpadKey" in block and "outputKey" not in block:
-            block["outputKey"] = block.pop("outputScratchpadKey")
-            warnings.append(
-                f"Block '{bid}' used legacy 'outputScratchpadKey'; renamed to 'outputKey'. "
-                "DSS 14.5+ rejects the legacy field."
-            )
-        elif "outputScratchpadKey" in block:
-            # Both present — drop the legacy one to avoid confusion downstream.
-            block.pop("outputScratchpadKey")
-            warnings.append(
-                f"Block '{bid}' had both 'outputKey' and legacy 'outputScratchpadKey'; "
-                "dropped the legacy field."
-            )
+        # Fix 2: rename legacy outputScratchpadKey / outputStateKey -> outputKey
+        for legacy_field in ("outputScratchpadKey", "outputStateKey"):
+            if legacy_field not in block:
+                continue
+            if "outputKey" not in block:
+                block["outputKey"] = block.pop(legacy_field)
+                warnings.append(
+                    f"Block '{bid}' used legacy '{legacy_field}'; renamed to 'outputKey'. "
+                    "DSS 14.5+ rejects the legacy field."
+                )
+            else:
+                # Both present — drop the legacy one to avoid confusion downstream.
+                block.pop(legacy_field)
+                warnings.append(
+                    f"Block '{bid}' had both 'outputKey' and legacy '{legacy_field}'; "
+                    "dropped the legacy field."
+                )
 
         # Fix 3: LLM_REQUEST systemPrompt -> systemPromptAfterHistory
         if block.get("type") == "LLM_REQUEST" and "systemPrompt" in block:

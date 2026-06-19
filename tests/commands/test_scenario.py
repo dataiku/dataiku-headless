@@ -388,7 +388,12 @@ def test_scenario_run_wait_polls(patch_client):
 
 
 def test_scenario_run_wait_failure(patch_client):
-    """--wait reports non-SUCCESS outcomes."""
+    """--wait on a FAILED outcome must exit NON-ZERO so chained `&&` steps stop.
+
+    Regression: this used to exit 0 (error() only writes stderr), letting an
+    agent chaining `scenario run --wait && next-step` march on past a failed
+    scenario.
+    """
     from unittest.mock import patch as mock_patch, MagicMock
 
     proj = patch_client.get_project("PROJ1")
@@ -404,8 +409,51 @@ def test_scenario_run_wait_failure(patch_client):
         result = runner.invoke(
             app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
         )
-    assert result.exit_code == 0
+    assert result.exit_code != 0, result.output
     assert "FAILED" in result.output
+
+
+def test_scenario_run_wait_aborted_exits_nonzero(patch_client):
+    """--wait on an ABORTED outcome must also exit non-zero."""
+    from unittest.mock import patch as mock_patch, MagicMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    trigger = MagicMock(spec=[])
+    scenario.run.return_value = trigger
+    run_done = MagicMock()
+    run_done.running.return_value = False
+    run_done.outcome = "ABORTED"
+    scenario.get_last_runs.return_value = [run_done]
+
+    with mock_patch("dku_cli.commands.scenario.time.sleep"):
+        result = runner.invoke(
+            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+        )
+    assert result.exit_code != 0, result.output
+    assert "ABORTED" in result.output
+
+
+def test_scenario_run_wait_warning_exits_zero(patch_client):
+    """--wait on a WARNING outcome is a successful terminal state — exit 0,
+    but the output distinguishes it from a clean SUCCESS."""
+    from unittest.mock import patch as mock_patch, MagicMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    trigger = MagicMock(spec=[])
+    scenario.run.return_value = trigger
+    run_done = MagicMock()
+    run_done.running.return_value = False
+    run_done.outcome = "WARNING"
+    scenario.get_last_runs.return_value = [run_done]
+
+    with mock_patch("dku_cli.commands.scenario.time.sleep"):
+        result = runner.invoke(
+            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+        )
+    assert result.exit_code == 0, result.output
+    assert "WARNING" in result.output
 
 
 def test_scenario_run_wait_survives_transient_outcome_value_error(patch_client):
@@ -1839,4 +1887,52 @@ def test_scenario_add_reporter_invalid_condition(patch_client):
     assert result.exit_code != 0
     assert "Unknown condition 'sometimes'" in result.output
     assert "failure, success, always" in result.output
+    settings.save.assert_not_called()
+
+
+def test_scenario_add_reporter_custom_expression(patch_client):
+    """A non-keyword expression becomes the raw runCondition."""
+    settings = _set_reporters(patch_client, [])
+    expr = 'outcome == "SUCCESS" && parseInt(variables["fraud_count"]) > 0'
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-reporter",
+            "alerts",
+            "--recipient",
+            "ops@example.com",
+            "--condition",
+            expr,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "custom-condition" in result.output
+    reporter = settings.raw_reporters[0]
+    assert reporter["runCondition"] == expr
+    assert reporter["runConditionEnabled"] is True
+
+
+def test_scenario_add_reporter_bare_word_typo_still_errors(patch_client):
+    """Typo protection: a single bare word that isn't a keyword stays an error."""
+    settings = _set_reporters(patch_client, [])
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-reporter",
+            "nightly",
+            "--recipient",
+            "ops@example.com",
+            "--condition",
+            "succes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unknown condition" in result.output
+    assert "raw run-condition expression" in result.output
     settings.save.assert_not_called()

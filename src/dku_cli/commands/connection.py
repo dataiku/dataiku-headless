@@ -27,6 +27,15 @@ app = typer.Typer(help="Manage DSS connections.")
 @app.command("list")
 def list_connections(
     ctx: typer.Context,
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        "-P",
+        help=(
+            "Accepted for global-option consistency; ignored because connections "
+            "are instance-wide."
+        ),
+    ),
     conn_type: str | None = typer.Option(
         None,
         "--type",
@@ -40,6 +49,7 @@ def list_connections(
       dku connection list
       dku connection list --type Snowflake
     """
+    del project
     output = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)

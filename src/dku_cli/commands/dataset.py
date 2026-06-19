@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -21,7 +22,12 @@ from dku_cli.errors import (
     is_already_exists_error,
     is_not_found_error,
 )
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    resolve_project,
+    unpersisted_key_paths,
+)
 from dku_cli.output import (
     error,
     filter_fields,
@@ -38,21 +44,44 @@ app = typer.Typer(help="Manage DSS datasets.")
 register_dataset_quality_commands(app)
 
 
-def _autodetect_and_warn(ds, dataset_name: str, project_key: str) -> None:
+def _autodetect_and_warn(
+    ds, dataset_name: str, project_key: str, quiet_warnings: bool = False
+) -> None:
     """Auto-detect an uploaded dataset's format/schema and warn on all-STRING.
 
     CSV uploads often detect every column as STRING, which breaks downstream
     numeric aggregation (group/window SUM) — surface a fix when that happens.
+
+    ``quiet_warnings`` skips the header/STRING warnings — used when sheet
+    targeting follows, where they describe the wrong (first) sheet and the
+    follow-up re-detection supersedes them.
     """
     info("Auto-detecting format and schema...")
-    detected = ds.autodetect_settings(infer_storage_types=True)
-    detected.save()
+    try:
+        detected = ds.autodetect_settings(infer_storage_types=True)
+        detected.save()
+    except Exception as exc:
+        exit_with_error(
+            f"Auto-detect failed for uploaded file in '{dataset_name}': {exc}",
+            details=[
+                "For small, odd, or headerless files, upload without detection "
+                "and set the format/schema explicitly:",
+                f"  dku dataset upload {dataset_name} <FILE> --no-autodetect "
+                f"-P {project_key}",
+                f"  dku dataset set-definition {dataset_name} -d "
+                '\'{"formatType":"csv","formatParams":{"separator":",",'
+                '"parseHeaderRow":true}}\' --deep-merge '
+                f"-P {project_key}",
+                f"  dku dataset set-schema {dataset_name} --columns "
+                f"'<col type, col type>' -P {project_key}",
+            ],
+        )
     schema_cols = detected.get_raw().get("schema", {}).get("columns", [])
     success(
         f"Format detected: {detected.get_raw().get('formatType', 'unknown')} "
         f"({len(schema_cols)} columns)"
     )
-    if not schema_cols:
+    if not schema_cols or quiet_warnings:
         return
 
     # Header not parsed → generic col_0, col_1, … names. DSS's header heuristic
@@ -86,7 +115,160 @@ def _autodetect_and_warn(ds, dataset_name: str, project_key: str) -> None:
         warn(
             "All columns detected as STRING. Downstream aggregation recipes "
             "(group, window) may fail on numeric operations. Fix with: "
-            f"dku dataset set-schema {dataset_name} -d @schema.json -P {project_key}"
+            f"dku dataset infer-types {dataset_name} --apply -P {project_key}"
+        )
+
+
+def _redetect_schema_keeping_format(
+    client, project_key: str, dataset_name: str, infer_types: bool = True
+):
+    """Re-run schema detection while preserving the saved formatType/formatParams.
+
+    ``autodetect_settings()`` always re-detects the format from scratch
+    (``detectPossibleFormats: true``), which resets manually-set params —
+    e.g. an Excel sheet selection snaps back to the first sheet. This calls
+    the same endpoint with ``detectPossibleFormats: false`` so detection
+    honors the dataset's current format config and only re-infers columns.
+
+    Returns ``(settings, detected_columns, text_reasons)``. The fresh
+    per-format inference lives in ``schemaDetection.detectedSchema``;
+    ``newSchema`` is that detection reconciled against the dataset's
+    EXISTING schema and silently keeps stale columns on any mismatch —
+    always read ``detectedSchema`` here.
+    """
+    from dataikuapi.dss.future import DSSFuture
+
+    ds = client.get_project(project_key).get_dataset(dataset_name)
+    settings = ds.get_settings()
+    future_resp = client._perform_json(
+        "POST",
+        "/projects/%s/datasets/%s/actions/testAndDetectSettings/fsLike"
+        % (project_key, dataset_name),
+        body={"detectPossibleFormats": False, "inferStorageTypes": infer_types},
+    )
+    result = DSSFuture(client, future_resp.get("jobId"), future_resp).wait_for_result()
+    fmt_result = result.get("format") or {}
+    if not fmt_result.get("ok"):
+        raise ValueError(
+            "Schema detection failed against the current format config "
+            f"(formatType={settings.get_raw().get('formatType')!r}). "
+            "Check the format params — e.g. an Excel sheets pattern that "
+            "matches no sheet."
+        )
+    schema_detection = fmt_result.get("schemaDetection") or {}
+    detected = (
+        schema_detection.get("detectedSchema")
+        or schema_detection.get("newSchema")
+        or {}
+    ).get("columns", [])
+    return settings, detected, schema_detection.get("textReasons") or []
+
+
+def _run_detection(
+    client,
+    ds,
+    project_key: str,
+    dataset_name: str,
+    infer_types: bool,
+    keep_format: bool,
+):
+    """Run full autodetection, or schema-only detection when keep_format is set."""
+    if not keep_format:
+        return ds.autodetect_settings(infer_storage_types=infer_types)
+    detected, detected_cols, _reasons = _redetect_schema_keeping_format(
+        client, project_key, dataset_name, infer_types=infer_types
+    )
+    detected.get_raw()["schema"] = {"columns": detected_cols, "userModified": True}
+    return detected
+
+
+def _validate_sheet_flags(
+    sheet: str | None,
+    sheet_indices: str | None,
+    all_sheets: bool,
+    no_autodetect: bool,
+) -> None:
+    """Reject contradictory Excel sheet-targeting flag combinations."""
+    selectors = sum(1 for s in (sheet, sheet_indices) if s is not None) + (
+        1 if all_sheets else 0
+    )
+    if selectors > 1:
+        exit_with_error("Pass at most one of --sheet / --sheet-indices / --all-sheets.")
+    if selectors and no_autodetect:
+        exit_with_error(
+            "--sheet/--sheet-indices/--all-sheets need format detection; "
+            "drop --no-autodetect."
+        )
+
+
+def _apply_excel_sheet_targeting(
+    client,
+    dataset_name: str,
+    project_key: str,
+    *,
+    sheet: str | None,
+    sheet_indices: str | None,
+    all_sheets: bool,
+    sheets_to_column: bool,
+) -> None:
+    """Retarget an uploaded Excel dataset's sheet selection and re-infer its schema.
+
+    Replaces the manual dance: get-definition → edit formatParams.sheets →
+    set-definition → hand-write the schema. ``parseHeaderRow`` is re-asserted
+    because the initial autodetect may have run on a non-data first sheet and
+    concluded there is no header.
+    """
+    ds = client.get_project(project_key).get_dataset(dataset_name)
+    settings = ds.get_settings()
+    raw = settings.get_raw()
+    format_type = raw.get("formatType")
+    if format_type != "excel":
+        exit_with_error(
+            f"--sheet/--sheet-indices/--all-sheets only apply to Excel files; "
+            f"detected format is '{format_type}'.",
+            details=[
+                "These flags retarget formatParams.sheets on an excel-format dataset.",
+                f"Inspect: dku dataset get-definition {dataset_name} -P {project_key}",
+            ],
+        )
+    params = raw.setdefault("formatParams", {})
+    if sheet is not None:
+        # The "*" prefix is mandatory serialization syntax in NAMES mode
+        # (the engine matches the exact name after it; no prefix → no match).
+        params["sheetSelectionMode"] = "NAMES"
+        params["sheets"] = f"*{sheet}"
+        target_desc = f"sheet '{sheet}'"
+    elif sheet_indices is not None:
+        params["sheetSelectionMode"] = "INDICES"
+        params["sheets"] = sheet_indices
+        target_desc = f"sheet indices {sheet_indices} (0-based)"
+    else:  # all_sheets
+        params["sheetSelectionMode"] = "ALL"
+        target_desc = "all sheets"
+    if sheets_to_column:
+        params["sheetsToColumn"] = True
+    params["parseHeaderRow"] = True
+    settings.save()
+
+    settings, detected, _reasons = _redetect_schema_keeping_format(
+        client, project_key, dataset_name, infer_types=True
+    )
+    settings.get_raw()["schema"] = {"columns": detected, "userModified": True}
+    settings.save()
+
+    success(f"Targeted {target_desc}: {len(detected)} columns")
+    if sheets_to_column:
+        info("Sheet name is prepended as the FIRST column of the dataset.")
+    import re
+
+    names = [c.get("name", "") for c in detected]
+    if names and all(re.fullmatch(r"col_\d+", n) for n in names):
+        warn(
+            "Columns detected as col_0, col_1, … — the sheet selection may not "
+            "have matched (names are matched exactly, case-sensitive), or the "
+            "sheet has no header row. A non-matching selection silently falls "
+            "back to another sheet. Verify with: "
+            f"dku dataset head {dataset_name} -P {project_key} -n 3"
         )
 
 
@@ -534,17 +716,27 @@ def _gather_dataset_info(
     pair; the caller decides how to render. Stale-metrics hints and
     large-dataset warnings still go to stderr per dataset.
     """
+    # Values parsed straight out of the compute_metrics response. Reading
+    # get_last_metric_values() right after compute is a write-then-read race —
+    # the last-values store can still return the PREVIOUS run's numbers (it
+    # even reported a stale count for a dataset whose rebuild had just failed).
+    fresh_values: dict[str, str] = {}
     if recompute:
         if fmt != "json":
             info(f"Recomputing metrics for '{dataset_name}'...")
         try:
-            ds.compute_metrics(
+            compute_result = ds.compute_metrics(
                 metric_ids=[
                     "records:COUNT_RECORDS",
                     "basic:SIZE",
                     "basic:COUNT_FILES",
                 ]
             )
+            for computed in (
+                (compute_result or {}).get("result", {}).get("computed", [])
+            ):
+                if computed.get("metricId") and "value" in computed:
+                    fresh_values[computed["metricId"]] = computed["value"]
         except Exception as exc:
             if fmt != "json":
                 warn(f"Metric recompute failed for '{dataset_name}': {exc}")
@@ -575,34 +767,47 @@ def _gather_dataset_info(
     except Exception:
         pass
 
-    row_count = None
-    data_size_bytes = None
-    file_count = None
     metrics_stale = True
 
-    try:
-        metrics = ds.get_last_metric_values()
-        available_ids = metrics.get_all_ids()
-        if "records:COUNT_RECORDS" in available_ids:
-            try:
-                row_count = metrics.get_global_value("records:COUNT_RECORDS")
-                metrics_stale = False
-            except Exception:
-                pass
-        if "basic:SIZE" in available_ids:
-            try:
-                data_size_bytes = metrics.get_global_value("basic:SIZE")
-                metrics_stale = False
-            except Exception:
-                pass
-        if "basic:COUNT_FILES" in available_ids:
-            try:
-                file_count = metrics.get_global_value("basic:COUNT_FILES")
-                metrics_stale = False
-            except Exception:
-                pass
-    except Exception:
-        pass
+    def _fresh_int(metric_id: str):
+        value = fresh_values.get(metric_id)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    row_count = _fresh_int("records:COUNT_RECORDS")
+    data_size_bytes = _fresh_int("basic:SIZE")
+    file_count = _fresh_int("basic:COUNT_FILES")
+    if row_count is not None or data_size_bytes is not None:
+        metrics_stale = False
+
+    if row_count is None or data_size_bytes is None or file_count is None:
+        try:
+            metrics = ds.get_last_metric_values()
+            available_ids = metrics.get_all_ids()
+            if row_count is None and "records:COUNT_RECORDS" in available_ids:
+                try:
+                    row_count = metrics.get_global_value("records:COUNT_RECORDS")
+                    metrics_stale = False
+                except Exception:
+                    pass
+            if data_size_bytes is None and "basic:SIZE" in available_ids:
+                try:
+                    data_size_bytes = metrics.get_global_value("basic:SIZE")
+                    metrics_stale = False
+                except Exception:
+                    pass
+            if file_count is None and "basic:COUNT_FILES" in available_ids:
+                try:
+                    file_count = metrics.get_global_value("basic:COUNT_FILES")
+                    metrics_stale = False
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     display_row = {
         "name": dataset_name,
@@ -667,6 +872,7 @@ def _gather_dataset_info(
 
 
 @app.command("info")
+@app.command("inspect", hidden=True)
 def info_cmd(
     ctx: typer.Context,
     dataset_names: list[str] = typer.Argument(
@@ -757,7 +963,22 @@ def head(
     ctx: typer.Context,
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    rows: int = typer.Option(10, "-n", "--rows", help="Number of rows"),
+    rows: int = typer.Option(
+        10,
+        "-n",
+        "--rows",
+        "--limit",
+        help="Number of rows. 0 means ALL rows (same as --all).",
+    ),
+    all_rows: bool = typer.Option(
+        False,
+        "--all",
+        help=(
+            "Stream every row (verification / parity checks on small datasets). "
+            "Check `dku dataset info` first on datasets you don't know — this "
+            "reads the full data. For a file copy use `dku dataset download`."
+        ),
+    ),
     filter_columns: str = typer.Option(
         None,
         "--columns",
@@ -765,7 +986,7 @@ def head(
         help="Comma-separated column names to display (default: all). Use to inspect specific columns before transforming.",
     ),
 ) -> None:
-    """Preview first rows of a dataset.
+    """Preview first rows of a dataset (or all rows with --all).
 
     Use --columns to inspect specific columns before creating recipes:
       dku dataset head INPUT --columns "order_date,price" -P PROJ -n 10
@@ -820,9 +1041,10 @@ def head(
             display_columns = all_columns
 
         # iter_rows() returns lists, not dicts — zip with column names
+        unlimited = all_rows or rows == 0
         data = []
         for i, row in enumerate(ds.iter_rows()):
-            if i >= rows:
+            if not unlimited and i >= rows:
                 break
             full_row = dict(zip(all_columns, row))
             data.append({c: full_row[c] for c in display_columns})
@@ -831,7 +1053,11 @@ def head(
             data,
             display_columns,
             output_format=output,
-            title=f"{dataset_name} (first {rows} rows)",
+            title=(
+                f"{dataset_name} (all {len(data)} rows)"
+                if unlimited
+                else f"{dataset_name} (first {rows} rows)"
+            ),
             # Preserve the real column-name case in headers. The table renderer
             # upper-cases headers by default, but here the headers ARE dataset
             # column names — and GREL/formula references are case-sensitive, so
@@ -862,11 +1088,19 @@ def build(
         "--auto-update-schema",
         help="Auto-update output schemas before each recipe run",
     ),
+    no_verify: bool = typer.Option(
+        False,
+        "--no-verify",
+        help="Skip the post-build rows/cols summary on successful --wait builds",
+    ),
 ) -> None:
     """Trigger dataset build.
 
     Use --type RECURSIVE_BUILD --auto-update-schema to build the entire upstream
     pipeline with automatic schema propagation.
+
+    With --wait, a successful build prints `Built <ds>: N rows, M cols` so
+    success carries proof (0 rows = warning to investigate).
     """
     project_key = resolve_project(project)
     try:
@@ -908,16 +1142,16 @@ def build(
         except Exception:
             pass  # Best-effort — never block the build on a metadata read failure.
 
-        # Use job builder when advanced options are specified
-        if job_type or auto_update_schema:
-            builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
-            builder.with_output(dataset_name)
-            if auto_update_schema:
-                builder.with_auto_update_schema_before_each_recipe_run(True)
-            job = builder.start()
-        else:
-            ds = proj.get_dataset(dataset_name)
-            job = ds.build()
+        # Single async job-builder path for both plain and advanced builds.
+        # (DSSDataset.build() blocks internally even without --wait and raises
+        # a generic error on failure — inconsistent with `dku job run` /
+        # `dku recipe run` and useless for agents who need the job id + log.)
+        builder = proj.new_job(job_type or "NON_RECURSIVE_FORCED_BUILD")
+        builder.with_output(dataset_name)
+        if auto_update_schema:
+            builder.with_auto_update_schema_before_each_recipe_run(True)
+        job_start_ms = int(time.time() * 1000)
+        job = builder.start()
 
         success(f"Build started for {dataset_name}")
         info(f"Job ID: {job.id}")
@@ -935,8 +1169,27 @@ def build(
                 time.sleep(2)
             if state == "DONE":
                 success("Build completed successfully")
+                if not no_verify:
+                    from dku_cli.build_summary import emit_build_summary
+
+                    emit_build_summary(
+                        client,
+                        proj,
+                        project_key,
+                        [(dataset_name, "DATASET")],
+                        job_start_ms,
+                    )
             else:
+                # FAILED/ABORTED must exit non-zero — agents chain
+                # `dataset build --wait && next-step`; exit 0 here would let
+                # the chain march on past a failed build.
                 error(f"Build finished with state: {state}")
+                info(f"Inspect why: dku job log {job.id} -P {project_key}")
+                raise SystemExit(1)
+    except SystemExit:
+        raise
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1159,6 +1412,10 @@ def create(
     with explicit params to opt out of the auto-populate.
     """
     project_key = resolve_project(project)
+    # The DSS UI calls the Inline type "Editable" — accept the UI name.
+    if type_name.lower() == "editable":
+        info("Dataset type 'Editable' is called 'Inline' in the API — using Inline.")
+        type_name = "Inline"
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -1283,14 +1540,43 @@ def upload(
         "-f",
         help="Clear existing files from the dataset before uploading.",
     ),
+    sheet: str = typer.Option(
+        None,
+        "--sheet",
+        help="Excel only: read this sheet (exact name, case-sensitive) instead of "
+        "the autodetected first sheet. Re-infers the schema for that sheet.",
+    ),
+    sheet_indices: str = typer.Option(
+        None,
+        "--sheet-indices",
+        help="Excel only: read these sheets by 0-based position, e.g. '0,2' or "
+        "'1-' (comma list / ranges). Sheets must share one layout.",
+    ),
+    all_sheets: bool = typer.Option(
+        False,
+        "--all-sheets",
+        help="Excel only: concatenate every sheet (sheets must share one layout).",
+    ),
+    sheets_to_column: bool = typer.Option(
+        False,
+        "--sheets-to-column",
+        help="Excel only: prepend the sheet name as the first column "
+        "(multi-sheet append tag, like Power Query's Source.Name).",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Upload a file to an UploadedFiles dataset and auto-detect format/schema.
 
     By default, uploading a file with the same name as an existing upload
     fails. Pass --overwrite to clear the dataset first.
+
+    For Excel workbooks, autodetection reads the FIRST sheet — pass --sheet,
+    --sheet-indices, or --all-sheets to target the data sheet(s) directly:
+
+        dku dataset upload book book.xlsx --sheet "Cleaned Data" -P PROJ
     """
     project_key = resolve_project(project)
+    _validate_sheet_flags(sheet, sheet_indices, all_sheets, no_autodetect)
 
     if overwrite:
         from dku_cli.safety import Tier, guard
@@ -1320,10 +1606,29 @@ def upload(
         with local_path.open("rb") as f:
             ds.uploaded_add_file(f, local_path.name)
 
-        success(f"Uploaded {local_path.name} → {dataset_name}")
+        # Warnings/suggestions first, status line LAST — `tail -1` automation
+        # must capture the outcome, not a suggested-command fragment.
         if not no_autodetect:
-            _autodetect_and_warn(ds, dataset_name, project_key)
+            wants_sheets = bool(
+                sheet or sheet_indices or all_sheets or sheets_to_column
+            )
+            _autodetect_and_warn(
+                ds, dataset_name, project_key, quiet_warnings=wants_sheets
+            )
+            if wants_sheets:
+                _apply_excel_sheet_targeting(
+                    client,
+                    dataset_name,
+                    project_key,
+                    sheet=sheet,
+                    sheet_indices=sheet_indices,
+                    all_sheets=all_sheets,
+                    sheets_to_column=sheets_to_column,
+                )
         hint(f"dku dataset schema {dataset_name} -P {project_key}")
+        success(f"Uploaded {local_path.name} → {dataset_name}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1347,6 +1652,29 @@ def create_from_file(
         "-f",
         help="If the dataset already exists, wipe it and re-upload (tier-2 guard).",
     ),
+    sheet: str = typer.Option(
+        None,
+        "--sheet",
+        help="Excel only: read this sheet (exact name, case-sensitive) instead of "
+        "the autodetected first sheet. Re-infers the schema for that sheet.",
+    ),
+    sheet_indices: str = typer.Option(
+        None,
+        "--sheet-indices",
+        help="Excel only: read these sheets by 0-based position, e.g. '0,2' or "
+        "'1-' (comma list / ranges). Sheets must share one layout.",
+    ),
+    all_sheets: bool = typer.Option(
+        False,
+        "--all-sheets",
+        help="Excel only: concatenate every sheet (sheets must share one layout).",
+    ),
+    sheets_to_column: bool = typer.Option(
+        False,
+        "--sheets-to-column",
+        help="Excel only: prepend the sheet name as the first column "
+        "(multi-sheet append tag, like Power Query's Source.Name).",
+    ),
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Skip the safety guard (with --overwrite)"
     ),
@@ -1357,9 +1685,14 @@ def create_from_file(
 
         dku dataset create-from-file sales ./data/sales.csv -P MYPROJ
 
+    For Excel workbooks, target the data sheet(s) in the same step:
+
+        dku dataset create-from-file book book.xlsx --sheet "Cleaned Data" -P MYPROJ
+
     The path is local to where you run dku (your project dir under the MCP).
     """
     project_key = resolve_project(project)
+    _validate_sheet_flags(sheet, sheet_indices, all_sheets, no_autodetect)
     if not local_path.exists():
         error(f"File not found: {local_path}")
         raise typer.Exit(1)
@@ -1404,13 +1737,32 @@ def create_from_file(
             ds = proj.create_upload_dataset(dataset_name, connection=connection)
         with local_path.open("rb") as f:
             ds.uploaded_add_file(f, local_path.name)
+        # Warnings/suggestions first, status line LAST — `tail -1` automation
+        # must capture the outcome, not a suggested-command fragment.
+        if not no_autodetect:
+            wants_sheets = bool(
+                sheet or sheet_indices or all_sheets or sheets_to_column
+            )
+            _autodetect_and_warn(
+                ds, dataset_name, project_key, quiet_warnings=wants_sheets
+            )
+            if wants_sheets:
+                _apply_excel_sheet_targeting(
+                    client,
+                    dataset_name,
+                    project_key,
+                    sheet=sheet,
+                    sheet_indices=sheet_indices,
+                    all_sheets=all_sheets,
+                    sheets_to_column=sheets_to_column,
+                )
+        hint(f"dku dataset schema {dataset_name} -P {project_key}")
         success(
             f"{'Replaced' if exists else 'Created'} dataset '{dataset_name}' "
             f"from {local_path.name}"
         )
-        if not no_autodetect:
-            _autodetect_and_warn(ds, dataset_name, project_key)
-        hint(f"dku dataset schema {dataset_name} -P {project_key}")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1678,9 +2030,37 @@ def set_definition(
             f"Updated definition for dataset '{dataset_name}'"
             + (" (deep-merged)" if deep_merge else (" (merged)" if merge else ""))
         )
+        # Dataset definitions are typed settings: DSS silently drops unknown /
+        # misplaced keys (exit 0, key gone). Re-read and diff the user's payload
+        # so a mistyped field name fails loudly at the moment it happens.
+        try:
+            dropped = unpersisted_key_paths(new_def, ds.get_definition())
+        except Exception:
+            dropped = []
+        if dropped:
+            warn(
+                f"Keys NOT persisted by DSS (unknown or misplaced): "
+                f"{', '.join(dropped)}. Check field names against "
+                f"'dku --format json dataset get-definition {dataset_name} "
+                f"-P {project_key}'."
+            )
     except typer.Exit:
         raise
     except Exception as e:
+        if "projectKey" in str(e) and "missing" in str(e).lower():
+            exit_with_error(
+                f"Dataset definition update for '{dataset_name}' was rejected "
+                "as incomplete.",
+                details=[
+                    "By default set-definition replaces the full dataset definition.",
+                    "Patch one field with --deep-merge so required fields such "
+                    "as projectKey/type/params are preserved:",
+                    f"  dku dataset set-definition {dataset_name} "
+                    f"-d '<partial-json>' --deep-merge -P {project_key}",
+                    "Inspect the full shape: dku --format json "
+                    f"dataset get-definition {dataset_name} -P {project_key}",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -1693,6 +2073,7 @@ def set_schema(
         ...,
         "--definition",
         "-d",
+        "--columns",
         help=(
             "Schema as JSON (string, @file.json, '-' for stdin) OR shorthand "
             "'col type, col type, ...' (e.g. 'id int, name string, amount double')"
@@ -1718,6 +2099,182 @@ def set_schema(
         current_def["schema"] = schema_input
         ds.set_definition(current_def)
         success(f"Updated schema for dataset '{dataset_name}'")
+    except Exception as e:
+        handle_api_error(e)
+
+
+_INT_RE = re.compile(r"^[+-]?\d+$")
+_LEADING_ZERO_RE = re.compile(r"^0\d+$")
+_FLOAT_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ].*)?$")
+_BIGINT_MAX = 2**63 - 1
+
+
+def _infer_column_type(values: list[str]) -> tuple[str, str]:
+    """Infer a storage type from sampled string values.
+
+    Returns (proposed_type, note). Conservative by design: every non-empty
+    sampled value must parse, otherwise the column stays string. Date-like
+    columns are reported but NOT retyped (set-schema `type: date` on file
+    data reads all-null — the documented fix is a Prepare DateParser step).
+    """
+    non_empty = [v for v in values if v is not None and str(v).strip() != ""]
+    if not non_empty:
+        return "string", "no non-empty values sampled"
+    vals = [str(v).strip() for v in non_empty]
+
+    if all(_INT_RE.match(v) for v in vals):
+        # Leading zeros mean identifier-like data (zip codes, account ids):
+        # retyping would corrupt it by stripping the zeros.
+        if any(_LEADING_ZERO_RE.match(v) for v in vals):
+            return (
+                "string",
+                "integer-like but has leading zeros (identifier) — kept string",
+            )
+        if any(abs(int(v)) > _BIGINT_MAX for v in vals):
+            return "string", "integer-like but exceeds bigint range — kept string"
+        return "bigint", ""
+    if all(_FLOAT_RE.match(v) for v in vals):
+        return "double", ""
+    if all(v.lower() in ("true", "false") for v in vals):
+        return "boolean", ""
+    if all(_ISO_DATE_RE.match(v) for v in vals):
+        return (
+            "string",
+            "date-like — kept string; parse with a Prepare DateParser step "
+            "(set-schema type:date on file data reads all-null)",
+        )
+    return "string", ""
+
+
+def _collect_type_proposals(
+    ds, columns: list[dict], string_cols: list[str], sample_rows: int
+) -> tuple[list[dict], dict[str, str], int]:
+    """Sample rows once and propose a storage type per string column.
+
+    Returns (report_rows, {column: proposed_type}, rows_sampled).
+    """
+    all_names = [c.get("name") for c in columns]
+    samples: dict[str, list] = {c: [] for c in string_cols}
+    n_sampled = 0
+    for i, row in enumerate(ds.iter_rows()):
+        if i >= sample_rows:
+            break
+        n_sampled = i + 1
+        full_row = dict(zip(all_names, row))
+        for c in string_cols:
+            samples[c].append(full_row.get(c))
+
+    results: list[dict] = []
+    changes: dict[str, str] = {}
+    for c in string_cols:
+        proposed, note = _infer_column_type(samples[c])
+        if proposed != "string":
+            changes[c] = proposed
+        results.append(
+            {"column": c, "current": "string", "proposed": proposed, "note": note}
+        )
+    return results, changes, n_sampled
+
+
+@app.command("infer-types")
+def infer_types(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    sample_rows: int = typer.Option(
+        200, "--rows", "-n", help="Rows to sample for inference"
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Write the inferred types to the schema (default: dry-run report)",
+    ),
+) -> None:
+    """Re-infer storage types for string columns from actual data and optionally apply.
+
+    Upload autodetect and Prepare/visual-recipe outputs frequently leave
+    numeric columns typed `string`, which breaks the next sum/avg/comparison.
+    This samples real rows and proposes bigint/double/boolean for string
+    columns where EVERY non-empty sampled value parses; date-like columns are
+    reported but kept string (parse those with a Prepare DateParser step).
+
+    Dry-run by default; pass --apply to write the schema. After applying,
+    rebuild downstream datasets with --auto-update-schema to propagate.
+
+    Example:
+      dku dataset infer-types raw --apply -P PROJ
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format()
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        ds_def = ds.get_definition()
+        columns = ds_def.get("schema", {}).get("columns", [])
+        if not columns:
+            exit_with_error(
+                f"Dataset '{dataset_name}' has no columns — it likely has "
+                "never been built.",
+                details=[
+                    f"Build it first: dku dataset build {dataset_name} "
+                    f"-P {project_key} --wait",
+                ],
+            )
+
+        string_cols = [c["name"] for c in columns if c.get("type") == "string"]
+        if not string_cols:
+            success(
+                f"All {len(columns)} columns of '{dataset_name}' already have "
+                "non-string types — nothing to infer."
+            )
+            return
+
+        results, changes, n_sampled = _collect_type_proposals(
+            ds, columns, string_cols, sample_rows
+        )
+        render(
+            results,
+            ["column", "current", "proposed", "note"],
+            output_format=fmt,
+            title=f"Type inference: {dataset_name} (sampled {n_sampled} rows)",
+        )
+
+        if not changes:
+            info("No type changes proposed — all string columns look genuinely string.")
+            return
+
+        if not apply:
+            info(
+                f"{len(changes)} column(s) would change. Apply with: "
+                f"dku dataset infer-types {dataset_name} --apply -P {project_key}"
+            )
+            return
+
+        for col in columns:
+            if col.get("name") in changes:
+                col["type"] = changes[col["name"]]
+        ds.set_definition(ds_def)
+        success(
+            f"Applied {len(changes)} type change(s) to '{dataset_name}': "
+            + ", ".join(f"{k}→{v}" for k, v in changes.items())
+        )
+        # Only meaningful for external SQL tables: DSS cannot alter the source
+        # column types there. File-based datasets (UploadedFiles, Filesystem)
+        # cast at read time, and managed SQL tables are recreated on rebuild.
+        if not ds_def.get("managed", True) and _resolve_sql_table(ds_def, project_key):
+            warn(
+                "This dataset reads an EXTERNAL table — the schema change does "
+                "not alter the source storage type. Fix types at the source or "
+                "via a Sync/Prepare recipe if reads error."
+            )
+        info(
+            "Rebuild downstream datasets to propagate: "
+            f"dku job run --target <downstream> -P {project_key} "
+            "--type RECURSIVE_FORCED_BUILD --auto-update-schema --wait"
+        )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1759,16 +2316,21 @@ def _parse_schema_shorthand(value: str) -> dict | None:
         return None
     stripped = value.strip()
     # JSON / file / stdin always wins — never try shorthand on those
-    if stripped.startswith(("{", "[", "@", '"')) or stripped == "-":
+    if stripped.startswith(("{", "[", "@")) or stripped == "-":
         return None
+    import shlex
+
     cols = []
     for chunk in stripped.split(","):
-        parts = chunk.strip().split()
+        try:
+            parts = shlex.split(chunk.strip())
+        except ValueError:
+            return None
         if len(parts) != 2:
             return None
         name, ctype = parts
         # Reject obviously non-identifier names (basic sanity)
-        if not name or any(c in name for c in '{}[]"\\'):
+        if not name or any(c in name for c in "{}[]\\"):
             return None
         cols.append({"name": name, "type": ctype})
     if not cols:
@@ -2295,6 +2857,12 @@ def detect(
         "--infer-types",
         help="Infer storage types (e.g. int vs string) instead of defaulting to string",
     ),
+    keep_format: bool = typer.Option(
+        False,
+        "--keep-format",
+        help="Re-infer the SCHEMA only, preserving the saved formatType/formatParams "
+        "(full detection resets manual params, e.g. an Excel sheet selection).",
+    ),
 ) -> None:
     """Detect format and schema for a dataset.
 
@@ -2303,16 +2871,23 @@ def detect(
 
     Without --save, shows what was detected. With --save, persists to the dataset.
 
+    Full detection re-detects the FORMAT too, resetting manual formatParams
+    (an Excel sheet selection snaps back to the first sheet). After hand-editing
+    format params, use --keep-format to re-infer only the columns.
+
     Example:
       dku dataset detect my_data -P PROJ
       dku dataset detect my_data --save --infer-types -P PROJ
+      dku dataset detect my_data --save --keep-format -P PROJ
     """
     project_key = resolve_project(project)
     fmt = resolve_output_format()
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        detected = ds.autodetect_settings(infer_storage_types=infer_types)
+        detected = _run_detection(
+            client, ds, project_key, dataset_name, infer_types, keep_format
+        )
         if save:
             detected.save()
 

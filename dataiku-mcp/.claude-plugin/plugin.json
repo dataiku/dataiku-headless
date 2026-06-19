@@ -1,10 +1,10 @@
 {
   "name": "dataiku-mcp",
-  "description": "Connect your agent to Dataiku DSS — the dku code-mode MCP server over local stdio, authed as you with your own DSS personal API key.",
+  "description": "Dataiku Headless — the headless DSS control plane for AI agents. The dku code-mode MCP server over local stdio, authed as you with your own DSS personal API key.",
   "version": "0.1.0",
   "author": {
     "name": "Dataiku",
-    "url": "https://github.com/dataiku/dataiku-cli"
+    "url": "https://github.com/dataiku/dataiku-headless"
   },
   "userConfig": {
     "dss_url": {

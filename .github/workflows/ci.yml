@@ -18,9 +18,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Exercise the declared support window without running the full suite on
-        # every intermediate interpreter for each PR.
-        python-version: ["3.10", "3.13"]
+        # Exercise the full declared support window on every PR so a regression
+        # on an intermediate interpreter cannot slip through.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -64,6 +64,55 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --locked
       - run: uv run python scripts/check_quality_ratchet.py
+
+  security:
+    runs-on: ubuntu-latest
+    name: Dependency Audit & Secret Scan
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # gitleaks needs full history to scan every commit on the branch.
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+      - name: Export locked dependencies
+        run: uv export --locked --no-emit-project --no-dev -o requirements-audit.txt
+      - name: Audit dependencies
+        run: uvx pip-audit --strict --requirement requirements-audit.txt
+      - name: Resolve secret scan range
+        id: secret-range
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "log_opts=${{ github.event.pull_request.base.sha }}..HEAD" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event.before }}" =~ ^0+$ ]]; then
+            echo "log_opts=HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo "log_opts=${{ github.event.before }}..HEAD" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Scan for secrets
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            ghcr.io/gitleaks/gitleaks:v8.28.0 detect \
+            --source=/repo \
+            --config=/repo/.gitleaks.toml \
+            --log-opts="${{ steps.secret-range.outputs.log_opts }}" \
+            --redact \
+            --no-banner
+
+  wheel-freshness:
+    runs-on: ubuntu-latest
+    name: Bundled Wheel Freshness
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - name: Rebuild bundled MCP plugin wheel
+        run: make plugin
+      - name: Fail if the committed wheel is stale
+        run: git diff --exit-code dataiku-mcp/wheels/
 
   actionlint:
     runs-on: ubuntu-latest

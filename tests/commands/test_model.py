@@ -502,3 +502,72 @@ def test_model_set_publish_policy_writes_enum_value(patch_client):
     )
     assert result.exit_code == 0
     assert raw["publishPolicy"] == "EXPLICIT"
+
+
+# --- set-threshold ---
+
+
+def test_model_set_threshold_active_version(patch_client):
+    result = runner.invoke(
+        app,
+        ["model", "set-threshold", "model1", "0.3", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "0.5 -> 0.3" in result.output
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    details = model.get_version_details("v1")
+    assert details.get_raw()["userMeta"]["activeClassifierThreshold"] == 0.3
+    details.save_user_meta.assert_called_once()
+
+
+def test_model_set_threshold_explicit_version(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "set-threshold",
+            "model1",
+            "0.25",
+            "--version",
+            "v2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    model.get_version_details.assert_called_with("v2")
+
+
+def test_model_set_threshold_out_of_range(patch_client):
+    result = runner.invoke(
+        app,
+        ["model", "set-threshold", "model1", "1.5", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "between 0 and 1" in result.output
+
+
+def test_model_set_threshold_rejects_non_binary(patch_client):
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    model.get_version_details.return_value.get_raw.return_value = {
+        "coreParams": {"prediction_type": "REGRESSION"},
+        "userMeta": {},
+    }
+    result = runner.invoke(
+        app,
+        ["model", "set-threshold", "model1", "0.3", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "BINARY_CLASSIFICATION" in result.output
+
+
+def test_model_set_threshold_no_active_version(patch_client):
+    model = patch_client.get_project("PROJ1").get_saved_model("model1")
+    model.get_active_version.return_value = None
+    result = runner.invoke(
+        app,
+        ["model", "set-threshold", "model1", "0.3", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "No active version" in result.output

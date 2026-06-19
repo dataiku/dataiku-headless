@@ -675,3 +675,35 @@ def test_dataset_unshare(patch_client):
     assert "Unshared" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.unshare_from_zone.assert_called_once_with("Analytics")
+
+
+def test_dataset_info_recompute_uses_fresh_computed_values(patch_client):
+    """--recompute reads values from the compute_metrics RESPONSE, not from
+    get_last_metric_values (write-then-read race returns stale numbers)."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.compute_metrics.return_value = {
+        "result": {
+            "computed": [
+                {"metricId": "records:COUNT_RECORDS", "value": "1000"},
+                {"metricId": "basic:SIZE", "value": "2048"},
+                {"metricId": "basic:COUNT_FILES", "value": "1"},
+            ]
+        }
+    }
+    # Stale last-values store says 9999 — must NOT be used.
+    metrics = ds.get_last_metric_values.return_value
+    metrics.get_all_ids.return_value = ["records:COUNT_RECORDS"]
+    metrics.get_global_value.return_value = 9999
+
+    result = runner.invoke(
+        app,
+        ["--format", "json", "dataset", "info", "ds1", "--recompute", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    import json as _json
+
+    payload = _json.loads(result.output)
+    assert payload["rows"] == 1000
+    assert payload["size_bytes"] == 2048
+    assert payload["files"] == 1
+    assert payload["metrics_computed"] is True

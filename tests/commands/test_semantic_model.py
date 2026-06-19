@@ -527,11 +527,15 @@ def _configure_dataset_schema(patch_client, columns):
 
 
 def test_add_entity_from_dataset(patch_client):
-    """add-entity pulls schema columns and splices a new entity."""
+    """add-entity pulls schema columns and splices a new entity.
+
+    DSS schemas store column descriptions under `comment` (what
+    `dataset ai-describe --save` writes) — add-entity must copy from there.
+    """
     _configure_dataset_schema(
         patch_client,
         [
-            {"name": "CustomerID", "type": "string", "description": "PK"},
+            {"name": "CustomerID", "type": "string", "comment": "PK"},
             {"name": "Name", "type": "string"},
             {"name": "Age", "type": "bigint"},
         ],
@@ -564,9 +568,350 @@ def test_add_entity_from_dataset(patch_client):
     assert entity["primaryKey"]["attributes"] == ["CustomerID"]
     assert len(entity["attributes"]) == 3
     by_name = {a["name"]: a for a in entity["attributes"]}
+    assert by_name["CustomerID"]["description"] == "PK"
+    assert "description" not in by_name["Age"]
     assert by_name["Name"]["indexDistinctValues"] is True
     assert by_name["Name"]["resolveInUserRequests"] is True
     assert by_name["Age"]["indexDistinctValues"] is False
+    assert "1 described" in result.output
+
+
+def test_add_entity_warns_when_no_columns_described(patch_client):
+    """0/N described columns -> loud warning naming the recovery commands."""
+    _configure_dataset_schema(
+        patch_client,
+        [
+            {"name": "id", "type": "string"},
+            {"name": "amount", "type": "double"},
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "--from-dataset",
+            "Customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "0/2 columns" in result.output
+    assert "dku dataset ai-describe Customers --save -P PROJ1" in result.output
+    assert "sync-descriptions" in result.output
+
+
+def test_add_entity_no_warning_when_described(patch_client):
+    """Described columns -> coverage in success line, no warning."""
+    _configure_dataset_schema(
+        patch_client,
+        [
+            {"name": "id", "type": "string", "comment": "Unique id"},
+            {"name": "amount", "type": "double", "comment": "Order value"},
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "--from-dataset",
+            "Customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "2 described" in result.output
+    assert "ai-describe" not in result.output
+
+
+def test_add_entity_description_defaults_from_short_desc(patch_client):
+    """Entity description falls back to the dataset's shortDesc."""
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {"columns": [{"name": "id", "type": "string", "comment": "x"}]},
+        "shortDesc": "Customer master data.",
+    }
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "--from-dataset",
+            "Customers",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    assert raw["entities"][0]["description"] == "Customer master data."
+
+
+def test_add_entity_explicit_description_wins_over_short_desc(patch_client):
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {"columns": [{"name": "id", "type": "string"}]},
+        "shortDesc": "Customer master data.",
+    }
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "--from-dataset",
+            "Customers",
+            "--description",
+            "Explicit entity description",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    assert raw["entities"][0]["description"] == "Explicit entity description"
+
+
+# ---------------------------------------------------------------------------
+# sync-descriptions
+# ---------------------------------------------------------------------------
+
+
+def _seed_dataset_entity(patch_client, *, attrs=None, description="", name="customer"):
+    """Pre-populate the mock version with one dataset-backed entity."""
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    raw["entities"] = [
+        {
+            "name": name,
+            "description": description,
+            "type": "DATASET",
+            "datasetRef": "PROJ1.Customers",
+            "primaryKey": {"attributes": ["id"]},
+            "attributes": attrs
+            or [
+                {"name": "id", "type": "COLUMN", "column": "id"},
+                {"name": "amount", "type": "COLUMN", "column": "amount"},
+            ],
+        }
+    ]
+    return sm, raw
+
+
+def test_sync_descriptions_backfills_from_dataset(patch_client):
+    """sync-descriptions copies comment -> attribute, shortDesc -> entity."""
+    _seed_dataset_entity(patch_client)
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {
+            "columns": [
+                {"name": "id", "type": "string", "comment": "Unique id"},
+                {"name": "amount", "type": "double", "comment": "Order value"},
+            ]
+        },
+        "shortDesc": "Customer master data.",
+    }
+    result = runner.invoke(
+        app,
+        ["semantic-model", "sync-descriptions", "sm1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    entity = raw["entities"][0]
+    assert entity["description"] == "Customer master data."
+    by_name = {a["name"]: a for a in entity["attributes"]}
+    assert by_name["id"]["description"] == "Unique id"
+    assert by_name["amount"]["description"] == "Order value"
+    assert "2 attribute(s)" in result.output
+    assert "0->2 of 2" in result.output
+    sm.get_version("v1").get_settings().save.assert_called()
+
+
+def test_sync_descriptions_keeps_existing_without_overwrite(patch_client):
+    """Existing descriptions are kept unless --overwrite."""
+    _seed_dataset_entity(
+        patch_client,
+        attrs=[
+            {"name": "id", "type": "COLUMN", "column": "id", "description": "Manual"},
+            {"name": "amount", "type": "COLUMN", "column": "amount"},
+        ],
+    )
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {
+            "columns": [
+                {"name": "id", "type": "string", "comment": "From dataset"},
+                {"name": "amount", "type": "double", "comment": "Order value"},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app,
+        ["semantic-model", "sync-descriptions", "sm1", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    by_name = {a["name"]: a for a in raw["entities"][0]["attributes"]}
+    assert by_name["id"]["description"] == "Manual"
+    assert by_name["amount"]["description"] == "Order value"
+
+
+def test_sync_descriptions_overwrite_replaces(patch_client):
+    _seed_dataset_entity(
+        patch_client,
+        attrs=[
+            {"name": "id", "type": "COLUMN", "column": "id", "description": "Manual"},
+        ],
+    )
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {
+            "columns": [{"name": "id", "type": "string", "comment": "From dataset"}]
+        },
+    }
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "sync-descriptions",
+            "sm1",
+            "--overwrite",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    assert raw["entities"][0]["attributes"][0]["description"] == "From dataset"
+
+
+def test_sync_descriptions_errors_when_nothing_to_copy(patch_client):
+    """Bare backing datasets -> exit non-zero with pre-filled ai-describe command."""
+    _seed_dataset_entity(patch_client)
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {
+            "columns": [
+                {"name": "id", "type": "string"},
+                {"name": "amount", "type": "double"},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app,
+        ["semantic-model", "sync-descriptions", "sm1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "dku dataset ai-describe Customers --save -P PROJ1" in result.output
+
+
+def test_sync_descriptions_errors_when_no_entities(patch_client):
+    result = runner.invoke(
+        app,
+        ["semantic-model", "sync-descriptions", "sm1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "add-entity" in result.output
+
+
+def test_sync_descriptions_reports_unreadable_dataset(patch_client):
+    """A missing backing dataset is loud (non-zero) but doesn't block the others."""
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    raw["entities"] = [
+        {
+            "name": "customer",
+            "description": "",
+            "type": "DATASET",
+            "datasetRef": "PROJ1.Customers",
+            "attributes": [{"name": "id", "type": "COLUMN", "column": "id"}],
+        },
+        {
+            "name": "ghost",
+            "description": "",
+            "type": "DATASET",
+            "datasetRef": "PROJ1.Deleted",
+            "attributes": [{"name": "x", "type": "COLUMN", "column": "x"}],
+        },
+    ]
+    good_ds = MagicMock()
+    good_ds.get_definition.return_value = {
+        "schema": {
+            "columns": [{"name": "id", "type": "string", "comment": "Unique id"}]
+        },
+    }
+    bad_ds = MagicMock()
+    bad_ds.get_definition.side_effect = Exception("dataset does not exist")
+    patch_client.get_project("PROJ1").get_dataset.side_effect = lambda name: (
+        good_ds if name == "Customers" else bad_ds
+    )
+    result = runner.invoke(
+        app,
+        ["semantic-model", "sync-descriptions", "sm1", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "ghost" in result.output
+    by_name = {a["name"]: a for a in raw["entities"][0]["attributes"]}
+    assert by_name["id"]["description"] == "Unique id"
+    sm.get_version("v1").get_settings().save.assert_called()
+
+
+def test_sync_descriptions_single_entity_filter(patch_client):
+    """--entity restricts the sync to one entity."""
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+    raw = sm.get_version("v1").get_settings().get_raw()
+    raw["entities"] = [
+        {
+            "name": "customer",
+            "description": "",
+            "type": "DATASET",
+            "datasetRef": "PROJ1.Customers",
+            "attributes": [{"name": "id", "type": "COLUMN", "column": "id"}],
+        },
+        {
+            "name": "orders",
+            "description": "",
+            "type": "DATASET",
+            "datasetRef": "PROJ1.Orders",
+            "attributes": [{"name": "oid", "type": "COLUMN", "column": "oid"}],
+        },
+    ]
+    ds_mock = patch_client.get_project("PROJ1").get_dataset.return_value
+    ds_mock.get_definition.return_value = {
+        "schema": {
+            "columns": [
+                {"name": "id", "type": "string", "comment": "Unique id"},
+                {"name": "oid", "type": "string", "comment": "Order id"},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "sync-descriptions",
+            "sm1",
+            "--entity",
+            "customer",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    by_entity = {e["name"]: e for e in raw["entities"]}
+    assert by_entity["customer"]["attributes"][0]["description"] == "Unique id"
+    assert "description" not in by_entity["orders"]["attributes"][0]
 
 
 def test_add_entity_requires_from_dataset(patch_client):

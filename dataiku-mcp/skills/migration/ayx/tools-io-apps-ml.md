@@ -6,7 +6,7 @@ IO tools, apps, macros, dynamic input, YXDB, Excel/email output. **Spatial tools
 
 ## Download
 
-Alteryx issues HTTP(S) per row → Python recipe (`requests`); no visual recipe for HTTP. Throttle high-volume with `time.sleep`/`ThreadPoolExecutor`; long fetches live in a scenario with retry. Visual fetch of a pinned URL → `../../dku-cli/playbooks/tabular-flow.md` § `recipe create-download`.
+Alteryx issues HTTP(S) per row → Python recipe (`requests`); no visual recipe for HTTP. Throttle high-volume with `time.sleep`/`ThreadPoolExecutor`; long fetches live in a scenario with retry. Visual fetch of a pinned URL → `dku recipe create-download --help`.
 
 ```python
 df["response"] = df["url"].apply(lambda u: requests.get(u, timeout=30).text)
@@ -19,6 +19,7 @@ df["response"] = df["url"].apply(lambda u: requests.get(u, timeout=30).text)
 | A second `TextInput` ships the full downloaded file's rows | **0 recipes, 0 Python** — extract rows to CSV, `dku dataset upload`; DSS's CSV reader does split + header-promote for free. The whole post-Download parse chain collapses to "read this CSV." |
 | URL `TextInput` only, raw response NOT shipped | **Likely block.** `curl -sS -L -m 25 -w '%{http_code}'` the URL in Phase 2 FIRST — URLs rot (403/"Access Denied") and the source is time-variant. Block reason: "input referenced by external path, not shipped." |
 | Dead URL on a **git host** (file renamed/moved as data grew) | **NOT a block — fetch the authoring-era snapshot by SHA.** Authoring date = the Alteryx `Filter` operand default; `curl -s "api.github.com/repos/<org>/<repo>/commits?path=<path>&per_page=100"` → latest commit on/before that date → fetch at the immutable SHA `raw.githubusercontent.com/<org>/<repo>/<SHA>/<path>`. Confirm with a distinct-key count == GT. Stage via `dku folder upload`. Residual cell diffs = source drift (archive backfill) — document, don't chase. |
+| Binary-blob `Download` (image/PDF) with partially-dead URLs, but the rendered output ships | **NOT a block — recover the blobs from the shipped artifact.** `pypdf`: `for p in PdfReader(out).pages: p.images`; seed a managed folder (`dku folder upload-dir`), wire as a 2nd recipe input (`dku recipe add-input R FOLDER --type MANAGED_FOLDER`); try the live URL first, fall back to the recovered blob keyed by image number. |
 
 "Download → Python recipe" applies ONLY to a LIVE per-row API fetch whose responses are not pre-shipped.
 
@@ -42,7 +43,7 @@ Look up values in a 2nd (find, replace) input and substitute.
 
 Macros consolidate tools into a reusable unit. Three flavors below.
 
-**Macro interface questions (Date/NumericUpDown/DropDown/Boolean) → project variables**, read via `dataiku.get_custom_variables()` (Python) or `${var}` (visual/SQL). Set with `dku project set-variables PROJ --set start_date=2026-05-25`. A **no-input generator macro** still needs an input for a DSS code recipe: wire a 1-row throwaway seed (§ GenerateRows case 6, `tools-state-parsing.md`).
+**Macro interface questions (Date/NumericUpDown/DropDown/Boolean) → project variables**, read via `dataiku.get_custom_variables()` (Python) or `${var}` (visual/SQL). Set with `dku project set-variables PROJ --set start_date=2026-05-25`. A **no-input generator macro** maps to a no-input code recipe — `recipe create -t python` works with zero `-i` (no seed dataset; § GenerateRows case 6, `tools-state-parsing.md`).
 
 **Encrypted `.yxmc` has no DSS equivalent and needs none** — DSS recipes are always readable. Work from TextBox annotations, validate by shape.
 
@@ -59,7 +60,8 @@ Loop until a condition. Pick by shape:
 - **Hierarchy / transitive closure / graph reachability** (walk-up-parent, descendants-of, ancestor pairs) → **one SQL recursive CTE** on any SQL connection: `WITH RECURSIVE chain AS (base SELECT … UNION ALL recursive SELECT … FROM chain JOIN base ON …) SELECT …`. Filesystem input → prepend `dku recipe create-sync -c <sql_conn>` (total 2 recipes, depth-independent). Bounded depth (≤5) **visual alt**: N chained `create-join` + `create-stack`.
   - **Multi-level BOM explosion** (effective qty = product of `Quantity` up the chain): recursive member carries a running aggregate DOWN — anchor = roots (`WHERE "Parent ID" IS NULL`) seeding `"Full Quantity"="Quantity"`; recursive = `child JOIN chain parent ON child."Parent ID"=parent."Line ID"` computing `"Full Quantity"=child."Quantity"*parent."Full Quantity"`.
   - **Float noise in a recursive product** (`0.1*6→0.6000000000000001` breaks string-match): round **only in the final SELECT** (`ROUND(x::numeric, 6)`), never inside the recursive member (compounds). PostgreSQL `ROUND(x,n)` needs `::numeric`.
-  - Output may auto-create on `filesystem_managed` and still run (DSS executes the CTE on the SQL engine, streams to filesystem); pre-create on the SQL connection for a longer push-down chain.
+  - Output may auto-create on `filesystem_managed` and still run (DSS executes the CTE on the SQL engine, streams to filesystem); pre-create on the SQL connection for a longer push-down chain. Pushing a GEO chain down: a local PostgreSQL without PostGIS rejects geopoint columns (`type "geography" does not exist`) — drop geopoints before the sync and compute distance from lon/lat in SQL.
+  - Bounded-depth UNROLLING is brittle to data growth: a fixed round count **silently drops rows** if the data ever needs more rounds. Add a convergence guard (assert final leftover = 0) or prefer the loop with a generous counter bound.
 - **Allocation problems** (inventory rebalancing, trade-area assignment — explicit aggregate-state termination test) → **scenario-loop plugin** with a custom condition.
 - **Anything else state-based** not decomposing into a fixed-point JOIN → **Python recipe with explicit loop**, last resort.
 

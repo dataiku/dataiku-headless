@@ -10,11 +10,18 @@ import typer
 from dku_cli.helpers import (
     ALL_NODE_TYPES,
     PROJECT_NODE_TYPES,
+    clean_llm_id,
     get_client_from_ctx,
     get_govern_client_from_ctx,
     require_node_type,
     resolve_project,
 )
+
+
+def test_clean_llm_id_strips_stray_quotes():
+    assert clean_llm_id('"openai:conn:gpt-4o') == ("openai:conn:gpt-4o", True)
+    assert clean_llm_id("'openai:conn:gpt-4o'") == ("openai:conn:gpt-4o", True)
+    assert clean_llm_id("openai:conn:gpt-4o") == ("openai:conn:gpt-4o", False)
 
 
 def test_resolve_project_flag():

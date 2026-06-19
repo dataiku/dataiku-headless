@@ -328,6 +328,15 @@ def set_definition(
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
         new_def = read_json_input(definition)
+        if isinstance(new_def, dict) and new_def.get("type") == "chart":
+            params = new_def.setdefault("params", {})
+            if not (params.get("refreshableSelection") or {}).get("selection"):
+                params["refreshableSelection"] = _DEFAULT_REFRESHABLE_SELECTION
+                warn(
+                    "Injected default sampling block (params.refreshableSelection) "
+                    "— chart insights without one fail to render in dashboards "
+                    '(HTTP 500, "spec.sampleSettings is null")'
+                )
         settings = insight.get_settings()
         raw = settings.get_raw()
         raw.clear()
@@ -347,6 +356,23 @@ def _extract_chart_columns(chart_def: dict) -> list[str]:
             if col:
                 columns.append(col)
     return columns
+
+
+def _require_sampling_block(params: dict, insight_id: str, project_key: str) -> None:
+    """Fail validation when a chart has no params.refreshableSelection.selection."""
+    if (params.get("refreshableSelection") or {}).get("selection"):
+        return
+    exit_with_error(
+        f"Chart insight '{insight_id}' has no sampling block "
+        "(params.refreshableSelection) — dashboards fail to render it "
+        '(HTTP 500, NullPointerException: "spec.sampleSettings is null")',
+        details=[
+            f"dku insight get {insight_id} -P {project_key} -o json "
+            "> def.json  # export current definition",
+            f"dku insight set-definition {insight_id} -d @def.json "
+            f"-P {project_key}  # re-save auto-injects the sampling block",
+        ],
+    )
 
 
 @app.command()
@@ -387,6 +413,8 @@ def validate(
                     f'{insight_id} -d \'{{"params":{{"datasetSmartName":"DATASET_NAME"}}}}\' -P {project_key}',
                 ],
             )
+
+        _require_sampling_block(params, insight_id, project_key)
 
         chart_def = params.get("def", {})
         chart_columns = _extract_chart_columns(chart_def)

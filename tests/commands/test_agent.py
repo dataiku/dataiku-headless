@@ -174,6 +174,158 @@ def test_agent_create_invalid_type_fails_at_parse(patch_client):
     patch_client.get_project("PROJ1").create_agent.assert_not_called()
 
 
+def test_agent_create_react_happy(patch_client):
+    """create-react builds a STRUCTURED_AGENT with CORE_LOOP -> EMIT_OUTPUT."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "create-react",
+            "Researcher",
+            "--llm",
+            "openai:conn:gpt-4o",
+            "--tool",
+            "existing_tool",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj1 = patch_client.get_project("PROJ1")
+    proj1.create_agent.assert_called_once_with("Researcher", type="STRUCTURED_AGENT")
+    raw = proj1.create_agent.return_value.get_settings().get_raw()
+    cfg = raw["versions"][0]["structuredAgentSettings"]
+    assert cfg["startingBlockId"] == "react_loop"
+    loop, emit = cfg["blocks"]
+    assert loop["type"] == "CORE_LOOP"
+    assert loop["llmId"] == "openai:conn:gpt-4o"
+    assert loop["defaultNextBlock"] == "emit"
+    # DSS 14.5+ CORE_LOOP uses outputKey (not the 13.x outputStateKey); the
+    # emit block templates the same state key.
+    assert loop["outputKey"] == "react_loop_output"
+    assert emit["template"] == "{{state.react_loop_output}}"
+    assert loop["tools"][0]["toolRef"] == "existing_tool"
+    assert loop["tools"][0]["type"] == "EXPLICIT_TOOL"
+    assert emit["type"] == "EMIT_OUTPUT"
+
+
+def test_agent_create_react_prints_id_as_data(patch_client):
+    """The created agent is data on stdout — `$(... | jq -r .id)` must work."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "create-react",
+            "Researcher",
+            "--llm",
+            "openai:conn:gpt-4o",
+            "--tool",
+            "existing_tool",
+            "--tool",
+            "new_tool",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    created = json.loads(result.stdout.strip().splitlines()[0])
+    assert created["id"] == "new_agent_1"
+    assert created["type"] == "STRUCTURED_AGENT"
+    assert created["tools"] == ["existing_tool", "new_tool"]
+
+
+def test_agent_create_react_resolves_tool_name(patch_client):
+    """A --tool given by name resolves to its ID before wiring."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "create-react",
+            "Researcher",
+            "--llm",
+            "openai:conn:gpt-4o",
+            "--tool",
+            "Existing Tool",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    raw = (
+        patch_client.get_project("PROJ1")
+        .create_agent.return_value.get_settings()
+        .get_raw()
+    )
+    loop = raw["versions"][0]["structuredAgentSettings"]["blocks"][0]
+    assert loop["tools"][0]["toolRef"] == "existing_tool"
+
+
+def test_agent_create_react_unknown_tool(patch_client):
+    """Unknown --tool fails loudly (exit 3) and never creates the agent."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "create-react",
+            "Researcher",
+            "--llm",
+            "openai:conn:gpt-4o",
+            "--tool",
+            "nope",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 3
+    assert "not found" in result.output.lower()
+    patch_client.get_project("PROJ1").create_agent.assert_not_called()
+
+
+def test_agent_create_react_requires_llm(patch_client):
+    """--llm is required; omitting it fails at parse (exit 2)."""
+    result = runner.invoke(app, ["agent", "create-react", "Researcher", "-P", "PROJ1"])
+    assert result.exit_code == 2
+    patch_client.get_project("PROJ1").create_agent.assert_not_called()
+
+
+def test_agent_set_prompt_retargets_loop_block(patch_client):
+    """On a structured agent with a loop block, set-prompt writes the loop
+    block's systemPromptAfterHistory, not systemPromptAppend."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-prompt",
+            "structured_agent",
+            "--prompt",
+            "You are a strategist.",
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "systemPromptAfterHistory" in result.output
+    cfg = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()["versions"][0]["structuredAgentSettings"]
+    )
+    loop = next(b for b in cfg["blocks"] if b["id"] == "main_loop")
+    assert loop["systemPromptAfterHistory"] == "You are a strategist."
+    assert "systemPromptAppend" not in cfg
+
+
+def test_agent_set_prompt_fallback_no_loop_block(patch_client):
+    """A TOOLS_USING_AGENT (no loop block) still writes systemPromptAppend."""
+    result = runner.invoke(
+        app,
+        ["agent", "set-prompt", "agent1", "--prompt", "Hi.", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "systemPromptAppend" in result.output
+
+
 def test_agent_get(patch_client):
     result = runner.invoke(app, ["agent", "get", "agent1", "--project", "PROJ1"])
     assert result.exit_code == 0
@@ -357,13 +509,13 @@ def test_agent_status_calls_status_not_get_status(patch_client):
 
 
 def test_agent_set_prompt_structured_agent(patch_client):
-    """Structured agents use systemPromptAppend in structuredAgentSettings."""
+    """A structured agent with NO loop block falls back to systemPromptAppend."""
     result = runner.invoke(
         app,
         [
             "agent",
             "set-prompt",
-            "structured_agent",
+            "structured_agent_empty",
             "--prompt",
             "New structured prompt",
             "--project",
@@ -373,14 +525,14 @@ def test_agent_set_prompt_structured_agent(patch_client):
     assert result.exit_code == 0
     assert "systemPromptAppend" in result.output
 
-    settings = (
-        patch_client.get_project("PROJ1").get_agent("structured_agent").get_settings()
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent_empty")
+        .get_settings()
+        .get_raw()
     )
-    ver_raw = settings.get_version_settings("v1").get_raw()
-    assert (
-        ver_raw["structuredAgentSettings"]["systemPromptAppend"]
-        == "New structured prompt"
-    )
+    cfg = raw["versions"][0]["structuredAgentSettings"]
+    assert cfg["systemPromptAppend"] == "New structured prompt"
 
 
 def test_agent_set_prompt_simple_agent_uses_systemPromptAppend(patch_client):

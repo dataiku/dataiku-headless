@@ -24,8 +24,10 @@ from dku_cli.brand import ICON
 
 # soft_wrap: never hard-wrap messages at terminal width — wrapped commands
 # can't be copy-pasted and break line-based parsing.
-console = Console(soft_wrap=True)
-err_console = Console(stderr=True, soft_wrap=True)
+# emoji=False: Rich otherwise rewrites :shortcode: sequences — an error
+# echoing user input like --mappings 'a:b:c' rendered as 'a🅱c'.
+console = Console(soft_wrap=True, emoji=False)
+err_console = Console(stderr=True, soft_wrap=True, emoji=False)
 
 _quiet = False
 _output_format = "dense"
@@ -183,6 +185,28 @@ def info(msg: str) -> None:
 def hint(next_command: str) -> None:
     if not _quiet:
         err_console.print(f"[dim]Next: {next_command}[/dim]")
+
+
+def emit_created(obj: Any, *, message: str, next_command: str | None = None) -> None:
+    """Report a created/mutated object so its id is always machine-readable.
+
+    The object must carry an ``id``. Output to stdout by format:
+      - dense   → compact JSON object (pipe-clean; ``| jq -r .id`` works)
+      - json    → indented JSON object, nothing else
+      - ids     → the bare id line (honors the module's ids contract)
+      - quiet   → compact JSON object, no chrome
+    The human banner and next-step hint go to stderr and are suppressed under
+    json/quiet/ids, keeping the data stream pipe-clean.
+    """
+    if _output_format == "ids":
+        print(obj["id"])
+        return
+    render_raw(obj)
+    if _output_format == "json":
+        return
+    success(message)
+    if next_command:
+        hint(next_command)
 
 
 def print_text(text: str) -> None:

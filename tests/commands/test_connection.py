@@ -17,6 +17,12 @@ def test_connection_list(patch_client):
     assert "filesystem_managed" in result.output
 
 
+def test_connection_list_accepts_project_for_global_consistency(patch_client):
+    result = runner.invoke(app, ["connection", "list", "-P", "PROJ1"])
+    assert result.exit_code == 0
+    assert "filesystem_managed" in result.output
+
+
 def test_connection_list_json(patch_client):
     result = runner.invoke(app, ["--format", "json", "connection", "list"])
     assert result.exit_code == 0

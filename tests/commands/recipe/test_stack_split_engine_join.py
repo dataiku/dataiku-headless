@@ -1024,6 +1024,125 @@ def test_recipe_create_join_case_insensitive_normalize_text(patch_client):
     assert cond["normalizeText"] is True
 
 
+def test_recipe_create_join_inequality_keys(patch_client):
+    """--join-key accepts inequality operators → typed GTE/LTE/GT/LT/NE
+    conditions (the rolling-N range self-join pattern, flags-only)."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "INNER", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "self_roll",
+            "-i",
+            "seq_ds",
+            "-i",
+            "seq_ds",
+            "--output-ds",
+            "rolled",
+            "-j",
+            "INNER",
+            "--join-key",
+            "seq<=seq",
+            "--join-key",
+            "win_end>=seq",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    conds = settings.raw_joins[0]["on"]
+    assert [c["type"] for c in conds] == ["LTE", "GTE"]
+    assert conds[0]["column1"]["name"] == "seq"
+    assert conds[1]["column1"]["name"] == "win_end"
+    assert conds[1]["column2"]["name"] == "seq"
+
+
+def test_recipe_create_join_equality_key_still_eq(patch_client):
+    """'left=right' and bare 'col' specs still emit EQ conditions."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe.return_value.get_settings.return_value
+    settings.obj_payload = {}
+    settings.raw_joins = [{"table1": 0, "table2": 1, "type": "LEFT", "on": []}]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "order_id=id",
+            "--join-key",
+            "region",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    conds = settings.raw_joins[0]["on"]
+    assert [c["type"] for c in conds] == ["EQ", "EQ"]
+    assert conds[0]["column1"]["name"] == "order_id"
+    assert conds[0]["column2"]["name"] == "id"
+
+
+def test_recipe_create_join_inequality_key_missing_side_errors(patch_client):
+    """An operator with an empty side dies at parse time, before any create."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "seq>=",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "both sides" in result.output
+
+
+def test_recipe_create_join_modifiers_with_inequality_only_keys_error(patch_client):
+    """EQ-condition modifiers refuse when only inequality keys are given."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "j",
+            "-i",
+            "a",
+            "-i",
+            "b",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "seq>=start",
+            "--case-insensitive",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "no EQ join key" in result.output
+
+
 def test_recipe_create_join_max_distance_max_matches(patch_client):
     proj = patch_client.get_project("PROJ1")
     settings = proj.get_recipe.return_value.get_settings.return_value
@@ -1195,7 +1314,7 @@ def test_recipe_create_join_date_window_without_join_key_errors(patch_client):
     assert result.exit_code == 1
     # Rich line-wraps the message, so collapse whitespace before substring checks.
     flat = " ".join(_strip_ansi(result.output).split())
-    assert "no join key was set" in flat
+    assert "no EQ join key was set" in flat
     assert "--join-key" in flat
     # The misleading "Match mode" line must NOT be printed.
     assert "Match mode" not in flat
@@ -1226,7 +1345,7 @@ def test_recipe_create_join_case_insensitive_without_join_key_errors(patch_clien
     )
     assert result.exit_code == 1
     flat = " ".join(_strip_ansi(result.output).split())
-    assert "no join key was set" in flat
+    assert "no EQ join key was set" in flat
 
 
 def test_recipe_create_join_lowercase_join_type(patch_client):

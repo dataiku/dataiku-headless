@@ -474,3 +474,14 @@ def test_job_run_invalid_type(patch_client):
     assert result.exit_code == 2
     stripped = strip_ansi(result.output)
     assert "Invalid value" in stripped
+
+
+def test_job_run_wait_done_emits_build_summary(patch_client):
+    """A successful --wait build prints a rows/cols proof line per dataset."""
+    result = runner.invoke(
+        app,
+        ["job", "run", "--target", "my_dataset", "--wait", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Built my_dataset:" in result.output
+    assert "cols" in result.output

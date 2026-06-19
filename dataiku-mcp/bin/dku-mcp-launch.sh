@@ -37,7 +37,7 @@ if ! command -v uvx >/dev/null 2>&1; then
 fi
 
 # 2) Find the bundled wheel (version-independent).
-WHEEL="$(ls "$ROOT"/wheels/dku_cli-*.whl 2>/dev/null | sort | tail -1 || true)"
+WHEEL="$(ls "$ROOT"/wheels/*.whl 2>/dev/null | sort | tail -1 || true)"
 if [ -z "${WHEEL:-}" ]; then
   echo "[dku-mcp] no bundled wheel in $ROOT/wheels (build with: make bundle)." >&2
   exit 1

@@ -64,6 +64,52 @@ def test_rag_create(patch_client):
     )
 
 
+def test_rag_create_strips_stray_quotes_from_llm(patch_client):
+    """A mis-quoted --llm (leading stray quote) is cleaned before the API call."""
+    result = runner.invoke(
+        app,
+        [
+            "rag",
+            "create",
+            "My RAG",
+            "--kb",
+            "kb1",
+            "--llm",
+            '"openai:conn:gpt-4o',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Stripped stray quotes" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.create_retrieval_augmented_llm.assert_called_once_with(
+        "My RAG", "kb1", "openai:conn:gpt-4o"
+    )
+
+
+def test_rag_create_resolves_kb_name(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "rag",
+            "create",
+            "My RAG",
+            "--kb",
+            "My KB",
+            "--llm",
+            "openai:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    proj = patch_client.get_project("PROJ1")
+    proj.create_retrieval_augmented_llm.assert_called_once_with(
+        "My RAG", "kb1", "openai:gpt-4o"
+    )
+
+
 def test_rag_create_json(patch_client):
     result = runner.invoke(
         app,

@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dku-cli"
+name = "dataiku-headless"
 dynamic = ["version"]
-description = "Developer CLI for Dataiku DSS — kubectl for your DSS instance"
+description = "Dataiku Headless — the headless DSS control plane for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{ name = "Dataiku" }]
-keywords = ["dataiku", "dss", "cli", "genai", "mlops"]
+keywords = ["dataiku", "dss", "cli", "genai", "mlops", "headless", "agent", "mcp", "code-mode"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -44,10 +44,12 @@ dku-mcp = "dku_cli.mcp.cli:app"
 mcp = ["fastmcp>=2.0"]
 
 [project.urls]
-Homepage = "https://github.com/dataiku/dataiku-cli"
-Repository = "https://github.com/dataiku/dataiku-cli"
-Issues = "https://github.com/dataiku/dataiku-cli/issues"
-Changelog = "https://github.com/dataiku/dataiku-cli/releases"
+# NOTE: the GitHub repo rename (dataiku-cli -> dataiku-headless) is a manual
+# follow-up. GitHub auto-redirects the old slug, so these resolve in the meantime.
+Homepage = "https://github.com/dataiku/dataiku-headless"
+Repository = "https://github.com/dataiku/dataiku-headless"
+Issues = "https://github.com/dataiku/dataiku-headless/issues"
+Changelog = "https://github.com/dataiku/dataiku-headless/releases"
 
 [dependency-groups]
 dev = [
@@ -68,3 +70,13 @@ path = "src/dku_cli/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dku_cli"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+# Single source of truth for the version: src/dku_cli/__init__.py (hatch reads
+# the same file via [tool.hatch.version]). cz keeps this literal in sync on bump.
+version = "0.4.0"
+version_files = ["src/dku_cli/__init__.py:__version__"]
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true

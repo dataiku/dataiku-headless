@@ -33,7 +33,7 @@ Translation details for SAS PROCs, canonical visual patterns, and SQL-recipe tra
 
 ### Statistical PROCs
 
-Many SAS stats PROCs land in Python — but the regression / classification family (LOGISTIC / REG / GLM-as-regression / HPLOGISTIC / GENMOD-as-GLM) are **Visual ML**, not Python. See § Visual ML below for the canonical `dku ml` chain. The Statistics recipe handles basic univariate/bivariate descriptives (means / medians / correlations) without code — reach for it before Python.
+Many SAS stats PROCs land in Python — but the regression / classification family (LOGISTIC / REG / GLM-as-regression / HPLOGISTIC / GENMOD-as-GLM) are **Visual ML**, not Python. See `ml-scenarios.md` § Visual ML for the canonical `dku ml` chain. The Statistics recipe handles basic univariate/bivariate descriptives (means / medians / correlations) without code — reach for it before Python.
 
 | PROC | Recipe | Python library (when needed) |
 |---|---|---|
@@ -54,7 +54,7 @@ Many SAS stats PROCs land in Python — but the regression / classification fami
 | `PROC ARIMA` | Time Series Preparation plugin (basic) or Python | `statsmodels.tsa.arima.ARIMA` / `SARIMAX` |
 | `PROC ESM` | Time Series Preparation plugin | `statsmodels.tsa.holtwinters` as fallback |
 
-**Rule: ML setup is NEVER a Python recipe in the Flow.** Recipes produce data; ML configuration / training is a *visual* workflow. The Flow representation is `train_*` recipe → Saved Model → Predict (`prediction_scoring`) recipe — produced via the `dku ml` namespace, not by writing Python that calls `dataikuapi`. If you find yourself drafting a Python recipe whose output is `{status: "ok"}` or any non-data row, stop and use § Visual ML below.
+**Rule: ML setup is NEVER a Python recipe in the Flow.** Recipes produce data; ML configuration / training is a *visual* workflow. The Flow representation is `train_*` recipe → Saved Model → Predict (`prediction_scoring`) recipe — produced via the `dku ml` namespace, not by writing Python that calls `dataikuapi`. If you find yourself drafting a Python recipe whose output is `{status: "ok"}` or any non-data row, stop and use `ml-scenarios.md` § Visual ML.
 
 Note: Statistics recipe results are a summary object on the dataset, not an output dataset — downstream recipes can't consume them. If the SAS program feeds p-values or coefficients into a later step, write the Python recipe and emit a results dataset.
 
@@ -296,7 +296,7 @@ dku recipe run add_arm_num -P PROJ --wait
 The rows below come in two flavours:
 
 - **Portable (standard SQL)** — string ops, `CASE WHEN`, `IS NULL`, `GREATEST`/`LEAST` work as-is on Postgres, Snowflake, BigQuery, Redshift, Oracle, SQL Server, DuckDB.
-- **Engine-specific** — date math (`AGE`, `make_interval`), numeric casts (`::numeric`, `::double precision`), and `to_char` format strings are **Postgres-specific**. The Postgres forms are verified on DSS 14.4 + PG. For other engines, swap in the native equivalents — see the `Dates (SQL recipe equivalents)` table above for cross-engine date math.
+- **Engine-specific** — date math (`AGE`, `make_interval`), numeric casts (`::numeric`, `::double precision`), and `to_char` format strings are **Postgres-specific**. The Postgres forms are verified live on DSS + PG. For other engines, swap in the native equivalents — cross-engine date math in `functions-formats.md` § Dates.
 
 | SAS | Standard SQL or **Postgres** | Portability |
 |---|---|---|

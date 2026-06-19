@@ -192,7 +192,7 @@ TyperCommand.parse_args = _command_parse_args
 
 app = typer.Typer(
     name="dku",
-    help="Developer CLI for Dataiku DSS",
+    help="Dataiku Headless — the headless DSS control plane for AI agents",
     no_args_is_help=False,
     invoke_without_command=True,
     # Plain Click error rendering — no Rich panel boxes around usage errors.
@@ -319,7 +319,7 @@ def main(
         help="Show version",
     ),
 ) -> None:
-    """Developer CLI for Dataiku DSS — like kubectl for your DSS instance."""
+    """Dataiku Headless — the headless DSS control plane for AI agents."""
     ctx.ensure_object(dict)
     if url:
         ctx.obj["url"] = url

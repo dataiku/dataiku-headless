@@ -3,7 +3,7 @@
 Maps datasets to business entities, relationships, and metrics for NL→SQL. One model per domain, multiple versions per model (only active version queried). Get exact flags from `dku semantic-model <cmd> --help`.
 
 ```bash
-# discover → read → modify → activate+index → verify
+# golden order: describe datasets → create → entities → relationships → glossary/metrics/golden-queries → activate+index → verify
 # list/inspect
 dku semantic-model list -P PROJ
 dku semantic-model get SM_REF -P PROJ
@@ -16,7 +16,9 @@ dku semantic-model list-glossary SM_REF -P PROJ
 dku semantic-model list-metrics SM_REF --entity ENT -P PROJ
 dku semantic-model list-filters SM_REF --entity ENT -P PROJ
 
-# create
+# create — describe datasets FIRST: add-entity snapshots their schema, so
+# descriptions only flow in if they exist before the entity is created
+dku dataset ai-describe DS --save -P PROJ
 dku semantic-model create "Model Name" -P PROJ
 dku semantic-model create-version SM_REF v2 -P PROJ
 dku semantic-model create-version SM_REF v2 --duplicate-of v1 -P PROJ
@@ -29,6 +31,7 @@ dku semantic-model add-metric SM_REF --entity customer --name "Total Customers" 
 dku semantic-model add-filter SM_REF --entity customer --name "Active" --expression "Status = 'active'" -P PROJ
 dku semantic-model add-golden-query SM_REF --name "monthly revenue" --question "What was revenue by product last month?" --sql "SELECT ..." -P PROJ
 dku semantic-model add-glossary-term SM_REF --term "customer" --description "..." --synonyms "client,account,buyer" -P PROJ
+dku semantic-model sync-descriptions SM_REF -P PROJ   # backfill entity+attribute descriptions if datasets were described after add-entity
 
 # configure
 dku semantic-model set-manual-values SM_REF --entity customer --attribute Status --values "Active,Inactive" -P PROJ
@@ -65,6 +68,15 @@ Use this for fields `add-*` doesn't cover: `sqlGenerationConfig`, `foreignKeys`,
 ## Gotchas
 
 - `list` first — DSS assigns IDs that may not match the name
+- Entities are a **snapshot**, not a live link: `add-entity` copies column
+  descriptions (schema `comment` field — what `dataset ai-describe --save` and
+  `set-column-description` write) and the dataset `shortDesc` at creation time,
+  and never re-reads them. Describe datasets first; backfill a late model with
+  `sync-descriptions`. The `described` column of `list-entities` is the
+  coverage gate — `0/N` means text2SQL runs without column context.
+- Column descriptions survive sync recipes (CSV → SQL), but dataset-level
+  `shortDesc` does not — so run `ai-describe` on the SQL dataset the entity
+  points at (not just the upstream upload), or entity descriptions stay empty.
 - `create-version` materializes the settings doc so `get-version` should work
   immediately. If an older DSS build still returns a lazy-materialization 404,
   run `set-version -d '{}'` once and retry.

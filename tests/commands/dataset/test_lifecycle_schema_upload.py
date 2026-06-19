@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from tests.commands.dataset.helpers import app, runner
+from tests.helpers import strip_ansi as _strip_ansi
 
 
 # --- dataset create --if-not-exists ---
@@ -279,6 +280,28 @@ def test_dataset_set_schema(patch_client):
     assert call_arg["schema"]["columns"][0]["name"] == "new_col"
 
 
+def test_dataset_set_schema_columns_alias_with_quoted_names(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-schema",
+            "ds1",
+            "--columns",
+            '"Beer Count" bigint, Style string',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    call_arg = ds.set_definition.call_args[0][0]
+    assert call_arg["schema"]["columns"] == [
+        {"name": "Beer Count", "type": "bigint"},
+        {"name": "Style", "type": "string"},
+    ]
+
+
 def test_dataset_upload(patch_client, tmp_path):
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1,col2\na,1\nb,2")
@@ -325,6 +348,32 @@ def test_dataset_upload_header_eaten_warning(patch_client, tmp_path):
     assert "Header row NOT parsed" in result.output
     assert "parseHeaderRow" in result.output
     assert "set-schema" in result.output
+
+
+def test_dataset_upload_status_line_last(patch_client, tmp_path):
+    """The final output line is the upload status, not a suggested-command
+    fragment — `tail -1` automation reads the outcome (PENDING 2026-06-10)."""
+    csv_file = tmp_path / "strings.csv"
+    csv_file.write_text("a,b\nx,y")
+    ds = patch_client.get_project("PROJ1").get_dataset("str_data")
+    # All-STRING schema → the set-schema suggestion warning fires.
+    ds.autodetect_settings.return_value.get_raw.return_value = {
+        "formatType": "csv",
+        "formatParams": {"parseHeaderRow": True},
+        "schema": {
+            "columns": [
+                {"name": "a", "type": "string"},
+                {"name": "b", "type": "string"},
+            ]
+        },
+    }
+    result = runner.invoke(
+        app, ["dataset", "upload", "str_data", str(csv_file), "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert "All columns detected as STRING" in result.output
+    last_line = _strip_ansi(result.output).strip().splitlines()[-1]
+    assert "Uploaded" in last_line
 
 
 def test_dataset_upload_no_header_warning_when_named(patch_client, tmp_path):

@@ -55,23 +55,12 @@ Alteryx aggregation tools (`Summarize`, `PearsonCorrelation`, sometimes `Running
 
 - **Alteryx:** ignore both NULL **and** zero. `AvgNo0` over 9 rows of `0` + `(40,42,43)` → `(40+42+43)/3 = 41.67`, not `10.42`. The `0` is Alteryx's sentinel for "no value for this stat".
 - **DSS/SQL:** `avg/sum/min/max/count` ignore NULL but **include 0**. Diverges whenever source uses 0 as a null-sentinel (common in exported `.yxdb`/`.yxmd` TextInput data).
-- **Migration:** coerce sentinel-zero to NULL via a `--computed-col` on the same Group recipe before aggregating:
-  ```bash
-  dku recipe create-group avgs -P PROJ -i input --output-ds avgs -k partition_key \
-      --computed-col 'col_no0=if(val("col")==0||isBlank(val("col")), null, val("col")):double' \
-      --agg col_no0:avg --no-global-count --rename col_no0_avg:Avg_Col
-  ```
-  `avg` already ignores NULL → Alteryx-equivalent answer. **GREL equality is `==`, not `=`** (single `=` is assignment; CLI rejects with `Unexpected '='. Did you mean '=='?`).
+- **Migration:** coerce sentinel-zero to NULL via a `--computed-col` on the same Group recipe (`col_no0=if(val("col")==0||isBlank(val("col")), null, val("col")):double` then `--agg col_no0:avg`); `avg` already ignores NULL → Alteryx-equivalent answer. Exact flags + the `==`-not-`=` CLI gotcha: `tools-join-reshape.md` § Summarize.
 
 ### 2. `PearsonCorrelation` treats null as zero (NOT pairwise-complete)
 
 - **Alteryx:** substitutes `0` for null cells before computing correlation. Statistically wrong (correct = pairwise-complete, what SQL `CORR()`/pandas/numpy do), but it's what every solution `.yxmd` ground truth was built against — reproduce it.
-- **DSS:** SQL `CORR(x,y)` ignores rows where either arg is NULL. To match Alteryx, wrap nullable columns in `COALESCE(col, 0)`:
-  ```sql
-  SELECT CORR(COALESCE("col_a", 0), COALESCE("col_b", 0)) AS "Result"
-  FROM ${projectKey}_input_db
-  ```
-  Divergence can be large (different magnitude AND decay, not just rounding). Document the COALESCE in any SQL recipe replacing PearsonCorrelation. See `tools-predictive-ml.md` § PearsonCorrelation.
+- **DSS:** SQL `CORR(x,y)` ignores rows where either arg is NULL. To match Alteryx, wrap nullable columns in `COALESCE(col, 0)` — divergence can be large (different magnitude AND decay, not just rounding); document the COALESCE. Recipe mechanics: `tools-predictive-ml.md` § PearsonCorrelation.
 
 ### 3. General principle (always verify aggregation parity)
 

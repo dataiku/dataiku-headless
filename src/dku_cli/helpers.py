@@ -283,6 +283,24 @@ def resolve_knowledge_bank(project, kb_ref: str):
     )
 
 
+def probe_knowledge_bank(kb, query: str = "test") -> tuple[int | None, str | None]:
+    """Probe a knowledge bank with a minimal search to confirm queryable content.
+
+    A KB build job reporting DONE only means the job ran — it does not guarantee
+    any document was embedded and indexed. The only ground-truth signal DSS
+    exposes is a live search: an empty/unindexed KB returns zero documents.
+
+    Returns (doc_count, None) on a successful probe (0 = built but empty), or
+    (None, error_message) if the search itself failed.
+    """
+    try:
+        result = kb.search(query, max_documents=1)
+    except Exception as e:
+        return None, str(e)
+    docs = getattr(result, "documents", result)
+    return (len(docs) if docs is not None else 0), None
+
+
 def resolve_semantic_model(project, sm_ref: str):
     """Resolve a semantic model by ID or name.
 
@@ -333,6 +351,26 @@ def resolve_agent_review(project, review_ref: str):
     falls back to listing reviews and matching by name.
     Returns a DSSAgentReview handle.
     """
+    from dku_cli.errors import exit_with_error
+
+    # An empty ref hits GET /agent-reviews/reviews/ (the list endpoint) and
+    # returns the whole list wrapped as a single review — later .id access then
+    # crashes with "'list' object has no attribute 'get'". Fail loudly instead.
+    # Empty refs come from a prior `create` whose id wasn't captured. (This is a
+    # distinct symptom from "Invalid loc: empty name", which has a *valid* ref
+    # but no agent bound to the review — that's handled in run_review.)
+    if not review_ref or not str(review_ref).strip():
+        exit_with_error(
+            "Agent review id/name is empty.",
+            details=[
+                "A previous `dku agent-review create` likely did not return an id.",
+                "List reviews to get a valid id: dku agent-review list -P PROJECT",
+                'create prints {"id": ...} on stdout — capture it with '
+                "ID=$(dku agent-review create NAME -P PROJECT | jq -r .id).",
+            ],
+            status=3,
+        )
+
     try:
         review = project.get_agent_review(review_ref)
         # get_agent_review returns a fully populated object (not lazy)
@@ -724,7 +762,19 @@ def read_text_input(value: str) -> str:
     return value
 
 
-def read_json_input(value: str | None) -> dict | None:
+def clean_llm_id(value: str) -> tuple[str, bool]:
+    """Strip stray surrounding quote characters from an LLM id.
+
+    Agents repeatedly mis-quote `--llm` (e.g. `--llm '"'openai:...` reaches the
+    process as `"openai:...`), then loop trying to fix the quoting. LLM ids are
+    `provider:service:model` and never contain quotes, so leading/trailing `"`/`'`
+    are always spurious. Returns (cleaned, was_changed) so the caller can warn.
+    """
+    cleaned = value.strip("\"'")
+    return cleaned, cleaned != value
+
+
+def read_json_input(value: str | None) -> dict | list | None:
     """Parse JSON from: raw string, @file.json path, or stdin if value is '-'.
 
     Returns None if value is None.
@@ -750,3 +800,35 @@ def read_json_input(value: str | None) -> dict | None:
             else f"'{value}'"
         )
         raise typer.BadParameter(f"Invalid JSON from {source}: {exc}") from exc
+
+
+def unpersisted_key_paths(sent: dict, persisted: dict) -> list[str]:
+    """Dotted paths of dict keys present in *sent* but absent after a save.
+
+    DSS deserializes typed settings (dataset definitions, project settings)
+    into fixed-shape objects and SILENTLY DROPS unknown or misplaced keys —
+    exit 0, success message, key gone. Comparing the user's payload against a
+    re-read of the saved object turns that silent no-op into a same-turn
+    warning at the exact point of failure.
+
+    Only dict nesting is walked; list contents are not compared (DSS reorders
+    and normalizes list items, which would false-positive). A key whose VALUE
+    was normalized still exists and is not reported.
+
+    Note: only useful for typed-settings objects. Recipe payloads and agent
+    tool params are stored as opaque JSON and persist unknown keys verbatim —
+    a round-trip diff can never fire there, so don't wire it in.
+    """
+    dropped: list[str] = []
+
+    def _walk(sent_node: dict, persisted_node: dict, prefix: str) -> None:
+        for key, value in sent_node.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in persisted_node:
+                dropped.append(path)
+                continue
+            if isinstance(value, dict) and isinstance(persisted_node.get(key), dict):
+                _walk(value, persisted_node[key], path)
+
+    _walk(sent, persisted, "")
+    return dropped

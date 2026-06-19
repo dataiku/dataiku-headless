@@ -4,7 +4,7 @@
     "name": "Dataiku"
   },
   "metadata": {
-    "description": "Local Dataiku MCP and CLI packaging",
+    "description": "Dataiku Headless — the headless DSS control plane for AI agents (local MCP + CLI packaging)",
     "version": "1.0.0"
   },
   "plugins": [
@@ -12,10 +12,10 @@
       "name": "dataiku-mcp",
       "source": {
         "source": "git-subdir",
-        "url": "dataiku/dataiku-cli",
+        "url": "dataiku/dataiku-headless",
         "path": "dataiku-mcp"
       },
-      "description": "Connect your agent to Dataiku DSS through the local dataiku-mcp plugin."
+      "description": "Connect your agent to Dataiku DSS through Dataiku Headless — the local dataiku-mcp code-mode plugin."
     }
   ]
 }

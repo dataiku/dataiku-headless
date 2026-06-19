@@ -215,6 +215,9 @@ def test_sql_query_ddl_auto_commits(patch_client):
     AND are silently rolled back by DSS's sql_query endpoint unless we pass
     post_queries=['COMMIT']. The CLI auto-appends the commit and reports
     'Committed on <connection>'.
+
+    DROP is tier-3 cascade: needs --yes AND --confirm-name matching the
+    connection.
     """
     result_mock = MagicMock()
     result_mock.get_schema.side_effect = KeyError("schema")
@@ -226,6 +229,9 @@ def test_sql_query_ddl_auto_commits(patch_client):
             "query",
             'DROP TABLE IF EXISTS "stale_table"',
             "-c",
+            "sql_managed",
+            "--yes",
+            "--confirm-name",
             "sql_managed",
         ],
     )
@@ -240,7 +246,7 @@ def test_sql_query_ddl_auto_commits(patch_client):
 
 
 def test_sql_query_insert_auto_commits(patch_client):
-    """INSERT is DML — CLI should auto-commit."""
+    """INSERT is DML — CLI should auto-commit. Tier-2 delete guard: --yes."""
     result_mock = MagicMock()
     result_mock.get_schema.side_effect = Exception("no schema for DML")
     patch_client.sql_query.return_value = result_mock
@@ -252,6 +258,7 @@ def test_sql_query_insert_auto_commits(patch_client):
             "INSERT INTO logs (msg) VALUES ('hi')",
             "-c",
             "myconn",
+            "--yes",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -264,7 +271,7 @@ def test_sql_query_insert_auto_commits(patch_client):
 
 
 def test_sql_query_no_auto_commit_flag(patch_client):
-    """--no-auto-commit opts out of the COMMIT append."""
+    """--no-auto-commit opts out of the COMMIT append. CREATE is tier-2: --yes."""
     result_mock = MagicMock()
     result_mock.get_schema.side_effect = KeyError("schema")
     patch_client.sql_query.return_value = result_mock
@@ -277,6 +284,7 @@ def test_sql_query_no_auto_commit_flag(patch_client):
             "-c",
             "myconn",
             "--no-auto-commit",
+            "--yes",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -296,12 +304,74 @@ def test_sql_query_ddl_detection_ignores_leading_comments(patch_client):
     # Use -- to stop Typer from interpreting the leading '--' as a flag
     result = runner.invoke(
         app,
-        ["sql", "query", "-c", "myconn", "--", query],
+        [
+            "sql",
+            "query",
+            "-c",
+            "myconn",
+            "--yes",
+            "--confirm-name",
+            "myconn",
+            "--",
+            query,
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "Committed on" in result.output
     patch_client.sql_query.assert_called_once_with(
         query, connection="myconn", post_queries=["COMMIT"]
+    )
+
+
+def test_sql_query_drop_blocked_without_confirmation(patch_client, monkeypatch):
+    """DROP without --yes/--confirm-name is a tier-3 cascade — blocked at exit 77,
+    and sql_query is never called (no silent destructive commit)."""
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    result = runner.invoke(
+        app,
+        ["sql", "query", "DROP TABLE customers", "-c", "myconn"],
+    )
+    assert result.exit_code == 77, result.output
+    patch_client.sql_query.assert_not_called()
+
+
+def test_sql_query_drop_blocked_with_yes_but_no_confirm_name(patch_client, monkeypatch):
+    """DROP with --yes but a mismatched/absent --confirm-name stays blocked."""
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    result = runner.invoke(
+        app,
+        ["sql", "query", "DROP TABLE customers", "-c", "myconn", "--yes"],
+    )
+    assert result.exit_code == 77, result.output
+    patch_client.sql_query.assert_not_called()
+
+
+def test_sql_query_delete_blocked_without_yes(patch_client, monkeypatch):
+    """DELETE (DML) without --yes is a tier-2 delete guard — blocked at exit 77."""
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    result = runner.invoke(
+        app,
+        ["sql", "query", "DELETE FROM logs WHERE id < 100", "-c", "myconn"],
+    )
+    assert result.exit_code == 77, result.output
+    patch_client.sql_query.assert_not_called()
+
+
+def test_sql_query_delete_runs_with_yes(patch_client):
+    """DELETE with --yes proceeds and auto-commits."""
+    result_mock = MagicMock()
+    result_mock.get_schema.side_effect = KeyError("schema")
+    patch_client.sql_query.return_value = result_mock
+    result = runner.invoke(
+        app,
+        ["sql", "query", "DELETE FROM logs WHERE id < 100", "-c", "myconn", "--yes"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Committed on" in result.output
+    patch_client.sql_query.assert_called_once_with(
+        "DELETE FROM logs WHERE id < 100",
+        connection="myconn",
+        post_queries=["COMMIT"],
     )
 
 
@@ -333,3 +403,108 @@ def test_sql_query_accepts_and_ignores_project_flag(patch_client):
         ],
     )
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# The guard cannot be bypassed by hiding a mutation behind a leading SELECT,
+# a comment, a string literal, or a WITH-prefixed CTE.
+# ---------------------------------------------------------------------------
+
+
+def test_sql_query_cte_delete_is_guarded(patch_client, monkeypatch):
+    """A data-modifying CTE (WITH ... DELETE) must hit the guard, not slip past
+    as a read just because the first keyword is WITH."""
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            "WITH doomed AS (SELECT id FROM logs WHERE id < 100) "
+            "DELETE FROM logs USING doomed WHERE logs.id = doomed.id",
+            "-c",
+            "myconn",
+        ],
+    )
+    assert result.exit_code == 77, result.output
+    patch_client.sql_query.assert_not_called()
+
+
+def test_sql_query_cte_body_delete_is_guarded(patch_client, monkeypatch):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    result = runner.invoke(
+        app,
+        [
+            "sql",
+            "query",
+            "WITH deleted AS (DELETE FROM logs WHERE id < 100 RETURNING id) "
+            "SELECT * FROM deleted",
+            "-c",
+            "myconn",
+        ],
+    )
+    assert result.exit_code == 77, result.output
+    patch_client.sql_query.assert_not_called()
+
+
+def test_sql_query_multistatement_drop_is_guarded(patch_client, monkeypatch):
+    """A DROP chained after a leading SELECT must be guarded at the CASCADE tier
+    (--yes alone is not enough), not hidden by the SELECT first keyword."""
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    result = runner.invoke(
+        app,
+        ["sql", "query", "SELECT 1; DROP TABLE customers", "-c", "myconn", "--yes"],
+    )
+    assert result.exit_code == 77, result.output
+    patch_client.sql_query.assert_not_called()
+
+
+def test_sql_query_cte_select_is_not_guarded(patch_client):
+    """A read-only WITH ... SELECT must stay unguarded and get no auto-COMMIT."""
+    query = "WITH recent AS (SELECT * FROM logs LIMIT 5) SELECT * FROM recent"
+    result = runner.invoke(app, ["sql", "query", query, "-c", "myconn"])
+    assert result.exit_code == 0, result.output
+    patch_client.sql_query.assert_called_once_with(
+        query, connection="myconn", post_queries=None
+    )
+
+
+def test_sql_query_keyword_in_string_literal_is_not_a_mutation(patch_client):
+    """'DROP' inside a string literal must not trip the guard — the statement is
+    a SELECT and runs unguarded with no COMMIT."""
+    query = "SELECT 'DROP TABLE x' AS note"
+    result = runner.invoke(app, ["sql", "query", query, "-c", "myconn"])
+    assert result.exit_code == 0, result.output
+    patch_client.sql_query.assert_called_once_with(
+        query, connection="myconn", post_queries=None
+    )
+
+
+def test_operative_keyword_detection_unit():
+    """Direct coverage of the statement classifier across the bypass shapes."""
+    from dku_cli.commands.sql import _is_ddl_or_dml, _mutation_tier
+
+    # Bypasses that must now be caught as mutations.
+    assert _is_ddl_or_dml("WITH c AS (SELECT 1) DELETE FROM t USING c")
+    assert _is_ddl_or_dml(
+        "WITH deleted AS (DELETE FROM t RETURNING id) SELECT * FROM deleted"
+    )
+    assert _is_ddl_or_dml("SELECT 1; DROP TABLE x")
+    assert _is_ddl_or_dml("/* hi */ DROP TABLE x")
+    assert _is_ddl_or_dml("delete from t")
+
+    # Reads that must stay unguarded.
+    assert not _is_ddl_or_dml("SELECT * FROM t")
+    assert not _is_ddl_or_dml("WITH c AS (SELECT 1) SELECT * FROM c")
+    assert not _is_ddl_or_dml("SELECT 'DROP TABLE x' AS note")
+
+    # Tier escalation: any DROP/TRUNCATE/ALTER in a chain forces CASCADE.
+    assert _mutation_tier("INSERT INTO t VALUES (1); DROP TABLE x") == (
+        "CASCADE",
+        "DROP",
+    )
+    assert _mutation_tier(
+        "WITH deleted AS (DELETE FROM t RETURNING id) SELECT * FROM deleted"
+    ) == ("DELETE", "DELETE")
+    assert _mutation_tier("DELETE FROM t WHERE id = 1") == ("DELETE", "DELETE")
+    assert _mutation_tier("SELECT 1") is None

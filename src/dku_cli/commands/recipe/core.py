@@ -75,7 +75,12 @@ def get(
     recipe_name: str = typer.Argument(help="Recipe name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Show recipe details."""
+    """Show recipe identity and I/O (name, type, inputs, outputs) — NO payload.
+
+    The visual recipe config (join keys, aggregations, steps, …) is the
+    payload: read it with 'get-settings' (full settings incl. parsed payload)
+    or 'get-definition' (raw definition + payload; pairs with set-definition).
+    """
     project_key = resolve_project(project)
     output = resolve_output_format()
     try:
@@ -199,11 +204,19 @@ def run(
         "--timeout",
         help="When --wait is set, max seconds to wait before failing (matches dku job run). Default: no limit.",
     ),
+    no_verify: bool = typer.Option(
+        False,
+        "--no-verify",
+        help="Skip the post-build rows/cols summary for each built output dataset",
+    ),
 ) -> None:
     """Run a recipe.
 
     Use --type RECURSIVE_BUILD --auto-update-schema to build upstream
     dependencies with automatic schema propagation.
+
+    With --wait, a successful run prints `Built <ds>: N rows, M cols` per
+    output dataset so success carries proof (0 rows = warning to investigate).
     """
     project_key = resolve_project(project)
     # Track job.id outside the try so the except handler can reference it
@@ -234,10 +247,12 @@ def run(
         # get_flat_output_refs() returns bare refs with no object type. The job
         # builder defaults object_type to DATASET, so managed-folder / saved-model
         # outputs would error with "dataset does not exist". Resolve the real type.
-        for resolved_ref, object_type in resolve_build_output_types(proj, output_refs):
+        resolved_targets = list(resolve_build_output_types(proj, output_refs))
+        for resolved_ref, object_type in resolved_targets:
             builder.with_output(resolved_ref, object_type=object_type)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
+        job_start_ms = int(time.time() * 1000)
         job = builder.start()
         job_id = job.id
 
@@ -273,6 +288,12 @@ def run(
         if state == "DONE":
             if wait:
                 success("Recipe completed successfully")
+                if not no_verify:
+                    from dku_cli.build_summary import emit_build_summary
+
+                    emit_build_summary(
+                        client, proj, project_key, resolved_targets, job_start_ms
+                    )
             # Hint: Prepare recipes with rename/formula steps frequently need a
             # follow-up apply-schema before downstream recipes see the new
             # columns. The first run propagates the upstream schema only;
@@ -590,6 +611,8 @@ def create(
             #   covers sync, sql_query, AND visual recipes (join, group, sort, distinct,
             #   prepare, window, pivot, sampling, stack, fuzzyjoin, geojoin) which all
             #   inherit it from VirtualInputsSingleOutputRecipeCreator / SingleOutputRecipeCreator.
+            # - Code recipes without --connection pre-create a managed FS output,
+            #   then wire it as an existing output via with_output().
             # - Visual recipes without --connection fall back to with_existing_output().
             # - Recipe types that subclass DSSRecipeCreator directly (topn) have no
             #   auto-create method and fall through to with_output().
@@ -602,6 +625,16 @@ def create(
                 builder.with_new_output_dataset(output_ds, connection)
             elif connection and hasattr(builder, "with_new_output"):
                 builder.with_new_output(output_ds, connection)
+            elif type_lower in _TEXT_PAYLOAD_RECIPE_TYPES and hasattr(
+                builder, "with_new_output_dataset"
+            ):
+                _ensure_output_dataset(client, proj, output_ds, project_key)
+                builder.with_output(output_ds)
+            elif type_lower in {"prepare", "shaker"} and hasattr(
+                builder, "with_existing_output"
+            ):
+                _ensure_output_dataset(client, proj, output_ds, project_key)
+                builder.with_existing_output(output_ds)
             elif is_visual and hasattr(builder, "with_existing_output"):
                 builder.with_existing_output(output_ds)
             else:
@@ -623,6 +656,12 @@ def create(
         if is_scoring_type and resolved_model_id is not None:
             recipe_name = _reconcile_scoring_name(built, recipe_name)
             _auto_apply_schema(proj, recipe_name)
+        if (
+            output_ds
+            and not output_folder_id
+            and type_name.lower() in _TEXT_PAYLOAD_RECIPE_TYPES
+        ):
+            _ensure_file_output_format(proj, output_ds)
         # Container / env-mode pinning for code recipes.
         if container_mode is not None:
             if container_mode.value == "EXPLICIT_CONTAINER" and not container_conf:
@@ -676,21 +715,35 @@ def create(
             # Visual recipes (prepare, shaker, join, group, ...) need the output to pre-exist.
             # Code recipes (python, r, shell) and sync/sql_query need a --connection for auto-creation.
             if type_name.lower() in _VISUAL_RECIPE_TYPES:
+                details = [
+                    f"Output dataset '{output_ds}' does not exist.",
+                    f"`dku recipe create -t {type_name}` does NOT auto-create the output (the typed shortcuts create-prepare / create-join / create-group / ... do).",
+                    "",
+                ]
+                if type_name.lower() in ("prepare", "shaker"):
+                    details += [
+                        "Fix in ONE command — create-prepare auto-creates the output:",
+                        f"  dku recipe create-prepare {recipe_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
+                        "",
+                        "Or in two commands:",
+                    ]
+                else:
+                    details.append("Fix in two commands:")
+                details += [
+                    f"  dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
+                    f"  dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
+                    "",
+                    "Typed shortcuts auto-create their output: create-prepare, create-join,",
+                    "create-group, create-stack, create-distinct, create-sort, create-filter,",
+                    "create-window, create-topn, create-pivot, create-sampling, create-split.",
+                    "",
+                    # Restate the verdict LAST: agents pipe through `tail -N`
+                    # and must not mistake the hint lines for success.
+                    f"FAILED — recipe '{recipe_name}' was NOT created.",
+                ]
                 exit_with_error(
                     f"FAILED: recipe '{recipe_name}' was NOT created — output dataset '{output_ds}' must be created first.",
-                    details=[
-                        f"Output dataset '{output_ds}' does not exist.",
-                        f"`dku recipe create -t {type_name}` does NOT auto-create the output (the typed shortcuts create-join / create-group / ... do).",
-                        "",
-                        "Fix in two commands:",
-                        f"  dku dataset create {output_ds} --type Filesystem -c filesystem_managed -P {project_key}",
-                        f"  dku recipe create {recipe_name} -t {type_name} {' '.join(f'-i {i}' for i in inputs)} --output-ds {output_ds} -P {project_key}",
-                        "",
-                        "If you don't need a generic prepare and a typed shortcut fits the task,",
-                        "those auto-create their output: create-join, create-group, create-stack,",
-                        "create-distinct, create-sort, create-filter, create-window, create-topn,",
-                        "create-pivot, create-sampling, create-split.",
-                    ],
+                    details=details,
                 )
             else:
                 exit_with_error(
@@ -723,6 +776,8 @@ def create(
                     + f" --output-ds {output_ds}{example_key} -P {project_key}",
                     "",
                     f"See: dku recipe {dedicated_verb} --help",
+                    "",
+                    f"FAILED — recipe '{recipe_name}' was NOT created.",
                 ],
             )
         if "recipe type" in str(e).lower() and "unknown" in str(e).lower():
@@ -736,6 +791,90 @@ def create(
                 ],
             )
         handle_api_error(e)
+
+
+def _ensure_file_output_format(proj, output_ds: str) -> None:
+    """Pin a default format on filesystem-like code-recipe outputs.
+
+    DSS can auto-create a managed Filesystem output without formatType; the
+    recipe then fails only at build time with a raw Java exception. SQL outputs
+    do not use file format settings, so only touch filesystem/uploaded shapes.
+    """
+    try:
+        ds = proj.get_dataset(output_ds)
+        definition = ds.get_definition()
+        if definition.get("formatType"):
+            return
+        if definition.get("type") not in {"Filesystem", "UploadedFiles"}:
+            return
+        definition["formatType"] = "csv"
+        definition.setdefault(
+            "formatParams",
+            {
+                "style": "excel",
+                "charset": "utf8",
+                "separator": ",",
+                "quoteChar": '"',
+                "escapeChar": "\\",
+                "parseHeaderRow": True,
+            },
+        )
+        ds.set_definition(definition)
+        info(f"Set default CSV format on output dataset '{output_ds}'")
+    except Exception as exc:
+        warn(f"Could not set output dataset format for '{output_ds}': {exc}")
+
+
+@app.command("create-python")
+def create_python(
+    ctx: typer.Context,
+    recipe_name: str = typer.Argument(help="Recipe name"),
+    inputs: list[str] = typer.Option(
+        [],
+        "--input",
+        "-i",
+        "--input-ds",
+        "--input-dataset",
+        help="Input dataset name. Repeatable. Optional for data-generation recipes.",
+    ),
+    output_ds: str = typer.Option(
+        ...,
+        "--output-ds",
+        "--output-dataset",
+        help="Output dataset name (auto-created).",
+    ),
+    connection: str | None = typer.Option(
+        None,
+        "--connection",
+        "-c",
+        help="Connection for the auto-created output dataset.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Alias for `recipe create NAME -t python`.
+
+    Agents naturally try `create-python` by analogy with visual shortcuts.
+    Keep it as a thin wrapper so help/discovery has a successful path.
+    """
+    create(
+        ctx=ctx,
+        recipe_name=recipe_name,
+        type_name="python",
+        inputs=inputs,
+        output_ds=output_ds,
+        output_folder=None,
+        input_folders=[],
+        connection=connection,
+        input_role="main",
+        output_role="main",
+        params=None,
+        model=None,
+        container_mode=None,
+        container_conf=None,
+        env_mode=None,
+        env_name=None,
+        project=project,
+    )
 
 
 @app.command()

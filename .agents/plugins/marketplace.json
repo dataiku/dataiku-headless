@@ -9,7 +9,7 @@
       "name": "dataiku-mcp",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/dataiku/dataiku-cli.git",
+        "url": "https://github.com/dataiku/dataiku-headless.git",
         "path": "./dataiku-mcp",
         "ref": "main"
       },

@@ -1,0 +1,28 @@
+# gitleaks config for dataiku-headless.
+# Extends the upstream default ruleset, then narrowly allowlists artifacts that
+# are not real secrets: the bundled wheel (a binary zip), the dependency
+# lockfile (content hashes, not credentials), and test fixtures that carry
+# obvious placeholder tokens. Keep this list tight — every entry is a hole in
+# the secret scan.
+
+title = "dataiku-headless gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Non-secret artifacts and test placeholders"
+
+# Binary/generated artifacts and the dependency lockfile.
+paths = [
+  '''dataiku-mcp/wheels/.*\.whl''',
+  '''uv\.lock''',
+  '''tests/fixtures/.*''',
+]
+
+# Obvious placeholder credentials used in docs, help text, and tests.
+regexes = [
+  '''(?i)(dummy|example|placeholder|test|fake|sample|your)[-_]?(api|secret|token|key)''',
+  '''(?i)dku[ap]\.0*(example|placeholder|xxxx)''',
+  '''AKIAIOSFODNN7EXAMPLE''',
+]

@@ -74,14 +74,30 @@ after every `set-graph`.
 | `EDIT_LAST_USER_MESSAGE` | rewrite user msg pre-LLM | — |
 | `CUSTOM` | plugin block (`BlockHandler`) | `pyClazzName` via plugin |
 
-**Output modes** (LLM/REACT blocks): `SAVE_TO_STATE` (+`outputKey`/`outputStateKey`),
-`SAVE_TO_SCRATCHPAD` (+`outputScratchpadKey`), `ADD_TO_MESSAGES`. `streamOutput: true`
-only with `ADD_TO_MESSAGES`. `responseFormat: {"type":"json","strict":true}` forces schema.
+**Output modes** (LLM/REACT blocks): `SAVE_TO_STATE` (+`outputKey` on 14.5+;
+`outputStateKey` is 13.x-only and the runtime NPEs with `RequestFailedException:
+'outputKey'` on 14.5+ — always use `outputKey`), `SAVE_TO_SCRATCHPAD` (+`outputKey`),
+`ADD_TO_MESSAGES`. `streamOutput: true` only with `ADD_TO_MESSAGES`.
+`responseFormat: {"type":"json","strict":true}` forces schema.
 
 > **Canonical — Anthropic rejects `responseFormat: json` through the Mesh**
 > (verified live): the block silently SKIPs or errors. Use an OpenAI (or other
 > JSON-mode-capable) model for any JSON-output or judge/eval block; keep
 > Anthropic for free-text blocks.
+
+**Runtime traps not caught at save.** `agent-block add`/`set-graph` validate
+structure and print prescriptive fixes — empty CEL, missing `outputKey`, duplicate
+IDs, missing `llmId`, legacy field names (auto-renamed). These four pass validation
+but misbehave at runtime, so they're on you:
+
+- **First block needs `passConversationHistory: true`** to see the user query, else
+  the LLM replies "Please provide…"; set `false` on pure-analysis blocks to save tokens.
+- **PARALLEL branches must write distinct state keys** — same key = last-write-wins race.
+- **FOR_EACH doesn't accumulate** — init the array with `SET_STATE_ENTRIES` before the
+  loop, append in a PYTHON_CODE block per iteration (item access below).
+- **Scale:** FOR_EACH is fine to ~50 items; 200–500 risks timeouts (batch into
+  sub-arrays); 500+ → split across agents. Keep total state **< 1 MB** (store extracted
+  fields, never raw document text — oversized state fails at runtime, not at build).
 
 ### STANDARD_REACT block + tool entry
 
@@ -95,7 +111,7 @@ only with `ADD_TO_MESSAGES`. `responseFormat: {"type":"json","strict":true}` for
     "outputHandling": "ADD_TO_MESSAGES", "treatAsJSON": false
   }],
   "systemPromptAfterHistory": "Search the KB for {{state.topic}}...",
-  "outputMode": "SAVE_TO_STATE", "outputStateKey": "search_results",
+  "outputMode": "SAVE_TO_STATE", "outputKey": "search_results",
   "streamOutput": false, "passConversationHistory": true,
   "defaultNextBlock": "analyze"
 }

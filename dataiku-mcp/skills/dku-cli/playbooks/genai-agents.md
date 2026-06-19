@@ -1,9 +1,14 @@
 # GenAI & Agents
 
-Build LLM-over-rows, RAG, and agents with `dku`. Pick the lowest rung that fits:
-prompt/LLM recipe → embed + KB + RAG → visual (tool-using) agent → structured
-(deterministic multi-step) agent. Get exact flags from `--help`; open
+Build LLM-over-rows, RAG, and agents with `dku`. Escalation ladder — take the first
+rung that suffices: prompt/LLM recipe → embed + KB + RAG → visual (tool-using) agent →
+structured (deterministic multi-step) agent. Get exact flags from `--help`; open
 `references/agent-blocks.md` for block/graph/tool JSON.
+
+**Native shape over imported stack.** GenAI work here means visual/structured agents,
+agent tools, agent review, and eval stores — never LangChain/LlamaIndex/raw-SDK loops
+hand-rolled in a Python recipe. An SME can open a visual agent and follow its routing,
+tools, and traits; a framework buried in a code recipe is invisible to them.
 
 **Discover IDs first, never hardcode.** LLM IDs are `provider:connection:model` and
 instance-specific.
@@ -13,11 +18,11 @@ instance-specific.
 - Agent-as-LLM: `agent:AGENT_ID`. RAG-as-LLM: `retrieval-augmented-llm:RAG_ID`.
 
 **Expose Mesh LLMs to external tools (DSS 14+):** every project has an OpenAI-compatible
-endpoint at `<DSS_HOST>/public/api/projects/<PROJECT_KEY>/llms/openai/v1/`. Point any
-OpenAI-API tool at it to route completions through DSS with governance / guardrails / cost
-controls applied. Auth with a DSS API key as bearer token. DSS can also be exposed as an
-**A2A server** (JSON-RPC / HTTP-SSE) so external agent frameworks call DSS agents as remote
-agents.
+endpoint — `dku llm endpoint -P PROJ` prints the base URL, the model-name form, and the
+auth rules (Bearer ONLY; adding `x-dku-apiticket` alongside makes DSS reject the key).
+Point any OpenAI-API tool at it to route completions through DSS with governance /
+guardrails / cost controls applied. DSS can also be exposed as an **A2A server**
+(JSON-RPC / HTTP-SSE) so external agent frameworks call DSS agents as remote agents.
 
 ## Canonical commands
 
@@ -39,7 +44,10 @@ dku agent create NAME -P PROJ
 dku agent add-tool AGENT_ID --tool TOOL_ID -P PROJ
 dku agent set-prompt AGENT_ID --prompt @sys.txt --new-version --activate -P PROJ
 
-# Structured agent (deterministic blocks)
+# Tool-calling loop (ReAct) — one command, no block JSON
+dku agent create-react NAME --llm LLM_ID --tool TOOL_ID -P PROJ
+
+# Structured agent (deterministic multi-step blocks)
 AGENT_ID=$(dku agent create NAME --type STRUCTURED_AGENT -P PROJ | jq -r .id)
 dku agent-block add $AGENT_ID --set-start -b @block.json -P PROJ
 dku --format json agent-block get-graph $AGENT_ID -P PROJ
@@ -47,7 +55,8 @@ dku agent-block set-graph $AGENT_ID -d @graph.json -P PROJ
 dku --format json agent-block get-graph $AGENT_ID -P PROJ | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'
 
 # Agent evaluation
-dku evaluation-store create NAME --flavor LLM --task-type QUESTION_ANSWERING -P PROJ
+dku evaluation-store create NAME --flavor LLM -P PROJ
+dku recipe create-llm-eval NAME --eval-store NAME --input DS --task-type QUESTION_ANSWERING -P PROJ
 dku agent-review create REV_NAME -P PROJ
 dku agent-review run REV_NAME -P PROJ --wait
 dku agent-review results REV_NAME --run RUN_ID --by-trait -P PROJ
@@ -121,13 +130,15 @@ FOLDER_ID` (wires `embed_documents.inputs.main` straight to the managed folder; 
 LLM source `retrieval-augmented-llm:RAG_ID`, or expose to a STANDARD_REACT block via a
 VectorStoreSearch tool (section 5).
 
-**Gotchas + fix:**
+**Gotchas + fix** (the CLI warns on a missing `--embed-column` and rejects an
+`create-embed-docs` call lacking both `--input`/`--input-folder` — these are the ones
+left to you):
+- **Don't pre-create KBs with `dku knowledge create`** — `dku recipe create-embed
+  --output-kb` creates the KB for you. Pre-creating causes configuration conflicts
+  (embedding LLM mismatch, vector store settings) and the recipe silently won't populate it.
 - Vector store defaults to CHROMA; FAISS can fail silently on some installs — leave the default.
-- Omitting `--embed-column` → build fails "Embedding column missing".
-- Using a completion LLM as `--embedding-llm` → must use a `TEXT_EMBEDDING_EXTRACTION` ID.
-- `create-embed-docs` with a legacy FilesInFolder dataset (DSS 14.4) fails "managed
-  folder does not exist" → use `--input-folder`, or fall back to materializing text into
-  a CSV and running plain `create-embed`.
+- Using a completion LLM as `--embedding-llm` → must use a `TEXT_EMBEDDING_EXTRACTION` ID
+  (the CLI doesn't check the LLM's purpose).
 - Per-file rules: `filter` conditions target synthetic columns with SPACES (`"file
   name"`, `"file extension"`) — underscore forms silently never match.
 
@@ -162,13 +173,35 @@ VectorStoreSearch tool (section 5).
 to call tools. `TOOLS_USING_AGENT` is the simple, reliable default — the right choice for
 a basic "LLM + tools" agent.
 
-**`agent add-tool` ONLY works on `TOOLS_USING_AGENT`** — it errors on `STRUCTURED_AGENT`
-("add-tool only supports TOOLS_USING_AGENT"). Structured agents attach tools *inside*
-their blocks (a `CORE_LOOP` with `tools:[{type:"EXPLICIT_TOOL","toolRef":ID}]` +
-`passConversationHistory:true`); a lone `CORE_LOOP` with no emit/output path returns
-`response:null`. See section 4 and `references/agent-blocks.md`.
+- **`agent add-tool` only works on `TOOLS_USING_AGENT`** — it errors on
+  `STRUCTURED_AGENT` ("add-tool only supports TOOLS_USING_AGENT").
+- **Structured agents wire tools *inside* blocks** — a `CORE_LOOP` with
+  `tools:[{type:"EXPLICIT_TOOL","toolRef":ID}]` + `passConversationHistory:true`.
+- **A lone `CORE_LOOP` with no emit path returns `response:null`** — always set
+  `defaultNextBlock` to an `EMIT_OUTPUT` block. `create-react` does this for you.
 
-**Sequence:**
+See section 4 and `references/agent-blocks.md`.
+
+**Need a tool-calling loop?** `dku agent create-react` builds the full
+`CORE_LOOP` + `EMIT_OUTPUT` graph in one call — no block JSON, no round-trip:
+
+```
+dku agent create-react NAME --llm LLM_ID --tool TOOL_ID [--tool …] \
+  [--system-prompt @sys.txt] [--max-iterations N] -P PROJ
+```
+
+Each `--tool` is resolved name→ID before the agent is created; the graph is
+validated against the same rules as `agent-block add`. Later, `dku agent set-prompt
+--new-version --activate` writes the loop block's `systemPromptAfterHistory` (where
+the runtime reads it).
+
+**Don't reach for `agent create` + `set-llm retrieval-augmented-llm:…`** — that path
+produces a RAG-completion agent with no loop block, and the prompt field gets written
+to `systemPromptAppend` where loop-aware checks never find it.
+
+For multi-stage graphs (ROUTING / FOR_EACH / PARALLEL / PYTHON_CODE), use section 4.
+
+**Sequence (simple single-turn `TOOLS_USING_AGENT`):**
 1. `dku agent create NAME -P PROJ` (default type), set LLM and system prompt.
 2. Create/attach tools (section 5): `dku agent add-tool AGENT_ID --tool TOOL -P PROJ`.
 3. For RAG, set the agent's LLM to `retrieval-augmented-llm:RAG_ID`, or attach a
@@ -185,6 +218,8 @@ persist server-side — the CLI handles deep-copy + saved-model activation.
 
 **When:** multi-step pipeline with defined stages, guaranteed coverage of every item,
 audit/compliance, HITL gates, parallel gathering, or report generation. `STRUCTURED_AGENT`.
+(For a plain tool-calling loop — LLM + tools + emit — use `dku agent create-react` from
+section 3; this manual path is for graphs with ROUTING / FOR_EACH / PARALLEL / PYTHON_CODE.)
 
 **Sequence (get-graph → patch → set-graph is the reliable path):**
 1. `dku agent create NAME --type STRUCTURED_AGENT -P PROJ` — **must be this type or
@@ -199,31 +234,14 @@ audit/compliance, HITL gates, parallel gathering, or report generation. `STRUCTU
 `connect` is a convenience shortcut for simple `LLM_REQUEST`/`ROUTING`/`STANDARD_REACT`
 wiring only — it errors on PYTHON_CODE (by design).
 
-**Gotchas + fix (the load-bearing ones):**
-- **Wiring:** most blocks use `nextBlock`; STANDARD_REACT/CORE_LOOP uses
-  `defaultNextBlock`; PYTHON_CODE ignores both — `yield NextBlock("id")` from
-  `process()` and declare `validNextBlocksFromCode: ["id"]`.
-- **CORE_LOOP with no `defaultNextBlock` returns `response:null` silently** —
-  always set `defaultNextBlock` to an `EMIT_OUTPUT` block. Verify wiring with
-  `dku --format json agent-block get-graph AGENT_ID | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`.
-- **Every CORE_LOOP / LLM_REQUEST / MANDATORY_TOOL_CALL needs its own `llmId`** — the
-  agent-level LLM is NOT inherited (DSS 14.5+). Runtime error: "Please select a valid LLM".
-- **Unique block IDs** — duplicates make DSS pick the wrong one.
-- **ROUTING needs `defaultNextBlockIfNoClauseMatch`** — at minimum an EMIT_OUTPUT.
-- **`SAVE_TO_STATE` needs `outputKey`** (14.5+) / `outputStateKey` (13.x) or output is lost.
-- **`SET_STATE_ENTRIES` empty value crashes CEL** → use `"''"`, `"0"`, `"[]"`, never `""`.
-- **`"[]"` is a JSON string, not a list** — PYTHON_CODE must
-  `json.loads()` before `.append()`/`.extend()`.
-- **First block needs `passConversationHistory: true`** if it must see the user query,
-  else the LLM replies "Please provide..."; set `false` on pure-analysis blocks to save tokens/cost.
-- **PARALLEL branches must write distinct keys** — same key = last-write-wins race.
-- **FOR_EACH doesn't accumulate** — init the array with SET_STATE_ENTRIES before the
-  loop, append in a PYTHON_CODE block per iteration. Access the item via
-  `{{forEachInputKey}}` (no `scratchpad.` prefix).
-- Streaming to state is wasted → `streamOutput: false` unless `ADD_TO_MESSAGES`.
-- **Scale:** FOR_EACH loops are fine to ~50 items; 200–500 risks timeouts (batch into
-  sub-arrays); 500+ → split across agents. Keep total state **< 1 MB** — store extracted
-  structured fields, never raw document text (oversized state fails at runtime, not at build).
+**Build, read the warnings, fix, repeat.** `agent-block add`/`set-graph` validate the
+graph and print prescriptive fixes for the structural traps (empty CEL, missing
+`outputKey`, duplicate IDs, missing per-block `llmId`, legacy `outputStateKey` /
+`systemPrompt` — auto-renamed). You don't need to memorize those; heed the messages.
+The wiring fields, block payload shapes, and the runtime traps the CLI *can't* catch
+(`defaultNextBlock`→silent `response:null`, `passConversationHistory`, PARALLEL key
+collisions, FOR_EACH accumulation, state-size limits) all live in
+`references/agent-blocks.md` — read it before hand-authoring a graph.
 
 ---
 
@@ -239,9 +257,8 @@ model query, custom Python).
 4. Tweak params: `dku agent-tool set-definition TOOL_ID -d '{"params":{...}}'` (shallow merge).
 
 **Common tools:**
-- `VectorStoreSearch --kb NAME_OR_ID` — RAG retrieval. CLI resolves name→ID into
-  `params.knowledgeBankRef`; verify it's the ID, not the display name, or the tool
-  breaks at test time with "knowledge bank does not exist".
+- `VectorStoreSearch --kb NAME_OR_ID` — RAG retrieval. The CLI resolves the name→ID into
+  `params.knowledgeBankRef` for you.
 - `DatasetRowLookup --dataset DS` — structured lookups.
 - Plugin tools use `Custom_agent_tool_<plugin>_<tool>` type names.
 
@@ -281,8 +298,9 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
   — use `'''` or `#`.
 
 **Eval-store traps (verified live, DSS 14.6):**
-- **`llmTaskType` is required** — without `--task-type` the build fails late "You need
-  to select a Task".
+- **`llmTaskType` is required** — set it with `--task-type` on `recipe create-llm-eval`
+  (NOT on `evaluation-store create`); omit it and the build fails late "You need to
+  select a Task".
 - **`groundTruthColumnName` must be ABSENT, never `""`** — an empty string triggers a
   column lookup and fails. The CLI omits it when `--ground-truth-col` is unset; patching
   JSON, delete the key rather than blanking it.
@@ -302,3 +320,16 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
 - **Build the store with `dku evaluation-store build <id>`** (or `recipe run <eval_recipe>`
   — its output resolves as MODEL_EVALUATION_STORE; older CLIs failed "dataset does not
   exist: <store_id>").
+
+---
+
+## 7. Deliver agents to end users (Agent Hub)
+
+**When:** business users need to chat with your finished agents in one branded place, the
+hub LLM routing across them. This is the *delivery* surface — build/eval agents above, then
+enroll them in a hub. **Auth boundary:** a hub's full config is read/written via
+`/web-apps-backends/<proj>/<hub>/api/admin/config`, but that endpoint authenticates by DSS
+**browser session** — a personal API key (what `dku` uses) gets **401**. So `dku agent-hub`
+covers only `list`, runtime knobs (`config`/`set-config`), and `start`/`stop`; the API-key
+window is **read-only** (the plugin's export recipe / table connector surface hub tables as
+datasets). Full model + the 401 mechanism → `references/agent-hub.md`.

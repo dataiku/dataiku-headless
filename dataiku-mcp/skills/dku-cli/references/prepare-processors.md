@@ -7,6 +7,14 @@ index). Sugar commands exist (`add-rename`, `add-delete-columns`, `add-reorder`,
 from `--help`. Step JSON shape: `{"type":"Processor","params":{…}}`. Prepare does **not** auto-create
 its output dataset — create it first.
 
+**Build the whole pipeline at once with `dku recipe apply-spec RECIPE @steps.json -P PROJ`** — a JSON
+array where each entry is either an `op` mirroring a sugar command
+(`{"op":"formula","column":"total","expr":"price*qty"}`; ops: formula, rename, filter-rows,
+fill-empty, delete-columns, reorder, find-replace, fold, geopoint, geodistance) or a raw
+`{"type":"Processor","params":{…}}` for the processors below. Entries take optional `"name"` and
+`"disabled":true`. Appends by default; `--replace` rebuilds. The batch is validated before any save.
+This is the preferred path; use the single `add-*` commands only to iterate one step or `--at`-insert.
+
 ## Shared params
 
 - `appliesTo` — `SINGLE_COLUMN` | `COLUMNS` | `ALL` | `PATTERN`. **Required** on scoped processors;
@@ -35,7 +43,7 @@ its output dataset — create it first.
 | `StringTransformer` | upper/lower/trim/normalize/truncate | `{"mode":"TO_UPPER","appliesTo":"SINGLE_COLUMN","columns":["city"]}` — modes: `TO_UPPER`/`TO_LOWER`/`TRIM`/`NORMALIZE`/`TRUNCATE` (`truncate_limit` int when TRUNCATE). `UPPERCASE`/`TITLECASE` invalid → NPE at build. Title case = GREL `toTitlecase`. |
 | `FindReplace` | replace values | `{"appliesTo":"SINGLE_COLUMN","columns":["cat"],"output":"","mapping":[{"from":"X","to":"Y"}],"matching":"FULL_STRING","normalization":"EXACT"}` (matching: `FULL_STRING`/`SUBSTRING`/`PATTERN`) |
 | `ColumnSplitter` | split by delimiter | `{"inCol":"name","separator":" ","outColPrefix":"name_","target":"COLUMNS","keepEmptyChunks":false,"limitOutput":false,"limit":0,"startFrom":"beginning"}` — `startFrom` lowercase, required when `limitOutput:true` |
-| `RegexpExtractor` | extract by regex | `{"inCol":"desc","output":"out","pattern":"(\\d{3})","groupNum":1,"caseSensitive":false}` (`groupNum` 0=full match) |
+| `RegexpExtractor` | extract by regex | `{"inCol":"desc","output":"out","pattern":"(\\d{3})","groupNum":1,"caseSensitive":false}` (`groupNum` 0=full match). **Multi-group patterns** (`{"column":"line","pattern":"<N groups>","extractAllOccurrences":false}`) name outputs by BARE group index `"1"`…`"N"`, NOT `<col>_1` — renaming `line_1` silently no-ops; rename `"1"`→`name` etc. One anchored pattern with a group per field = a one-step fixed-width/whole-line parser. |
 | `RoundProcessor` | round to N decimals | `{"appliesTo":"SINGLE_COLUMN","columns":["price"],"decimalPlaces":2}` (GREL `round()` is integer-only) |
 | `BinnerProcessor` | discretize into bins | `{"input":"age","output":"age_group","mode":"WIDTH","width":10.0,"bins":[]}` — `mode:CUSTOM` uses `bins:[{"inf":0,"sup":25}]` |
 | `NumericalFormatConverter` | FR↔US numerals | `{"appliesTo":"SINGLE_COLUMN","columns":["p"],"outCol":"p_us","inFormat":"FR","outFormat":"US"}` (`FR`/`US`/`RAW`) |
@@ -52,7 +60,7 @@ patterns; use `Z`/`z` for ISO-8601 timezone, NOT `XXX`.
 |---|---|---|
 | `DateParser` | string → date | `{"appliesTo":"SINGLE_COLUMN","columns":["d"],"formats":["yyyy-MM-dd"],"lang":"auto","timezone_id":"UTC","outCol":"d_parsed","outType":{"name":"out","type":"date"}}` — `outType.type`: `date`/`dateonly`/`datetimenotz`. **Always set `outCol`** — in-place silently yields all nulls. List shortest-year patterns (`yy` before `yyyy`, `d` before `dd`) first. |
 | `DateFormatter` | date → custom string | `{"inCol":"parsed","outCol":"label","format":"MMM yyyy","lang":"en_US","timezone_id":"UTC"}` — `inCol`/`outCol`, NOT `column`/`outputColumn` (wrong names → misleading "Empty column name"). Output type STRING. |
-| `DateTruncate` | floor to unit | `{"inCol":"parsed","outCol":"month_start","datePart":"MONTH"}` — `datePart` `YEAR`/`MONTH`/`DAY`/`HOUR`/`MINUTE`/`SECOND` UPPERCASE; missing/misspelled → silently defaults `YEAR`. Keeps date type. |
+| `DateTruncate` | floor to unit | `{"inCol":"parsed","outCol":"month_start","datePart":"MONTH"}` — `datePart` `YEAR`/`MONTH`/`DAY` UPPERCASE. **`HOUR`/`MINUTE`/`SECOND` fail the build** ("Unexpected date part: HOUR"); missing/misspelled → silently defaults `YEAR`. Keeps date type. |
 | `UNIXTimestampParser` | epoch → date | `{"inCol":"ts","outCol":"d","milliseconds":false}` — `milliseconds` is a BOOLEAN (`"unit":"SECONDS"` ignored; default seconds) |
 | `DateComponentsExtractor` | year/month/day/… | `{"column":"d","timezone_id":"UTC","outYearColumn":"y","outMonthColumn":"m","outDayColumn":"dd"}` — also `outHourColumn`/`outDayOfWeekColumn`/`outWeekOfYearColumn` |
 | `DateDifference` | time between dates | `{"input1":"signup","compareTo":"NOW","output":"days","outputUnit":"DAYS","timezone_id":"UTC"}` — `compareTo`: `COLUMN`(+`input2`)/`DATE`(+`refDate`)/`NOW`; unit `DAYS`/`WEEKS`/`MONTHS` |
@@ -111,10 +119,23 @@ GREL `formatDate()`/`toDate()` don't exist; `toString(date,"fmt")` is a no-op �
 | Processor | When | Params payload |
 |---|---|---|
 | `CreateColumnWithGREL` | formula (no processor fits) | `{"expression":"if(price>100,'premium','standard')","column":"tier"}` — check a dedicated processor first. New cols default STRING → run `apply-schema`. |
-
-**In-place cast doesn't retype.** A GREL formula overwriting an EXISTING column (e.g. `price = price * 1.0`) keeps the column's declared storage type (stays `string`) — DSS only re-infers types for **new** output columns. A manual `dku dataset set-schema` fix is reverted by the next `--auto-update-schema` rebuild. The only clean route is writing to a **new** output column (which infers the type).
 | `PythonUDF` | inline row/cell Python | `{"mode":"ROW","pythonSourceCode":"def process(row):\n    …\n    return row","envSelection":{"envMode":"INHERIT"},"stopOnError":false}` — CELL mode needs `column`; missing `mode` = no-op. Row-local only (no joins/aggregations). |
 | `EnrichWithBuildContextProcessor` | stamp build timestamp | `{"buildDateColumn":"build_ts"}` |
+
+**In-place cast doesn't retype.** A GREL formula overwriting an EXISTING column (e.g. `price = price * 1.0`) keeps the column's declared storage type (stays `string`) — DSS only re-infers types for **new** output columns. A manual `dku dataset set-schema` fix is reverted by the next `--auto-update-schema` rebuild. The only clean route is writing to a **new** output column (which infers the type).
+
+**Writing back under an original input-column name silently NULLs it.** Inside one Prepare, deleting/renaming a temp column TO a name the INPUT schema already owns — or overwriting an input column via a GREL step — produces an all-null column, no error (the engine binds the name to the input column, which the earlier step removed). Emit computed values under NEW names; rename to the final names in a tiny downstream Prepare. (`DateParser` without `outCol` is the same trap, called out in its row.)
+
+## Engine-bound processors — succeed but do nothing on the DSS engine
+
+These need an in-database (SQL) or Spark engine. On the default DSS streaming
+engine (any Filesystem/Upload-backed flow) the build **exits 0 with wrong
+output** — no warning anywhere. Always `head` the output.
+
+| Processor | Params payload | On DSS engine |
+|---|---|---|
+| `ComputeNTile` | `{"appliesTo":"SINGLE_COLUMN","columns":["amount"],"n":4,"outCol":"amount_q"}` — `outCol` honored only under `SINGLE_COLUMN` | output column **all null** |
+| `MergeLongTailValues` | `{"appliesTo":"SINGLE_COLUMN","columns":["cat"],"thresholdMode":"COUNT","countThreshold":2,"replacementValue":"OTHER"}` — `thresholdMode` `COUNT`(+`countThreshold`) or `CUM_RATIO`(+`cumRatioThreshold` 0–1) | rows pass through **unchanged** |
 
 ## Column names with spaces
 

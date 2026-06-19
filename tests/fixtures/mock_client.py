@@ -40,6 +40,13 @@ def create_mock_client():
     proj1.generate_ai_description.return_value = {
         "msg": "This project manages customer data pipelines for analytics."
     }
+    # Project settings — flow set-zone/create-zone read flowDisplaySettings to
+    # auto-enable showFlowZoneDescriptions when a shortDesc is written.
+    proj1_settings = MagicMock()
+    proj1_settings.get_raw.return_value = {
+        "settings": {"flowDisplaySettings": {"showFlowZoneDescriptions": True}}
+    }
+    proj1.get_settings.return_value = proj1_settings
     proj1.get_timeline.return_value = {
         "createdBy": {"login": "admin"},
         "createdOn": 1700000000000,
@@ -246,26 +253,40 @@ def create_mock_client():
     zone_mock = MagicMock()
     zone_mock.id = "zone1"
     zone_mock.name = "Default"
+    # `dku flow delete-zone` reads `zone._raw["items"]` to decide empty-vs-non-empty
+    # (and whether to refuse without --force). Default zone is empty.
+    # As in dataikuapi, settings.get_raw() IS zone._raw (same dict object) —
+    # set-zone writes shortDesc/description there.
+    zone_mock._raw = {"items": [], "shortDesc": "", "description": ""}
     # Zone settings mock for set-zone command
     zone_settings_mock = MagicMock()
     zone_settings_mock.name = "Default"
     zone_settings_mock.color = "#2ab1ac"
     zone_settings_mock.save.return_value = None
+    zone_settings_mock.get_raw.return_value = zone_mock._raw
     zone_mock.get_settings.return_value = zone_settings_mock
-    # `dku flow delete-zone` reads `zone._raw["items"]` to decide empty-vs-non-empty
-    # (and whether to refuse without --force). Default zone is empty.
-    zone_mock._raw = {"items": []}
+    zone_mock.generate_ai_description.return_value = {
+        "msg": "AI summary of the Default zone"
+    }
 
     zone2_mock = MagicMock()
     zone2_mock.id = "XjxKvHzB"
     zone2_mock.name = "Processing"
+    # Processing zone holds one dataset → non-empty (delete-zone refuses without --force).
+    zone2_mock._raw = {
+        "items": [{"type": "DATASET", "ref": "ds1"}],
+        "shortDesc": "Cleans raw sales data",
+        "description": "",
+    }
     zone2_settings_mock = MagicMock()
     zone2_settings_mock.name = "Processing"
     zone2_settings_mock.color = "#FF5500"
     zone2_settings_mock.save.return_value = None
+    zone2_settings_mock.get_raw.return_value = zone2_mock._raw
     zone2_mock.get_settings.return_value = zone2_settings_mock
-    # Processing zone holds one dataset → non-empty (delete-zone refuses without --force).
-    zone2_mock._raw = {"items": [{"type": "DATASET", "ref": "ds1"}]}
+    zone2_mock.generate_ai_description.return_value = {
+        "msg": "AI summary of the Processing zone"
+    }
     flow_mock.list_zones.return_value = [zone_mock, zone2_mock]
     flow_mock.create_zone.return_value = zone_mock
 
@@ -1048,6 +1069,12 @@ def create_mock_client():
         "recall": 0.91,
         "f1": 0.88,
     }
+    # Real dict so set-threshold can read coreParams and mutate userMeta.
+    version_details_mock.get_raw.return_value = {
+        "coreParams": {"prediction_type": "BINARY_CLASSIFICATION"},
+        "userMeta": {"activeClassifierThreshold": 0.5},
+    }
+    version_details_mock.save_user_meta.return_value = None
     model_mock.get_version_details.return_value = version_details_mock
     proj1.get_saved_model.return_value = model_mock
 
@@ -1460,6 +1487,13 @@ def create_mock_client():
     structured_agent_empty_settings.type = "STRUCTURED_AGENT"
     structured_agent_empty_settings.get_version_ids.return_value = ["v1"]
     structured_agent_empty_settings.save.return_value = None
+    structured_agent_empty_ver_settings = MagicMock()
+    structured_agent_empty_ver_settings.get_raw.return_value = (
+        structured_agent_empty_version_data
+    )
+    structured_agent_empty_settings.get_version_settings.return_value = (
+        structured_agent_empty_ver_settings
+    )
     structured_agent_empty_mock.get_settings.return_value = (
         structured_agent_empty_settings
     )
@@ -1488,9 +1522,15 @@ def create_mock_client():
 
     proj1.get_agent.side_effect = _get_agent
 
-    # create_agent returns agent with .id
+    # create_agent returns agent with .id and a settings whose get_raw() is a
+    # real mutable dict (create-react writes versions[0].structuredAgentSettings).
     new_agent_mock = MagicMock()
     new_agent_mock.id = "new_agent_1"
+    new_agent_raw = {"type": "STRUCTURED_AGENT", "versions": [{"versionId": "v1"}]}
+    new_agent_settings = MagicMock()
+    new_agent_settings.get_raw.return_value = new_agent_raw
+    new_agent_settings.save.return_value = None
+    new_agent_mock.get_settings.return_value = new_agent_settings
     proj1.create_agent.return_value = new_agent_mock
 
     # Agent tools
@@ -1903,6 +1943,7 @@ def create_mock_client():
     # Knowledge banks
     proj1.list_knowledge_banks.return_value = [{"id": "kb1", "name": "My KB"}]
     kb_mock = MagicMock()
+    kb_mock.id = "kb1"
     kb_settings = MagicMock()
     kb_settings.get_raw.return_value = {"id": "kb1", "name": "My KB"}
     kb_mock.get_settings.return_value = kb_settings
@@ -2047,10 +2088,62 @@ def create_mock_client():
 
     # ML task settings mock
     ml_settings_mock = MagicMock()
-    ml_settings_mock.get_raw.return_value = {
+    # Algorithm settings follow the real DSS shape: prediction hyperparameter
+    # grids are dicts with "values" + "limit" (+ range/gridMode); clustering
+    # hyperparameters are PLAIN ARRAYS (verified live on DSS 14.6:
+    # $.modeling.kmeans_clustering.k); plain params are scalars. set-params
+    # must mutate grid values in place and keep "limit".
+    ml_algo_settings = {
+        "RANDOM_FOREST_CLASSIFICATION": {
+            "enabled": True,
+            "n_estimators": {
+                "values": [100, 200],
+                "limit": {"min": 1},
+                "gridMode": "EXPLICIT",
+            },
+            "max_tree_depth": {
+                "values": [6, 15],
+                "limit": {"min": 1},
+                "gridMode": "EXPLICIT",
+            },
+            "selection_mode": "auto",
+            "grid": {"nested": True},
+        },
+        "KMEANS": {
+            "enabled": True,
+            "k": [3, 5, 7],
+            "seed": 1337,
+        },
+    }
+
+    def _get_algorithm_settings(name):
+        if name not in ml_algo_settings:
+            raise ValueError("Unknown algorithm: {}".format(name))
+        return ml_algo_settings[name]
+
+    ml_settings_mock.get_algorithm_settings.side_effect = _get_algorithm_settings
+    ml_settings_raw = {
         "taskType": "PREDICTION",
         "targetVariable": "churn",
+        "splitParams": {
+            "ttPolicy": "SPLIT_SINGLE_DATASET",
+            "ssdTrainingRatio": 0.8,
+            "ssdSeed": 1337,
+            "kfold": False,
+        },
     }
+    ml_settings_mock.get_raw.return_value = ml_settings_raw
+    # Real per-feature dicts so set-feature can read .type and write keys.
+    ml_feature_store: dict = {}
+
+    def _get_feature_preprocessing(name):
+        return ml_feature_store.setdefault(
+            name,
+            {"role": "INPUT", "type": "NUMERIC", "rescaling": "AVGSTD"},
+        )
+
+    ml_settings_mock.get_feature_preprocessing.side_effect = _get_feature_preprocessing
+    ml_settings_mock._feature_store = ml_feature_store
     ml_settings_mock.get_all_possible_algorithm_names.return_value = [
         "RandomForest",
         "XGBoost",

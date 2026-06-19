@@ -37,7 +37,7 @@ A vanilla `--compute 'avg:Value:r3mo' --window-frame -2,0` yields 209, not 212.
 
    **Window-based forward-fill** (data already in a Window pipeline): DSS `last(col)` does NOT cumulate up to current row — it returns the current row's own value. Two workarounds:
    - **Monotonic data only:** `--compute 'max:col:'` (cumulative max); empty strings sort before `'07'`,`'08'` so max skips them. FAILS for non-monotonic (`'08'→'09'→'08'` locks at `'09'`).
-   - **General:** assign `group_id` via cumulative `sum(is_set)` in one Window, then `--partition-key group_id --compute 'max:col:'` in a second (within each group only one row is set → max = that value). Two recipes, correct for any shape. See `../../dku-cli/playbooks/tabular-flow.md` § Window aggregation framing.
+   - **General:** assign `group_id` via cumulative `sum(is_set)` in one Window, then `--partition-key group_id --compute 'max:col:'` in a second (within each group only one row is set → max = that value). Two recipes, correct for any shape.
 
 3. **`[Row+1:Col]` lookahead** → Window `--compute 'lead:col:'` (default offset 1; further-ahead via `--lead-offsets 'col:1,2,3'`):
    ```bash
@@ -48,7 +48,7 @@ A vanilla `--compute 'avg:Value:r3mo' --window-frame -2,0` yields 209, not 212.
    ```
    The `--compute 'TYPE:COL:OUTPUT'` third segment is silently ignored — always `--rename SRC:DST`.
 
-   **Trap folding the post-MRF Filter into `--post-filter`:** canonical "MRF flags row, Filter keeps flagged" (`Flag = if [Row+1:col] matches /^[(]/` → `Filter(Flag)`) → ONE Window `--compute 'lead:col:'` + `--post-filter`. But `--post-filter` runs on the **pre-rename** schema — `--post-filter 'startsWith(strval("next_month"),"(")'` after `--rename 'raw_month_lead:next_month'` filters a not-yet-existing column → ZERO rows silently. Use the pre-rename name: `--post-filter 'startsWith(strval("raw_month_lead"),"(")'`. Output still has renamed `next_month`. See `../../dku-cli/playbooks/tabular-flow.md` § Window `--rename` ordering.
+   **Trap folding the post-MRF Filter into `--post-filter`:** canonical "MRF flags row, Filter keeps flagged" (`Flag = if [Row+1:col] matches /^[(]/` → `Filter(Flag)`) → ONE Window `--compute 'lead:col:'` + `--post-filter`. But `--post-filter` runs on the **pre-rename** schema — `--post-filter 'startsWith(strval("next_month"),"(")'` after `--rename 'raw_month_lead:next_month'` filters a not-yet-existing column → ZERO rows silently. Use the pre-rename name: `--post-filter 'startsWith(strval("raw_month_lead"),"(")'`. Output still has renamed `next_month`.
 
 4. **Running total / lag with aggregation / partition-aware** (`OtherRows=NULL`) → Window, partition by group, order by explicit column (add one upstream via Window `rowNumber` if absent — Prepare has **no `AddId`** processor, see § RecordID):
    ```bash
@@ -191,7 +191,7 @@ dku recipe add-formula prep_xml --column "Shipping_State" \
 What makes it work:
 - Anchor on the **section-wrapper tag** (`<bill_to>`,`<ship_to>`) BEFORE the **leaf tag** — without it the `.*?` first-match always lands on the first (e.g. Billing) copy.
 - `(?s)` (DOTALL) — required; the XML has newlines `.*?` won't cross otherwise.
-- Surrounding `.*?`/`.*` make the whole expression match (GREL `match()` needs whole-string — see `../../dku-cli/references/formulas.md` § Regex); captured group at `[0]`.
+- Surrounding `.*?`/`.*` make the whole expression match (GREL `match()` is whole-string — `../../dku-cli/references/formulas.md` § Strings); captured group at `[0]`.
 - Tags with attributes (`<line sequence="1">…</line>`) need `<line[^>]*>(.*?)</line>`.
 
 The Alteryx `TextToColumns+RegEx+MultiRowFormula+CrossTab+self-join` chain exists because Alteryx Formula tools run regex field-by-field, not against the whole cell; GREL `match()` against `strval("col")` is one-shot whole-cell — that long chain collapses to one Prepare.
@@ -212,7 +212,7 @@ The Alteryx `TextToColumns+RegEx+MultiRowFormula+CrossTab+self-join` chain exist
 - **A parent with no children still emits a row** (Alteryx LEFT-joins parent onto child stream). A `program` with empty `worksInfo` → one blank-work row; don't `continue` past childless parents.
 - **First-child reduction.** One row per work but a program has several `concertInfo` → take the FIRST per program (`Unique` on program key): `parent.find("concertInfo")`, don't iterate all.
 
-**Wire with a managed-folder input:** stage the file (`dku folder upload`), `dku recipe create parse_xml -t python --input-folder <folder> --output-ds parsed --connection <conn> -P PROJ`; read via `dataiku.Folder(...).get_download_stream(path)`. See `../../dku-cli/playbooks/tabular-flow.md` § `recipe create --input-folder`.
+**Wire with a managed-folder input:** stage the file (`dku folder upload`), `dku recipe create parse_xml -t python --input-folder <folder> --output-ds parsed --connection <conn> -P PROJ`; read via `dataiku.Folder(...).get_download_stream(path)`. If `create` rejects the folder as input, create with the output only and wire the folder via `set-settings` — see `tools-io-apps-ml.md` (QuickDraw counter-example).
 
 ---
 
@@ -305,7 +305,7 @@ dku recipe add-step prep --type ColumnsSelector --params '{"appliesTo":"SINGLE_C
    ```sql
    SELECT c.*, r.* FROM customers c JOIN ranges r ON c.postal_area BETWEEN r.start AND r.end
    ```
-   Or a Join recipe with a `CUSTOM` condition if the connection supports it.
+   Or a visual Join: **`create-join --join-key` accepts inequality operators** — `BETWEEN` is two keys: `-k 'postal_area>=start' -k 'postal_area<=end'` (GTE+LTE conditions, left side = first input's column). Works off-SQL too; no CROSS+filter detour.
 
 2. **Prepare-only expansion (visual, any connection)** — `ColumnSplitter` → `CreateColumnWithGREL` (`forRange`) → `ArrayFold`:
    ```json
@@ -321,7 +321,9 @@ dku recipe add-step prep --type ColumnsSelector --params '{"appliesTo":"SINGLE_C
    3. `create-filter` on the cross product. Reference space-containing columns with `numval("Postal Area")` / `strval(...)` — backticked `` `Postal Area` `` is rejected (`ParsingException at offset 0`).
    4. `create-group --no-global-count` with `--agg 'Customer ID:count'`.
 
-4. **Expand-then-COUNT (no join)** — loop feeds a `Filter → Summarize(count)` to count days/events in `[start,end]`. **Do not expand** — nothing to join, so `ArrayFold`/`BETWEEN` don't apply. Closed-form arithmetic in one Prepare. Weekday/business-day counts: `DateParser` both ends → `serial(d)=diff(d, asDateOnly("<Monday-before-data>","yyyy-MM-dd"), "days")` (positive serial dodges `datePart(dow)` numbering + negative-mod) → `round(W(serial(end)+1) - W(serial(start)))` with `W(n)=5*floor(n/7)+min(n-7*floor(n/7),5)`. Full derivation in `../../dku-cli/references/formulas.md` § Counting weekdays.
+4. **Expand-then-COUNT (no join)** — loop feeds a `Filter → Summarize(count)` to count days/events in `[start,end]`. **Do not expand** — nothing to join, so `ArrayFold`/`BETWEEN` don't apply. Closed-form arithmetic in one Prepare. Weekday/business-day counts: `DateParser` both ends → `serial(d)=diff(d, asDateOnly("<Monday-before-data>","yyyy-MM-dd"), "days")` (positive serial dodges `datePart(dow)` numbering + negative-mod) → `round(W(serial(end)+1) - W(serial(start)))` with `W(n)=5*floor(n/7)+min(n-7*floor(n/7),5)`. Anchor to a Monday earlier than every date so serials stay positive.
+
+4b. **Expand-then-reduce, NON-additive aggregate** (factorial / cumulative product): cross-join against a small integer-sequence helper dataset, `--pre-filter 'i <= Number'` on the Group, product via log-sum-exp — `ln_i=ln(i)` computed column + `--agg ln_i:sum`, downstream `round(exp(ln_i_sum))`. DSS Group has no `product` aggregate. 3 recipes (CROSS → Group → Prepare), no Python.
 
 5. **Chunk a range into fixed-size batches (box-packing) — `forRange` + `ArrayFold`, NOT a loop.** An iterative/batch macro (`GenerateRows` + `MultiRowFormula` walking a counter) splitting each row's `[Start,End]` into boxes of size `B` is **closed-form, one Prepare** — no Python, no numbers-table join. `num_boxes = ceil((End-Start+1)/B)`; box `k` (0-based) covers `[Start+k·B, min(Start+(k+1)·B-1, End)]`.
    ```bash
@@ -333,10 +335,10 @@ dku recipe add-step prep --type ColumnsSelector --params '{"appliesTo":"SINGLE_C
    dku recipe add-formula pack -P PROJ --column boxEnd   --expr 'min(StartingBottleID + (numval("box_idx")+1) * ${box_size} - 1, EndingBottleID)'
    dku recipe add-formula pack -P PROJ --column BottlesInThisBatch --expr 'numval("boxEnd") - numval("boxStart") + 1'
    ```
-   The batch-size param (macro's `NumericUpDown`) → a **project variable** `${box_size}`; re-running with a different value reproduces each expected output. **Two gotchas:** (a) `forRange(from, to, step, v, expr)` — `to` is EXCLUSIVE, so `forRange(0, num_boxes, …)` emits exactly `num_boxes`. (b) **You CANNOT write box ranges back into the original `StartingBottleID`/`EndingBottleID` inside this recipe** — emit new names (`boxStart`/`boxEnd`), rename in a tiny DOWNSTREAM Prepare. See `../../dku-cli/playbooks/tabular-flow.md` § "Reusing an original input-column name inside a Prepare nulls it".
+   The batch-size param (macro's `NumericUpDown`) → a **project variable** `${box_size}`; re-running with a different value reproduces each expected output. **Two gotchas:** (a) `forRange(from, to, step, v, expr)` — `to` is EXCLUSIVE, so `forRange(0, num_boxes, …)` emits exactly `num_boxes`. (b) **Reusing an original input-column name inside a Prepare nulls it** — you cannot write box ranges back into `StartingBottleID`/`EndingBottleID` in this recipe; emit new names (`boxStart`/`boxEnd`), rename in a tiny DOWNSTREAM Prepare.
 
 6. **The sequence IS the deliverable (date spine / calendar / number series) — no input, no join, no count** → one small Python recipe (legitimate — pure generation, no visual row-generator exists). Two faithful mappings:
-   - **Macro has no input** → wire a **1-row seed dataset** (any throwaway upload) to satisfy the input requirement, or attach to a managed connection. Seed is never read.
+   - **Macro has no input → the recipe needs no input either.** `dku recipe create gen -t python --output-ds OUT --connection filesystem_managed -P PROJ` works with zero `-i` (live-verified: creates, runs, builds). Do NOT wire a 1-row seed dataset — that pattern only generates upload/guard friction.
    - **Macro interface questions → project variables**, read via `dataiku.get_custom_variables()` (e.g. `${start_date}`, `${include_weekends}`). Re-run with different values to reproduce outputs. See `tools-io-apps-ml.md` § Macros.
    - Date spine body: `d = date.fromisoformat(v["start_date"]); while d <= date.today(): … d += timedelta(days=1)`. Day-of-week = `d.strftime("%A")`; weekday-only = `d.weekday() < 5` (Mon=0). **`date.today()`-relative output has no fixed ground truth** — validate by shape: row count = days in range, first = start, last = today, DOW correct, toggle drops Sat/Sun.
 

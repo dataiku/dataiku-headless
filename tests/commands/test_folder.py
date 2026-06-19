@@ -745,3 +745,11 @@ def test_folder_decompress_invalid_zip(patch_client):
         ["folder", "decompress", "folder1", "/bad.zip", "--project", "PROJ1"],
     )
     assert result.exit_code != 0
+
+
+def test_folder_list_files_alias(patch_client):
+    """`list-files` is a hidden alias for `ls` (common agent guess)."""
+    result = runner.invoke(
+        app, ["folder", "list-files", "folder1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0

@@ -24,6 +24,8 @@ Phase 3.5 is a visible artifact, not a skim. Fill this in for THIS flow before m
 | 3 · Broadcast aggregate | … | group→join-back on partition key? | collapse → … / keep: … |
 | 4 · Drop dead nodes | … | only consumer is display/export/ordering? | drop … / none |
 | 5 · Fuse join chain | … | join types compose? keys on left side? | collapse → … / keep: … |
+| 6 · Merge consecutive Prepares | … | intermediate single-consumer? engine split? | collapse → … / keep: … |
+| 7 · Delete empty Prepares | … | zero steps? schema/connection actually no-op? | drop … / none |
 | + · First-principles | any subgraph DSS emits in fewer nodes | one native recipe reproduces it? | collapse → … / none |
 
 - **Run the `diff`** on every sibling pair feeding a union/join — "looks similar" is not the check. The most-missed collapse is two byte-identical Prepares before a Stack.
@@ -42,9 +44,13 @@ Phase 3.5 is a visible artifact, not a skim. Fill this in for THIS flow before m
 
 **5 · Fuse a sequential join chain.** ≥2 joins in a line, each adding one input (`A⋈B→AB; AB⋈C→ABC`), every intermediate consumed only by the next join — an equi-join lookup ladder *or* a cross/cartesian combination grid (often emulated as LEFT/INNER on a constant key `_k`). The Join recipe takes 2+ inputs, so the ladder is one node. *Safe if the join types compose into one left-deep ladder (all the same type, or reordering can't change the row set) and each key sits on the accumulated left side (else set `joins[i].table1` — § Join Recipe in `../../dku-cli/references/visual-recipe-payloads.md`).* Rewrite: one `create-join` with all inputs — cross grid `-i a -i b -i c -j CROSS` (no keys; drop the `_k` helper); equi-ladder `-i spine -i a -i b -k key -k 1:akey` (each `-k` after the first targets pair N). **N joins + (N−1) intermediates → 1 join — usually the biggest single reduction in a flow.**
 
+**6 · Merge consecutive Prepares.** ≥2 Prepare recipes in a line, each intermediate consumed only by the next — the built-graph backstop of the Phase-2 "consecutive row-local transforms" trigger (1:1 drafts ship these). Steps run in order inside one Prepare, so concatenation is semantics-preserving: append B's `steps` onto A's (`get-settings` → splice → `set-settings`), `apply-schema`, repoint B's consumers to A's output, delete B + the intermediate. *Keep the split only if the intermediate is a genuine deliverable/shared dataset, or the upstream half is SQL-translatable and the downstream half isn't (merging demotes the whole recipe to the DSS engine).* **N Prepares + (N−1) intermediates → 1 Prepare.**
+
+**7 · Delete empty Prepares.** A Prepare with zero (or all-disabled) steps — `dku recipe list-steps R -P PROJ` shows none — is a passthrough that exists only to mint a useless intermediate dataset (left over from 1:1 drafting or an abandoned rename/retype). Repoint its consumers to its *input* dataset, delete the recipe + output. *Check first that it isn't silently working anyway: an output schema that retypes columns (set-schema'd output), or an output on a different connection (it's doing a Sync's job — keep it or swap in an explicit `sync`).* **1 recipe + 1 dataset → 0.**
+
 ## Beyond the catalog — find the minimal flow yourself
 
-The five rules are the *recurring* shapes, not the whole job: **the catalog is a floor, not a checklist.** A subgraph no rule names is still a collapse if DSS expresses the same output in fewer nodes — and the next redundancy is usually one no rule anticipated (rule 5 itself was added only after a cross-join chain shipped unfolded). So after the named rules, do one pass with no checklist:
+The named rules are the *recurring* shapes, not the whole job: **the catalog is a floor, not a checklist.** A subgraph no rule names is still a collapse if DSS expresses the same output in fewer nodes — the next redundancy is usually one no rule anticipated. So after the named rules, do one pass with no checklist:
 
 - For every linear run and fan-in, ask: *does one native recipe — multi-input Join, multi-step Prepare, Group with computed columns + pre/post-filter, unbounded Window — produce this output directly?* If yes, collapse it.
 - **An intermediate dataset whose only consumer is the next recipe is the tell** — usually two recipes DSS would let you write as one.
@@ -70,3 +76,5 @@ Never delete the old nodes until the replacement is proven equivalent on real da
 | Broadcast aggregate | Window is cumulative by default — needs `--frame-unbounded` |
 | Drop dead nodes | a consumer that actually depends on the ordering/sampling |
 | Fuse join chain | join types that don't compose, or a key on an input not yet joined |
+| Merge consecutive Prepares | another consumer of the intermediate; an SQL→DSS engine split the merge would erase |
+| Delete empty Prepares | a zero-step Prepare that still retypes (output schema) or lands on another connection (implicit Sync) |

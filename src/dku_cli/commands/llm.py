@@ -8,7 +8,7 @@ import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, resolve_output_format
+from dku_cli.output import info, render, render_raw, resolve_output_format
 
 app = typer.Typer(help="Interact with DSS LLM endpoints.")
 
@@ -263,6 +263,55 @@ def rerank(
                 output_format=fmt,
                 title="Reranked Documents",
                 headers={"rank": "RANK", "score": "SCORE", "document": "DOCUMENT"},
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def endpoint(
+    ctx: typer.Context,
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Print the project-scoped OpenAI-compatible LLM Mesh endpoint and auth form.
+
+    Use this to wire any OpenAI-compatible client/SDK to the LLM Mesh instead
+    of rediscovering the URL and auth quirks by trial and error. Model name =
+    the full DSS LLM id from `dku llm list` (e.g. `openai:Conn:gpt-4.1`).
+
+    Auth gotchas (live-verified):
+    - Personal API key goes in `Authorization: Bearer <key>` ONLY. Sending an
+      `x-dku-apiticket` header alongside makes DSS reject the key as a bad
+      ticket (500 "Ticket not given or unrecognized").
+    - Streaming honors `stream_options.include_usage`.
+    - Streamed tool-call indexes can be non-sequential — match on index, do
+      not assume 0,1,2.
+    """
+    project_key = resolve_project(project)
+    fmt = resolve_output_format()
+    try:
+        client = get_client_from_ctx(ctx)
+        host = client.host.rstrip("/")
+        base_url = f"{host}/public/api/projects/{project_key}/llms/openai/v1"
+        data = {
+            "base_url": base_url,
+            "models_url": f"{base_url}/models",
+            "chat_completions_url": f"{base_url}/chat/completions",
+            "auth_header": "Authorization: Bearer <your DSS API key>",
+            "model_name": "full DSS LLM id from `dku llm list` "
+            "(e.g. openai:Conn:gpt-4.1)",
+        }
+        render_raw(data, output_format=fmt)
+        if fmt != "json":
+            info(
+                "Bearer auth ONLY — do not also send x-dku-apiticket (DSS then "
+                "rejects the key as a bad ticket)."
+            )
+            info(
+                f"Test: curl -s {data['models_url']} "
+                '-H "Authorization: Bearer $DKU_API_KEY"'
             )
     except typer.Exit:
         raise

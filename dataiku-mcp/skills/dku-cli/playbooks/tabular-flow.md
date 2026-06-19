@@ -5,7 +5,7 @@ Build and transform datasets in a DSS flow. The hot path: get exact flags from
 JSON shapes the CLI flags don't cover, `references/prepare-processors.md` for
 processor params, `references/formulas.md` for GREL.
 
-## Capability ladder (pick the highest rung that fits)
+## Capability ladder (take the first rung that fits)
 
 Visual recipe → SQL recipe → Python recipe (last resort). A flow of visual
 recipes is reviewable on the graph; one giant Python recipe is a black box.
@@ -34,6 +34,10 @@ When a recipe outputs to a managed **folder** (not a dataset), build with
 **Verify means rows, not exit code.** `dku --format json dataset head` returning `[]`
 is 0 rows, not success. Empty arrays are data. Check row count, schema, and
 sample values against expectations before declaring done.
+Successful `--wait` builds (`job run`, `dataset build`, `recipe run`) print
+`Built <ds>: N rows, M cols` per dataset — read it: a `0 rows` warning means
+fix the recipe before building anything downstream, and an all-string-schema
+hint means run `dku dataset infer-types DS --apply` before aggregating.
 
 **Inspect with an analytical lens** — flag wrong-looking types (numbers stored
 as strings, dates as text), identifier/surrogate-key columns (leakage risk for
@@ -53,10 +57,16 @@ dku recipe create-join NAME -i LEFT -i RIGHT --output-ds OUT --join-key KEY --jo
 dku recipe create-group NAME -i IN --output-ds OUT -k KEY --agg amount:sum --no-global-count -P PROJ
 # Pivot long→wide (default output cols are <colvalue>_<value>_<aggfunc>, e.g. Hardware_amount_sum)
 dku recipe create-pivot NAME -i IN --output-ds OUT --row-key ROW --column-key COL --value-column amount --agg-type SUM -P PROJ
-# Prepare recipe + steps (output dataset is auto-created)
-dku recipe create NAME --type prepare -i IN --output-ds OUT -P PROJ
+# Prepare recipe + steps (create-prepare auto-creates the output; generic
+# `recipe create -t prepare` does NOT unless you pass -c CONNECTION)
+dku recipe create-prepare NAME -i IN --output-ds OUT -P PROJ
+# Build ALL steps in one artifact (preferred over N add-* calls). Each entry is an
+# `op` (formula/rename/filter-rows/fill-empty/delete-columns/reorder/find-replace/
+# fold/geopoint/geodistance) or a raw {"type","params"}. --replace to rebuild.
+dku recipe apply-spec NAME @steps.json -P PROJ
+# Single-step shortcuts (use when iterating one step, or --at to insert mid-pipeline)
 dku recipe add-formula NAME --expr 'EXPR' --column NEWCOL -P PROJ
-dku recipe add-rename NAME --from OLD --to NEW -P PROJ        # or --mappings '{"OLD":"NEW"}'
+dku recipe add-rename NAME --from OLD --to NEW -P PROJ        # or --mappings 'OLD:NEW,OLD2:NEW2'
 # Propagate schema (after editing steps), build recursively, verify
 dku recipe apply-schema NAME -P PROJ
 dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --auto-update-schema --wait
@@ -74,6 +84,7 @@ Filesystem which does NOT accept uploads:
 ```bash
 dku dataset create raw --type UploadedFiles -P PROJ && \
 dku dataset upload raw ./raw.csv -P PROJ --overwrite && \
+dku dataset infer-types raw --apply -P PROJ && \
 dku dataset head raw -P PROJ -n 5
 ```
 
@@ -82,10 +93,14 @@ dku dataset head raw -P PROJ -n 5
   surface in `head`), no warning. `--overwrite` trips the tier-2 delete guard
   (exit 77, needs `--yes`) even on a freshly created empty dataset — expected,
   pass `--yes`.
-- **Upload auto-detects every column as STRING.** When types matter, fix
-  immediately with `dku dataset set-schema`. But casting CSV columns to
-  `type: date` via set-schema yields all-null — keep `string` and parse inside a
-  Prepare `DateParser`; ISO strings sort/aggregate chronologically anyway.
+- **Upload auto-detects every column as STRING** — the next sum/avg then fails
+  (or worse, silently mis-sorts). Fix in one step right after upload:
+  `dku dataset infer-types DS --apply` re-infers bigint/double/boolean from the
+  data (conservative: leading-zero identifiers and mixed columns stay string).
+  Date-like columns are intentionally KEPT string — casting CSV columns to
+  `type: date` via set-schema yields all-null; parse inside a Prepare
+  `DateParser` (ISO strings sort/aggregate chronologically anyway). Same trap
+  and same fix for Prepare/visual outputs that land all-string.
 - **`set-schema` only updates metadata, not the on-disk column ORDER.** If your
   declared order differs from the file's actual order, DSS reads by POSITION →
   silent garbage. Match schema order to file order (use `dku --format json dataset head` to see
@@ -140,7 +155,7 @@ count`/`query` resolve table + connection for you.
 | Row expansion / cartesian | `create-join --join-type CROSS` | nested loops |
 | Passthrough / cross-connection move | `create -t sync` (`--connection`) | Python passthrough |
 | Spatial join / distance | `create-geojoin` / `add-geodistance` | haversine in Python |
-| Fuzzy / approx string match | `create-fuzzy-join` (`--method`: LEVENSHTEIN default, JARO_WINKLER for names/short strings, NORMALIZED_LEVENSHTEIN for varying-length) | custom Levenshtein |
+| Fuzzy / approx string match | `create-fuzzy-join` (`--method`: LEVENSHTEIN default; COSINE/JACCARD for token text, HAMMING for codes, EUCLIDEAN for numerics) | custom Levenshtein |
 | Per-row transform (rename, cast, parse, derive) | Prepare (`add-*` steps) | — |
 | Apply saved model | `create-prediction-scoring` / `create-clustering-scoring` (needs `--model`; see scoring note below) | — |
 | None of the above | `create -t sql_query` → then `-t python` | — |
@@ -150,7 +165,10 @@ with index-prefixed keys (`--join-key k`, `--join-key 1:k`, `--join-key 2:left=r
 beats A+B→temp→temp+C: one recipe, zero intermediates, no column-name explosion.
 Default join type is INNER; if the task says "enrich", use `--join-type LEFT`.
 Cascade only when each step needs a different join type, or an intermediate is a
-real deliverable.
+real deliverable. Inequality/range ON conditions are flags-only: `--join-key`
+accepts operators (`-k 'a.seq>=b.seq'` style without the prefixes —
+`'seq>=start_seq'` → GTE; also `<=`, `>`, `<`, `!=`; left side = first input's
+column). No CROSS + `--post-filter` detour or payload surgery needed.
 
 **In-database pipeline (full pushdown in one call).** Every visual `create-*`
 (join/group/window/sort/distinct/pivot/stack) accepts `-c`/`--connection` so its
@@ -167,6 +185,30 @@ name you pass); the CLI renames it back so `recipe run <your-name>` works, and t
 output schema is auto-applied so the first build succeeds — without that the scored
 output stays at 0 columns and the build dies (`Schema incompatibility ... 0 columns
 in target`, often surfaced as a raw `IndexOutOfBoundsException`).
+
+**Rolling / trailing-N windows: the DSS engine ignores frame bounds.**
+`create-window --frame-preceding/--frame-following` (and `--frame-mode RANGE`)
+save into the payload but the DSS engine executes them as current-row-only or
+cumulative — a trailing-3 sum silently comes back cumulative, no error. Frame
+bounds only work on a SQL engine. On the DSS engine, pick by window size:
+
+- **Small fixed N (≈≤3) → Window `--lag-offsets` + null-aware GREL.** One
+  Window (`create-window mw -i d --output-ds out -k category --order-key seq
+  --lag-offsets 'price:1,2'`) then one Prepare formula averaging value + lags
+  with `isNonBlank` guards — partition-head rows (fewer than N values) come
+  out right by construction. Two recipes, no payload surgery.
+- **Large or variable N → range self-join + Group.** ① give the anchor input
+  a computed window-end AND the detail input an aliased value column
+  (`create-join self_roll -i seq_ds -i seq_ds
+  --computed-col '0:win_end=month_seq + 11:bigint'
+  --computed-col '1:w_price=price:double' …`) — the alias is load-bearing: a
+  self-join's same-named detail columns are silently DROPPED (anchor side
+  wins), so without it step ③ aggregates each anchor's OWN value, not the
+  window's; ② express the range with inequality join keys — `--join-key`
+  accepts operators (`-k 'seq<=seq' -k 'win_end>=seq'` → LTE/GTE conditions;
+  left side = first input's column), ③ Group by the anchor key aggregating
+  the alias (`--agg w_price:sum`). Sanity-check the fan-out: joined rows ≈
+  Σ min(N, rows remaining per partition).
 
 ## Collapse N recipes into 1 — the pipeline stages
 
@@ -204,10 +246,18 @@ formula, regex, split, parse, fill, format — 100+ processors). Sequence:
 
 ```bash
 dku recipe create clean --type prepare -i raw --output-ds cleaned -c filesystem_managed -P PROJ && \
-dku recipe add-formula clean --column total --expr "price * qty" -P PROJ && \
+dku recipe apply-spec clean @steps.json -P PROJ && \
 dku recipe apply-schema clean -P PROJ && \
 dku recipe run clean -P PROJ
+# steps.json: [{"op":"formula","column":"total","expr":"price * qty"},
+#              {"op":"delete-columns","columns":["scratch"]}]
 ```
+
+**Prefer `apply-spec` over a chain of `add-*` calls** — one declarative array
+(op DSL + raw `{"type","params"}` escape) is one reviewable artifact, builds the
+steps in deterministic order, and is validated as a batch before any save (a bad
+entry aborts with its index, recipe untouched). Reach for the single `add-*`
+shortcuts only when iterating on one step or inserting mid-pipeline with `--at`.
 
 Processor IDs and params: `references/prepare-processors.md`. GREL syntax:
 `references/formulas.md`. Add geo columns with `add-geopoint` before any geo op.
@@ -242,7 +292,9 @@ pipelines, or a customer mandate to execute entirely in-engine.
 
 - **`sql_query`** (single SELECT): output dataset **must pre-exist**; run
   `apply-schema` before first build (else `INSERT has more expressions than
-  target columns`). Reference the output as `"${projectKey}_<dataset>"` — the
+  target columns`). A build run BEFORE `apply-schema` can also "succeed" with
+  **ZERO rows** (`head` returns `[]`) — silent, no error; apply-schema then
+  re-run. Reference the output as `"${projectKey}_<dataset>"` — the
   `${DKU_DATASET_..._TABLE_NAME}` form is NOT valid here. Payload is raw text. On
   Snowflake, quote lowercase columns and output aliases (see Managed Snowflake
   physical-table rule under Dataset basics).
@@ -303,16 +355,61 @@ Organize as you build, not in cleanup. Pick one zoning convention:
 - **By functional area** (large/multi-domain migrations): `credit_risk /
   collateral / reporting / shared_lookups`.
 
-Use `dku flow zones` + `dku flow move`. The DEFAULT zone's members are DERIVED
+Zone verbs live at the flow root: `dku flow create-zone NAME`, `dku flow zones`
+(list), `dku flow move` — there is no `flow zones create`. The DEFAULT zone's members are DERIVED
 (`itemsDerived=true`, and `flow zones` reports its `items[]` empty) — items live
 there implicitly until you move them, so judge "clean flow" by membership, not raw
 counts. `flow move -t AUTO` resolves the item type for you and mixes types in one
 call. Rename recipes verb-first and descriptive (`join_homeequity_to_us_data`, not
-`compute_joined_3`); the recipe names the action, the dataset names the thing. Give every dataset a one-liner
-(`dku dataset ai-describe --save` then refine, or `set-metadata --short-desc`).
-Before reporting a project done, write at least one wiki article
-(`dku project ai-describe --save`; `dku wiki create`) covering purpose, sources,
+`compute_joined_3`); the recipe names the action, the dataset names the thing. Give every dataset *and*
+recipe a hand-written one-liner in the project's working language (`dku dataset set-metadata --short-desc`,
+`dku recipe set-description`).
+
+A zone's short description shows on the main flow UI — a paragraph per zone
+(`dku flow set-zone ZONE --short-desc '...'`) documents the flow where readers
+actually look. Wiki-style object links (`[label](dataset:NAME)`, `recipe:`,
+`scenario:`, `dashboard:ID`, `flow_zone:ID`) render as typed, clickable chips
+in it. The long `--description` only fills the zone's details panel. Rendering
+is gated by the project display setting `showFlowZoneDescriptions`;
+`set-zone`/`create-zone` enable it when writing a short description.
+
+Before reporting a project done, hand-write at least one wiki article
+(`dku wiki create`) in the project's working language, covering purpose, sources,
 flow stages, and a rebuild runbook.
+
+## Flow review — see what the reviewer sees
+
+The flow is the deliverable; audit it the way an SME will read it before calling a
+stage — and certainly the project — done:
+
+```bash
+dku project audit -P PROJ                                      # the finish gate — read-only verdict
+dku flow visualize -P PROJ      # the DAG as an ASCII tree — read your own flow
+dku flow zones -P PROJ          # every object in a named zone? DEFAULT empty?
+dku flow sources -P PROJ        # sources only where expected; strays = orphan scaffolding
+dku flow check -P PROJ          # schema + data consistency across the graph
+dku dataset schema DS --fields name,type,description -P PROJ   # column docs present?
+```
+
+`dku project audit` is the default finish sweep — run it first. Read-only, it rolls the
+graph, metadata, wiki/runbook, terminal-output health, and obvious blank/type smells into
+one verdict and prints the concrete `dku ...` command to fix what failed. The gate fails
+(exit 1) only on `fail`-severity checks; warnings are advisory — always shown, never
+blocking. Read the full scored verdict with `dku --format json project audit -P PROJ`.
+The manual commands below drill into failures; `--contract @file.json` adds value-parity
+checks, and `--bucket` re-runs one area without paying for the full sweep.
+
+Checklist — fix anything that fails with the verbs in "Flow organization":
+
+- **Structure** — `visualize` reads as the story you meant: clear stages, no dangling
+  branches, no join you can't explain in one sentence.
+- **Zones** — nothing implicitly parked in DEFAULT; zone short-descs present so the
+  flow UI reads like chapters.
+- **Names** — recipes verb-first; datasets name things, not steps (`orders_by_region`,
+  not `joined_2_prepared`).
+- **Descriptions** — every dataset has at least a one-liner and key output columns are
+  documented; `dataset get-definition` shows what a reader will see.
+- **Consistency** — `flow check` clean; pending schema drift resolved (`flow propagate`).
 
 ## Job / build recovery
 
@@ -341,6 +438,22 @@ before LLM-heavy runs (sample 100 rows first to validate output format).
   `set-settings`** — engine/env/container knobs live in the DEFINITION, and a
   `set-settings` write of them silently does not persist. Verify with
   `get-definition` after any such write.
+
+## Shell discipline (agents piping `dku`)
+
+- **Never `2>&1` into a `--format json` consumer** — stderr tips merge into
+  stdout and break the JSON parse. Data is on stdout, pipe-safe by design;
+  leave stderr alone (or send it to a file).
+- **Repeatable flags: write them literally or use shell arrays** — zsh does
+  not word-split `$VAR`, so `AGG="--agg a:sum --agg b:sum"; dku … $AGG` passes
+  ONE token and fails with a confusing `No such option`. Use
+  `agg=(--agg a:sum --agg b:sum); dku … "${agg[@]}"`.
+- **Don't judge success from `tail -N`** — read the first line or the exit
+  code; create/run errors put the verdict first (and restate FAILED last).
+- **When step order matters, use `apply-spec` (one ordered artifact)** — not a
+  compound of `add-*` calls, where a failed earlier command silently shifts the
+  next one's index (wrong order, no error). `apply-spec` validates the whole
+  array before saving and writes the steps in array order.
 
 ## Debug quick map
 

@@ -53,7 +53,7 @@ dku recipe add-formula PREP --column Date --expr 'if(startsWith(F1, "Ranks as of
 dku recipe add-step PREP --type UpDownFiller -p '{"columns":["Date"],"up":false}'
 ```
 
-Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** (return `null`, not `""`; see `../../dku-cli/references/prepare-processors.md` § UpDownFiller). Collapses 3 tools → 2 Prepare steps, net zero recipes. See `ayx/overview.md` § Collapse triggers (messy-spreadsheet row).
+Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** — return `null`, not `""`. Collapses 3 tools → 2 Prepare steps, net zero recipes. See `ayx/overview.md` § Collapse triggers (messy-spreadsheet row).
 
 ---
 
@@ -155,7 +155,7 @@ dku recipe create-pivot pv -P PROJ -i in --output-ds wide \
 
 **CrossTab → DynamicRename.** Pivot, then a **trailing static Prepare** `ColumnRenamer` for the renames. A DynamicRename that maps output column names **from values in an input table** (data-driven rename) has no visual equivalent — needs **Python** (read the rename map, apply to the wide-form column headers).
 
-**The job-not-the-tool reflex.** Many CrossTabs are mid-flow shape changes the downstream consumer doesn't need. Before reaching for Pivot, ask *what does the next recipe do with the wide form?* If it's "join then aggregate again", fold the aggregation into the upstream Group's `computedColumns` (`dku-cli` SKILL.md rule 12) or compute the per-category values per-component before any reshape.
+**The job-not-the-tool reflex.** Many CrossTabs are mid-flow shape changes the downstream consumer doesn't need. Before reaching for Pivot, ask *what does the next recipe do with the wide form?* If it's "join then aggregate again", fold the aggregation into the upstream Group's `computedColumns` (`../../dku-cli/playbooks/tabular-flow.md` § Collapse N recipes into 1) or compute the per-category values per-component before any reshape.
 
 ---
 

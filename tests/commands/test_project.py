@@ -22,7 +22,8 @@ def test_project_list_json(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 2
-    assert parsed[0]["key"] == "PROJ1"
+    # API noun, not a CLI-private rename — agents jq .[].projectKey
+    assert parsed[0]["projectKey"] == "PROJ1"
 
 
 def test_project_list_uses_single_call_not_n_plus_1(patch_client):
@@ -33,7 +34,7 @@ def test_project_list_uses_single_call_not_n_plus_1(patch_client):
     patch_client.list_projects.assert_called_once()
     patch_client.get_project.assert_not_called()
     parsed = json.loads(result.output)
-    assert parsed[1] == {"key": "PROJ2", "name": "Project Two", "short_desc": ""}
+    assert parsed[1] == {"projectKey": "PROJ2", "name": "Project Two", "shortDesc": ""}
 
 
 def test_project_get(patch_client):
@@ -89,8 +90,18 @@ def test_project_list_default_is_tsv(patch_client):
 
     assert result.exit_code == 0
     lines = result.stdout.splitlines()
-    assert lines[0].split("\t")[0] == "key"
+    assert lines[0].split("\t")[0] == "projectKey"
     assert any(line.split("\t")[0] == "PROJ1" for line in lines[1:])
+
+
+def test_project_list_fields_accepts_legacy_names(patch_client):
+    """--fields still accepts the pre-noun names (key, short_desc)."""
+    result = runner.invoke(
+        app, ["--format", "json", "project", "list", "--fields", "key,short_desc"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed[0] == {"projectKey": "PROJ1", "shortDesc": "First project"}
 
 
 def test_project_list_rejects_invalid_output(patch_client):
@@ -220,6 +231,17 @@ def test_project_set_metadata_description(patch_client):
     # 2026-05-11).
     assert call_args["shortDesc"] == "A new desc"
     assert call_args["description"] == "A new desc"
+
+
+def test_project_set_metadata_accepts_dash_p(patch_client):
+    """-P works in place of the positional PROJECT_KEY (surface consistency)."""
+    result = runner.invoke(
+        app, ["project", "set-metadata", "-P", "PROJ1", "--name", "Via Dash P"]
+    )
+    assert result.exit_code == 0, result.output
+    proj = patch_client.get_project("PROJ1")
+    call_args = proj.set_metadata.call_args[0][0]
+    assert call_args["label"] == "Via Dash P"
 
 
 def test_project_set_metadata_detects_silent_no_op(patch_client):
@@ -912,3 +934,29 @@ def test_project_timeline_custom_limit(patch_client):
     assert result.exit_code == 0
     proj = patch_client.get_project("PROJ1")
     proj.get_timeline.assert_called_once_with(item_count=5)
+
+
+def test_project_set_metadata_tags_order_insensitive(patch_client):
+    """DSS re-orders tags on read — order-only differences must NOT fail
+    the write verification (recurring false failure in metadata batches)."""
+    proj = patch_client.get_project("PROJ1")
+    proj.get_metadata.side_effect = lambda: {
+        "label": "Project One",
+        "tags": ["zeta", "alpha"],
+    }
+    result = runner.invoke(
+        app, ["project", "set-metadata", "PROJ1", "--tags", "alpha,zeta"]
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_project_set_metadata_tags_real_mismatch_still_fails(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.get_metadata.side_effect = lambda: {
+        "label": "Project One",
+        "tags": ["other"],
+    }
+    result = runner.invoke(
+        app, ["project", "set-metadata", "PROJ1", "--tags", "alpha,zeta"]
+    )
+    assert result.exit_code == 1

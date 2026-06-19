@@ -4,7 +4,7 @@ Function and format mapping from SAS to GREL, SQL, and DSS processors.
 
 ## Function mapping (SAS → GREL / SQL / processor)
 
-GREL function names are **case-sensitive**. See `../../dku-cli/references/formulas.md` for the full GREL reference and `../../dku-cli/references/prepare-processors.md` for the processor catalog. On a SQL target, verify each function keeps push-down — one non-translatable GREL fn/processor in a Prepare step demotes the whole recipe to `Engine: DSS` (rule 2): `../../dku-cli/references/prepare-processors.md` § SQL push-down.
+GREL function names are **case-sensitive**. See `../../dku-cli/references/formulas.md` for the full GREL reference and `../../dku-cli/references/prepare-processors.md` for the processor catalog. On a SQL target, verify each function keeps push-down — one non-translatable GREL fn/processor in a Prepare step demotes the whole recipe to `Engine: DSS` (one engine per flow): `../../dku-cli/references/formulas.md` § GREL → SQL push-down.
 
 ### Core
 
@@ -16,7 +16,7 @@ GREL function names are **case-sensitive**. See `../../dku-cli/references/formul
 | `PUT(n, BEST12.)` | `toString(n)` | ~~`str(n)`~~ |
 | `INPUT(s, BEST.)` | `toNumber(s)` | ~~`int(s)`~~ |
 | `SUBSTR(s, pos, len)` | `substring(s, pos-1, pos-1+len)` | GREL is 0-based; `to` is exclusive index, NOT length |
-| `ROUND(n, .01)` | `round(n * 100) / 100` for non-negative `n`; for any sign see § Rounding parity | ~~`round(n, 2)`~~ — GREL `round()` takes 1 arg. The short form rounds negatives differently from SAS |
+| `ROUND(n, .01)` | `round(n * 100) / 100` for non-negative `n`; for any sign see § Rounding parity | ~~`round(n, 2)`~~ — GREL `round()` takes 1 arg (a 2-arg call silently returns the first value). The short form rounds negatives differently from SAS |
 | `INTCK('day', d1, d2)` | `diff(d1, d2, 'days')` | ~~`dateDiff()`~~ — doesn't exist |
 | `INTCK('month', d1, d2)` | `diff(d1, d2, 'months')` | SAS counts boundary crossings, not elapsed |
 | `LOG(n)` | `ln(n)` | SAS `LOG` = natural log; GREL `log` = base-10 |
@@ -219,7 +219,7 @@ Symptom of a rounding-mode mismatch in a parity check: off-by-step mismatches in
    txn_date >= "2026-02-01" && txn_date <= "2026-02-28" # range
    max(txn_date)                                        # latest per group
    ```
-3. **`dateonly` JSON quirk** — `dku --format json dataset head` renders as `"2026-02-06 00:00:00"` (trailing midnight). Cosmetic; strip the time component in parity checks.
+3. **`dateonly` JSON quirk** — `dku --format json dataset head` renders as `"2026-02-06 00:00:00"` (trailing midnight). Strip the time component in parity checks — and when the *deliverable itself* must be a date-only string (output graded on exact match), finish with `DateFormatter` → `yyyy-MM-dd` instead of shipping a date-typed column. AYX sibling: `../ayx/tools-core.md` § Date RENDERING parity.
 4. **SAS missing date (`.`) → Dataiku null.** In LEFT JOINs with no match, SAS emits `.`, Dataiku emits `null`. Normalize both to `None` in parity checks.
 5. **Force `yymmdd10` display format in SAS goldens** used for string parity: change `format=date9.` to `format=yymmdd10.` on any SQL alias you'll compare.
 

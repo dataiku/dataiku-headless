@@ -197,3 +197,12 @@ def test_wiki_delete_with_yes(patch_client):
         app, ["wiki", "delete", "article1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
+
+
+def test_wiki_create_content_alias(patch_client):
+    """--content aliases --body (common agent guess)."""
+    result = runner.invoke(
+        app,
+        ["wiki", "create", "Aliased", "--content", "Hello", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0

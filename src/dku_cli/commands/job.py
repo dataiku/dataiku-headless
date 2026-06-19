@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import typer
 
+from dku_cli.build_summary import emit_build_summary
 from dku_cli.enums import JobType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import (
@@ -501,11 +502,19 @@ def run(
     timeout: int = typer.Option(
         0, "--timeout", help="Timeout in seconds when waiting (0 = no limit)"
     ),
+    no_verify: bool = typer.Option(
+        False,
+        "--no-verify",
+        help="Skip the post-build rows/cols summary for each built dataset",
+    ),
 ) -> None:
     """Run a build job with full control over build type and schema updates.
 
     Use --type RECURSIVE_BUILD --auto-update-schema to build an entire pipeline
     with automatic schema propagation — no manual schema fixing needed.
+
+    With --wait, a successful build prints `Built <ds>: N rows, M cols` per
+    dataset target so success carries proof (0 rows = warning to investigate).
     """
     project_key = resolve_project(project)
 
@@ -517,13 +526,15 @@ def run(
         # JobDefinitionBuilder.with_output defaults object_type to DATASET, so a
         # managed-folder / saved-model target would error with "dataset does not
         # exist". Resolve each target's real type (and names to IDs) first.
-        for resolved_ref, object_type in resolve_build_output_types(proj, target):
+        resolved_targets = list(resolve_build_output_types(proj, target))
+        for resolved_ref, object_type in resolved_targets:
             builder.with_output(resolved_ref, object_type=object_type)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
         if refresh_metastore:
             builder.with_refresh_metastore(True)
 
+        job_start_ms = int(time.time() * 1000)
         job = builder.start()
         success(f"Job started: {job.id}")
         info(f"Type: {job_type}, Targets: {', '.join(target)}")
@@ -543,6 +554,14 @@ def run(
                 if state in _TERMINAL_STATES:
                     if state == "DONE":
                         success(f"Job '{job.id}' completed successfully")
+                        if not no_verify:
+                            emit_build_summary(
+                                client,
+                                proj,
+                                project_key,
+                                resolved_targets,
+                                job_start_ms,
+                            )
                         return
                     # FAILED/ABORTED must exit non-zero — agents chain
                     # `job run --wait && next-step`; exit 0 here would let the

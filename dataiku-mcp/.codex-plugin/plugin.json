@@ -1,14 +1,14 @@
 {
   "name": "dataiku-mcp",
   "version": "0.1.0",
-  "description": "Connect Codex to Dataiku DSS — the dku code-mode MCP server over local stdio, authed with your own DSS personal API key.",
+  "description": "Dataiku Headless — the headless DSS control plane for AI agents. The dku code-mode MCP server over local stdio, authed with your own DSS personal API key.",
   "author": {
     "name": "Dataiku",
-    "url": "https://github.com/dataiku/dataiku-cli"
+    "url": "https://github.com/dataiku/dataiku-headless"
   },
   "mcpServers": "./codex-mcp.json",
   "interface": {
-    "displayName": "Dataiku MCP",
+    "displayName": "Dataiku Headless",
     "shortDescription": "Operate Dataiku DSS from Codex via the dku CLI",
     "category": "Developer Tools"
   }

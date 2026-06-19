@@ -16,6 +16,8 @@ and CUSTOM-mode filters. Return formulas as plain text, no fences.
 | `isNotNull()` | `isNonNull` |
 | `diff(d1,d2,unit)` | `dateDiff`, `daysBetween`, `monthsBetween` (none exist) |
 | `asDateOnly("2024-01-01","yyyy-MM-dd")` | `date(...)` (no bare constructor) |
+| `substring(s, 0, n)` | `left(s,n)` (Alteryx/Excel — doesn't exist) |
+| `substring(s, length(s)-n, length(s))` | `right(s,n)` (same) |
 
 ## Column access — `val`/`numval`/`strval` need a QUOTED name
 
@@ -68,6 +70,33 @@ char(code)   ord(s)   format('%05d', n)   // Java String.format
 **`match()` matches the WHOLE string** (not `re.search`). To extract from
 mid-string, consume the surroundings: `match("...334-288-3900", /.*?(\d{3}-\d{3}-\d{4}).*/)`.
 `replace(s, /pat/, ...)` has no such restriction.
+
+**No `test()`/`isMatch()` regex predicate** (OpenRefine-GREL habit — saves fine,
+build dies `Unknown function 'test'`). Predicate form: `!isNull(match(s, /.*pat.*/))`.
+`contains()` is literal-substring only, not regex.
+
+### Char-tokenize & multiset idioms (no string explode, no Python)
+
+**`split(s, "")` does NOT split into characters** — it returns the 1-element
+`[s]` (unlike Java). Tokenize via regex: `replace(s, /(.)/, "$1|")` puts a `|`
+after every char, then `split(…, "|")` yields the chars. Canonical anagram /
+letter-sort key:
+
+```
+join(arraySort(split(replace(toLowercase(word), /(.)/, "$1|"), "|")), "")
+```
+
+(The trailing empty element sorts to the front and joins to nothing — harmless.)
+
+**Count occurrences of a substring — `length(s) - length(replace(s, "x", ""))`.**
+GREL has no count function; the length-delta is the canonical form, and the
+building block for **multiset / "bag of letters" containment** (is word W's
+letter-multiset a subset of a fixed rack + weighted score): one count column
+per rack letter (`n_a = length(w) - length(replace(w, "a", ""))`), a
+foreign-letter count (`bad = length(w) - (n_a + n_c + …)`), a weighted-sum
+score column, then keep rows where `bad == 0 && n_a <= 1 && n_c <= 2 && …`
+(bounds = the rack's per-letter multiplicities). Stays fully visual over a
+170k-row dictionary.
 
 ## Numbers
 
@@ -144,6 +173,9 @@ rename/select steps to an existing Prepare recipe).
 
 ## Quick gotchas
 
+- **No leading unary minus**: `-v_amount` fails with `Bad negative number
+  (Parsing error at offset 1)`. Write `0 - v_amount` (negative *literals* like
+  `-7` are fine; it's negating an expression/column that breaks).
 - `round()` 1-arg only; `log()` base-10, `ln()` natural, `exp()` base-e.
 - `substring(s,from,to)` — `to` exclusive index, NOT length.
 - `count()` doesn't exist in formulas (only Group aggregation); use `arrayLen()`.

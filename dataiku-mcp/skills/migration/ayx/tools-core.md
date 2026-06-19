@@ -94,7 +94,7 @@ dku recipe add-step prep_formula -P PROJ --step '{
 
 > **Numeric formulas on hyphenated/spaced columns — use `numval`, not `val`.** Bareword `Anti-Gravity Speed` parses as subtraction; `val("Anti-Gravity Speed")` returns a string that breaks arithmetic. Use `numval("col")` (or `strval(...)` for string casts) on every non-identifier column reference.
 
-> **On a SQL target, keep every Formula step SQL-translatable.** A single non-translatable GREL function (`split`/`hash`/`strval`/`arrayContains`/regex) demotes the *whole* Prepare recipe to `Engine: DSS` and kills push-down (top-level rule 2). Check which GREL functions/processors keep push-down: `../../dku-cli/references/prepare-processors.md`.
+> **On a SQL target, keep every Formula step SQL-translatable.** A single non-translatable GREL function (`split`/`hash`/`strval`/`arrayContains`/regex) demotes the *whole* Prepare recipe to `Engine: DSS` and kills push-down (one engine per flow). Check which GREL functions/processors keep push-down: `../../dku-cli/references/prepare-processors.md`.
 
 ### Alteryx formula → GREL cheatsheet
 
@@ -108,7 +108,7 @@ dku recipe add-step prep_formula -P PROJ --step '{
 | `Right([s], n)` | `substring(s, length(s)-n)` |
 | `Substring([s], start, n)` | `substring(s, start, start+n)` — both 0-indexed ✓ |
 
-> **Slicing a zero-padded STRING column? Use `strval("s")`, not bareword `s`.** When the column is digit-only with significant leading zeros (zero-padded IDs, `YYMMDD`/`HHMMSS`, ZIP-like keys), the bareword forms (`substring(s,…)`, `Left/Right` translations) coerce `s` to a number and drop leading zeros *before* slicing — `Left([date],1)` on `"0990930"` reads `990930`, wrong char. Write `substring(strval("date"), 0, 1)` on every slice. (Common in "string→date" where the leading digit is a century/era flag.) Platform-wide — see `../../dku-cli/references/formulas.md` § input pitfall.
+> **Slicing a zero-padded STRING column? Use `strval("s")`, not bareword `s`.** When the column is digit-only with significant leading zeros (zero-padded IDs, `YYMMDD`/`HHMMSS`, ZIP-like keys), the bareword forms (`substring(s,…)`, `Left/Right` translations) coerce `s` to a number and drop leading zeros *before* slicing — `Left([date],1)` on `"0990930"` reads `990930`, wrong char. Write `substring(strval("date"), 0, 1)` on every slice. (Common in "string→date" where the leading digit is a century/era flag.) Platform-wide — see `../../dku-cli/references/formulas.md` § Quick gotchas.
 
 | Alteryx | GREL |
 |---|---|
@@ -134,6 +134,8 @@ dku recipe add-step prep_formula -P PROJ --step '{
 | `DateTimeAdd([d], n, "days")` | `inc(d, n, "days")` — NOT `computeDate()`. Unit plural. **`inc()` needs a DATE-typed input** — `inc(strval("Month"), 1, "months")` on STRING returns the string unchanged (silent). (a) **inline one-shot**: `toString(inc(asDateOnly(strval("Month"), "yyyy-MM-dd"), 1, "months"))`; (b) **three steps**: `DateParser(Month→Month_dt)` → `add-formula 'inc(val("Month_dt"), 1, "months")'→month_plus_1` → `DateFormatter(month_plus_1→…_iso)`. (a) for one-offs, (b) when the parsed date is reused. Use `val("col")` (not `numval`/`strval`) passing a date to `inc()`. |
 | `DateTimeDiff([a], [b], "days")` | `diff(a, b, "days")` — NOT `diffDate()`. Order preserved (`d1 - d2`, as Alteryx). Unit plural. |
 
+**Date RENDERING parity — when the Alteryx output field is a `Date` (not DateTime), finish with `DateFormatter` → string `yyyy-MM-dd`.** A DSS date-typed column (DateParser output) renders `2005-04-16 00:00:00` (+TZ) in `head`/JSON reads, so exact-match/diff verification against the Alteryx output fails on EVERY row even though the parse is correct. SAS sibling of the same quirk: `../sas/functions-formats.md` § verification.
+
 > **Military / variable-width time string (`HHMM` or `HMM`) → `HH:MM` + elapsed minutes** — the Alteryx `PadLeft([t],4,"0") → Left(...,2)/Right(...,2) → DateTimeDiff` idiom. **Split by LENGTH, do NOT left-pad-then-slice.** The `"0000"+[t]`-then-slice approach is off-by-one (3-char `"815"` → `"815"`, not `"0815"`). Robust pattern, all 3-arg `substring`:
 > ```
 > // hour (1-2 digit), minute (always last 2) — works for "815" and "1045"
@@ -143,7 +145,7 @@ dku recipe add-step prep_formula -P PROJ --step '{
 > h12 = replace(toString(if(toNumber(hour)>12, toNumber(hour)-12, toNumber(hour))), /\.0$/, "")
 > "Begin Time" = if(isNonBlank(strval("t")) && strval("t")!="TBA", (if(length(h12)==1,"0"+h12,h12)) + ":" + minute, "")
 > ```
-> **Elapsed minutes without a date:** `DateTimeDiff` needs date-typed args; skip it — compute `(toNumber(h2)*60+toNumber(m2)) - (toNumber(h1)*60+toNumber(m1))`. Guard `if(both valid, …, "")` so `"TBA"`/empty rows stay blank. **Pin the elapsed column to `string` (`set-schema` + re-run WITHOUT `apply-schema`)** or digit-only values infer `bigint` and blank `""` rows come back null (renders `None`) — see `../../dku-cli/references/formulas.md` § digit-only → bigint.
+> **Elapsed minutes without a date:** `DateTimeDiff` needs date-typed args; skip it — compute `(toNumber(h2)*60+toNumber(m2)) - (toNumber(h1)*60+toNumber(m1))`. Guard `if(both valid, …, "")` so `"TBA"`/empty rows stay blank. **Pin the elapsed column to `string` (`set-schema` + re-run WITHOUT `apply-schema`)** or digit-only values infer `bigint` and blank `""` rows come back null (renders `None`) — see `../../dku-cli/references/formulas.md` § Output-type inference.
 
 **Gotchas:**
 - GREL date functions (`diff`, `inc`, `formatDate`-equivalents) only operate on date-typed values. CSV columns are strings — wrap with `asDatetimeNoTz(col, "yyyy-MM-dd HH:mm:ss")` (or `asDateOnly` for date-only) inside the formula. There is NO `parseDate()` or `toEpoch()` in GREL — agents reach for these and get `Unknown function`.

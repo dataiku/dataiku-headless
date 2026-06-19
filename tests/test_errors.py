@@ -126,3 +126,66 @@ def test_handle_errors_project_401_gives_key_vs_name_guidance():
         command(project="AdvisorGPT")
     # status 3 (not_found / use the right key), not 2 (re-authenticate)
     assert excinfo.value.code == 3
+
+
+def test_handle_api_error_empty_message_does_not_suggest_removed_errors_flag(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        handle_api_error(Exception())
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "--errors" not in captured.err
+    assert "dku --format json recipe get-settings" in captured.err
+
+
+def test_handle_api_error_partial_output_zlib(capsys):
+    """ZLIB EOF on a dataset read = truncated file from a FAILED build,
+    not data corruption."""
+    with pytest.raises(SystemExit) as excinfo:
+        handle_api_error(
+            Exception(
+                "CodedIOException: Failed to read file out-s0.csv.gz, caused by: "
+                "java.io.EOFException: Unexpected end of ZLIB input stream"
+            )
+        )
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert "failed build" in err
+    assert "dku dataset usage" in err
+
+
+def test_handle_api_error_never_built_datastore(capsys):
+    """Raw DataStoreIOException passthrough gains a build-first next step."""
+    with pytest.raises(SystemExit) as excinfo:
+        handle_api_error(
+            Exception(
+                "com.dataiku.dip.exceptions.DataStoreIOException: "
+                "No such file or directory"
+            )
+        )
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert "no data yet" in err
+    assert "RECURSIVE_BUILD" in err
+
+
+def test_handle_api_error_not_dev_plugin(capsys):
+    """Pushed plugins have no API readback — prescribe pre-push zip checks."""
+    with pytest.raises(SystemExit):
+        handle_api_error(
+            Exception(
+                "com.dataiku.dip.CodedRuntimeException: "
+                "Plugin replicate is not a dev plugin"
+            )
+        )
+    err = capsys.readouterr().err
+    assert "write-only" in err
+    assert "unzip -p" in err
+
+
+def test_handle_api_error_root_path_missing(capsys):
+    """'Root path of the dataset X does not exist' = no data yet."""
+    with pytest.raises(SystemExit):
+        handle_api_error(Exception("Root path of the dataset trigger does not exist"))
+    err = capsys.readouterr().err
+    assert "dku dataset upload" in err

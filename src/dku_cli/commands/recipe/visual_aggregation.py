@@ -259,11 +259,20 @@ def create_group(
                     "concat",
                     "stddev",
                 }
+                # Merge specs by column BEFORE applying: the dataikuapi helper
+                # writes every kwarg (True or False) to the column's values[]
+                # entry, so applying per-spec makes a repeated
+                # `--agg amount:sum --agg amount:avg` last-wins (earlier flags
+                # reset to False) while the echo still lists every function.
+                funcs_by_col: dict[str, set[str]] = {}
                 for agg_spec in agg:
                     col, funcs_str = agg_spec.split(":", 1)
-                    funcs = {f.strip().lower() for f in funcs_str.split(",")}
+                    funcs_by_col.setdefault(col.strip(), set()).update(
+                        f.strip().lower() for f in funcs_str.split(",")
+                    )
+                for col, funcs in funcs_by_col.items():
                     cs = group_settings.set_column_aggregations(
-                        col.strip(),
+                        col,
                         **{f: (f in funcs) for f in _BASIC_AGG_KW},
                     )
                     # The helper has a bug where `avg=` is accepted but never
@@ -346,6 +355,12 @@ def create_group(
         recipe_created_hint(recipe_name, project_key)
         if group_key:
             info(f"Grouped by: {', '.join(group_key)}")
+        if not no_global_count:
+            info(
+                "Output includes a global 'count' column (rows per group) added by "
+                "DSS. Pass --no-global-count to suppress it if downstream steps don't "
+                "expect it."
+            )
     except typer.Exit:
         raise
     except Exception as e:

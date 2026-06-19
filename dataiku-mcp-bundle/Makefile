@@ -13,14 +13,14 @@ help:
 
 build:
 	@command -v npx >/dev/null || { echo "node/npx required for the mcpb CLI"; exit 1; }
-	@ls $(PLUGIN)/wheels/dku_cli-*.whl >/dev/null 2>&1 || \
+	@ls $(PLUGIN)/wheels/*.whl >/dev/null 2>&1 || \
 	  { echo "no wheel in ../dataiku-mcp/wheels — run 'make bundle' there first"; exit 1; }
 	rm -rf $(BUILD) $(DIST)
 	mkdir -p $(BUILD)/bin $(BUILD)/wheels $(DIST)
 	cp manifest.json $(BUILD)/manifest.json
 	cp $(PLUGIN)/bin/dku-mcp-launch.sh $(BUILD)/bin/
 	chmod +x $(BUILD)/bin/dku-mcp-launch.sh
-	cp "$$(ls -t $(PLUGIN)/wheels/dku_cli-*.whl | head -1)" $(BUILD)/wheels/
+	cp "$$(ls -t $(PLUGIN)/wheels/*.whl | head -1)" $(BUILD)/wheels/
 	cd $(BUILD) && npx -y @anthropic-ai/mcpb pack . ../$(DIST)/dataiku-mcp.mcpb
 	@echo "built $(DIST)/dataiku-mcp.mcpb"
 

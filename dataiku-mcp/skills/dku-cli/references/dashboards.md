@@ -1,7 +1,13 @@
 # Reference: Dashboards & Charts
 
 Durable JSON payload shapes for chart insights and dashboards. Get exact CLI flags
-from `--help`; verify columns with `dku insight validate` before trusting a render.
+from `--help`; run `dku insight validate` before trusting a render — it checks both
+column references and the render-blocking sampling block.
+
+API/CLI-created charts are project **insights**: they appear in the project's
+Insights tab and on dashboards, **never** in the dataset's Charts tab (the
+dataset definition carries no charts; that tab is not reachable via the public
+API). Point users to Insights or pin the insight to a dashboard.
 
 ---
 
@@ -40,7 +46,10 @@ Set via `dku insight set-definition INSIGHT_ID -d @chart.json`.
 - `params.def` — the chart definition (type, dimensions, measures).
 - `params.refreshableSelection` — REQUIRED. Omit it and chart render fails HTTP 500
   `NullPointerException: spec.sampleSettings is null` (DSS 14.6). `dku insight create -t chart`
-  injects it; hand-built `set-definition` JSON must include it.
+  and `dku insight set-definition` both inject the canonical default when it is missing,
+  and `dku insight validate` fails any chart without it. Self-heal an older broken
+  insight (e.g. created by a raw API call): `dku insight get ID -o json > def.json`
+  then `dku insight set-definition ID -d @def.json` — the re-save injects the block.
 - Dimension/measure `type` is REQUIRED — an omitted `type` defaults to `NUMERICAL` and render
   fails `expected NUMERICAL but is STRING_DICT` on string columns. On STRING_DICT id columns
   prefer `--agg COUNT` over `COUNT_DISTINCT`.

@@ -241,12 +241,93 @@ def _handle_fold_plugin_missing(msg: str) -> tuple[str, list[str]] | None:
             "from `add-fold` instead of the plugin variant. Reinstall the",
             "global CLI to pick up that fix:",
             "",
-            "  uv tool install --from . dku-cli --force --reinstall",
+            "  uv tool install --from . dataiku-headless --force --reinstall",
             "",
             "Do NOT fall back to a Python `pd.melt` recipe. If the unpivot is",
             "still in your way after reinstalling, consider whether you need",
             "the unpivot at all — most are eliminated by computing per-group",
             "aggregates *before* the reshape.",
+        ],
+    )
+
+
+def _handle_not_dev_plugin(msg: str) -> tuple[str, list[str]] | None:
+    """Detect the dev-plugin-only limitation on plugin file access.
+
+    ``DSSPlugin.get_file``/``list_files``/``put_file`` raise
+    ``CodedRuntimeException: Plugin X is not a dev plugin`` for zip-uploaded
+    plugins — the push is one-way and there is NO API readback. Without this
+    mapping, agents burn rounds trying to verify pushed content.
+
+    Returns (message, details) or None if the error doesn't match.
+    """
+    if "is not a dev plugin" not in msg:
+        return None
+
+    return (
+        "Uploaded (zip-pushed) plugins are write-only via the API — file "
+        "access works on DEV plugins only.",
+        [
+            "There is no API readback for a pushed plugin. Verify content in",
+            "the zip BEFORE pushing:",
+            "  unzip -p <plugin.zip> <path/inside/zip>",
+            "After a push, trust the 'Updated plugin' ack; for Code Studios,",
+            "recreate the studio (resources seed at creation).",
+        ],
+    )
+
+
+def _handle_partial_output_read(msg: str) -> tuple[str, list[str]] | None:
+    """Detect a read of a partial file left behind by a FAILED build.
+
+    Reading a dataset right after its producing recipe failed surfaces
+    ``CodedIOException ... EOFException: Unexpected end of ZLIB input stream``.
+    It looks like data corruption; it is just a truncated ``out-s0.csv.gz``
+    from the aborted build. The fix is to fix and re-run the producing
+    recipe, not to investigate the data.
+
+    Returns (message, details) or None if the error doesn't match.
+    """
+    if "Unexpected end of ZLIB input stream" not in msg:
+        return None
+
+    return (
+        "The dataset's stored file is a PARTIAL file from a failed build — "
+        "not data corruption.",
+        [
+            "A failed/aborted build of the producing recipe leaves a truncated",
+            ".csv.gz behind; reading it raises this ZLIB EOF error.",
+            "",
+            "Fix the producing recipe and re-run it:",
+            "  dku recipe run <producing-recipe> -P <project>",
+            "Find the producer: dku dataset usage <dataset> -P <project>",
+        ],
+    )
+
+
+def _handle_never_built_read(msg: str) -> tuple[str, list[str]] | None:
+    """Detect a raw DataStoreIOException from reading a never-built dataset.
+
+    DSS raises ``DataStoreIOException`` (e.g. "No such file or directory")
+    when reading a managed dataset that has never been built or whose last
+    build failed. The raw passthrough gives agents no next step.
+
+    Returns (message, details) or None if the error doesn't match.
+    """
+    if "DataStoreIOException" not in msg and "Root path of the dataset" not in msg:
+        return None
+
+    return (
+        "Cannot read the dataset's storage — it has no data yet (never "
+        "built, last build failed, or nothing uploaded).",
+        [
+            f"Underlying error: {msg}",
+            "",
+            "Managed dataset — build it (RECURSIVE_BUILD also builds "
+            "unbuilt upstreams):",
+            "  dku dataset build <dataset> -P <project> --type RECURSIVE_BUILD --auto-update-schema --wait",
+            "Uploaded dataset — upload the file first:",
+            "  dku dataset upload <dataset> <file> -P <project>",
         ],
     )
 
@@ -414,7 +495,11 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     # agent staring at the box footer with no diagnostic (PENDING 2026-05-28
     # `create-topn` silent-failure entry).
     if not msg.strip():
-        msg = f"<{type(e).__name__} with no message — re-run with --errors json or check `dku recipe get-settings` for state>"
+        msg = (
+            f"<{type(e).__name__} with no message - inspect related object state "
+            "with a JSON get command, for example "
+            "`dku --format json recipe get-settings <RECIPE> -P <PROJECT>`>"
+        )
 
     status = 1
     details: list[str] = []
@@ -445,6 +530,33 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
         exit_with_error(
             govern_result[0],
             details=govern_result[1],
+            status=1,
+        )
+
+    # Dev-plugin-only file access — pushed plugins have no API readback
+    not_dev_result = _handle_not_dev_plugin(msg)
+    if not_dev_result:
+        exit_with_error(
+            not_dev_result[0],
+            details=not_dev_result[1],
+            status=1,
+        )
+
+    # Partial output file from a failed build — reads as data corruption
+    partial_result = _handle_partial_output_read(msg)
+    if partial_result:
+        exit_with_error(
+            partial_result[0],
+            details=partial_result[1],
+            status=1,
+        )
+
+    # Never-built dataset read — raw DataStoreIOException passthrough
+    never_built_result = _handle_never_built_read(msg)
+    if never_built_result:
+        exit_with_error(
+            never_built_result[0],
+            details=never_built_result[1],
             status=1,
         )
 
@@ -530,6 +642,28 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
             "Use --if-not-exists to skip creation when the resource exists.",
             "Or delete it first with --yes to skip confirmation.",
         ]
+    elif "format type" in msg.lower() or "formatType" in msg:
+        status = 1
+        details = [
+            "Dataset has no file format configured.",
+            f"DSS: {msg}",
+            "Set the dataset format, then rebuild:",
+            "  dku dataset set-definition <DATASET> -d "
+            '\'{"formatType":"csv","formatParams":{"separator":",",'
+            '"parseHeaderRow":true}}\' --deep-merge -P <PROJECT>',
+            "  dku recipe run <RECIPE> -P <PROJECT> --wait",
+        ]
+    elif "projectKey" in msg and "missing" in msg.lower():
+        status = 1
+        details = [
+            "Definition JSON is incomplete.",
+            f"DSS: {msg}",
+            "set-definition replaces the full object unless you pass "
+            "--merge/--deep-merge.",
+            "Patch one field with:",
+            "  dku dataset set-definition <DATASET> -d '<partial-json>' "
+            "--deep-merge -P <PROJECT>",
+        ]
     else:
         details = [f"DSS API error: {msg}"]
 
@@ -551,6 +685,16 @@ def handle_errors(func: F) -> F:
     def wrapper(*args: object, **kwargs: object) -> object:
         try:
             return func(*args, **kwargs)
+        except (
+            click.exceptions.UsageError,
+            click.exceptions.Exit,
+            click.exceptions.Abort,
+        ):
+            # Usage errors (e.g. BadParameter from resolve_project /
+            # resolve_output_format), explicit typer.Exit, and Abort carry their
+            # own exit codes (2 for usage). Relabeling them as a generic "DSS API
+            # error" at exit 1 corrupts the agent's failure signal — re-raise.
+            raise
         except Exception as e:
             project_hint = kwargs.get("project")
             handle_api_error(

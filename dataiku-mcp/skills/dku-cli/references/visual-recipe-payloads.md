@@ -15,6 +15,14 @@ dku recipe set-definition R --payload '{...}' --deep-merge -P PROJ  # merge nest
 field (`values[]`, `keys[]`, `joins[]`, `orders[]`) do a full read-edit-write.
 When writing back, pass the `payload` contents directly (not re-wrapped).
 
+In `get-settings` JSON output, `payload` arrives **already parsed** (an object)
+for visual recipes — no `jq fromjson` / `json.loads` step (that raw-dataikuapi
+habit raises "only strings can be parsed"). Code recipes return it as a string
+(the script body).
+
+Engine only: `dku recipe set-engine R --engine SQL -P PROJ` — no payload
+surgery needed.
+
 ## The 4-stage pipeline
 
 `INPUT → preFilter → computedColumns → ACTION → postFilter → OUTPUT`. Where
@@ -97,14 +105,42 @@ return False when created via API — use GREL in a `FilterOnCustomFormula` step
 
 - `type`: `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`, `LEFT_ANTI`, `RIGHT_ANTI`,
   `ADVANCED`. `on[].type`: `EQ`, `LT`, `LTE`, `GT`, `GTE`, `NE`, `WITHIN_RANGE`.
+  EQ/LT/LTE/GT/GTE/NE need no payload edit — `create-join --join-key` operator
+  syntax emits them (`'a>=b'` → GTE).
 - `table1`/`table2` are 0-based indexes into `virtualInputs`.
+- **Conditions are pairwise-only.** A pair's `on[]` may only reference its own
+  `table1`/`table2`; a condition touching a third table fails at build — and
+  the error message names the wrong dataset, so don't chase the named one.
+  Fix: split into a second join pair (or a cascaded join) so every condition
+  stays within its declared pair.
 - **Self-join / same-named column trap:** default `AUTO_NON_CONFLICTING`
   silently drops one side's column (no error). Set
   `outputColumnsSelectionMode: "MANUAL"` on **both** virtualInputs and enumerate
   `selectedColumns` with `alias` for the collisions.
+- **Join keys can survive a `--cols` exclusion** — DSS may keep the key in the
+  output even when the projection omits it. If the key is internal-only,
+  delete it in a downstream Prepare (`add-delete-columns`).
+- **Any payload round-trip ⇒ go MANUAL.** A get-settings → patch →
+  set-settings/set-definition cycle can lose the column projection
+  (`--cols`) and re-resolve under `AUTO_NON_CONFLICTING`, silently dropping a
+  real column (benchmark: the surviving join lost `rate` → products of 0, no
+  error). After patching any join payload, set
+  `outputColumnsSelectionMode: "MANUAL"` + explicit `selectedColumns` on every
+  virtualInput, then re-read and diff.
+- `virtualInputs[i].preFilter`: same canonical CUSTOM shape as the 4-stage
+  pipeline (top-level `expression`, `uiData.mode: "CUSTOM"` — § Visual
+  conditions). Malformed variants (`expression` only inside `uiData`, or mode
+  `"&&"` with empty `conditions`) do NOT error — they **silently match all
+  rows**; a "filter must have at least one condition" error means the filter
+  fell into the conditions path. `create-join --pre-filter 'INDEX:EXPR'`
+  writes the canonical shape for you.
 - `virtualInputs[i].computedColumns`: derive a column inside one input —
   `mode` is `"GREL"` (the dataikuapi `CUSTOM` docstring is a typo) or `"SQL"`,
-  `type` lowercase.
+  `type` lowercase. Payload-level `computedColumns` is **post-join** and sees
+  BOTH sides' output columns — cross-input math (`amount * rate`) belongs
+  here, not in a downstream Prepare. Payload-level `postFilter` also works.
+  All four stages are reachable from `create-join`
+  (`--pre-filter`/`--computed-col`/`--post-filter`) without payload editing.
 
 ## Group (`grouping`)
 
@@ -144,6 +180,13 @@ return False when created via API — use GREL in a `FilterOnCustomFormula` step
 
 - `enablePartitioning`/`enableOrdering` MUST be `true` for
   `partitioningColumns`/`orders` to take effect.
+- **The DSS engine silently ignores frame bounds** — ROWS
+  (`enableLimits`+`precedingRows`/`followingRows`) and RANGE bounds save into
+  the payload but execute as current-row-only or cumulative/whole-partition;
+  only the two extremes work (verified live: `precedingRows:2, followingRows:0`
+  → cumulative sum). Frame bounds only take effect on a SQL engine. Rolling-N
+  on the DSS engine → range self-join + Group (pattern in
+  `playbooks/tabular-flow.md` § Visual recipe decision).
 - `lag`/`lead`: set `lagValues`/`leadValues` (comma string `"1,2"`) + `orderColumn`.
 - Window aggs (`sum`/`max`/`last`) default to a **current-row-only** frame, not
   unbounded. `sum` IS cumulative with an order-key and no partition. For a
@@ -198,7 +241,9 @@ alignment — eliminates N upstream ColumnRenamers).
 
 `addOriginColumn`+`originColumnName` writes a source-tag column (replaces N
 tag-only Prepare recipes). Per-input `virtualInputs[i].preFilter`; top-level
-`postFilter`.
+`postFilter`. There is no flag-level mutator for a per-input filter after
+creation — edit `virtualInputs[i].preFilter` via read-edit-write, or
+delete+recreate the recipe (the expected path for a wrong `--input-filter`).
 
 ## Sort (`sort`) & Distinct (`distinct`)
 
@@ -275,6 +320,27 @@ holds WKT — a string-typed geo column makes the build fail (no/aborted match).
 Type it first: `dku dataset set-schema DS -d '... geom geopoint ...'` (or
 `add-geopoint` from lat/lon). WKT is `POINT(lon lat)`, longitude first, EPSG:4326;
 reproject with `ChangeCRSProcessor`.
+
+## Fuzzy Join (`fuzzyjoin`)
+
+Create with `dku recipe create-fuzzy-join`; payload reference for edits:
+
+```json
+{"joins": [{"table1": 0, "table2": 1, "type": "LEFT", "conditionsMode": "AND",
+   "on": [{"column1": {"name": "name", "table": 0}, "column2": {"name": "ref_name", "table": 1},
+           "type": "FUZZY", "fuzzyMatchDesc": {"distanceType": "LEVENSHTEIN", "threshold": 2}}]}]}
+```
+
+`distanceType` ∈ `EXACT`, `LEVENSHTEIN`, `EUCLIDEAN`, `HAMMING`, `COSINE`,
+`JACCARD`; an exact key is a `distanceType:"EXACT", threshold:0` condition.
+Two silent traps (build exits 0, wrong rows):
+- Join-level `fuzzyJoinMethod`/`fuzzyJoinMaxDistance` keys are **persisted but
+  ignored** — the recipe quietly degrades to exact matching.
+- A condition without `"type":"FUZZY"` (e.g. `fuzzyMatchDesc` alone) is
+  **dropped** — the join degrades to a near-cross join (every left × right).
+Optional per-condition `normaliseDesc` (`caseInsensitive`, `clearStopWords`,
+`transformToStem`, `sortAlphabetically`, `language`) applies text normalization
+before distance.
 
 ## Extract Failed Rows (`extract_failed_rows`)
 

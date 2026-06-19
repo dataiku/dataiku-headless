@@ -90,6 +90,46 @@ def test_recipe_add_step_basic(patch_client):
     settings.save.assert_called_once()
 
 
+def test_recipe_add_step_warns_on_grel_numeric_alias(patch_client):
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "CreateColumnWithGREL",
+            "--params",
+            '{"expression":"toLong(amount)","column":"amount_num"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "toLong() -> toNumber()" in result.output
+
+
+def test_recipe_add_formula_warns_on_grel_numeric_alias(patch_client):
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--expr",
+            "toInt(amount)",
+            "--column",
+            "amount_num",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "toInt() -> toNumber()" in result.output
+
+
 def test_recipe_add_step_at_index(patch_client):
     _proj, _recipe, settings = _setup_prepare_mock(
         patch_client,
@@ -785,6 +825,62 @@ def test_recipe_add_formula(patch_client):
     assert step["params"]["expression"] == "upper(city)"
     assert step["params"]["column"] == "city_upper"
     settings.save.assert_called_once()
+
+
+def test_recipe_add_formula_warns_on_status_errors(patch_client):
+    """A saved formula step that fails the DSS status check warns at submit
+    time (e.g. `substr` — GREL only has `substring`) instead of exploding two
+    commands later at apply-schema. Non-blocking: exit 0, step saved."""
+    _proj, recipe_mock, settings = _setup_prepare_mock(patch_client)
+    recipe_mock.get_status.return_value.get_status_messages.return_value = [
+        {
+            "severity": "ERROR",
+            "code": "ERR_RECIPE",
+            "title": "Invalid formula",
+            "message": "Unknown function 'substr'",
+        }
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--expr",
+            "substr(date,0,7)",
+            "--column",
+            "month",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    settings.save.assert_called_once()
+    flat = " ".join(result.output.split())
+    assert "Unknown function 'substr'" in flat
+    assert "lint-formula" in flat
+
+
+def test_recipe_add_formula_no_warning_when_status_clean(patch_client):
+    """No status errors → no lint noise after the success line."""
+    _proj, recipe_mock, settings = _setup_prepare_mock(patch_client)
+    recipe_mock.get_status.return_value.get_status_messages.return_value = []
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--expr",
+            "upper(city)",
+            "--column",
+            "city_upper",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "status check" not in result.output
 
 
 def test_recipe_add_rename_single(patch_client):
@@ -2018,3 +2114,477 @@ def test_recipe_add_filter_rows_no_warning_on_valid_units(patch_client):
     )
     assert result.exit_code == 0
     assert "unrecognized unit" not in result.output
+
+
+def test_recipe_add_find_replace_ignore_case(patch_client):
+    """--ignore-case sets normalization LOWERCASE (case-insensitive match)."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-find-replace",
+            "prep1",
+            "--column",
+            "Region",
+            "--find",
+            "Europe",
+            "--replace",
+            "Europe",
+            "--matching",
+            "FULL_STRING",
+            "--ignore-case",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["normalization"] == "LOWERCASE"
+
+
+def test_recipe_add_find_replace_exact_by_default(patch_client):
+    """Without --ignore-case the normalization stays EXACT."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-find-replace",
+            "prep1",
+            "--column",
+            "Region",
+            "--find",
+            "a",
+            "--replace",
+            "b",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["normalization"] == "EXACT"
+
+
+# -- processor-type validation at add/replace time --
+
+
+def test_recipe_add_step_rejects_known_wrong_type(patch_client):
+    """AddId doesn't exist — die at add time with the real alternative,
+    not at run time with DSS's misleading 'plugin not installed'."""
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "AddId",
+            "--params",
+            "{}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not a stock Prepare processor" in result.output
+    assert "rowNumber" in result.output
+
+
+def test_recipe_add_step_filteronformula_suggests_custom_formula(patch_client):
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "FilterOnFormula",
+            "--params",
+            '{"expression":"a>1"}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "FilterOnCustomFormula" in result.output
+
+
+def test_recipe_add_step_unknown_type_warns_but_proceeds(patch_client):
+    """Unknown types only warn — the curated list isn't exhaustive and
+    plugin processors are legitimate."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "SomePluginProcessor",
+            "--params",
+            "{}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "known stock-processor list" in result.output
+    assert len(settings.obj_payload["steps"]) == 1
+
+
+def test_recipe_add_step_known_type_no_warning(patch_client):
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-step",
+            "prep1",
+            "--type",
+            "ColumnRenamer",
+            "--params",
+            '{"renamings":[]}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "known stock-processor list" not in result.output
+
+
+def test_recipe_replace_step_rejects_known_wrong_type(patch_client):
+    _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "ColumnRenamer", "params": {}}],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "replace-step",
+            "prep1",
+            "--index",
+            "0",
+            "--type",
+            "Enumerator",
+            "--params",
+            "{}",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not a stock Prepare processor" in result.output
+
+
+# -- flag aliases (recurring agent guesses) --
+
+
+def test_recipe_add_formula_expression_alias(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--expression",
+            "upper(city)",
+            "--column",
+            "city_up",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["expression"] == "upper(city)"
+
+
+def test_recipe_add_filter_rows_expr_alias(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-filter-rows",
+            "prep1",
+            "--expr",
+            "price > 100",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["type"] == "FilterOnCustomFormula"
+    assert step["params"]["expression"] == "price > 100"
+
+
+# -- add-rename --mappings shorthand + prescriptive parse error --
+
+
+def test_recipe_add_rename_mappings_shorthand(patch_client):
+    """'old:new,old2:new2' — the colon syntax the CLI trains elsewhere."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-rename",
+            "prep1",
+            "--mappings",
+            "1:CSA, 2:CBSA",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    step = settings.obj_payload["steps"][0]
+    assert step["params"]["renamings"] == [
+        {"from": "1", "to": "CSA"},
+        {"from": "2", "to": "CBSA"},
+    ]
+
+
+def test_recipe_add_rename_mappings_bad_input_prescriptive(patch_client):
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-rename",
+            "prep1",
+            "--mappings",
+            "a:b:c,d",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "old1:new1,old2:new2" in result.output
+    assert "--from" in result.output
+
+
+def test_recipe_add_rename_mappings_bad_json_prescriptive(patch_client):
+    _setup_prepare_mock(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-rename",
+            "prep1",
+            "--mappings",
+            '{"a":"b",}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not valid JSON" in result.output
+    assert "old1:new1" in result.output
+
+
+# ---------------------------------------------------------------------------
+# apply-spec — declarative multi-step build
+# ---------------------------------------------------------------------------
+
+
+def _apply(spec, *extra):
+    return runner.invoke(
+        app,
+        [
+            "recipe",
+            "apply-spec",
+            "prep1",
+            json.dumps(spec),
+            "--project",
+            "PROJ1",
+            *extra,
+        ],
+    )
+
+
+def test_apply_spec_mixed_ops_and_raw(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    spec = [
+        {"op": "formula", "column": "total", "expr": "price*qty"},
+        {"op": "rename", "mappings": {"old": "new"}},
+        {"op": "delete-columns", "columns": ["tmp", "scratch"]},
+        {
+            "type": "FillEmptyWithValue",
+            "params": {"appliesTo": "SINGLE_COLUMN", "columns": ["age"], "value": "0"},
+        },
+    ]
+    result = _apply(spec)
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 4
+    assert steps[0]["type"] == "CreateColumnWithGREL"
+    assert steps[0]["params"] == {"expression": "price*qty", "column": "total"}
+    assert steps[1]["type"] == "ColumnRenamer"
+    assert steps[1]["params"]["renamings"] == [{"from": "old", "to": "new"}]
+    assert steps[2]["type"] == "ColumnsSelector"
+    assert steps[2]["params"]["keep"] is False
+    assert steps[3]["type"] == "FillEmptyWithValue"
+    settings.save.assert_called_once()
+
+
+def test_apply_spec_appends_to_existing(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Existing", "params": {}}],
+    )
+    result = _apply([{"op": "delete-columns", "columns": ["x"]}])
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 2
+    assert steps[0]["type"] == "Existing"
+    assert steps[1]["type"] == "ColumnsSelector"
+
+
+def test_apply_spec_replace_clears_existing(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(
+        patch_client,
+        steps=[{"metaType": "PROCESSOR", "type": "Existing", "params": {}}],
+    )
+    result = _apply([{"op": "delete-columns", "columns": ["x"]}], "--replace")
+    assert result.exit_code == 0, result.output
+    steps = settings.obj_payload["steps"]
+    assert len(steps) == 1
+    assert steps[0]["type"] == "ColumnsSelector"
+    assert "replaced existing" in result.output
+
+
+def test_apply_spec_name_and_disabled(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    spec = [
+        {
+            "op": "formula",
+            "column": "c",
+            "expr": "1",
+            "name": "set one",
+            "disabled": True,
+        }
+    ]
+    result = _apply(spec)
+    assert result.exit_code == 0, result.output
+    step = settings.obj_payload["steps"][0]
+    assert step["name"] == "set one"
+    assert step["disabled"] is True
+
+
+def test_apply_spec_equivalence_with_shortcuts(patch_client):
+    """An op entry must produce the identical step the add-* shortcut emits —
+    pins the shared builders so the two surfaces can't drift."""
+    # add-formula
+    _p, _r, s1 = _setup_prepare_mock(patch_client)
+    runner.invoke(
+        app,
+        [
+            "recipe",
+            "add-formula",
+            "prep1",
+            "--expr",
+            "upper(city)",
+            "--column",
+            "cu",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    shortcut_step = s1.obj_payload["steps"][0]
+
+    _p, _r, s2 = _setup_prepare_mock(patch_client)
+    _apply([{"op": "formula", "column": "cu", "expr": "upper(city)"}])
+    spec_step = s2.obj_payload["steps"][0]
+    assert spec_step == shortcut_step
+
+
+def test_apply_spec_unknown_op_rejected_with_index(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = _apply(
+        [{"op": "formula", "column": "c", "expr": "1"}, {"op": "bogus", "x": 1}]
+    )
+    assert result.exit_code != 0
+    assert "[1]" in result.output
+    assert "bogus" in result.output
+    settings.save.assert_not_called()
+
+
+def test_apply_spec_missing_required_key_rejected(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = _apply([{"op": "formula", "column": "c"}])  # no expr
+    assert result.exit_code != 0
+    assert "[0]" in result.output
+    assert "expr" in result.output
+    settings.save.assert_not_called()
+
+
+def test_apply_spec_raw_step_runs_normalization(patch_client):
+    """The raw escape routes through _normalize_raw_step — a string DateParser
+    outType is normalized to the object form, same as add-step."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    spec = [
+        {
+            "type": "DateParser",
+            "params": {
+                "appliesTo": "SINGLE_COLUMN",
+                "columns": ["ts"],
+                "outCol": "parsed",
+                "outType": "dateonly",
+            },
+        }
+    ]
+    result = _apply(spec)
+    assert result.exit_code == 0, result.output
+    assert settings.obj_payload["steps"][0]["params"]["outType"] == {
+        "name": "out",
+        "type": "dateonly",
+    }
+
+
+def test_apply_spec_raw_step_wrong_processor_rejected(patch_client):
+    """The raw escape enforces _validate_processor_type — a known-wrong type
+    aborts the whole batch before saving."""
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = _apply([{"type": "FilterOnFormula", "params": {}}])
+    assert result.exit_code != 0
+    assert settings.obj_payload["steps"] == []
+    settings.save.assert_not_called()
+
+
+def test_apply_spec_not_an_array_rejected(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = _apply({"op": "formula", "column": "c", "expr": "1"})
+    assert result.exit_code != 0
+    assert "array" in result.output.lower()
+    settings.save.assert_not_called()
+
+
+def test_apply_spec_empty_array_rejected(patch_client):
+    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    result = _apply([])
+    assert result.exit_code != 0
+    assert "empty" in result.output.lower()
+
+
+def test_apply_spec_wrong_recipe_type(patch_client):
+    """Non-prepare recipe gives prescriptive error, nothing saved."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "apply-spec",
+            "recipe1",
+            json.dumps([{"op": "delete-columns", "columns": ["x"]}]),
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not 'prepare'" in result.output

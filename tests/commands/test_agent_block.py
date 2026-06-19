@@ -1394,6 +1394,22 @@ def test_normalize_drops_system_prompt_when_both_present():
     assert "systemPrompt" not in block
 
 
+def test_normalize_renames_output_state_key_to_output_key():
+    """SAVE_TO_STATE outputStateKey (13.x) → outputKey; 14.5+ NPEs otherwise."""
+    from dku_cli.commands.agent_block import _normalize_blocks
+
+    block = {
+        "type": "CORE_LOOP",
+        "id": "loop",
+        "outputMode": "SAVE_TO_STATE",
+        "outputStateKey": "answer",
+    }
+    warnings = _normalize_blocks([block])
+    assert any("outputStateKey" in w for w in warnings)
+    assert block["outputKey"] == "answer"
+    assert "outputStateKey" not in block
+
+
 def test_set_graph_applies_normalizations(patch_client):
     """set-graph applies the same auto-fixes as add: functionName + outputKey rename."""
     graph = json.dumps(

@@ -47,6 +47,8 @@ Most RETAIN patterns are group aggregations or window functions. Classify before
 | `cumsum + x;` (SUM statement) | Running sum (missing-safe, treats `.` as 0) | SQL recipe |
 | `retain prev; diff = val - prev; prev = val;` | Lag difference | SQL recipe (`val - LAG(val) OVER (...)`) |
 
+No SQL connection available → the row-comparison/running-sum rows above still map to all-visual recipes (composite-marker pipeline): `procs.md` § Visual-only fallback.
+
 **SUM statement vs explicit RETAIN+add:**
 - `total + x;` (SUM statement) — auto-retains, treats missing `x` as 0. Safe.
 - `retain total 0; total = total + x;` — when `x` is missing, `total` becomes `.` permanently. Dangerous.

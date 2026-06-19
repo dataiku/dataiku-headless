@@ -1,5 +1,5 @@
 name: Report a bug
-description: Report a problem with dku-cli.
+description: Report a problem with Dataiku Headless.
 labels: ["bug"]
 body:
   - type: markdown
@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for taking the time to fill out this bug report.
 
-        Feature request? Please open a [Discussion](https://github.com/dataiku/dataiku-cli/discussions/new/choose) instead.
+        Feature request? Please open a [Discussion](https://github.com/dataiku/dataiku-headless/discussions/new/choose) instead.
 
   - type: textarea
     id: description
@@ -41,12 +41,12 @@ body:
     attributes:
       label: Environment
       description: |
-        - dku-cli version (run `dku --version`)
+        - Dataiku Headless version (run `dku --version`)
         - Python version
         - DSS version
         - OS
       placeholder: |
-        dku-cli: 0.3.0
+        Dataiku Headless: 0.4.0
         Python: 3.13.2
         DSS: 14.5.1
         OS: macOS 15.4

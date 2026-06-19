@@ -101,6 +101,7 @@ dku scenario list-reporters SCEN -P KEY                 # verify
 ```
 
 - `--condition`: `failure` → `outcome != 'SUCCESS'`, `success` → `== 'SUCCESS'`, `always`. For "alert ops on failure, notify team on success" add two reporters.
+- **Variable-driven alerting** ("email only when N flagged rows > 0"): pass a raw expression as `--condition`, e.g. `'outcome == "SUCCESS" && parseInt(variables["n_alerts"]) > 0'`, and set the variable in an earlier `custom_python` step via `Scenario().set_scenario_variables(n_alerts=…)`. A bare misspelled keyword still errors (typo guard); only expression-shaped strings pass through.
 - Reporter saves even if `--channel` doesn't match a configured SMTP channel (channels validate at send time). Verify with `list-reporters`.
 - Reporter body vars: `${scenarioName}`, `${scenarioOutcome}`, `${scenarioError}`, `${scenarioTriggerName}`, `${projectKey}`.
 

@@ -21,6 +21,72 @@ from ._common import *
 # ---------------------------------------------------------------------------
 
 
+def _join_virtual_input(payload: dict, idx: int) -> dict:
+    """virtualInputs[idx], padding the list if DSS created it lazily."""
+    virtual_inputs = payload.setdefault("virtualInputs", [])
+    while len(virtual_inputs) <= idx:
+        virtual_inputs.append({"index": len(virtual_inputs)})
+    return virtual_inputs[idx]
+
+
+def _apply_join_pre_filters(
+    payload: dict, inputs: list[str], pre_filter: list[str] | None
+) -> None:
+    """Apply --pre-filter 'INDEX:GREL_EXPR' specs to virtualInputs[i].preFilter."""
+    input_order = ", ".join(f"{i}={n}" for i, n in enumerate(inputs))
+    for entry in pre_filter or []:
+        idx_str, sep, expr = entry.partition(":")
+        idx = int(idx_str) if sep and idx_str.isdigit() else -1
+        if idx < 0 or not expr.strip():
+            exit_with_error(
+                f"Invalid --pre-filter '{entry}'. Expected 'INDEX:GREL_EXPR'.",
+                details=[
+                    "INDEX is the 0-based position of the input in the -i flags, "
+                    "e.g. --pre-filter '0:status == \"A\"'.",
+                ],
+            )
+        if idx >= len(inputs):
+            exit_with_error(
+                f"--pre-filter index {idx} out of range (0..{len(inputs) - 1}).",
+                details=[f"Inputs in order: {input_order}"],
+            )
+        _join_virtual_input(payload, idx)["preFilter"] = _build_pipeline_filter(
+            expr.strip()
+        )
+        info(f"Pre-filter input {idx} ({inputs[idx]}): {expr.strip()}")
+
+
+def _apply_join_computed_cols(
+    payload: dict, inputs: list[str], computed_col: list[str] | None
+) -> None:
+    """Apply --computed-col specs: 'INDEX:name=expr[:type]' pre-join on input
+    INDEX, unprefixed 'name=expr[:type]' post-join (sees both sides' output
+    columns)."""
+    import re
+
+    input_order = ", ".join(f"{i}={n}" for i, n in enumerate(inputs))
+    post_specs: list[str] = []
+    for spec in computed_col or []:
+        m = re.match(r"^(\d+):", spec)
+        if m and "=" in spec[m.end() :]:
+            idx = int(m.group(1))
+            if idx >= len(inputs):
+                exit_with_error(
+                    f"--computed-col index {idx} out of range (0..{len(inputs) - 1}).",
+                    details=[f"Inputs in order: {input_order}"],
+                )
+            vi = _join_virtual_input(payload, idx)
+            parsed = _parse_computed_cols([spec[m.end() :]])
+            vi["computedColumns"] = (vi.get("computedColumns") or []) + parsed
+            info(f"Computed col (pre-join, input {idx}): {parsed[0]['name']}")
+        else:
+            post_specs.append(spec)
+    if post_specs:
+        parsed = _parse_computed_cols(post_specs)
+        payload["computedColumns"] = (payload.get("computedColumns") or []) + parsed
+        info("Computed cols (post-join): " + ", ".join(c["name"] for c in parsed))
+
+
 @app.command("create-join")
 def create_join(
     ctx: typer.Context,
@@ -40,7 +106,11 @@ def create_join(
         "--join-key",
         "-k",
         help=(
-            "Join key: 'col' (same both sides) or 'left=right'. Repeatable. "
+            "Join condition: 'col' (EQ, same name both sides), 'left=right' (EQ), "
+            "or an inequality 'left>=right' / '<=' / '>' / '<' / '!=' "
+            "(GTE/LTE/GT/LT/NE — range joins without payload surgery; the left "
+            "side names the FIRST input's column, the right side the second's). "
+            "Repeatable; conditions combine per --conditions-mode (default AND). "
             "For multi-input joins (3+ datasets), prefix with join index: '1:col' targets the 2nd join pair. "
             "Unprefixed keys target join 0 (first pair)."
         ),
@@ -54,7 +124,9 @@ def create_join(
             "Join type: LEFT, INNER, RIGHT, FULL, CROSS, LEFT_ANTI, RIGHT_ANTI, "
             "ADVANCED. LEFT_ANTI = left rows with NO match in right ('candidates "
             "minus positives' pattern). RIGHT_ANTI = symmetric. FULL = outer join. "
-            "ADVANCED = expression-based ON clause via --advanced-condition. "
+            "Conditions come from --join-key, which accepts equality AND "
+            "inequality operators ('a>=b' → GTE) — range joins need no payload "
+            "surgery. ADVANCED payloads still require get-settings/set-settings. "
             "Applied to all join pairs. Default: LEFT."
         ),
     ),
@@ -74,6 +146,35 @@ def create_join(
             "columns from input INDEX flow through. Sets that virtualInput's "
             "outputColumnsSelectionMode=MANUAL + selectedColumns. Repeatable. "
             "Replaces a downstream Prepare add-delete-columns."
+        ),
+    ),
+    pre_filter: list[str] | None = typer.Option(
+        None,
+        "--pre-filter",
+        help=(
+            "Per-input pre-filter: 'INDEX:GREL_EXPR' — only rows matching the "
+            "formula enter the join from input INDEX (0-based position in the "
+            "-i flags). Repeatable. Replaces an upstream Filter recipe per input."
+        ),
+    ),
+    post_filter: str | None = typer.Option(
+        None,
+        "--post-filter",
+        help=(
+            "GREL formula applied AFTER the join, on the joined output columns. "
+            "Replaces a downstream Filter recipe."
+        ),
+    ),
+    computed_col: list[str] | None = typer.Option(
+        None,
+        "--computed-col",
+        help=(
+            "Computed column 'name=expr[:type]' (GREL; default type string). "
+            "Unprefixed = POST-join: the expression sees the joined output "
+            "columns from BOTH sides — replaces a downstream Prepare for "
+            "cross-input math. 'INDEX:name=expr[:type]' = pre-join on input "
+            "INDEX (that input's columns only; usable in join conditions). "
+            "Repeatable."
         ),
     ),
     engine: EngineType | None = typer.Option(
@@ -203,8 +304,16 @@ def create_join(
     names is NOT implemented — running create-join without --join-key (and
     without --join-type CROSS) leaves the join with empty conditions, which
     DSS executes as a CROSS join. The CLI now warns when this happens.
-    Format: 'col' (same both sides) or 'left=right'. For multi-input joins
-    use --join-key col (join 0, first pair) and --join-key 1:col (join 1,
+    Format: 'col' (same both sides), 'left=right', or an inequality
+    'left>=right' / 'left<=right' / 'left>right' / 'left<right' /
+    'left!=right' (GTE/LTE/GT/LT/NE conditions — the left side names the
+    first input's column). Range self-join example (trailing window):
+    -k 'seq<=seq' -k 'win_end>=seq' — and alias the detail-side value
+    column (--computed-col '1:w_price=price:double'): a self-join's
+    same-named columns are silently dropped (anchor side wins), so a
+    downstream Group on the original name aggregates each anchor's OWN
+    value, not the window's. For multi-input joins use
+    --join-key col (join 0, first pair) and --join-key 1:col (join 1,
     second pair). CROSS joins need no keys — pass --join-type CROSS.
 
     Advanced match modes (apply to every EQ condition on every pair):
@@ -217,6 +326,13 @@ def create_join(
       --right-limit-max-matches 1 \\
       --right-limit-decision-column record_date \\
       --right-limit-keep KEEP_LARGEST [--right-limit-strict]
+
+    Pipeline stages (same model as Group/Window — collapses Filter/Prepare
+    neighbours into the join):
+      --pre-filter '0:status == "A"'           per-input row filter before the join
+      --computed-col 'weighted=amount * rate:double'   POST-join, sees both sides
+      --computed-col '1:rate_pct=rate * 100:double'    pre-join on input 1
+      --post-filter 'amount > 15'              filter on the joined output
     """
     project_key = resolve_project(project)
     engine_upper = _enum_value(engine)
@@ -265,31 +381,6 @@ def create_join(
             )
         parsed_date_window = (wf, wt, unit)
 
-    # Pre-flight: per-condition match modifiers need an EQ join condition to
-    # apply to. Refuse BEFORE creating the recipe/output dataset, so a guard
-    # failure does not leave an orphan auto-created --output-ds in the flow
-    # (the post-create check below remains as a backstop for key specs that
-    # produce no EQ conditions).
-    _modifier_flags = (
-        case_insensitive
-        or normalize_text
-        or max_matches is not None
-        or max_distance is not None
-        or parsed_date_window is not None
-        or strict_eq
-    )
-    if _modifier_flags and (not join_key or (join_type and join_type.value == "CROSS")):
-        exit_with_error(
-            "--case-insensitive / --normalize-text / --strict-eq / "
-            "--max-distance / --max-matches / --date-window need an EQ "
-            "join condition to apply to, but no join key was set.",
-            details=[
-                "Pass --join-key COL (e.g. --join-key id) so the modifiers have",
-                "a condition to attach to. For multi-input joins, prefix with",
-                "the join index: --join-key 1:col.",
-            ],
-        )
-
     # Validate --right-limit-keep
     rl_keep_upper: str | None = None
     if right_limit_keep:
@@ -314,6 +405,90 @@ def create_join(
                     "Use --right-limit-decision-column COL (the right-side tiebreaker column)."
                 ],
             )
+    # Parse + validate key specs BEFORE creating the recipe — an invalid
+    # pair index must not leave a half-configured recipe behind (it would
+    # run "successfully" to a 0-row / cartesian output).
+    # Two-char operators MUST be matched before their one-char prefixes
+    # ('a>=b' is GTE, not GT on 'a>' / '=b').
+    _KEY_OPERATORS = (
+        (">=", "GTE"),
+        ("<=", "LTE"),
+        ("!=", "NE"),
+        ("=", "EQ"),
+        (">", "GT"),
+        ("<", "LT"),
+    )
+    keys_by_idx: dict[int, list[tuple[str, str, str]]] = {}
+    if join_key and jt != "CROSS":
+        import re
+
+        max_pairs = max(1, len(inputs) - 1)
+        for key_spec in join_key:
+            idx = 0
+            spec = key_spec
+            m = re.match(r"^(\d+):", key_spec)
+            if m:
+                idx = int(m.group(1))
+                spec = key_spec[m.end() :]
+            if idx >= max_pairs:
+                exit_with_error(
+                    f"Join index {idx} out of range — {len(inputs)} inputs make "
+                    f"{max_pairs} join pair(s), valid indices 0..{max_pairs - 1}.",
+                    details=[
+                        "The prefix is the join-PAIR index, not the input index: "
+                        "pair 0 joins input 0 with input 1, pair 1 joins with "
+                        "input 2, … e.g. 3 inputs → -k 'Order ID' -k '1:Region'.",
+                    ],
+                )
+            cond_type = "EQ"
+            col1 = col2 = spec
+            for op, ctype in _KEY_OPERATORS:
+                if op in spec:
+                    left, right = spec.split(op, 1)
+                    if not left.strip() or not right.strip():
+                        exit_with_error(
+                            f"Invalid --join-key '{key_spec}': both sides of "
+                            f"'{op}' must name a column.",
+                            details=[
+                                "Examples: -k customer_id (EQ, same name), "
+                                "-k 'order_id=id' (EQ), -k 'seq>=start_seq' (GTE).",
+                            ],
+                        )
+                    col1, col2, cond_type = left, right, ctype
+                    break
+            keys_by_idx.setdefault(idx, []).append(
+                (col1.strip(), col2.strip(), cond_type)
+            )
+
+    # Pre-flight: per-condition match modifiers need an EQ join condition to
+    # apply to (inequality conditions don't take them). Refuse BEFORE creating
+    # the recipe/output dataset, so a guard failure does not leave an orphan
+    # auto-created --output-ds in the flow (the post-create check below
+    # remains as a backstop).
+    _modifier_flags = (
+        case_insensitive
+        or normalize_text
+        or max_matches is not None
+        or max_distance is not None
+        or parsed_date_window is not None
+        or strict_eq
+    )
+    _has_eq_key = any(
+        ct == "EQ" for pairs in keys_by_idx.values() for (_, _, ct) in pairs
+    )
+    if _modifier_flags and not _has_eq_key:
+        exit_with_error(
+            "--case-insensitive / --normalize-text / --strict-eq / "
+            "--max-distance / --max-matches / --date-window need an EQ "
+            "join condition to apply to, but no EQ join key was set "
+            "(inequality keys like 'a>=b' don't take match modifiers).",
+            details=[
+                "Pass --join-key COL (e.g. --join-key id) so the modifiers have",
+                "a condition to attach to. For multi-input joins, prefix with",
+                "the join index: --join-key 1:col.",
+            ],
+        )
+
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -352,29 +527,16 @@ def create_join(
         for j in joins:
             j["type"] = jt
 
-        # Configure join keys if provided (skip for CROSS joins)
-        if join_key and jt != "CROSS":
-            import re
-
+        # Configure join keys if provided (skip for CROSS joins).
+        # Specs were parsed and index-validated before the recipe was created.
+        if keys_by_idx:
             from dataikuapi.dss.recipe import JoinRecipeSettings
-
-            # Parse indexed key specs: "col", "left=right", "1:col", "1:left=right"
-            keys_by_idx: dict[int, list[tuple[str, str]]] = {}
-            for key_spec in join_key:
-                idx = 0
-                spec = key_spec
-                m = re.match(r"^(\d+):", key_spec)
-                if m:
-                    idx = int(m.group(1))
-                    spec = key_spec[m.end() :]
-                if "=" in spec:
-                    col1, col2 = spec.split("=", 1)
-                else:
-                    col1 = col2 = spec
-                keys_by_idx.setdefault(idx, []).append((col1.strip(), col2.strip()))
 
             for idx, key_pairs in keys_by_idx.items():
                 if idx >= len(joins):
+                    # Defensive backstop — pre-create validation bounds idx by
+                    # input count; only a builder that produced fewer pairs than
+                    # inputs-1 can land here.
                     exit_with_error(
                         f"Join index {idx} out of range — recipe has {len(joins)} join pair(s) (0-indexed).",
                         details=[
@@ -382,10 +544,10 @@ def create_join(
                         ],
                     )
                 target_join = joins[idx]
-                for col1, col2 in key_pairs:
+                for col1, col2, cond_type in key_pairs:
                     JoinRecipeSettings.add_condition_to_join(
                         target_join,
-                        type="EQ",
+                        type=cond_type,
                         column1=col1,
                         column2=col2,
                     )
@@ -560,6 +722,16 @@ def create_join(
                 vi["outputColumnsSelectionMode"] = "MANUAL"
                 vi["selectedColumns"] = col_list
                 info(f"Cols input {idx}: {', '.join(col_list)}")
+
+        # Pipeline stages: per-input preFilter, pre/post-join computed
+        # columns, postFilter — same 4-stage model as Group/Window.
+        if pre_filter or computed_col or post_filter:
+            payload = join_settings.obj_payload
+            _apply_join_pre_filters(payload, inputs, pre_filter)
+            _apply_join_computed_cols(payload, inputs, computed_col)
+            if post_filter:
+                payload["postFilter"] = _build_pipeline_filter(post_filter)
+                info(f"Post-filter: {post_filter}")
 
         join_settings.save()
         _auto_apply_schema(proj, recipe_name)
@@ -884,7 +1056,7 @@ def create_fuzzy_join(
         "--method",
         "-m",
         case_sensitive=False,
-        help="Fuzzy method: LEVENSHTEIN, JARO_WINKLER, NORMALIZED_LEVENSHTEIN",
+        help="Distance type for fuzzy conditions",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -903,6 +1075,14 @@ def create_fuzzy_join(
             f"Fuzzy join requires exactly 2 input datasets, got {len(inputs)}.",
             details=[
                 "Use: dku recipe create-fuzzy-join NAME -i left_ds -i right_ds --output-ds out -P PROJ"
+            ],
+        )
+    if not fuzzy_key and not join_key:
+        exit_with_error(
+            "Provide at least one --fuzzy-key or --join-key.",
+            details=[
+                "DSS silently cross-joins all rows when a join has no conditions.",
+                "Fuzzy match: --fuzzy-key name   Exact match: --join-key customer_id",
             ],
         )
 
@@ -932,40 +1112,32 @@ def create_fuzzy_join(
             payload["joins"] = joins
 
         fj = joins[0]
-        fj["fuzzyJoinMethod"] = m
-        fj["fuzzyJoinMaxDistance"] = max_distance
+        # DSS only honors per-condition fuzzyMatchDesc. Join-level
+        # fuzzyJoinMethod/fuzzyJoinMaxDistance keys are persisted but ignored
+        # (the recipe silently degrades to exact matching), and a condition
+        # without type=FUZZY is dropped entirely (silent cross join).
+        fj["conditionsMode"] = "AND"
 
-        # Configure fuzzy key conditions
-        if fuzzy_key:
-            conditions = fj.setdefault("on", [])
-            for key_spec in fuzzy_key:
-                if "=" in key_spec:
-                    col1, col2 = key_spec.split("=", 1)
-                else:
-                    col1 = col2 = key_spec
-                conditions.append(
-                    {
-                        "column1": {"name": col1.strip(), "table": 0},
-                        "column2": {"name": col2.strip(), "table": 1},
-                        "type": "FUZZY",
-                    }
-                )
+        def _fuzzy_condition(key_spec: str, distance_type: str, threshold) -> dict:
+            if "=" in key_spec:
+                col1, col2 = key_spec.split("=", 1)
+            else:
+                col1 = col2 = key_spec
+            return {
+                "column1": {"name": col1.strip(), "table": 0},
+                "column2": {"name": col2.strip(), "table": 1},
+                "type": "FUZZY",
+                "fuzzyMatchDesc": {
+                    "distanceType": distance_type,
+                    "threshold": threshold,
+                },
+            }
 
-        # Configure exact-match key conditions
-        if join_key:
-            conditions = fj.setdefault("on", [])
-            for key_spec in join_key:
-                if "=" in key_spec:
-                    col1, col2 = key_spec.split("=", 1)
-                else:
-                    col1 = col2 = key_spec
-                conditions.append(
-                    {
-                        "column1": {"name": col1.strip(), "table": 0},
-                        "column2": {"name": col2.strip(), "table": 1},
-                        "type": "EQ",
-                    }
-                )
+        conditions = fj.setdefault("on", [])
+        for key_spec in fuzzy_key or []:
+            conditions.append(_fuzzy_condition(key_spec, m, max_distance))
+        for key_spec in join_key or []:
+            conditions.append(_fuzzy_condition(key_spec, "EXACT", 0))
 
         settings.save()
         _auto_apply_schema(proj, recipe_name)

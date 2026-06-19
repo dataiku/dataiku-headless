@@ -2,7 +2,7 @@
 
 Source-specific entrypoint for migrating SAS programs (`.sas`, `.egp`, `.flw`) to a Dataiku DSS flow. Read the top-level `migration` SKILL.md first for the cross-source rules, phases, and common gotchas. This file holds only the parts that differ for SAS.
 
-Pair with `dku-cli` (CLI execution) and `dataiku` (platform knowledge). When the target is a SQL connection, also read `dku-cli` skill's `playbooks/tabular-flow.md` § GREL → SQL push-down gotchas.
+Pair with `dku-cli` (CLI execution) and `dataiku` (platform knowledge). When the target is a SQL connection, also read `dku-cli`'s `playbooks/tabular-flow.md` and `references/formulas.md` § GREL → SQL push-down.
 
 ## SAS-specific rules
 
@@ -21,7 +21,7 @@ Read directly. Follow every `%include` chain. Embedded `datalines;` blocks are t
 
 ZIP archive. Extract with `unzip project.egp`. Inside:
 
-- **Encoding rule:** `project.xml` is **UTF-16** — `open(f, 'rb').read().decode('utf-16')`; plain `open(f)` garbles it. Every other XML / log file in the bundle (`EGTask-*/*.xml`, `Query-*/Log-*/result.log`, `ImportTask-*/*.xml`, `CodeTask-*/*.xml`) is **UTF-8 with a BOM** — use `open(f, encoding='utf-8-sig')`. Defaulting to `utf-16` for the whole bundle yields CJK glyphs (`믯㲿砿汭瘠牥楳湯`); defaulting to `utf-8` chokes on the BOM. Confirmed across two real EGP migrations.
+- **Encoding rule:** `project.xml` is **UTF-16** — `open(f, 'rb').read().decode('utf-16')`; plain `open(f)` garbles it. Every other XML / log file in the bundle (`EGTask-*/*.xml`, `Query-*/Log-*/result.log`, `ImportTask-*/*.xml`, `CodeTask-*/*.xml`) is **UTF-8 with a BOM** — use `open(f, encoding='utf-8-sig')`. Defaulting to `utf-16` for the whole bundle yields CJK glyphs (`믯㲿砿汭瘠牥楳湯`); defaulting to `utf-8` chokes on the BOM.
 - `<Element><Type>CONTAINER</Type>` → process flow groups.
 - `<Element><Type>TASK</Type>` → executable tasks.
 - `CodeTask-*/code.sas` — read directly.
@@ -67,7 +67,7 @@ After `dku dataset upload + set-schema`, sanity-check with `dku --format json da
 
 `proc sql; connect to <engine> as remote (...); create table X as select ... from connection to remote(...); quit;` is SAS pass-through to a remote engine. The SELECT body is real flow logic (joins, filters, projections, aggregates) and must be migrated like any other set of operations — never stubbed as a header-only "warehouse delivers this" placeholder, regardless of whether the warehouse is reachable from DSS.
 
-Translate the body into one or more recipes against the equivalent DSS-side connection. The recipe-type choice follows the usual rules: a single SQL recipe when the body needs `LAG`/`ROW_NUMBER`/`PERCENTILE_CONT` / multi-CTE push-down that visual recipes don't expose; otherwise visual recipes (Join, Group, Filter, Distinct, …) — same as any other DATA / PROC step. When the original warehouse is reachable as a Dataiku connection, point the recipes at it directly so push-down survives end-to-end (rule 2 — one engine per flow). When it isn't, the translation is unchanged; only the input wiring differs.
+Translate the body into one or more recipes against the equivalent DSS-side connection. The recipe-type choice follows the usual rules: a single SQL recipe when the body needs `LAG`/`ROW_NUMBER`/`PERCENTILE_CONT` / multi-CTE push-down that visual recipes don't expose; otherwise visual recipes (Join, Group, Filter, Distinct, …) — same as any other DATA / PROC step. When the original warehouse is reachable as a Dataiku connection, point the recipes at it directly so push-down survives end-to-end (one engine per flow). When it isn't, the translation is unchanged; only the input wiring differs.
 
 ### SAS macro variables → DSS project variables
 
@@ -77,14 +77,14 @@ Macro variables that vary per run (`&day_M12.`, `&day_M1.`, `&run_id.`, region s
 dku project set-variables -P PROJ --set day_M1=2024-12-01 --set day_M12=2024-01-01
 ```
 
-**GREL formulas inside Prepare recipes do NOT interpolate `${var}`.** This is the friction. The working pattern is **set the project variable AND hard-code the value inline in formulas**:
+**`${var}` expands inside GREL** (string substitution before parse) — same as in SQL recipes and dataset names. Quote it for strings/dates; bare for numerics:
 
 ```bash
 dku recipe add-formula prep --column tenure_m \
-    --expr 'diff(asDateOnly(account_creation_date, "yyyy-MM-dd"), asDateOnly("2024-12-01", "yyyy-MM-dd"), "months") + 1' -P PROJ
+    --expr 'diff(asDateOnly(account_creation_date, "yyyy-MM-dd"), asDateOnly("${day_M1}", "yyyy-MM-dd"), "months") + 1' -P PROJ
 ```
 
-The project variable serves as documentation + a single source of truth for scenarios that template-render formulas; the inline literal is what actually executes. When the value changes, both must be updated. SQL recipes and dataset names DO interpolate `${day_M1}` — only GREL inside Prepare/visual-recipe filters/computed-columns is the limitation.
+One variable then drives every time-relative filter; change it and rebuild. A numeric `${var}` column can infer `bigint` and silently null later decimals — multiply by `1.0` and `set-schema` to `double` (see `../ayx/tools-io-apps-ml.md` § Concrete parametric-app flow).
 
 ### `%include` chains
 
@@ -121,9 +121,9 @@ Tell the user: *"Steps #N are SAS infrastructure — no recipe equivalent. Datai
 
 ## Collapse triggers — running the Phase-2 collapse pass
 
-The migration skill rule 16 ("N source steps → far fewer DSS recipes") says you must do a collapse pass after the 1:1 draft.
+The migration skill's "N source steps → far fewer DSS recipes" rule says you must do a collapse pass after the 1:1 draft.
 
-> **Source-agnostic graph collapses now live in `references/flow-collapse.md`** (Tier-2, re-checked on the built graph in Phase 3.5 / rule 18). The rows below are *source-idiom detectors* for Phase-2 planning; rows that are really DSS-graph shapes point there for mechanics instead of repeating them.
+> **Source-agnostic graph collapses now live in `references/flow-collapse.md`** (Tier-2, re-checked on the built graph in Phase 3.5). The rows below are *source-idiom detectors* for Phase-2 planning; rows that are really DSS-graph shapes point there for mechanics instead of repeating them.
 
 SAS is *not* Alteryx: a single SAS DATA step is already chunky (`merge + compute + bin + filter + output` in one block), so the typical collapse direction is "many SAS plumbing/in-place steps → fewer DSS recipes" rather than "many tools → one recipe". Several DATA steps actually *expand* to two recipes (Join + Prepare) — that is correct, not a missed collapse.
 
@@ -147,7 +147,7 @@ Each row below describes a pattern that appears in nearly every analytic SAS pro
 | `%macro foo(ds); ...; %mend; %foo(a); %foo(b); %foo(c);` where the macro body is identical and the inputs share a key | One Stack of the inputs + one Prepare (or one Window if the body needs per-group ordering); not three separate recipes — this is the identical-branch hoist, `references/flow-collapse.md` § 1 | 3 macro expansions → 1-2 |
 | `proc sql; create table X as select ...; quit;` doing only `WHERE` + `GROUP BY` + simple aggregates | Filter + Group (visual, two recipes) — but if the surrounding flow is on SQL anyway, leaving as a SQL recipe is also fine. Do NOT translate trivial PROC SQL to a Python recipe. | 1 → 1-2 |
 | Per-feature blocks (tenure, consumption, elapsed, …) that ONLY need a column already present in `appl_reference_table` or trivially join-able from one extra extract | Skip the dedicated `appl_X` checkpoint — add the extract as another input to the master Join, compute the feature columns inline in the master Prepare alongside categorize + default-fill | 4-5 per block → 0 (folded into the existing master pair) |
-| **DATA-step BY-group state machine** (RETAIN + first./last. + multiple conditional updates that propagate state across rows) | **Does NOT collapse to one Window.** Realistic count is a four-recipe visual pipeline: Window-lag → Prepare-markers → Window-aggregate → Prepare-final. See `data-step.md`. Reach for Python only after exhausting this pattern. | 1 SAS step → 4 DSS recipes (expansion — flag in plan) |
+| **DATA-step BY-group state machine** (RETAIN + first./last. + multiple conditional updates that propagate state across rows) | **Does NOT collapse to one Window.** Realistic count is a four-recipe visual pipeline: Window-lag → Prepare-markers → Window-aggregate → Prepare-final. See `procs.md` § Visual-only fallback. Reach for Python only after exhausting this pattern. | 1 SAS step → 4 DSS recipes (expansion — flag in plan) |
 
 **Where the ratio actually matters.** The two heavy hitters are *in-place rewrites* (item 4) and *per-dim fan-in* (item 5). On a typical SAS analytics program these two alone account for 60–80% of the collapse. If your plan retains separate `appl_*` datasets for each dimension or has multiple Prepare recipes that all rewrite the same dataset, re-walk these triggers before presenting.
 
@@ -194,7 +194,5 @@ After Phase 3 build, compare row count against the SAS log: `NOTE: Table WORK.X 
 | `ml-scenarios.md` | Visual ML, scheduling, checks, reporting, scenarios |
 | `flow-patterns.md` | Enterprise driver scripts, passthrough extracts, fan-in/split, parity checks |
 | `../references/workflow.md` | Phase-by-phase mechanics |
-| `../../dku-cli/playbooks/tabular-flow.md` | Picking a recipe type |
-| `../../dku-cli/playbooks/tabular-flow.md` | Cross-source Dataiku/CLI gotchas |
-| `../../dku-cli/playbooks/tabular-flow.md` | Zones, naming, wiki, descriptions |
-| `dku-cli` skill's `playbooks/tabular-flow.md` | When the target connection is a SQL engine — cross-connection landing, GREL → SQL push-down gotchas |
+| `../../dku-cli/playbooks/tabular-flow.md` | Recipe selection, collapse mechanics, SQL engines & cross-connection landing, flow organization (zones/naming/wiki), cross-source gotchas |
+| `../../dku-cli/references/formulas.md` | GREL reference + § GREL → SQL push-down |

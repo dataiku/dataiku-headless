@@ -13,6 +13,7 @@ from dku_cli.helpers import (
     resolve_project,
 )
 from dku_cli.output import (
+    emit_created,
     hint,
     info,
     render,
@@ -32,7 +33,18 @@ def _ensure_review_agent_version(proj, review) -> tuple[str | None, bool]:
     review_raw = review.get_raw() if hasattr(review, "get_raw") else {}
     agent_id = review_raw.get("agentSmartId") or getattr(review, "agent_id", None)
     if not agent_id:
-        return None, False
+        # No bound agent → perform_run builds an empty agent loc server-side and
+        # dies with the opaque "Invalid loc: empty name". Fail prescriptively
+        # here instead. (set-agent now verifies the binding sticks, so this is
+        # the backstop for reviews created/bound before that fix.)
+        exit_with_error(
+            f"Agent review '{review.id}' has no agent bound — nothing to evaluate.",
+            details=[
+                f"Bind one: dku agent-review set-agent {review.id} --agent AGENT_ID -P {proj.project_key}",
+                "The agent must have a published, active version to be reviewable.",
+            ],
+            status=3,
+        )
 
     agent = resolve_agent(proj, agent_id)
     settings = agent.get_settings()
@@ -108,8 +120,11 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = proj.create_agent_review(name)
-        success(f"Created agent review '{name}' (id={review.id})")
-        hint(f"dku agent-review get {review.id} -P {project_key}")
+        emit_created(
+            {"id": review.id, "name": name},
+            message=f"Created agent review '{name}' (id={review.id})",
+            next_command=f"dku agent-review get {review.id} -P {project_key}",
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -179,7 +194,24 @@ def set_agent(
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
         review.agent_id = agent
-        review.save()
+        saved = review.save()
+        # DSS silently drops agentSmartId when the agent can't be bound for
+        # review — most commonly because it has no published/active version, so
+        # it isn't a reviewable saved model. Without this check the CLI reports
+        # a false success and the missing binding only surfaces later as the
+        # opaque "Invalid loc: empty name" at `agent-review run`.
+        bound = saved.get_raw().get("agentSmartId") if saved else None
+        if not bound:
+            exit_with_error(
+                f"DSS did not bind agent '{agent}' to review '{review_id}'.",
+                details=[
+                    "The agent must have a published, active version to be reviewable.",
+                    f"Publish one: dku agent create-version {agent} --activate -P {project_key}",
+                    f"Confirm it runs: dku agent test {agent} -P {project_key}",
+                    f"Then retry: dku agent-review set-agent {review_id} --agent {agent} -P {project_key}",
+                ],
+                status=3,
+            )
         success(f"Set agent '{agent}' on review '{review_id}'")
     except Exception as e:
         handle_api_error(e)

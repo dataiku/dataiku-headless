@@ -688,6 +688,7 @@ __all__ = [
     "_INPUT_OPTIONAL_TYPES",
     "_KNOWN_RECIPE_TYPES",
     "_SCORING_RECIPE_TYPES",
+    "_TEXT_PAYLOAD_RECIPE_TYPES",
     "_VISUAL_RECIPE_TYPES",
     # Shared recipe helpers.
     "_apply_engine_type",
@@ -708,6 +709,7 @@ __all__ = [
     "_get_text_payload",
     "_is_plugin_recipe_type",
     "_is_text_payload_recipe",
+    "_parse_computed_cols",
     "_parse_order_specs",
     "_raw_create_recipe",
     "_reconcile_scoring_name",

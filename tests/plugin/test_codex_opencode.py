@@ -37,7 +37,7 @@ def test_codex_marketplace_lists_the_plugin():
     entry = next((p for p in mk["plugins"] if p["name"] == "dataiku-mcp"), None)
     assert entry is not None
     assert entry["source"]["path"] == "./dataiku-mcp"
-    assert "dataiku-cli" in entry["source"]["url"]
+    assert "dataiku-headless" in entry["source"]["url"]
 
 
 def test_opencode_example_is_a_valid_local_stdio_server():

@@ -5,9 +5,9 @@
   "description": "Connect Claude Desktop to Dataiku DSS — the dku code-mode MCP server, authed with your own DSS personal API key.",
   "author": {
     "name": "Dataiku",
-    "url": "https://github.com/dataiku/dataiku-cli"
+    "url": "https://github.com/dataiku/dataiku-headless"
   },
-  "homepage": "https://github.com/dataiku/dataiku-cli",
+  "homepage": "https://github.com/dataiku/dataiku-headless",
   "server": {
     "type": "binary",
     "entry_point": "bin/dku-mcp-launch.sh",

@@ -754,3 +754,21 @@ def test_dataset_create_fails_on_conflicting_definition_type(patch_client, tmp_p
     )
     assert result.exit_code != 0
     assert "conflicts with definition type" in result.output
+
+
+def test_dataset_head_limit_alias(patch_client):
+    """--limit aliases -n/--rows — agents guess it from `download --limit`."""
+    result = runner.invoke(
+        app, ["dataset", "head", "ds1", "--limit", "5", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+
+
+def test_dataset_create_editable_normalized_to_inline(patch_client):
+    """The DSS UI calls Inline 'Editable' — accept the UI name."""
+    result = runner.invoke(
+        app,
+        ["dataset", "create", "ed1", "--type", "Editable", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Inline" in result.output

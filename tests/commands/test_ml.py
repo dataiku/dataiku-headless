@@ -244,7 +244,7 @@ def test_ml_status_json(patch_client):
 def test_ml_train(patch_client):
     result = runner.invoke(app, ["ml", "train", "a1", "t1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "Trained 1 model(s)" in result.output
+    assert "Trained 1/1 model(s) successfully" in result.output
     patch_client.get_project("PROJ1").get_ml_task("a1", "t1").train.assert_called_once()
 
 
@@ -255,6 +255,60 @@ def test_ml_train_json(patch_client):
     assert result.exit_code == 0
     assert '"count": 1' in result.output
     assert '"model_ids"' in result.output
+    assert '"succeeded": 1' in result.output
+
+
+def test_ml_train_zero_models_exits_nonzero(patch_client):
+    """Training that produces 0 models must exit non-zero — exit 0 would let an
+    agent chain `ml train && ml deploy` march on and deploy nothing."""
+    mltask = patch_client.get_project("PROJ1").get_ml_task("a1", "t1")
+    mltask.train.return_value = []
+    result = runner.invoke(app, ["ml", "train", "a1", "t1", "--project", "PROJ1"])
+    assert result.exit_code != 0, result.output
+    assert "0 models" in result.output
+
+
+def test_ml_train_all_failed_exits_nonzero(patch_client):
+    """When every trained model's trainInfo.state is FAILED (none reached DONE),
+    train must exit non-zero rather than reporting success."""
+    mltask = patch_client.get_project("PROJ1").get_ml_task("a1", "t1")
+    mltask.train.return_value = ["m-failed-1", "m-failed-2"]
+    mltask.get_trained_model_snippet.return_value = {
+        "algorithm": "RANDOM_FOREST_CLASSIFICATION",
+        "trainInfo": {"state": "FAILED"},
+    }
+    result = runner.invoke(app, ["ml", "train", "a1", "t1", "--project", "PROJ1"])
+    assert result.exit_code != 0, result.output
+    assert "failed" in result.output.lower()
+
+
+def test_ml_train_snippet_lookup_error_exits_nonzero_without_model_failure_summary(
+    patch_client,
+):
+    mltask = patch_client.get_project("PROJ1").get_ml_task("a1", "t1")
+    mltask.train.return_value = ["m1"]
+    mltask.get_trained_model_snippet.side_effect = RuntimeError("snippet unavailable")
+
+    result = runner.invoke(app, ["ml", "train", "a1", "t1", "--project", "PROJ1"])
+
+    combined = (result.stdout + result.stderr).lower()
+    assert result.exit_code != 0, result.output
+    assert "snippet unavailable" in combined
+    assert "all 1 trained model(s) failed" not in combined
+
+
+def test_ml_train_partial_success_exits_zero(patch_client):
+    """As long as at least one model reaches DONE, train succeeds (exit 0)."""
+    mltask = patch_client.get_project("PROJ1").get_ml_task("a1", "t1")
+    mltask.train.return_value = ["m-done", "m-failed"]
+    snippets = {
+        "m-done": {"trainInfo": {"state": "DONE"}},
+        "m-failed": {"trainInfo": {"state": "FAILED"}},
+    }
+    mltask.get_trained_model_snippet.side_effect = lambda **kw: snippets[kw["id"]]
+    result = runner.invoke(app, ["ml", "train", "a1", "t1", "--project", "PROJ1"])
+    assert result.exit_code == 0, result.output
+    assert "Trained 1/2 model(s) successfully" in result.output
 
 
 def test_ml_train_no_wait(patch_client):
@@ -681,3 +735,369 @@ def test_ml_redeploy_quiet_when_inputs_match(patch_client):
     )
     assert result.exit_code == 0
     assert "still reads" not in result.output
+
+
+# --- set-params ---
+
+
+def test_ml_set_params_grid_preserves_limit(patch_client):
+    """Grid hyperparameters: only `values` is replaced; limit/gridMode survive."""
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "--algorithm",
+            "RANDOM_FOREST_CLASSIFICATION",
+            "--set",
+            "n_estimators=100",
+            "--set",
+            "max_tree_depth=30",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    algo = settings.get_algorithm_settings("RANDOM_FOREST_CLASSIFICATION")
+    assert algo["n_estimators"]["values"] == [100]
+    assert algo["n_estimators"]["limit"] == {"min": 1}  # the trap: must survive
+    assert algo["n_estimators"]["gridMode"] == "EXPLICIT"
+    assert algo["max_tree_depth"]["values"] == [30]
+    settings.save.assert_called_once()
+
+
+def test_ml_set_params_plain_array_hyperparameter(patch_client):
+    """Clustering hyperparams are plain arrays (NOT grid dicts) — a comma
+    list must become a JSON array, and a single value a one-element array.
+    Regression: the scalar path once stringified k to "3,4" and DSS rejected
+    the save with 'Expected BEGIN_ARRAY but was STRING'."""
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "KMEANS",
+            "--set",
+            "k=3,4,5,6",
+            "--set",
+            "seed=42",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    algo = settings.get_algorithm_settings("KMEANS")
+    assert algo["k"] == [3, 4, 5, 6]
+    assert algo["seed"] == 42  # plain scalar assigned directly
+
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "KMEANS",
+            "--set",
+            "k=4",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert algo["k"] == [4]  # single value on an array param stays an array
+
+
+def test_ml_set_params_plain_string_value(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "random_forest_classification",  # lowercase accepted
+            "--set",
+            "selection_mode=sqrt",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    algo = settings.get_algorithm_settings("RANDOM_FOREST_CLASSIFICATION")
+    assert algo["selection_mode"] == "sqrt"
+
+
+def test_ml_set_params_unknown_algorithm_lists_available(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "NOT_AN_ALGO",
+            "--set",
+            "x=1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unknown algorithm" in result.output
+    assert "Available:" in result.output
+
+
+def test_ml_set_params_unknown_param_lists_valid_keys(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "KMEANS",
+            "--set",
+            "nope=1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not found on KMEANS" in result.output
+    assert "Valid parameters:" in result.output
+    # Nothing half-applied
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    settings.save.assert_not_called()
+
+
+def test_ml_set_params_rejects_malformed_set(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "KMEANS",
+            "--set",
+            "justakey",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "expected param=value" in result.output
+
+
+def test_ml_set_params_nested_object_param_errors(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-params",
+            "a1",
+            "t1",
+            "-a",
+            "RANDOM_FOREST_CLASSIFICATION",
+            "--set",
+            "grid=1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "nested settings object" in result.output
+
+
+# --- set-split ---
+
+
+def test_ml_set_split_train_ratio(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-split",
+            "a1",
+            "t1",
+            "--train-ratio",
+            "0.7",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "0.8 -> 0.7" in result.output
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    assert settings.get_raw()["splitParams"]["ssdTrainingRatio"] == 0.7
+    settings.save.assert_called_once()
+
+
+def test_ml_set_split_kfold(patch_client):
+    result = runner.invoke(
+        app,
+        ["ml", "set-split", "a1", "t1", "--kfold", "5", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    split = settings.get_raw()["splitParams"]
+    assert split["kfold"] is True
+    assert split["nFolds"] == 5
+
+
+def test_ml_set_split_invalid_ratio(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-split",
+            "a1",
+            "t1",
+            "--train-ratio",
+            "1.5",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "between 0 and 1" in result.output
+
+
+def test_ml_set_split_requires_a_flag(patch_client):
+    result = runner.invoke(app, ["ml", "set-split", "a1", "t1", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "Nothing to change" in result.output
+
+
+def test_ml_set_split_rejects_kfold_with_no_kfold(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-split",
+            "a1",
+            "t1",
+            "--kfold",
+            "5",
+            "--no-kfold",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_ml_set_split_clustering_has_no_split(patch_client):
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    settings.get_raw.return_value = {"taskType": "CLUSTERING"}  # no splitParams
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-split",
+            "a1",
+            "t1",
+            "--train-ratio",
+            "0.7",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "no splitParams" in result.output
+
+
+# --- set-feature --rescaling ---
+
+
+def test_ml_set_feature_rescaling_none(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-feature",
+            "a1",
+            "t1",
+            "amount",
+            "--rescaling",
+            "NONE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    feat = settings._feature_store["amount"]
+    assert feat["rescaling"] == "NONE"  # string enum, not an object
+    settings.save.assert_called_once()
+
+
+def test_ml_set_feature_role_and_rescaling_together(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-feature",
+            "a1",
+            "t1",
+            "amount",
+            "--role",
+            "INPUT",
+            "--rescaling",
+            "minmax",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    feat = settings._feature_store["amount"]
+    assert feat["role"] == "INPUT"
+    assert feat["rescaling"] == "MINMAX"
+    settings.save.assert_called_once()
+
+
+def test_ml_set_feature_rescaling_rejects_non_numeric(patch_client):
+    settings = patch_client.get_project("PROJ1").get_ml_task("a1", "t1").get_settings()
+    settings._feature_store["city"] = {"role": "INPUT", "type": "CATEGORY"}
+    result = runner.invoke(
+        app,
+        [
+            "ml",
+            "set-feature",
+            "a1",
+            "t1",
+            "city",
+            "--rescaling",
+            "NONE",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "only applies to NUMERIC" in result.output
+    settings.save.assert_not_called()
+
+
+def test_ml_set_feature_requires_role_or_rescaling(patch_client):
+    result = runner.invoke(
+        app,
+        ["ml", "set-feature", "a1", "t1", "amount", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "Nothing to change" in result.output

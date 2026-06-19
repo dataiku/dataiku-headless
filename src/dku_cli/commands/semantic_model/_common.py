@@ -45,6 +45,22 @@ def _default_attribute(column_name: str, dss_type: str, description: str = "") -
     return attr
 
 
+def _column_description(col: dict) -> str:
+    """Read a dataset schema column's description.
+
+    DSS stores the schema-view "Description" field as `comment`
+    (what `dku dataset ai-describe --save` and `set-column-description`
+    write). `description` is accepted as a fallback for API payloads
+    that use it.
+    """
+    return (col.get("comment") or col.get("description") or "").strip()
+
+
+def _described_ratio(attrs: list[dict]) -> tuple[int, int]:
+    """Return (described, total) counts over an entity's attributes."""
+    return sum(1 for a in attrs if a.get("description")), len(attrs)
+
+
 def _split_csv(value: str | None) -> list[str]:
     """Parse a comma-separated string into a trimmed list (empty string -> [])."""
     if not value:

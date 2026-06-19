@@ -450,6 +450,144 @@ def test_recipe_create_join_multi_input_all_keyed_no_warning(patch_client):
     assert "CARTESIAN" not in _strip_ansi(result.output)
 
 
+def test_recipe_create_join_pipeline_flags(patch_client):
+    """--pre-filter / --computed-col / --post-filter wire the 4-stage pipeline
+    into the join payload (shapes verified against live DSS 2026-06-10)."""
+    _proj, settings, _mock_joins = _setup_join_mock(patch_client)
+    settings.obj_payload = {"virtualInputs": [{"index": 0}, {"index": 1}]}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "rates",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--pre-filter",
+            '0:status == "A"',
+            "--computed-col",
+            "weighted=amount * rate:double",
+            "--computed-col",
+            "1:rate_pct=rate * 100:double",
+            "--post-filter",
+            "amount > 15",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = settings.obj_payload
+    # Per-input preFilter: canonical CUSTOM shape (top-level expression).
+    pf = payload["virtualInputs"][0]["preFilter"]
+    assert pf["enabled"] is True
+    assert pf["expression"] == 'status == "A"'
+    assert pf["uiData"]["mode"] == "CUSTOM"
+    # Pre-join computed column on input 1.
+    assert payload["virtualInputs"][1]["computedColumns"] == [
+        {"mode": "GREL", "name": "rate_pct", "expr": "rate * 100", "type": "double"}
+    ]
+    # Post-join computed column (cross-input) at payload level.
+    assert payload["computedColumns"] == [
+        {"mode": "GREL", "name": "weighted", "expr": "amount * rate", "type": "double"}
+    ]
+    # postFilter on the joined output.
+    assert payload["postFilter"]["expression"] == "amount > 15"
+    settings.save.assert_called()
+
+
+def test_recipe_create_join_pre_filter_requires_index(patch_client):
+    """--pre-filter without the 'INDEX:' prefix is refused with the format."""
+    _proj, settings, _mock_joins = _setup_join_mock(patch_client)
+    settings.obj_payload = {"virtualInputs": [{"index": 0}, {"index": 1}]}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "rates",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--pre-filter",
+            'status == "A"',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    flat = " ".join(_strip_ansi(result.output).split())
+    assert "INDEX:GREL_EXPR" in flat
+
+
+def test_recipe_create_join_pre_filter_index_out_of_range(patch_client):
+    """--pre-filter with an out-of-range index names the valid inputs."""
+    _proj, settings, _mock_joins = _setup_join_mock(patch_client)
+    settings.obj_payload = {"virtualInputs": [{"index": 0}, {"index": 1}]}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "rates",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--pre-filter",
+            "5:amount > 0",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    flat = " ".join(_strip_ansi(result.output).split())
+    assert "out of range" in flat
+    assert "0=orders" in flat
+
+
+def test_recipe_create_join_computed_col_index_out_of_range(patch_client):
+    """An indexed --computed-col beyond the input list is refused."""
+    _proj, settings, _mock_joins = _setup_join_mock(patch_client)
+    settings.obj_payload = {"virtualInputs": [{"index": 0}, {"index": 1}]}
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "my_join",
+            "-i",
+            "orders",
+            "-i",
+            "rates",
+            "--output-ds",
+            "joined",
+            "--join-key",
+            "id",
+            "--computed-col",
+            "7:flag=amount > 0:boolean",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "out of range" in " ".join(_strip_ansi(result.output).split())
+
+
 def test_join_modifier_guard_fires_before_output_creation(patch_client):
     """A per-condition match modifier (--date-window) with NO --join-key is
     refused PRE-FLIGHT — before the recipe is built or the output dataset is
@@ -478,7 +616,7 @@ def test_join_modifier_guard_fires_before_output_creation(patch_client):
     assert result.exit_code == 1
     flat = " ".join(_strip_ansi(result.output).split())
     # Prescriptive message: tells the agent it needs a join key.
-    assert "no join key was set" in flat
+    assert "no EQ join key was set" in flat
     assert "--join-key" in flat
     # Pre-flight: neither the recipe nor the output dataset was created.
     proj.new_recipe.assert_not_called()
@@ -1494,3 +1632,35 @@ def test_recipe_create_window_lag_date_unit_invalid(patch_client):
     )
     assert result.exit_code == 2
     assert "Invalid value" in _strip_ansi(result.output)
+
+
+def test_recipe_create_join_invalid_pair_index_fails_before_create(patch_client):
+    """An out-of-range -k pair index aborts BEFORE the recipe is created —
+    a half-configured join would otherwise run 'successfully' to 0 rows."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-join",
+            "bad_join",
+            "-i",
+            "orders",
+            "-i",
+            "returns",
+            "-i",
+            "managers",
+            "--output-ds",
+            "out",
+            "-k",
+            "Order ID",
+            "-k",
+            "2:Region",  # 3 inputs → pairs 0..1; 2 is the input-index mistake
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Join index 2 out of range" in result.output
+    assert "join-PAIR index" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_not_called()

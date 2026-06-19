@@ -198,6 +198,8 @@ def _group_detail(group: click.Group) -> dict:
     """
     commands, groups = {}, {}
     for name, cmd in sorted(group.commands.items()):
+        if getattr(cmd, "hidden", False):
+            continue
         if isinstance(cmd, click.Group):
             groups[name] = _clean(cmd.help).split("\n", 1)[0]
         else:
@@ -216,6 +218,8 @@ def _root_detail(group: click.Group) -> dict:
     """Root index: root commands are detailed, groups stay one-line."""
     commands, groups = {}, {}
     for name, cmd in sorted(group.commands.items()):
+        if getattr(cmd, "hidden", False):
+            continue
         if isinstance(cmd, click.Group):
             groups[name] = _clean(cmd.help).split("\n", 1)[0]
         else:

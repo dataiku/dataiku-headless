@@ -120,9 +120,18 @@ class GeoDistanceUnit(_StrEnum):
 
 
 class FuzzyMethod(_StrEnum):
+    """create-fuzzy-join --method: DSS fuzzyMatchDesc.distanceType values.
+
+    Live-verified on DSS 14.6 — JARO_WINKLER / NORMALIZED_LEVENSHTEIN are not
+    accepted by the engine and were removed.
+    """
+
     LEVENSHTEIN = "LEVENSHTEIN"
-    JARO_WINKLER = "JARO_WINKLER"
-    NORMALIZED_LEVENSHTEIN = "NORMALIZED_LEVENSHTEIN"
+    EXACT = "EXACT"
+    EUCLIDEAN = "EUCLIDEAN"
+    HAMMING = "HAMMING"
+    COSINE = "COSINE"
+    JACCARD = "JACCARD"
 
 
 # --- recipes: export / filter / split / window / sampling --------------------
@@ -232,6 +241,14 @@ class MoveItemType(_StrEnum):
     AUTO = "AUTO"
 
 
+# --- project audit -----------------------------------------------------------
+class AuditBucket(_StrEnum):
+    STRUCTURE = "STRUCTURE"
+    DOCUMENTATION = "DOCUMENTATION"
+    EVIDENCE = "EVIDENCE"
+    MAINTAINABILITY = "MAINTAINABILITY"
+
+
 # --- datasets ----------------------------------------------------------------
 class JobsDbView(_StrEnum):
     METRICS_HISTORY = "METRICS_HISTORY"
@@ -255,6 +272,12 @@ class FeatureRole(_StrEnum):
     WEIGHT = "WEIGHT"
 
 
+class FeatureRescaling(_StrEnum):
+    NONE = "NONE"
+    AVGSTD = "AVGSTD"
+    MINMAX = "MINMAX"
+
+
 class RebuildBehavior(_StrEnum):
     NORMAL = "NORMAL"
     WRITE_PROTECT = "WRITE_PROTECT"
@@ -266,6 +289,11 @@ class CrossProjectBuildBehavior(_StrEnum):
     AUTO_BUILD = "AUTO_BUILD"
     DO_NOT_BUILD = "DO_NOT_BUILD"
     EXPLICIT_REBUILD = "EXPLICIT_REBUILD"
+
+
+class VectorStoreUpdateMethod(_StrEnum):
+    OVERWRITE = "OVERWRITE"
+    SMART_OVERWRITE = "SMART_OVERWRITE"
 
 
 class PublishPolicy(_StrEnum):

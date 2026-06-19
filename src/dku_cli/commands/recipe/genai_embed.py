@@ -3,11 +3,31 @@
 from __future__ import annotations
 
 # ruff: noqa: F403,F405
+from dku_cli.enums import VectorStoreUpdateMethod
+
 from ._common import *
 
 # ---------------------------------------------------------------------------
 # GenAI recipe creation commands
 # ---------------------------------------------------------------------------
+
+
+_EMBED_DOCS_PAYLOAD_DEFAULTS = {
+    "userDefinedMetadataColumns": [],
+    "metadataColumns": [],
+    "chunkOverlapCharacters": 120,
+    "chunkSizeCharacters": 3000,
+    "clearVectorStore": False,
+    "vectorStoreUpdateMethod": "SMART_OVERWRITE",
+    "documentSplittingMode": "CHARACTERS_BASED",
+}
+
+
+def _ensure_embed_docs_payload(settings) -> dict:
+    payload = _get_recipe_payload(settings)
+    for key, value in _EMBED_DOCS_PAYLOAD_DEFAULTS.items():
+        payload.setdefault(key, value)
+    return payload
 
 
 @app.command("create-embed")
@@ -56,10 +76,15 @@ def create_embed(
         "--document-splitting-mode",
         help="How records are chunked. e.g. CHARACTERS_BASED (default), SECTIONS_BASED. Sets payload.documentSplittingMode.",
     ),
-    vector_store_update_method: str | None = typer.Option(
+    vector_store_update_method: VectorStoreUpdateMethod | None = typer.Option(
         None,
         "--vector-store-update-method",
-        help="How the vector store reacts to recipe re-runs (SMART_OVERWRITE, FULL_REBUILD, OVERWRITE). Sets payload.vectorStoreUpdateMethod.",
+        case_sensitive=False,
+        help=(
+            "How the vector store is populated when the recipe builds. Use "
+            "OVERWRITE for first-time KB creation, SMART_OVERWRITE for "
+            "incremental updates. Sets payload.vectorStoreUpdateMethod."
+        ),
     ),
     clear_vector_store: bool = typer.Option(
         False,
@@ -184,10 +209,11 @@ def create_embed_docs(
         "--chunk-overlap",
         help="Chunk overlap in characters (default 120). Sets payload.chunkOverlapCharacters.",
     ),
-    vector_store_update_method: str | None = typer.Option(
+    vector_store_update_method: VectorStoreUpdateMethod | None = typer.Option(
         None,
         "--vector-store-update-method",
-        help="How the vector store reacts to recipe re-runs. Default: SMART_OVERWRITE (re-embed only changed docs). Other DSS values include FULL_REBUILD, OVERWRITE.",
+        case_sensitive=False,
+        help="How the vector store reacts to recipe re-runs. Default: SMART_OVERWRITE (re-embed only changed docs).",
     ),
     clear_vector_store: bool = typer.Option(
         False,
@@ -216,16 +242,19 @@ def create_embed_docs(
         None,
         "--input-folder",
         help=(
-            "Managed-folder ID to use as the recipe's main input — the canonical "
-            "DSS 14.5+ folder→KB pattern, no FilesInFolder wrapper needed. If "
-            "--input is ALSO given, the folder is attached as a 'documents' role "
-            "(legacy DSS 14.4-compatible behavior)."
+            "Managed-folder ID or name to use as the recipe's main input — "
+            "the canonical DSS 14.5+ folder→KB pattern, no FilesInFolder "
+            "wrapper needed. If --input is ALSO given, the folder is attached "
+            "as a 'documents' role (legacy DSS 14.4-compatible behavior)."
         ),
     ),
     output_images_folder: str | None = typer.Option(
         None,
         "--output-images-folder",
-        help="Managed-folder ID where extracted page images are written (used by VLM/SECTIONS_BASED modes).",
+        help=(
+            "Managed-folder ID or name where extracted page images are written "
+            "(used by VLM/SECTIONS_BASED modes)."
+        ),
     ),
     default_vlm: str | None = typer.Option(
         None,
@@ -317,6 +346,14 @@ def create_embed_docs(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
+        input_folder_id = (
+            resolve_folder(proj, input_folder).id if input_folder is not None else None
+        )
+        output_images_folder_id = (
+            resolve_folder(proj, output_images_folder).id
+            if output_images_folder is not None
+            else None
+        )
 
         # Folder-direct path needs to bypass the builder's required with_input.
         # When only --input-folder is provided we build a stub recipe via the
@@ -330,7 +367,7 @@ def create_embed_docs(
         else:
             # No dataset input — use the folder ref directly so the creator's
             # input validation passes. We re-wire below.
-            builder.with_input(input_folder)
+            builder.with_input(input_folder_id)
         if vlm:
             builder.with_vlm(vlm)
 
@@ -406,8 +443,9 @@ def create_embed_docs(
         if any_payload_change or any_params_change or any_io_change or folder_only:
             recipe_obj = proj.get_recipe(recipe_name)
             settings = recipe_obj.get_settings()
+            _ensure_embed_docs_payload(settings)
             if any_payload_change:
-                payload = _get_recipe_payload(settings)
+                payload = _ensure_embed_docs_payload(settings)
                 if chunk_size is not None:
                     payload["chunkSizeCharacters"] = chunk_size
                 if chunk_overlap is not None:
@@ -445,18 +483,18 @@ def create_embed_docs(
                     # Rewire main input to the folder (canonical DSS 14.5+
                     # folder→KB shape, what CHATTERBOX/ATU use).
                     inputs = raw_def.setdefault("inputs", {})
-                    inputs["main"] = {"items": [{"ref": input_folder}]}
+                    inputs["main"] = {"items": [{"ref": input_folder_id}]}
                 elif input_folder is not None:
                     # Legacy path: attach folder as 'documents' role on top of
                     # the main FilesInFolder dataset input.
                     inputs = raw_def.setdefault("inputs", {})
                     inputs.setdefault("documents", {"items": []})["items"].append(
-                        {"ref": input_folder}
+                        {"ref": input_folder_id}
                     )
                 if output_images_folder is not None:
                     outputs = raw_def.setdefault("outputs", {})
                     outputs.setdefault("images", {"items": []})["items"].append(
-                        {"ref": output_images_folder, "appendMode": False}
+                        {"ref": output_images_folder_id, "appendMode": False}
                     )
             settings.save()
         success(f"Created embed-docs recipe '{recipe_name}' in {project_key}")

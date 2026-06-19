@@ -68,6 +68,95 @@ def test_agent_tool_run_no_input(patch_client):
     ).run.assert_called_once_with({})
 
 
+def _make_vss_null_tool(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    tool = proj.get_agent_tool("tool1")
+    tool.run.side_effect = Exception("java.lang.NullPointerException")
+    tool.get_settings.return_value.get_raw.return_value = {
+        "type": "VectorStoreSearch",
+        "params": {"knowledgeBankRef": "kb1"},
+    }
+    return proj
+
+
+def test_agent_tool_run_vss_null_kb_built_says_do_not_delete(patch_client):
+    # KB probe returns documents (default mock) → tool is fine, not a build problem.
+    _make_vss_null_tool(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "run",
+            "tool1",
+            "--project",
+            "PROJ1",
+            "--input",
+            '{"query":"x"}',
+        ],
+    )
+    assert result.exit_code != 0
+    assert "must be built first" not in result.output
+    assert "Do NOT delete" in result.output
+    assert "IS built and queryable" in result.output
+
+
+def test_agent_tool_run_vss_null_empty_kb_points_to_recipe(patch_client):
+    proj = _make_vss_null_tool(patch_client)
+    proj.get_knowledge_bank("kb1").search.return_value = []
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "run",
+            "tool1",
+            "--project",
+            "PROJ1",
+            "--input",
+            '{"query":"x"}',
+        ],
+    )
+    assert result.exit_code != 0
+    assert "must be built first" not in result.output
+    assert "no indexed content" in result.output
+    assert "recipe run" in result.output
+
+
+def test_agent_tool_run_vss_null_probe_failure_is_not_empty_kb(patch_client):
+    proj = _make_vss_null_tool(patch_client)
+    proj.get_knowledge_bank("kb1").search.side_effect = Exception(
+        "503 Service Unavailable"
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "run",
+            "tool1",
+            "--project",
+            "PROJ1",
+            "--input",
+            '{"query":"x"}',
+        ],
+    )
+    assert result.exit_code != 0
+    assert "no indexed content" not in result.output
+    assert "could not be probed" in result.output
+    assert "503 Service Unavailable" in result.output
+
+
+def test_agent_tool_run_help_documents_dataset_lookup_shape(patch_client):
+    result = runner.invoke(app, ["agent-tool", "run", "--help"])
+    assert result.exit_code == 0
+    help_payload = json.loads(result.output)
+    assert (
+        '{"filter": {"column": "sku", "operator": "EQUALS", "value": "ABC"}}'
+        in help_payload["help"]
+    )
+    assert '{"question": "question to ask"}' in help_payload["help"]
+    assert "single-filter" in help_payload["help"]
+    assert "strip the outer" in help_payload["help"]
+
+
 def test_agent_tool_delete(patch_client):
     result = runner.invoke(
         app, ["agent-tool", "delete", "tool1", "--project", "PROJ1", "--yes"]

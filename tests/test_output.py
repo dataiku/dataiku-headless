@@ -7,6 +7,7 @@ import json
 import pytest
 
 from dku_cli.output import (
+    emit_created,
     error,
     get_output_format,
     info,
@@ -88,6 +89,38 @@ def test_render_raw_non_dict_prints_str(capsys):
     render_raw("plain text")
     captured = capsys.readouterr()
     assert captured.out == "plain text\n"
+
+
+def test_emit_created_dense_puts_object_on_stdout_banner_on_stderr(capsys):
+    emit_created({"id": "x1"}, message="Created x1", next_command="dku x get x1")
+    captured = capsys.readouterr()
+    assert captured.out == '{"id":"x1"}\n'  # data → stdout, pipe-clean
+    assert "Created x1" in captured.err  # banner → stderr
+    assert "dku x get x1" in captured.err
+
+
+def test_emit_created_json_is_pure_object_no_chrome(capsys):
+    set_output_format("json")
+    emit_created({"id": "x1"}, message="Created x1", next_command="dku x get x1")
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"id": "x1"}
+    assert captured.err == ""  # json mode is machine-only
+
+
+def test_emit_created_quiet_suppresses_banner(capsys):
+    set_output_format("quiet")
+    emit_created({"id": "x1"}, message="Created x1")
+    captured = capsys.readouterr()
+    assert captured.out == '{"id":"x1"}\n'
+    assert captured.err == ""
+
+
+def test_emit_created_ids_prints_bare_id(capsys):
+    set_output_format("ids")
+    emit_created({"id": "x1", "name": "n"}, message="Created x1")
+    captured = capsys.readouterr()
+    assert captured.out == "x1\n"  # honors the ids contract: one identifier line
+    assert captured.err == ""
 
 
 def test_render_json_filters_columns(capsys):

@@ -1,4 +1,4 @@
-# CLAUDE.md — Dataiku DevKit
+# CLAUDE.md — Dataiku Headless
 
 ## Tenet
 
@@ -50,7 +50,8 @@ Skills live under `dataiku-mcp/skills/dku-cli/`. The structure is a map, not a m
 
 | Layer | File | Purpose |
 |---|---|---|
-| Router | `SKILL.md` | DSS capability index + permanent rules. Thin — only enough to route the agent to one playbook. |
+| Router | `SKILL.md` | Operating thesis (why SME-reviewability is the product) + DSS capability index + permanent rules. Thin — only enough to route the agent to one playbook. |
+| Soul | `soul.md` | Judgment layer, read once at the start of long-running builds: simple-first escalation, stage-gate validation, pre-processing trade-offs, gold finishing standard. Stances only — no syntax, no task steps. |
 | Playbooks | `playbooks/*.md` | Task-complete walkthrough: steps, gotchas-with-fix, verification. One playbook per task type. |
 | References | `references/*.md` | Cold detail — payload shapes, param tables, schemas. Opened only when a playbook directs. |
 
@@ -64,7 +65,7 @@ uv run pytest -v
 uv run dku
 ```
 
-Rebuild global install: `uv tool install --from . dku-cli --force --reinstall`
+Rebuild global install: `uv tool install --from . dataiku-headless --force --reinstall`
 Rebuild MCP wheel: `make bundle` (in `dataiku-mcp/`)
 
 ## Testing
@@ -81,11 +82,11 @@ Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agen
 
 | Channel | Command |
 |---|---|
-| Direct install | `uv tool install git+https://github.com/dataiku/dataiku-cli.git` |
-| Local dev | `uv tool install --from . dku-cli` |
-| Claude Code | `/plugin marketplace add dataiku/dataiku-cli` |
-| Codex | `codex plugin marketplace add dataiku/dataiku-cli` |
-| OpenCode | `uv tool install --from git+…/dataiku-cli.git "dku-cli[mcp]"` + `dataiku-mcp/examples/opencode.json` |
+| Direct install | `uv tool install git+https://github.com/dataiku/dataiku-headless.git` |
+| Local dev | `uv tool install --from . dataiku-headless` |
+| Claude Code | `/plugin marketplace add dataiku/dataiku-headless` |
+| Codex | `codex plugin marketplace add dataiku/dataiku-headless` |
+| OpenCode | `uv tool install --from git+…/dataiku-headless.git "dataiku-headless[mcp]"` + `dataiku-mcp/examples/opencode.json` |
 | Claude Desktop | `.mcpb` bundle from `dataiku-mcp-bundle/` |
 
 ## Doc index
@@ -96,3 +97,6 @@ Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agen
 | `dku <cmd> --help` | Exact flags/types/choices |
 | `dataiku-mcp/skills/dku-cli/playbooks/` | Task walkthroughs, one per task |
 | `dataiku-mcp/skills/dku-cli/references/` | Cold detail — payloads, safety tiers |
+| `dataiku-mcp/skills/dku-cli/references/visual-recipe-traps.md` | A visual-recipe payload validates and writes but a step no-ops, a build NPEs, or DSS shows a spurious save prompt |
+| `docs/safety-stance.md` | Design rationale — why confirmation booleans don't authorize agents; how `--confirm-name`/`--yes`/exit-77 divide the work; Phase-2 harness-confirmation proposal |
+| `docs/tool-disclosure.md` | Why the MCP server ships one code-mode tool (`dku_exec`) not ~150 typed tools, and the BM25 search-exposure escape hatch |

@@ -291,3 +291,35 @@ def test_llm_rerank_json(patch_client):
     parsed = json.loads(result.output)
     assert len(parsed) == 2
     assert parsed[0]["score"] == 0.95
+
+
+# --- llm endpoint ---
+
+
+def test_llm_endpoint_dense(patch_client):
+    result = runner.invoke(app, ["llm", "endpoint", "-P", "PROJ1"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert (
+        "https://dss.example.com/public/api/projects/PROJ1/llms/openai/v1"
+        == data["base_url"]
+    )
+    assert "Bearer" in data["auth_header"]
+    # The hard-won Mesh auth gotcha must be surfaced.
+    assert "x-dku-apiticket" in result.stderr
+
+
+def test_llm_endpoint_json(patch_client):
+    result = runner.invoke(app, ["--format", "json", "llm", "endpoint", "-P", "PROJ1"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["base_url"].endswith("/projects/PROJ1/llms/openai/v1")
+    assert data["chat_completions_url"].endswith("/chat/completions")
+    assert data["models_url"].endswith("/models")
+
+
+def test_llm_endpoint_strips_trailing_slash(patch_client):
+    patch_client.host = "https://dss.example.com/"
+    result = runner.invoke(app, ["--format", "json", "llm", "endpoint", "-P", "PROJ1"])
+    data = json.loads(result.stdout)
+    assert "com//public" not in data["base_url"]

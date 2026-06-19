@@ -6,7 +6,7 @@ from dku_cli import __version__
 
 ICON = "◆"
 NAME = "dku"
-FULL_NAME = "dku-cli"
+FULL_NAME = "Dataiku Headless"
 
 # Dataiku bird + wordmark — dot-style ASCII art.
 LOGO = """\
@@ -40,7 +40,7 @@ def print_logo(*, subtitle: str | None = None, dim_logo: bool = False) -> None:
 
 
 def version_string() -> str:
-    """Return branded version string: '◆ dku-cli 0.2.0'."""
+    """Return branded version string: '◆ Dataiku Headless 0.4.0'."""
     return f"{ICON} {FULL_NAME} {__version__}"
 
 
