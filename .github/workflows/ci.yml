@@ -22,7 +22,7 @@ jobs:
         # on an intermediate interpreter cannot slip through.
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -33,7 +33,7 @@ jobs:
   coverage-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -45,7 +45,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -57,7 +57,7 @@ jobs:
   quality-ratchet:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Dependency Audit & Secret Scan
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # gitleaks needs full history to scan every commit on the branch.
           fetch-depth: 0
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Bundled Wheel Freshness
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Rebuild bundled MCP plugin wheel
         run: make plugin
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Workflow Lint
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Download actionlint
         id: actionlint
         run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
