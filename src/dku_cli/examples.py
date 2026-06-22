@@ -137,6 +137,12 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("config", "set-variables"): [
         "dku config set-variables --set env=prod --set region=eu-west-1",
     ],
+    # KEY=VALUE assignments — geo meaning is the primary use case (charts fail
+    # to render without it), but the pattern works for any meaning.
+    ("dataset", "set-meaning"): [
+        "dku dataset set-meaning sales geopoint=GeoPoint -P PROJ",
+        "dku dataset set-meaning sales latitude=Latitude longitude=Longitude -P PROJ",
+    ],
     # Ergonomic mode: -f KEY=VALUE (JSON arrays for list fields) vs raw --definition
     ("govern", "artifact", "create"): [
         "dku govern artifact create -b bp.system.govern_project -n 'Customer Analytics'"

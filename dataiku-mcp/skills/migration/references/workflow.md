@@ -68,6 +68,16 @@ Plan shape:
 
 Print a one-line ratio at the top of the plan: *"Source: N tools → Plan: M recipes (N/M ≈ X×)."* Expected **3–5×** for typical workflows. If you're at <2×, either re-walk the triggers (you've probably missed fold-ins or per-input Prepare-before-Stack patterns) or state explicitly why this workflow doesn't compress (small input, fully parallel branches, output-only chain). Then get user confirmation before Phase 3 (unattended run: print the plan and proceed immediately — never end the turn on a question).
 
+### The honesty gate — classify, then ask (SKILL.md rule 8)
+
+The plan is only half the gate; the other half is *what you can't know*. Before presenting, walk the inventory once more and tag every non-obvious construct **derivable / hand-authored / needs-human-input**:
+
+- **Derivable** — a function of inputs. Migrate it (rebuild from inputs, not from the source's cached outputs — that is transcription, SKILL.md rule 7).
+- **Hand-authored** — manual overrides, hand-keyed reference data (accrual days, FX), analyst-typed assumptions, lines *pasted in from upstream* that the source does not itself compute. These are **inputs to preserve**, not logic to rebuild — carry the source values forward and note them.
+- **Needs-human-input** — questions only the customer can answer: where do the actuals come from, can we connect upstream? Is this negative value (or this odd wiring) real, or a redaction/extract artifact? Is this config a typo? Should this line be modelled at component grain?
+
+The deliverable of this phase is the plan **plus an explicit open-questions list** presented *with* it. Migrating confidently around an unknown is how a whole zone gets built then deleted — naming the unknowns is the judgement the engagement needs from you. (Unattended run: still print the classification and questions, then proceed on the most-faithful reading.)
+
 ---
 
 ## Phase 3 — Build & verify (incremental, in functional units)
@@ -143,6 +153,13 @@ dku --format json dataset head FINAL_OUTPUT -P PROJ -n 5
 ```
 
 `--contract` is how the Phase-1 parity reference becomes a check: per output, assert expected `columns`, `types`, `min_rows`, and `not_blank` keys (literal JSON, `@file.json`, or `-`). Treat it as a guardrail, not the whole sweep — still diff every row × column of the final outputs against the reference for exact parity; the contract just stops you declaring done while a column is missing or a count is wrong.
+
+### Validate at entity grain, and prove the parity is earned
+
+A total that matches can still be wrong two ways:
+
+- **Offsetting per-entity errors.** Aggregate parity hides per-entity errors that cancel. Sweep per **(entity × period)**, not just the rollup, and rank by *signed* error. A near-zero total sitting on large offsetting per-entity errors is a red flag, not a pass — one live sweep caught a small line **sign-flipped** (+£34k where the source had −£580k), invisible at the £1.8bn total. Watch small-base lines especially: a 100%+ per-line error there barely moves the total.
+- **Fit-to-target.** You usually build *knowing* the answer key, so prove the parity is earned, not reverse-engineered: confirm your recipes read *inputs*, not the source's cached *outputs* (SKILL.md rule 7). Any join back to a cached-output value is transcription for that line — exact by construction, and **not** evidence the logic is right. An honest report distinguishes "re-derived and matches" from "read the answer and echoed it."
 
 Present a migration summary: source step → recipe → output dataset → row count → status. Note anything skipped (non-migratable patterns; alternative implementations).
 

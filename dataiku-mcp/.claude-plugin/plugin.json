@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "author": {
     "name": "Dataiku",
-    "url": "https://github.com/dataiku/dataiku-headless"
+    "url": "https://github.com/dataiku/dku-headless"
   },
   "userConfig": {
     "dss_url": {

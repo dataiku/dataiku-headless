@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-06-18
+## [0.4.1] - 2026-06-22
 
 ### Changed
 
@@ -36,5 +36,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dataikuapi` methods the CLI relies on, catching upstream API drift before it
   reaches users.
 
-[Unreleased]: https://github.com/dataiku/dataiku-headless/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/dataiku/dataiku-headless/releases/tag/v0.4.0
+[Unreleased]: https://github.com/dataiku/dku-headless/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/dataiku/dku-headless/releases/tag/v0.4.1

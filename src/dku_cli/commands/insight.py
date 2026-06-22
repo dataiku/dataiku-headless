@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import difflib
-
 import typer
 
+from dku_cli.charts import columns_referenced, lint_chart_def
 from dku_cli.enums import ChartType, MeasureAgg
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
@@ -347,17 +346,6 @@ def set_definition(
         handle_api_error(e)
 
 
-def _extract_chart_columns(chart_def: dict) -> list[str]:
-    """Extract all column references from a chart definition."""
-    columns = []
-    for key in ("genericDimension0", "genericDimension1", "genericMeasures"):
-        for item in chart_def.get(key, []):
-            col = item.get("column")
-            if col:
-                columns.append(col)
-    return columns
-
-
 def _require_sampling_block(params: dict, insight_id: str, project_key: str) -> None:
     """Fail validation when a chart has no params.refreshableSelection.selection."""
     if (params.get("refreshableSelection") or {}).get("selection"):
@@ -381,11 +369,14 @@ def validate(
     insight_id: str = typer.Argument(help="Insight ID to validate"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Validate a chart insight's column references against its dataset schema.
+    """Pre-flight a chart insight before a human loads it.
 
-    Checks that all column names in genericDimension0, genericDimension1,
-    and genericMeasures exist in the bound dataset. Reports mismatches
-    with fuzzy-match suggestions.
+    Charts fail at RENDER time, not save time: an empty required slot throws
+    ArrayIndexOutOfBoundsException, a wrong column name renders blank, a geo
+    chart with no GeoPoint-meaning column builds empty ("dataset is empty"),
+    and some type strings (bubble, waterfall) are silently nulled on save.
+    This checks every binding slot and per-type requirement against the bound
+    dataset schema so those failures surface here, not in the browser.
     """
     project_key = resolve_project(project)
     try:
@@ -416,42 +407,42 @@ def validate(
 
         _require_sampling_block(params, insight_id, project_key)
 
-        chart_def = params.get("def", {})
-        chart_columns = _extract_chart_columns(chart_def)
-        if not chart_columns:
-            warn(f"No column references found in chart definition for '{insight_id}'")
-            return
+        chart_def = params.get("def", {}) or {}
+        try:
+            ds_def = proj.get_dataset(ds_name).get_definition()
+            columns_by_name = {
+                c["name"]: {"type": c.get("type"), "meaning": c.get("meaning")}
+                for c in ds_def.get("schema", {}).get("columns", [])
+            }
+        except Exception:
+            columns_by_name = {}  # foreign/unreadable dataset — skip column checks
 
-        ds_def = proj.get_dataset(ds_name).get_definition()
-        schema_columns = {
-            c["name"] for c in ds_def.get("schema", {}).get("columns", [])
-        }
-
-        invalid = []
-        for col in chart_columns:
-            if col not in schema_columns:
-                matches = difflib.get_close_matches(
-                    col, schema_columns, n=3, cutoff=0.6
-                )
-                suggestion = f" Did you mean: {', '.join(matches)}?" if matches else ""
-                invalid.append(
-                    f"  Column '{col}' not found in dataset '{ds_name}'.{suggestion}"
-                )
-
-        if invalid:
-            available = ", ".join(sorted(schema_columns))
-            error(f"Found {len(invalid)} invalid column reference(s):")
-            for line in invalid:
-                info(line)
-            info(f"  Available columns: {available}")
+        issues = lint_chart_def(chart_def, columns_by_name)
+        for i in (x for x in issues if x["level"] == "warn"):
+            warn(i["msg"])
+            info(f"  fix: {i['fix']}")
+        errors = [i for i in issues if i["level"] == "error"]
+        if errors:
+            ctype = chart_def.get("type")
+            error(
+                f"{len(errors)} blocking issue(s) — chart '{ctype}' will not render cleanly:"
+            )
+            for i in errors:
+                info(f"  - {i['msg']}")
+                info(f"    fix: {i['fix']}")
             info(
-                f"  Fix: dku insight set-definition {insight_id} -d @fixed.json -P {project_key}"
+                f"  After fixing: dku insight set-definition {insight_id} -d @fixed.json -P {project_key}"
             )
             raise SystemExit(1)
-        else:
-            success(
-                f"All {len(chart_columns)} column reference(s) valid against dataset '{ds_name}'"
-            )
+
+        ncols = len(columns_referenced(chart_def))
+        msg = (
+            f"chart '{chart_def.get('type')}' passes pre-flight: "
+            f"required slots present, {ncols} column ref(s) valid against '{ds_name}'"
+        )
+        if not columns_by_name:
+            msg += " (dataset schema unreadable — column checks skipped)"
+        success(msg)
     except SystemExit:
         raise
     except Exception as e:

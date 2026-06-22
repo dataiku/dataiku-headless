@@ -40,7 +40,7 @@ def print_logo(*, subtitle: str | None = None, dim_logo: bool = False) -> None:
 
 
 def version_string() -> str:
-    """Return branded version string: '◆ Dataiku Headless 0.4.0'."""
+    """Return branded version string: '◆ Dataiku Headless 0.4.1'."""
     return f"{ICON} {FULL_NAME} {__version__}"
 
 

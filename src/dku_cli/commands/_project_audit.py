@@ -387,7 +387,7 @@ def _documentation_checks(
     )
     ds_fix = (
         f"dku dataset set-metadata {out_first or src_first} "
-        f"--short-desc '...' -P {project}"
+        f"--description '...' -P {project}"
     )
     undoc_cols = sorted(t for t in terminal if not _has_documented_column(proj, t))
     col = undoc_cols[0] if undoc_cols else "COL"
@@ -532,10 +532,12 @@ def _flow_visible_description_check(
     recipes: list[dict[str, Any]],
     zones: list[dict[str, Any]],
 ) -> Check:
-    terminal_problems, first_terminal = _short_desc_scan(
+    # Datasets have no `shortDesc` in DSS — only `description`, which is what the
+    # flow tile renders. Recipes and zones do carry a real `shortDesc`.
+    terminal_problems, first_terminal = _description_scan(
         _dataset_metadata, proj, sorted(terminal), "Terminal datasets"
     )
-    source_problems, first_source = _short_desc_scan(
+    source_problems, first_source = _description_scan(
         _dataset_metadata, proj, sorted(sources), "Source datasets"
     )
     recipe_names = sorted(r["name"] for r in recipes if r.get("name"))
@@ -558,10 +560,10 @@ def _flow_visible_description_check(
 
     first = first_terminal or first_source
     if terminal_problems:
-        fix = f"dku dataset set-metadata {first} --short-desc '...' -P {project}"
+        fix = f"dku dataset set-metadata {first} --description '...' -P {project}"
         severity = FAIL
     elif source_problems:
-        fix = f"dku dataset set-metadata {first} --short-desc '...' -P {project}"
+        fix = f"dku dataset set-metadata {first} --description '...' -P {project}"
         severity = WARN
     elif recipe_problems:
         fix = f"dku recipe set-metadata {first_recipe} --short-desc '...' -P {project}"

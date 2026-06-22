@@ -14,7 +14,7 @@ on:
         type: boolean
         default: false
       ref:
-        description: "Tag or ref to build when dispatching manually (e.g. v0.4.0)."
+        description: "Tag or ref to build when dispatching manually (e.g. v0.4.1)."
         type: string
         required: false
 

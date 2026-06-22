@@ -97,9 +97,11 @@ class _Dataset:
     def get_metadata(self):
         if self._ds.get("metadata_error"):
             raise RuntimeError("metadata unavailable")
+        # DSS dataset metadata exposes description (+ tags/checklists/custom) but
+        # never a shortDesc — modelling that here is what keeps the audit honest.
         return {
             "description": self._ds.get("description", ""),
-            "shortDesc": self._ds.get("shortDesc", ""),
+            "tags": self._ds.get("tags", []),
         }
 
     def get_definition(self):
@@ -178,7 +180,6 @@ def _base_state():
         "datasets": {
             "orders": {
                 "description": "Raw source orders from the migration fixture.",
-                "shortDesc": "Raw source orders.",
                 "schema": {
                     "columns": [
                         {"name": "order_id", "type": "string"},
@@ -193,7 +194,6 @@ def _base_state():
             },
             "orders_by_customer": {
                 "description": "Customer-grain output summarizing order value.",
-                "shortDesc": "Customer-grain order totals.",
                 "schema": {
                     "columns": [
                         {
@@ -319,10 +319,18 @@ def test_output_descriptions_fail_recipes_only_warn():
 def test_two_word_descriptions_are_accepted():
     state = _base_state()
     state["datasets"]["orders_by_customer"]["description"] = "Daily revenue"
-    state["datasets"]["orders_by_customer"]["shortDesc"] = "Daily revenue"
     payload = _audit(state)
     assert _check(payload, "datasets_have_descriptions")["status"] == "pass"
     assert _check(payload, "flow_visible_descriptions")["status"] == "pass"
+
+
+def test_flow_visible_passes_on_dataset_description_without_shortdesc():
+    """Regression: a real DSS dataset has only `description` (never `shortDesc`).
+    The base fixture's datasets are fully described that way, so the check must
+    pass — previously it FAILed unsatisfiably by reading the absent shortDesc."""
+    payload = _audit(_base_state())
+    assert _check(payload, "flow_visible_descriptions")["status"] == "pass"
+    assert payload["passed"] is True
 
 
 def test_unreadable_metadata_does_not_abort_audit():
@@ -346,9 +354,9 @@ def test_source_dataset_description_only_warns():
     assert payload["passed"] is True
 
 
-def test_flow_visible_terminal_short_desc_fails():
+def test_flow_visible_terminal_missing_description_fails():
     state = _base_state()
-    state["datasets"]["orders_by_customer"]["shortDesc"] = ""
+    state["datasets"]["orders_by_customer"]["description"] = ""
     payload = _audit(state)
     check = _check(payload, "flow_visible_descriptions")
     assert payload["passed"] is False
@@ -356,11 +364,12 @@ def test_flow_visible_terminal_short_desc_fails():
     assert (
         "Terminal datasets without a description: orders_by_customer" in check["detail"]
     )
+    assert "--description" in check["fix"]
 
 
-def test_flow_visible_context_short_desc_warns():
+def test_flow_visible_context_missing_description_warns():
     state = _base_state()
-    state["datasets"]["orders"]["shortDesc"] = ""
+    state["datasets"]["orders"]["description"] = ""
     state["recipes"]["group_orders_by_customer"]["shortDesc"] = ""
     payload = _audit(state)
     check = _check(payload, "flow_visible_descriptions")

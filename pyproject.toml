@@ -46,10 +46,10 @@ mcp = ["fastmcp>=2.0"]
 [project.urls]
 # NOTE: the GitHub repo rename (dataiku-cli -> dataiku-headless) is a manual
 # follow-up. GitHub auto-redirects the old slug, so these resolve in the meantime.
-Homepage = "https://github.com/dataiku/dataiku-headless"
-Repository = "https://github.com/dataiku/dataiku-headless"
-Issues = "https://github.com/dataiku/dataiku-headless/issues"
-Changelog = "https://github.com/dataiku/dataiku-headless/releases"
+Homepage = "https://github.com/dataiku/dku-headless"
+Repository = "https://github.com/dataiku/dku-headless"
+Issues = "https://github.com/dataiku/dku-headless/issues"
+Changelog = "https://github.com/dataiku/dku-headless/releases"
 
 [dependency-groups]
 dev = [
@@ -75,7 +75,7 @@ packages = ["src/dku_cli"]
 name = "cz_conventional_commits"
 # Single source of truth for the version: src/dku_cli/__init__.py (hatch reads
 # the same file via [tool.hatch.version]). cz keeps this literal in sync on bump.
-version = "0.4.0"
+version = "0.4.1"
 version_files = ["src/dku_cli/__init__.py:__version__"]
 tag_format = "v$version"
 update_changelog_on_bump = true

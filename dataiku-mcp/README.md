@@ -11,7 +11,7 @@ an MCP tool.
 ## Install
 
 ```bash
-claude plugin marketplace add dataiku/dataiku-headless
+claude plugin marketplace add https://github.com/dataiku/dku-headless.git
 claude plugin install dataiku-mcp
 ```
 
@@ -28,11 +28,11 @@ if needed.
 This same directory is also a Codex plugin:
 
 ```bash
-codex plugin marketplace add dataiku/dataiku-headless
-codex plugin install dataiku-mcp
+codex plugin marketplace add https://github.com/dataiku/dku-headless.git
 ```
 
-Codex reads DSS connection from the environment:
+Then enable the `dataiku-mcp` plugin in Codex's plugin manager. Codex reads the
+DSS connection from the environment:
 
 ```bash
 export DKU_URL="https://your-dss-host"
@@ -45,7 +45,7 @@ same guidance surface as the Claude/Codex plugins (see
 [`examples/opencode.json`](examples/opencode.json)):
 
 ```bash
-uv tool install --from git+https://github.com/dataiku/dataiku-headless.git "dataiku-headless[mcp]"
+uv tool install --from git+https://github.com/dataiku/dku-headless.git "dataiku-headless[mcp]"
 ```
 ```json
 {

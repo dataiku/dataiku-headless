@@ -46,7 +46,7 @@ body:
         - DSS version
         - OS
       placeholder: |
-        Dataiku Headless: 0.4.0
+        Dataiku Headless: 0.4.1
         Python: 3.13.2
         DSS: 14.5.1
         OS: macOS 15.4

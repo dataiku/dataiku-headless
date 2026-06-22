@@ -2279,6 +2279,98 @@ def infer_types(
         handle_api_error(e)
 
 
+# Common DSS meanings — not exhaustive (custom meanings exist), just the ones
+# worth a typo nudge. Geo meanings are the ones charts actually require.
+_COMMON_MEANINGS = {
+    "GeoPoint",
+    "Geometry",
+    "GeoPolygon",
+    "Latitude",
+    "Longitude",
+    "Country",
+    "USState",
+    "Text",
+    "FreeText",
+    "DoubleMeaning",
+    "LongMeaning",
+    "IntMeaning",
+    "Decimal",
+    "Date",
+    "Boolean",
+    "Email",
+    "URL",
+    "IPAddress",
+    "Gender",
+}
+
+
+@app.command("set-meaning")
+def set_meaning(
+    ctx: typer.Context,
+    dataset_name: str = typer.Argument(help="Dataset name"),
+    assignments: list[str] = typer.Argument(
+        help="COLUMN=MEANING pair(s), e.g. geopoint=GeoPoint latitude=Latitude"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Set the semantic meaning of one or more columns (storage type unchanged).
+
+    Meaning drives chart and feature behavior. Geo charts (scatter_map,
+    admin_map, geom_map) build EMPTY unless their column carries a geo meaning:
+
+      dku dataset set-meaning sales geopoint=GeoPoint -P PROJ
+      dku dataset set-meaning sales latitude=Latitude longitude=Longitude -P PROJ
+
+    Common meanings: GeoPoint, Geometry, Latitude, Longitude, Country, USState,
+    Text, DoubleMeaning, LongMeaning, Date, Email, URL, IPAddress.
+    """
+    project_key = resolve_project(project)
+    pairs: list[tuple[str, str]] = []
+    for a in assignments:
+        if "=" not in a:
+            exit_with_error(
+                f"Invalid assignment '{a}' — expected COLUMN=MEANING.",
+                details=[
+                    "Example: dku dataset set-meaning DS geopoint=GeoPoint -P PROJ"
+                ],
+            )
+        col, meaning = a.split("=", 1)
+        pairs.append((col.strip(), meaning.strip()))
+    try:
+        client = get_client_from_ctx(ctx)
+        ds = client.get_project(project_key).get_dataset(dataset_name)
+        defn = ds.get_definition()
+        columns = defn.get("schema", {}).get("columns", [])
+        by_name = {c["name"]: c for c in columns}
+        for col, meaning in pairs:
+            if col not in by_name:
+                exit_with_error(
+                    f"Column '{col}' does not exist in dataset '{dataset_name}'.",
+                    details=[f"Available columns: {', '.join(sorted(by_name))}"],
+                )
+            if meaning not in _COMMON_MEANINGS:
+                warn(
+                    f"'{meaning}' is not a common built-in meaning — proceeding "
+                    "(it may be a custom meaning, or a typo)."
+                )
+            by_name[col]["meaning"] = meaning
+        ds.set_definition(defn)
+        # re-read and confirm — meaning normalizes silently if rejected
+        try:
+            after = {
+                c["name"]: c.get("meaning")
+                for c in ds.get_definition().get("schema", {}).get("columns", [])
+            }
+        except Exception:
+            after = {}
+        applied = ", ".join(f"{c}={after.get(c)}" for c, _ in pairs)
+        success(f"Set meaning on '{dataset_name}': {applied}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 def _parse_schema_input(value: str) -> dict:
     """Parse a schema definition from JSON, file, stdin, or shorthand.
 
@@ -2403,6 +2495,25 @@ def partitions(
         handle_api_error(e)
 
 
+def _verify_definition_persisted(
+    ds, dataset_name: str, project_key: str, description, short_desc
+) -> None:
+    after = ds.get_definition()
+    reread = (
+        f"Re-read with 'dku dataset get-definition {dataset_name} -P {project_key}'."
+    )
+    if short_desc is not None and after.get("shortDesc") != short_desc:
+        warn(
+            f"shortDesc did not persist (server returned "
+            f"'{after.get('shortDesc', '')}'). {reread}"
+        )
+    if description is not None and after.get("description") != description:
+        warn(
+            f"description did not persist (server returned "
+            f"'{after.get('description', '')}'). {reread}"
+        )
+
+
 @app.command("set-metadata")
 def set_metadata(
     ctx: typer.Context,
@@ -2430,16 +2541,30 @@ def set_metadata(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        meta = ds.get_metadata()
 
-        if description is not None:
-            meta["description"] = description
-        if short_desc is not None:
-            meta["shortDesc"] = short_desc
+        # description / shortDesc live on the dataset DEFINITION, not the
+        # /metadata endpoint — which silently drops them (it only honors tags).
+        # Writing them via set_metadata reported success but never persisted, so
+        # agents looped on the false "Updated metadata" log. Route each field to
+        # its real home, then verify the write actually landed.
+        if description is not None or short_desc is not None:
+            ds_def = ds.get_definition()
+            if description is not None:
+                ds_def["description"] = description
+            if short_desc is not None:
+                ds_def["shortDesc"] = short_desc
+            ds.set_definition(ds_def)
         if tags is not None:
+            meta = ds.get_metadata()
             meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+            ds.set_metadata(meta)
 
-        ds.set_metadata(meta)
+        # Never trust the success log — re-GET the definition and confirm. This
+        # is the exact trap that no-op'd silently before.
+        if description is not None or short_desc is not None:
+            _verify_definition_persisted(
+                ds, dataset_name, project_key, description, short_desc
+            )
         success(f"Updated metadata for dataset '{dataset_name}'")
     except typer.Exit:
         raise

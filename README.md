@@ -28,34 +28,77 @@ This repo ships:
 
 ## Install
 
-### CLI
+> **Access** — `dataiku/dku-headless` is a **private** repo. You need read access
+> and HTTPS git auth to GitHub: run `gh auth login` (or put a PAT in your git
+> credential helper). Every command below clones over **HTTPS** — none use SSH.
+> [`uv`](https://docs.astral.sh/uv/) is required for the CLI.
+
+### 1. CLI — required for every agent
 
 ```bash
-git clone git@github.com:dataiku/dataiku-headless.git
-cd dataiku-headless
-uv tool install --from . dataiku-headless
-dku auth login
+uv tool install --from git+https://github.com/dataiku/dku-headless.git dataiku-headless --force
+dku auth login          # DSS URL + personal API key
 dku whoami
 ```
 
-### Local MCP
+> Upgrading from the old `dku-cli` package? Uninstall it first, or the shared
+> `dku` binary gets orphaned: `uv tool uninstall dku-cli` before the install above.
+
+### 2. Claude Code — MCP + skills
 
 ```bash
-claude plugin marketplace add dataiku/dataiku-headless
+claude plugin marketplace add https://github.com/dataiku/dku-headless.git
 claude plugin install dataiku-mcp
 ```
 
-For Codex:
+Installs the one MCP tool (`dku_exec`) **and** the bundled skills (`dku-cli`,
+`migration`, `dataiku-internal-branding`). You are prompted for your DSS URL +
+API key. Restart Claude Code to load the skills.
+
+### 3. Codex — MCP + skills
 
 ```bash
-codex plugin marketplace add dataiku/dataiku-headless
-codex plugin install dataiku-mcp
+codex plugin marketplace add https://github.com/dataiku/dku-headless.git
 ```
 
-The plugin strategy is: install one MCP tool (`dku_exec`) plus the bundled
-skills. Skills are installed through the host agent's plugin/skill mechanism,
-not exposed as a second MCP tool, so agents get the latest DSS guidance without
-users managing separate skill files.
+Then enable the `dataiku-mcp` plugin in Codex's plugin manager (it registers
+under the `dataiku-marketplace` marketplace in `~/.codex/config.toml`). Codex
+reads the DSS connection from the environment:
+
+```bash
+export DKU_URL="https://your-dss-host"
+export DKU_API_KEY="your-dss-personal-api-key"
+```
+
+### 4. OpenCode / any MCP client
+
+No marketplace — install the CLI with the `mcp` extra, then point your client at
+the local `dku-mcp` stdio server:
+
+```bash
+uv tool install --from git+https://github.com/dataiku/dku-headless.git "dataiku-headless[mcp]" --force
+```
+
+```json
+{
+  "mcp": {
+    "dku": {
+      "type": "local",
+      "command": ["dku-mcp", "serve", "--transport", "stdio"],
+      "enabled": true,
+      "environment": { "DKU_URL": "https://your-dss-host", "DKU_API_KEY": "your-key" }
+    }
+  }
+}
+```
+
+Ready-to-copy config: [`dataiku-mcp/examples/opencode.json`](dataiku-mcp/examples/opencode.json).
+MCP-only clients get `dku_exec` but not the skills — copy `dataiku-mcp/skills/*`
+into the client's skills directory if it supports skills.
+
+**Plugin strategy:** one MCP tool (`dku_exec`) plus the bundled skills, installed
+through the host agent's plugin/skill mechanism — not a second MCP tool — so
+agents get the latest DSS guidance without managing skill files by hand.
 
 ### Claude Desktop bundle
 
@@ -86,10 +129,13 @@ make test-plugin
 ## Update
 
 ```bash
-# CLI
-cd /path/to/dataiku-headless
-git pull
-uv tool install --from . dataiku-headless --force --reinstall
+# CLI — reinstall from source:
+uv tool install --from git+https://github.com/dataiku/dku-headless.git dataiku-headless --force --reinstall
+
+# MCP + skills (bundled in the plugin) — refresh the marketplace, then update:
+claude plugin marketplace update dataiku-marketplace   # Claude Code
+claude plugin update dataiku-mcp                        # restart your agent to apply
+codex plugin marketplace upgrade dataiku-marketplace   # Codex
 ```
 
 ---

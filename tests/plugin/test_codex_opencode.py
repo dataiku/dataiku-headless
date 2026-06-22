@@ -37,7 +37,9 @@ def test_codex_marketplace_lists_the_plugin():
     entry = next((p for p in mk["plugins"] if p["name"] == "dataiku-mcp"), None)
     assert entry is not None
     assert entry["source"]["path"] == "./dataiku-mcp"
-    assert "dataiku-headless" in entry["source"]["url"]
+    # Must be an explicit HTTPS URL to the real repo: owner/repo shorthand resolves
+    # to SSH (fails without keys) and `dataiku-headless` is a slug that does not exist.
+    assert entry["source"]["url"] == "https://github.com/dataiku/dku-headless.git"
 
 
 def test_opencode_example_is_a_valid_local_stdio_server():

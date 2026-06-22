@@ -302,7 +302,8 @@ def test_insight_validate_valid_columns(patch_client):
         app, ["insight", "validate", "insight1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    assert "2 column reference(s) valid" in result.output
+    assert "passes pre-flight" in result.output
+    assert "2 column ref(s) valid" in result.output
 
 
 def test_insight_validate_invalid_column_with_suggestion(patch_client):
@@ -351,6 +352,106 @@ def test_insight_validate_non_chart_type(patch_client):
     )
     assert result.exit_code != 0
     assert "dataset_table" in result.output
+
+
+def _mk_chart(patch_client, chart_def, schema_columns):
+    """Set up a chart insight with an arbitrary def + schema (cols may be
+    dicts with type/meaning, or bare name strings)."""
+    proj = patch_client.get_project("PROJ1")
+    settings = MagicMock()
+    settings.get_raw.return_value = {
+        "id": "insight1",
+        "name": "C",
+        "type": "chart",
+        "params": {
+            "datasetSmartName": "sales",
+            "def": chart_def,
+            "refreshableSelection": {"selection": {"samplingMethod": "FULL"}},
+        },
+    }
+    insight_mock = MagicMock()
+    insight_mock.get_settings.return_value = settings
+    proj.get_insight.return_value = insight_mock
+    cols = [{"name": c} if isinstance(c, str) else c for c in schema_columns]
+    ds_mock = MagicMock()
+    ds_mock.get_definition.return_value = {"schema": {"columns": cols}}
+    proj.get_dataset.return_value = ds_mock
+    return proj
+
+
+def test_insight_validate_empty_required_slot(patch_client):
+    # binned_xy reads xDimension/yDimension — an empty xDimension renders AIOOBE
+    _mk_chart(
+        patch_client,
+        {"type": "binned_xy", "xDimension": [], "yDimension": [{"column": "revenue"}]},
+        ["units", "revenue"],
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "xDimension" in result.output
+
+
+def test_insight_validate_nulled_type(patch_client):
+    _mk_chart(
+        patch_client,
+        {"type": "bubble", "uaXDimension": [{"column": "units"}]},
+        ["units", "revenue"],
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "nulled" in result.output
+    assert "scatter" in result.output
+
+
+def test_insight_validate_geo_missing_meaning(patch_client):
+    # scatter_map with a geometry column that has no geo meaning builds empty
+    _mk_chart(
+        patch_client,
+        {
+            "type": "admin_map",
+            "geometry": [{"column": "geopoint"}],
+            "colorMeasure": [{"column": "revenue"}],
+        },
+        [{"name": "geopoint", "type": "string"}, {"name": "revenue", "type": "double"}],
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "geo meaning" in result.output
+
+
+def test_insight_validate_geo_with_meaning_passes(patch_client):
+    _mk_chart(
+        patch_client,
+        {
+            "type": "admin_map",
+            "geometry": [{"column": "geopoint"}],
+            "colorMeasure": [{"column": "revenue"}],
+        },
+        [
+            {"name": "geopoint", "type": "string", "meaning": "GeoPoint"},
+            {"name": "revenue", "type": "double"},
+        ],
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+    assert "passes pre-flight" in result.output
+
+
+def test_insight_validate_bad_column_in_ua_slot(patch_client):
+    # column refs in ua* slots are checked too (old validate only saw generic*)
+    _mk_chart(
+        patch_client,
+        {
+            "type": "scatter",
+            "uaXDimension": [{"column": "untis"}],
+            "uaYDimension": [{"column": "revenue"}],
+        },
+        ["units", "revenue"],
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "untis" in result.output
+    assert "units" in result.output  # fuzzy suggestion
 
 
 # --- set-metadata ---

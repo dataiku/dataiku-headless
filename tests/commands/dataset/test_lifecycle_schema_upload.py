@@ -302,6 +302,47 @@ def test_dataset_set_schema_columns_alias_with_quoted_names(patch_client):
     ]
 
 
+def test_dataset_set_meaning(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    ds = proj.get_dataset("sales")
+    ds.get_definition.return_value = {
+        "schema": {
+            "columns": [
+                {"name": "geopoint", "type": "string"},
+                {"name": "revenue", "type": "double"},
+            ]
+        }
+    }
+    result = runner.invoke(
+        app,
+        ["dataset", "set-meaning", "sales", "geopoint=GeoPoint", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "geopoint=GeoPoint" in result.output
+    saved = ds.set_definition.call_args[0][0]
+    by_name = {c["name"]: c.get("meaning") for c in saved["schema"]["columns"]}
+    assert by_name["geopoint"] == "GeoPoint"
+
+
+def test_dataset_set_meaning_unknown_column_errors(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    ds = proj.get_dataset("sales")
+    ds.get_definition.return_value = {"schema": {"columns": [{"name": "revenue"}]}}
+    result = runner.invoke(
+        app, ["dataset", "set-meaning", "sales", "nope=GeoPoint", "-P", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "does not exist" in result.output
+
+
+def test_dataset_set_meaning_bad_pair_errors(patch_client):
+    result = runner.invoke(
+        app, ["dataset", "set-meaning", "sales", "geopoint", "-P", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "COLUMN=MEANING" in result.output
+
+
 def test_dataset_upload(patch_client, tmp_path):
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1,col2\na,1\nb,2")

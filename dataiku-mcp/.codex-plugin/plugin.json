@@ -4,7 +4,7 @@
   "description": "Dataiku Headless — the headless DSS control plane for AI agents. The dku code-mode MCP server over local stdio, authed with your own DSS personal API key.",
   "author": {
     "name": "Dataiku",
-    "url": "https://github.com/dataiku/dataiku-headless"
+    "url": "https://github.com/dataiku/dku-headless"
   },
   "mcpServers": "./codex-mcp.json",
   "interface": {

@@ -12,7 +12,7 @@
       "name": "dataiku-mcp",
       "source": {
         "source": "git-subdir",
-        "url": "dataiku/dataiku-headless",
+        "url": "https://github.com/dataiku/dku-headless.git",
         "path": "dataiku-mcp"
       },
       "description": "Connect your agent to Dataiku DSS through Dataiku Headless — the local dataiku-mcp code-mode plugin."

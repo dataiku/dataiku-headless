@@ -61,6 +61,8 @@ Format params that matter (`formatType: excel`):
 
 Multi-sheet caveat: sheets are unioned **positionally** against the single schema — a different-layout sheet silently lands values in wrong columns. Only union same-layout sheets. Multi-file: N same-format files uploaded into one UploadedFiles dataset append automatically (no filename column); when the filename IS data (Power Query `Source.Name`), use per-file datasets + `create-stack --origin-column`.
 
+**Sheets that aren't one clean rectangle** — label columns, repeating blocks, wide month columns to fold, merged-cell keys, lookup/clone rows — reshape to tidy (long) with **visual Prepare recipes in the flow, never a Python export script** (`add-fold` / `UpDownFiller` / `sheetsToColumn` / clone-row filters, plus the GREL date traps): `ingestion.md`.
+
 **Date columns**: uniformly date-typed → schema type `date` directly (the opposite of the CSV rule — typed cells parse). Schema `date` does NOT serial-convert numeric cells, and real-world columns mix datetimes/serials/text — those stay `string` and branch-parse by **render class** (full table + GREL in `analysis-workbooks.md` § Mixed/dirty date columns).
 
 ## Reference map
@@ -69,6 +71,7 @@ Multi-sheet caveat: sheets are unioned **positionally** against the single schem
 |---|---|
 | `analysis-workbooks.md` | Implicit-DAG recovery (M > pivots > formulas > sheet diffing), M→DSS + formula→DSS tables, dedup/order semantics, hand-authored-column doctrine, collapse triggers, gotchas |
 | `model-workbooks.md` | Engine-not-cells doctrine, formula sampling, array extents, construct→recipe table, catalog-dataset collapse, parity verification |
+| `ingestion.md` | Native-xlsx → tidy with visual recipes (no Python): fold / fill-down / sheet-union / clone-row filters, format-param must-dos, GREL date-reshape traps, `replace-input` grafting |
 | `scripts/dump_anatomy.py` | Structure/pivots/M inventory + `--schema` emitter |
 | `scripts/dump_workbook.py` | Per-cell formula/cached dump for engine sheets |
 | `scripts/diff_series.py` | Month-sweep parity diff (workbook row vs flow series) + divergence-signature hints |

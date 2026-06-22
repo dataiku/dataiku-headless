@@ -79,6 +79,8 @@ def test_dataset_partitions_json(patch_client):
 
 
 def test_dataset_set_metadata_description(patch_client):
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {}
     result = runner.invoke(
         app,
         [
@@ -93,10 +95,10 @@ def test_dataset_set_metadata_description(patch_client):
     )
     assert result.exit_code == 0
     assert "Updated metadata" in result.output
-    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
-    ds.set_metadata.assert_called_once()
-    meta = ds.set_metadata.call_args[0][0]
-    assert meta["description"] == "Customer data"
+    # description lives on the dataset DEFINITION, not the /metadata endpoint
+    ds.set_definition.assert_called_once()
+    assert ds.set_definition.call_args[0][0]["description"] == "Customer data"
+    ds.set_metadata.assert_not_called()
 
 
 def test_dataset_set_metadata_tags(patch_client):
@@ -118,7 +120,14 @@ def test_dataset_set_metadata_tags(patch_client):
     assert meta["tags"] == ["etl", "source", "v2"]
 
 
-def test_dataset_set_metadata_short_desc(patch_client):
+def test_dataset_set_metadata_short_desc_persists_to_definition(patch_client):
+    """Regression: --short-desc must land on the dataset DEFINITION (where the
+    `datasets_have_descriptions` reviewability check reads it), NOT the /metadata
+    payload, which DSS silently drops. The old code wrote shortDesc via
+    set_metadata, printed "Updated metadata", and persisted nothing — sending
+    agents into multi-turn retry loops on a check they could never satisfy."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {}
     result = runner.invoke(
         app,
         [
@@ -132,9 +141,10 @@ def test_dataset_set_metadata_short_desc(patch_client):
         ],
     )
     assert result.exit_code == 0
-    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
-    meta = ds.set_metadata.call_args[0][0]
-    assert meta["shortDesc"] == "Brief"
+    ds.set_definition.assert_called_once()
+    assert ds.set_definition.call_args[0][0]["shortDesc"] == "Brief"
+    # must NOT be routed through the silent-drop /metadata path
+    ds.set_metadata.assert_not_called()
 
 
 def test_dataset_set_metadata_no_args(patch_client):

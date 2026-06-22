@@ -82,10 +82,10 @@ Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agen
 
 | Channel | Command |
 |---|---|
-| Direct install | `uv tool install git+https://github.com/dataiku/dataiku-headless.git` |
+| Direct install | `uv tool install git+https://github.com/dataiku/dku-headless.git` |
 | Local dev | `uv tool install --from . dataiku-headless` |
-| Claude Code | `/plugin marketplace add dataiku/dataiku-headless` |
-| Codex | `codex plugin marketplace add dataiku/dataiku-headless` |
+| Claude Code | `/plugin marketplace add dataiku/dku-headless` |
+| Codex | `codex plugin marketplace add dataiku/dku-headless` |
 | OpenCode | `uv tool install --from git+…/dataiku-headless.git "dataiku-headless[mcp]"` + `dataiku-mcp/examples/opencode.json` |
 | Claude Desktop | `.mcpb` bundle from `dataiku-mcp-bundle/` |
 

@@ -9,7 +9,7 @@ We expect everyone participating in this project to be respectful, inclusive, an
 ## Quick Start
 
 ```bash
-git clone https://github.com/dataiku/dataiku-headless.git
+git clone https://github.com/dataiku/dku-headless.git
 cd dataiku-headless
 uv sync
 uv run dku --help
@@ -30,7 +30,7 @@ uv run pytest -v
 
 Before opening a new issue:
 1. Check you're on the latest version.
-2. Search existing issues (open and closed) at [github.com/dataiku/dataiku-headless/issues](https://github.com/dataiku/dataiku-headless/issues).
+2. Search existing issues (open and closed) at [github.com/dataiku/dku-headless/issues](https://github.com/dataiku/dku-headless/issues).
 3. If the bug involves a security risk, do **not** file a public issue — see [Security issues](#security-issues).
 
 When opening a bug report, please use our [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) and include:
@@ -42,7 +42,7 @@ When opening a bug report, please use our [bug report template](.github/ISSUE_TE
 
 ### Suggesting enhancements
 
-Feature requests should be opened in [GitHub Discussions](https://github.com/dataiku/dataiku-headless/discussions/new/choose), not Issues. Describe the problem you're trying to solve, not just the solution you have in mind.
+Feature requests should be opened in [GitHub Discussions](https://github.com/dataiku/dku-headless/discussions/new/choose), not Issues. Describe the problem you're trying to solve, not just the solution you have in mind.
 
 ### Your first code contribution
 

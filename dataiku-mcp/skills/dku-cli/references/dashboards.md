@@ -58,29 +58,58 @@ Set via `dku insight set-definition INSIGHT_ID -d @chart.json`.
 
 ## Chart types (`def.type`)
 
-| Type | Use | Notes |
-|------|-----|-------|
-| `lines` | Time-series trend | Single series |
-| `multi_columns_lines` | Multi-series bars + optional lines | Category comparison |
-| `stacked_bars` | Stacked horizontal bars | Part-to-whole |
-| `stacked_columns` | Stacked vertical columns | Distinct from `stacked_bars` |
-| `grouped_columns` | Side-by-side columns | Category comparison |
-| `stacked_area` | Stacked area | Cumulative trend |
-| `pie` | Pie / donut | Proportions |
-| `scatter` | Scatter plot | Correlation; uses `uaXDimension`/`uaYDimension`/`uaColor` (NOT genericMeasures) |
-| `boxplots` | Box plots | Distribution; uses `boxplotBreakdownDim`/`boxplotValue` |
-| `treemap` | Treemap | Hierarchical proportions; uses `yDimension` (group) + `genericMeasures` (size) + `colorMeasure` (NOT genericDimension0) |
-| `pivot_table` | Pivot table | Tabular aggregation |
-| `bubble` / `binned_xy` | Bubble / 2D bin heatmap | 3-variable scatter / density |
-| `kpi` | Single-number tile | `def.genericMeasures[0]` is the value; no dimensions |
-| `gauge` | Radial gauge | `def.gaugeOptions`; bounded metric vs target |
-| `geom_map` / `scatter_map` | Choropleth / point map | `def.geoLayers[]` / `uaXDimension`+`uaYDimension`+`mapOptions` |
-| `radar` / `sankey` / `waterfall` | Radar / Sankey / Waterfall | `def.radarOptions` / `sankeyOptions` / `waterfallOptions` |
-| `density_2d` / `numerical_heatmap` | Density / numeric heatmap | Distribution / correlation matrix |
-| `lift_curve` | ML lift curve | Model evaluation |
+**A chart fails at RENDER time, not save time.** `set-definition` returns exit 0,
+then the dashboard tile shows `ArrayIndexOutOfBoundsException` / "an error occurred"
+/ "dataset is empty". The cause is almost always: the value is in the wrong slot, a
+required slot is empty, or a geo column has no geo meaning. The table below is the
+render-verified mapping of type → **required slots** → when to reach for it. Run
+`dku insight validate INSIGHT_ID` after every `set-definition` — it enforces this
+table and is the only CLI verification (there is no render verb; see below).
 
-All values work via `set-definition` even if the `dku insight create -t` whitelist
-does not advertise them.
+Pick the chart by what it shows, then fill **exactly** its required slots:
+
+| Type | Reach for it when… | Required slots (each must be non-empty) |
+|------|--------------------|------------------------------------------|
+| `lines` | single-series trend over time | `genericMeasures` (+ a DATE `genericDimension0`) |
+| `multi_columns_lines` | a measure across a category, split by a 2nd dim | `genericMeasures` |
+| `grouped_columns` | side-by-side category comparison; dual-axis | `genericDimension0`, `genericMeasures` |
+| `stacked_columns` | vertical part-to-whole | `genericDimension0`, `genericMeasures` |
+| `stacked_bars` | horizontal part-to-whole | `genericDimension0`, `genericMeasures` |
+| `stacked_area` | cumulative trend by series | `genericMeasures` |
+| `pie` | proportions across a few categories | `genericDimension0`, `genericMeasures` |
+| `kpi` | one headline number, no dims | `genericMeasures` |
+| `gauge` | one measure vs a range | `genericMeasures` — **omit `gaugeOptions:{min,max}`** (rejected; let DSS auto-scale) |
+| `pivot_table` | tabular rows × cols × measure | `genericMeasures` + (`genericDimension0` or `genericDimension1`) |
+| `radar` | several measures across one category | `genericDimension0`, `genericMeasures` |
+| `sankey` | flow between stages | **does NOT render on this build** — AIOOBE for every dim layout (dim0-only and dim0/dim1 split both fail; 0 examples in 328 projects). Use `stacked_bars` (source split by target). |
+| `scatter` | correlation of two numerics (unaggregated) | `uaXDimension`, `uaYDimension` (NOT genericMeasures) |
+| `bubble` *(see note)* | scatter + a size dimension | build as `scatter` + `uaSize` |
+| `boxplots` | distribution of a numeric, by category | `boxplotValue` (+ `boxplotBreakdownDim`) |
+| `treemap` | nested proportions | `yDimension` (group) + `genericMeasures` (size) + `colorMeasure` (color) |
+| `binned_xy` | 2D density of two **numeric** columns | `xDimension`, `yDimension` (binned) + `colorMeasure` |
+| `numerical_heatmap` | numeric × numeric heatmap | `xDimension`, `yDimension` (binned) + `colorMeasure` — **fails to load on categorical axes**; for a category × category heatmap use `binned_xy` with both axes `numParams.mode:"TREAT_AS_ALPHANUM"` |
+| `binned_xy` *(categorical)* | category × category colored grid | the reliable heatmap: `xDimension`/`yDimension` with `numParams.mode:"TREAT_AS_ALPHANUM"` + `colorMeasure` |
+| `scatter_map` | raw points on a map | `geometry` (GeoPoint col) — or lon/lat in `uaXDimension`/`uaYDimension` |
+| `admin_map` | choropleth aggregating points to admin regions | `geometry` (GeoPoint col) + `colorMeasure` |
+| `geom_map` | render a geometry column on a map | `geometry` (col of `type:"GEOPOINT"`/`GEOMETRY`) |
+
+**Two families to keep straight (the #1 mis-binding):**
+- *Color-grid / map charts* — `binned_xy`, `numerical_heatmap`, `treemap`, `admin_map`,
+  `geom_map` — take their colour value in **`colorMeasure`**, and their axes in
+  `xDimension`/`yDimension`/`geometry`, **not** `genericDimension*`/`genericMeasures`.
+  Putting the value in `genericMeasures` leaves the required slot empty → blank / AIOOBE.
+- *Unaggregated charts* — `scatter`, `bubble`, `scatter_map` — take columns in `ua*`
+  slots, not `genericMeasures`.
+
+**Silently-nulled types (verified on 14.x):** `set-definition` accepts `type:"bubble"`
+and `type:"waterfall"` (exit 0) but re-reads with `def.type == null` → blank tile.
+Build a bubble as `type:"scatter"` + a populated `uaSize`. There is no working
+`waterfall` string — use `grouped_columns`/`stacked_columns`.
+
+**Geo charts need a geo *meaning*, not just coordinates.** A map whose `geometry`
+column lacks a `GeoPoint`/`Geometry` meaning builds empty ("dataset is empty"). Prep:
+Prepare `GeoPointCreator` (lat/lon → WKT `POINT(lon lat)`) → `dku dataset set-meaning DS
+geopoint=GeoPoint` → bind that column in `params.def.geometry` with `type:"GEOPOINT"`.
 
 ---
 
@@ -122,12 +151,14 @@ does not advertise them.
 `sizeMeasure`, `geometry`, `geoLayers`, `tooltipMeasures`, `boxplotBreakdownDim`,
 `boxplotValue`, `uaDimensionPair: [{"uaXDimension": [], "uaYDimension": []}]`.
 
-> **Advanced types read elsewhere (all live-verified).** `scatter`/`bubble`, `boxplots`,
-> and `treemap` take their columns from the type-specific fields above — NOT
-> `genericDimension0`/`genericMeasures` — so `add-dimension`/`add-measure` can't build them;
-> set the fields via `set-definition`. A blank render with `ArrayIndexOutOfBoundsException:
-> Index 0 out of bounds for length 0` means the required array is empty: `yDimension`
-> (treemap) · `uaXDimension`/`uaYDimension` (scatter) · `boxplotValue` (boxplots).
+> **Required slots ⇒ `dku insight validate`.** The chart-types table above lists the
+> required slot(s) per type; the helpers `add-dimension`/`add-measure` only fill
+> `genericDimension*`/`genericMeasures`, so any type whose data lives in `ua*`,
+> `xDimension`/`yDimension`, `boxplotValue`, `colorMeasure`, or `geometry` must be set
+> via `set-definition`. `ArrayIndexOutOfBoundsException: Index 0 out of bounds for length 0`
+> always means a required slot is empty. Don't reason about it by hand — run
+> `dku insight validate INSIGHT_ID` and it names the empty slot, bad column, nulled
+> type, or missing geo meaning with the fix.
 
 ### Dimension object (`genericDimension0` / `genericDimension1`)
 
@@ -260,7 +291,9 @@ Per-insight `tileParams` overrides (chart insights): `showXAxis`, `showXAxisTitl
 `showYAxis`, `showYAxisTitle`, `showLegend`, `showBrush`, `showBreadcrumb`,
 `inheritLegendPlacement`, `legendPlacement` (`OUTER_RIGHT`/`OUTER_BOTTOM`/`INNER_TOP_RIGHT`/…),
 `showTooltips`, `autoPlayAnimation`, `useInsightTheme`. For `web_app`: `loadTimeoutInSeconds`.
-For `dataset_table`: `viewKind`, `showName`, `showDescription`, `showCustomFields`,
+For `dataset_table`: set **`viewKind: "EXPLORE"`** or the tile is click-to-load and
+never auto-renders on the dashboard (the data grid only appears after the viewer clicks
+it). Plus `showName`, `showDescription`, `showCustomFields`,
 `showStorageType`, `showMeaning`, `showProgressBar`. For `scenario_run_button`:
 `buttonText`, `showLastRun` (users need `RUN_SCENARIOS` or the button renders disabled).
 
@@ -311,9 +344,18 @@ Do NOT hand-write the nested `shakerScript`. Clone-then-narrow: create with `--d
 `get-definition` the live default, edit only safe fields, write back.
 
 Safe to edit in `params.shakerScript`:
-- `columnsSelection` — `{mode: "SELECTED"|"ALL_EXCEPT"|"ALL", selectedColumnNames: [...]}`
-- `sorting` — `[{column: "col1", ascending: true}]`
-- `previewMode` — `"ALL_ROWS"` or `"FIRST_N_ROWS"`
+- `sorting` — `[{column: "col1", ascending: true}]` (round-trips reliably).
+- **Column hiding — NOT via `mode:"SELECTED"`.** On 14.x, `columnsSelection.mode:"SELECTED"`
+  + `selectedColumnNames` does NOT persist: DSS rewrites it to `{mode:"ALL", list:[{name, d}]}`
+  where **`d:true` = hidden**. To narrow to a subset, send the FULL column list with
+  `d:true` on the columns to hide, `d:false` on the ones to keep, and leave `mode:"ALL"`:
+  ```json
+  "columnsSelection": {"mode": "ALL", "list": [
+    {"name": "order_date", "d": false}, {"name": "internal_id", "d": true}
+  ]}
+  ```
+- `previewMode` — `"ALL_ROWS"` persists; `"FIRST_N_ROWS"` silently reverts to `ALL_ROWS`
+  over the API (set row caps in the UI).
 
 Leave alone: `columnOrder` (expects objects, not strings — bare strings fail with
 `Expected BEGIN_OBJECT but was STRING`), `columnWidthsByName`, `coloring.individualColumns`.
