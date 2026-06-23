@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Feature request
-    url: https://github.com/dataiku/dataiku-headless/discussions/new/choose
+    url: https://github.com/dataiku/dku-headless/discussions/new/choose
     about: To request a feature, open a new discussion.

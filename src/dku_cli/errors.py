@@ -241,7 +241,7 @@ def _handle_fold_plugin_missing(msg: str) -> tuple[str, list[str]] | None:
             "from `add-fold` instead of the plugin variant. Reinstall the",
             "global CLI to pick up that fix:",
             "",
-            "  uv tool install --from . dataiku-headless --force --reinstall",
+            "  uv tool install --from . dku-headless --force --reinstall",
             "",
             "Do NOT fall back to a Python `pd.melt` recipe. If the unpivot is",
             "still in your way after reinstalling, consider whether you need",

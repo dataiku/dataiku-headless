@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Rebrand to Dataiku Headless.** The product/distribution identity is now
-  "Dataiku Headless" (distribution name `dataiku-headless`). The `dku` command,
+  "Dataiku Headless" (distribution name `dku-headless`). The `dku` command,
   the `dku_cli` import package, and all entry points are unchanged — only the
   product and distribution identity moved.
 

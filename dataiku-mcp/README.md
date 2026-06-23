@@ -8,57 +8,17 @@ DSS user. The plugin also installs the bundled Dataiku Headless skills through
 the host agent's plugin/skill mechanism; skills are intentionally not exposed as
 an MCP tool.
 
-## Install
+## Package role
+This directory holds the host-specific plugin package:
 
-```bash
-claude plugin marketplace add https://github.com/dataiku/dku-headless.git
-claude plugin install dataiku-mcp
-```
+- `.claude-plugin/plugin.json` for Claude Code
+- `.codex-plugin/plugin.json` and `.mcp.json` for Codex
+- `bin/dku-mcp-launch.sh`, shared by both plugins
+- `wheels/`, the bundled Dataiku Headless wheel
+- `skills/`, installed alongside the MCP server
 
-You will be prompted for:
-
-- DSS URL
-- DSS personal API key
-
-Prerequisite: a POSIX shell. The launcher installs [`uv`](https://docs.astral.sh/uv/)
-if needed.
-
-## Other agents
-
-This same directory is also a Codex plugin:
-
-```bash
-codex plugin marketplace add https://github.com/dataiku/dku-headless.git
-```
-
-Then enable the `dataiku-mcp` plugin in Codex's plugin manager. Codex reads the
-DSS connection from the environment:
-
-```bash
-export DKU_URL="https://your-dss-host"
-export DKU_API_KEY="your-dss-personal-api-key"
-```
-
-**OpenCode** has no marketplace — install the CLI yourself, point
-`opencode.json` at it, and install/copy the skills separately if you want the
-same guidance surface as the Claude/Codex plugins (see
-[`examples/opencode.json`](examples/opencode.json)):
-
-```bash
-uv tool install --from git+https://github.com/dataiku/dku-headless.git "dataiku-headless[mcp]"
-```
-```json
-{
-  "mcp": {
-    "dku": {
-      "type": "local",
-      "command": ["dku-mcp", "serve", "--transport", "stdio"],
-      "enabled": true,
-      "environment": { "DKU_URL": "https://your-dss-host", "DKU_API_KEY": "your-key" }
-    }
-  }
-}
-```
+Prerequisite at runtime: a POSIX shell. The launcher installs
+[`uv`](https://docs.astral.sh/uv/) if needed.
 
 ## Runtime
 
@@ -87,9 +47,7 @@ The Claude Code and Codex plugins install both:
 - `skills/`, including `skills/dku-cli/`, as host-agent skills
 
 That keeps the MCP surface small while still giving agents the latest DSS
-guidance anywhere the plugin is installed. Direct MCP-only installs, such as the
-OpenCode example above, only get `dku_exec`; pair them with a separate skill
-install if the client supports skills.
+guidance anywhere the plugin is installed.
 
 ## Maintainer commands
 
@@ -108,7 +66,9 @@ uvx --from <plugin>/wheels/*.whl --with "fastmcp>=2.0,<4" dku-mcp doctor
 
 - **`uv: command not found`** → the launcher installs it; if your shell blocks
   `curl | sh`, install uv manually (`https://docs.astral.sh/uv/`) and restart.
-- **auth errors** → re-check the DSS URL + key in the plugin config.
+- **auth errors** → re-check the DSS URL + key. Claude Code stores them in
+  plugin user config; Codex inherits `DKU_URL` and `DKU_API_KEY` from its
+  process environment.
 
 ## Contents
 

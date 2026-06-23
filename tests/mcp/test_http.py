@@ -150,18 +150,13 @@ def test_landing_html_has_client_quickconnect_snippets():
         mcp_url="https://dss.example.com/web-apps/P/cs/5050/mcp",
         base="https://dss.example.com/web-apps/P/cs/5050",
     )
-    # one tab + copy snippet per supported client
-    assert "Claude Code" in page and "Codex" in page and "OpenCode" in page
+    assert "Claude Code" in page and "Codex" in page
     assert "claude mcp add --transport http" in page
     assert "codex mcp add dku --url" in page
     assert "--bearer-token-env-var DKU_DSS_KEY" in page
-    assert "opencode.json" in page and "remote" in page
-    # copy buttons are wired
     assert 'class="copy"' in page and "data-copy" in page
-    # the bearer stays a placeholder for the user to fill in — not a real key
     assert "YOUR_DSS_API_KEY" in page
-    # each client snippet carries the resolved endpoint URL
-    assert page.count("https://dss.example.com/web-apps/P/cs/5050/mcp") >= 3
+    assert page.count("https://dss.example.com/web-apps/P/cs/5050/mcp") >= 2
 
 
 def test_landing_html_note_is_backend_aware():

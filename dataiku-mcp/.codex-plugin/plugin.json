@@ -6,10 +6,18 @@
     "name": "Dataiku",
     "url": "https://github.com/dataiku/dku-headless"
   },
-  "mcpServers": "./codex-mcp.json",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dataiku Headless",
     "shortDescription": "Operate Dataiku DSS from Codex via the dku CLI",
-    "category": "Developer Tools"
+    "longDescription": "Connect Codex to Dataiku DSS through the bundled Dataiku Headless CLI and stdio MCP server.",
+    "developerName": "Dataiku",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Inspect my Dataiku DSS project.",
+      "Build a Dataiku flow from these files.",
+      "Review my Dataiku project setup."
+    ]
   }
 }

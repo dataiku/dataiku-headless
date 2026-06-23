@@ -10,7 +10,7 @@ We expect everyone participating in this project to be respectful, inclusive, an
 
 ```bash
 git clone https://github.com/dataiku/dku-headless.git
-cd dataiku-headless
+cd dku-headless
 uv sync
 uv run dku --help
 uv run pytest -v

@@ -135,7 +135,7 @@ def _require_fastmcp():
             details=[
                 "Install the MCP runtime with:",
                 "  pip install fastmcp",
-                "(or install the dataiku-headless 'mcp' extra during the block build)",
+                "(or install the dku-headless 'mcp' extra during the block build)",
                 "Then re-run: dku-mcp serve",
             ],
             status=1,

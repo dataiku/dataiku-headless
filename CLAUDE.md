@@ -65,7 +65,7 @@ uv run pytest -v
 uv run dku
 ```
 
-Rebuild global install: `uv tool install --from . dataiku-headless --force --reinstall`
+Rebuild global install: `uv tool install --from . dku-headless --force --reinstall`
 Rebuild MCP wheel: `make bundle` (in `dataiku-mcp/`)
 
 ## Testing
@@ -83,10 +83,9 @@ Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agen
 | Channel | Command |
 |---|---|
 | Direct install | `uv tool install git+https://github.com/dataiku/dku-headless.git` |
-| Local dev | `uv tool install --from . dataiku-headless` |
+| Local dev | `uv tool install --from . dku-headless` |
 | Claude Code | `/plugin marketplace add dataiku/dku-headless` |
 | Codex | `codex plugin marketplace add dataiku/dku-headless` |
-| OpenCode | `uv tool install --from git+…/dataiku-headless.git "dataiku-headless[mcp]"` + `dataiku-mcp/examples/opencode.json` |
 | Claude Desktop | `.mcpb` bundle from `dataiku-mcp-bundle/` |
 
 ## Doc index
@@ -99,4 +98,3 @@ Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agen
 | `dataiku-mcp/skills/dku-cli/references/` | Cold detail — payloads, safety tiers |
 | `dataiku-mcp/skills/dku-cli/references/visual-recipe-traps.md` | A visual-recipe payload validates and writes but a step no-ops, a build NPEs, or DSS shows a spurious save prompt |
 | `docs/safety-stance.md` | Design rationale — why confirmation booleans don't authorize agents; how `--confirm-name`/`--yes`/exit-77 divide the work; Phase-2 harness-confirmation proposal |
-| `docs/tool-disclosure.md` | Why the MCP server ships one code-mode tool (`dku_exec`) not ~150 typed tools, and the BM25 search-exposure escape hatch |

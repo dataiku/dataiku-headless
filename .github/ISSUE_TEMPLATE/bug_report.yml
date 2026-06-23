@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for taking the time to fill out this bug report.
 
-        Feature request? Please open a [Discussion](https://github.com/dataiku/dataiku-headless/discussions/new/choose) instead.
+        Feature request? Please open a [Discussion](https://github.com/dataiku/dku-headless/discussions/new/choose) instead.
 
   - type: textarea
     id: description

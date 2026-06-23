@@ -182,7 +182,6 @@ _LANDING_TPL = """<!doctype html>
   <div class="tabs">
     <button class="tab active" data-target="p-claude">Claude Code</button>
     <button class="tab" data-target="p-codex">Codex</button>
-    <button class="tab" data-target="p-opencode">OpenCode</button>
   </div>
   <div class="panel active" id="p-claude">
     <div class="snip"><button class="copy" data-copy="c-claude">Copy</button>
@@ -191,11 +190,6 @@ _LANDING_TPL = """<!doctype html>
   <div class="panel" id="p-codex">
     <div class="snip"><button class="copy" data-copy="c-codex">Copy</button>
     <pre><code id="c-codex">@@CODEX@@</code></pre></div>
-  </div>
-  <div class="panel" id="p-opencode">
-    <p class="cap">opencode.json</p>
-    <div class="snip"><button class="copy" data-copy="c-opencode">Copy</button>
-    <pre><code id="c-opencode">@@OPENCODE@@</code></pre></div>
   </div>
   <p class="hint">Replace <code>&lt;YOUR_DSS_API_KEY&gt;</code> with your DSS personal API key
      (DSS &rarr; <em>Profile &amp; settings &rarr; API keys</em>). Each user uses their own &mdash;
@@ -250,9 +244,9 @@ def landing_html(*, mcp_url: str, base: str, backend: str = "bubblewrap") -> str
     """A connect-info page for the exposed port, with one-click copy snippets.
 
     Shown to a human who opens the Code Studio's exposed-port URL in a browser.
-    Provides ready-to-paste "connect" commands for Claude Code, Codex, and
-    OpenCode; the bearer stays a ``<YOUR_DSS_API_KEY>`` placeholder the user
-    fills in (model A: each caller uses their own DSS personal API key).
+    Provides ready-to-paste "connect" commands for Claude Code and Codex; the
+    bearer stays a ``<YOUR_DSS_API_KEY>`` placeholder the user fills in (model A:
+    each caller uses their own DSS personal API key).
 
     ``backend`` is the selected sandbox backend name; the isolation note degrades
     honestly when it is not ``bubblewrap`` (e.g. under ``--allow-insecure-sandbox``
@@ -274,19 +268,6 @@ def landing_html(*, mcp_url: str, base: str, backend: str = "bubblewrap") -> str
         f'export DKU_DSS_KEY="{_PLACEHOLDER}"\n'
         f'codex mcp add dku --url "{mcp_url}" --bearer-token-env-var DKU_DSS_KEY'
     )
-    opencode_cfg = (
-        "{\n"
-        '  "$schema": "https://opencode.ai/config.json",\n'
-        '  "mcp": {\n'
-        '    "dku": {\n'
-        '      "type": "remote",\n'
-        '      "url": "' + mcp_url + '",\n'
-        '      "enabled": true,\n'
-        '      "headers": { "Authorization": "Bearer ' + _PLACEHOLDER + '" }\n'
-        "    }\n"
-        "  }\n"
-        "}"
-    )
     curl = html.escape(
         f"curl -sS {mcp_url} \\\n"
         f'  -H "Authorization: Bearer {_PLACEHOLDER}" \\\n'
@@ -298,7 +279,6 @@ def landing_html(*, mcp_url: str, base: str, backend: str = "bubblewrap") -> str
         _LANDING_TPL.replace("@@URL@@", html.escape(mcp_url))
         .replace("@@CLAUDE@@", html.escape(claude_cmd))
         .replace("@@CODEX@@", html.escape(codex_cmd))
-        .replace("@@OPENCODE@@", html.escape(opencode_cfg))
         .replace("@@CURL@@", curl)
         .replace("@@SANDBOX_NOTE@@", sandbox_note)
     )

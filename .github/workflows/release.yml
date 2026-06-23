@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_pypi:
-        description: "Publish the built wheel to PyPI (dataiku-headless). Leave false to only build/release."
+        description: "Publish the built wheel to PyPI (dku-headless). Leave false to only build/release."
         type: boolean
         default: false
       ref:
@@ -134,7 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/dataiku-headless/
+      url: https://pypi.org/project/dku-headless/
     permissions:
       id-token: write # OIDC for trusted publishing
     steps:

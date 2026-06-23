@@ -107,10 +107,3 @@ the value of running headless/unattended is real:
    get a real human gate. Tier-4 remains non-bypassable in both.
 4. **Keep `--confirm-name` exactly as is.** It is the part of the design the
    principle would endorse: specific, world-referencing, fail-closed intent.
-
-## One-line summary
-
-Confirmation *booleans* don't authorize agents — our `--confirm-name` already
-encodes intent semantically (keep it), `--yes` only means something inside the
-exit-77 handshake (document it as such), and for Tier 3/4 the right long-term
-boundary is fresh harness-level human approval, not any flag the model can set.

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dataiku-headless"
+name = "dku-headless"
 dynamic = ["version"]
 description = "Dataiku Headless — the headless DSS control plane for AI agents"
 readme = "README.md"
@@ -44,8 +44,6 @@ dku-mcp = "dku_cli.mcp.cli:app"
 mcp = ["fastmcp>=2.0"]
 
 [project.urls]
-# NOTE: the GitHub repo rename (dataiku-cli -> dataiku-headless) is a manual
-# follow-up. GitHub auto-redirects the old slug, so these resolve in the meantime.
 Homepage = "https://github.com/dataiku/dku-headless"
 Repository = "https://github.com/dataiku/dku-headless"
 Issues = "https://github.com/dataiku/dku-headless/issues"
