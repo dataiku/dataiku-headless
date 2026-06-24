@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from dataikuapi.utils import DataikuException
+
 from tests.commands.recipe.helpers import app, runner
 from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_mock
 from tests.helpers import strip_ansi as _strip_ansi
@@ -1006,7 +1008,7 @@ def test_recipe_add_input_folder_by_name_resolves_to_id(patch_client):
     proj = patch_client.get_project("PROJ1")
     # Ensure "Data Folder" is not a dataset — auto-detect should pick folder
     ds_mock = MagicMock()
-    ds_mock.get_definition.side_effect = Exception("NotFoundException")
+    ds_mock.get_definition.side_effect = DataikuException("NotFoundException")
     default_ds = proj.get_dataset.return_value
 
     def get_dataset(ref):
@@ -1060,7 +1062,7 @@ def test_recipe_add_input_rejects_unknown_ref(patch_client):
     proj = patch_client.get_project("PROJ1")
     # Nothing in the project matches "does_not_exist_anywhere"
     ds_mock = MagicMock()
-    ds_mock.get_definition.side_effect = Exception("NotFoundException")
+    ds_mock.get_definition.side_effect = DataikuException("NotFoundException")
     default_ds = proj.get_dataset.return_value
 
     def get_dataset(ref):
@@ -1167,7 +1169,7 @@ def test_agent_tool_create_kb_resolves_name_to_id(patch_client):
     ]
     # Make get_knowledge_bank(name).get_settings() raise to force fallback
     kb_mock_by_name = MagicMock()
-    kb_mock_by_name.get_settings.side_effect = Exception("NotFoundException")
+    kb_mock_by_name.get_settings.side_effect = DataikuException("NotFoundException")
     kb_mock_by_id = MagicMock()
     kb_mock_by_id.id = "kb_id_123"
     kb_mock_by_id.get_settings.return_value = MagicMock()

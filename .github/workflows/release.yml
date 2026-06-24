@@ -1,12 +1,8 @@
 name: Release
 
-# Tagging a `v*` commit cuts a GitHub Release with the wheel + bundles attached.
-# Publishing to PyPI is a SEPARATE, manually-gated job (see `publish-pypi`):
-# it never runs on a plain tag push — a human dispatches it deliberately.
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
   workflow_dispatch:
     inputs:
       publish_pypi:
@@ -30,7 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           ref: ${{ github.event.inputs.ref || github.ref }}
+          persist-credentials: false
 
       - uses: actions/setup-python@v6
         with:
@@ -38,32 +36,11 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Resolve release version
-        id: version
+      - name: Require a ref for PyPI publish
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_pypi && inputs.ref == '' }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            TAG_VERSION="${GITHUB_REF_NAME#v}"
-          else
-            REF="${{ github.event.inputs.ref }}"
-            TAG_VERSION="${REF#v}"
-          fi
-          if [ -z "$TAG_VERSION" ]; then
-            echo "No version could be resolved (dispatch without a ref?)." >&2
-            exit 1
-          fi
-          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Release version: $TAG_VERSION"
-
-      - name: Verify __version__ matches the tag
-        run: |
-          SRC_VERSION=$(uv run python -c "import dku_cli; print(dku_cli.__version__)")
-          TAG_VERSION="${{ steps.version.outputs.version }}"
-          if [ "$SRC_VERSION" != "$TAG_VERSION" ]; then
-            echo "Version mismatch: src/dku_cli/__init__.py __version__=$SRC_VERSION but tag=$TAG_VERSION" >&2
-            echo "Bump __version__ to match the tag (or tag the right commit) before releasing." >&2
-            exit 1
-          fi
-          echo "Version verified: $TAG_VERSION"
+          echo "Set the ref input to the release tag (for example v0.5.0) before publishing to PyPI." >&2
+          exit 1
 
       - name: Sync dependencies (locked)
         run: uv sync --locked
@@ -76,19 +53,41 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
+      - name: Python Semantic Release
+        if: github.event_name == 'push'
+        id: semantic
+        uses: python-semantic-release/python-semantic-release@754a065a2ea187da71977ada6630a8ec0f98e380
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          vcs_release: "false"
+
       - name: Build CLI wheel
         run: uv build
 
-      - name: Verify wheel version matches tag
+      - name: Verify released wheel version
+        if: github.event_name == 'push' && steps.semantic.outputs.released == 'true'
         run: |
-          TAG_VERSION="${{ steps.version.outputs.version }}"
           WHEEL=$(ls dist/*.whl | head -1)
           WHEEL_VERSION=$(basename "$WHEEL" | cut -d- -f2)
-          if [ "$TAG_VERSION" != "$WHEEL_VERSION" ]; then
-            echo "Version mismatch: tag=$TAG_VERSION wheel=$WHEEL_VERSION" >&2
+          EXPECTED="${{ steps.semantic.outputs.version }}"
+          if [ "$WHEEL_VERSION" != "$EXPECTED" ]; then
+            echo "Version mismatch: semantic-release=$EXPECTED wheel=$WHEEL_VERSION" >&2
             exit 1
           fi
-          echo "Wheel version verified: $TAG_VERSION"
+          echo "Wheel version verified: $EXPECTED"
+
+      - name: Verify dispatched wheel version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' }}
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          WHEEL_VERSION=$(basename "$WHEEL" | cut -d- -f2)
+          EXPECTED="${{ inputs.ref }}"
+          EXPECTED="${EXPECTED#v}"
+          if [ "$WHEEL_VERSION" != "$EXPECTED" ]; then
+            echo "Version mismatch: ref=$EXPECTED wheel=$WHEEL_VERSION" >&2
+            exit 1
+          fi
+          echo "Wheel version verified: $EXPECTED"
 
       - name: Build MCP plugin bundle
         run: make plugin
@@ -96,37 +95,25 @@ jobs:
       - name: Build Claude Desktop .mcpb bundle
         run: make desktop-bundle
 
-      - name: Stage release artifacts
-        run: |
-          mkdir -p release-artifacts
-          cp dist/*.whl dist/*.tar.gz release-artifacts/ 2>/dev/null || cp dist/*.whl release-artifacts/
-          cp dataiku-mcp/wheels/*.whl release-artifacts/ 2>/dev/null || true
-          cp dataiku-mcp-bundle/dist/dataiku-mcp.mcpb release-artifacts/
-          echo "Release artifacts:"
-          ls -la release-artifacts/
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+      - name: Upload artifacts to GitHub Release
+        if: github.event_name == 'push' && steps.semantic.outputs.released == 'true'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b
         with:
-          name: dist
-          path: dist/*
-          if-no-files-found: error
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          generate_release_notes: true
+          tag_name: ${{ steps.semantic.outputs.tag }}
           make_latest: true
           files: |
             dist/*.whl
             dist/*.tar.gz
             dataiku-mcp-bundle/dist/dataiku-mcp.mcpb
 
-  # Manually-gated PyPI publish. Does NOT run on a normal tag push: it requires
-  # an explicit workflow_dispatch with publish_pypi=true AND lives behind the
-  # `pypi` GitHub Environment (configure required reviewers there for a second
-  # human gate). Uses OIDC trusted publishing — no API token in secrets.
+      - name: Upload build artifacts (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
   publish-pypi:
     name: Publish to PyPI (manual)
     needs: release
@@ -136,7 +123,7 @@ jobs:
       name: pypi
       url: https://pypi.org/project/dku-headless/
     permissions:
-      id-token: write # OIDC for trusted publishing
+      id-token: write
     steps:
       - name: Download built distributions
         uses: actions/download-artifact@v8
@@ -145,7 +132,7 @@ jobs:
           path: dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           packages-dir: dist
           print-hash: true

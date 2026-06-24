@@ -12,6 +12,7 @@ help:
 	@echo "clean   Remove build/ and dist/"
 
 build:
+	cd .. && uv run python scripts/sync_plugin_metadata.py
 	@command -v npx >/dev/null || { echo "node/npx required for the mcpb CLI"; exit 1; }
 	@ls $(PLUGIN)/wheels/*.whl >/dev/null 2>&1 || \
 	  { echo "no wheel in ../dataiku-mcp/wheels — run 'make bundle' there first"; exit 1; }

@@ -57,9 +57,25 @@ def is_dangerous_mode(ctx: Optional[typer.Context] = None) -> tuple[bool, str]:
     """Return (enabled, reason).
 
     Precedence: --dangerous flag > DKU_DANGEROUS env > config.toml.
+
+    In a hosted MCP shell (``DKU_MCP_HOSTED`` set by the executor) ``DKU_DANGEROUS``
+    inherited from the process env or config.toml is ignored, so a leaked or
+    operator-set danger signal can't silently disable the DELETE/CASCADE guards.
+    This is a speed-bump, not a boundary: an agent that fully controls its shell
+    can still override the marker (``DKU_MCP_HOSTED=0 DKU_DANGEROUS=1 dku ...``).
+    That's acceptable because the real authorization boundary in hosted mode is
+    the DSS API key's RBAC, never this guard — see ``docs/design/safety-stance.md``.
     """
     if ctx is not None and (ctx.obj or {}).get("dangerous"):
         return True, "flag"
+    hosted = os.environ.get("DKU_MCP_HOSTED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if hosted:
+        return False, "default"
     env = os.environ.get("DKU_DANGEROUS", "").strip().lower()
     if env in ("1", "true", "yes", "on"):
         return True, "env"

@@ -17,8 +17,22 @@ work together:
   agent installs alongside the MCP server, so agents get the latest DSS guidance
   without anyone managing skill files by hand.
 
-Everything runs through **sandboxed execution** with **OS-keychain auth** — every
-command executes as you, with your DSS permissions and audit trail.
+Every command executes **as you**, with **your DSS permissions and audit trail**,
+authenticated from the **OS keychain**.
+
+> **Security model — read before deploying.** Authorization is **your DSS API
+> key's permissions**, not the CLI. Execution isolation depends on the transport:
+> - **Local / stdio** (every quick-start below, and Claude Code / Codex / OpenCode):
+>   `dku_exec` runs as **a normal shell on your machine with your full environment**
+>   — the same trust level as your agent's own shell. **No sandbox.**
+> - **Hosted / HTTP** (multi-tenant, *experimental*): runs inside a **bubblewrap**
+>   sandbox when available; binds to loopback by default. If bubblewrap is absent it
+>   falls back to an **unisolated subprocess** — run `dku-mcp doctor` to check.
+>
+> The tiered destructive-op guards (exit 77 on a missing confirmation flag) are
+> **accident prevention, not an authorization boundary**: a confirmation flag is
+> model-settable, so a real boundary requires your harness to relay exit-77 to a
+> human. See [`docs/design/safety-stance.md`](docs/design/safety-stance.md).
 
 This repo ships:
 
@@ -26,89 +40,21 @@ This repo ships:
 - `dataiku-mcp`: local MCP packaging for Claude Code, Codex, and Claude Desktop
 - `dataiku-mcp/skills/dku-cli`: the agent skill corpus installed by the plugins alongside the MCP server
 
+**Requirements:** Python 3.10–3.13, DSS 14.5+.
+
 ## Install
 
-> **Access** — `dataiku/dku-headless` is a **private** repo. You need read access
-> and HTTPS git auth to GitHub: run `gh auth login` (or put a PAT in your git
-> credential helper). Every command below clones over **HTTPS** — none use SSH.
-> [`uv`](https://docs.astral.sh/uv/) is required for the CLI.
-
-### 1. bare CLI
+Not yet on PyPI — install from git (or a clone):
 
 ```bash
-uv tool install --from git+https://github.com/dataiku/dku-headless.git dku-headless --force
-dku auth login          # DSS URL + personal API key
-dku whoami
+uv tool install git+https://github.com/dataiku/dku-headless.git
+dku auth login             # store DSS URL + API key in the OS keychain
 ```
 
-> Upgrading from the old `dku-cli` package? Uninstall it first, or the shared
-> `dku` binary gets orphaned: `uv tool uninstall dku-cli` before the install above.
+All install paths — MCP extras, agent-host plugins (Claude Code, Codex, Claude
+Desktop), updating, and auth — are in [`docs/install.md`](docs/install.md).
 
-### 2. Claude Code — MCP + skills
-
-```bash
-claude plugin marketplace add https://github.com/dataiku/dku-headless.git
-claude plugin install dataiku-mcp
-```
-
-Installs the one MCP tool (`dku_exec`) **and** the bundled skills (`dku-cli`,
-`migration`, `dataiku-internal-branding`). You are prompted for your DSS URL +
-API key. Restart Claude Code to load the skills.
-
-### 3. Codex — MCP + skills
-
-```bash
-codex plugin marketplace add https://github.com/dataiku/dku-headless.git
-```
-
-Then enable the `dataiku-mcp` plugin in Codex's plugin manager (it registers
-under the `dataiku-marketplace` marketplace in `~/.codex/config.toml`). Codex
-reads the DSS connection from the environment. For Codex Desktop on macOS, set
-the variables with `launchctl`, then fully restart Codex and open a new thread:
-
-```bash
-launchctl setenv DKU_URL "https://your-dss-host"
-launchctl setenv DKU_API_KEY "your-dss-personal-api-key"
-```
-Codex does not currently accept plugin-scoped MCP env config.
-
-**Plugin strategy:** one MCP tool (`dku_exec`) plus the bundled skills, installed
-through the host agent's plugin/skill mechanism — not a second MCP tool — so
-agents get the latest DSS guidance without managing skill files by hand.
-
-### 4. Any MCP client — MCP only
-
-No marketplace or skills install. Install the CLI with the `mcp` extra, then
-point your client at the local `dku-mcp` stdio server:
-
-```bash
-uv tool install --from git+https://github.com/dataiku/dku-headless.git "dku-headless[mcp]" --force
-```
-
-Use the equivalent of this in your MCP client config:
-
-```json
-{
-  "command": "dku-mcp",
-  "args": ["serve", "--transport", "stdio"],
-  "env": {
-    "DKU_URL": "https://your-dss-host",
-    "DKU_API_KEY": "your-dss-personal-api-key"
-  }
-}
-```
-
-MCP-only clients get `dku_exec` but not the bundled skills. If your client
-supports skills, copy `dataiku-mcp/skills/*` into that client's skills
-directory.
-
-### Claude Desktop bundle
-
-```bash
-make desktop-bundle
-```
-
-## Quick Start
+## Quick start
 
 ```bash
 dku whoami                  # verify connection
@@ -116,29 +62,10 @@ dku project list            # list projects
 dku dataset head DS -P PROJ # preview data
 ```
 
-Full reference: [dataiku-mcp/skills/dku-cli/SKILL.md](dataiku-mcp/skills/dku-cli/SKILL.md)
+Full reference: [`dataiku-mcp/skills/dku-cli/SKILL.md`](dataiku-mcp/skills/dku-cli/SKILL.md)
+and `dku <command> --help`.
 
-### MCP Packaging
-
-```bash
-make plugin
-make desktop-bundle
-make test-plugin
-```
-
----
-
-## Update
-
-```bash
-# CLI — reinstall from source:
-uv tool install --from git+https://github.com/dataiku/dku-headless.git dku-headless --force --reinstall
-
-# MCP + skills (bundled in the plugin) — refresh the marketplace, then update:
-claude plugin marketplace update dataiku-marketplace   # Claude Code
-claude plugin update dataiku-mcp                        # restart your agent to apply
-codex plugin marketplace upgrade dataiku-marketplace   # Codex
-```
+MCP packaging: `make plugin`, `make desktop-bundle`, `make test-plugin`.
 
 ---
 
@@ -155,3 +82,14 @@ uv run pytest -v
 ## License
 
 Apache 2.0
+
+## More
+
+| Resource | Link |
+|---|---|
+| Release notes | [GitHub Releases](https://github.com/dataiku/dku-headless/releases) |
+| Safety model | [`docs/design/safety-stance.md`](docs/design/safety-stance.md) |
+| Install guide | [`docs/install.md`](docs/install.md) |
+| MCP plugin docs | [`dataiku-mcp/README.md`](dataiku-mcp/README.md) |
+| Agent skill corpus | [`dataiku-mcp/skills/dku-cli/`](dataiku-mcp/skills/dku-cli/) |
+| Command reference | `dku <command> --help` |

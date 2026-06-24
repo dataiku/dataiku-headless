@@ -1,8 +1,7 @@
-"""Check Ruff complexity and line-length debt against a committed baseline."""
-
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -57,6 +56,64 @@ def _e501_length(diagnostic: dict[str, Any]) -> int:
     return int(match.group(1)) if match else 0
 
 
+def _count_source_lines(filepath: Path) -> int:
+    try:
+        tree = ast.parse(filepath.read_text())
+    except SyntaxError:
+        return 0
+    docstring_lines: set[int] = set()
+    for node in ast.walk(tree):
+        is_docstr_node = isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
+        if is_docstr_node and node.body and isinstance(node.body[0], ast.Expr):
+            val = node.body[0].value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                start = node.body[0].lineno
+                end = getattr(node.body[0], "end_lineno", start) or start
+                for ln in range(start, end + 1):
+                    docstring_lines.add(ln)
+    significant = 0
+    for i, line in enumerate(filepath.read_text().splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or i in docstring_lines:
+            continue
+        significant += 1
+    return significant
+
+
+def _count_broad_exceptions(filepath: Path) -> int:
+    try:
+        tree = ast.parse(filepath.read_text())
+    except SyntaxError:
+        return 0
+
+    class _BroadExceptFinder(ast.NodeVisitor):
+        def __init__(self):
+            self.count = 0
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            if node.type is None:
+                self.count += 1
+            elif (isinstance(node.type, ast.Name) and node.type.id == "Exception") or (
+                isinstance(node.type, ast.Attribute) and node.type.attr == "Exception"
+            ):
+                self.count += 1
+            self.generic_visit(node)
+
+    finder = _BroadExceptFinder()
+    finder.visit(tree)
+    return finder.count
+
+
+_INLINE_ENUM_RE = re.compile(r"\.upper\(\)\s*not in\s*\{|\.lower\(\)\s*not in\s*\{")
+
+
+def _count_inline_enum_validation(filepath: Path) -> int:
+    content = filepath.read_text()
+    return len(_INLINE_ENUM_RE.findall(content))
+
+
 def _current_baseline() -> dict[str, Any]:
     diagnostics = _run_ruff()
     complexity = sorted(
@@ -74,11 +131,31 @@ def _current_baseline() -> dict[str, Any]:
         line_length_max[path] = max(
             line_length_max.get(path, 0), _e501_length(diagnostic)
         )
+    src = ROOT / "src" / "dku_cli"
+    oversized: dict[str, int] = {}
+    broad_exceptions: dict[str, int] = {}
+    inline_enum: dict[str, int] = {}
+
+    for pyfile in sorted(src.rglob("*.py")):
+        rel = pyfile.relative_to(ROOT).as_posix()
+        lines = _count_source_lines(pyfile)
+        if lines > 250:
+            oversized[rel] = lines
+        be = _count_broad_exceptions(pyfile)
+        if be > 0:
+            broad_exceptions[rel] = be
+        ie = _count_inline_enum_validation(pyfile)
+        if ie > 0:
+            inline_enum[rel] = ie
+
     return {
         "ruff_select": RUFF_SELECT,
         "complexity": complexity,
         "line_length": dict(sorted(line_length.items())),
         "line_length_max": dict(sorted(line_length_max.items())),
+        "oversized_files": dict(sorted(oversized.items())),
+        "broad_exceptions": dict(sorted(broad_exceptions.items())),
+        "inline_enum_validation": dict(sorted(inline_enum.items())),
     }
 
 
@@ -88,7 +165,10 @@ def _write_baseline() -> None:
     print(
         "Wrote quality baseline: "
         f"{len(baseline['complexity'])} C901 entries, "
-        f"{sum(baseline['line_length'].values())} E501 entries"
+        f"{sum(baseline['line_length'].values())} E501 entries, "
+        f"{len(baseline['oversized_files'])} oversized files, "
+        f"{sum(baseline['broad_exceptions'].values())} broad exceptions, "
+        f"{sum(baseline['inline_enum_validation'].values())} inline enum validations"
     )
 
 
@@ -140,6 +220,27 @@ def _check() -> None:
         if length > baseline_max.get(path, 0)
     }
 
+    def _dict_regression(
+        baselines: dict[str, int], currents: dict[str, int]
+    ) -> dict[str, int]:
+        return {
+            path: count
+            for path, count in currents.items()
+            if count > baselines.get(path, 0)
+        }
+
+    baseline_oversized = baseline.get("oversized_files", {})
+    current_oversized = current.get("oversized_files", {})
+    new_oversized = _dict_regression(baseline_oversized, current_oversized)
+
+    baseline_be = baseline.get("broad_exceptions", {})
+    current_be = current.get("broad_exceptions", {})
+    new_be = _dict_regression(baseline_be, current_be)
+
+    baseline_ie = baseline.get("inline_enum_validation", {})
+    current_ie = current.get("inline_enum_validation", {})
+    new_ie = _dict_regression(baseline_ie, current_ie)
+
     # A ratchet only tightens: REGRESSIONS fail the build, improvements never do.
     failures: list[str] = []
     if new_complexity:
@@ -158,6 +259,30 @@ def _check() -> None:
             + "\n".join(
                 f"{path}: {baseline_max.get(path, 0)} -> {length}"
                 for path, length in sorted(increased_max.items())
+            )
+        )
+    if new_oversized:
+        failures.append(
+            "New or worsened oversized files (>250 significant lines):\n"
+            + "\n".join(
+                f"{path}: {baseline_oversized.get(path, '-')} -> {count}"
+                for path, count in sorted(new_oversized.items())
+            )
+        )
+    if new_be:
+        failures.append(
+            "New or worsened broad exception counts:\n"
+            + "\n".join(
+                f"{path}: {baseline_be.get(path, '-')} -> {count}"
+                for path, count in sorted(new_be.items())
+            )
+        )
+    if new_ie:
+        failures.append(
+            "New or worsened inline enum validation patterns:\n"
+            + "\n".join(
+                f"{path}: {baseline_ie.get(path, '-')} -> {count}"
+                for path, count in sorted(new_ie.items())
             )
         )
 
@@ -190,8 +315,11 @@ def _check() -> None:
 
     print(
         "Quality ratchet OK: "
-        f"{len(current['complexity'])} C901 entries, "
-        f"{sum(current['line_length'].values())} E501 entries"
+        f"{len(current['complexity'])} C901, "
+        f"{sum(current['line_length'].values())} E501, "
+        f"{len(current['oversized_files'])} oversized, "
+        f"{sum(current['broad_exceptions'].values())} broad-except, "
+        f"{sum(current['inline_enum_validation'].values())} inline-enum"
     )
 
 

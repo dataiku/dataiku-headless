@@ -14,8 +14,23 @@ from dku_cli.commands._dataset_create import (
     _create_filesystem_dataset,
     _translate_create_dataset_error,
 )
+from dku_cli.commands._dataset_metadata import update_dataset_metadata
 from dku_cli.commands._dataset_quality import register_dataset_quality_commands
-from dku_cli.enums import InlineImportSource, JobsDbView
+from dku_cli.enums import (
+    BigQueryPartitioningPeriod,
+    BigQueryPartitioningType,
+    CompressMode,
+    InlineImportSource,
+    JobsDbView,
+    ParquetCompression,
+    ParquetFlavor,
+    ReadTemporalMode,
+    RedshiftDistStyle,
+    RedshiftSortKey,
+    TableCreationMode,
+    UploadProvider,
+    WriteBadDataBehavior,
+)
 from dku_cli.errors import (
     exit_with_error,
     handle_api_error,
@@ -491,7 +506,6 @@ def analyze_column(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
 
-        # Determine column type from schema
         ds_def = ds.get_definition()
         columns = ds_def.get("schema", {}).get("columns", [])
         col_def = next((c for c in columns if c.get("name") == column), None)
@@ -504,7 +518,6 @@ def analyze_column(
             )
         col_type = col_def.get("type", "string")
 
-        # Build computation, create temp worksheet, run
         computation = _make_computation(column, col_type, top_k)
 
         from dataikuapi.dss.statistics import DSSStatisticsComputationSettings
@@ -997,7 +1010,6 @@ def head(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
 
-        # Get column names from schema
         ds_def = ds.get_definition()
         all_columns = [
             col.get("name", f"col_{i}")
@@ -1019,7 +1031,6 @@ def head(
                 ],
             )
 
-        # Filter columns if requested
         if filter_columns:
             requested = [c.strip() for c in filter_columns.split(",") if c.strip()]
             missing = [c for c in requested if c not in all_columns]
@@ -1257,19 +1268,22 @@ def create(
         "--csv-dialect",
         help="CSV dialect (excel, unix, etc.). Sets formatParams.style.",
     ),
-    compress: str | None = typer.Option(
+    compress: CompressMode | None = typer.Option(
         None,
         "--compress",
+        case_sensitive=False,
         help="File compression for write: NONE | GZIP | BZIP2 | SNAPPY (filesystem-style outputs). Sets params.compress.",
     ),
-    parquet_compression: str | None = typer.Option(
+    parquet_compression: ParquetCompression | None = typer.Option(
         None,
         "--parquet-compression",
+        case_sensitive=False,
         help="Parquet write codec: SNAPPY (default) | UNCOMPRESSED | GZIP | LZO. Sets formatParams.compressionCodec.",
     ),
-    parquet_flavor: str | None = typer.Option(
+    parquet_flavor: ParquetFlavor | None = typer.Option(
         None,
         "--parquet-flavor",
+        case_sensitive=False,
         help="Parquet flavor: HIVE (default) | SPARK. Sets formatParams.flavor.",
     ),
     parquet_block_size_mb: int | None = typer.Option(
@@ -1277,14 +1291,16 @@ def create(
         "--parquet-block-size-mb",
         help="Parquet block (row-group) size in MB. Sets formatParams.blockSizeMB.",
     ),
-    read_temporal_mode: str | None = typer.Option(
+    read_temporal_mode: ReadTemporalMode | None = typer.Option(
         None,
         "--read-temporal-mode",
+        case_sensitive=False,
         help="Parquet timestamp read mode: TIMESTAMP_NTZ | TIMESTAMP_TZ | LEGACY. Sets formatParams.readTemporalMode.",
     ),
-    write_bad_data_behavior: str | None = typer.Option(
+    write_bad_data_behavior: WriteBadDataBehavior | None = typer.Option(
         None,
         "--write-bad-data-behavior",
+        case_sensitive=False,
         help="SQL write: DISCARD_ROW | NULL_VALUE | FAIL. Sets params.writeBadDataBehavior.",
     ),
     write_batch_size: int | None = typer.Option(
@@ -1292,9 +1308,10 @@ def create(
         "--write-batch-size",
         help="SQL bulk-load batch size. Sets params.writeBatchSize.",
     ),
-    table_creation_mode: str | None = typer.Option(
+    table_creation_mode: TableCreationMode | None = typer.Option(
         None,
         "--table-creation-mode",
+        case_sensitive=False,
         help="SQL table-creation behavior: auto | use_existing | fail_if_missing. Sets params.tableCreationMode.",
     ),
     no_drop_on_schema_mismatch: bool = typer.Option(
@@ -1322,9 +1339,10 @@ def create(
         "--dateonly-read-mode",
         help="SQL date-only read interpretation. Sets params.dateOnlyReadMode.",
     ),
-    dist_style: str | None = typer.Option(
+    dist_style: RedshiftDistStyle | None = typer.Option(
         None,
         "--dist-style",
+        case_sensitive=False,
         help="Redshift distribution style: AUTO | KEY | ALL | EVEN. Sets params.redshiftDistStyle.",
     ),
     dist_key: str | None = typer.Option(
@@ -1332,9 +1350,10 @@ def create(
         "--dist-key",
         help="Redshift KEY-style distribution column. Sets params.redshiftDistKey.",
     ),
-    sort_key: str | None = typer.Option(
+    sort_key: RedshiftSortKey | None = typer.Option(
         None,
         "--sort-key",
+        case_sensitive=False,
         help="Redshift sort-key kind: COMPOUND | INTERLEAVED. Sets params.redshiftSortKey.",
     ),
     sort_key_columns: str | None = typer.Option(
@@ -1347,14 +1366,16 @@ def create(
         "--use-bigquery-partitioning",
         help="BigQuery: enable native time partitioning. Sets params.useBigQueryPartitioning=true.",
     ),
-    bigquery_partitioning_type: str | None = typer.Option(
+    bigquery_partitioning_type: BigQueryPartitioningType | None = typer.Option(
         None,
         "--bigquery-partitioning-type",
+        case_sensitive=False,
         help="BigQuery partitioning type: TIME | INTEGER_RANGE. Sets params.bigQueryPartitioningType.",
     ),
-    bigquery_partitioning_period: str | None = typer.Option(
+    bigquery_partitioning_period: BigQueryPartitioningPeriod | None = typer.Option(
         None,
         "--bigquery-partitioning-period",
+        case_sensitive=False,
         help="BigQuery partitioning period: DAY | HOUR | MONTH | YEAR. Sets params.bigQueryPartitioningPeriod.",
     ),
     require_partition_filter: bool = typer.Option(
@@ -1362,9 +1383,10 @@ def create(
         "--require-partition-filter",
         help="BigQuery: require a partition filter in queries. Sets params.requirePartitionFilter=true.",
     ),
-    upload_provider: str | None = typer.Option(
+    upload_provider: UploadProvider | None = typer.Option(
         None,
         "--upload-provider",
+        case_sensitive=False,
         help="UploadedFiles backend: LOCAL | S3 | AZURE | GCS. Sets params.uploadProvider.",
     ),
     metastore_sync: bool = typer.Option(
@@ -2495,25 +2517,6 @@ def partitions(
         handle_api_error(e)
 
 
-def _verify_definition_persisted(
-    ds, dataset_name: str, project_key: str, description, short_desc
-) -> None:
-    after = ds.get_definition()
-    reread = (
-        f"Re-read with 'dku dataset get-definition {dataset_name} -P {project_key}'."
-    )
-    if short_desc is not None and after.get("shortDesc") != short_desc:
-        warn(
-            f"shortDesc did not persist (server returned "
-            f"'{after.get('shortDesc', '')}'). {reread}"
-        )
-    if description is not None and after.get("description") != description:
-        warn(
-            f"description did not persist (server returned "
-            f"'{after.get('description', '')}'). {reread}"
-        )
-
-
 @app.command("set-metadata")
 def set_metadata(
     ctx: typer.Context,
@@ -2541,30 +2544,9 @@ def set_metadata(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-
-        # description / shortDesc live on the dataset DEFINITION, not the
-        # /metadata endpoint — which silently drops them (it only honors tags).
-        # Writing them via set_metadata reported success but never persisted, so
-        # agents looped on the false "Updated metadata" log. Route each field to
-        # its real home, then verify the write actually landed.
-        if description is not None or short_desc is not None:
-            ds_def = ds.get_definition()
-            if description is not None:
-                ds_def["description"] = description
-            if short_desc is not None:
-                ds_def["shortDesc"] = short_desc
-            ds.set_definition(ds_def)
-        if tags is not None:
-            meta = ds.get_metadata()
-            meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
-            ds.set_metadata(meta)
-
-        # Never trust the success log — re-GET the definition and confirm. This
-        # is the exact trap that no-op'd silently before.
-        if description is not None or short_desc is not None:
-            _verify_definition_persisted(
-                ds, dataset_name, project_key, description, short_desc
-            )
+        update_dataset_metadata(
+            ds, dataset_name, project_key, description, short_desc, tags
+        )
         success(f"Updated metadata for dataset '{dataset_name}'")
     except typer.Exit:
         raise
@@ -3265,9 +3247,9 @@ def count(
 
         if resolved is not None:
             connection, table = resolved
-            sql = f"SELECT COUNT(*) AS n FROM {table}"
+            sql = f"SELECT COUNT(*) AS n FROM {table}"  # nosec B608 — table from resolved DSS dataset definition
             if where:
-                sql += f" WHERE {where}"
+                sql += f" WHERE {where}"  # nosec B608 — `where` is a CLI-supplied WHERE clause on the user's own dataset
             result = client.sql_query(sql, connection=connection)
             rows = list(result.iter_rows())
             n = int(rows[0][0]) if rows else 0

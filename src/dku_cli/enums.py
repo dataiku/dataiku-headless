@@ -263,6 +263,74 @@ class InlineImportSource(_StrEnum):
     FILE = "FILE"
 
 
+class CompressMode(_StrEnum):
+    NONE = "NONE"
+    GZIP = "GZIP"
+    BZIP2 = "BZIP2"
+    SNAPPY = "SNAPPY"
+
+
+class ParquetCompression(_StrEnum):
+    SNAPPY = "SNAPPY"
+    UNCOMPRESSED = "UNCOMPRESSED"
+    GZIP = "GZIP"
+    LZO = "LZO"
+
+
+class ParquetFlavor(_StrEnum):
+    HIVE = "HIVE"
+    SPARK = "SPARK"
+
+
+class ReadTemporalMode(_StrEnum):
+    TIMESTAMP_NTZ = "TIMESTAMP_NTZ"
+    TIMESTAMP_TZ = "TIMESTAMP_TZ"
+    LEGACY = "LEGACY"
+
+
+class WriteBadDataBehavior(_StrEnum):
+    DISCARD_ROW = "DISCARD_ROW"
+    NULL_VALUE = "NULL_VALUE"
+    FAIL = "FAIL"
+
+
+class TableCreationMode(_StrEnum):
+    auto = "auto"
+    use_existing = "use_existing"
+    fail_if_missing = "fail_if_missing"
+
+
+class RedshiftDistStyle(_StrEnum):
+    AUTO = "AUTO"
+    KEY = "KEY"
+    ALL = "ALL"
+    EVEN = "EVEN"
+
+
+class RedshiftSortKey(_StrEnum):
+    COMPOUND = "COMPOUND"
+    INTERLEAVED = "INTERLEAVED"
+
+
+class BigQueryPartitioningType(_StrEnum):
+    TIME = "TIME"
+    INTEGER_RANGE = "INTEGER_RANGE"
+
+
+class BigQueryPartitioningPeriod(_StrEnum):
+    DAY = "DAY"
+    HOUR = "HOUR"
+    MONTH = "MONTH"
+    YEAR = "YEAR"
+
+
+class UploadProvider(_StrEnum):
+    LOCAL = "LOCAL"
+    S3 = "S3"
+    AZURE = "AZURE"
+    GCS = "GCS"
+
+
 # --- ML / models -------------------------------------------------------------
 class FeatureRole(_StrEnum):
     INPUT = "INPUT"

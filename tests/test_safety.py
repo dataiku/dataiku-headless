@@ -11,13 +11,8 @@ from dku_cli.safety import SAFETY_BLOCKED_EXIT, Tier, guard, is_dangerous_mode
 
 
 class _FakeCtx:
-    """Stand-in for typer.Context for unit tests that don't need the runner."""
-
     def __init__(self, obj: dict | None = None):
         self.obj = obj or {}
-
-
-# ----- is_dangerous_mode precedence -----
 
 
 def test_is_dangerous_mode_default_is_guarded(monkeypatch):
@@ -53,17 +48,34 @@ def test_is_dangerous_mode_config_fallback(monkeypatch):
     assert reason == "config"
 
 
-# ----- tier gating: READ / WRITE are no-ops -----
+def test_is_dangerous_mode_hosted_ignores_env(monkeypatch):
+    monkeypatch.setenv("DKU_DANGEROUS", "1")
+    monkeypatch.setenv("DKU_MCP_HOSTED", "1")
+    enabled, reason = is_dangerous_mode(None)
+    assert enabled is False
+    assert reason == "default"
+
+
+def test_is_dangerous_mode_hosted_ignores_config(monkeypatch):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    monkeypatch.setenv("DKU_MCP_HOSTED", "1")
+    with patch("dku_cli.config.get_dangerous_mode", return_value=True):
+        enabled, reason = is_dangerous_mode(None)
+    assert enabled is False
+
+
+def test_is_dangerous_mode_hosted_still_honors_explicit_flag(monkeypatch):
+    monkeypatch.setenv("DKU_MCP_HOSTED", "1")
+    ctx = _FakeCtx({"dangerous": True})
+    enabled, reason = is_dangerous_mode(ctx)
+    assert enabled is True
+    assert reason == "flag"
 
 
 @pytest.mark.parametrize("tier", [Tier.READ, Tier.WRITE])
 def test_guard_noop_for_read_and_write(tier, monkeypatch):
     monkeypatch.delenv("DKU_DANGEROUS", raising=False)
-    # Should not raise even with yes=False
     guard(None, tier=tier, action="x.y", subject="thing", yes=False)
-
-
-# ----- DELETE: requires --yes -----
 
 
 def test_guard_delete_blocks_without_yes(monkeypatch, capsys):

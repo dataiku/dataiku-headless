@@ -7,6 +7,7 @@ help:
 	@echo "clean          Remove vendored wheels"
 
 bundle:
+	cd $(REPO_ROOT) && uv run python scripts/sync_plugin_metadata.py
 	@mkdir -p wheels
 	@rm -f wheels/*.whl
 	cd $(REPO_ROOT) && uv build --wheel -o dataiku-mcp/wheels

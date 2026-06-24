@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from dku_cli.mcp import executor, policy
 from dku_cli.mcp.audit import AuditLog
@@ -66,6 +67,29 @@ def test_run_exec_writes_audit(tmp_path):
     assert event["backend"] == "subprocess"
     assert event["auth_mode"] == "none"  # no dss_auth passed
     assert "api_key" not in json.dumps(event)  # never log the credential
+
+
+def test_audit_log_uses_private_permissions(tmp_path):
+    audit_path = tmp_path / "audit" / "exec.jsonl"
+    audit = AuditLog(audit_path)
+    audit.record({"tool": "dku_exec"})
+
+    if os.name == "posix":
+        assert (audit_path.parent.stat().st_mode & 0o777) == 0o700
+        assert (audit_path.stat().st_mode & 0o777) == 0o600
+
+
+def test_audit_log_tightens_existing_file_permissions(tmp_path):
+    audit_path = tmp_path / "audit" / "exec.jsonl"
+    audit_path.parent.mkdir()
+    audit_path.write_text("old\n", encoding="utf-8")
+    if os.name == "posix":
+        os.chmod(audit_path, 0o644)
+
+    AuditLog(audit_path).record({"tool": "dku_exec"})
+
+    if os.name == "posix":
+        assert (audit_path.stat().st_mode & 0o777) == 0o600
 
 
 def test_truncate_flags_oversized_output():

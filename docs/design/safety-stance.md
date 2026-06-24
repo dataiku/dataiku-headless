@@ -107,3 +107,111 @@ the value of running headless/unattended is real:
    get a real human gate. Tier-4 remains non-bypassable in both.
 4. **Keep `--confirm-name` exactly as is.** It is the part of the design the
    principle would endorse: specific, world-referencing, fail-closed intent.
+
+## MCP threat model
+
+### Trust modes
+
+The MCP server (`dku-mcp serve`) operates in two trust modes:
+
+| Mode | Transport | Env | Sandbox | Use case |
+|---|---|---|---|---|
+| `local` | stdio only | Full host env, no scrubbing | Optional | Local agent, same user |
+| `hosted` | http | Scrubbed (only DKU_URL/DKU_TICKET), per-session workdir | Bubblewrap required | Remote/multi-tenant |
+
+Local mode inherits the caller's full environment (including `DKU_DANGEROUS`,
+`PATH`, `HOME`). Hosted mode is locked down: it sets `HOME` to the per-session
+workdir, does not pass `DKU_DANGEROUS`, and refuses to run without bubblewrap
+unless `--allow-insecure-sandbox` is explicitly passed.
+
+The server refuses `--trust local` on an HTTP transport because local-mode
+environment inheritance (full `PATH`, home dir, config files) is inappropriate
+for a network-reachable endpoint.
+
+### Identity — bearer vs pod key
+
+The server distinguishes two identity modes via the `is_http` flag, resolved
+at the server level — never inferred from a request context's availability (a
+hosted HTTP server can never silently fall back to the pod's own credential):
+
+- **HTTP (bearer):** The `Authorization: Bearer` token IS the caller's DSS
+  personal API key. Every `dku` command runs as that user. The pod's injected
+  key (`DKU_API_KEY` / `DKU_API_TICKET`) is NEVER used for HTTP callers.
+  Sessions are keyed off the bearer token for per-caller isolation. If no
+  bearer can be extracted, an empty key is returned so `dku_exec` produces the
+  auth-required error rather than running as the pod owner.
+- **stdio (pod owner):** The agent runs as the pod user, authenticated via
+  `DKU_API_KEY` or `DKU_API_TICKET`.
+
+**X-API-Key fallback headers:** Some reverse proxies strip the `Authorization`
+header. The HTTP server additionally checks `X-DKU-API-Key` and `X-API-Key`
+headers as a fallback, so bearer-based identity (model A) works through such
+proxies. These headers are NOT a separate auth mechanism — they follow the same
+bearer-identity rules.
+
+### Sandbox isolation
+
+The executor sandbox selects a backend (`SandboxBackend`) at startup:
+
+- **Bubblewrap** (`BubblewrapBackend`): Full kernel-level isolation via
+  unprivileged user namespaces. The jail exposes only:
+  - **Read-only:** `/bin`, `/sbin`, `/usr`, `/lib*`, `/etc/ssl`, `/etc/pki`,
+    `/etc/ca-certificates`, `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`,
+    `/etc/passwd`, `/etc/group` — runtime/cert/DNS files, not user data.
+  - **Writable:** The per-session workdir (bound after the tmpfs so it stays
+    writable when sessions live under `/tmp`).
+  - **Temp:** An isolated `tmpfs` at `/tmp` (NOT the host `/tmp`).
+  - **Network:** On by default (DSS reachability); gated by `--no-network`.
+  - **PIDs/IPC:** `--unshare-pid`, `--unshare-ipc`, `--unshare-uts`.
+- **Subprocess** (`SubprocessBackend`): No isolation beyond cwd/env change.
+  Intended only for local dev where the agent and DSS run on the same machine.
+
+**Bubblewrap probe:** `probe_bubblewrap()` checks not just that the `bwrap`
+binary exists but that creating an unprivileged user namespace actually works
+in this environment — hardened K8s clusters may block it even when the binary
+is present.
+
+**`--allow-insecure-sandbox`:** The HTTP server refuses to start when the
+selected backend is not bubblewrap, unless this flag is passed. This is a
+deliberate safety gate: serving to remote agents without kernel isolation is
+unsafe. The doctor command (`dku-mcp doctor`) reports the active backend and
+warns when it is not bubblewrap.
+
+### File-system boundaries
+
+| Boundary | Local (stdio) | Hosted (HTTP) |
+|---|---|---|
+| HOME | User's home dir | Per-session workdir |
+| CWD | Client's cwd | Per-session workdir |
+| TMPDIR | Inherited | `/tmp` (isolated tmpfs in bubblewrap) |
+| Host filesystem | Full access | Bubblewrap jail (runtime paths only) |
+| DSS config | `~/.config/dku/` | NOT mounted (auth via bearer only) |
+
+The per-session state directory is `{state_root}/{session_id}/`. It is created
+once per unique bearer (or once for the pod owner on stdio), and cleaned up when
+the session expires.
+
+### Audit trail
+
+All `dku_exec` calls are logged with: caller session id, command (sanitised
+of credential-bearing env vars), exit code, duration, and backend name. The
+log line goes to stderr in the MCP server process; in a Code Studio this is
+visible in the pod's console logs.
+
+### In-pod TLS
+
+When running inside a DSS Code Studio exposed port, TLS termination happens
+at the Code Studio reverse proxy. The `dku` CLI connects to its DSS instance
+*through the pod's internal network* using the pod ticket
+(`DKU_API_TICKET`), which is a local loopback credential. The ticket is never
+exposed to HTTP callers — they authenticate via their own bearer.
+
+The bubblewrap jail mounts `/etc/ssl`, `/etc/pki`, and `/etc/ca-certificates`
+so that SSL connections (e.g. `dku` → DSS API) work inside the sandbox.
+
+## One-line summary
+
+Confirmation *booleans* don't authorize agents — our `--confirm-name` already
+encodes intent semantically (keep it), `--yes` only means something inside the
+exit-77 handshake (document it as such), and for Tier 3/4 the right long-term
+boundary is fresh harness-level human approval, not any flag the model can set.

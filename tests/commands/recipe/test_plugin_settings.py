@@ -9,9 +9,6 @@ from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_m
 from tests.helpers import strip_ansi as _strip_ansi
 
 
-# ── Plugin recipe tests ────────────────────────────────────────────
-
-
 def test_recipe_create_plugin_recipe(patch_client):
     """Plugin recipes (CustomCode_*) use DSSRecipeCreator in raw mode."""
     proj = patch_client.get_project("PROJ1")
@@ -306,9 +303,6 @@ def test_recipe_create_unknown_type_error(patch_client):
     assert result.exit_code != 0
     assert "Unknown recipe type" in result.output
     assert "CustomCode_" in result.output
-
-
-# ── get-settings / set-settings ──────────────────────────────────────
 
 
 def test_recipe_get_settings_json(patch_client):
@@ -697,14 +691,6 @@ def test_recipe_create_window_with_partition_col(patch_client):
     settings.save.assert_called()
 
 
-# ---------------------------------------------------------------------------
-
-
-# ── NET-NEW (PR surface): set-env, set-code --file alias, set-definition
-# payload guards (code-recipe refusal + visual ok + wrapper unwrap),
-# set-description, set-settings code-recipe redirect, plugin customConfig ──
-
-
 def test_recipe_set_env_explicit(patch_client):
     """set-env writes envSelection + containerSelection into recipe params."""
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
@@ -791,7 +777,7 @@ def test_recipe_set_env_rejects_invalid_env_mode(patch_client):
         ],
     )
     assert result.exit_code != 0
-    assert "USE_BUILTIN_MODE" in result.output
+    assert "use_builtin_mode" in result.output
     recipe.get_settings.return_value.save.assert_not_called()
 
 
@@ -1018,9 +1004,6 @@ def test_recipe_set_definition_unwraps_dollar_status_wrapper(patch_client):
     assert result.exit_code == 0, result.output
     assert raw["description"] == "set via dku"
     assert "$status" not in raw
-
-
-# ── Prepare step: add-fold ─────────────────────────────────────────────
 
 
 def test_recipe_set_description_inline(patch_client):

@@ -163,11 +163,11 @@ def _apply_create_redshift_params(
     sort_key_columns: str | None,
 ) -> None:
     if dist_style is not None:
-        params["redshiftDistStyle"] = dist_style.upper()
+        params["redshiftDistStyle"] = dist_style
     if dist_key is not None:
         params["redshiftDistKey"] = dist_key
     if sort_key is not None:
-        params["redshiftSortKey"] = sort_key.upper()
+        params["redshiftSortKey"] = sort_key
     if sort_key_columns is not None:
         params["redshiftSortKeyColumns"] = [
             c.strip() for c in sort_key_columns.split(",") if c.strip()
@@ -185,9 +185,9 @@ def _apply_create_bigquery_params(
     if use_bigquery_partitioning:
         params["useBigQueryPartitioning"] = True
     if bigquery_partitioning_type is not None:
-        params["bigQueryPartitioningType"] = bigquery_partitioning_type.upper()
+        params["bigQueryPartitioningType"] = bigquery_partitioning_type
     if bigquery_partitioning_period is not None:
-        params["bigQueryPartitioningPeriod"] = bigquery_partitioning_period.upper()
+        params["bigQueryPartitioningPeriod"] = bigquery_partitioning_period
     if require_partition_filter:
         params["requirePartitionFilter"] = True
 
@@ -201,7 +201,7 @@ def _apply_create_storage_params(
     metastore_table: str | None,
 ) -> None:
     if upload_provider is not None:
-        params["uploadProvider"] = upload_provider.upper()
+        params["uploadProvider"] = upload_provider
     if metastore_sync:
         params["metastoreSynchronizationEnabled"] = True
     if metastore_database is not None:
@@ -249,7 +249,7 @@ def _apply_create_inline_params(
     if enable_clipboard_api:
         params.setdefault("enableClipboardApi", True)
     if import_source is not None:
-        params.setdefault("importSourceType", import_source.upper())
+        params.setdefault("importSourceType", import_source)
 
 
 def _apply_uploaded_files_connection(

@@ -25,7 +25,8 @@ def default_state_root() -> Path:
     env = os.environ.get("DKU_MCP_STATE_ROOT")
     if env:
         return Path(env)
-    return Path(tempfile.gettempdir()) / "dku-mcp"
+    suffix = f"-{os.geteuid()}" if hasattr(os, "geteuid") else ""
+    return Path(tempfile.gettempdir()) / f"dku-mcp{suffix}"
 
 
 def _resolve_local_workdir() -> str:
@@ -215,24 +216,13 @@ def build_server(
                     truncated=False,
                 )
             )
-        # Defensive guard against the latent "anon" shared-session risk: the
-        # empty-bearer rejection above is the ONLY thing that keeps the shared
-        # "anon" session id (minted in _resolve_request_auth when no key is
-        # extractable) from reaching get_or_create and handing every
-        # unauthenticated HTTP caller one shared workdir. If a future refactor
-        # ever weakens that guard, fail loud here rather than silently sharing.
         if auth["is_http"] and auth["session_id"] == "anon":
             raise AssertionError(
                 "refusing to create the shared 'anon' session for an "
                 "unauthenticated HTTP caller"
             )
-        session = store.get_or_create(auth["session_id"])
-        # Local mode runs in the user's project dir (relative paths to their
-        # files work); hosted mode falls back to the isolated session workdir.
         cwd = _resolve_local_workdir() if mode == "local" else None
-        # Lease the session so LRU eviction can't delete its workdir while
-        # this command is still running in it.
-        with store.lease(session):
+        with store.acquire(auth["session_id"]) as session:
             result = executor.run_exec(
                 commands,
                 session=session,

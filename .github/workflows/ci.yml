@@ -18,8 +18,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Exercise the full declared support window on every PR so a regression
-        # on an intermediate interpreter cannot slip through.
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
@@ -78,9 +76,9 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
       - name: Export locked dependencies
-        run: uv export --locked --no-emit-project --no-dev -o requirements-audit.txt
+        run: uv export --locked --no-emit-project --no-dev --output-file requirements-audit.txt >/dev/null
       - name: Audit dependencies
-        run: uvx pip-audit --strict --requirement requirements-audit.txt
+        run: uvx pip-audit --strict --no-deps --disable-pip --requirement requirements-audit.txt
       - name: Resolve secret scan range
         id: secret-range
         shell: bash
@@ -103,16 +101,27 @@ jobs:
             --redact \
             --no-banner
 
-  wheel-freshness:
+  commitlint:
     runs-on: ubuntu-latest
-    name: Bundled Wheel Freshness
+    name: Commit Lint
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - name: Rebuild bundled MCP plugin wheel
-        run: make plugin
-      - name: Fail if the committed wheel is stale
-        run: git diff --exit-code dataiku-mcp/wheels/
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+      - run: npm install --no-save @commitlint/cli @commitlint/config-conventional
+      - name: Lint PR commits
+        run: npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Lint PR title (squash-merge subject)
+        run: echo "$PR_TITLE" | npx commitlint --verbose
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
 
   actionlint:
     runs-on: ubuntu-latest

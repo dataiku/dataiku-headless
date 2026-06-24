@@ -15,6 +15,7 @@ import hmac
 import os
 import secrets
 import shutil
+import threading
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -30,13 +31,6 @@ _MAX_SESSIONS = 64
 
 @dataclass
 class Session:
-    """An isolated execution context.
-
-    ``active`` counts in-flight executions leased via ``SessionStore.lease`` —
-    LRU eviction skips sessions with a live lease so a long command's workdir
-    is never deleted out from under it.
-    """
-
     session_id: str
     key: str
     workdir: Path
@@ -59,6 +53,7 @@ class SessionStore:
         self._secret = self._load_or_create_secret()
         self._max_sessions = max(1, int(max_sessions))
         self._sessions: OrderedDict[str, Session] = OrderedDict()
+        self._lock = threading.RLock()
 
     def _load_or_create_secret(self) -> bytes:
         secret_path = self.root / "identity-secret"
@@ -74,6 +69,10 @@ class SessionStore:
         return digest.hexdigest()[:_KEY_LEN]
 
     def get_or_create(self, session_id: str) -> Session:
+        with self._lock:
+            return self._get_or_create_locked(session_id)
+
+    def _get_or_create_locked(self, session_id: str) -> Session:
         cached = self._sessions.get(session_id)
         if cached is not None:
             self._sessions.move_to_end(session_id)  # mark as recently used
@@ -90,17 +89,30 @@ class SessionStore:
         return session
 
     @contextmanager
+    def acquire(self, session_id: str):
+        with self._lock:
+            session = self._get_or_create_locked(session_id)
+            session.active += 1
+        try:
+            yield session
+        finally:
+            with self._lock:
+                session.active -= 1
+
+    @contextmanager
     def lease(self, session: Session):
         """Mark a session in-use for the duration of an execution.
 
         A leased session is exempt from LRU eviction, so a concurrent burst of
         new sessions cannot rmtree the workdir of a still-running command.
         """
-        session.active += 1
+        with self._lock:
+            session.active += 1
         try:
             yield session
         finally:
-            session.active -= 1
+            with self._lock:
+                session.active -= 1
 
     def _evict_overflow(self, *, protect: Session | None = None) -> None:
         """Drop least-recently-used idle sessions over the cap, removing their workdirs.

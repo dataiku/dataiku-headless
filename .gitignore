@@ -10,6 +10,7 @@ build/
 venv/
 .env
 .env.*
+!.env.example
 *.toml.bak
 .pytest_cache/
 .mypy_cache/
@@ -49,6 +50,7 @@ plan.md
 
 # AI coding tool configs (benchmark artifacts)
 .claude/worktrees/
+.omo/
 
 # Benchmark Docker-shared scratch (fixtures + proto dirs)
 benchmark/.bench_scratch/

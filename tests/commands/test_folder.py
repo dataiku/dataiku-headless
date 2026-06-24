@@ -6,6 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 
+from dataikuapi.utils import DataikuException
 from typer.testing import CliRunner
 
 from dku_cli.main import app
@@ -340,7 +341,9 @@ def test_folder_ls_by_name(patch_client):
 
     # Create separate mocks: one that fails (ID lookup), one that works (name lookup)
     bad_folder = MagicMock()
-    bad_folder.get_settings.side_effect = Exception("NotFoundException: not found")
+    bad_folder.get_settings.side_effect = DataikuException(
+        "NotFoundException: not found"
+    )
 
     good_folder = MagicMock()
     good_folder.id = "folder1"

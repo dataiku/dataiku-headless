@@ -387,9 +387,10 @@ def set_metadata(
 def set_env(
     ctx: typer.Context,
     recipe_name: str = typer.Argument(help="Recipe name"),
-    env_mode: str | None = typer.Option(
+    env_mode: EnvMode | None = typer.Option(
         None,
         "--env-mode",
+        case_sensitive=False,
         help=(
             "Code-env mode: INHERIT (project default), USE_BUILTIN_MODE, "
             "EXPLICIT_ENV (specify --env-name). Sets params.envSelection.envMode."
@@ -400,9 +401,10 @@ def set_env(
         "--env-name",
         help="Code env name when --env-mode EXPLICIT_ENV. Sets params.envSelection.envName.",
     ),
-    container_mode: str | None = typer.Option(
+    container_mode: ContainerMode | None = typer.Option(
         None,
         "--container-mode",
+        case_sensitive=False,
         help=(
             "Container execution mode: INHERIT (project default), NONE (run on the "
             "DSS process), EXPLICIT_CONTAINER (use --container-conf), KUBERNETES, "
@@ -432,29 +434,11 @@ def set_env(
         exit_with_error(
             "Nothing to set — pass --env-mode and/or --container-mode.",
         )
-    # DSS deserializes an unknown enum value to null and only fails at build
-    # time — validate up-front against the same enums `recipe create` uses.
-    if env_mode and env_mode.upper() not in {m.value for m in EnvMode}:
-        exit_with_error(
-            f"Invalid --env-mode '{env_mode}'.",
-            details=[f"Use {', '.join(m.value for m in EnvMode)}."],
-        )
-    if container_mode and container_mode.upper() not in {
-        m.value for m in ContainerMode
-    }:
-        exit_with_error(
-            f"Invalid --container-mode '{container_mode}'.",
-            details=[f"Use {', '.join(m.value for m in ContainerMode)}."],
-        )
-    if env_mode and env_mode.upper() == "EXPLICIT_ENV" and not env_name:
+    if env_mode is EnvMode.EXPLICIT_ENV and not env_name:
         exit_with_error(
             "--env-mode EXPLICIT_ENV requires --env-name.",
         )
-    if (
-        container_mode
-        and container_mode.upper() == "EXPLICIT_CONTAINER"
-        and not container_conf
-    ):
+    if container_mode is ContainerMode.EXPLICIT_CONTAINER and not container_conf:
         exit_with_error(
             "--container-mode EXPLICIT_CONTAINER requires --container-conf.",
         )

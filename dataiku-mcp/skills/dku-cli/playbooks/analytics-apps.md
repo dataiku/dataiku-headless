@@ -42,34 +42,15 @@ dku ml deploy ANALYSIS MLTASK MODEL_ID -n model_name --train-dataset DS -P PROJ
 
 ## Dashboards, charts, insights
 
-Use a dashboard to present results to humans: KPI tiles, charts, a filtered table.
-It is the delivery surface on top of a built flow — build and verify the data first,
-then chart it. Charts read a **sample** of the bound dataset, so the dataset must be
-built and non-empty before a tile can render.
-
-Per insight: **(1)** pick the chart type from the matrix in `references/dashboards.md`
-(type → required slots → when to use) → **(2)** create it bound to a dataset →
-**(3)** set its `def` via `set-definition`, filling exactly that type's required slots →
-**(4)** `validate` (render pre-flight — DO NOT SKIP) → then create the dashboard and
-place tiles.
+Three steps: **(1)** create a chart insight bound to a dataset → **(2)** configure its `def` via `set-definition` → **(3)** create a dashboard and place tiles referencing the insight.
 
 ```bash
 dku insight create "Monthly Revenue" --type chart --dataset sales_monthly -P KEY  # capture INSIGHT_ID
 dku insight set-definition INSIGHT_ID -d @chart.json -P KEY
-dku insight validate INSIGHT_ID -P KEY     # render pre-flight: empty required slot,
-                                           # bad column, nulled type, missing geo meaning
+dku insight validate INSIGHT_ID -P KEY               # checks column refs — DO NOT SKIP
 dku dashboard create "Revenue" -P KEY                 # capture DASH_ID
 dku dashboard set-definition DASH_ID -d @dashboard.json -P KEY
 ```
-
-`validate` is the **only** CLI render check — there is no `dku dashboard export`/render
-verb, and the internal chart-data endpoint rejects API-key auth (401). After
-`set-definition`, `validate` catches the failure classes that otherwise only surface
-when a human opens the tile. Final visual confirmation still needs the browser.
-
-**Geo charts need one prep step first:** Prepare `GeoPointCreator` (lat/lon → WKT) →
-`dku dataset set-meaning DS geopoint=GeoPoint` → bind that column in `params.def.geometry`.
-Without the geo meaning the map builds empty ("dataset is empty").
 
 ### Chart insight payload (essentials)
 
@@ -93,22 +74,7 @@ Full tile/field reference: `references/dashboards.md`.
 
 ### Gotchas — with fix
 
-- **Persisted ≠ renders.** `set-definition` exit 0 only means the JSON saved. The chart
-  can still fail at render. `dku insight validate` is the gate; it flags empty required
-  slots (`ArrayIndexOutOfBoundsException`), wrong columns (blank), silently-nulled types
-  (`bubble`/`waterfall`), and missing geo meaning ("dataset is empty").
-- **Wrong slot for the type = blank / AIOOBE.** Color-grid and map charts
-  (`binned_xy`, `numerical_heatmap`, `treemap`, `admin_map`, `geom_map`) take the value in
-  `colorMeasure` and axes in `xDimension`/`yDimension`/`geometry` — NOT
-  `genericDimension*`/`genericMeasures`. See the matrix in `references/dashboards.md`.
-- **`bubble` / `waterfall` silently null on save.** Build a bubble as `scatter` + `uaSize`;
-  there's no working `waterfall` (use `grouped_columns`).
-- **Render-finicky types pass structural checks but can still fail to load.** `sankey`
-  AIOOBEs on this build for every dim layout — use `stacked_bars` (source split by target).
-  `numerical_heatmap` fails on categorical axes — use `binned_xy` with `TREAT_AS_ALPHANUM`
-  axes for a category heatmap. `validate` warns on these; confirm them in the UI.
-- **`dataset_table` tile loads only on click** unless its tile `tileParams.viewKind` is
-  `"EXPLORE"` — without it the grid never auto-renders on the dashboard.
+- **Wrong column names render a blank chart with NO server error.** Verify columns first: `dku dataset schema DS -P KEY`, then `dku insight validate INSIGHT_ID -P KEY`.
 - **Missing `engineType:"LINO"` or `params.datasetSmartName`** → empty/failed chart. Always include both (`--dataset` on create sets the latter).
 - **DSS normalizes payloads on save — fields silently dropped.** After every `set-definition`, re-read and diff:
   ```bash
@@ -117,14 +83,8 @@ Full tile/field reference: `references/dashboards.md`.
     diff <(jq -S . dashboard.json) <(jq -S . after.json) || true
   ```
 - **`TEXT` tile `htmlContent` is often stripped.** Use the markdown form (`tileParams.text` + `displayedText`, both set to the same value) which persists; or use a chart insight with a large title instead of a scripted header.
-- **`dataset_table` column hiding is NOT `mode:"SELECTED"`.** That reverts to `mode:"ALL"`;
-  hide columns with a per-column `d:true` flag in `columnsSelection.list` (see
-  `references/dashboards.md`). Clone-then-narrow from the live default; never hand-write
-  `columnOrder` (`Expected BEGIN_OBJECT but was STRING`).
+- **Do NOT hand-write a `dataset_table` payload.** Its `shakerScript.columnOrder` can expect objects not strings (`Expected BEGIN_OBJECT but was STRING`). Clone-then-narrow: create with `--dataset`, `get-definition` the live default, edit only `columnsSelection` / `sorting` / `previewMode`, write back.
 - **Filter page "missing" dataset** — check `pages[i].filtersParams.datasetSmartName`, not only the filter insight definition.
-- **Tiles BLANK for dashboard-only users** until each tile's source object is granted in
-  the dashboard's **Authorizations** (UI only — no CLI verb). A dashboard that looks done
-  from the builder's seat can be empty for its audience.
 
 ---
 

@@ -20,22 +20,28 @@ _SPEC.loader.exec_module(ratchet)
 
 
 def _state(
-    complexity=(), line_length=None, line_length_max=None, ruff_select="C901,E501"
+    complexity=(),
+    line_length=None,
+    line_length_max=None,
+    ruff_select="C901,E501",
+    oversized_files=None,
+    broad_exceptions=None,
+    inline_enum_validation=None,
 ):
     return {
         "ruff_select": ruff_select,
         "complexity": list(complexity),
         "line_length": dict(line_length or {}),
         "line_length_max": dict(line_length_max or {}),
+        "oversized_files": dict(oversized_files or {}),
+        "broad_exceptions": dict(broad_exceptions or {}),
+        "inline_enum_validation": dict(inline_enum_validation or {}),
     }
 
 
 def _patch(monkeypatch, baseline, current):
     monkeypatch.setattr(ratchet, "_load_baseline", lambda: baseline)
     monkeypatch.setattr(ratchet, "_current_baseline", lambda: current)
-
-
-# --- helpers -----------------------------------------------------------------
 
 
 def test_complexity_key_extracts_function_name():
@@ -49,9 +55,6 @@ def test_complexity_key_extracts_function_name():
 def test_e501_length_parses_actual_length():
     assert ratchet._e501_length({"message": "Line too long (123 > 88)"}) == 123
     assert ratchet._e501_length({"message": "unparseable"}) == 0
-
-
-# --- _check: regressions fail ------------------------------------------------
 
 
 def test_check_passes_when_unchanged(monkeypatch, capsys):
@@ -93,9 +96,6 @@ def test_check_fails_on_ruff_select_mismatch(monkeypatch):
     _patch(monkeypatch, _state(ruff_select="C901"), _state())
     with pytest.raises(SystemExit):
         ratchet._check()
-
-
-# --- _check: improvements pass (the one-sided ratchet guarantee) -------------
 
 
 def test_check_passes_when_debt_decreases(monkeypatch, capsys):

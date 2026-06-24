@@ -72,8 +72,10 @@ def infer_api_key_kind(api_key: str | None) -> str:
 def _keyring_available() -> bool:
     try:
         import keyring
+    except ImportError:
+        return False
 
-        # Test that a real backend is available (not the fail backend)
+    try:
         backend = keyring.get_keyring()
         return "fail" not in type(backend).__module__.lower()
     except Exception:

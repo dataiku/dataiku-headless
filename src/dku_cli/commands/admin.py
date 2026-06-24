@@ -80,7 +80,7 @@ def _is_remote_host(host: str | None) -> bool:
 
     parsed = urlparse(host if "://" in host else f"//{host}")
     hostname = (parsed.hostname or "").lower()
-    return hostname not in {"localhost", "127.0.0.1", "::1", "0.0.0.0", ""}
+    return hostname not in {"localhost", "127.0.0.1", "::1", "0.0.0.0", ""}  # nosec B104 — security check detecting binds to all interfaces
 
 
 @app.command()
@@ -339,7 +339,7 @@ def license_upload(
         )
     try:
         content = file.read_text()
-        json.loads(content)  # Validate before sending to DSS.
+        json.loads(content)
     except json.JSONDecodeError as exc:
         exit_with_error(
             f"License file is not valid JSON: {exc}",

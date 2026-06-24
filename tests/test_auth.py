@@ -264,8 +264,7 @@ def test_infer_api_key_kind_personal():
 
 def test_infer_api_key_kind_global():
     """Global API Keys are bare 32-char alphanumeric (no prefix)."""
-    # Real-world example from the user's chrispersonal sandbox.
-    assert infer_api_key_kind("K4972T02QMfDslQUtmm7ryS4RnFbuQRZ") == "global"
+    assert infer_api_key_kind("A" * 32) == "global"
 
 
 def test_infer_api_key_kind_deployer():

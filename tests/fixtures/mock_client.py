@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from dataikuapi.utils import DataikuException
+
 from tests.fixtures.mock_govern import configure_govern_client
 
 
@@ -1518,7 +1520,7 @@ def create_mock_client():
             return structured_agent_mock
         if agent_id == "structured_agent_empty":
             return structured_agent_empty_mock
-        raise Exception(f"NotFoundException: Agent {agent_id} does not exist")
+        raise DataikuException(f"NotFoundException: Agent {agent_id} does not exist")
 
     proj1.get_agent.side_effect = _get_agent
 
@@ -1738,7 +1740,9 @@ def create_mock_client():
     def _get_agent_review(review_id):
         if review_id == "review1":
             return review_mock
-        raise Exception(f"NotFoundException: Agent review {review_id} does not exist")
+        raise DataikuException(
+            f"NotFoundException: Agent review {review_id} does not exist"
+        )
 
     proj1.get_agent_review.side_effect = _get_agent_review
     proj1.create_agent_review.return_value = review_mock

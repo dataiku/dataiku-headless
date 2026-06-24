@@ -120,6 +120,7 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 | Need | Reference |
 |---|---|
 | Visual recipe JSON (join/group/window/filter/sort/pivot/topn/distinct/stack) + visual conditions | `references/visual-recipe-payloads.md` |
+| Visual recipe silent-failure traps (spurious unsaved-changes prompt, no-op steps, wrong-shape config, schema/type drift, grouping traps) | `references/visual-recipe-traps.md` |
 | Prepare processors: which one + params payload | `references/prepare-processors.md` |
 | GREL formula syntax | `references/formulas.md` |
 | Dataset connectors, schema, partitioning, plugin parameter types | `references/datasets-and-types.md` |

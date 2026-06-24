@@ -34,14 +34,9 @@ def test_resolve_dss_url_uses_backend_host_fallback(monkeypatch):
 
 
 def test_http_auth_never_falls_back_to_pod_key(monkeypatch):
-    # Security: on HTTP transport, if the request context is unavailable
-    # (get_http_request raises / returns None), auth must NOT inject the pod's
-    # own DKU_API_KEY. It must return an empty key + the shared "anon" session id
-    # so dku_exec rejects with the auth-required error.
     monkeypatch.setenv("DKU_URL", "https://dss.example")
     monkeypatch.setenv("DKU_API_KEY", "POD-OWNER-SECRET")
 
-    # Force the request-context lookup to fail, emulating "no active request".
     import sys
 
     fake = type(sys)("fastmcp.server.dependencies")
@@ -54,14 +49,52 @@ def test_http_auth_never_falls_back_to_pod_key(monkeypatch):
 
     auth = server._resolve_request_auth(is_http=True)
     assert auth["is_http"] is True
-    assert auth["api_key"] == ""  # pod key NEVER leaks to HTTP callers
+    assert auth["api_key"] == ""
     assert auth["api_key"] != "POD-OWNER-SECRET"
     assert auth["session_id"] == "anon"
 
 
+def test_http_auth_no_bearer_returns_anon(monkeypatch):
+    monkeypatch.setenv("DKU_URL", "https://dss.example")
+    monkeypatch.setenv("DKU_API_KEY", "POD-OWNER-SECRET")
+
+    import sys
+
+    fake = type(sys)("fastmcp.server.dependencies")
+
+    class _FakeNoAuth:
+        headers = {}
+
+    fake.get_http_request = lambda: _FakeNoAuth()
+    monkeypatch.setitem(sys.modules, "fastmcp.server.dependencies", fake)
+
+    auth = server._resolve_request_auth(is_http=True)
+    assert auth["is_http"] is True
+    assert auth["api_key"] == ""
+    assert auth["api_key"] != "POD-OWNER-SECRET"
+    assert auth["session_id"] == "anon"
+
+
+def test_http_auth_with_bearer_returns_key(monkeypatch):
+    monkeypatch.setenv("DKU_URL", "https://dss.example")
+
+    import sys
+
+    fake = type(sys)("fastmcp.server.dependencies")
+
+    class _FakeBearer:
+        headers = {"authorization": "Bearer dkuaps-test-key-123"}
+
+    fake.get_http_request = lambda: _FakeBearer()
+    monkeypatch.setitem(sys.modules, "fastmcp.server.dependencies", fake)
+
+    auth = server._resolve_request_auth(is_http=True)
+    assert auth["is_http"] is True
+    assert auth["api_key"] == "dkuaps-test-key-123"
+    assert auth["session_id"] == "bearer:dkuaps-test-key-123"
+
+
 def test_stdio_auth_uses_pod_key(monkeypatch):
-    # stdio is unchanged: the agent IS the pod owner, so the pod's injected key
-    # is the correct identity.
     monkeypatch.setenv("DKU_URL", "https://dss.example")
     monkeypatch.setenv("DKU_API_KEY", "POD-OWNER-SECRET")
 

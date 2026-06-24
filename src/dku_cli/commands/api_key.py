@@ -59,7 +59,9 @@ def get(
         client = get_client_from_ctx(ctx)
         key = client.get_global_api_key_by_id(key_id)
         definition = key.get_definition()
-        render_raw(dict(definition), output_format=output)
+        redacted = dict(definition)
+        redacted.pop("key", None)
+        render_raw(redacted, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

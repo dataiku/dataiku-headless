@@ -131,6 +131,7 @@ def build_env(
             for k, v in os.environ.items()
             if k in _ENV_ALLOWLIST or k.startswith(_ENV_ALLOWLIST_PREFIXES)
         }
+        env["DKU_MCP_HOSTED"] = "1"
     dss_auth = dss_auth or {}
     if dss_auth.get("url"):
         env["DKU_URL"] = dss_auth["url"]
@@ -204,7 +205,7 @@ def run_exec(
         # stay inside the per-agent state boundary.
         env["HOME"] = workdir
         env["PWD"] = workdir
-        env.setdefault("TMPDIR", "/tmp")
+        env.setdefault("TMPDIR", "/tmp")  # nosec B108 — intentional sandbox temp fallback inside isolated per-session workdir
     script = _resource_limits(timeout, mode) + sanitized
 
     started = time.monotonic()

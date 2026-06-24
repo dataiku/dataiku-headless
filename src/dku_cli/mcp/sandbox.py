@@ -102,7 +102,7 @@ def probe_bubblewrap() -> bool:
                 "--dev",
                 "/dev",
                 "--tmpfs",
-                "/tmp",
+                "/tmp",  # nosec B108 — bubblewrap creates an isolated tmpfs, not the host /tmp
                 "true",
             ],
             stdin=subprocess.DEVNULL,
@@ -110,7 +110,7 @@ def probe_bubblewrap() -> bool:
             timeout=_PROBE_TIMEOUT,
         )
         return result.returncode == 0
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
 
@@ -170,7 +170,7 @@ class BubblewrapBackend(SandboxBackend):
             "--dev",
             "/dev",
             "--tmpfs",
-            "/tmp",
+            "/tmp",  # nosec B108 — bubblewrap creates an isolated tmpfs, not the host /tmp
             # Bind the session dir AFTER the tmpfs so it stays writable even
             # when sessions live under /tmp.
             "--bind",

@@ -1,6 +1,6 @@
 {
   "name": "dataiku-mcp",
-  "version": "0.1.0",
+  "version": "0.4.1",
   "description": "Dataiku Headless — the headless DSS control plane for AI agents. The dku code-mode MCP server over local stdio, authed with your own DSS personal API key.",
   "author": {
     "name": "Dataiku",
@@ -13,7 +13,10 @@
     "longDescription": "Connect Codex to Dataiku DSS through the bundled Dataiku Headless CLI and stdio MCP server.",
     "developerName": "Dataiku",
     "category": "Developer Tools",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": [
       "Inspect my Dataiku DSS project.",
       "Build a Dataiku flow from these files.",

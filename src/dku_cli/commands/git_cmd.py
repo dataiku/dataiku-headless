@@ -11,6 +11,18 @@ from dku_cli.output import error, render, render_raw, resolve_output_format, suc
 app = typer.Typer(help="Manage a DSS project's git repository.")
 
 
+def _finish_git_action(data, output: str, ok_msg: str, fail_msg: str) -> None:
+    ok = data.get("success", True) if isinstance(data, dict) else True
+    if output == "json":
+        render_raw(data, output_format="json")
+    elif ok:
+        success(ok_msg)
+    else:
+        error(fail_msg)
+    if not ok:
+        raise typer.Exit(1)
+
+
 def _explain_reset_to_upstream_failure(e: Exception, git, project_key: str) -> None:
     """Turn DSS's cryptic upstream-reset failure into prescriptive guidance.
 
@@ -218,15 +230,13 @@ def pull(
         proj = client.get_project(project_key)
         git = proj.get_project_git()
         data = git.pull(branch_name=branch)
-        if output == "json":
-            render_raw(data, output_format="json")
-        else:
-            ok = data.get("success", False) if isinstance(data, dict) else True
-            out = data.get("output", "") if isinstance(data, dict) else str(data)
-            if ok:
-                success(f"Pull complete in {project_key}: {out}")
-            else:
-                error(f"Pull failed in {project_key}: {out}")
+        out = data.get("output", "") if isinstance(data, dict) else str(data)
+        _finish_git_action(
+            data,
+            output,
+            f"Pull complete in {project_key}: {out}",
+            f"Pull failed in {project_key}: {out}",
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -247,15 +257,13 @@ def push(
         proj = client.get_project(project_key)
         git = proj.get_project_git()
         data = git.push(branch_name=branch)
-        if output == "json":
-            render_raw(data, output_format="json")
-        else:
-            ok = data.get("success", False) if isinstance(data, dict) else True
-            out = data.get("output", "") if isinstance(data, dict) else str(data)
-            if ok:
-                success(f"Push complete in {project_key}: {out}")
-            else:
-                error(f"Push failed in {project_key}: {out}")
+        out = data.get("output", "") if isinstance(data, dict) else str(data)
+        _finish_git_action(
+            data,
+            output,
+            f"Push complete in {project_key}: {out}",
+            f"Push failed in {project_key}: {out}",
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -273,14 +281,12 @@ def fetch(
         proj = client.get_project(project_key)
         git = proj.get_project_git()
         data = git.fetch()
-        if output == "json":
-            render_raw(data, output_format="json")
-        else:
-            ok = data.get("success", False) if isinstance(data, dict) else True
-            if ok:
-                success(f"Fetch complete in {project_key}")
-            else:
-                error(f"Fetch failed in {project_key}")
+        _finish_git_action(
+            data,
+            output,
+            f"Fetch complete in {project_key}",
+            f"Fetch failed in {project_key}",
+        )
     except Exception as e:
         handle_api_error(e)
 
@@ -403,10 +409,13 @@ def switch(
         proj = client.get_project(project_key)
         git = proj.get_project_git()
         data = git.switch(branch_name)
-        if output == "json":
-            render_raw(data, output_format="json")
-        else:
-            success(f"Switched to branch '{branch_name}' in {project_key}")
+        out = data.get("output", "") if isinstance(data, dict) else ""
+        _finish_git_action(
+            data,
+            output,
+            f"Switched to branch '{branch_name}' in {project_key}",
+            f"Switch to '{branch_name}' failed in {project_key}: {out}".rstrip(": "),
+        )
     except Exception as e:
         handle_api_error(e)
 

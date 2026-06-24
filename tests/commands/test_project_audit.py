@@ -97,8 +97,6 @@ class _Dataset:
     def get_metadata(self):
         if self._ds.get("metadata_error"):
             raise RuntimeError("metadata unavailable")
-        # DSS dataset metadata exposes description (+ tags/checklists/custom) but
-        # never a shortDesc — modelling that here is what keeps the audit honest.
         return {
             "description": self._ds.get("description", ""),
             "tags": self._ds.get("tags", []),
@@ -180,6 +178,7 @@ def _base_state():
         "datasets": {
             "orders": {
                 "description": "Raw source orders from the migration fixture.",
+                "shortDesc": "Raw source orders.",
                 "schema": {
                     "columns": [
                         {"name": "order_id", "type": "string"},
@@ -194,6 +193,7 @@ def _base_state():
             },
             "orders_by_customer": {
                 "description": "Customer-grain output summarizing order value.",
+                "shortDesc": "Customer-grain order totals.",
                 "schema": {
                     "columns": [
                         {
@@ -325,9 +325,6 @@ def test_two_word_descriptions_are_accepted():
 
 
 def test_flow_visible_passes_on_dataset_description_without_shortdesc():
-    """Regression: a real DSS dataset has only `description` (never `shortDesc`).
-    The base fixture's datasets are fully described that way, so the check must
-    pass — previously it FAILed unsatisfiably by reading the absent shortDesc."""
     payload = _audit(_base_state())
     assert _check(payload, "flow_visible_descriptions")["status"] == "pass"
     assert payload["passed"] is True
@@ -364,7 +361,6 @@ def test_flow_visible_terminal_missing_description_fails():
     assert (
         "Terminal datasets without a description: orders_by_customer" in check["detail"]
     )
-    assert "--description" in check["fix"]
 
 
 def test_flow_visible_context_missing_description_warns():

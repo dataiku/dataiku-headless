@@ -209,7 +209,7 @@ def resolve_agent(project, agent_ref: str):
         # Verify it exists by fetching settings (get_agent is lazy)
         agent.get_settings()
         return agent
-    except Exception as e:
+    except dataikuapi.utils.DataikuException as e:
         if (
             "not found" not in str(e).lower()
             and "NotFoundException" not in str(e)
@@ -252,7 +252,7 @@ def resolve_knowledge_bank(project, kb_ref: str):
         # Verify it exists by fetching settings (get_knowledge_bank is lazy)
         kb.get_settings()
         return kb
-    except Exception as e:
+    except dataikuapi.utils.DataikuException as e:
         if (
             "not found" not in str(e).lower()
             and "NotFoundException" not in str(e)
@@ -313,7 +313,7 @@ def resolve_semantic_model(project, sm_ref: str):
         # Verify it exists by fetching definition (get_semantic_model is lazy)
         sm._get_definition()
         return sm
-    except Exception as e:
+    except dataikuapi.utils.DataikuException as e:
         if (
             "not found" not in str(e).lower()
             and "NotFoundException" not in str(e)
@@ -375,7 +375,7 @@ def resolve_agent_review(project, review_ref: str):
         review = project.get_agent_review(review_ref)
         # get_agent_review returns a fully populated object (not lazy)
         return review
-    except Exception as e:
+    except dataikuapi.utils.DataikuException as e:
         if (
             "not found" not in str(e).lower()
             and "NotFoundException" not in str(e)
@@ -418,7 +418,7 @@ def resolve_folder(project, folder_ref: str):
         # Verify it exists by fetching settings (get_managed_folder is lazy)
         folder.get_settings()
         return folder
-    except Exception as e:
+    except dataikuapi.utils.DataikuException as e:
         if (
             "not found" not in str(e).lower()
             and "NotFoundException" not in str(e)
@@ -460,7 +460,7 @@ def resolve_saved_model(project, model_ref: str):
         model = project.get_saved_model(model_ref)
         model.get_settings()
         return model
-    except Exception as e:
+    except dataikuapi.utils.DataikuException as e:
         if (
             "not found" not in str(e).lower()
             and "NotFoundException" not in str(e)
@@ -629,7 +629,7 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
         try:
             project.get_dataset(ref).get_definition()
             return ref
-        except Exception as e:
+        except dataikuapi.utils.DataikuException as e:
             if (
                 "not found" in str(e).lower()
                 or "NotFoundException" in str(e)

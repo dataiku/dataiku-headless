@@ -24,6 +24,8 @@ def test_api_key_list_json(patch_client):
     parsed = json.loads(result.output)
     assert len(parsed) == 1
     assert parsed[0]["id"] == "ak1"
+    assert "key" not in parsed[0]
+    assert "secret123" not in result.output
 
 
 def test_api_key_get(patch_client):
@@ -31,6 +33,8 @@ def test_api_key_get(patch_client):
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["id"] == "ak1"
+    assert "key" not in parsed
+    assert "secret123" not in result.output
 
 
 def test_api_key_create(patch_client):

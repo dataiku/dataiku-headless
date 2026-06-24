@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+from dataikuapi.utils import DataikuException
 from typer.testing import CliRunner
 
 from dku_cli.main import app
@@ -26,7 +27,7 @@ def _setup_name_resolution(patch_client):
         if ref == "sm1":
             return sm_mock
         bad = MagicMock()
-        bad._get_definition.side_effect = Exception("Object not found: sm_ref")
+        bad._get_definition.side_effect = DataikuException("Object not found: sm_ref")
         return bad
 
     proj.get_semantic_model.side_effect = _get_sm

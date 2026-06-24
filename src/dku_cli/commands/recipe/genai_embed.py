@@ -298,7 +298,7 @@ def create_embed_docs(
     Two input shapes are supported:
       1. **Folder direct (canonical DSS 14.5+)**: pass --input-folder FOLDER_ID
          alone. The recipe reads the managed folder directly — no FilesInFolder
-         wrapper needed. This is what CHATTERBOX and modern RAG flows use.
+         wrapper needed. This is what modern RAG flows use.
       2. **Legacy (DSS 14.4-)**: pass --input FILESINFOLDER_DATASET. Build the
          wrapper dataset first via `dku folder create-dataset`. If you ALSO
          pass --input-folder, the folder is attached as a 'documents' role on
@@ -481,7 +481,7 @@ def create_embed_docs(
                 raw_def = settings.get_recipe_raw_definition()
                 if folder_only:
                     # Rewire main input to the folder (canonical DSS 14.5+
-                    # folder→KB shape, what CHATTERBOX/ATU use).
+                    # folder→KB shape).
                     inputs = raw_def.setdefault("inputs", {})
                     inputs["main"] = {"items": [{"ref": input_folder_id}]}
                 elif input_folder is not None:

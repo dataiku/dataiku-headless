@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Dataiku Headless — the headless DSS control plane for AI agents (local MCP + CLI packaging)",
-    "version": "1.0.0"
+    "version": "0.4.1"
   },
   "plugins": [
     {

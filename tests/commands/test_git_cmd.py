@@ -155,6 +155,58 @@ def test_git_fetch_json(patch_client):
     assert parsed["success"] is True
 
 
+# --- failure exit codes (a failed git action must exit non-zero in BOTH formats
+#     so `dku git push && <next>` cannot chain past a failure) ---
+
+
+def _git(patch_client):
+    return patch_client.get_project("PROJ1").get_project_git()
+
+
+def test_git_pull_failure_exits_nonzero(patch_client):
+    _git(patch_client).pull.return_value = {"success": False, "output": "conflict"}
+    result = runner.invoke(app, ["git", "pull", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "Pull failed" in result.output
+
+
+def test_git_pull_failure_json_exits_nonzero(patch_client):
+    _git(patch_client).pull.return_value = {"success": False, "output": "conflict"}
+    result = runner.invoke(
+        app, ["--format", "json", "git", "pull", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.output)["success"] is False
+
+
+def test_git_push_failure_exits_nonzero(patch_client):
+    _git(patch_client).push.return_value = {"success": False, "output": "rejected"}
+    result = runner.invoke(app, ["git", "push", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "Push failed" in result.output
+
+
+def test_git_push_failure_json_exits_nonzero(patch_client):
+    _git(patch_client).push.return_value = {"success": False, "output": "rejected"}
+    result = runner.invoke(
+        app, ["--format", "json", "git", "push", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 1
+
+
+def test_git_fetch_failure_exits_nonzero(patch_client):
+    _git(patch_client).fetch.return_value = {"success": False, "output": ""}
+    result = runner.invoke(app, ["git", "fetch", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "Fetch failed" in result.output
+
+
+def test_git_switch_failure_exits_nonzero(patch_client):
+    _git(patch_client).switch.return_value = {"success": False, "output": "dirty tree"}
+    result = runner.invoke(app, ["git", "switch", "main", "--project", "PROJ1"])
+    assert result.exit_code == 1
+
+
 # --- branches ---
 
 
