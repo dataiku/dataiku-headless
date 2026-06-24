@@ -5,10 +5,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      publish_pypi:
-        description: "Publish the built wheel to PyPI (dku-headless). Leave false to only build/release."
-        type: boolean
-        default: false
       ref:
         description: "Tag or ref to build when dispatching manually (e.g. v0.4.1)."
         type: string
@@ -34,12 +30,6 @@ jobs:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v7
-
-      - name: Require a ref for PyPI publish
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_pypi && inputs.ref == '' }}
-        run: |
-          echo "Set the ref input to the release tag (for example v0.5.0) before publishing to PyPI." >&2
-          exit 1
 
       - name: Sync dependencies (locked)
         run: uv sync --locked
@@ -114,26 +104,3 @@ jobs:
           name: dist
           path: dist/*
           if-no-files-found: error
-
-  publish-pypi:
-    name: Publish to PyPI (manual)
-    needs: release
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_pypi == 'true' }}
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/dku-headless/
-    permissions:
-      id-token: write
-    steps:
-      - name: Download built distributions
-        uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
-        with:
-          packages-dir: dist
-          print-hash: true

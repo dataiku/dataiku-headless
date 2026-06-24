@@ -4,8 +4,8 @@ Single source of truth for installing `dku-headless` (the `dku` CLI) and its MCP
 
 **Requirements:** Python 3.10–3.13, DSS 14.5+. **CLI:** `dku` · **MCP server:** `dku-mcp`
 
-> Not yet published to PyPI — install from source or git. (Git installs need
-> read access to the repo while it stays private.)
+> Install from source or git. Git installs need read access to the repo while
+> it stays private.
 
 ### CLI install
 

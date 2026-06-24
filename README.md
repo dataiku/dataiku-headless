@@ -44,7 +44,7 @@ This repo ships:
 
 ## Install
 
-Not yet on PyPI — install from git (or a clone):
+Install from git or a local clone:
 
 ```bash
 uv tool install git+https://github.com/dataiku/dku-headless.git
