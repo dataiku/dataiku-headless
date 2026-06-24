@@ -160,8 +160,11 @@ def test_release_workflow_runs_semantic_release_build_hook():
     )
     steps = workflow["jobs"]["release"]["steps"]
     semantic_step = next(step for step in steps if step.get("id") == "semantic")
+    run_command = semantic_step["run"]
 
-    assert semantic_step["with"].get("build") not in {False, "false", "False", "0"}
+    assert "uses" not in semantic_step
+    assert "uvx --from python-semantic-release semantic-release" in run_command
+    assert "--no-build" not in run_command
 
 
 def test_plugin_bundles_skill_corpus():
