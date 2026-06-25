@@ -360,31 +360,49 @@ def test_scenario_set_active_skip_triggers(patch_client):
     assert raw["triggers"][0]["active"] is False
 
 
-# ── run --wait polling tests ─────────────────────────────────────────────
+# ── run --wait tests ─────────────────────────────────────────────────────
 
 
-def test_scenario_run_wait_polls(patch_client):
-    """--wait polls get_last_runs until run.running() is False."""
-    from unittest.mock import patch as mock_patch, MagicMock
+def _wait_mocks(scenario, outcome):
+    """Wire scenario.run() → trigger fire → a completed run with `outcome`."""
+    from unittest.mock import MagicMock
 
+    run_done = MagicMock()
+    run_done.outcome = outcome
+    trigger = MagicMock()
+    trigger.wait_for_scenario_run.return_value = run_done
+    scenario.run.return_value = trigger
+    return trigger, run_done
+
+
+def test_scenario_run_wait_success(patch_client):
+    """--wait waits on the run the trigger fire started and reports SUCCESS."""
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    trigger = MagicMock(spec=[])
-    scenario.run.return_value = trigger
-    # First poll: still running. Second poll: done with SUCCESS.
-    run_in_progress = MagicMock()
-    run_in_progress.running.return_value = True
-    run_done = MagicMock()
-    run_done.running.return_value = False
-    run_done.outcome = "SUCCESS"
-    scenario.get_last_runs.side_effect = [[run_in_progress], [run_done]]
+    _wait_mocks(scenario, "SUCCESS")
 
-    with mock_patch("dku_cli.commands.scenario.time.sleep"):
-        result = runner.invoke(
-            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
-        )
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+    )
     assert result.exit_code == 0
     assert "SUCCESS" in result.output
+
+
+def test_scenario_run_wait_uses_trigger_fire_not_last_runs(patch_client):
+    """Regression: --wait must resolve the run via the trigger fire, NOT
+    get_last_runs(), which can return a previously-finished run and report a
+    stale outcome for a run this call never started."""
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    trigger, run_done = _wait_mocks(scenario, "SUCCESS")
+
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+    )
+    assert result.exit_code == 0
+    trigger.wait_for_scenario_run.assert_called_once()
+    run_done.wait_for_completion.assert_called_once()
+    scenario.get_last_runs.assert_not_called()
 
 
 def test_scenario_run_wait_failure(patch_client):
@@ -394,42 +412,26 @@ def test_scenario_run_wait_failure(patch_client):
     agent chaining `scenario run --wait && next-step` march on past a failed
     scenario.
     """
-    from unittest.mock import patch as mock_patch, MagicMock
-
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    trigger = MagicMock(spec=[])
-    scenario.run.return_value = trigger
-    run_done = MagicMock()
-    run_done.running.return_value = False
-    run_done.outcome = "FAILED"
-    scenario.get_last_runs.return_value = [run_done]
+    _wait_mocks(scenario, "FAILED")
 
-    with mock_patch("dku_cli.commands.scenario.time.sleep"):
-        result = runner.invoke(
-            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
-        )
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+    )
     assert result.exit_code != 0, result.output
     assert "FAILED" in result.output
 
 
 def test_scenario_run_wait_aborted_exits_nonzero(patch_client):
     """--wait on an ABORTED outcome must also exit non-zero."""
-    from unittest.mock import patch as mock_patch, MagicMock
-
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    trigger = MagicMock(spec=[])
-    scenario.run.return_value = trigger
-    run_done = MagicMock()
-    run_done.running.return_value = False
-    run_done.outcome = "ABORTED"
-    scenario.get_last_runs.return_value = [run_done]
+    _wait_mocks(scenario, "ABORTED")
 
-    with mock_patch("dku_cli.commands.scenario.time.sleep"):
-        result = runner.invoke(
-            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
-        )
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+    )
     assert result.exit_code != 0, result.output
     assert "ABORTED" in result.output
 
@@ -437,60 +439,57 @@ def test_scenario_run_wait_aborted_exits_nonzero(patch_client):
 def test_scenario_run_wait_warning_exits_zero(patch_client):
     """--wait on a WARNING outcome is a successful terminal state — exit 0,
     but the output distinguishes it from a clean SUCCESS."""
-    from unittest.mock import patch as mock_patch, MagicMock
-
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    trigger = MagicMock(spec=[])
-    scenario.run.return_value = trigger
-    run_done = MagicMock()
-    run_done.running.return_value = False
-    run_done.outcome = "WARNING"
-    scenario.get_last_runs.return_value = [run_done]
+    _wait_mocks(scenario, "WARNING")
 
-    with mock_patch("dku_cli.commands.scenario.time.sleep"):
-        result = runner.invoke(
-            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
-        )
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+    )
     assert result.exit_code == 0, result.output
     assert "WARNING" in result.output
 
 
-def test_scenario_run_wait_survives_transient_outcome_value_error(patch_client):
-    """Regression: DSSScenarioRun.outcome RAISES ValueError until result is populated.
-
-    The poll loop used to call `run.outcome` behind a `hasattr(run, 'outcome')`
-    gate — but the property descriptor exists on the class, so hasattr returned
-    True and the ValueError escaped, turning successful runs into "DSS API
-    error: outcome not available for this scenario run".
-    """
-    from unittest.mock import patch as mock_patch, MagicMock, PropertyMock
+def test_scenario_run_wait_cancelled_exits_nonzero(patch_client):
+    """If the trigger fire is cancelled (scenario already running, or a later
+    trigger superseded it), no run was started — --wait must exit non-zero
+    instead of reporting a misleading success."""
+    from unittest.mock import MagicMock
 
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
-    trigger = MagicMock(spec=[])
+    trigger = MagicMock()
+    trigger.wait_for_scenario_run.return_value = None  # cancelled
     scenario.run.return_value = trigger
 
-    # Run #1: still running. .outcome would raise if accessed.
-    run_in_progress = MagicMock()
-    run_in_progress.running.return_value = True
-    type(run_in_progress).outcome = PropertyMock(
-        side_effect=ValueError(
-            "outcome not available for this scenario run. Maybe still running?"
-        )
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
     )
-    # Run #2: done, SUCCESS.
-    run_done = MagicMock()
-    run_done.running.return_value = False
-    run_done.outcome = "SUCCESS"
-    scenario.get_last_runs.side_effect = [[run_in_progress], [run_done]]
+    assert result.exit_code != 0, result.output
+    assert "CANCELLED" in result.output
 
-    with mock_patch("dku_cli.commands.scenario.time.sleep"):
-        result = runner.invoke(
-            app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
-        )
-    assert result.exit_code == 0, result.output
-    assert "SUCCESS" in result.output
+
+def test_scenario_run_wait_survives_unavailable_outcome(patch_client):
+    """Defensive: if .outcome still raises ValueError after wait_for_completion
+    (odd mock/shape), --wait reports UNKNOWN and exits non-zero rather than
+    leaking a raw stack trace."""
+    from unittest.mock import MagicMock, PropertyMock
+
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    run_done = MagicMock()
+    type(run_done).outcome = PropertyMock(
+        side_effect=ValueError("outcome not available for this scenario run.")
+    )
+    trigger = MagicMock()
+    trigger.wait_for_scenario_run.return_value = run_done
+    scenario.run.return_value = trigger
+
+    result = runner.invoke(
+        app, ["scenario", "run", "scen1", "--project", "PROJ1", "--wait"]
+    )
+    assert result.exit_code != 0, result.output
+    assert "UNKNOWN" in result.output
     assert "outcome not available" not in result.output
 
 

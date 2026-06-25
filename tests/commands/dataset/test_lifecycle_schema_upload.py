@@ -51,10 +51,22 @@ def test_dataset_create_if_not_exists_when_new(patch_client):
 
 
 def test_dataset_delete(patch_client):
+    # The default mock has a dependent recipe, so delete is a tier-3 cascade and
+    # needs --confirm-name in addition to --yes.
     result = runner.invoke(
-        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+        app,
+        [
+            "dataset",
+            "delete",
+            "ds1",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "ds1",
+        ],
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "Deleted dataset" in result.output
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.delete.assert_called_once()
@@ -69,20 +81,32 @@ def test_dataset_delete_blocks_without_yes(patch_client):
 
 
 def test_dataset_delete_dangerous_env_bypasses(patch_client, monkeypatch):
-    """DKU_DANGEROUS=1 skips the guard."""
+    """DKU_DANGEROUS=1 skips the tier-2 guard for a leaf dataset (no dependents)."""
     monkeypatch.setenv("DKU_DANGEROUS", "1")
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []
     result = runner.invoke(app, ["dataset", "delete", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.delete.assert_called_once()
 
 
 def test_dataset_delete_warns_about_dependent_recipes(patch_client):
     """Dataset delete enumerates recipe dependents via get_usages() and warns
     about them before proceeding. The default dataset_mock has one RECIPE_INPUT
-    usage on 'compute_output', which should surface in the output."""
+    usage on 'compute_output', which should surface in the output. Because there
+    is a dependent, the delete is a tier-3 cascade and needs --confirm-name."""
     result = runner.invoke(
-        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+        app,
+        [
+            "dataset",
+            "delete",
+            "ds1",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "ds1",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "dependent recipe" in result.output
@@ -92,6 +116,8 @@ def test_dataset_delete_warns_about_dependent_recipes(patch_client):
 
 def test_dataset_delete_drop_data_alias_accepted(patch_client):
     """--drop-data is accepted as a no-op alias for symmetry with project delete."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_usages.return_value = []  # leaf dataset → tier-2, --yes is enough
     result = runner.invoke(
         app,
         [
@@ -110,7 +136,8 @@ def test_dataset_delete_drop_data_alias_accepted(patch_client):
 
 
 def test_dataset_delete_no_dependents_no_warning(patch_client):
-    """When get_usages() returns an empty list, no cascade warning is shown."""
+    """When get_usages() returns an empty list, no cascade warning is shown and
+    --yes alone (tier-2) is enough — no --confirm-name required."""
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
     ds.get_usages.return_value = []
     result = runner.invoke(
@@ -119,6 +146,52 @@ def test_dataset_delete_no_dependents_no_warning(patch_client):
     assert result.exit_code == 0, result.output
     assert "dependent recipe" not in result.output
     assert "Deleted dataset" in result.output
+
+
+def test_dataset_delete_cascade_requires_confirm_name(patch_client):
+    """A dataset with dependent recipes is a tier-3 cascade: --yes alone is not
+    enough, the delete is blocked (exit 77) until --confirm-name is supplied."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    result = runner.invoke(
+        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 77, result.output
+    ds.delete.assert_not_called()
+
+
+def test_dataset_delete_cascade_confirm_name_mismatch_blocks(patch_client):
+    """A non-matching --confirm-name does not satisfy the tier-3 cascade gate."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "delete",
+            "ds1",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "WRONG",
+        ],
+    )
+    assert result.exit_code == 77, result.output
+    ds.delete.assert_not_called()
+
+
+def test_dataset_delete_cascade_dangerous_still_needs_confirm_name(
+    patch_client, monkeypatch
+):
+    """Even DKU_DANGEROUS=1 does not waive --confirm-name for a cascade with a
+    known target — the name gate is the last line of defense against wiping
+    dependent recipes."""
+    monkeypatch.setenv("DKU_DANGEROUS", "1")
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    result = runner.invoke(
+        app, ["dataset", "delete", "ds1", "--project", "PROJ1", "--yes"]
+    )
+    assert result.exit_code == 77, result.output
+    ds.delete.assert_not_called()
 
 
 def test_dataset_clear_requires_yes(patch_client):

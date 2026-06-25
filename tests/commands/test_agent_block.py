@@ -692,6 +692,50 @@ def test_set_graph_from_file(patch_client, tmp_path):
     assert raw["versions"][0]["structuredAgentSettings"]["startingBlockId"] == "start"
 
 
+def test_set_graph_resolves_agent_by_name(patch_client):
+    """Regression: set-graph must accept an agent NAME (via resolve_agent), like
+    every sibling verb — not only an ID. It used to call proj.get_agent(ref)
+    directly, so a name raised NotFoundException."""
+    from dataikuapi.utils import DataikuException
+
+    proj = patch_client.get_project("PROJ1")
+    real_agent = proj.get_agent("agent_blocks")
+
+    def _by_name(ref):
+        if ref == "My Renamed Agent":
+            raise DataikuException("NotFoundException: no agent with that id")
+        return real_agent
+
+    proj.get_agent.side_effect = _by_name
+    proj.list_agents.return_value = [{"id": "agent_blocks", "name": "My Renamed Agent"}]
+
+    new_graph = json.dumps(
+        {
+            "mode": "BLOCKS_GRAPH",
+            "startingBlockId": "greet",
+            "blocks": [
+                {"type": "EMIT_OUTPUT", "id": "greet", "template": "Hi"},
+            ],
+            "tools": [],
+        }
+    )
+    result = runner.invoke(
+        app,
+        [
+            "agent-block",
+            "set-graph",
+            "My Renamed Agent",
+            "--definition",
+            new_graph,
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Updated" in result.output
+    real_agent.get_settings.return_value.save.assert_called_once()
+
+
 # ── agent not found ───────────────────────────────────────────────────────
 
 

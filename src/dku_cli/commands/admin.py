@@ -440,6 +440,19 @@ def _iam_set(
         settings_obj = getattr(client, getter)()
         attr = _IAM_DICT_ATTR[getter]
         setattr(settings_obj, attr, new_settings)
+        # dataikuapi's SSOSettings.save() re-injects openIDParams/samlSPParams
+        # from instance attributes captured at construction — without refreshing
+        # them from the new payload, the user's edits to exactly those two
+        # security-critical blocks are silently reverted on save. (LDAP/AzureAD
+        # settings have no such re-injection, so this is SSO-only.) Setting plain
+        # dicts is enough: save() only does dict(...) on these.
+        if getter == "get_sso_settings":
+            for inst_attr, key in (
+                ("openid_params_instance", "openIDParams"),
+                ("saml_sp_params_instance", "samlSPParams"),
+            ):
+                if hasattr(settings_obj, inst_attr):
+                    setattr(settings_obj, inst_attr, new_settings.get(key, {}))
         settings_obj.save()
         success(
             f"{label.upper()} settings saved. VERIFY LOGIN in a separate browser "

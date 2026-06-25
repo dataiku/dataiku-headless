@@ -122,15 +122,20 @@ def _read_plugin_id(zip_path: Path) -> str:
 def _plugin_is_dev(p) -> bool:
     """Whether a list_plugins() item is a dev plugin.
 
-    Two traps verified against a live DSS: the flag key is ``dev`` (NOT
-    ``isDev``), and its value comes back as the STRING ``"True"`` / ``"False"``
-    rather than a JSON bool. Only dev plugins expose ``list_files()`` (installed
-    plugins raise "is not a dev plugin"), so recipe-component introspection
-    hinges on getting this right.
+    DSS is inconsistent across versions: some builds expose the flag as ``dev``
+    (a STRING ``"True"`` / ``"False"``), others as ``isDev`` (a JSON bool —
+    observed live on DSS 14.6, where ``dev`` is absent entirely). Honour
+    whichever key is present so both the DEV column and the dev-only
+    ``list_files()`` path stay correct across versions.
     """
-    if not isinstance(p, dict):
-        return bool(getattr(p, "dev", False))
-    val = p.get("dev")
+    if isinstance(p, dict):
+        val = p.get("dev")
+        if val is None:
+            val = p.get("isDev", False)
+    else:
+        val = getattr(p, "dev", None)
+        if val is None:
+            val = getattr(p, "isDev", False)
     if isinstance(val, str):
         return val.strip().lower() == "true"
     return bool(val)
@@ -155,7 +160,7 @@ def list_plugins(
                     if isinstance(p, dict)
                     else getattr(p, "plugin_id", ""),
                     "version": p.get("version", "") if isinstance(p, dict) else "",
-                    "dev": str(p.get("isDev", False)) if isinstance(p, dict) else "",
+                    "dev": _plugin_is_dev(p),
                 }
             )
 
@@ -349,9 +354,7 @@ def get(
                     "version": plugin_meta.get("version", "")
                     if isinstance(plugin_meta, dict)
                     else "",
-                    "dev": plugin_meta.get("isDev", False)
-                    if isinstance(plugin_meta, dict)
-                    else False,
+                    "dev": _plugin_is_dev(plugin_meta),
                     "codeEnvName": code_env,
                     "config": raw.get("config", {}),
                 },
@@ -368,9 +371,7 @@ def get(
                 },
                 {
                     "field": "Dev",
-                    "value": str(plugin_meta.get("isDev", False))
-                    if isinstance(plugin_meta, dict)
-                    else "",
+                    "value": str(_plugin_is_dev(plugin_meta)),
                 },
                 {"field": "Code Env", "value": code_env or "(default)"},
             ]

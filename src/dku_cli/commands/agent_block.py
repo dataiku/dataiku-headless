@@ -794,7 +794,7 @@ def set_graph(
         project_key = resolve_project(project)
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        agent = proj.get_agent(agent_id)
+        agent = resolve_agent(proj, agent_id)
         settings = agent.get_settings()
         raw = settings.get_raw()
         version_id = _resolve_version_id(settings, version)

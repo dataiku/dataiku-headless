@@ -610,7 +610,7 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
         "NotFoundException" in msg
         or "does not exist" in msg
         or "404" in msg
-        or "Not found" in msg.lower()
+        or "not found" in msg.lower()
     ):
         status = 3
         details = [

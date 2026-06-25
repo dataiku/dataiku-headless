@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # ruff: noqa: F403,F405
 from ._common import *
+from dku_cli.enums import SamplingMethod
 
 
 @app.command("create-extract")
@@ -101,9 +102,10 @@ def create_llm_eval(
         "--max-records",
         help="Cap the number of input records evaluated. Sets payload.sampling.selection.maxRecords.",
     ),
-    sampling_method: str | None = typer.Option(
+    sampling_method: SamplingMethod | None = typer.Option(
         None,
         "--sampling-method",
+        case_sensitive=False,
         help="Input sampling method (HEAD_SEQUENTIAL, RANDOM_FIXED_NB, ...). Sets payload.sampling.selection.samplingMethod.",
     ),
     seed: int | None = typer.Option(
@@ -182,7 +184,7 @@ def create_llm_eval(
             if max_records is not None:
                 sampling["maxRecords"] = max_records
             if sampling_method is not None:
-                sampling["samplingMethod"] = sampling_method
+                sampling["samplingMethod"] = str(sampling_method)
             if seed is not None:
                 sampling["seed"] = seed
         if any(

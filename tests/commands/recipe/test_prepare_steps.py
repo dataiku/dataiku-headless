@@ -1014,9 +1014,10 @@ def test_recipe_add_filter_rows_explicit_remove(patch_client):
 
 
 def test_recipe_add_filter_rows_rejects_unsupported_action(patch_client):
-    # The FilterOnCustomFormula / FilterOnValue processors this command emits
-    # support only KEEP_ROW / REMOVE_ROW. CLEAR_CELL / FLAG must be rejected
-    # (they were previously advertised in --help but never validated).
+    # --action is a click.Choice(FilterAction): the FilterOnCustomFormula /
+    # FilterOnValue processors this command emits support only KEEP_ROW /
+    # REMOVE_ROW, so CLEAR_CELL / FLAG die at parse time (exit 2, usage error)
+    # with the valid set shown — before the command body runs.
     _proj, _recipe, settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
@@ -1032,9 +1033,11 @@ def test_recipe_add_filter_rows_rejects_unsupported_action(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code != 0
-    assert "KEEP_ROW" in result.output and "REMOVE_ROW" in result.output
-    # No step should have been written for the invalid action.
+    assert result.exit_code == 2, result.output
+    out = result.output.lower()
+    assert "invalid value for '--action'" in out
+    assert "keep_row" in out and "remove_row" in out
+    # Parse error → command body never ran → no step written.
     assert settings.obj_payload["steps"] == []
 
 

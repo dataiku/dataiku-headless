@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import typer
 
 from dku_cli.enums import EnvMode
@@ -40,40 +38,31 @@ from dku_cli.commands.scenario_payloads import (
 app = typer.Typer(help="Manage DSS scenarios.")
 
 
-def _poll_scenario_outcome(
-    scenario, poll_interval: float = 3.0, timeout: float = 3600
-) -> str:
-    """Poll scenario last runs until completion or timeout.
+def _wait_for_run_outcome(trigger_fire) -> str:
+    """Resolve and wait on the scenario run THIS trigger fire launched.
 
-    DSSScenarioRun.running and DSSScenarioRun.outcome are both @property
-    accessors (not methods). `outcome` RAISES ValueError until the run's
-    `result` dict is populated, so the readiness check must be `running`
-    first — which returns `not "result" in self.run` without raising.
+    Waiting on the trigger fire — not scenario.get_last_runs() — guarantees we
+    report the outcome of the run this invocation started. get_last_runs(limit=1)
+    can return a previously-finished run, which made `run --wait` report a stale
+    outcome (e.g. a SUCCESS for a run that never started).
+
+    DSSScenarioRun.outcome is a @property that RAISES ValueError until the run's
+    result dict is populated; wait_for_completion ensures it is, but stay
+    defensive for test mocks.
     """
-    elapsed = 0.0
-    time.sleep(1)  # Brief wait for new run to register before first poll
-    elapsed += 1.0
-    while elapsed < timeout:
-        runs = scenario.get_last_runs(limit=1)
-        if runs:
-            run = runs[0]
-            try:
-                if isinstance(run, dict):
-                    outcome = run.get("result", {}).get("outcome")
-                    if outcome:
-                        return outcome
-                else:
-                    # Property — bool in real dataikuapi, callable in test mocks.
-                    running = run.running
-                    if callable(running):
-                        running = running()
-                    if not running:
-                        return run.outcome
-            except (ValueError, AttributeError):
-                pass  # still running or unexpected shape — keep polling
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-    return "TIMEOUT"
+    scenario_run = trigger_fire.wait_for_scenario_run(no_fail=True)
+    if scenario_run is None:
+        # The trigger fire was cancelled (scenario already running, or a later
+        # trigger superseded it) — this call started no run.
+        return "CANCELLED"
+    scenario_run.wait_for_completion(no_fail=True)
+    try:
+        outcome = scenario_run.outcome
+        # Property — str in real dataikuapi, callable in some test mocks.
+        outcome = outcome() if callable(outcome) else outcome
+        return outcome or "UNKNOWN"
+    except (ValueError, AttributeError):
+        return "UNKNOWN"
 
 
 @app.command("list")
@@ -123,17 +112,16 @@ def run(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        scenario.run()
+        trigger_fire = scenario.run()
 
         success(f"Scenario '{scenario_id}' triggered")
 
         if wait:
             info("Waiting for completion...")
-            # Resolve the scenario run from the trigger fire, then poll the run
-            # itself until it exits the running state. DSSScenarioRun.outcome is
-            # a property that raises until the result dict is populated, so we
-            # gate access on run.running() inside _poll_scenario_outcome.
-            outcome = _poll_scenario_outcome(scenario)
+            # Wait on the run THIS trigger fire started — never get_last_runs(),
+            # which can return a previously-finished run and report a stale
+            # outcome for a run this call never started.
+            outcome = _wait_for_run_outcome(trigger_fire)
 
             if outcome == "SUCCESS":
                 success(f"Scenario completed: {outcome}")

@@ -42,6 +42,48 @@ def test_plugin_list_handles_dict_quirk(mock_client):
     assert "id" in plugins[0]
 
 
+def test_plugin_list_dev_column_reads_dev_string_key(patch_client):
+    """Regression: some DSS builds expose the dev flag under 'dev' as the STRING
+    'True'/'False'. The DEV column must reflect it, not be hardwired to False."""
+    patch_client.list_plugins.return_value = [
+        {"id": "devp", "version": "0.1.0", "dev": "True"},
+        {"id": "prod", "version": "1.0.0", "dev": "False"},
+    ]
+    result = runner.invoke(app, ["--format", "json", "plugin", "list"])
+    assert result.exit_code == 0, result.output
+    parsed = {p["id"]: p for p in json.loads(result.output)}
+    assert parsed["devp"]["dev"] is True
+    assert parsed["prod"]["dev"] is False
+
+
+def test_plugin_list_dev_column_reads_isdev_bool_key(patch_client):
+    """Regression: DSS 14.6 (verified live) exposes the flag as the bool 'isDev'
+    with NO 'dev' key. The DEV column must read it rather than always showing
+    False because it looked only at the absent 'dev' key."""
+    patch_client.list_plugins.return_value = [
+        {"id": "devp", "version": "0.1.0", "isDev": True},
+        {"id": "prod", "version": "1.0.0", "isDev": False},
+    ]
+    result = runner.invoke(app, ["--format", "json", "plugin", "list"])
+    assert result.exit_code == 0, result.output
+    parsed = {p["id"]: p for p in json.loads(result.output)}
+    assert parsed["devp"]["dev"] is True
+    assert parsed["prod"]["dev"] is False
+
+
+def test_plugin_get_dev_field_reads_dev_string_key(patch_client):
+    """`plugin get` must read the same 'dev' string key for its Dev field."""
+    plugin_obj = MagicMock()
+    plugin_obj.get_settings.return_value.get_raw.return_value = {"config": {}}
+    patch_client.get_plugin.return_value = plugin_obj
+    patch_client.list_plugins.return_value = [
+        {"id": "devp", "version": "0.1.0", "dev": "True"},
+    ]
+    result = runner.invoke(app, ["--format", "json", "plugin", "get", "devp"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["dev"] is True
+
+
 def test_plugin_push_missing_file():
     result = runner.invoke(app, ["plugin", "push", "/nonexistent/plugin.zip"])
     assert result.exit_code != 0

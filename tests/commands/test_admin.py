@@ -197,6 +197,53 @@ def test_admin_sso_set_applied(patch_client):
     patch_client.get_sso_settings.return_value.save.assert_called_once()
 
 
+def test_admin_sso_set_does_not_revert_openid_params(patch_client):
+    """Regression: dataikuapi's SSOSettings.save() re-injects openIDParams /
+    samlSPParams from instance attributes captured at construction. The CLI must
+    refresh those instances from the new payload, otherwise a user's edits to
+    exactly those two security-critical blocks are silently reverted on save."""
+    saved = {}
+
+    class FakeSSO:
+        def __init__(self):
+            # The live config the agent is editing.
+            self.sso_settings = {
+                "openIDParams": {"clientId": "OLD"},
+                "samlSPParams": {},
+            }
+            # Instances captured from the ORIGINAL settings (the dataikuapi trap).
+            self.openid_params_instance = dict(self.sso_settings["openIDParams"])
+            self.saml_sp_params_instance = dict(self.sso_settings["samlSPParams"])
+
+        def save(self):
+            # Mirror dataikuapi SSOSettings.save(): re-inject from the instances.
+            self.sso_settings["openIDParams"] = dict(self.openid_params_instance)
+            self.sso_settings["samlSPParams"] = dict(self.saml_sp_params_instance)
+            saved["body"] = self.sso_settings
+
+    patch_client.get_sso_settings.return_value = FakeSSO()
+
+    result = runner.invoke(
+        app,
+        [
+            "admin",
+            "sso",
+            "set",
+            "-d",
+            '{"enabled":true,"protocol":"OPENID","openIDParams":{"clientId":"NEW"}}',
+            "--yes",
+            "--confirm-name",
+            "sso",
+            "--i-know-what-im-doing",
+            "--i-understand-lockout-risk",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # The NEW clientId must survive save(), not be reverted to OLD.
+    assert saved["body"]["openIDParams"] == {"clientId": "NEW"}
+    assert saved["body"]["enabled"] is True
+
+
 def test_admin_ldap_get(patch_client):
     result = runner.invoke(app, ["admin", "ldap", "get"])
     assert result.exit_code == 0

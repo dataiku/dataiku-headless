@@ -1855,6 +1855,14 @@ def delete(
     dataset_name: str = typer.Argument(help="Dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+    confirm_name: str = typer.Option(
+        None,
+        "--confirm-name",
+        help=(
+            "Required when the delete cascades to dependent recipes (tier-3 "
+            "guard): must match DATASET_NAME literally."
+        ),
+    ),
     drop_data: bool = typer.Option(
         False,
         "--drop-data",
@@ -1865,7 +1873,8 @@ def delete(
 
     Before deleting, scans for recipes that have this dataset as an input or
     output and warns about cascade effects. When recipes consume the dataset
-    as input, deleting it will also delete those recipes.
+    as input, deleting it will also delete those recipes — that case is a
+    tier-3 cascade and additionally requires --confirm-name matching the name.
     """
     project_key = resolve_project(project)
     from dku_cli.safety import Tier, guard
@@ -1915,12 +1924,19 @@ def delete(
     )
     full_prompt = base_prompt + "".join("\n" + line for line in cascade_lines)
 
+    # Deleting a dataset that feeds recipes also deletes those recipes — that is
+    # a cascade (tier-3): require --confirm-name matching the dataset so a blanket
+    # --yes can't silently wipe dependents. A leaf dataset (or one whose usages
+    # couldn't be enumerated) stays at tier-2 (--yes only).
+    cascades = bool(dependents)
     guard(
         ctx,
-        tier=Tier.DELETE,
+        tier=Tier.CASCADE if cascades else Tier.DELETE,
         action="dataset.delete",
         subject=f"dataset '{dataset_name}' in project {project_key}",
         yes=yes,
+        target_id=dataset_name if cascades else None,
+        confirm_name=confirm_name,
         prompt=full_prompt,
     )
     try:

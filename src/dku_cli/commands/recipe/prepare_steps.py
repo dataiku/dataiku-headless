@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import GeoDistanceUnitMiles, ReorderMode
+from dku_cli.enums import FilterAction, GeoDistanceUnitMiles, ReorderMode
 
 # ---------------------------------------------------------------------------
 # Prepare recipe step commands
@@ -1136,9 +1136,10 @@ def add_filter_rows(
         "--expression",
         help="GREL formula for expression-based filtering (e.g. 'price > 100')",
     ),
-    action: str = typer.Option(
-        "KEEP_ROW",
+    action: FilterAction = typer.Option(
+        FilterAction.KEEP_ROW,
         "--action",
+        case_sensitive=False,
         help="KEEP_ROW (keep matching, default — matches create-filter) or REMOVE_ROW (drop matching)",
     ),
     at: int | None = typer.Option(
@@ -1153,16 +1154,9 @@ def add_filter_rows(
     """
     if formula and (column or values):
         exit_with_error("Use --column/--values OR --formula, not both.")
+    # --action is a click.Choice (FilterAction) — an invalid value dies at parse
+    # time with the valid set shown, so no inline check is needed here.
     action_upper = action.upper()
-    if action_upper not in {"KEEP_ROW", "REMOVE_ROW"}:
-        exit_with_error(
-            f"Invalid --action '{action}'. The FilterOnCustomFormula / FilterOnValue "
-            "processors this command emits support only KEEP_ROW or REMOVE_ROW.",
-            details=[
-                "To clear cells use a Prepare clear/fill step; to write a boolean "
-                "flag column use a FlagOn* processor (not yet exposed as a flag).",
-            ],
-        )
     if formula:
         step_type, params, vcols = _filter_rows_step(
             formula=formula, action=action_upper
