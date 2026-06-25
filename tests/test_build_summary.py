@@ -11,6 +11,7 @@ from dku_cli.build_summary import (
     _fresh_metric_count,
     _probe_count,
     emit_build_summary,
+    snapshot_schemas,
 )
 
 
@@ -109,6 +110,74 @@ def test_summary_no_all_string_hint_when_typed(capsys):
     )
     emit_build_summary(MagicMock(), proj, "PROJ1", [("out", "DATASET")], 0)
     assert "infer-types" not in capsys.readouterr().err
+
+
+def test_summary_reports_added_column_vs_prev_schema(capsys):
+    """With auto-update on, an applied schema change is reported, not silent."""
+    proj, _ = _project_with_dataset(
+        [{"name": "a", "type": "bigint"}, {"name": "b", "type": "string"}],
+        [["1", "x"]],
+    )
+    emit_build_summary(
+        MagicMock(),
+        proj,
+        "PROJ1",
+        [("out", "DATASET")],
+        0,
+        prev_schemas={"out": {"a": "bigint"}},
+    )
+    err = capsys.readouterr().err
+    assert "out: schema auto-updated" in err
+    assert "added b" in err
+
+
+def test_summary_reports_retyped_column(capsys):
+    proj, _ = _project_with_dataset([{"name": "a", "type": "bigint"}], [["1"]])
+    emit_build_summary(
+        MagicMock(),
+        proj,
+        "PROJ1",
+        [("out", "DATASET")],
+        0,
+        prev_schemas={"out": {"a": "string"}},
+    )
+    assert "retyped a string->bigint" in capsys.readouterr().err
+
+
+def test_summary_no_delta_when_schema_unchanged(capsys):
+    """No schema-change line when the build did not alter the schema."""
+    cols = [{"name": "a", "type": "bigint"}, {"name": "b", "type": "string"}]
+    proj, _ = _project_with_dataset(cols, [["1", "x"]])
+    emit_build_summary(
+        MagicMock(),
+        proj,
+        "PROJ1",
+        [("out", "DATASET")],
+        0,
+        prev_schemas={"out": {"a": "bigint", "b": "string"}},
+    )
+    assert "schema auto-updated" not in capsys.readouterr().err
+
+
+def test_summary_no_delta_without_prev_schemas(capsys):
+    """No prev snapshot (e.g. opt-out) → no schema-change line."""
+    proj, _ = _project_with_dataset([{"name": "a", "type": "bigint"}], [["1"]])
+    emit_build_summary(MagicMock(), proj, "PROJ1", [("out", "DATASET")], 0)
+    assert "schema auto-updated" not in capsys.readouterr().err
+
+
+def test_snapshot_schemas_captures_types_and_skips_non_datasets():
+    proj, _ = _project_with_dataset(
+        [{"name": "a", "type": "bigint"}, {"name": "b", "type": "string"}], []
+    )
+    snap = snapshot_schemas(proj, [("out", "DATASET"), ("f", "MANAGED_FOLDER")])
+    assert snap == {"out": {"a": "bigint", "b": "string"}}
+
+
+def test_snapshot_schemas_never_raises():
+    proj = MagicMock()
+    proj.get_dataset.side_effect = RuntimeError("boom")
+    assert snapshot_schemas(proj, [("out", "DATASET")]) == {}
 
 
 def test_summary_skips_non_dataset_targets():

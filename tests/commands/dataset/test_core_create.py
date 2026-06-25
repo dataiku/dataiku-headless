@@ -187,6 +187,26 @@ def test_dataset_build_with_auto_update_schema(patch_client):
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
 
 
+def test_dataset_build_auto_update_schema_on_by_default(patch_client):
+    """No flag → auto-update is ON by default (imported from DADK)."""
+    result = runner.invoke(app, ["dataset", "build", "ds1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
+
+
+def test_dataset_build_no_auto_update_schema_opt_out(patch_client):
+    """--no-auto-update-schema preserves the stored schema (partitioned /
+    hand-curated case) — the builder schema-update call is not made."""
+    result = runner.invoke(
+        app,
+        ["dataset", "build", "ds1", "--no-auto-update-schema", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_not_called()
+
+
 def test_dataset_build_recursive_auto_schema_wait(patch_client):
     """Full pipeline build: recursive + auto schema + wait."""
     result = runner.invoke(

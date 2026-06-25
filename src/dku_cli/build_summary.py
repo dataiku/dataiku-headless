@@ -35,6 +35,50 @@ from dku_cli.output import info, success, warn
 _FRESHNESS_SLACK_MS = 10_000
 
 
+def snapshot_schemas(
+    proj: Any, targets: list[tuple[str, str]]
+) -> dict[str, dict[str, str]]:
+    """Capture ``{dataset: {column: storage_type}}`` for DATASET targets, pre-build.
+
+    Used to report what ``--auto-update-schema`` actually changed (added,
+    removed, or retyped columns) so an auto-applied schema update is never
+    silent — the failure mode Dataiku's docs warn against, and the reason
+    schema update is "on by default but reported". Best-effort: a snapshot
+    error must never affect the build.
+    """
+    snap: dict[str, dict[str, str]] = {}
+    for ref, object_type in targets:
+        if object_type != "DATASET":
+            continue
+        try:
+            ds_def = proj.get_dataset(ref).get_definition()
+            cols = ds_def.get("schema", {}).get("columns", [])
+            snap[ref] = {c.get("name"): c.get("type") for c in cols}
+        except Exception:
+            pass  # Best-effort — a missing pre-build schema just skips the delta.
+    return snap
+
+
+def _emit_schema_delta(name: str, prev: dict[str, str], columns: list[dict]) -> None:
+    """Report what auto-update changed vs the pre-build schema (silent if unchanged)."""
+    cur = {c.get("name"): c.get("type") for c in columns}
+    added = [c for c in cur if c not in prev]
+    removed = [c for c in prev if c not in cur]
+    retyped = [
+        f"{c} {prev[c]}->{cur[c]}" for c in cur if c in prev and prev[c] != cur[c]
+    ]
+    if not (added or removed or retyped):
+        return
+    parts = []
+    if added:
+        parts.append("added " + ", ".join(added))
+    if removed:
+        parts.append("removed " + ", ".join(removed))
+    if retyped:
+        parts.append("retyped " + ", ".join(retyped))
+    info(f"{name}: schema auto-updated ({'; '.join(parts)})")
+
+
 def _fresh_metric_count(ds, job_start_ms: int) -> int | None:
     """Row count from the COUNT_RECORDS metric, only if computed by this build."""
     raw = ds.get_last_metric_values().get_raw()
@@ -84,7 +128,12 @@ def _probe_count(ds) -> tuple[int, bool]:
 
 
 def _summarize_dataset(
-    client, proj, project_key: str, name: str, job_start_ms: int
+    client,
+    proj,
+    project_key: str,
+    name: str,
+    job_start_ms: int,
+    prev_cols: dict[str, str] | None = None,
 ) -> None:
     ds = proj.get_dataset(name)
     ds_def = ds.get_definition()
@@ -116,6 +165,9 @@ def _summarize_dataset(
     rows_part = f"{count} rows" if exact else f"≥{count} rows"
     success(f"Built {name}: {rows_part}, {n_cols} cols")
 
+    if prev_cols is not None:
+        _emit_schema_delta(name, prev_cols, columns)
+
     # The all-string schema is the recurring silent killer: upload/prepare
     # outputs typed entirely string break the next sum/avg/comparison. The
     # schema is already in hand, so the check is free.
@@ -132,6 +184,7 @@ def emit_build_summary(
     project_key: str,
     targets: list[tuple[str, str]],
     job_start_ms: int | None = None,
+    prev_schemas: dict[str, dict[str, str]] | None = None,
 ) -> None:
     """Print a one-line rows/cols summary per built dataset target.
 
@@ -142,12 +195,18 @@ def emit_build_summary(
         targets: (ref, object_type) pairs as resolved at job-submit time;
             non-DATASET targets (folders, saved models) are skipped.
         job_start_ms: epoch ms the job was started, for metric freshness.
+        prev_schemas: pre-build ``{dataset: {column: type}}`` from
+            ``snapshot_schemas``; when given, a per-dataset schema-change line
+            is printed so an auto-applied schema update is never silent.
     """
     start_ms = job_start_ms if job_start_ms is not None else int(time.time() * 1000)
+    prev = prev_schemas or {}
     for ref, object_type in targets:
         if object_type != "DATASET":
             continue
         try:
-            _summarize_dataset(client, proj, project_key, ref, start_ms)
+            _summarize_dataset(
+                client, proj, project_key, ref, start_ms, prev_cols=prev.get(ref)
+            )
         except Exception as e:  # verification must never fail a successful build
             info(f"(could not verify {ref}: {e})")

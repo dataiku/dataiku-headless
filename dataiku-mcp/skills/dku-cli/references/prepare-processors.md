@@ -122,7 +122,7 @@ GREL `formatDate()`/`toDate()` don't exist; `toString(date,"fmt")` is a no-op �
 | `PythonUDF` | inline row/cell Python | `{"mode":"ROW","pythonSourceCode":"def process(row):\n    …\n    return row","envSelection":{"envMode":"INHERIT"},"stopOnError":false}` — CELL mode needs `column`; missing `mode` = no-op. Row-local only (no joins/aggregations). |
 | `EnrichWithBuildContextProcessor` | stamp build timestamp | `{"buildDateColumn":"build_ts"}` |
 
-**In-place cast doesn't retype.** A GREL formula overwriting an EXISTING column (e.g. `price = price * 1.0`) keeps the column's declared storage type (stays `string`) — DSS only re-infers types for **new** output columns. A manual `dku dataset set-schema` fix is reverted by the next `--auto-update-schema` rebuild. The only clean route is writing to a **new** output column (which infers the type).
+**In-place cast doesn't retype.** A GREL formula overwriting an EXISTING column (e.g. `price = price * 1.0`) keeps the column's declared storage type (stays `string`) — DSS only re-infers types for **new** output columns. A manual `dku dataset set-schema` fix is reverted by the next rebuild (schema auto-update is on by default). The only clean route is writing to a **new** output column (which infers the type).
 
 **Writing back under an original input-column name silently NULLs it.** Inside one Prepare, deleting/renaming a temp column TO a name the INPUT schema already owns — or overwriting an input column via a GREL step — produces an all-null column, no error (the engine binds the name to the input column, which the earlier step removed). Emit computed values under NEW names; rename to the final names in a tiny downstream Prepare. (`DateParser` without `outCol` is the same trap, called out in its row.)
 

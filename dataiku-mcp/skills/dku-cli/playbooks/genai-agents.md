@@ -31,7 +31,7 @@ guardrails / cost controls applied. DSS can also be exposed as an **A2A server**
 dku --format ids llm list -P PROJ
 dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ
 dku recipe create-prompt NAME -i INPUT --output-ds OUT --completion-llm LLM_ID --prompt '...{{var}}...' --input-var NAME=COL -P PROJ
-dku job run --target OUT --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait -P PROJ
+dku job run --target OUT --type NON_RECURSIVE_FORCED_BUILD --wait -P PROJ
 
 # Embed → Knowledge Bank
 dku recipe create-embed NAME --input DS --output-kb KB --embedding-llm LLM_ID --embed-column COL -P PROJ
@@ -78,8 +78,9 @@ This is the default for "run an LLM over a dataset".
    `references/prompt-recipe-payload.md` (agent block graphs are in
    `references/agent-blocks.md`).
 3. First build (single fresh recipe): `dku job run --target OUT --type
-   NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait`. Use `RECURSIVE_BUILD` instead
-   when upstream datasets must build too.
+   NON_RECURSIVE_FORCED_BUILD --wait` (auto-update-schema is on by default, which a
+   Prompt recipe needs on first build). Use `RECURSIVE_BUILD` instead when upstream
+   datasets must build too.
 4. Verify: `dku dataset head OUT -P PROJ -n 5`, and confirm the recipe shape with
    `dku --format json recipe get-definition NAME` (`prompt.promptMode=PROMPT_TEMPLATE_TEXT`,
    `llmId`, `textPromptTemplateInputs`).
@@ -88,8 +89,8 @@ Multi-line prompts: pass `@file.txt` or `-` (stdin) to `--prompt` — a backslas
 inside a literal string stays literal.
 
 **Gotchas + fix:**
-- `recipe run` alone returns an empty output schema → always use `job run
-  --auto-update-schema` on first build.
+- `recipe run` alone returns an empty output schema → always use `job run` on first
+  build (auto-update-schema is on by default; don't pass `--no-auto-update-schema`).
 - `resultValidation.expectedFormat: "JSON"` crashes at build (NPE) → use `"NONE"`
   and parse `llm_output` downstream with a Prepare recipe + `JSONFlattener` step.
 - `{{var}}` rendering literally → the placeholder has no matching

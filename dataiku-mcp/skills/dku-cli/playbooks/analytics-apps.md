@@ -157,7 +157,7 @@ Score new data with a prediction/clustering recipe (the saved model is auto-wire
 ```bash
 dku recipe create score --type prediction_scoring -i new_data --output-ds scored \
   --model SAVED_MODEL -P KEY
-dku job run --target scored --auto-update-schema --wait -P KEY
+dku job run --target scored --wait -P KEY
 dku dataset head scored -P KEY                          # verify prediction columns exist
 ```
 

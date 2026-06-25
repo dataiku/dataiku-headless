@@ -237,6 +237,27 @@ def test_recipe_run_auto_update_schema(patch_client):
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
 
 
+def test_recipe_run_auto_update_schema_on_by_default(patch_client):
+    """No flag → auto-update is ON by default (imported from DADK), so the
+    output schema propagates without the agent having to remember the flag."""
+    result = runner.invoke(app, ["recipe", "run", "recipe1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
+
+
+def test_recipe_run_no_auto_update_schema_opt_out(patch_client):
+    """--no-auto-update-schema preserves the stored schema (partitioned /
+    hand-curated case) — the builder schema-update call is not made."""
+    result = runner.invoke(
+        app,
+        ["recipe", "run", "recipe1", "--no-auto-update-schema", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_not_called()
+
+
 def test_recipe_run_shaker_with_rename_emits_apply_schema_hint(patch_client):
     """A successful Prepare run with rename/formula steps emits a hint pointing
     at apply-schema. The first run propagates upstream schema only — agents
@@ -251,7 +272,16 @@ def test_recipe_run_shaker_with_rename_emits_apply_schema_hint(patch_client):
         ],
     )
     result = runner.invoke(
-        app, ["recipe", "run", "prep1", "--wait", "--project", "PROJ1"]
+        app,
+        [
+            "recipe",
+            "run",
+            "prep1",
+            "--wait",
+            "--no-auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     assert "apply-schema" in result.output
@@ -269,7 +299,16 @@ def test_recipe_run_shaker_with_formula_emits_apply_schema_hint(patch_client):
         ],
     )
     result = runner.invoke(
-        app, ["recipe", "run", "prep1", "--wait", "--project", "PROJ1"]
+        app,
+        [
+            "recipe",
+            "run",
+            "prep1",
+            "--wait",
+            "--no-auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     assert "apply-schema" in result.output
@@ -284,7 +323,16 @@ def test_recipe_run_shaker_no_schema_steps_no_hint(patch_client):
         ],
     )
     result = runner.invoke(
-        app, ["recipe", "run", "prep1", "--wait", "--project", "PROJ1"]
+        app,
+        [
+            "recipe",
+            "run",
+            "prep1",
+            "--wait",
+            "--no-auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code == 0
     assert "apply-schema" not in result.output

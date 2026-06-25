@@ -195,9 +195,16 @@ def run(
         help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
     ),
     auto_update_schema: bool = typer.Option(
-        False,
-        "--auto-update-schema",
-        help="Auto-update output schemas before each recipe run",
+        True,
+        "--auto-update-schema/--no-auto-update-schema",
+        help=(
+            "Update output schemas before each recipe run (default: on; "
+            "imported from the Dataiku Agent Dev Kit, which builds with it on). "
+            "With --wait, schema changes are reported per dataset. Use "
+            "--no-auto-update-schema to preserve the stored schema — required "
+            "for partitioned datasets (a schema change can make other "
+            "partitions unreadable) and hand-curated schemas/meanings."
+        ),
     ),
     timeout: int | None = typer.Option(
         None,
@@ -252,6 +259,15 @@ def run(
             builder.with_output(resolved_ref, object_type=object_type)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
+        # Pre-build schema snapshot so an auto-applied update is reported, not
+        # silent (build_summary._emit_schema_delta). Only when we wait + can change.
+        from dku_cli.build_summary import snapshot_schemas
+
+        prev_schemas = (
+            snapshot_schemas(proj, resolved_targets)
+            if (wait and auto_update_schema)
+            else None
+        )
         job_start_ms = int(time.time() * 1000)
         job = builder.start()
         job_id = job.id
@@ -261,8 +277,6 @@ def run(
         from dku_cli.output import hint
 
         hint(f"dku job log {job_id} -P {project_key}")
-        if auto_update_schema:
-            info("Auto-update schema: enabled")
 
         # recipe.run(no_fail=True) already waited; poll state from the job object.
         status = job.get_status()
@@ -292,7 +306,12 @@ def run(
                     from dku_cli.build_summary import emit_build_summary
 
                     emit_build_summary(
-                        client, proj, project_key, resolved_targets, job_start_ms
+                        client,
+                        proj,
+                        project_key,
+                        resolved_targets,
+                        job_start_ms,
+                        prev_schemas=prev_schemas,
                     )
             # Hint: Prepare recipes with rename/formula steps frequently need a
             # follow-up apply-schema before downstream recipes see the new

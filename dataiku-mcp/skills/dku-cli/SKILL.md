@@ -59,7 +59,7 @@ Never guess flags and never document them here — drill into command `--help`.
    (`dku --format json project list`) and ask which if none specified, then
    `dku project inspect`. Skip both for narrow reads.
 3. **Sample and schema-check inputs** before transforming.
-4. **Build with** `dku job run --type RECURSIVE_BUILD --auto-update-schema --wait`.
+4. **Build with** `dku job run --type RECURSIVE_BUILD --wait`. Output schemas auto-update by default; with `--wait` the changes are reported per dataset; add `--no-auto-update-schema` only to preserve a partitioned or hand-curated schema.
 5. **Verify with real data.** Exit 0 is not proof; empty arrays are data, not success. Check row counts, schema, and sample values.
 6. **Review the flow as the reviewer will.** Before declaring a project done, run the
    finish gate — `dku project audit -P PROJ` — one read-only verdict over structure,

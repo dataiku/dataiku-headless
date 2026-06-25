@@ -23,7 +23,7 @@ dku dataset head IN -P PROJ -n 5                  # 2. gauge + sample inputs
 # 3. wire recipes (see decision table)
 dku recipe create-join enrich -i IN -i LOOKUP --output-ds OUT --join-key id -P PROJ
 # 4. build the terminal output, recursive + schema propagation
-dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --auto-update-schema --wait
+dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --wait
 # 5. verify REAL data
 dku dataset head OUT -P PROJ -n 5 && dku dataset info OUT -P PROJ --recompute
 ```
@@ -69,7 +69,7 @@ dku recipe add-formula NAME --expr 'EXPR' --column NEWCOL -P PROJ
 dku recipe add-rename NAME --from OLD --to NEW -P PROJ        # or --mappings 'OLD:NEW,OLD2:NEW2'
 # Propagate schema (after editing steps), build recursively, verify
 dku recipe apply-schema NAME -P PROJ
-dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --auto-update-schema --wait
+dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --wait
 ```
 
 Don't rename a column the task didn't ask you to rename — the pivot's default

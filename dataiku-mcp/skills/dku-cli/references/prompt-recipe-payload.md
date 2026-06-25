@@ -4,7 +4,7 @@ Complete schema for the `payload` object of a DSS Prompt Recipe, captured from w
 
 **Use this doc when**: you're about to call `dku recipe set-settings RECIPE -s @prompt_settings.json` on a recipe created with `dku recipe create -t prompt ...`. The public DSS docs don't cover this schema, so it has to be captured from a working UI-created recipe and documented here.
 
-> **Workflow**: create the recipe shell → `set-settings` with this payload → `dku job run --auto-update-schema`. The `--auto-update-schema` flag is mandatory on first build; `recipe run` alone returns an empty schema. Full sequence: `playbooks/genai-agents.md`.
+> **Workflow**: create the recipe shell → `set-settings` with this payload → `dku job run`. Schema auto-update (on by default) is required on first build — don't pass `--no-auto-update-schema`; `recipe run` alone returns an empty schema. Full sequence: `playbooks/genai-agents.md`.
 
 ## Discover the LLM ID first
 
@@ -139,8 +139,8 @@ dku recipe create extract -t prompt -i extraction_tasks --output-ds extraction_r
 jq --arg llm "$LLM_ID" '.payload.llmId = $llm' prompt_settings.template.json > prompt_settings.json && \
 dku recipe set-settings extract -P PROJ -s @prompt_settings.json && \
 
-# 4. Build with auto-schema (mandatory on first run)
-dku job run --target extraction_results -P PROJ --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait && \
+# 4. Build (schema auto-update is on by default — required on first run)
+dku job run --target extraction_results -P PROJ --type NON_RECURSIVE_FORCED_BUILD --wait && \
 
 # 5. Parse JSON output downstream — no Python recipe needed
 dku dataset create extraction_parsed --type Filesystem -c filesystem_managed -P PROJ && \
@@ -151,7 +151,7 @@ dku recipe add-step parse --type JSONFlattener \
 dku recipe add-delete-columns parse \
   --columns "llm_validation_status,llm_raw_response,llm_error_message,llm_raw_query,llm_output" \
   -P PROJ && \
-dku job run --target extraction_parsed -P PROJ --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait && \
+dku job run --target extraction_parsed -P PROJ --type NON_RECURSIVE_FORCED_BUILD --wait && \
 
 # 6. Verify
 dku dataset head extraction_parsed -P PROJ -n 5
@@ -172,7 +172,7 @@ Then diff against the minimal payload above to see what changed, and copy the ne
 | Symptom | Cause | Fix |
 |---|---|---|
 | `resultValidation.expectedFormat is null` runtime NPE | `"JSON"` or another unknown string was used. Silent server-side deserialization to null. | Use `"NONE"` and parse JSON downstream with a Prepare recipe + JSONFlattener. |
-| Output dataset schema is empty after `dku recipe run` | `recipe run` doesn't populate the output schema for Prompt Recipes on first build. | Use `dku job run --target OUT --type NON_RECURSIVE_FORCED_BUILD --auto-update-schema --wait` instead. |
+| Output dataset schema is empty after `dku recipe run` | `recipe run` doesn't populate the output schema for Prompt Recipes on first build. | Use `dku job run --target OUT --type NON_RECURSIVE_FORCED_BUILD --wait` instead (schema auto-update is on by default). |
 | Recipe created but `--output-ds` complained that output doesn't exist | Generic `dku recipe create -t prompt` does not auto-create outputs (unlike `create-prompt`, which does). | Use `dku recipe create-prompt ...` instead, or pre-create: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ` before `recipe create -t prompt`. |
 | `{{variable}}` renders literally in the LLM prompt | Placeholder name doesn't match any entry in `textPromptTemplateInputs`, OR the referenced `datasetColumnName` doesn't exist in the input dataset schema. | Verify both with `dku dataset schema INPUT -P PROJ` and cross-check the `name` field in `textPromptTemplateInputs`. |
 | All rows come back with the same generic answer | The prompt template doesn't actually vary per row — either no `{{variable}}` placeholders, or all placeholders reference the same static column. | Add row-varying placeholders. Use `dku dataset head INPUT -n 5` to confirm the input rows actually differ on the referenced columns. |

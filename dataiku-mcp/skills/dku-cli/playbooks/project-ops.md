@@ -23,7 +23,7 @@ dku scenario list-triggers NAME -P KEY
 dku scenario last-run NAME -P KEY
 
 # Build + verify
-dku job run --target OUT --type RECURSIVE_BUILD --auto-update-schema --wait -P KEY
+dku job run --target OUT --type RECURSIVE_BUILD --wait -P KEY
 dku job log JOB_ID -P KEY
 dku dataset info OUT --recompute -P KEY
 dku dataset head OUT -P KEY -n 5
@@ -116,10 +116,10 @@ dku scenario run-log SCEN -P KEY         # debug a failure
 
 ## Jobs & flow builds
 
-The canonical build: `dku job run --type RECURSIVE_BUILD --auto-update-schema --wait`.
+The canonical build: `dku job run --type RECURSIVE_BUILD --wait` (output schemas auto-update by default).
 
 ```bash
-dku job run --target OUT --type RECURSIVE_BUILD --auto-update-schema --wait -P KEY
+dku job run --target OUT --type RECURSIVE_BUILD --wait -P KEY
 dku job run --target A --target B -P KEY     # multiple outputs in one job
 dku job last -P KEY                          # most recent job id on stdout (composable)
 dku job log $(dku job last -P KEY) -P KEY    # tail the log
@@ -129,7 +129,7 @@ dku job abort JOB_ID -P KEY
 
 - `--target` auto-detects type (dataset / managed folder / saved model by name or ID) — folder/model targets won't error as "dataset does not exist".
 - `--type` defaults to `NON_RECURSIVE_FORCED_BUILD`; use `RECURSIVE_BUILD` to build upstream deps.
-- `--auto-update-schema` propagates output schemas before each recipe run — eliminates manual `flow propagate`.
+- Output schemas auto-update before each recipe run **by default** (with `--wait`, changes are reported per dataset) — eliminates manual `flow propagate`. Pass `--no-auto-update-schema` to preserve the stored schema: partitioned datasets (a schema change can make other partitions unreadable) and hand-curated types/meanings.
 - `--wait` blocks; add `--timeout` for bounded waits.
 - `log --errors-only` filters to error-like lines + context; `--tail N` keeps last N lines.
 
@@ -144,7 +144,7 @@ dku flow create-zone "Staging" --color "#FF5500" -P KEY
 dku flow move DS1 DS2 --type DATASET --zone ZONE -P KEY
 ```
 
-- Prefer `job run --auto-update-schema` over standalone `flow propagate`. Use `propagate --stop-at RECIPE` / `--mark-ok RECIPE` / `--no-auto-rebuild` to scope it.
+- `job run` propagates schema by default — prefer it over standalone `flow propagate`. Use `propagate --stop-at RECIPE` / `--mark-ok RECIPE` / `--no-auto-rebuild` to scope a manual propagation.
 
 ### Verify builds with real data
 

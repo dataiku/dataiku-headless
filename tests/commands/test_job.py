@@ -371,6 +371,36 @@ def test_job_run_recursive_with_auto_schema(patch_client):
     builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
 
 
+def test_job_run_auto_update_schema_on_by_default(patch_client):
+    """No flag → auto-update is ON by default (imported from DADK)."""
+    result = runner.invoke(
+        app, ["job", "run", "--target", "final_ds", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_called_once_with(True)
+
+
+def test_job_run_no_auto_update_schema_opt_out(patch_client):
+    """--no-auto-update-schema preserves the stored schema (partitioned /
+    hand-curated case) — the builder schema-update call is not made."""
+    result = runner.invoke(
+        app,
+        [
+            "job",
+            "run",
+            "--target",
+            "final_ds",
+            "--no-auto-update-schema",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    builder = patch_client.get_project("PROJ1").new_job.return_value
+    builder.with_auto_update_schema_before_each_recipe_run.assert_not_called()
+
+
 def test_job_run_folder_target_resolves_type(patch_client):
     """A managed-folder target (by name) builds as MANAGED_FOLDER with its ID,
     not the default DATASET (which would error with 'dataset not found')."""

@@ -1095,9 +1095,16 @@ def build(
         help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
     ),
     auto_update_schema: bool = typer.Option(
-        False,
-        "--auto-update-schema",
-        help="Auto-update output schemas before each recipe run",
+        True,
+        "--auto-update-schema/--no-auto-update-schema",
+        help=(
+            "Update output schemas before each recipe run (default: on; "
+            "imported from the Dataiku Agent Dev Kit, which builds with it on). "
+            "With --wait, schema changes are reported per dataset. Use "
+            "--no-auto-update-schema to preserve the stored schema — required "
+            "for partitioned datasets (a schema change can make other "
+            "partitions unreadable) and hand-curated schemas/meanings."
+        ),
     ),
     no_verify: bool = typer.Option(
         False,
@@ -1161,14 +1168,21 @@ def build(
         builder.with_output(dataset_name)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
+        # Pre-build schema snapshot so an auto-applied update is reported, not
+        # silent (build_summary._emit_schema_delta). Only when we wait + can change.
+        from dku_cli.build_summary import snapshot_schemas
+
+        prev_schemas = (
+            snapshot_schemas(proj, [(dataset_name, "DATASET")])
+            if (wait and auto_update_schema)
+            else None
+        )
         job_start_ms = int(time.time() * 1000)
         job = builder.start()
 
         success(f"Build started for {dataset_name}")
         info(f"Job ID: {job.id}")
         hint(f"dku job log {job.id} -P {project_key}")
-        if auto_update_schema:
-            info("Auto-update schema: enabled")
 
         if wait:
             info("Waiting for completion...")
@@ -1189,6 +1203,7 @@ def build(
                         project_key,
                         [(dataset_name, "DATASET")],
                         job_start_ms,
+                        prev_schemas=prev_schemas,
                     )
             else:
                 # FAILED/ABORTED must exit non-zero — agents chain

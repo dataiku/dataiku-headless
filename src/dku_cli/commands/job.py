@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import typer
 
-from dku_cli.build_summary import emit_build_summary
+from dku_cli.build_summary import emit_build_summary, snapshot_schemas
 from dku_cli.enums import JobType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import (
@@ -487,9 +487,16 @@ def run(
         help="Build type: NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD, RECURSIVE_MISSING_ONLY_BUILD",
     ),
     auto_update_schema: bool = typer.Option(
-        False,
-        "--auto-update-schema",
-        help="Auto-update output schemas before each recipe run",
+        True,
+        "--auto-update-schema/--no-auto-update-schema",
+        help=(
+            "Update output schemas before each recipe run (default: on; "
+            "imported from the Dataiku Agent Dev Kit, which builds with it on). "
+            "With --wait, schema changes are reported per dataset. Use "
+            "--no-auto-update-schema to preserve the stored schema — required "
+            "for partitioned datasets (a schema change can make other "
+            "partitions unreadable) and hand-curated schemas/meanings."
+        ),
     ),
     refresh_metastore: bool = typer.Option(
         False,
@@ -534,6 +541,14 @@ def run(
         if refresh_metastore:
             builder.with_refresh_metastore(True)
 
+        # Pre-build schema snapshot so an auto-applied update is reported (see
+        # build_summary._emit_schema_delta), never silent. Only when we will
+        # wait to summarize and auto-update can actually change the schema.
+        prev_schemas = (
+            snapshot_schemas(proj, resolved_targets)
+            if (wait_for_completion and auto_update_schema)
+            else None
+        )
         job_start_ms = int(time.time() * 1000)
         job = builder.start()
         success(f"Job started: {job.id}")
@@ -541,8 +556,6 @@ def run(
         from dku_cli.output import hint
 
         hint(f"dku job log {job.id} -P {project_key}")
-        if auto_update_schema:
-            info("Auto-update schema: enabled")
 
         if wait_for_completion:
             info("Waiting for completion...")
@@ -561,6 +574,7 @@ def run(
                                 project_key,
                                 resolved_targets,
                                 job_start_ms,
+                                prev_schemas=prev_schemas,
                             )
                         return
                     # FAILED/ABORTED must exit non-zero — agents chain
