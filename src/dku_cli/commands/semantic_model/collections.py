@@ -68,9 +68,20 @@ def remove_glossary_term(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a glossary term by its label."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.remove_glossary_term",
+        subject=f"glossary term '{term}' on '{sm_ref}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove glossary term '{term}' from '{sm_ref}' in {project_key}?",
+    )
     try:
         version_id, settings, raw = _load_command_version(
             ctx, project_key, sm_ref, version
@@ -187,9 +198,23 @@ def remove_metric(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a metric from an entity by name."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.remove_metric",
+        subject=f"metric '{name}' on entity '{entity}' of '{sm_ref}' in {project_key}",
+        yes=yes,
+        prompt=(
+            f"Remove metric '{name}' (entity '{entity}') from "
+            f"'{sm_ref}' in {project_key}?"
+        ),
+    )
     try:
         _remove_entity_expression_item(
             ctx,
@@ -299,9 +324,23 @@ def remove_filter(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a filter from an entity by name."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.remove_filter",
+        subject=f"filter '{name}' on entity '{entity}' of '{sm_ref}' in {project_key}",
+        yes=yes,
+        prompt=(
+            f"Remove filter '{name}' (entity '{entity}') from "
+            f"'{sm_ref}' in {project_key}?"
+        ),
+    )
     try:
         _remove_entity_expression_item(
             ctx,
@@ -424,9 +463,20 @@ def remove_golden_query(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a golden query by name."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.remove_golden_query",
+        subject=f"golden query '{name}' on '{sm_ref}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove golden query '{name}' from '{sm_ref}' in {project_key}?",
+    )
     try:
         version_id, settings, raw = _load_command_version(
             ctx, project_key, sm_ref, version

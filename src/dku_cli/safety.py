@@ -7,7 +7,7 @@ the CLI can stop, ask the user, and re-run with the exact confirmation flags.
 
 Exit code 77 is reserved for safety_blocked.
 
-See CLAUDE.md § Safety & Guarded Mode for design and call-site conventions.
+See docs/design/safety-stance.md for the design rationale and call-site conventions.
 """
 
 from __future__ import annotations
@@ -105,10 +105,11 @@ def _reconstruct_rerun(extra_flags: list[str]) -> str:
         if skip_next:
             skip_next = False
             continue
-        if arg in ("--yes", "-y", "--confirm", "--i-know-what-im-doing"):
+        flag = arg.split("=", 1)[0]
+        if flag in ("--yes", "-y", "--confirm", "--i-know-what-im-doing"):
             continue
-        if arg == "--confirm-name":
-            skip_next = True
+        if flag == "--confirm-name":
+            skip_next = "=" not in arg
             continue
         cleaned.append(arg)
 
@@ -116,13 +117,10 @@ def _reconstruct_rerun(extra_flags: list[str]) -> str:
 
 
 def _emit_block(
-    action: str,
-    subject: str,
     tier: Tier,
     prompt_to_user: str,
     rerun_with_confirmation: str,
     session_bypass: str,
-    extra_lines: list[str],
 ) -> None:
     """Emit the AGENT INSTRUCTION block to stderr."""
     from dku_cli.output import err_console
@@ -142,8 +140,6 @@ def _emit_block(
     )
     err_console.print("  4. To authorise everything for this session, ask the user:")
     err_console.print(f"       export {session_bypass}", highlight=False, markup=False)
-    for line in extra_lines:
-        err_console.print(f"  [dim]{line}[/dim]")
     err_console.print("")
     err_console.print(f"[dim]Exit code: {SAFETY_BLOCKED_EXIT}  (safety_blocked)[/dim]")
 
@@ -156,6 +152,14 @@ def _warn_dangerous_once(ctx: Optional[typer.Context], reason: str) -> None:
     from dku_cli.output import warn
 
     warn(f"DANGEROUS MODE active ({reason}) — safety guards disabled.")
+
+
+def _require_named_target(tier: Tier, action: str, target_id: Optional[str]) -> None:
+    if tier >= Tier.CASCADE and not target_id:
+        raise ValueError(
+            f"guard(action={action!r}) tier {_tier_label(tier)} needs a non-empty "
+            "target_id: CASCADE/ADMIN must name their target."
+        )
 
 
 def guard(
@@ -181,14 +185,18 @@ def guard(
         target_id: For CASCADE/ADMIN, the identifier --confirm-name must match.
         confirm_name: Value of --confirm-name flag.
         i_know: Whether --i-know-what-im-doing was passed (ADMIN only).
-        prompt: Override the user-facing approval question (defaults to a
-                generic "Proceed with <action> on <subject>?").
+        prompt: Override the user-facing approval question on the generic
+                DELETE / first-time CASCADE block (defaults to a generic
+                "Proceed with <action> on <subject>?"). The name-mismatch and
+                ADMIN refusals use their own fixed wording.
 
     Raises:
         typer.Exit(77) if the operation is refused.
     """
     if tier < Tier.DELETE:
         return
+
+    _require_named_target(tier, action, target_id)
 
     dangerous, reason = is_dangerous_mode(ctx)
 
@@ -200,7 +208,7 @@ def guard(
 
     if dangerous and tier <= Tier.CASCADE:
         if tier == Tier.CASCADE and target_id and confirm_name != target_id:
-            _emit_cascade_name_mismatch(action, subject, target_id, confirm_name)
+            _emit_cascade_name_mismatch(target_id, confirm_name)
             raise typer.Exit(SAFETY_BLOCKED_EXIT)
         _warn_dangerous_once(ctx, reason)
         return
@@ -212,7 +220,7 @@ def guard(
             )
             raise typer.Exit(SAFETY_BLOCKED_EXIT)
         if not confirm_name or confirm_name != target_id:
-            _emit_cascade_name_mismatch(action, subject, target_id, confirm_name)
+            _emit_cascade_name_mismatch(target_id, confirm_name)
             raise typer.Exit(SAFETY_BLOCKED_EXIT)
         return
 
@@ -221,10 +229,8 @@ def guard(
         raise typer.Exit(SAFETY_BLOCKED_EXIT)
 
 
-def _cascade_flags(target_id: Optional[str]) -> list[str]:
-    if target_id:
-        return ["--yes", "--confirm-name", target_id]
-    return ["--yes", "--confirm-name", "<TARGET_NAME>"]
+def _cascade_flags(target_id: str) -> list[str]:
+    return ["--yes", "--confirm-name", target_id]
 
 
 def _emit_generic_block(
@@ -239,23 +245,18 @@ def _emit_generic_block(
     )
     rerun = _reconstruct_rerun(extra_flags)
     _emit_block(
-        action=action,
-        subject=subject,
         tier=tier,
         prompt_to_user=prompt_to_user,
         rerun_with_confirmation=rerun,
         session_bypass="DKU_DANGEROUS=1",
-        extra_lines=[],
     )
 
 
 def _emit_cascade_name_mismatch(
-    action: str,
-    subject: str,
-    target_id: Optional[str],
+    target_id: str,
     confirm_name: Optional[str],
 ) -> None:
-    rerun = _reconstruct_rerun(["--yes", "--confirm-name", target_id or "<TARGET>"])
+    rerun = _reconstruct_rerun(["--yes", "--confirm-name", target_id])
 
     from dku_cli.output import err_console
 

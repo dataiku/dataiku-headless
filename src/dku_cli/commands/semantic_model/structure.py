@@ -376,12 +376,26 @@ def remove_entity(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove an entity from a semantic model version.
 
     Also removes any relationships that reference this entity.
     """
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.remove_entity",
+        subject=f"entity '{entity_name}' on semantic model '{sm_ref}' in {project_key}",
+        yes=yes,
+        prompt=(
+            f"Remove entity '{entity_name}' from semantic model '{sm_ref}' in "
+            f"{project_key}? This also drops any relationships that reference it."
+        ),
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
@@ -568,9 +582,26 @@ def remove_relationship(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a relationship between two entities (matches either order)."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="semantic_model.remove_relationship",
+        subject=(
+            f"relationship '{first_entity}'–'{second_entity}' on semantic model "
+            f"'{sm_ref}' in {project_key}"
+        ),
+        yes=yes,
+        prompt=(
+            f"Remove the relationship between '{first_entity}' and '{second_entity}' "
+            f"on '{sm_ref}' in {project_key}?"
+        ),
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

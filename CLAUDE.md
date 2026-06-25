@@ -97,4 +97,4 @@ Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agen
 | `dataiku-mcp/skills/dku-cli/playbooks/` | Task walkthroughs, one per task |
 | `dataiku-mcp/skills/dku-cli/references/` | Cold detail — payloads, safety tiers |
 | `dataiku-mcp/skills/dku-cli/references/visual-recipe-traps.md` | A visual-recipe payload validates and writes but a step no-ops, a build NPEs, or DSS shows a spurious save prompt |
-| `docs/design/safety-stance.md` | Design rationale — why confirmation booleans don't authorize agents; how `--confirm-name`/`--yes`/exit-77 divide the work; Phase-2 harness-confirmation proposal |
+| `docs/design/safety-stance.md` | Design rationale — why confirmation booleans don't authorize agents; how `--confirm-name`/`--yes`/exit-77 divide the work; the 2026-06 decision to keep the guard a CLI speed bump (no harness hooks) and how it behaves under Claude Code's permission modes |

@@ -988,7 +988,7 @@ def test_remove_entity(patch_client):
 
     result = runner.invoke(
         app,
-        ["semantic-model", "remove-entity", "sm1", "a", "--project", "PROJ1"],
+        ["semantic-model", "remove-entity", "sm1", "a", "--yes", "--project", "PROJ1"],
     )
     assert result.exit_code == 0, result.output
     assert len(raw["entities"]) == 1
@@ -1002,7 +1002,15 @@ def test_remove_entity_not_found(patch_client):
 
     result = runner.invoke(
         app,
-        ["semantic-model", "remove-entity", "sm1", "ghost", "--project", "PROJ1"],
+        [
+            "semantic-model",
+            "remove-entity",
+            "sm1",
+            "ghost",
+            "--yes",
+            "--project",
+            "PROJ1",
+        ],
     )
     assert result.exit_code != 0
     assert "not found" in result.output.lower()
@@ -1195,6 +1203,7 @@ def test_remove_relationship_either_direction(patch_client):
             "b",
             "--to",
             "a",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -1218,6 +1227,7 @@ def test_remove_relationship_not_found(patch_client):
             "x",
             "--to",
             "y",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -1293,6 +1303,7 @@ def test_remove_glossary_term(patch_client):
             "sm1",
             "--term",
             "ARR",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -1503,6 +1514,7 @@ def test_remove_metric(patch_client):
             "customer",
             "--name",
             "A",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -1578,6 +1590,7 @@ def test_remove_filter(patch_client):
             "customer",
             "--name",
             "A",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -1598,6 +1611,7 @@ def test_remove_filter_not_found(patch_client):
             "customer",
             "--name",
             "ghost",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -1791,6 +1805,7 @@ def test_remove_golden_query(patch_client):
             "sm1",
             "--name",
             "A",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -2207,7 +2222,7 @@ def test_remove_entity_cleans_multiple_relationships(patch_client):
     ]
     result = runner.invoke(
         app,
-        ["semantic-model", "remove-entity", "sm1", "a", "--project", "PROJ1"],
+        ["semantic-model", "remove-entity", "sm1", "a", "--yes", "--project", "PROJ1"],
     )
     assert result.exit_code == 0
     # Only b<->c remains
@@ -2234,6 +2249,7 @@ def test_remove_relationship_removes_duplicates(patch_client):
             "a",
             "--to",
             "b",
+            "--yes",
             "--project",
             "PROJ1",
         ],
@@ -2355,3 +2371,65 @@ def test_set_manual_values_empty_values_rejected(patch_client):
         ],
     )
     assert result.exit_code != 0
+
+
+def test_semantic_model_remove_verbs_block_without_yes(patch_client):
+    """Each semantic-model remove-* verb is a DELETE speed bump (no --yes -> 77)."""
+    invocations = [
+        ["semantic-model", "remove-entity", "sm1", "a", "--project", "PROJ1"],
+        [
+            "semantic-model",
+            "remove-relationship",
+            "sm1",
+            "--from",
+            "a",
+            "--to",
+            "b",
+            "--project",
+            "PROJ1",
+        ],
+        [
+            "semantic-model",
+            "remove-glossary-term",
+            "sm1",
+            "--term",
+            "ARR",
+            "--project",
+            "PROJ1",
+        ],
+        [
+            "semantic-model",
+            "remove-metric",
+            "sm1",
+            "--entity",
+            "customer",
+            "--name",
+            "A",
+            "--project",
+            "PROJ1",
+        ],
+        [
+            "semantic-model",
+            "remove-filter",
+            "sm1",
+            "--entity",
+            "customer",
+            "--name",
+            "A",
+            "--project",
+            "PROJ1",
+        ],
+        [
+            "semantic-model",
+            "remove-golden-query",
+            "sm1",
+            "--name",
+            "A",
+            "--project",
+            "PROJ1",
+        ],
+    ]
+    for argv in invocations:
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 77, f"{argv[1]} did not block: {result.output}"
+        assert "BLOCKED" in result.output, f"{argv[1]}: {result.output}"

@@ -4,6 +4,14 @@ Status: **design note, not implemented.** Nothing in `safety.py` changes on the
 strength of this doc. It tests our tiered `safety.guard` against a general
 agent-safety principle and proposes where each boundary belongs.
 
+> **Decision (2026-06):** the guard is a deliberate **speed bump for the agent**, not an
+> authorization wall, and we are **not** pursuing harness-level hooks (supersedes proposal #3
+> below). Under Claude Code the guard stacks on the harness's own permission layer: it is
+> largely redundant when `dku` is unallowlisted (Claude Code already prompts before running
+> the command), and earns its keep when `Bash(dku:*)` is allowlisted or the run is headless,
+> where exit-77 is the only checkpoint that surfaces a destructive call. `--dangerous` /
+> `DKU_DANGEROUS` stays an explicit opt-in; tier-4 ADMIN is never bypassable by it.
+
 ## The principle
 
 A bare confirmation boolean is not an authorization boundary for an agent caller:
@@ -100,11 +108,11 @@ the value of running headless/unattended is real:
    that `--yes` is an *acknowledgement token consumed by the exit-77 protocol*,
    never a standalone authorization. The authority lives in the harness relaying
    the verbatim question to a human and rerunning the exact command.
-3. **Add a harness-confirmation hook point for Tier 3/4.** Expose, for callers
-   that have a user-confirmation mode, a way to require fresh human approval
-   before CASCADE/ADMIN calls execute — independent of (and in addition to) our
-   flags. Yolo-mode callers still hit the exit-77 wall; confirmation-mode callers
-   get a real human gate. Tier-4 remains non-bypassable in both.
+3. ~~**Add a harness-confirmation hook point for Tier 3/4.**~~ **Declined (2026-06).**
+   We deliberately keep the guard a CLI-only speed bump and do not add harness hooks: a
+   hook would turn the speed bump into a wall (not the intent) and create a second source
+   of truth for the tier map. See the decision note at the top. `--dangerous` /
+   `DKU_DANGEROUS` is kept as a deliberate, explicit opt-in.
 4. **Keep `--confirm-name` exactly as is.** It is the part of the design the
    principle would endorse: specific, world-referencing, fail-closed intent.
 

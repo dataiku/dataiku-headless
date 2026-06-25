@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
 import typer
 
-from dku_cli.safety import SAFETY_BLOCKED_EXIT, Tier, guard, is_dangerous_mode
+from dku_cli.safety import (
+    SAFETY_BLOCKED_EXIT,
+    Tier,
+    _reconstruct_rerun,
+    guard,
+    is_dangerous_mode,
+)
 
 
 class _FakeCtx:
@@ -315,3 +322,109 @@ def test_guard_cascade_mismatch_message(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "PROJ1" in err
     assert "WRONG" in err
+
+
+# ----- ADMIN refusal message content -----
+
+
+def test_guard_admin_refusal_lists_missing_flags(monkeypatch, capsys):
+    """Tier-4 refusal names every missing flag and states it is dangerous-immune."""
+    monkeypatch.setenv("DKU_DANGEROUS", "1")
+    with pytest.raises(typer.Exit):
+        guard(
+            _FakeCtx(),
+            tier=Tier.ADMIN,
+            action="admin.license.upload",
+            subject="the active DSS license",
+            yes=False,
+            target_id="license",
+            confirm_name=None,
+            i_know=False,
+        )
+    err = capsys.readouterr().err
+    assert "tier-4" in err
+    assert "Even --dangerous" in err
+    assert "--yes" in err
+    assert "--confirm-name license" in err
+    assert "--i-know-what-im-doing" in err
+
+
+# ----- guard() fails loud when CASCADE/ADMIN omit target_id -----
+
+
+def test_guard_cascade_requires_target_id(monkeypatch):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    with pytest.raises(ValueError, match="target_id"):
+        guard(
+            _FakeCtx(),
+            tier=Tier.CASCADE,
+            action="project.delete",
+            subject="project PROJ1",
+            yes=True,
+            target_id=None,
+            confirm_name="PROJ1",
+        )
+
+
+def test_guard_admin_requires_target_id(monkeypatch):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    with pytest.raises(ValueError, match="target_id"):
+        guard(
+            _FakeCtx(),
+            tier=Tier.ADMIN,
+            action="admin.settings.set",
+            subject="DSS general settings",
+            yes=True,
+            target_id="",
+            confirm_name="general-settings",
+            i_know=True,
+        )
+
+
+# ----- is_dangerous_mode fails closed on config error -----
+
+
+def test_is_dangerous_mode_fails_closed_on_config_error(monkeypatch):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    with patch("dku_cli.config.get_dangerous_mode", side_effect=RuntimeError("boom")):
+        enabled, reason = is_dangerous_mode(None)
+    assert enabled is False
+    assert reason == "default"
+
+
+# ----- _reconstruct_rerun: clean, idempotent rerun command -----
+
+
+def test_reconstruct_rerun_strips_attached_confirm_name(monkeypatch):
+    """--confirm-name=VALUE (attached form) is stripped, never duplicated."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dku", "project", "delete", "PROJ1", "--yes", "--confirm-name=WRONG", "-y"],
+    )
+    rerun = _reconstruct_rerun(["--yes", "--confirm-name", "PROJ1"])
+    assert rerun == "dku project delete PROJ1 --yes --confirm-name PROJ1"
+    assert rerun.count("--confirm-name") == 1
+    assert "WRONG" not in rerun
+
+
+def test_reconstruct_rerun_strips_spaced_confirm_name(monkeypatch):
+    """--confirm-name VALUE (spaced form) and its stale value are both stripped."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dku", "project", "delete", "PROJ1", "--confirm-name", "OLD", "--yes"],
+    )
+    rerun = _reconstruct_rerun(["--yes", "--confirm-name", "PROJ1"])
+    assert rerun == "dku project delete PROJ1 --yes --confirm-name PROJ1"
+    assert "OLD" not in rerun
+
+
+def test_reconstruct_rerun_normalizes_non_dku_head(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["pytest", "dataset", "delete", "ds1"])
+    assert _reconstruct_rerun(["--yes"]) == "dku dataset delete ds1 --yes"
+
+
+def test_reconstruct_rerun_empty_argv(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [])
+    assert _reconstruct_rerun(["--yes"]) == "dku --yes"
