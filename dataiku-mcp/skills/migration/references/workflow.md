@@ -154,6 +154,10 @@ dku --format json dataset head FINAL_OUTPUT -P PROJ -n 5
 
 `--contract` is how the Phase-1 parity reference becomes a check: per output, assert expected `columns`, `types`, `min_rows`, and `not_blank` keys (literal JSON, `@file.json`, or `-`). Treat it as a guardrail, not the whole sweep — still diff every row × column of the final outputs against the reference for exact parity; the contract just stops you declaring done while a column is missing or a count is wrong.
 
+### Always close the loop on output — depth depends on what the source ships
+
+The migrated output is verified against the source's output, every time. **Real output data** → 1:1 parity: every row × column of the final outputs matches the reference. **No output data (synthetic or sampled inputs)** → values can't be checked, but schema parity still must — column count, names, and order match the source's output. Right shape on synthetic data is the floor; right values against real output is the bar.
+
 ### Validate at entity grain, and prove the parity is earned
 
 A total that matches can still be wrong two ways:

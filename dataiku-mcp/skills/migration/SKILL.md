@@ -70,7 +70,7 @@ Each `<source>/overview.md` carries its own source rules, collapse triggers, and
 2. **Plan** — map each step to a recipe (`../dku-cli/playbooks/tabular-flow.md` + `<source>/overview.md`), folding neighbours via `<source>/overview.md` § Collapse triggers. **Present inventory + plan, get user confirmation — the gate. If no user can respond (unattended/benchmark/scheduled run), print the plan and continue to Phase 3 immediately — never end the turn on a question.**
 3. **Build & verify** — one functional unit at a time: configure → `$status.ok` → `apply-schema` → run → verify (`head` + count). Parallel branches concurrently; never cascade 10+ unverified recipes.
 3.5. **Flow collapse (Tier-2)** — on the *built* graph, hunt graph-shape redundancy (identical siblings, grouping fan-out, broadcast aggregate, join chains, consecutive/empty Prepares); emit the Verdict table before Phase 4. Source-agnostic: `references/flow-collapse.md`.
-4. **Integration test** — finish gate first (`dku project audit -P PROJ` — one verdict over orphans, descriptions, wiki, built outputs; add `--contract @file.json` to sweep a Phase-1 parity reference), then flow walk-through, summary, document deviations.
+4. **Integration test** — finish gate first (`dku project audit -P PROJ` — one verdict over orphans, descriptions, wiki, built outputs; add `--contract @file.json` to sweep a Phase-1 parity reference), then flow walk-through, summary, document deviations. Output is always verified against the source's: 1:1 row × column when output data exists; schema-shape (column count, names, order) when only synthetic data does.
 
 ## Rules (every source)
 
