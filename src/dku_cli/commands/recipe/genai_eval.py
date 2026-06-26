@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import SamplingMethod
+from dku_cli.enums import AgentEvalInputFormat, LLMEvalInputFormat, SamplingMethod
 
 
 @app.command("create-extract")
@@ -82,10 +82,11 @@ def create_llm_eval(
         "--bertscore-model",
         help="HuggingFace model used by BERTScore. Sets payload.bertScoreModel.",
     ),
-    input_format: str | None = typer.Option(
+    input_format: LLMEvalInputFormat | None = typer.Option(
         None,
         "--input-format",
-        help="Input record format: SINGLE_TURN (default), CHAT, etc. Sets payload.inputFormat.",
+        case_sensitive=False,
+        help="Input record format: CUSTOM or PROMPT_RECIPE. Defaults to CUSTOM for raw-column evaluation.",
     ),
     fail_on_errors: bool = typer.Option(
         False,
@@ -154,7 +155,8 @@ def create_llm_eval(
         settings = recipe.get_settings()
         payload = _get_recipe_payload(settings)
         if task_type:
-            payload["taskType"] = task_type
+            payload["llmTaskType"] = task_type
+            payload.pop("taskType", None)
         if metrics:
             payload["metrics"] = [m.strip() for m in metrics.split(",")]
         if input_col:
@@ -173,8 +175,7 @@ def create_llm_eval(
             payload["bleuTokenizer"] = bleu_tokenizer
         if bertscore_model:
             payload["bertScoreModel"] = bertscore_model
-        if input_format:
-            payload["inputFormat"] = input_format
+        payload["inputFormat"] = str(input_format or LLMEvalInputFormat.CUSTOM)
         if fail_on_errors:
             payload["failOnErrors"] = True
         if temperature is not None:
@@ -199,7 +200,7 @@ def create_llm_eval(
                 embedding_llm,
                 bleu_tokenizer,
                 bertscore_model,
-                input_format,
+                True,
                 fail_on_errors,
                 temperature is not None,
                 max_records is not None,
@@ -242,9 +243,10 @@ def create_agent_eval(
         None, "--completion-llm", help="Completion LLM ID"
     ),
     embedding_llm: str = typer.Option(None, "--embedding-llm", help="Embedding LLM ID"),
-    input_format: str = typer.Option(
-        "AGENT_EXECUTION",
+    input_format: AgentEvalInputFormat = typer.Option(
+        AgentEvalInputFormat.AGENT_EXECUTION,
         "--input-format",
+        case_sensitive=False,
         help="Input format: AGENT_EXECUTION or PROMPT_RECIPE",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -287,9 +289,13 @@ def create_agent_eval(
         # Post-creation payload configuration
         settings = recipe.get_settings()
         payload = _get_recipe_payload(settings)
-        payload["inputFormat"] = input_format
+        payload["inputFormat"] = str(input_format)
         if metrics:
             payload["metrics"] = [m.strip() for m in metrics.split(",")]
+        else:
+            for trait_key in ("traits", "customTraits", "customConversationTraits"):
+                for trait in payload.get(trait_key, []):
+                    trait["enabled"] = True
         if completion_llm:
             payload["completionLLMId"] = completion_llm
         if embedding_llm:

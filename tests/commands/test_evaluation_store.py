@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock, call
 
 from typer.testing import CliRunner
 
@@ -15,12 +16,35 @@ runner = CliRunner()
 
 
 def test_evaluation_store_list(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    tabular_store = proj.list_evaluation_stores.return_value[0]
+    llm_store = _store_handle("llm1", "RAG Eval Store", "LLM")
+    agent_store = _store_handle("agent1", "Agent Eval Store", "AGENT")
+    proj.list_evaluation_stores.side_effect = [
+        [tabular_store],
+        [llm_store],
+        [agent_store],
+    ]
+
     result = runner.invoke(app, ["evaluation-store", "list", "--project", "PROJ1"])
     assert result.exit_code == 0
     assert "mes1" in result.output
-    patch_client.get_project("PROJ1").list_evaluation_stores.assert_called_once_with(
-        flavor=None
-    )
+    assert "llm1" in result.output
+    assert "agent1" in result.output
+    assert proj.list_evaluation_stores.call_args_list == [
+        call(flavor="TABULAR"),
+        call(flavor="LLM"),
+        call(flavor="AGENT"),
+    ]
+
+
+def _store_handle(store_id, name, flavor):
+    store = MagicMock()
+    store.id = store_id
+    settings = MagicMock()
+    settings.get_raw.return_value = {"id": store_id, "name": name, "mesFlavor": flavor}
+    store.get_settings.return_value = settings
+    return store
 
 
 def test_evaluation_store_list_json(patch_client):

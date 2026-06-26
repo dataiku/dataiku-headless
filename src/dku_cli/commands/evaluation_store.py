@@ -14,6 +14,21 @@ from dku_cli.output import hint, render, render_raw, resolve_output_format, succ
 app = typer.Typer(help="Manage DSS evaluation stores (TABULAR, LLM, AGENT).")
 
 
+def _list_evaluation_stores(proj, flavor: EvalFlavor | None):
+    if flavor is not None:
+        return proj.list_evaluation_stores(flavor=str(flavor))
+
+    stores = []
+    seen_ids = set()
+    for default_flavor in EvalFlavor:
+        for store in proj.list_evaluation_stores(flavor=str(default_flavor)):
+            if store.id in seen_ids:
+                continue
+            seen_ids.add(store.id)
+            stores.append(store)
+    return stores
+
+
 @app.command("list")
 def list_stores(
     ctx: typer.Context,
@@ -32,7 +47,7 @@ def list_stores(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        stores = proj.list_evaluation_stores(flavor=flavor.upper() if flavor else None)
+        stores = _list_evaluation_stores(proj, flavor)
 
         data = []
         for s in stores:

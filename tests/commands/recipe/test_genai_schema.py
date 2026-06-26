@@ -550,7 +550,9 @@ def test_recipe_create_llm_eval_full(patch_client):
     recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     payload = settings.obj_payload
-    assert payload["taskType"] == "QUESTION_ANSWERING"
+    assert payload["llmTaskType"] == "QUESTION_ANSWERING"
+    assert "taskType" not in payload
+    assert payload["inputFormat"] == "CUSTOM"
     assert payload["metrics"] == ["answerRelevancy", "faithfulness"]
     assert payload["inputColumnName"] == "question"
     assert payload["outputColumnName"] == "answer"
@@ -591,7 +593,9 @@ def test_recipe_create_llm_eval_initializes_missing_payload(patch_client):
 
     assert result.exit_code == 0
     # _get_recipe_payload falls through to raw_params when obj_payload is None
-    assert settings.raw_params["payload"]["taskType"] == "QUESTION_ANSWERING"
+    assert settings.raw_params["payload"]["llmTaskType"] == "QUESTION_ANSWERING"
+    assert "taskType" not in settings.raw_params["payload"]
+    assert settings.raw_params["payload"]["inputFormat"] == "CUSTOM"
     settings.save.assert_called()
 
 
@@ -683,6 +687,19 @@ def test_recipe_create_llm_eval_preserves_non_not_found_dataset_errors(patch_cli
 
 def test_recipe_create_agent_eval_minimal(patch_client):
     proj = patch_client.get_project("PROJ1")
+    settings = proj.new_recipe.return_value.build.return_value.get_settings.return_value
+    settings.obj_payload.update(
+        {
+            "traits": [
+                {"id": "answer_correctness", "enabled": False},
+                {"id": "tool_use_quality", "enabled": False},
+            ],
+            "customTraits": [{"name": "Tool Selection Accuracy", "enabled": False}],
+            "customConversationTraits": [
+                {"name": "Goal Success Rate", "enabled": False}
+            ],
+        }
+    )
     result = runner.invoke(
         app,
         [
@@ -708,6 +725,16 @@ def test_recipe_create_agent_eval_minimal(patch_client):
     recipe = builder.build.return_value
     settings = recipe.get_settings.return_value
     assert settings.obj_payload["inputFormat"] == "AGENT_EXECUTION"
+    assert settings.obj_payload["traits"] == [
+        {"id": "answer_correctness", "enabled": True},
+        {"id": "tool_use_quality", "enabled": True},
+    ]
+    assert settings.obj_payload["customTraits"] == [
+        {"name": "Tool Selection Accuracy", "enabled": True}
+    ]
+    assert settings.obj_payload["customConversationTraits"] == [
+        {"name": "Goal Success Rate", "enabled": True}
+    ]
     settings.save.assert_called()
 
 

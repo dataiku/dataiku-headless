@@ -382,6 +382,16 @@ class EvalFlavor(_StrEnum):
     AGENT = "AGENT"
 
 
+class LLMEvalInputFormat(_StrEnum):
+    CUSTOM = "CUSTOM"
+    PROMPT_RECIPE = "PROMPT_RECIPE"
+
+
+class AgentEvalInputFormat(_StrEnum):
+    AGENT_EXECUTION = "AGENT_EXECUTION"
+    PROMPT_RECIPE = "PROMPT_RECIPE"
+
+
 # --- govern ------------------------------------------------------------------
 class SignoffStatus(_StrEnum):
     NOT_STARTED = "NOT_STARTED"

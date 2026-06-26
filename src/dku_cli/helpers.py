@@ -20,6 +20,7 @@ from dku_cli.client import (
     resolve_node_type,
 )
 from dku_cli.config import get_default_project, get_profile_config
+from dku_cli.enums import EvalFlavor
 
 
 # Node types that support project-scoped commands (flow, datasets, recipes…).
@@ -564,7 +565,9 @@ def resolve_build_output_types(project, refs):
         # endpoint may be absent on older DSS — tolerate failures.
         if "mes" not in _deferred:
             try:
-                stores = project._fetch_evaluation_stores(flavor=None)
+                stores = []
+                for flavor in EvalFlavor:
+                    stores.extend(project._fetch_evaluation_stores(flavor=str(flavor)))
                 ids = {s.get("id") for s in stores}
                 by_name = {s.get("name"): s.get("id") for s in stores if s.get("name")}
             except Exception:

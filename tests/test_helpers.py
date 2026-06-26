@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
@@ -185,12 +185,15 @@ def test_resolve_build_output_types_classifies_kb_and_eval_store():
     project.list_managed_folders.return_value = [{"id": "fold1", "name": "Folder"}]
     project.list_saved_models.return_value = [{"id": "model1", "name": "Model"}]
     project.list_knowledge_banks.return_value = [{"id": "kb123", "name": "My KB"}]
-    project._fetch_evaluation_stores.return_value = [
-        {"id": "mes9", "name": "Agent Evals", "mesFlavor": "LLM"}
+    project._fetch_evaluation_stores.side_effect = [
+        [],
+        [{"id": "mes9", "name": "LLM Evals", "mesFlavor": "LLM"}],
+        [{"id": "agent9", "name": "Agent Evals", "mesFlavor": "AGENT"}],
     ]
 
     resolved = resolve_build_output_types(
-        project, ["ds1", "fold1", "model1", "kb123", "My KB", "mes9", "Agent Evals"]
+        project,
+        ["ds1", "fold1", "model1", "kb123", "My KB", "mes9", "Agent Evals"],
     )
     assert resolved == [
         ("ds1", "DATASET"),
@@ -199,9 +202,13 @@ def test_resolve_build_output_types_classifies_kb_and_eval_store():
         ("kb123", "RETRIEVABLE_KNOWLEDGE"),
         ("kb123", "RETRIEVABLE_KNOWLEDGE"),
         ("mes9", "MODEL_EVALUATION_STORE"),
-        ("mes9", "MODEL_EVALUATION_STORE"),
+        ("agent9", "MODEL_EVALUATION_STORE"),
     ]
-    project._fetch_evaluation_stores.assert_called_once_with(flavor=None)
+    assert project._fetch_evaluation_stores.call_args_list == [
+        call(flavor="TABULAR"),
+        call(flavor="LLM"),
+        call(flavor="AGENT"),
+    ]
 
 
 def test_resolve_build_output_types_tolerates_missing_kb_mes_endpoints():
