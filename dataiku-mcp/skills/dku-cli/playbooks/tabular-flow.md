@@ -359,8 +359,11 @@ Zone verbs live at the flow root: `dku flow create-zone NAME`, `dku flow zones`
 (list), `dku flow move` — there is no `flow zones create`. The DEFAULT zone's members are DERIVED
 (`itemsDerived=true`, and `flow zones` reports its `items[]` empty) — items live
 there implicitly until you move them, so judge "clean flow" by membership, not raw
-counts. `flow move -t AUTO` resolves the item type for you and mixes types in one
-call. Rename recipes verb-first and descriptive (`join_homeequity_to_us_data`, not
+counts. The default zone can't be deleted and only materializes once another zone
+exists, so an all-new-zones layout strands an empty `Default` box on the flow —
+make it one of your stages instead: `dku flow move <stage-1 nodes> --zone default`,
+then `dku flow set-zone default --name ingest --short-desc '...'`. `flow move -t AUTO`
+resolves the item type for you and mixes types in one call. Rename recipes verb-first and descriptive (`join_homeequity_to_us_data`, not
 `compute_joined_3`); the recipe names the action, the dataset names the thing. Give every dataset *and*
 recipe a hand-written one-liner in the project's working language (`dku dataset set-metadata --short-desc`,
 `dku recipe set-description`).
@@ -385,7 +388,7 @@ stage — and certainly the project — done:
 ```bash
 dku project audit -P PROJ                                      # the finish gate — read-only verdict
 dku flow visualize -P PROJ      # the DAG as an ASCII tree — read your own flow
-dku flow zones -P PROJ          # every object in a named zone? DEFAULT empty?
+dku flow zones -P PROJ          # every object zoned? default repurposed, not an empty husk?
 dku flow sources -P PROJ        # sources only where expected; strays = orphan scaffolding
 dku flow check -P PROJ          # schema + data consistency across the graph
 dku dataset schema DS --fields name,type,description -P PROJ   # column docs present?
@@ -403,8 +406,8 @@ Checklist — fix anything that fails with the verbs in "Flow organization":
 
 - **Structure** — `visualize` reads as the story you meant: clear stages, no dangling
   branches, no join you can't explain in one sentence.
-- **Zones** — nothing implicitly parked in DEFAULT; zone short-descs present so the
-  flow UI reads like chapters.
+- **Zones** — the default zone repurposed into a named stage, not left an empty husk
+  or an accidental dump; zone short-descs present so the flow UI reads like chapters.
 - **Names** — recipes verb-first; datasets name things, not steps (`orders_by_region`,
   not `joined_2_prepared`).
 - **Descriptions** — every dataset has at least a one-liner and key output columns are
