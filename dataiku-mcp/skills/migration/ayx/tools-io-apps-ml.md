@@ -118,7 +118,38 @@ Alteryx `Analytic App` (desktop interactive UI) → **Project variables** + **Da
 - **Project variables** referenced as `${var_name}`, set on the project, updated via UI/scenarios.
 - **Applications** expose a visual form → fill values → populate variables → run a scenario; user never sees the Flow.
 - **App-as-recipe** packages a whole project as a callable recipe.
-- Heavy custom UI → HTML/JS in the Application layer (non-trivial). An *interactive map* app's honest analog is a webapp (Leaflet/Folium) — only when the input is runtime-interactive.
+
+**Is it an app? (Phase-1 signal.)** `.yxwz` extension, OR any `AlteryxGuiToolkit.Questions.*` / `AlteryxGuiToolkit.Action.Action` node, OR `<RuntimeProperties><Questions>`. If yes → the interactive surface is a deliverable (overview.md *app keeps its interface* rule), not droppable. Migrate the flow with literal substituted values first (keeps it testable), THEN rebuild the surface. Default to **App Designer**; reach for a webapp only on the triggers below. If you ship the flow without the surface, flag it as an explicit deviation — don't drop it silently.
+
+### Question → Dataiku app surface
+
+Each Alteryx interface tool becomes a `PROJECT_VARIABLES_EDIT` form param (one project variable per question, read in the flow as `${var}`) or an input/output tile. Param types + the full tile catalog: `../../dku-cli/references/app-designer.md`.
+
+| Alteryx interface tool | Dataiku app param / tile | Notes |
+|---|---|---|
+| `Questions.TextBox` | `STRING` (or `TEXTAREA` for long text) | free text; `regexpFilter`/`mandatory` for validation |
+| `Questions.NumericUpDown` | `INT` / `DOUBLE` (`minI/maxI`, `minD/maxD`) | force `DOUBLE` if the flow does decimal math — see the variable-driven-numeric type gotcha below |
+| `Questions.DropDown` / `RadioButton` | `SELECT` (`selectChoices:[{value,label}]`) | single choice |
+| `Questions.ListBox` | `MULTISELECT` (`selectChoices`) → `STRINGS` variable | multi choice |
+| `Questions.CheckBox` / Boolean | `BOOLEAN` | also drives `visibilityCondition` for progressive disclosure |
+| `Questions.Date` | `DATE` | flow reads `${var}` as an ISO string |
+| `Questions.FileBrowse` | `UPLOAD_DATASET_SET_FILE` tile (or `MANAGED_FOLDER_ADD_FILE`) | user file → uploaded dataset/folder; set `exportUploads` / `exportManagedFolders` on the template or instances seed EMPTY (memory: app-instance data) |
+| `Questions.FolderBrowse` | `MANAGED_FOLDER_ADD_FILE` / `FOLDER` param | |
+| `Questions.ListBox` over field names | `COLUMN`/`COLUMNS`, or `DATASET_COLUMN` (`datasetParamName`) | "pick a column" questions |
+| `Questions.Tree` (hierarchical) | flatten to `MULTISELECT`, else a webapp | App Designer has no tree widget |
+| `Questions.MapInput` (draw geometry) | **webapp** (Leaflet/Folium) | App Designer can't draw — see triggers |
+| `Action.Action` | the binding itself: the form field writes the project variable the flow reads as `${var}` | drop the node, KEEP the binding |
+| `Questions.Error` / condition | param `mandatory`/`regexpFilter`, or a scenario check | input validation |
+| terminal `BrowseV2` / report | result tile: KPI/chart insight on a dashboard + `DASHBOARD_LINK`, or `DOWNLOAD_DATASET` | the result the user saw in Alteryx (no inline-rows tile — `dataset_table` stays blank headless) |
+
+### App Designer vs webapp
+
+**Default: App Designer.** It is the native 1:1 for a question form and needs no front-end code (worked end-to-end example: § the calculator archetype below). Reach for a **webapp** ONLY when:
+- the input is runtime-interactive geometry (`MapInput` draw, click-to-select on a map);
+- the layout is bespoke beyond sections + tiles (multi-pane, conditional canvas, charts that recompute on each keystroke);
+- the original is a chart-heavy dashboard better served by one Dataiku-branded page.
+
+Webapp build → `../../dku-cli/references/webapps.md`; on-brand styling → the `dataiku-internal-branding` skill. Everything else stays in App Designer.
 
 **A render/PDF deliverable is NOT automatically a block.** When a chain ends in `ReportMap`/`PortfolioComposerRender`/`Render`/`Report*`, policy is **produce the artifact** (`Pillow`/`reportlab`/`matplotlib` → managed folder) and **validate by artifact + shape** (file exists, right page/figure count, spot-check a page). **"No tabular ground truth" alone does NOT block.** The wall is the DATA, never the rendering. Block ONLY when:
 
