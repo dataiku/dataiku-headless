@@ -158,6 +158,8 @@ dku --format json dataset head FINAL_OUTPUT -P PROJ -n 5
 
 The migrated output is verified against the source's output, every time. **Real output data** → 1:1 parity: every row × column of the final outputs matches the reference. **No output data (synthetic or sampled inputs)** → values can't be checked, but schema parity still must — column count, names, and order match the source's output. Right shape on synthetic data is the floor; right values against real output is the bar.
 
+**The `columns` half of the contract is always derivable — even when no expected *values* ship.** "No ground-truth CSV / no cached output rows" rules out a *value* parity check, never a *column* one: the source pins the terminal output schema (column set, names, order) in its own metadata — Alteryx caches it per output anchor (`ayx/overview.md` § Source-specific verification; `dump_workflow.py` prints it as OUTPUT CONTRACT), SAS in the terminal `PROC CONTENTS`/`KEEP=`, Excel in the output sheet's header row. Extract that ordered column list in Phase 1 and assert it with `--contract` regardless of value coverage. A migration *accretes* working columns; the default failure is shipping the union of everything you computed instead of the terminal tool's pruned schema.
+
 ### Validate at entity grain, and prove the parity is earned
 
 A total that matches can still be wrong two ways:

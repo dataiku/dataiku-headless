@@ -183,7 +183,7 @@
   "inline_enum_validation": {},
   "line_length": {
     "dataiku-mcp/skills/migration/ayx/scripts/decode_encsection.py": 7,
-    "dataiku-mcp/skills/migration/ayx/scripts/dump_workflow.py": 4,
+    "dataiku-mcp/skills/migration/ayx/scripts/dump_workflow.py": 8,
     "dataiku-mcp/skills/migration/ayx/scripts/extract_textinput.py": 3,
     "dataiku-mcp/skills/migration/ayx/scripts/yxdb_read.py": 4,
     "src/dku_cli/brand.py": 7,

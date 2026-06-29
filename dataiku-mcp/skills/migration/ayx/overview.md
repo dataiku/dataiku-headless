@@ -94,6 +94,8 @@ See § Single-column TextInput upload traps for the format-param fixes, and the 
 
 Generate the skeleton mechanically — `scripts/dump_workflow.py workflow.yxmd` parses the tool list + connection DAG into this table (Tool ID / Plugin / Inputs / Outputs filled, presentation-only tools flagged); then fill *What It Does* + *Migratable?* by reading each tool's config.
 
+**The same script prints an OUTPUT CONTRACT block** — for each terminal tool (one feeding only a `BrowseV2`/sink) it reads the cached `Properties/MetaInfo/RecordInfo` of the anchor that feeds the sink and lists its fields *in order*. That ordered list is the output column contract: the migrated terminal dataset must match its set, names and order exactly. Record it in Phase 1 (it is the `columns` of your `--contract`) — the schema is pinned by the workflow even when no expected *values* ship, so "no ground-truth CSV" never excuses a wrong output column set. When Alteryx didn't cache the schema the block is empty → derive the contract from the terminal tool's own `AlteryxSelect`/config instead.
+
 ```
 | # | Tool ID | Plugin | What It Does | Inputs | Outputs | Migratable? |
 |---|---------|--------|--------------|--------|---------|-------------|
@@ -230,14 +232,16 @@ Cross-source CLI/Dataiku gotchas → `../../dku-cli/playbooks/tabular-flow.md`. 
 | `BrowseV2`/`TextBox` not migratable | Skip in inventory |
 | Join has THREE outputs (Left/Join/Right) | Only wire the one(s) consumed downstream |
 | Field names often contain spaces | Quote in GREL: `numval("Customer ID")`/`strval("Customer ID")` — DSS rejects Alteryx `[brackets]`; GREL parser rejects backticks in `create-filter` (`../../dku-cli/playbooks/tabular-flow.md`) |
-| `Select *Unknown` keeps/drops unseen columns | Handle upstream if schema drift matters; no "match any future column" in DSS |
+| Join/Select `<SelectConfiguration>` prunes columns; `*Unknown selected="True"` = "keep every UNLISTED column" | The listed `selected="False"` rows are DROPS, not a keep-list — branch working columns (running dates, interim `Count`, the duplicate `Right_<key>`) are pruned **at the join/select** and never reach the output. Reproduce the pruning: end with a `ColumnsSelector`/Group projection to the terminal `RecordInfo`'s exact set; don't ship every column you computed. (No "match any future column" in DSS — handle schema drift upstream.) |
 | Alteryx `Null()` is the null literal | Map to GREL empty string / DSS NULL — `isnull()` in GREL |
 | TextInput numerics with thousands separators (`1,234`) | Strip commas in Prepare before cast — Alteryx auto-coerces, DSS doesn't |
 | digit-only column infers bigint → blanks become null | Pin to string: set-schema + re-run WITHOUT apply-schema (`../../dku-cli/references/formulas.md`) |
 
 ### Source-specific verification
 
-After Phase 3 build, compare row count + a 3-row sample against the Alteryx result (solution `.yxmd`'s `BrowseV2` cached data, or the user's ground-truth CSV). Counts differ → investigate before continuing.
+**Column-set parity is mandatory — and is the one check you can ALWAYS run.** Before comparing any values, diff your terminal dataset's columns (names + order) against the terminal tool's cached `RecordInfo` (the `dump_workflow.py` OUTPUT CONTRACT; the tool feeding `BrowseV2`). Extra columns = fail, even if every shared column matches: Alteryx's terminal Select/Join pruned the working columns (§ Join/Select `*Unknown` gotcha), so carrying `Last_Date`/`DIFFERENCE EN MOIS`/interim counts into the output is a real defect, not cosmetic. This holds with zero value ground-truth — the schema is pinned by the workflow. Make it the `columns` of `dku project audit --contract`.
+
+After that, compare row count + a 3-row sample against the Alteryx result (solution `.yxmd`'s `BrowseV2` cached data, or the user's ground-truth CSV). Counts differ → investigate before continuing.
 
 **The cached BrowseV2 / pre-baked ground-truth `TextInput` is the authority — NOT the solution `.yxmd` recipe params.** Solutions occasionally ship params that don't match the cached output (the author edited params after capturing output). When they disagree, **trust the cached output**: read params for *what to do* (which fields, renames), but treat cached values as the validation target.
 
