@@ -291,7 +291,11 @@ def _structure_checks(
 ) -> list[Check]:
     orphans = sorted(datasets - inputs - outputs)
     bad_refs = sorted(n for n in datasets if REFERENCE_NAME.search(n) and n in orphans)
-    named_zones = [z for z in zones if z.get("id") != "default"]
+    nondefault_zones = [z for z in zones if not _is_default(z)]
+    default_zone = next((z for z in zones if _is_default(z)), None)
+    repurposed = default_zone is not None and _default_repurposed(default_zone)
+    organizing = bool(nondefault_zones) or repurposed
+    default_members = _default_members(zones, datasets | recipe_names)
     checks = [
         _listing(
             "no_orphan_datasets",
@@ -315,18 +319,16 @@ def _structure_checks(
                 "flow_zones_present",
                 bucket="structure",
                 severity=WARN,
-                problems=["Non-trivial flow has no named flow zones"]
-                if not named_zones
+                problems=["Non-trivial flow has no flow zones"]
+                if not organizing
                 else [],
                 fix=f"dku flow create-zone '<stage>' -P {project}",
             )
         )
     # Empty NAMED zones are leftover scaffolding (e.g. after moving their items
-    # elsewhere). An empty 'default' zone is the goal, not a smell, so skip it.
+    # elsewhere) — delete them.
     empty_zones = sorted(
-        z.get("name", "")
-        for z in zones
-        if z.get("id") != "default" and not z.get("itemCount")
+        z.get("name", "") for z in nondefault_zones if not z.get("itemCount")
     )
     checks.append(
         _listing(
@@ -338,10 +340,30 @@ def _structure_checks(
             fix=f"dku flow delete-zone '{_first(empty_zones)}' -P {project}",
         )
     )
-    # Zone coverage is enforced only once the project HAS named zones — i.e. the
-    # author started organizing, so finish it. Tiny unzoned flows are not nagged.
-    if named_zones:
-        loose = sorted((datasets | recipe_names) - _zone_covered(zones))
+    # The default zone can't be deleted, so an empty one is a stranded husk left
+    # behind after its objects were moved into named zones. The author should have
+    # adopted it as a real stage (rename + keep objects in it), not orphaned it.
+    # Only a concern once named zones exist — otherwise the default zone
+    # legitimately holds the whole flow.
+    if nondefault_zones and not default_members:
+        checks.append(
+            _verdict(
+                "default_zone_empty",
+                bucket="structure",
+                severity=WARN,
+                problems=[
+                    "The default flow zone is empty — its objects were moved into "
+                    "named zones, stranding it. The default zone can't be deleted; "
+                    "rename it to a real stage and move that stage's objects into it."
+                ],
+                fix=f"dku flow set-zone default --name '<stage>' -P {project}",
+            )
+        )
+    # Zone coverage: objects still sitting in the anonymous default bucket aren't
+    # organized. A repurposed (renamed) default zone is itself a real stage, so its
+    # members count as covered. Tiny unzoned flows are not nagged.
+    if organizing:
+        loose = [] if repurposed else sorted(default_members)
         moves = " ".join(loose[:5])
         zone_fix = f"dku flow move {moves} --zone '<stage>' --type AUTO -P {project}"
         checks.append(
@@ -367,6 +389,50 @@ def _zone_covered(zones: list[dict[str, Any]]) -> set[str]:
             if oid:
                 covered.add(oid)
     return covered
+
+
+def _is_default(zone: dict[str, Any]) -> bool:
+    return zone.get("id") == "default"
+
+
+def _default_repurposed(zone: dict[str, Any]) -> bool:
+    """The default zone becomes a first-class stage only once it is renamed off
+    the stock name DSS ships ("Default"). Its id stays "default" forever, so the
+    rename is the sole signal that the author adopted it instead of stranding it.
+    """
+    name = (zone.get("name") or "").strip()
+    return _is_default(zone) and bool(name) and name.casefold() != "default"
+
+
+def _is_real_zone(zone: dict[str, Any]) -> bool:
+    """A deliberately-organized zone: any named zone, or a repurposed default."""
+    return not _is_default(zone) or _default_repurposed(zone)
+
+
+def _default_members(zones: list[dict[str, Any]], universe: set[str]) -> set[str]:
+    """Objects that fall to the default zone — everything not explicitly placed in
+    a named zone. DSS reports the default zone's items[] as empty even when it
+    holds objects, so membership is derived rather than read."""
+    return universe - _zone_covered(zones)
+
+
+def _undescribed_zones(zones: list[dict[str, Any]], universe: set[str]) -> list[str]:
+    """Populated, real zones missing a shortDesc — named zones plus a repurposed
+    default (whose membership is derived, since items[] reads empty)."""
+    missing = [
+        z.get("name", "")
+        for z in zones
+        if not _is_default(z) and z.get("itemCount", 0) and not z.get("shortDesc")
+    ]
+    default = next((z for z in zones if _is_default(z)), None)
+    if (
+        default is not None
+        and _default_repurposed(default)
+        and _default_members(zones, universe)
+        and not default.get("shortDesc")
+    ):
+        missing.append(default.get("name", ""))
+    return sorted(missing)
 
 
 # --- checks: documentation ---------------------------------------------------
@@ -397,11 +463,7 @@ def _documentation_checks(
         _recipe_metadata, proj, rec_names, "Recipes"
     )
     rec_fix = f"dku recipe set-metadata {rec_first} --short-desc '...' -P {project}"
-    undescribed = [
-        z.get("name", "")
-        for z in zones
-        if z.get("id") != "default" and z.get("itemCount", 0) and not z.get("shortDesc")
-    ]
+    undescribed = _undescribed_zones(zones, targets | set(rec_names))
     zone = _first(undescribed)
     zone_fix = f"dku flow set-zone '{zone}' --short-desc '...' -P {project}"
     checks = [
@@ -544,11 +606,7 @@ def _flow_visible_description_check(
     recipe_problems, first_recipe = _short_desc_scan(
         _recipe_metadata, proj, recipe_names, "Recipes"
     )
-    zone_missing = [
-        z.get("name", "")
-        for z in zones
-        if z.get("id") != "default" and z.get("itemCount", 0) and not z.get("shortDesc")
-    ]
+    zone_missing = _undescribed_zones(zones, sources | terminal | set(recipe_names))
     zone_problems = (
         [f"Named zones without a short description: {', '.join(sorted(zone_missing))}"]
         if zone_missing
@@ -867,7 +925,7 @@ def run_audit(
     inventory = {
         "datasets": len(datasets),
         "recipes": len(recipes),
-        "zones": len([z for z in zones if z.get("id") != "default"]),
+        "zones": len([z for z in zones if _is_real_zone(z)]),
         "terminal_datasets": sorted(terminal),
         "source_datasets": sorted(inputs - outputs),
         "orphan_datasets": sorted(datasets - inputs - outputs),

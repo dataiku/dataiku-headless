@@ -403,7 +403,7 @@
     "src/dku_cli/charts.py": 257,
     "src/dku_cli/commands/_dataset_create.py": 392,
     "src/dku_cli/commands/_dataset_quality.py": 424,
-    "src/dku_cli/commands/_project_audit.py": 767,
+    "src/dku_cli/commands/_project_audit.py": 799,
     "src/dku_cli/commands/admin.py": 1589,
     "src/dku_cli/commands/agent.py": 876,
     "src/dku_cli/commands/agent_block.py": 611,

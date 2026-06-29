@@ -248,18 +248,16 @@ def _base_state():
                 },
             }
         },
+        # The default zone is repurposed as a real stage (renamed off "Default"),
+        # not stranded empty. Its items[] reads empty in DSS even when populated;
+        # the audit derives membership from everything not in a named zone.
         "zones": [
             {
-                "id": "z1",
+                "id": "default",
                 "name": "01 Build",
                 "shortDesc": "Source and aggregate stage.",
-                "items": [
-                    {"objectId": "orders"},
-                    {"objectId": "group_orders_by_customer"},
-                    {"objectId": "orders_by_customer"},
-                ],
+                "items": [],
             },
-            {"id": "default", "name": "Default", "shortDesc": "", "items": []},
         ],
         "flow_check_state": {"stateByNode": {}},
     }
@@ -448,23 +446,90 @@ def test_empty_named_zone_warns():
     payload = _audit(state)
     assert _check(payload, "empty_zones")["status"] == "warn"
     assert "02 Staging" in _check(payload, "empty_zones")["detail"]
-    # An empty DEFAULT zone is the goal, not a smell — base state must stay clean.
+    # The base default zone is repurposed and populated, so empty_zones is clean.
     assert _check(_audit(_base_state()), "empty_zones")["status"] == "pass"
 
 
-def test_zone_coverage_warns_when_zoning_is_partial():
-    # The project has a named zone, so coverage is enforced. Leave one dataset out.
+def test_empty_default_zone_warns():
+    # Named zones hold everything; the default zone is left as a stranded empty
+    # "Default" husk (the shape produced by moving items out instead of adopting
+    # the default zone as a stage). That is a smell, not the goal.
     state = _base_state()
-    state["zones"][0]["items"] = [{"objectId": "orders"}]
+    state["zones"] = [
+        {
+            "id": "z1",
+            "name": "01 Build",
+            "shortDesc": "Build stage.",
+            "items": [
+                {"objectId": "orders"},
+                {"objectId": "group_orders_by_customer"},
+                {"objectId": "orders_by_customer"},
+            ],
+        },
+        {"id": "default", "name": "Default", "shortDesc": "", "items": []},
+    ]
+    payload = _audit(state)
+    check = _check(payload, "default_zone_empty")
+    assert check["status"] == "warn"
+    assert "set-zone default --name" in check["fix"]
+    assert payload["passed"] is True  # advisory, never blocks
+
+
+def test_repurposed_default_zone_is_not_flagged():
+    # Default zone renamed to a real stage + a second named zone; every object is
+    # in a real zone. No empty-default smell, no coverage gap.
+    state = _base_state()
+    state["zones"] = [
+        {
+            "id": "default",
+            "name": "01 Source",
+            "shortDesc": "Raw ingestion.",
+            "items": [],
+        },
+        {
+            "id": "z1",
+            "name": "02 Aggregate",
+            "shortDesc": "Aggregate stage.",
+            "items": [
+                {"objectId": "group_orders_by_customer"},
+                {"objectId": "orders_by_customer"},
+            ],
+        },
+    ]
+    payload = _audit(state)
+    assert all(c["id"] != "default_zone_empty" for c in payload["checks"])
+    assert _check(payload, "zone_coverage")["status"] == "pass"
+    assert _check(payload, "zones_have_short_desc")["status"] == "pass"
+    assert payload["inventory"]["zones"] == 2
+
+
+def test_zone_coverage_warns_when_zoning_is_partial():
+    # A named zone holds one object; the rest sit in the still-anonymous default
+    # bucket -> coverage warns.
+    state = _base_state()
+    state["zones"] = [
+        {
+            "id": "z1",
+            "name": "01 Build",
+            "shortDesc": "Build stage.",
+            "items": [{"objectId": "orders"}],
+        },
+        {"id": "default", "name": "Default", "shortDesc": "", "items": []},
+    ]
     payload = _audit(state)
     assert _check(payload, "zone_coverage")["status"] == "warn"
 
 
 def test_zone_coverage_includes_recipes():
     state = _base_state()
-    state["zones"][0]["items"] = [
-        {"objectId": "orders"},
-        {"objectId": "orders_by_customer"},
+    state["zones"] = [
+        {
+            "id": "z1",
+            "name": "01 Build",
+            "shortDesc": "Build stage.",
+            "items": [{"objectId": "orders"}, {"objectId": "orders_by_customer"}],
+        },
+        {"id": "default", "name": "Default", "shortDesc": "", "items": []},
     ]
     payload = _audit(state)
     check = _check(payload, "zone_coverage")
