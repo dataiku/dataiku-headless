@@ -192,6 +192,7 @@ def test_make_release_pr_opens_reviewable_pr():
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
 
     assert "release-pr:" in makefile
+    assert 'test -z "$$(git status --porcelain)"' in makefile
     assert "working tree must be clean before release-pr" in makefile
     assert "git checkout main" in makefile
     assert 'git checkout -B "$$branch"' in makefile
@@ -202,6 +203,18 @@ def test_make_release_pr_opens_reviewable_pr():
     assert makefile.index("make release") < makefile.index("git push &&")
     assert "gh pr create" in makefile
     assert '--title "chore(release): $$next_version"' in makefile
+
+
+def test_make_release_preview_stays_local():
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    preview = makefile.split("release-preview:", 1)[1]
+
+    assert "working tree must be clean before release-preview" in preview
+    assert 'branch="release/v$$next_version-preview"' in preview
+    assert "semantic-release version --no-tag --no-push --no-vcs-release" in preview
+    assert "git --no-pager show --stat --oneline HEAD" in preview
+    assert "gh pr create" not in preview
+    assert "git push" not in preview
 
 
 def test_plugin_bundles_skill_corpus():

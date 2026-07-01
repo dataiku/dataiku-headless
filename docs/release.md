@@ -21,6 +21,28 @@ This command:
 
 Review and merge that PR. The Release workflow publishes after merge.
 
+## Preview a release
+
+```bash
+make release-preview
+```
+
+This creates a local-only `release/vX.Y.Z-preview` branch and generates the
+release commit without pushing, tagging, or opening a PR.
+
+Inspect it with:
+
+```bash
+git show --stat HEAD
+```
+
+Delete it when done:
+
+```bash
+git checkout main
+git branch -D release/vX.Y.Z-preview
+```
+
 ## What publishes
 
 The Release workflow publishes only when the package version on `main` does not
