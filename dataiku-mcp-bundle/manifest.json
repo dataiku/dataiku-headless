@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "dataiku-mcp",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Connect Claude Desktop to Dataiku DSS — the dku code-mode MCP server, authed with your own DSS personal API key.",
   "author": {
     "name": "Dataiku",
