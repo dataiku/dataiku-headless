@@ -129,8 +129,6 @@ def _extract_format_flag(
     owned: frozenset[str] = frozenset(),
     prefix_only: bool = False,
 ) -> list[str]:
-    import click
-
     flags = tuple(f for f in _FORMAT_FLAGS if f not in owned)
     rest: list[str] = []
     value: str | None = None
@@ -142,9 +140,7 @@ def _extract_format_flag(
             break
         if tok in flags:
             if i + 1 >= len(args):
-                raise click.exceptions.UsageError(
-                    f"Option '{tok}' requires an argument.", ctx=ctx
-                )
+                raise typer.BadParameter(f"Option '{tok}' requires an argument.")
             value = args[i + 1]
             i += 2
             continue
@@ -158,10 +154,9 @@ def _extract_format_flag(
         from dku_cli.output import OUTPUT_FORMATS, set_output_format
 
         if value.lower() not in OUTPUT_FORMATS:
-            raise click.exceptions.UsageError(
+            raise typer.BadParameter(
                 f"Invalid value for '--format': must be one of: "
-                f"{', '.join(OUTPUT_FORMATS)}",
-                ctx=ctx,
+                f"{', '.join(OUTPUT_FORMATS)}"
             )
         set_output_format(value)
     return rest

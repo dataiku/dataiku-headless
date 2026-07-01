@@ -1,4 +1,4 @@
-.PHONY: help plugin desktop-bundle test-plugin clean-plugin clean-desktop audit release
+.PHONY: help plugin desktop-bundle test-plugin clean-plugin clean-desktop audit release release-pr
 
 help:
 	@echo "plugin          Build the local Claude/Codex plugin assets"
@@ -7,7 +7,8 @@ help:
 	@echo "clean-plugin    Remove generated plugin assets"
 	@echo "clean-desktop   Remove generated Claude Desktop bundle assets"
 	@echo "audit           Audit locked runtime dependencies (same gate as CI)"
-	@echo "release         Bump version + changelog + tag via python-semantic-release (then push)"
+	@echo "release         Prepare a release commit for a PR (no tag, no push)"
+	@echo "release-pr      Prepare, push, and open the release PR"
 
 audit:
 	uv export --locked --no-emit-project --no-dev --output-file requirements-audit.txt
@@ -29,6 +30,34 @@ clean-desktop:
 	$(MAKE) -C dataiku-mcp-bundle clean
 
 release:
-	uvx --from python-semantic-release semantic-release --strict version
-	uvx --from python-semantic-release semantic-release --strict changelog
-	uvx --from python-semantic-release semantic-release --strict publish
+	@version="$$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')" && \
+	git fetch --tags origin && \
+	git rev-parse -q --verify "refs/tags/v$$version" >/dev/null || { \
+		echo "missing baseline tag v$$version; create it before preparing the next release" >&2; \
+		exit 1; \
+	}
+	uvx --from python-semantic-release semantic-release --strict version --no-tag --no-push --no-vcs-release
+
+release-pr:
+	@command -v gh >/dev/null || { echo "gh is required to open the release PR" >&2; exit 1; }
+	@git diff --quiet && git diff --cached --quiet || { echo "working tree must be clean before release-pr" >&2; exit 1; }
+	git fetch origin main --tags
+	git checkout main
+	git pull --ff-only origin main
+	@version="$$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')" && \
+	git rev-parse -q --verify "refs/tags/v$$version" >/dev/null || { \
+		echo "missing baseline tag v$$version; create it before preparing the next release" >&2; \
+		exit 1; \
+	}
+	@next_version="$$(uvx --from python-semantic-release semantic-release --strict version --print | tail -n 1)" && \
+		test -n "$$next_version" && \
+		branch="release/v$$next_version" && \
+		git checkout -B "$$branch" && \
+		git push -u origin "$$branch" && \
+		make release && \
+		git push && \
+		gh pr create \
+		--base main \
+		--head "$$branch" \
+		--title "chore(release): $$next_version" \
+		--body "Release $$next_version."

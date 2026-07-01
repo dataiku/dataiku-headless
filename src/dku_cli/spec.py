@@ -14,6 +14,7 @@ whole tree from the root.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import re
 
@@ -60,11 +61,13 @@ def _type_str(t: click.ParamType) -> str:
         return "str"
     if isinstance(t, click.Path):
         return "path"
-    if isinstance(t, click.Choice):
+    if _is_choice(t):
         return "choice"
     if isinstance(t, click.File):
         return "file"
     name = getattr(t, "name", None)
+    if name == "text":
+        return "str"
     return name if name else str(t)
 
 
@@ -75,9 +78,9 @@ def _param_dict(p: click.Parameter) -> dict:
         "required": p.required,
         "type": _type_str(p.type),
     }
-    if isinstance(p, click.Argument):
+    if _is_argument(p):
         d["opts"] = []
-    elif isinstance(p, click.Option):
+    elif _is_option(p):
         d["opts"] = p.opts
         d["is_flag"] = p.is_flag
         d["multiple"] = p.multiple
@@ -85,7 +88,7 @@ def _param_dict(p: click.Parameter) -> dict:
             d["secondary_opts"] = p.secondary_opts
         if p.envvar:
             d["envvar"] = p.envvar
-    if isinstance(p.type, click.Choice):
+    if _is_choice(p.type):
         d["choices"] = list(p.type.choices)
     if p.default is not None and p.default is not UNSET:
         try:
@@ -101,12 +104,31 @@ def _skip_param(p: click.Parameter) -> bool:
     return p.name in _SKIP_PARAM_NAMES or getattr(p, "hidden", False)
 
 
+def _is_choice(t: click.ParamType) -> bool:
+    return isinstance(t, click.Choice) or hasattr(t, "choices")
+
+
+def _is_argument(p: click.Parameter) -> bool:
+    return getattr(p, "param_type_name", "") == "argument" or isinstance(
+        p, click.Argument
+    )
+
+
+def _is_option(p: click.Parameter) -> bool:
+    return getattr(p, "param_type_name", "") == "option" or isinstance(p, click.Option)
+
+
+def _child_commands(cmd: click.Command) -> Mapping[str, click.Command] | None:
+    commands = getattr(cmd, "commands", None)
+    return commands
+
+
 def _command_detail(cmd: click.Command) -> dict:
     args, opts = [], []
     for p in cmd.params:
         if _skip_param(p):
             continue
-        (opts if isinstance(p, click.Option) else args).append(_param_dict(p))
+        (opts if _is_option(p) else args).append(_param_dict(p))
     return {
         "name": cmd.name,
         "help": _clean(cmd.help or cmd.short_help),
@@ -146,7 +168,7 @@ def _usage_string(cmd: click.Command) -> str:
     """
     parts: list[str] = []
     for p in cmd.params:
-        if _skip_param(p) or not isinstance(p, click.Argument):
+        if _skip_param(p) or not _is_argument(p):
             continue
         token = f"<{p.name}>" if p.required else f"[{p.name}]"
         if p.nargs == -1 or getattr(p, "multiple", False):
@@ -155,7 +177,7 @@ def _usage_string(cmd: click.Command) -> str:
 
     has_optional = False
     for p in cmd.params:
-        if _skip_param(p) or not isinstance(p, click.Option):
+        if _skip_param(p) or not _is_option(p):
             continue
         if not p.required:
             has_optional = True
@@ -200,7 +222,8 @@ def _group_detail(group: click.Group) -> dict:
     for name, cmd in sorted(group.commands.items()):
         if getattr(cmd, "hidden", False):
             continue
-        if isinstance(cmd, click.Group):
+        child_commands = _child_commands(cmd)
+        if child_commands is not None:
             groups[name] = _clean(cmd.help).split("\n", 1)[0]
         else:
             commands[name] = _command_signature(cmd)
@@ -220,7 +243,8 @@ def _root_detail(group: click.Group) -> dict:
     for name, cmd in sorted(group.commands.items()):
         if getattr(cmd, "hidden", False):
             continue
-        if isinstance(cmd, click.Group):
+        child_commands = _child_commands(cmd)
+        if child_commands is not None:
             groups[name] = _clean(cmd.help).split("\n", 1)[0]
         else:
             detail = _command_detail(cmd)
@@ -250,13 +274,14 @@ def spec_node_for(cmd: click.Command, ctx: click.Context | None = None) -> dict:
     if ctx is not None and ctx.command_path:
         path = ctx.command_path.split()[1:]  # drop the "dku" tool name
 
-    if isinstance(cmd, click.Group):
+    child_commands = _child_commands(cmd)
+    if child_commands is not None:
         if not path:
             body = _root_detail(cmd)
             globals_ = [
                 _param_dict(p)
                 for p in cmd.params
-                if isinstance(p, click.Option) and not _skip_param(p)
+                if _is_option(p) and not _skip_param(p)
             ]
             if globals_:
                 body["global_options"] = globals_

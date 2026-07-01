@@ -143,28 +143,65 @@ def test_bundled_wheel_contains_current_sources():
 def test_semantic_release_commits_generated_plugin_assets():
     config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     semantic = config["tool"]["semantic_release"]
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
 
-    assert semantic["build_command"] == "make plugin"
+    assert config["project"]["optional-dependencies"]["mcp"] == ["fastmcp>=2.0,<4"]
+    assert semantic["build_command"] == "uv lock && make plugin"
     assert set(semantic["assets"]) >= {
         ".claude-plugin/marketplace.json",
         "dataiku-mcp/.claude-plugin/plugin.json",
         "dataiku-mcp/.codex-plugin/plugin.json",
         "dataiku-mcp-bundle/manifest.json",
         "dataiku-mcp/wheels",
+        "uv.lock",
     }
+    assert config["tool"]["semantic_release"]["branches"]["main"]["match"] == "main"
+    assert (
+        config["tool"]["semantic_release"]["branches"]["release"]["match"]
+        == "release/v.*"
+    )
+    assert "<!-- version list -->" in changelog
 
 
-def test_release_workflow_runs_semantic_release_build_hook():
+def test_release_workflow_publishes_reviewed_release_commit():
     workflow = yaml.safe_load(
         (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     )
-    steps = workflow["jobs"]["release"]["steps"]
-    semantic_step = next(step for step in steps if step.get("id") == "semantic")
-    run_command = semantic_step["run"]
+    job = workflow["jobs"]["release"]
+    steps = job["steps"]
+    step_names = {step.get("name") for step in steps}
+    release_step = next(step for step in steps if step.get("id") == "release")
 
-    assert "uses" not in semantic_step
-    assert "uvx --from python-semantic-release semantic-release" in run_command
-    assert "--no-build" not in run_command
+    assert "Python Semantic Release" not in step_names
+    assert "Create release tag" in step_names
+    assert "Extract release notes" in step_names
+    assert "publish=true" in release_step["run"]
+    assert "REMOTE_SHA" in release_step["run"]
+
+
+def test_make_release_prepares_pr_commit_without_publishing():
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+
+    assert "git fetch --tags origin" in makefile
+    assert "missing baseline tag" in makefile
+    assert "semantic-release --strict version" in makefile
+    assert "--no-tag --no-push --no-vcs-release" in makefile
+
+
+def test_make_release_pr_opens_reviewable_pr():
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+
+    assert "release-pr:" in makefile
+    assert "working tree must be clean before release-pr" in makefile
+    assert "git checkout main" in makefile
+    assert 'git checkout -B "$$branch"' in makefile
+    assert 'git push -u origin "$$branch"' in makefile
+    assert makefile.index('git push -u origin "$$branch"') < makefile.index(
+        "make release"
+    )
+    assert makefile.index("make release") < makefile.index("git push &&")
+    assert "gh pr create" in makefile
+    assert '--title "chore(release): $$next_version"' in makefile
 
 
 def test_plugin_bundles_skill_corpus():

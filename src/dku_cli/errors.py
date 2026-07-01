@@ -14,8 +14,8 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, cast
 
-import click
-import typer
+from click.exceptions import Abort as CAbort, Exit as CExit, UsageError as CUsageError
+from typer import Abort, BadParameter, Exit
 
 from dku_cli.output import error
 
@@ -481,11 +481,7 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
             of a misleading "check your API key"; see
             ``_handle_project_access_denied`` for the full rationale.
     """
-    # @handle_errors wraps the whole command body, so a usage error raised by
-    # resolve_project()/resolve_output_format() (typer.BadParameter, a
-    # click.UsageError) reaches here. Re-raise it so Click formats it as a usage
-    # error at exit 2 instead of mislabeling it "DSS API error" at exit 1.
-    if isinstance(e, (SystemExit, typer.Exit, click.exceptions.UsageError)):
+    if isinstance(e, (SystemExit, Exit, Abort, BadParameter, CUsageError)):
         raise e
 
     msg = str(e)
@@ -685,15 +681,7 @@ def handle_errors(func: F) -> F:
     def wrapper(*args: object, **kwargs: object) -> object:
         try:
             return func(*args, **kwargs)
-        except (
-            click.exceptions.UsageError,
-            click.exceptions.Exit,
-            click.exceptions.Abort,
-        ):
-            # Usage errors (e.g. BadParameter from resolve_project /
-            # resolve_output_format), explicit typer.Exit, and Abort carry their
-            # own exit codes (2 for usage). Relabeling them as a generic "DSS API
-            # error" at exit 1 corrupts the agent's failure signal — re-raise.
+        except (Exit, Abort, BadParameter, CUsageError, CExit, CAbort):
             raise
         except Exception as e:
             project_hint = kwargs.get("project")

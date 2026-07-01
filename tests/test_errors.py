@@ -34,21 +34,16 @@ def test_handle_api_error_reraises_usage_error():
 
 
 def test_handle_api_error_reraises_bad_parameter():
-    # typer.BadParameter (a click.UsageError subclass) is what
-    # resolve_project()/resolve_output_format() raise on bad input.
     with pytest.raises(typer.BadParameter):
         handle_api_error(typer.BadParameter("bad -o value"))
 
 
 def test_handle_errors_propagates_usage_error_instead_of_mapping_it():
-    # Regression guard: the decorator wraps the whole command body, so a
-    # BadParameter raised inside (e.g. from resolve_output_format) must bubble
-    # up to Click rather than being reclassified as a DSS API error.
     @handle_errors
     def command() -> None:
         raise typer.BadParameter("Output format must be one of: table, json, csv")
 
-    with pytest.raises(click.exceptions.UsageError):
+    with pytest.raises(typer.BadParameter):
         command()
 
 

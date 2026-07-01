@@ -31,38 +31,50 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
+      - name: Resolve release metadata
+        id: release
+        run: |
+          VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          TAG="v$VERSION"
+          HEAD_SHA=$(git rev-parse HEAD)
+          REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/$TAG^{}" | awk '{print $1}')
+          if [ -z "$REMOTE_SHA" ]; then
+            REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+          fi
+          publish=false
+          if [ "${{ github.event_name }}" = "push" ] && { [ -z "$REMOTE_SHA" ] || [ "$REMOTE_SHA" = "$HEAD_SHA" ]; }; then
+            publish=true
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
       - name: Sync dependencies (locked)
+        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
         run: uv sync --locked
 
       - name: Lint
+        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
         run: |
           uv run ruff check .
           uv run ruff format --check .
 
       - name: Test
+        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
         run: uv run pytest -q
 
-      - name: Python Semantic Release
-        if: github.event_name == 'push'
-        id: semantic
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          uvx --from python-semantic-release semantic-release -v version --no-vcs-release
-
       - name: Build CLI wheel
+        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
         run: uv build
 
       - name: Verify released wheel version
-        if: github.event_name == 'push' && steps.semantic.outputs.released == 'true'
+        if: github.event_name == 'push' && steps.release.outputs.publish == 'true'
         run: |
           WHEEL=$(ls dist/*.whl | head -1)
           WHEEL_VERSION=$(basename "$WHEEL" | cut -d- -f2)
-          EXPECTED="${{ steps.semantic.outputs.version }}"
+          EXPECTED="${{ steps.release.outputs.version }}"
           if [ "$WHEEL_VERSION" != "$EXPECTED" ]; then
-            echo "Version mismatch: semantic-release=$EXPECTED wheel=$WHEEL_VERSION" >&2
+            echo "Version mismatch: release=$EXPECTED wheel=$WHEEL_VERSION" >&2
             exit 1
           fi
           echo "Wheel version verified: $EXPECTED"
@@ -81,17 +93,57 @@ jobs:
           echo "Wheel version verified: $EXPECTED"
 
       - name: Build MCP plugin bundle
+        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
         run: make plugin
 
       - name: Build Claude Desktop .mcpb bundle
+        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
         run: make desktop-bundle
 
+      - name: Create release tag
+        if: github.event_name == 'push' && steps.release.outputs.publish == 'true'
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/$TAG^{}" | awk '{print $1}')
+          if [ -z "$REMOTE_SHA" ]; then
+            REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+          fi
+          if [ -n "$REMOTE_SHA" ]; then
+            HEAD_SHA=$(git rev-parse HEAD)
+            if [ "$REMOTE_SHA" = "$HEAD_SHA" ]; then
+              echo "Tag $TAG already points at $HEAD_SHA"
+              exit 0
+            fi
+            echo "Tag $TAG already exists at $REMOTE_SHA, not $HEAD_SHA" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      - name: Extract release notes
+        if: github.event_name == 'push' && steps.release.outputs.publish == 'true'
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          awk -v version="$VERSION" '
+          function is_heading(line) { return line ~ /^## / }
+          function is_target(line) {
+            return line ~ ("^## \\[" version "\\]") || line ~ ("^## v" version "([[:space:]]|$|\\()")
+          }
+          is_target($0) { found = 1; print; next }
+          found && is_heading($0) { exit }
+          found { print }
+          END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+
       - name: Upload artifacts to GitHub Release
-        if: github.event_name == 'push' && steps.semantic.outputs.released == 'true'
+        if: github.event_name == 'push' && steps.release.outputs.publish == 'true'
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b
         with:
-          tag_name: ${{ steps.semantic.outputs.tag }}
+          tag_name: ${{ steps.release.outputs.tag }}
           make_latest: true
+          body_path: release-notes.md
           files: |
             dist/*.whl
             dist/*.tar.gz
@@ -102,5 +154,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dist
-          path: dist/*
+          path: |
+            dist/*
+            dataiku-mcp-bundle/dist/dataiku-mcp.mcpb
           if-no-files-found: error

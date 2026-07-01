@@ -15,12 +15,19 @@ from dku_cli.main import app
 runner = CliRunner()
 
 
+def _is_option(param: click.Parameter) -> bool:
+    return getattr(param, "param_type_name", "") == "option" or isinstance(
+        param, click.Option
+    )
+
+
 def _resolve(path: tuple[str, ...]) -> click.Command | None:
     cmd: click.Command = get_command(app)
     for seg in path:
-        if not isinstance(cmd, click.Group) or seg not in cmd.commands:
+        commands = getattr(cmd, "commands", None)
+        if commands is None or seg not in commands:
             return None
-        cmd = cmd.commands[seg]
+        cmd = commands[seg]
     return cmd
 
 
@@ -65,16 +72,11 @@ def test_examples_are_unique_per_command():
 
 def test_example_flags_exist_on_their_command():
     root = get_command(app)
-    global_flags = {
-        o for p in root.params if isinstance(p, click.Option) for o in p.opts
-    }
+    global_flags = {o for p in root.params if _is_option(p) for o in p.opts}
     for path, examples in EXAMPLES.items():
         cmd = _resolve(path)
         known = global_flags | {
-            o
-            for p in cmd.params
-            if isinstance(p, click.Option)
-            for o in (*p.opts, *p.secondary_opts)
+            o for p in cmd.params if _is_option(p) for o in (*p.opts, *p.secondary_opts)
         }
         for ex in examples:
             for token in shlex.split(ex):

@@ -212,6 +212,22 @@ def test_group_detail_skips_hidden_child_commands():
     assert "secret" not in detail["commands"]
 
 
+def test_group_like_command_help_surfaces_child_commands():
+    command = click.Command("plugin", help="Manage DSS plugins.")
+    command.commands = {
+        "list": click.Command("list", help="List installed plugins."),
+    }
+    root_ctx = click.Context(click.Group("dku"), info_name="dku")
+    ctx = click.Context(command, info_name="plugin", parent=root_ctx)
+
+    detail = spec.spec_node_for(command, ctx)
+
+    assert "commands" in detail
+    assert detail["commands"]["list"]["help"] == "List installed plugins."
+    assert "arguments" not in detail
+    assert "options" not in detail
+
+
 # --- idx 17: default serialization still works after dead-guard removal ------
 def test_param_default_still_serialized_after_guard_cleanup():
     """Removing the inert ``p.default is not p.type`` guard must not change the
