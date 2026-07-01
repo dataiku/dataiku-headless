@@ -89,7 +89,7 @@ Source-specific rules (DATA step ≠ Python; PROC FORMAT inlines; Alteryx tool �
 
 | Symptom | Fix |
 |---|---|
-| Upload auto-types all columns STRING → numeric aggregations break | `dku dataset infer-types DS --apply` right after upload (re-infers numeric/boolean from data; identifiers and dates stay string) |
+| Upload auto-types all columns STRING → numeric aggregations break | `dku dataset infer-types DS --apply` right after upload (re-infers numeric/boolean from data; identifiers and dates stay string, but a measure must re-type — don't blanket-keep `string` to protect join keys) |
 | `set-schema type: date` on a CSV → every row null | Keep `string`; parse with a Prepare `DateParser` (ISO sorts chronologically) |
 | Source output is date-ONLY but the DSS date column renders `… 00:00:00` → every row fails exact-match parity | Finish with `DateFormatter` → string `yyyy-MM-dd`. `ayx/tools-core.md` § Date RENDERING parity |
 | FULL outer join fails at build on filesystem/uploaded inputs (engine cascade) | Build FULL as `Stack(LEFT, RIGHT_ANTI)`; FULL-anti as `Stack(LEFT_ANTI, RIGHT_ANTI)`. `ayx/tools-join-reshape.md` § Join |
