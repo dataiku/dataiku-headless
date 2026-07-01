@@ -471,6 +471,61 @@ def _handle_govern_validation(msg: str) -> tuple[str, list[str]] | None:
     return None
 
 
+_PROVIDER_AUTH_MARKERS = (
+    "401",
+    "unauthor",
+    "forbidden",
+    "missing_scope",
+    "invalid_api_key",
+    "invalid api key",
+    "permission",
+    "insufficient",
+    "quota",
+    "api key",
+    "apikey",
+)
+
+
+def _handle_llm_provider_error(e: Exception) -> tuple[str, list[str]] | None:
+    """Surface an LLM connection's UPSTREAM provider error instead of the generic
+    dku-auth hint.
+
+    ``dku llm completion`` / ``dku agent test`` raise ``LLMException`` (a
+    ``DataikuException`` subclass) that carries the provider's own error body —
+    ``error_code`` (e.g. ``missing_scope``), ``error_type``, ``error_source``.
+    The generic ``401/Unauthorized`` branch would otherwise mask that as
+    "check your API key / run ``dku auth login``", pointing at the wrong thing:
+    the dku auth is fine, it's the connection's provider key that lacks a scope
+    (#226). Detect by class name so we don't import dataikuapi internals here.
+    """
+    if type(e).__name__ != "LLMException":
+        return None
+    provider_msg = getattr(e, "error_message", None) or str(e)
+    code = getattr(e, "error_code", None)
+    etype = getattr(e, "error_type", None)
+    source = getattr(e, "error_source", None)
+
+    details = [f"Provider error: {provider_msg}"]
+    meta = ", ".join(
+        f"{label}={value}"
+        for label, value in (("code", code), ("type", etype), ("source", source))
+        if value
+    )
+    if meta:
+        details.append(f"({meta})")
+
+    probe = f"{provider_msg} {code} {etype}".lower()
+    if any(marker in probe for marker in _PROVIDER_AUTH_MARKERS):
+        details += [
+            "This is the LLM connection's upstream provider credential/scope — "
+            "NOT your dku API key.",
+            "Running 'dku auth login' will NOT help.",
+            "Fix the provider key (e.g. add the missing scope) on the connection:",
+            "  Administration → Connections → the connection behind this LLM.",
+        ]
+    return "LLM request failed at the provider.", details
+
+
 def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
     """Convert dataikuapi exceptions to friendly messages and exit.
 
@@ -572,6 +627,17 @@ def handle_api_error(e: Exception, *, project_key: str | None = None) -> None:
             fold_result[0],
             details=fold_result[1],
             status=1,
+        )
+
+    # LLM provider error (missing_scope, invalid_api_key, …) — surface the
+    # provider's body before the generic 401 branch masks it as a dku-auth
+    # problem (#226). Type-based, so it wins regardless of message wording.
+    llm_provider_result = _handle_llm_provider_error(e)
+    if llm_provider_result:
+        exit_with_error(
+            llm_provider_result[0],
+            details=llm_provider_result[1],
+            status=2,
         )
 
     # Invalid / rotated API key — DSS returns NotAuthenticatedException with

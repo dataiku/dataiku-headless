@@ -26,12 +26,18 @@ def _read_body(value: str | None) -> str:
     if value is None:
         return ""
     if value == "-":
-        return sys.stdin.read()
+        body = sys.stdin.read()
+        if body == "":
+            raise typer.BadParameter("stdin is empty")
+        return body
     if value.startswith("@"):
         path = Path(value[1:])
         if not path.exists():
             raise typer.BadParameter(f"File not found: {path}")
-        return path.read_text()
+        body = path.read_text()
+        if body == "":
+            raise typer.BadParameter(f"File is empty: {path}")
+        return body
     return value
 
 

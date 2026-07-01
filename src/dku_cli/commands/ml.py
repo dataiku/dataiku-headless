@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from typing import List, Optional
 
 import typer
 
-from dku_cli.enums import FeatureRescaling, FeatureRole
+from dku_cli.enums import FeatureMissingHandling, FeatureRescaling, FeatureRole
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -1077,6 +1078,65 @@ def set_split(
         handle_api_error(e)
 
 
+# DSS-correct preprocessing for a numeric INPUT feature, used as a fallback when
+# no same-type sibling exists to copy from (verified against a guessed task).
+_NUMERIC_DEFAULT_HANDLING = {
+    "numerical_handling": "REGULAR",
+    "missing_handling": "IMPUTE",
+    "missing_impute_with": "MEAN",
+    "rescaling": "AVGSTD",
+}
+
+# Friendly --missing-handling values -> (missing_handling, missing_impute_with).
+_MISSING_HANDLING_MAP = {
+    "IMPUTE_MEAN": ("IMPUTE", "MEAN"),
+    "IMPUTE_MEDIAN": ("IMPUTE", "MEDIAN"),
+    "IMPUTE_MODE": ("IMPUTE", "MODE"),
+    "DROP_ROWS": ("DROP_ROWS", None),
+    "NONE": ("NONE", None),
+}
+
+
+def _ensure_feature_handling(per_feature: dict, feature_name: str) -> bool:
+    """Initialize preprocessing on a feature that has none.
+
+    The auto-guesser leaves REJECTED features without a missing-value handling
+    method. Flipping one back to INPUT then trains into
+    ``no missing handling method defined for feature <col>`` (#225). Prefer
+    copying handling from a sibling feature of the same type that DSS already
+    configured (correct by construction); fall back to verified numeric
+    defaults. Returns True if anything was initialized.
+    """
+    feat = per_feature[feature_name]
+    if feat.get("missing_handling"):
+        return False
+    ftype = feat.get("type")
+    donor = next(
+        (
+            other
+            for name, other in per_feature.items()
+            if name != feature_name
+            and other.get("type") == ftype
+            and other.get("missing_handling")
+        ),
+        None,
+    )
+    if donor is not None:
+        for key, value in donor.items():
+            if key not in ("role", "sendToInput") and key not in feat:
+                feat[key] = copy.deepcopy(value)
+        return True
+    if ftype == "NUMERIC":
+        for key, value in _NUMERIC_DEFAULT_HANDLING.items():
+            feat.setdefault(key, value)
+        return True
+    # No same-type sibling to copy from and not numeric: set the field training
+    # hard-requires so it doesn't crash, defaulting to mode imputation.
+    feat.setdefault("missing_handling", "IMPUTE")
+    feat.setdefault("missing_impute_with", "MODE")
+    return True
+
+
 @app.command("set-feature")
 def set_feature(
     ctx: typer.Context,
@@ -1096,22 +1156,37 @@ def set_feature(
         help="NONE | AVGSTD | MINMAX — numeric feature rescaling (DSS default "
         "is AVGSTD; set NONE to mirror tools that train on raw values)",
     ),
+    missing_handling: Optional[FeatureMissingHandling] = typer.Option(
+        None,
+        "--missing-handling",
+        case_sensitive=False,
+        help="IMPUTE_MEAN | IMPUTE_MEDIAN | IMPUTE_MODE | DROP_ROWS | NONE — "
+        "how missing values are handled.",
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Change the role and/or rescaling of a feature in an ML task.
+    """Change the role, rescaling, and/or missing-value handling of a feature.
 
     After create-prediction / create-clustering, DSS auto-guesses feature roles
     and applies AVGSTD rescaling to numerics. Use --role to reject columns that
     leak the target; use --rescaling NONE when migrating from a tool that
     clustered/trained on raw values (KNIME k-Means, raw-distance pipelines).
 
+    Re-enabling a previously-rejected feature with --role INPUT auto-initializes
+    sensible missing-value handling (copied from a same-type feature, or numeric
+    defaults), so training no longer fails with "no missing handling method".
+    Override it explicitly with --missing-handling.
+
     Examples:
       dku ml set-feature ml_analysis_1 mltask_1 true_label --role REJECT -P PROJ
       dku ml set-feature ml_analysis_1 mltask_1 amount --rescaling NONE -P PROJ
+      dku ml set-feature ml_analysis_1 mltask_1 row_id --role INPUT \\
+        --missing-handling IMPUTE_MEDIAN -P PROJ
     """
-    if role is None and rescaling is None:
+    if role is None and rescaling is None and missing_handling is None:
         exit_with_error(
-            "Nothing to change. Provide --role and/or --rescaling.",
+            "Nothing to change. Provide --role, --rescaling, and/or "
+            "--missing-handling.",
             details=["Example: dku ml set-feature A M amount --rescaling NONE -P PROJ"],
         )
     project_key = resolve_project(project)
@@ -1131,34 +1206,77 @@ def set_feature(
                 ],
                 status=3,
             )
-        applied = []
-        if role is not None:
-            role_upper = role.value
-            # DSS stores rejected role as "REJECT" internally.
-            if role_upper == "REJECTED":
-                role_upper = "REJECT"
-            feat["role"] = role_upper
-            applied.append(f"role = {role_upper}")
-        if rescaling is not None:
-            if feat.get("type") != "NUMERIC":
-                exit_with_error(
-                    f"--rescaling only applies to NUMERIC features; '{feature}' "
-                    f"is {feat.get('type', 'unknown')}.",
-                    details=[
-                        f"Inspect feature types: dku ml settings {analysis_id} "
-                        f"{mltask_id} -P {project_key} -o json "
-                        "| jq '.preprocessing.per_feature | map_values(.type)'",
-                    ],
-                )
-            # DSS expects a plain string enum here, not an object (DSS 14.6).
-            feat["rescaling"] = rescaling.value
-            applied.append(f"rescaling = {rescaling.value}")
+        per_feature = task_settings.get_raw()["preprocessing"]["per_feature"]
+        applied = _apply_feature_changes(
+            per_feature,
+            feature,
+            feat,
+            role,
+            missing_handling,
+            rescaling,
+            analysis_id,
+            mltask_id,
+            project_key,
+        )
         task_settings.save()
         success(f"Set feature '{feature}' {', '.join(applied)} in ML task {mltask_id}.")
     except typer.Exit:
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+def _apply_feature_changes(
+    per_feature,
+    feature,
+    feat,
+    role,
+    missing_handling,
+    rescaling,
+    analysis_id,
+    mltask_id,
+    project_key,
+) -> list[str]:
+    """Apply role / missing-handling / rescaling changes to a feature dict,
+    initializing handling when a feature is re-enabled (#225). Returns the list
+    of human-readable changes for the success line."""
+    applied: list[str] = []
+    if role is not None:
+        role_upper = role.value
+        # DSS stores rejected role as "REJECT" internally.
+        if role_upper == "REJECTED":
+            role_upper = "REJECT"
+        feat["role"] = role_upper
+        applied.append(f"role = {role_upper}")
+        if role_upper == "INPUT" and _ensure_feature_handling(per_feature, feature):
+            applied.append("initialized missing-value handling")
+    if missing_handling is not None:
+        # Make sure the type's other required handling fields exist before we
+        # override the missing-value policy (otherwise a bare re-enabled numeric
+        # still lacks numerical_handling/rescaling).
+        _ensure_feature_handling(per_feature, feature)
+        mh, impute_with = _MISSING_HANDLING_MAP[missing_handling.value]
+        feat["missing_handling"] = mh
+        if impute_with is not None:
+            feat["missing_impute_with"] = impute_with
+        else:
+            feat.pop("missing_impute_with", None)
+        applied.append(f"missing_handling = {missing_handling.value}")
+    if rescaling is not None:
+        if feat.get("type") != "NUMERIC":
+            exit_with_error(
+                f"--rescaling only applies to NUMERIC features; '{feature}' "
+                f"is {feat.get('type', 'unknown')}.",
+                details=[
+                    f"Inspect feature types: dku ml settings {analysis_id} "
+                    f"{mltask_id} -P {project_key} -o json "
+                    "| jq '.preprocessing.per_feature | map_values(.type)'",
+                ],
+            )
+        # DSS expects a plain string enum here, not an object (DSS 14.6).
+        feat["rescaling"] = rescaling.value
+        applied.append(f"rescaling = {rescaling.value}")
+    return applied
 
 
 def _feature_role_assignments(

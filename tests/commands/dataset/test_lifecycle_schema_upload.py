@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock, patch
+
 from tests.commands.dataset.helpers import app, runner
 from tests.helpers import strip_ansi as _strip_ansi
 
@@ -443,21 +445,26 @@ def test_dataset_upload_header_eaten_warning(patch_client, tmp_path):
     """
     csv_file = tmp_path / "years.csv"
     csv_file.write_text("Country,1960,1961\nAruba,1,2\nAfg,3,4")
+    eaten_cols = [
+        {"name": "col_0", "type": "string"},
+        {"name": "col_1", "type": "string"},
+        {"name": "col_2", "type": "string"},
+    ]
     ds = patch_client.get_project("PROJ1").get_dataset("year_data")
     ds.autodetect_settings.return_value.get_raw.return_value = {
         "formatType": "csv",
         "formatParams": {"parseHeaderRow": False},
-        "schema": {
-            "columns": [
-                {"name": "col_0", "type": "string"},
-                {"name": "col_1", "type": "string"},
-                {"name": "col_2", "type": "string"},
-            ]
-        },
+        "schema": {"columns": eaten_cols},
     }
-    result = runner.invoke(
-        app, ["dataset", "upload", "year_data", str(csv_file), "--project", "PROJ1"]
-    )
+    # upload re-derives the persisted schema via the detectPossibleFormats=false
+    # pass (#222); it keeps the col_<n> names, so the header-eaten warning fires.
+    with patch(
+        "dku_cli.commands.dataset._redetect_schema_keeping_format",
+        return_value=(MagicMock(), eaten_cols, []),
+    ):
+        result = runner.invoke(
+            app, ["dataset", "upload", "year_data", str(csv_file), "--project", "PROJ1"]
+        )
     assert result.exit_code == 0
     assert "Header row NOT parsed" in result.output
     assert "parseHeaderRow" in result.output

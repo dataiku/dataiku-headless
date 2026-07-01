@@ -496,32 +496,107 @@ def _validate_step_index(steps: list, index: int, recipe_name: str) -> None:
 
 
 # Shared visual recipe creation helpers.
-def _ensure_output_dataset(client, proj, dataset_name: str, project_key: str) -> None:
+_NON_MANAGED_INPUT_TYPES = frozenset({"UploadedFiles", "Inline", "FilesInFolder"})
+
+
+def _input_connection_name(proj, input_dataset_ref: str | None) -> str | None:
+    """Return the connection backing an input dataset, or None when it isn't a
+    managed-capable connection (UploadedFiles/Inline/FilesInFolder) or unknown.
+
+    Lets a visual recipe's auto-created output land on the SAME connection as its
+    input (Postgres->Postgres) instead of splitting onto filesystem_managed.
+    """
+    if not input_dataset_ref:
+        return None
+    defn = None
+    for candidate in (input_dataset_ref, input_dataset_ref.split(".", 1)[-1]):
+        try:
+            defn = proj.get_dataset(candidate).get_definition()
+            break
+        except Exception:
+            continue
+    if defn is None:
+        return None
+    if defn.get("type", "") in _NON_MANAGED_INPUT_TYPES:
+        return None
+    return (defn.get("params") or {}).get("connection") or None
+
+
+def _resolve_managed_output_connection(
+    client, proj, input_dataset_ref: str | None = None
+) -> str:
+    """Pick the connection for an auto-created managed output dataset.
+
+    Precedence: the input dataset's own connection (when it allows managed
+    datasets) -> filesystem_managed -> first connection that allows managed
+    datasets -> filesystem_managed fallback (list_connections is admin-only).
+    """
+    try:
+        conns = client.list_connections()
+    except Exception:
+        conns = None  # list_connections is admin-only, fall back
+    input_conn = _input_connection_name(proj, input_dataset_ref)
+    if input_conn:
+        if conns is None:
+            # Can't verify capability, but the input already lives on it.
+            return input_conn
+        item = conns.get(input_conn)
+        if item and item.get("allowManagedDatasets"):
+            return input_conn
+    conn_name = "filesystem_managed"
+    if conns:
+        if "filesystem_managed" in conns and conns["filesystem_managed"].get(
+            "allowManagedDatasets"
+        ):
+            conn_name = "filesystem_managed"
+        else:
+            for name, props in conns.items():
+                if props.get("allowManagedDatasets"):
+                    conn_name = name
+                    break
+    return conn_name
+
+
+def _builder_primary_input(builder) -> str | None:
+    """Best-effort primary input ref from a recipe builder (for connection
+    inheritance). Reads VirtualInputsSingleOutputRecipeCreator.virtual_inputs
+    first, then falls back to the recipe_proto inputs map."""
+    virt = getattr(builder, "virtual_inputs", None)
+    if virt:
+        return virt[0]
+    try:
+        for role_obj in builder.recipe_proto.get("inputs", {}).values():
+            items = role_obj.get("items", [])
+            if items:
+                return items[0].get("ref")
+    except Exception:
+        pass
+    return None
+
+
+def _ensure_output_dataset(
+    client,
+    proj,
+    dataset_name: str,
+    project_key: str,
+    input_dataset_ref: str | None = None,
+) -> None:
     """Create a managed output dataset if it doesn't exist (visual recipes need it).
 
-    Prefers 'filesystem_managed' if it allows managed datasets.
-    Otherwise discovers the first connection with allowManagedDatasets=True.
-    Falls back to 'filesystem_managed' if discovery fails (admin-only API).
+    When the recipe's primary input lives on a connection that allows managed
+    datasets (Postgres, Snowflake, ...), the output is created THERE so the
+    pipeline stays in-database instead of silently splitting onto
+    filesystem_managed. Falls back to filesystem_managed (or the first
+    allow-managed connection) when the input connection is non-managed
+    (UploadedFiles/Inline) or unknown.
     """
     try:
         proj.get_dataset(dataset_name).get_definition()
     except Exception as e:
         if is_not_found_error(e):
-            conn_name = "filesystem_managed"
-            try:
-                conns = client.list_connections()
-                # Prefer filesystem_managed — it's the safest default
-                if "filesystem_managed" in conns and conns["filesystem_managed"].get(
-                    "allowManagedDatasets"
-                ):
-                    conn_name = "filesystem_managed"
-                else:
-                    for name, props in conns.items():
-                        if props.get("allowManagedDatasets"):
-                            conn_name = name
-                            break
-            except Exception:
-                pass  # list_connections is admin-only, fall back
+            conn_name = _resolve_managed_output_connection(
+                client, proj, input_dataset_ref
+            )
             builder = proj.new_managed_dataset(dataset_name)
             builder.with_store_into(conn_name)
             builder.create()
@@ -565,7 +640,13 @@ def _wire_single_output(
     if connection:
         builder.with_new_output(output_ds, connection)
     else:
-        _ensure_output_dataset(client, proj, output_ds, project_key)
+        _ensure_output_dataset(
+            client,
+            proj,
+            output_ds,
+            project_key,
+            input_dataset_ref=_builder_primary_input(builder),
+        )
         builder.with_existing_output(output_ds)
 
 

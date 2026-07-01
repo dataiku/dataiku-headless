@@ -338,8 +338,14 @@ def set_definition(
                 )
         settings = insight.get_settings()
         raw = settings.get_raw()
+        prior = dict(raw)
         raw.clear()
         raw.update(new_def)
+        raw["id"] = insight_id
+        raw.setdefault("projectKey", project_key)
+        for field in ("name", "owner"):
+            if field not in raw and field in prior:
+                raw[field] = prior[field]
         settings.save()
         success(f"Updated definition for insight '{insight_id}'")
     except Exception as e:

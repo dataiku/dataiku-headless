@@ -1006,6 +1006,37 @@ def test_recipe_set_definition_unwraps_dollar_status_wrapper(patch_client):
     assert "$status" not in raw
 
 
+def test_recipe_set_definition_params_preserves_siblings(patch_client):
+    raw = {
+        "type": "python",
+        "name": "recipe1",
+        "params": {
+            "containerSelection": {"containerMode": "INHERIT"},
+            "envSelection": {"envMode": "INHERIT"},
+        },
+    }
+    recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")
+    recipe.get_settings().get_recipe_raw_definition.return_value = raw
+
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-definition",
+            "recipe1",
+            "--definition",
+            '{"params": {"containerSelection": {"containerMode": "NONE"}}}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert raw["params"] == {
+        "containerSelection": {"containerMode": "NONE"},
+        "envSelection": {"envMode": "INHERIT"},
+    }
+
+
 def test_recipe_set_description_inline(patch_client):
     raw = {"type": "python", "name": "recipe1"}
     recipe = patch_client.get_project("PROJ1").get_recipe("recipe1")

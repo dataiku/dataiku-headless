@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
@@ -13,11 +15,16 @@ from dku_cli.helpers import (
 )
 from dku_cli.output import (
     emit_created,
+    info,
     render,
     render_raw,
     resolve_output_format,
     success,
+    warn,
 )
+from dku_cli.definition_merge import merge_params_preserving_siblings
+
+from .agent_tool_catalog import BUILTIN_TOOL_PARAM_KEYS
 
 # Built-in agent tool types, live-verified on DSS 14.6 by probe-creating each
 # via new_agent_tool() — DSS exposes NO endpoint to list tool types, so this
@@ -61,6 +68,26 @@ BUILTIN_TOOL_TYPES = {
 }
 
 app = typer.Typer(help="Manage DSS agent tools.")
+
+
+def _warn_unknown_param_keys(tool_type: str, param_keys) -> None:
+    """Warn (stderr, non-blocking) on param keys unknown to a BUILT-IN type.
+
+    DSS accepts arbitrary keys, so this is a speed-bump, not a gate. For plugin
+    types (or built-ins whose schema is uncharacterised) the known set is empty
+    and we stay silent — there is no public API to introspect their params.
+    """
+    known = BUILTIN_TOOL_PARAM_KEYS.get(tool_type)
+    if not known:
+        return
+    unknown = [k for k in param_keys if k not in known]
+    if unknown:
+        warn(
+            f"Param key(s) {unknown} are not known for built-in type "
+            f"'{tool_type}' (known: {known}). DSS does not validate param keys, "
+            "so a wrong key persists silently and the tool fails at run time. "
+            f"Check expected keys: dku agent-tool describe {tool_type}"
+        )
 
 
 @app.command("list")
@@ -181,6 +208,7 @@ def create(
                     "or '-' for stdin.",
                 ],
             )
+        _warn_unknown_param_keys(tool_type, parsed_params.keys())
 
     try:
         client = get_client_from_ctx(ctx)
@@ -356,9 +384,13 @@ def set_definition(
         tool = proj.get_agent_tool(tool_id)
         settings = tool.get_settings()
         raw = settings.get_raw()
+        if parsed_params:
+            _warn_unknown_param_keys(raw.get("type", ""), parsed_params.keys())
         if definition is not None:
             updates = read_json_input(definition)
-            raw.update(updates)
+            if isinstance(updates, dict) and isinstance(updates.get("params"), dict):
+                _warn_unknown_param_keys(raw.get("type", ""), updates["params"].keys())
+            merge_params_preserving_siblings(raw, updates)
         if parsed_params:
             raw.setdefault("params", {}).update(parsed_params)
         settings.save()
@@ -369,9 +401,101 @@ def set_definition(
         handle_api_error(e)
 
 
+def _tree_children(tree, names: list[str]):
+    """Walk a list_files() tree along NAMES; return the final node's children.
+
+    Returns None if any segment is missing. Accepts the list-or-dict root shape
+    DSS returns from DSSPlugin.list_files().
+    """
+    nodes = tree if isinstance(tree, list) else [tree]
+    for name in names:
+        match = None
+        for n in nodes:
+            if isinstance(n, dict) and n.get("name") == name:
+                match = n
+                break
+        if match is None:
+            return None
+        nodes = match.get("children", []) or []
+    return nodes
+
+
+def _dev_plugin_agent_tools(client):
+    """Enumerate agent-tool components of DEV plugins.
+
+    Returns (discovered, opaque) where discovered is a list of
+    (plugin_id, tool_folder) for DEV plugins whose file tree exposes
+    python-agent-tools/, and opaque is the list of non-dev plugin ids whose
+    components cannot be introspected via the public API.
+    """
+    from dku_cli.commands.plugin import _plugin_is_dev
+
+    discovered: list[tuple[str, str]] = []
+    opaque: list[str] = []
+    for p in client.list_plugins():
+        pid = p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", "")
+        if not pid:
+            continue
+        if not _plugin_is_dev(p):
+            opaque.append(pid)
+            continue
+        try:
+            tree = client.get_plugin(pid).list_files()
+        except Exception:
+            opaque.append(pid)
+            continue
+        children = _tree_children(tree, ["python-agent-tools"])
+        if not children:
+            continue
+        for child in children:
+            if isinstance(child, dict) and child.get("children") is not None:
+                discovered.append((pid, child.get("name", "")))
+    return discovered, opaque
+
+
+def _read_plugin_tool_descriptor(client, plugin_id: str, folder: str):
+    """Read a DEV plugin agent-tool descriptor JSON. Returns dict or None."""
+    plugin = client.get_plugin(plugin_id)
+    try:
+        tree = plugin.list_files()
+    except Exception:
+        return None
+    children = _tree_children(tree, ["python-agent-tools", folder])
+    if not children:
+        return None
+    json_child = next(
+        (
+            c
+            for c in children
+            if isinstance(c, dict) and str(c.get("name", "")).endswith(".json")
+        ),
+        None,
+    )
+    if json_child is None:
+        return None
+    path = json_child.get("path") or f"python-agent-tools/{folder}/{json_child['name']}"
+    try:
+        with plugin.get_file(path) as fp:
+            content = fp.read()
+        if isinstance(content, bytes):
+            content = content.decode("utf-8")
+        return json.loads(content)
+    except Exception:
+        return None
+
+
 @app.command()
 def types(
     ctx: typer.Context,
+    include_plugins: bool = typer.Option(
+        False,
+        "--include-plugins",
+        help=(
+            "Also enumerate agent-tool components of installed DEV plugins as "
+            "real Custom_agent_tool_<plugin>_<tool> type strings. Non-dev plugin "
+            "tool types have no public introspection API and are reported as a note."
+        ),
+    ),
     project: str | None = typer.Option(
         None,
         "--project",
@@ -391,19 +515,219 @@ def types(
     Example: plugin 'my-tools' with tool folder 'web-search' →
       dku agent-tool create "Web Search"
       --type Custom_agent_tool_my-tools_web-search -P PROJ
+
+    With --include-plugins, DEV plugin agent-tool components are discovered and
+    merged as real type strings (non-dev plugins are listed as an honest note).
     """
     del project  # accepted for ergonomic parity with project-scoped commands
     output = resolve_output_format()
     data = [{"type": t, "description": d} for t, d in BUILTIN_TOOL_TYPES.items()]
-    data.append(
-        {
-            "type": "Custom_agent_tool_<plugin-id>_<tool-folder>",
-            "description": "Plugin-based tool (build a plugin with python-agent-tools/)",
-        }
-    )
+
+    if not include_plugins:
+        data.append(
+            {
+                "type": "Custom_agent_tool_<plugin-id>_<tool-folder>",
+                "description": "Plugin-based tool (build a plugin with python-agent-tools/)",
+            }
+        )
+        render(
+            data,
+            ["type", "description"],
+            output_format=output,
+            title="Agent Tool Types",
+        )
+        return
+
+    opaque: list[str] = []
+    try:
+        client = get_client_from_ctx(ctx)
+        discovered, opaque = _dev_plugin_agent_tools(client)
+    except Exception as e:
+        handle_api_error(e)
+        return
+
+    for pid, folder in discovered:
+        data.append(
+            {
+                "type": f"Custom_agent_tool_{pid}_{folder}",
+                "description": f"Plugin '{pid}' agent-tool component '{folder}' (dev plugin)",
+            }
+        )
     render(
         data, ["type", "description"], output_format=output, title="Agent Tool Types"
     )
+    if opaque and output != "json":
+        info(
+            "The public API cannot enumerate agent-tool components of installed "
+            "(non-dev) plugins: " + ", ".join(sorted(set(opaque)))
+        )
+        info(
+            "Their type is Custom_agent_tool_<plugin-id>_<tool-folder>, where "
+            "<tool-folder> is the directory name under python-agent-tools/ in "
+            "the plugin (see its store page or source ZIP)."
+        )
+
+
+@app.command()
+def describe(
+    ctx: typer.Context,
+    tool_type: str = typer.Argument(
+        help="Tool type: a built-in name or Custom_agent_tool_<plugin>_<tool>"
+    ),
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        "-P",
+        help="Accepted and ignored. Tool types are instance-global, not project-scoped.",
+    ),
+) -> None:
+    """Describe an agent tool type: its known param keys and usage.
+
+    Built-in types resolve from the CLI-maintained catalog (DSS exposes no
+    endpoint to introspect built-in tool params). Plugin types
+    (Custom_agent_tool_<plugin>_<tool>) resolve from the DEV plugin descriptor
+    when readable; non-dev plugin tool types have NO public introspection API
+    and report that honestly.
+    """
+    del project  # instance-global; accepted for pipeline parity
+    output = resolve_output_format()
+
+    if tool_type in BUILTIN_TOOL_TYPES:
+        _describe_builtin(tool_type, output)
+        return
+
+    if tool_type.startswith("Custom_agent_tool_"):
+        try:
+            client = get_client_from_ctx(ctx)
+            _describe_plugin_type(client, tool_type, output)
+        except typer.Exit:
+            raise
+        except Exception as e:
+            handle_api_error(e)
+        return
+
+    exit_with_error(
+        f"Unknown agent tool type '{tool_type}'.",
+        details=[
+            "List built-in types: dku agent-tool types",
+            "List plugin tool types too: dku agent-tool types --include-plugins",
+        ],
+    )
+
+
+def _describe_builtin(tool_type: str, output: str) -> None:
+    known = BUILTIN_TOOL_PARAM_KEYS.get(tool_type, [])
+    description = BUILTIN_TOOL_TYPES[tool_type]
+    note = (
+        "Keys are CLI-observed; DSS does not validate param keys, so unknown "
+        "keys persist silently and fail at run time."
+    )
+    if output == "json":
+        render_raw(
+            {
+                "type": tool_type,
+                "description": description,
+                "knownParamKeys": known,
+                "note": note,
+            },
+            output_format="json",
+        )
+        return
+    info(description)
+    if known:
+        render(
+            [{"param": k} for k in known],
+            ["param"],
+            output_format=output,
+            title=f"{tool_type} known param keys",
+        )
+    else:
+        warn(
+            f"No param-key schema is recorded for built-in type '{tool_type}'. "
+            "DSS exposes no endpoint to introspect built-in tool params; "
+            "configure it via its dedicated flag or --params."
+        )
+
+
+def _describe_plugin_type(client, tool_type: str, output: str) -> None:
+    from dku_cli.commands.plugin import _plugin_is_dev
+
+    remainder = tool_type[len("Custom_agent_tool_") :]
+    match = None
+    for p in client.list_plugins():
+        pid = p.get("id", "") if isinstance(p, dict) else getattr(p, "plugin_id", "")
+        if pid and remainder.startswith(pid + "_"):
+            match = (pid, p, remainder[len(pid) + 1 :])
+            break
+
+    if match is None:
+        exit_with_error(
+            f"No installed plugin matches type '{tool_type}'.",
+            details=[
+                "List installed plugins: dku plugin list",
+                "List discoverable plugin tool types: "
+                "dku agent-tool types --include-plugins",
+            ],
+        )
+
+    pid, p, folder = match
+    if not _plugin_is_dev(p):
+        exit_with_error(
+            f"Plugin '{pid}' is installed (non-dev): its agent-tool descriptor "
+            "cannot be introspected via the public API.",
+            details=[
+                f"Inspect its source instead: dku plugin download {pid}",
+                "Or reinstall it as a dev plugin to enable descriptor reads.",
+                f"The type string itself is valid: Custom_agent_tool_{pid}_{folder}",
+            ],
+        )
+
+    descriptor = _read_plugin_tool_descriptor(client, pid, folder)
+    if descriptor is None:
+        exit_with_error(
+            f"Could not read the agent-tool descriptor for '{folder}' in dev "
+            f"plugin '{pid}'.",
+            details=[
+                f"List its files: dku plugin list-files {pid}",
+                "Read the descriptor JSON: dku plugin get-file "
+                f"{pid} --path python-agent-tools/{folder}/<descriptor>.json",
+            ],
+        )
+
+    params = descriptor.get("params", []) if isinstance(descriptor, dict) else []
+    rows = [
+        {
+            "param": pp.get("name", ""),
+            "type": pp.get("type", ""),
+            "mandatory": str(pp.get("mandatory", "")),
+            "label": pp.get("label", ""),
+        }
+        for pp in params
+        if isinstance(pp, dict)
+    ]
+    if output == "json":
+        render_raw(
+            {
+                "type": tool_type,
+                "plugin": pid,
+                "tool": folder,
+                "params": params,
+            },
+            output_format="json",
+        )
+        return
+    meta = descriptor.get("meta", {}) if isinstance(descriptor, dict) else {}
+    label = meta.get("label") or descriptor.get("id") or folder
+    info(f"Plugin '{pid}' agent-tool '{folder}' — {label}")
+    if rows:
+        render(
+            rows,
+            ["param", "type", "mandatory", "label"],
+            output_format=output,
+            title=f"{tool_type} params",
+        )
+    else:
+        info("Descriptor declares no configurable params.")
 
 
 @app.command()

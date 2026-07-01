@@ -1501,3 +1501,31 @@ def test_set_graph_applies_normalizations(patch_client):
     assert dispatch["functionName"] == "process"
     assert save["outputKey"] == "out"
     assert "outputScratchpadKey" not in save
+
+
+# --- #228B: legacy responseFormat / clauses are warned, not silently dropped ---
+
+
+def test_normalize_blocks_moves_top_level_response_format():
+    from dku_cli.commands.agent_block import _normalize_blocks
+
+    blocks = [{"id": "b1", "type": "LLM_REQUEST", "responseFormat": {"type": "json"}}]
+    warnings = _normalize_blocks(blocks)
+    assert "responseFormat" not in blocks[0]
+    assert blocks[0]["completionSettings"]["responseFormat"] == {"type": "json"}
+    assert any("responseFormat" in w for w in warnings)
+
+
+def test_normalize_blocks_warns_on_legacy_clauses():
+    from dku_cli.commands.agent_block import _normalize_blocks
+
+    blocks = [
+        {
+            "id": "r1",
+            "type": "ROUTER",
+            "clauses": [{"condition": "c", "nextBlock": "n"}],
+        }
+    ]
+    warnings = _normalize_blocks(blocks)
+    assert "clauses" not in blocks[0]
+    assert any("clausesBasedDecisions" in w for w in warnings)

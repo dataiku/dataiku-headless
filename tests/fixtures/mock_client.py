@@ -505,6 +505,10 @@ def create_mock_client():
     dataset_mock.clear.return_value = None
     dataset_mock.set_definition.return_value = None
     dataset_mock.uploaded_add_file.return_value = None
+    # Default: a fresh UploadedFiles dataset holds no files, so `dataset upload`
+    # (without --overwrite) proceeds. Tests exercising the stale-append guard
+    # (issue #177) override this to a non-empty list.
+    dataset_mock.uploaded_list_files.return_value = []
     dataset_mock.rename.return_value = None
     dataset_mock.copy_to.return_value = None
     dataset_mock.list_partitions.return_value = ["2026-01-01", "2026-01-02"]
@@ -2126,6 +2130,10 @@ def create_mock_client():
         return ml_algo_settings[name]
 
     ml_settings_mock.get_algorithm_settings.side_effect = _get_algorithm_settings
+    # As in dataikuapi, get_feature_preprocessing(name) returns
+    # get_raw()["preprocessing"]["per_feature"][name] — the SAME dict object —
+    # so set-feature can both read one feature and scan its siblings (#225).
+    ml_feature_store: dict = {}
     ml_settings_raw = {
         "taskType": "PREDICTION",
         "targetVariable": "churn",
@@ -2135,10 +2143,9 @@ def create_mock_client():
             "ssdSeed": 1337,
             "kfold": False,
         },
+        "preprocessing": {"per_feature": ml_feature_store},
     }
     ml_settings_mock.get_raw.return_value = ml_settings_raw
-    # Real per-feature dicts so set-feature can read .type and write keys.
-    ml_feature_store: dict = {}
 
     def _get_feature_preprocessing(name):
         return ml_feature_store.setdefault(

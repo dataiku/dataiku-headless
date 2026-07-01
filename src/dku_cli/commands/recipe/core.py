@@ -27,6 +27,92 @@ _DEDICATED_VERB_TYPES = {
 }
 
 
+def _plugin_has_recipe_component(file_tree, component: str) -> bool:
+    """True if a dev plugin's file tree contains custom-recipes/<component>/."""
+    for item in file_tree:
+        if isinstance(item, dict) and item.get("name") == "custom-recipes":
+            for child in item.get("children", []):
+                if (
+                    isinstance(child, dict)
+                    and child.get("name") == component
+                    and "children" in child
+                ):
+                    return True
+    return False
+
+
+def _read_plugin_recipe_manifest(client, type_name: str) -> dict | None:
+    """Return the parsed recipe.json for a CustomCode_<component> plugin recipe.
+
+    Searches dev plugins for the owning component (the same list_files traversal
+    `dku plugin recipes` uses). Returns None when no dev plugin exposes the
+    component — installed/non-dev plugins raise on list_files, so the manifest
+    (and its declared roles) is unreadable.
+    """
+    component = type_name[len("CustomCode_") :]
+    try:
+        plugins = client.list_plugins()
+    except Exception:
+        return None
+    for p in plugins:
+        pid = p.get("id", "") if isinstance(p, dict) else ""
+        if not pid:
+            continue
+        try:
+            plugin = client.get_plugin(pid)
+            file_tree = plugin.list_files()
+        except Exception:
+            continue
+        if not _plugin_has_recipe_component(file_tree, component):
+            continue
+        try:
+            with plugin.get_file(f"custom-recipes/{component}/recipe.json") as fp:
+                return json.loads(fp.read())
+        except Exception:
+            return None
+    return None
+
+
+def _declared_role_names(roles) -> list[str]:
+    """Extract role names from a recipe.json inputRoles/outputRoles list."""
+    out: list[str] = []
+    if isinstance(roles, list):
+        for r in roles:
+            if isinstance(r, dict) and r.get("name"):
+                out.append(r["name"])
+    return out
+
+
+def _resolve_plugin_role(
+    requested: str | None,
+    declared: list[str],
+    kind: str,
+    manifest_readable: bool,
+    recipe_name: str,
+    type_name: str,
+) -> str:
+    """Resolve a plugin recipe input/output role against the declared role set.
+
+    - Omitted role + exactly one declared role → that role (auto-resolve).
+    - Given role (or the 'main' fallback) that the readable manifest does not
+      declare → exit_with_error listing the valid roles (illegal at create time).
+    - Falls back to 'main' when nothing else resolves (unreadable manifest).
+    """
+    if requested is None and manifest_readable and len(declared) == 1:
+        return declared[0]
+    effective = requested if requested is not None else "main"
+    if manifest_readable and declared and effective not in declared:
+        exit_with_error(
+            f"{kind.capitalize()} role '{effective}' is not declared by plugin recipe '{type_name}'.",
+            details=[
+                f"Valid {kind} role(s): {', '.join(declared)}",
+                f"Retry with --{kind}-role <ROLE> from the list above:",
+                f"  dku recipe create {recipe_name} -t {type_name} --{kind}-role {declared[0]} ... -P <PROJ>",
+            ],
+        )
+    return effective
+
+
 @app.command("list")
 def list_recipes(
     ctx: typer.Context,
@@ -348,6 +434,21 @@ def run(
                 details.append(f"Error: {err_msg}")
             details.append(f"View log: dku job log {job_id} -P {project_key}")
             details.append(f"Full status: dku job status {job_id} -P {project_key}")
+            # An empty job log on FAILED usually means the recipe never started
+            # executing: the inherited container's code-env image isn't built, so
+            # DSS dies before emitting any activity log. Surface the recovery.
+            try:
+                log_text = job.get_log()
+            except Exception:
+                log_text = None
+            if not (log_text and log_text.strip()):
+                details += [
+                    "",
+                    "The job log is empty — the recipe likely never started. The inherited "
+                    "container's code-env image may be unbuilt.",
+                    "  Build the image:           dku code-env update-images <ENV_NAME>",
+                    f"  Or run on the DSS process: dku recipe set-env {recipe_name} --container-mode NONE -P {project_key}",
+                ]
             exit_with_error(
                 f"Recipe '{recipe_name}' {state.lower()} (job {job_id}).",
                 status=4,
@@ -412,15 +513,15 @@ def create(
         "-c",
         help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) and for sync recipes. Run 'dku connection list' to see available connections.",
     ),
-    input_role: str = typer.Option(
-        "main",
+    input_role: str | None = typer.Option(
+        None,
         "--input-role",
-        help="Input role name (for plugin recipes with non-standard roles)",
+        help="Input role name for plugin recipes. Omit to auto-resolve when the plugin declares exactly one input role; validated against the plugin's declared roles for dev plugins.",
     ),
-    output_role: str = typer.Option(
-        "main",
+    output_role: str | None = typer.Option(
+        None,
         "--output-role",
-        help="Output role name (for plugin recipes with non-standard roles)",
+        help="Output role name for plugin recipes. Omit to auto-resolve when the plugin declares exactly one output role; validated against the plugin's declared roles for dev plugins.",
     ),
     params: str | None = typer.Option(
         None,
@@ -586,15 +687,50 @@ def create(
             # Use DSSRecipeCreator directly in raw mode.
             from dataikuapi.dss.recipe import DSSRecipeCreator
 
+            # Resolve I/O roles against the plugin's declared role set so the
+            # recipe wires onto roles the plugin actually has (named-role plugins
+            # have no 'main' — wiring there fails at build).
+            manifest = _read_plugin_recipe_manifest(client, type_name)
+            manifest_readable = manifest is not None
+            declared_in = (
+                _declared_role_names(manifest.get("inputRoles")) if manifest else []
+            )
+            declared_out = (
+                _declared_role_names(manifest.get("outputRoles")) if manifest else []
+            )
+            if not manifest_readable and (input_role is None or output_role is None):
+                warn(
+                    f"Could not read plugin recipe '{type_name}' manifest (installed/non-dev "
+                    "plugin). Defaulting unset role(s) to 'main', which may not match the "
+                    "plugin's declared roles — if the build fails, set --input-role/--output-role "
+                    "explicitly (see: dku plugin recipes)."
+                )
+            resolved_input_role = _resolve_plugin_role(
+                input_role,
+                declared_in,
+                "input",
+                manifest_readable,
+                recipe_name,
+                type_name,
+            )
+            resolved_output_role = _resolve_plugin_role(
+                output_role,
+                declared_out,
+                "output",
+                manifest_readable,
+                recipe_name,
+                type_name,
+            )
+
             builder = DSSRecipeCreator(type_name, recipe_name, proj)
             builder.set_raw_mode()
             for _input in inputs:
-                builder.with_input(_input, role=input_role)
+                builder.with_input(_input, role=resolved_input_role)
             for _fid in input_folder_ids:
-                builder.with_input(_fid, role=input_role)
+                builder.with_input(_fid, role=resolved_input_role)
             # output_ref resolves folder-or-dataset outputs (upstream fix);
             # plugin recipes can target a managed folder, not just a dataset.
-            builder.with_output(output_ref, role=output_role)
+            builder.with_output(output_ref, role=resolved_output_role)
             # Plugin (CustomCode_*) recipes read their configuration from
             # recipe.params.customConfig — NOT from the payload. Writing --params
             # to creation_settings["rawPayload"] (the old behavior) left the
@@ -647,12 +783,24 @@ def create(
             elif type_lower in _TEXT_PAYLOAD_RECIPE_TYPES and hasattr(
                 builder, "with_new_output_dataset"
             ):
-                _ensure_output_dataset(client, proj, output_ds, project_key)
+                _ensure_output_dataset(
+                    client,
+                    proj,
+                    output_ds,
+                    project_key,
+                    input_dataset_ref=inputs[0] if inputs else None,
+                )
                 builder.with_output(output_ds)
             elif type_lower in {"prepare", "shaker"} and hasattr(
                 builder, "with_existing_output"
             ):
-                _ensure_output_dataset(client, proj, output_ds, project_key)
+                _ensure_output_dataset(
+                    client,
+                    proj,
+                    output_ds,
+                    project_key,
+                    input_dataset_ref=inputs[0] if inputs else None,
+                )
                 builder.with_existing_output(output_ds)
             elif is_visual and hasattr(builder, "with_existing_output"):
                 builder.with_existing_output(output_ds)

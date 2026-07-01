@@ -192,9 +192,10 @@ dku agent create-react NAME --llm LLM_ID --tool TOOL_ID [--tool …] \
 ```
 
 Each `--tool` is resolved name→ID before the agent is created; the graph is
-validated against the same rules as `agent-block add`. Later, `dku agent set-prompt
---new-version --activate` writes the loop block's `systemPromptAfterHistory` (where
-the runtime reads it).
+validated against the same rules as `agent-block add`. Later, `dku agent set-prompt`
+and `dku agent set-llm` (use `--new-version --activate` to iterate) write *into the
+loop block* — `systemPromptAfterHistory` and `llmId` respectively, where the runtime
+reads them, not the top-level structured-agent fields it ignores.
 
 **Don't reach for `agent create` + `set-llm retrieval-augmented-llm:…`** — that path
 produces a RAG-completion agent with no loop block, and the prompt field gets written

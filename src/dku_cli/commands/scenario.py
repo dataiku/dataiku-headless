@@ -1251,6 +1251,7 @@ def _add_step(
             steps.insert(max(at, 0), step)
             idx = max(at, 0)
         settings.save()
+        _warn_dropped_step_params(scenario, idx, step)
         success(
             f"Added {step.get('type', 'unknown')} step "
             f"'{step.get('name', step.get('id', ''))}' to scenario '{scenario_id}' at index {idx}"
@@ -1259,6 +1260,41 @@ def _add_step(
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+def _warn_dropped_step_params(scenario, idx: int, step: dict) -> None:
+    """Re-read the saved step and warn about any param key DSS silently dropped.
+
+    DSS accepts unrecognized step params, drops them on save (exit 0), and
+    applies nothing — the breakage surfaces only at run time (#228, same class
+    as #216). The classic case is ``buildMode`` (a non-key) instead of
+    ``jobType`` on a build step. DSS *adds* its own default keys on save, so we
+    only flag keys we SENT that did not survive, never the additions.
+    """
+    sent = step.get("params")
+    if not isinstance(sent, dict) or not sent:
+        return
+    try:
+        fresh_steps = _resolve_step_settings(scenario).raw_steps
+        kept = fresh_steps[idx].get("params", {})
+    except Exception:  # noqa: BLE001
+        return
+    if not isinstance(kept, dict):
+        return
+    dropped = [key for key in sent if key not in kept]
+    if not dropped:
+        return
+    hint = ""
+    if "buildMode" in dropped:
+        hint = (
+            " Build steps use 'jobType' (NON_RECURSIVE_FORCED_BUILD | "
+            "RECURSIVE_BUILD | RECURSIVE_FORCED_BUILD), not 'buildMode'."
+        )
+    warn(
+        f"DSS ignored unknown param key(s) on step "
+        f"'{step.get('name', step.get('id', ''))}': {', '.join(dropped)} — "
+        f"silently dropped, no effect." + hint
+    )
 
 
 @app.command("list-steps")

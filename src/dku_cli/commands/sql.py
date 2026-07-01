@@ -317,11 +317,12 @@ def query(
         for row in rows:
             data.append({col: val for col, val in zip(columns, row)})
 
+        n = len(rows)
         render(
             data,
             columns,
             output_format=output,
-            title=f"Query Results ({connection})",
+            title=f"Query Results ({connection}) — {n} row(s)",
         )
     except typer.Exit:
         raise

@@ -749,6 +749,118 @@ def recipes(
         handle_api_error(e)
 
 
+# Plugin component dirs we can enumerate via the dev-plugin file tree, mapped to
+# the (kind, type-string-template) the agent needs to actually USE the component.
+# {plugin} and {id} are filled per component. Recipe + agent-tool type formats are
+# live-verified; dataset (custom connector) type is <pluginId>_<connectorId>.
+_COMPONENT_DIRS = {
+    "custom-recipes": ("recipe", "CustomCode_{id}"),
+    "python-agent-tools": ("agent-tool", "Custom_agent_tool_{plugin}_{id}"),
+    "python-connectors": ("dataset", "{plugin}_{id}"),
+}
+
+
+@app.command()
+def components(
+    ctx: typer.Context,
+    plugin_id: str | None = typer.Argument(
+        None, help="Plugin ID (optional — lists components from all plugins if omitted)"
+    ),
+) -> None:
+    """List a plugin's usable components (recipes, agent-tools, datasets).
+
+    Surfaces the full type string each component needs:
+      recipe     → dku recipe create ... -t CustomCode_<id>
+      agent-tool → dku agent-tool create ... -t Custom_agent_tool_<plugin>_<id>
+      dataset    → custom connector type <plugin>_<id>
+
+    Only DEV plugins can be enumerated via the public API (they expose
+    list_files()); installed (non-dev) plugins are reported as an honest footer.
+    """
+    output_fmt = resolve_output_format()
+    try:
+        client = get_client_from_ctx(ctx)
+        plugins = client.list_plugins()
+
+        data: list[dict] = []
+        matched = False
+        opaque: list[str] = []
+        for p in plugins:
+            pid = p.get("id", "") if isinstance(p, dict) else ""
+            if plugin_id and pid != plugin_id:
+                continue
+            matched = True
+
+            if not _plugin_is_dev(p):
+                opaque.append(pid)
+                continue
+            try:
+                file_tree = client.get_plugin(pid).list_files()
+            except Exception:
+                opaque.append(pid)
+                continue
+
+            roots = file_tree if isinstance(file_tree, list) else [file_tree]
+            for item in roots:
+                if not isinstance(item, dict):
+                    continue
+                spec = _COMPONENT_DIRS.get(item.get("name", ""))
+                if spec is None:
+                    continue
+                kind, type_tmpl = spec
+                for child in item.get("children", []) or []:
+                    if isinstance(child, dict) and child.get("children") is not None:
+                        cid = child.get("name", "")
+                        data.append(
+                            {
+                                "plugin": pid,
+                                "kind": kind,
+                                "id": cid,
+                                "type": type_tmpl.format(plugin=pid, id=cid),
+                            }
+                        )
+
+        if plugin_id and not matched:
+            error(f"Plugin '{plugin_id}' not found.")
+            info("Run: dku plugin list")
+            raise typer.Exit(3)
+
+        if not plugins:
+            info("No plugins installed. Install one: dku plugin push <path>")
+            return
+
+        if data:
+            render(
+                data,
+                ["plugin", "kind", "id", "type"],
+                output_format=output_fmt,
+                title="Plugin Components",
+                headers={
+                    "plugin": "PLUGIN",
+                    "kind": "KIND",
+                    "id": "ID",
+                    "type": "TYPE (use to create)",
+                },
+            )
+        elif output_fmt == "json":
+            render([], ["plugin", "kind", "id", "type"], output_format="json")
+
+        if opaque and output_fmt != "json":
+            info(
+                "The public API cannot enumerate components of installed "
+                "(non-dev) plugins: " + ", ".join(sorted(set(opaque)))
+            )
+            info(
+                "Inspect their source to find component ids: dku plugin download "
+                "<plugin-id> (component dirs: custom-recipes/, python-agent-tools/, "
+                "python-connectors/)."
+            )
+    except (SystemExit, typer.Exit):
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command("list-files")
 def list_files(
     ctx: typer.Context,

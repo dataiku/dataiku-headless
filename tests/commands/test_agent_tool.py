@@ -488,7 +488,9 @@ def test_agent_tool_set_definition(patch_client):
     tool.get_settings.return_value.save.assert_called_once()
     # Verify the update was actually applied to the raw dict
     raw = tool.get_settings.return_value.get_raw.return_value
-    assert raw["params"] == {"apiKey": "secret"}
+    assert raw["params"]["apiKey"] == "secret"
+    assert raw["params"]["retrievalMode"] == "SINGLE_RECORD"
+    assert raw["params"]["maxRecords"] == 5
 
 
 def test_agent_tool_set_definition_from_file(patch_client, tmp_path):
@@ -662,6 +664,28 @@ def test_agent_tool_set_definition_params_only(patch_client):
     raw = tool.get_settings.return_value.get_raw.return_value
     assert raw["params"]["smRef"] == "model_abc"
     tool.get_settings.return_value.save.assert_called_once()
+
+
+def test_agent_tool_set_definition_definition_params_only_preserves_siblings(
+    patch_client,
+):
+    result = runner.invoke(
+        app,
+        [
+            "agent-tool",
+            "set-definition",
+            "tool1",
+            "--definition",
+            '{"params": {"retrievalMode": "MULTIPLE_RECORDS"}}',
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    tool = patch_client.get_project("PROJ1").get_agent_tool("tool1")
+    raw = tool.get_settings.return_value.get_raw.return_value
+    assert raw["params"]["retrievalMode"] == "MULTIPLE_RECORDS"
+    assert raw["params"]["maxRecords"] == 5
 
 
 def test_agent_tool_set_definition_requires_definition_or_params(patch_client):

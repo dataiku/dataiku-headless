@@ -509,7 +509,9 @@ def test_agent_status_calls_status_not_get_status(patch_client):
 
 
 def test_agent_set_prompt_structured_agent(patch_client):
-    """A structured agent with NO loop block falls back to systemPromptAppend."""
+    """A structured agent with NO loop block has nowhere to hold a prompt, so
+    set-prompt must refuse loudly (issue #178) instead of silently writing the
+    runtime-ignored systemPromptAppend and reporting success."""
     result = runner.invoke(
         app,
         [
@@ -522,17 +524,9 @@ def test_agent_set_prompt_structured_agent(patch_client):
             "PROJ1",
         ],
     )
-    assert result.exit_code == 0
-    assert "systemPromptAppend" in result.output
-
-    raw = (
-        patch_client.get_project("PROJ1")
-        .get_agent("structured_agent_empty")
-        .get_settings()
-        .get_raw()
-    )
-    cfg = raw["versions"][0]["structuredAgentSettings"]
-    assert cfg["systemPromptAppend"] == "New structured prompt"
+    assert result.exit_code != 0
+    assert "loop block" in result.output
+    assert "create-react" in result.output
 
 
 def test_agent_set_prompt_simple_agent_uses_systemPromptAppend(patch_client):
@@ -566,7 +560,14 @@ def test_agent_set_prompt_simple_agent_uses_systemPromptAppend(patch_client):
 
 
 def test_agent_set_llm_structured_agent(patch_client):
-    """set-llm should fall back to raw dict mutation for structured agents."""
+    """set-llm writes a structured agent's loop-block llmId, NOT a top-level
+    structuredAgentSettings.llmId.
+
+    Regression: a structured agent (e.g. create-react) holds its model in the
+    loop block. The command used to write structuredAgentSettings.llmId — a key
+    DSS ignores for block-based agents — so a model swap reported success while
+    the loop block (and the runtime) kept the old model.
+    """
     result = runner.invoke(
         app,
         [
@@ -586,7 +587,43 @@ def test_agent_set_llm_structured_agent(patch_client):
         patch_client.get_project("PROJ1").get_agent("structured_agent").get_settings()
     )
     ver_raw = settings.get_version_settings("v1").get_raw()
-    assert ver_raw["structuredAgentSettings"]["llmId"] == "anthropic:conn:claude-4"
+    loop = next(
+        b
+        for b in ver_raw["structuredAgentSettings"]["blocks"]
+        if b["id"] == "main_loop"
+    )
+    assert loop["llmId"] == "anthropic:conn:claude-4"
+    assert "llmId" not in ver_raw["structuredAgentSettings"]
+
+
+def test_agent_set_llm_structured_agent_new_version(patch_client):
+    """--new-version (positional llm id) retargets the NEW version's loop-block
+    llmId. Regression guard for the create-react silent no-op."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "set-llm",
+            "structured_agent",
+            "anthropic:conn:claude-4",
+            "--new-version",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    raw = (
+        patch_client.get_project("PROJ1")
+        .get_agent("structured_agent")
+        .get_settings()
+        .get_raw()
+    )
+    v2 = next(v for v in raw["versions"] if v["versionId"] == "v2")
+    loop = next(
+        b for b in v2["structuredAgentSettings"]["blocks"] if b["id"] == "main_loop"
+    )
+    assert loop["llmId"] == "anthropic:conn:claude-4"
+    assert "llmId" not in v2["structuredAgentSettings"]
 
 
 def test_agent_add_tool_structured_agent_rejected(patch_client):

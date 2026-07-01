@@ -346,6 +346,14 @@ class FeatureRescaling(_StrEnum):
     MINMAX = "MINMAX"
 
 
+class FeatureMissingHandling(_StrEnum):
+    IMPUTE_MEAN = "IMPUTE_MEAN"
+    IMPUTE_MEDIAN = "IMPUTE_MEDIAN"
+    IMPUTE_MODE = "IMPUTE_MODE"
+    DROP_ROWS = "DROP_ROWS"
+    NONE = "NONE"
+
+
 class RebuildBehavior(_StrEnum):
     NORMAL = "NORMAL"
     WRITE_PROTECT = "WRITE_PROTECT"

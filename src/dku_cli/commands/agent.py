@@ -1,4 +1,4 @@
-"""dku agent — list, create, get, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, set-metadata, test, list-versions, create-version, set-active-version."""
+"""dku agent — list, create, get, rename, delete, wake-up, shutdown, status, add-tool, set-llm, set-prompt, set-metadata, test, list-versions, create-version, set-active-version."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from dku_cli.helpers import (
     update_taggable_metadata,
 )
 from dku_cli.output import (
+    emit_created,
     error,
     hint,
     info,
@@ -132,6 +133,24 @@ def _find_loop_block(cfg: dict) -> dict | None:
     return None
 
 
+def _set_structured_agent_llm(ver_raw: dict, llm_id: str) -> bool:
+    """Write llm_id into a structured agent's loop block.
+
+    A block-based structured agent (e.g. create-react) holds its model in the
+    loop block's llmId, not in a top-level structuredAgentSettings.llmId — DSS
+    ignores the latter for these agents, so writing it persists nothing the
+    runtime reads. Mirrors how set-prompt targets the loop block. Returns True
+    when a loop block was found and written.
+    """
+    cfg = ver_raw.setdefault("structuredAgentSettings", {})
+    loop_block = _find_loop_block(cfg)
+    if loop_block is not None:
+        loop_block["llmId"] = llm_id
+        return True
+    cfg["llmId"] = llm_id
+    return False
+
+
 @app.command("list")
 def list_agents(
     ctx: typer.Context,
@@ -188,6 +207,15 @@ def create(
             output_format=resolve_output_format(),
         )
         success(f"Created agent '{name}' (id={agent.id}, type={agent_type.value})")
+        if agent_type == AgentType.STRUCTURED_AGENT:
+            warn(
+                f"Empty structured agent '{name}' is non-functional — it has no loop "
+                "block, so set-prompt/set-llm/add-tool have nothing to write to."
+            )
+            hint(
+                f"dku agent create-react {name} --llm <id> -P {project_key} "
+                "builds a complete tool-calling (CORE_LOOP) agent instead."
+            )
         hint(f"dku agent get {agent.id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
@@ -369,6 +397,62 @@ def get(
         settings = agent.get_settings()
         raw = settings.get_raw()
         render_raw(raw, output_format=output)
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command()
+def rename(
+    ctx: typer.Context,
+    agent_ref: str = typer.Argument(help="Agent ID or name"),
+    new_name: str = typer.Argument(help="New agent name"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Rename an agent. Accepts agent ID or name."""
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        agent = resolve_agent(proj, agent_ref)
+
+        # An agent is backed by a saved model. The agent-settings PUT
+        # (/projects/K/agents/ID) silently drops `name`; only the saved-model
+        # PUT (/projects/K/savedmodels/ID, what DSSSavedModelSettings.save does)
+        # persists the display name. Verified live on DSS 14.6.
+        sm = proj.get_saved_model(agent.id)
+        settings = sm.get_settings()
+        raw = settings.get_raw()
+        old_name = raw.get("name")
+        raw["name"] = new_name
+        settings.save()
+
+        # Round-trip verify — re-GET and confirm the rename actually landed, so
+        # a silently-dropped name fails loudly instead of reporting fake success.
+        persisted = proj.get_saved_model(agent.id).get_settings().get_raw().get("name")
+        if persisted != new_name:
+            exit_with_error(
+                f"Rename did not persist for agent '{agent_ref}' "
+                f"(name is still '{persisted}', not '{new_name}').",
+                details=[
+                    f"Re-check: dku agent get {agent.id} -P {project_key}",
+                    "Renaming agents may be unsupported via the DSS public API on "
+                    f"this version — rename in the UI: {client.host}/projects/"
+                    f"{project_key}/savedmodels/{agent.id}/",
+                ],
+                status=1,
+            )
+
+        emit_created(
+            {
+                "id": agent.id,
+                "name": new_name,
+                "savedModelType": raw.get("savedModelType"),
+            },
+            message=f"Renamed agent '{old_name}' to '{new_name}' (id={agent.id})",
+            next_command=f"dku agent get {agent.id} -P {project_key}",
+        )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -772,6 +856,17 @@ def set_prompt(
         if loop_block is not None:
             loop_block["systemPromptAfterHistory"] = prompt_text
             field_desc = f"systemPromptAfterHistory (block={loop_block['id']})"
+        elif agent_raw.get("type") == "STRUCTURED_AGENT":
+            # A structured agent with no loop block has nowhere to hold a prompt;
+            # writing systemPromptAppend saves but DSS drops it at runtime.
+            exit_with_error(
+                f"Structured agent '{agent_id}' has no loop block to hold a prompt.",
+                details=[
+                    f"Build one with: dku agent create-react <name> --llm <id> -P {project_key} "
+                    "(creates a CORE_LOOP).",
+                ],
+                status=1,
+            )
         else:
             cfg["systemPromptAppend"] = prompt_text
             field_desc = "systemPromptAppend"
@@ -970,12 +1065,10 @@ def set_code(
 def set_llm(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID or name"),
-    llm_id: str = typer.Option(
-        ...,
-        "--llm-id",
-        "--llm",
-        help="LLM ID to set (e.g. 'openai:conn:gpt-4o'). --llm is an accepted alias.",
+    llm_id: str = typer.Argument(
+        None, help="LLM id (provider:conn:model). Discover: dku llm list -P PROJ"
     ),
+    llm_id_opt: str = typer.Option(None, "--llm-id", "--llm", help="(alias) LLM id"),
     new_version: bool = typer.Option(
         False,
         "--new-version",
@@ -993,7 +1086,19 @@ def set_llm(
     Pass --new-version to publish the LLM change as a fresh version (reversible).
     Without it, the active version is mutated in place (GET → modify llmId → PUT),
     preserving existing tools and prompt.
+
+    Examples:
+      dku agent set-llm my_agent openai:conn:gpt-4o -P PROJ
+      dku agent set-llm my_agent --llm-id openai:conn:gpt-4o -P PROJ
     """
+    # LLM id is positional (mirrors `llm completion <LLM_ID>`); --llm-id/--llm
+    # remain accepted aliases for backward compatibility.
+    llm_id = llm_id or llm_id_opt
+    if not llm_id:
+        raise typer.BadParameter("Provide the LLM id positionally or via --llm-id")
+    llm_id, quotes_stripped = clean_llm_id(llm_id)
+    if quotes_stripped:
+        warn(f"Stripped stray quotes from LLM id; using '{llm_id}'.")
     if activate and not new_version:
         error("--activate requires --new-version.")
         raise typer.Exit(1)
@@ -1005,14 +1110,36 @@ def set_llm(
         settings = agent.get_settings()
         agent_raw = settings.get_raw()
 
+        # A structured agent with no loop block has nowhere to hold an LLM;
+        # writing structuredAgentSettings.llmId saves but DSS drops it.
+        if agent_raw.get("type") == "STRUCTURED_AGENT":
+            active_ver_id = settings.active_version
+            if active_ver_id is None:
+                version_ids = settings.get_version_ids()
+                active_ver_id = version_ids[0] if version_ids else None
+            src_cfg = {}
+            if active_ver_id is not None:
+                src_cfg = (
+                    settings.get_version_settings(active_ver_id)
+                    .get_raw()
+                    .get("structuredAgentSettings", {})
+                )
+            if _find_loop_block(src_cfg) is None:
+                exit_with_error(
+                    f"Structured agent '{agent_id}' has no loop block to hold an LLM.",
+                    details=[
+                        f"Build one with: dku agent create-react <name> --llm <id> -P {project_key} "
+                        "(creates a CORE_LOOP).",
+                    ],
+                    status=1,
+                )
+
         if new_version:
             ver_raw, new_vid = _deep_copy_version(settings)
-            cfg_key = (
-                "structuredAgentSettings"
-                if agent_raw.get("type") == "STRUCTURED_AGENT"
-                else "toolsUsingAgentSettings"
-            )
-            ver_raw.setdefault(cfg_key, {})["llmId"] = llm_id
+            if agent_raw.get("type") == "STRUCTURED_AGENT":
+                _set_structured_agent_llm(ver_raw, llm_id)
+            else:
+                ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
             settings.save()
             if activate:
                 _activate_version(proj, agent.id, new_vid)
@@ -1031,18 +1158,16 @@ def set_llm(
                 raise typer.Exit(1)
             active_ver_id = version_ids[0]
 
-        # Try dataikuapi's property setter (works for TOOLS_USING_AGENT only)
+        # TOOLS_USING_AGENT stores a flat llmId (dataikuapi property setter);
+        # a structured agent holds it in the loop block, not a top-level field.
         ver_settings = settings.get_version_settings(active_ver_id)
-        try:
-            ver_settings.llm_id = llm_id
-        except (ValueError, AttributeError):
-            # Structured agent — dataikuapi property raises ValueError.
-            # Use agent type (not key presence) — newly-created STRUCTURED_AGENT
-            # may lack the structuredAgentSettings key.
-            ver_raw = ver_settings.get_raw()
-            if agent_raw.get("type") == "STRUCTURED_AGENT":
-                ver_raw.setdefault("structuredAgentSettings", {})["llmId"] = llm_id
-            else:
+        ver_raw = ver_settings.get_raw()
+        if agent_raw.get("type") == "STRUCTURED_AGENT":
+            _set_structured_agent_llm(ver_raw, llm_id)
+        else:
+            try:
+                ver_settings.llm_id = llm_id
+            except (ValueError, AttributeError):
                 ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
         settings.save()
         success(f"Set LLM '{llm_id}' on agent '{agent_id}'")

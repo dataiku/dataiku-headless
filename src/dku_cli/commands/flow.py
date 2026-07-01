@@ -643,6 +643,63 @@ def _detect_item_type(proj, name: str) -> str | None:
     return None
 
 
+def _detect_all_item_types(proj, name: str) -> list[str]:
+    """Return EVERY known item kind that ``name`` resolves to, not just the first.
+
+    ``flow move --type AUTO`` used "first match wins", so a name shared by a
+    dataset and a same-named recipe (common: a sync/topn recipe named after its
+    output) silently moved only the dataset and stranded the recipe (#219).
+    Callers move every match and report the fan-out.
+    """
+    matches = []
+    for kind in (
+        "DATASET",
+        "RECIPE",
+        "SAVED_MODEL",
+        "MANAGED_FOLDER",
+        "KNOWLEDGE_BANK",
+        "MODEL_EVALUATION_STORE",
+    ):
+        with contextlib.redirect_stderr(io.StringIO()):
+            obj, exc = _try_resolve_item(proj, name, kind)
+        if obj is not None and exc is None:
+            matches.append(kind)
+    return matches
+
+
+def _resolve_auto_items(proj, name: str, project_key: str) -> list:
+    """Resolve EVERY object a name matches under ``--type AUTO`` (#219). Exits
+    when nothing matches; notes the fan-out when a name matches more than one."""
+    detected = _detect_all_item_types(proj, name)
+    if not detected:
+        exit_with_error(
+            f"'{name}' is not a dataset, recipe, managed folder, "
+            f"saved model, knowledge bank, or evaluation store "
+            f"in '{project_key}'.",
+            details=[
+                "Verify the name exists:",
+                f"  dku dataset list -P {project_key}",
+                f"  dku recipe list -P {project_key}",
+                f"  dku folder list -P {project_key}",
+                f"  dku model list -P {project_key}",
+                f"  dku knowledge list -P {project_key}",
+                f"  dku evaluation-store list -P {project_key}",
+            ],
+        )
+    if len(detected) > 1:
+        info(
+            f"'{name}' matches {len(detected)} objects "
+            f"({', '.join(k.lower() for k in detected)}); moving all. "
+            f"Pass --type to target just one."
+        )
+    objs = []
+    for kind in detected:
+        obj, _ = _try_resolve_item(proj, name, kind)
+        if obj is not None:
+            objs.append(obj)
+    return objs
+
+
 @app.command()
 def move(
     ctx: typer.Context,
@@ -677,8 +734,11 @@ def move(
     """Move items to a flow zone. Use instead of manually organizing in the DSS UI.
 
     Move datasets, recipes, folders, or models to a named zone. Pass
-    ``--type AUTO`` to mix all four item types in a single call —
-    each name is resolved against every kind and the first match wins.
+    ``--type AUTO`` to mix all four item types in a single call — each name is
+    resolved against every kind and ALL matches move (a name shared by a
+    dataset and a same-named recipe moves both, with a note). Agents are
+    saved-model objects: AUTO resolves them, but a model that resolves only by
+    id needs --type SAVED_MODEL.
     By default, creates the target zone if it does not yet exist —
     pass --no-create-zone to fail instead.
 
@@ -711,24 +771,7 @@ def move(
         resolved = []
         for name in items:
             if item_type_upper == "AUTO":
-                detected = _detect_item_type(proj, name)
-                if detected is None:
-                    exit_with_error(
-                        f"'{name}' is not a dataset, recipe, managed folder, "
-                        f"saved model, knowledge bank, or evaluation store "
-                        f"in '{project_key}'.",
-                        details=[
-                            "Verify the name exists:",
-                            f"  dku dataset list -P {project_key}",
-                            f"  dku recipe list -P {project_key}",
-                            f"  dku folder list -P {project_key}",
-                            f"  dku model list -P {project_key}",
-                            f"  dku knowledge list -P {project_key}",
-                            f"  dku evaluation-store list -P {project_key}",
-                        ],
-                    )
-                obj, _ = _try_resolve_item(proj, name, detected)
-                resolved.append(obj)
+                resolved.extend(_resolve_auto_items(proj, name, project_key))
                 continue
 
             # Suppress the resolver's own pre-printed "not found" line so the

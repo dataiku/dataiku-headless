@@ -30,6 +30,23 @@ def _ensure_embed_docs_payload(settings) -> dict:
     return payload
 
 
+def _files_in_folder_backing(proj, dataset_name: str) -> str | None:
+    """Return the managed-folder id backing a FilesInFolder dataset.
+
+    DSS 14.5+ resolves an embed_documents recipe's inputs.main as a managed
+    FOLDER. A FilesInFolder dataset wraps a folder via params.folderSmartId;
+    wiring that folder directly is the shape that builds. Returns None when the
+    dataset isn't a FilesInFolder (caller keeps dataset wiring).
+    """
+    try:
+        defn = proj.get_dataset(dataset_name).get_definition()
+    except Exception:
+        return None
+    if defn.get("type") != "FilesInFolder":
+        return None
+    return (defn.get("params") or {}).get("folderSmartId") or None
+
+
 @app.command("create-embed")
 def create_embed(
     ctx: typer.Context,
@@ -183,8 +200,9 @@ def create_embed_docs(
         "-i",
         help=(
             "Input FilesInFolder dataset wrapping a managed folder of documents "
-            "(build one with `dku folder create-dataset`). Either --input or "
-            "--input-folder is required."
+            "(build one with `dku folder create-dataset`). The CLI rewires this "
+            "to the dataset's backing managed folder, the shape DSS resolves "
+            "inputs.main as. Either --input or --input-folder is required."
         ),
     ),
     output_kb: str = typer.Option(
@@ -243,9 +261,9 @@ def create_embed_docs(
         "--input-folder",
         help=(
             "Managed-folder ID or name to use as the recipe's main input — "
-            "the canonical DSS 14.5+ folder→KB pattern, no FilesInFolder "
-            "wrapper needed. If --input is ALSO given, the folder is attached "
-            "as a 'documents' role (legacy DSS 14.4-compatible behavior)."
+            "the canonical folder→KB pattern, no FilesInFolder wrapper needed. "
+            "If --input is ALSO given, the folder is attached as a separate "
+            "'documents' role on top of the main input."
         ),
     ),
     output_images_folder: str | None = typer.Option(
@@ -296,13 +314,13 @@ def create_embed_docs(
     """Create an Embed Documents recipe (extracts + chunks + embeds documents into a KB).
 
     Two input shapes are supported:
-      1. **Folder direct (canonical DSS 14.5+)**: pass --input-folder FOLDER_ID
-         alone. The recipe reads the managed folder directly — no FilesInFolder
-         wrapper needed. This is what modern RAG flows use.
-      2. **Legacy (DSS 14.4-)**: pass --input FILESINFOLDER_DATASET. Build the
-         wrapper dataset first via `dku folder create-dataset`. If you ALSO
-         pass --input-folder, the folder is attached as a 'documents' role on
-         top of the main dataset.
+      1. **Folder direct**: pass --input-folder FOLDER_ID alone. The recipe
+         reads the managed folder directly — no FilesInFolder wrapper needed.
+      2. **FilesInFolder dataset**: pass --input FILESINFOLDER_DATASET (build the
+         wrapper dataset first via `dku folder create-dataset`). The CLI rewires
+         inputs.main to the dataset's backing managed folder, so this resolves to
+         the same folder-direct shape that builds. If you ALSO pass
+         --input-folder, that folder is attached as a separate 'documents' role.
 
     Exactly one of --input or --input-folder is required.
 
@@ -356,14 +374,18 @@ def create_embed_docs(
         )
 
         # Folder-direct path needs to bypass the builder's required with_input.
-        # When only --input-folder is provided we build a stub recipe via the
-        # creator (so DSS provisions the KB output and creation_settings), then
-        # rewire inputs.main to point at the folder. dataikuapi has no
+        # DSS 14.5+ resolves embed_documents inputs.main as a managed FOLDER, not
+        # a dataset, so a --input FilesInFolder dataset must be rewired to its
+        # backing managed folder (params.folderSmartId) — otherwise the build
+        # fails with "managed folder does not exist: PROJ.<ds>". We resolve the
+        # backing folder up front and wire/rewire inputs.main to it, the same
+        # folder-direct shape the --input-folder path uses. dataikuapi has no
         # with_input_folder() for embed_documents — this is the canonical
         # workaround for the gap.
+        main_folder_id = _files_in_folder_backing(proj, input_ds) if input_ds else None
         builder = proj.new_recipe("embed_documents", recipe_name)
         if input_ds:
-            builder.with_input(input_ds)
+            builder.with_input(main_folder_id or input_ds)
         else:
             # No dataset input — use the folder ref directly so the creator's
             # input validation passes. We re-wire below.
@@ -436,11 +458,20 @@ def create_embed_docs(
             effective_extraction_mode is not None or parsed_rules is not None
         )
         any_io_change = input_folder is not None or output_images_folder is not None
-        # Folder-only path requires we rewrite inputs.main even when no other
-        # knobs are set, otherwise the recipe stays wired to the (non-existent
-        # or wrong) dataset placeholder.
         folder_only = bool(input_folder) and not input_ds
-        if any_payload_change or any_params_change or any_io_change or folder_only:
+        # The managed-folder ref inputs.main must point at: the backing folder of
+        # a --input FilesInFolder dataset, or the --input-folder itself. Rewriting
+        # is required even when no other knobs are set, otherwise the recipe stays
+        # wired to a dataset ref that DSS 14.5+ rejects as a missing folder.
+        rewrite_main_folder_id = main_folder_id or (
+            input_folder_id if folder_only else None
+        )
+        if (
+            any_payload_change
+            or any_params_change
+            or any_io_change
+            or rewrite_main_folder_id
+        ):
             recipe_obj = proj.get_recipe(recipe_name)
             settings = recipe_obj.get_settings()
             _ensure_embed_docs_payload(settings)
@@ -477,16 +508,16 @@ def create_embed_docs(
                     params["extractionMode"] = effective_extraction_mode
                 if parsed_rules is not None:
                     params["rules"] = parsed_rules
-            if any_io_change or folder_only:
+            if any_io_change or rewrite_main_folder_id:
                 raw_def = settings.get_recipe_raw_definition()
-                if folder_only:
-                    # Rewire main input to the folder (canonical DSS 14.5+
-                    # folder→KB shape).
+                if rewrite_main_folder_id:
+                    # Wire main input to the managed folder (canonical DSS 14.5+
+                    # folder→KB shape; --input transparently becomes this too).
                     inputs = raw_def.setdefault("inputs", {})
-                    inputs["main"] = {"items": [{"ref": input_folder_id}]}
-                elif input_folder is not None:
-                    # Legacy path: attach folder as 'documents' role on top of
-                    # the main FilesInFolder dataset input.
+                    inputs["main"] = {"items": [{"ref": rewrite_main_folder_id}]}
+                if input_folder is not None and input_ds:
+                    # Combined path: --input dataset + --input-folder attaches the
+                    # extra folder as a 'documents' role on top of the main input.
                     inputs = raw_def.setdefault("inputs", {})
                     inputs.setdefault("documents", {"items": []})["items"].append(
                         {"ref": input_folder_id}

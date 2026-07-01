@@ -100,23 +100,42 @@ def create(
         handle_api_error(e)
 
 
+def _warn_unbuilt_image_hint() -> None:
+    """Emit the most common cause of a crash with no log: an unbuilt code-env image.
+
+    A webapp backend that inherits a container code env crashes silently (no
+    log tail) when that env's container image was never built. Point the user
+    at the rebuild verb, or at falling back to the DSS process.
+    """
+    warn(
+        "Backend crashed with no log — the inherited container's code-env "
+        "image may not be built."
+    )
+    hint(
+        "Verify: dku code-env update-images <env>; or run the webapp backend "
+        "on the DSS process (Container = None)."
+    )
+
+
 def _print_crash_tail(webapp, webapp_id: str) -> None:
     """Print lastCrashLogTail to stdout after a failed boot (best-effort).
 
     Called right after a DataikuException from wait_for_result() so the caller
     already printed the root-cause message; this adds the raw log tail for
-    extra context. Failures are silently swallowed — never mask the original
-    exception.
+    extra context. When the crash tail is empty (the backend died before
+    writing any log), fall back to the unbuilt-image hint. Failures are
+    silently swallowed — never mask the original exception.
     """
     try:
         raw = webapp.get_state().state
         crash_tail = raw.get("lastCrashLogTail") if isinstance(raw, dict) else None
-        if crash_tail:
-            lines = list(crash_tail.get("lines") or [])
-            if lines:
-                warn(f"Last crash log for '{webapp_id}':")
-                for line in lines:
-                    print(line)
+        lines = list(crash_tail.get("lines") or []) if crash_tail else []
+        if lines:
+            warn(f"Last crash log for '{webapp_id}':")
+            for line in lines:
+                print(line)
+        else:
+            _warn_unbuilt_image_hint()
     except Exception:
         pass
 
@@ -302,7 +321,7 @@ def set_definition(
 
 
 def _fetch_log_tail(
-    webapp, project_key: str, webapp_id: str
+    webapp, project_key: str, webapp_id: str, prefer_crash: bool = False
 ) -> tuple[int, list[str], bool, bool]:
     """Return (totalLines, lines, running, crashed) from DSS backend state.
 
@@ -310,13 +329,21 @@ def _fetch_log_tail(
     after a failed boot) rather than `currentLogTail` (live backend). Callers
     should surface this distinction to the user.
 
+    When `prefer_crash` is set, `lastCrashLogTail` is read even if a live
+    `currentLogTail` is present — used by `logs --crash` to inspect the prior
+    crash after a restart has brought the backend back up.
+
     Exits via exit_with_error when *both* tails are absent and the backend is
     not running — a blank result would leave the user guessing.
     """
     state_wrapper = webapp.get_state()
     raw = state_wrapper.state  # public property → underlying dict
     running = bool(state_wrapper.running)
-    tail = raw.get("currentLogTail") if isinstance(raw, dict) else None
+    tail = (
+        None
+        if prefer_crash
+        else (raw.get("currentLogTail") if isinstance(raw, dict) else None)
+    )
     crashed = False
     if not tail:
         crash_tail = raw.get("lastCrashLogTail") if isinstance(raw, dict) else None
@@ -428,6 +455,12 @@ def logs(
         "--grep",
         help="Show only lines containing this text (case-insensitive).",
     ),
+    crash: bool = typer.Option(
+        False,
+        "--crash",
+        help="Force the prior crash log (lastCrashLogTail) even if the "
+        "backend is now running — inspect the crash after a restart.",
+    ),
 ) -> None:
     """Read recent backend logs for a web app.
 
@@ -464,7 +497,9 @@ def logs(
             _follow_logs(webapp, project_key, webapp_id, tail, grep)
             return
 
-        total, lines, running, crashed = _fetch_log_tail(webapp, project_key, webapp_id)
+        total, lines, running, crashed = _fetch_log_tail(
+            webapp, project_key, webapp_id, prefer_crash=crash
+        )
         shown = lines if tail is None else lines[-tail:]
         shown = _grep_lines(shown, grep)
 

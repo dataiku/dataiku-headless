@@ -42,6 +42,7 @@ plugins/
 tmp/
 demo/
 work/
+scratch/
 
 # IDE configs
 .idea/

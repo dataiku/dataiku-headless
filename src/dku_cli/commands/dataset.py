@@ -60,7 +60,7 @@ register_dataset_quality_commands(app)
 
 
 def _autodetect_and_warn(
-    ds, dataset_name: str, project_key: str, quiet_warnings: bool = False
+    client, ds, dataset_name: str, project_key: str, quiet_warnings: bool = False
 ) -> None:
     """Auto-detect an uploaded dataset's format/schema and warn on all-STRING.
 
@@ -92,6 +92,24 @@ def _autodetect_and_warn(
             ],
         )
     schema_cols = detected.get_raw().get("schema", {}).get("columns", [])
+    # autodetect_settings() reconciles against the OLD schema (silently keeping
+    # stale columns after an overwrite) and ignores inferStorageTypes (#222).
+    # Re-derive the full schema — added/removed columns AND storage types — via
+    # the detectPossibleFormats=false pass DSS actually honors, then persist it.
+    # Skip when sheet targeting follows: it re-detects against the chosen sheet
+    # right after, so this pass would be wasted work on the wrong (first) sheet.
+    if not quiet_warnings:
+        try:
+            _settings, full_cols, _reasons = _redetect_schema_keeping_format(
+                client, project_key, dataset_name, infer_types=True
+            )
+        except Exception:  # noqa: BLE001
+            full_cols = []
+        if full_cols:
+            fresh = ds.get_settings()
+            fresh.get_raw()["schema"] = {"columns": full_cols, "userModified": True}
+            fresh.save()
+            schema_cols = full_cols
     success(
         f"Format detected: {detected.get_raw().get('formatType', 'unknown')} "
         f"({len(schema_cols)} columns)"
@@ -188,13 +206,65 @@ def _run_detection(
     keep_format: bool,
 ):
     """Run full autodetection, or schema-only detection when keep_format is set."""
-    if not keep_format:
-        return ds.autodetect_settings(infer_storage_types=infer_types)
-    detected, detected_cols, _reasons = _redetect_schema_keeping_format(
-        client, project_key, dataset_name, infer_types=infer_types
-    )
-    detected.get_raw()["schema"] = {"columns": detected_cols, "userModified": True}
-    return detected
+    if keep_format:
+        detected, detected_cols, _reasons = _redetect_schema_keeping_format(
+            client, project_key, dataset_name, infer_types=infer_types
+        )
+        detected.get_raw()["schema"] = {"columns": detected_cols, "userModified": True}
+        return detected
+    settings = ds.autodetect_settings(infer_storage_types=infer_types)
+    if infer_types:
+        settings = _maybe_infer_storage_types(
+            client, project_key, dataset_name, settings
+        )
+    return settings
+
+
+def _maybe_infer_storage_types(client, project_key: str, dataset_name: str, settings):
+    """Graft inferred storage types onto an all-STRING autodetect result.
+
+    DSS honors ``inferStorageTypes`` only on the ``detectPossibleFormats=false``
+    detection pass; the full-detect endpoint behind ``autodetect_settings()``
+    silently ignores it and returns every column as STRING (#222). When that
+    happened, re-infer against the dataset's saved format and graft the
+    typed/widened columns on. Tolerant of datasets the fsLike pass can't touch
+    (e.g. SQL) — those return real types from autodetect anyway, so the
+    all-STRING guard below skips them.
+    """
+    cols = settings.get_raw().get("schema", {}).get("columns", [])
+    if not cols or not all(c.get("type") == "string" for c in cols):
+        return settings
+    try:
+        _detected, typed_cols, _reasons = _redetect_schema_keeping_format(
+            client, project_key, dataset_name, infer_types=True
+        )
+    except Exception:  # noqa: BLE001
+        return settings
+    if typed_cols and not all(c.get("type") == "string" for c in typed_cols):
+        settings.get_raw()["schema"] = {"columns": typed_cols, "userModified": True}
+    return settings
+
+
+def _warn_detect_all_string(
+    schema_cols, infer_types: bool, dataset_name: str, project_key: str
+) -> None:
+    """Warn when every detected column is STRING, without recommending a flag
+    that was already supplied (#222)."""
+    string_cols = [c for c in schema_cols if c.get("type") == "string"]
+    if not (schema_cols and len(string_cols) == len(schema_cols)):
+        return
+    if infer_types:
+        warn(
+            "Type inference ran but every column is genuinely STRING "
+            "(no column had all-numeric/date sampled values). Sample "
+            f"real rows: dku dataset infer-types {dataset_name} --apply "
+            f"-P {project_key}, or set types with set-schema."
+        )
+    else:
+        warn(
+            "All columns detected as STRING. Re-run with --infer-types "
+            "to detect numeric/date types, or fix manually with set-schema."
+        )
 
 
 def _validate_sheet_flags(
@@ -1650,7 +1720,7 @@ def upload(
                 sheet or sheet_indices or all_sheets or sheets_to_column
             )
             _autodetect_and_warn(
-                ds, dataset_name, project_key, quiet_warnings=wants_sheets
+                client, ds, dataset_name, project_key, quiet_warnings=wants_sheets
             )
             if wants_sheets:
                 _apply_excel_sheet_targeting(
@@ -1667,6 +1737,15 @@ def upload(
     except typer.Exit:
         raise
     except Exception as e:
+        if is_already_exists_error(e):
+            exit_with_error(
+                f"A file named '{local_path.name}' is already uploaded to "
+                f"dataset '{dataset_name}'.",
+                details=[
+                    f"Re-run with --overwrite to clear the dataset first: "
+                    f"dku dataset upload {dataset_name} {local_path} --overwrite --yes -P {project_key}",
+                ],
+            )
         handle_api_error(e)
 
 
@@ -1781,7 +1860,7 @@ def create_from_file(
                 sheet or sheet_indices or all_sheets or sheets_to_column
             )
             _autodetect_and_warn(
-                ds, dataset_name, project_key, quiet_warnings=wants_sheets
+                client, ds, dataset_name, project_key, quiet_warnings=wants_sheets
             )
             if wants_sheets:
                 _apply_excel_sheet_targeting(
@@ -3064,12 +3143,7 @@ def detect(
                     title=f"Detected Schema: {dataset_name}",
                 )
 
-            string_cols = [c for c in schema_cols if c.get("type") == "string"]
-            if schema_cols and len(string_cols) == len(schema_cols):
-                warn(
-                    "All columns detected as STRING. Use --infer-types to detect "
-                    "numeric/date types, or fix manually with set-schema."
-                )
+            _warn_detect_all_string(schema_cols, infer_types, dataset_name, project_key)
     except ValueError as e:
         exit_with_error(
             str(e),

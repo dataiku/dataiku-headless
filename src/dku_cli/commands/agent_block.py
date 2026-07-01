@@ -280,6 +280,42 @@ def _normalize_blocks(blocks: list[dict]) -> list[str]:
                     "and 'systemPrompt'; dropped 'systemPrompt' (DSS ignores it on "
                     "this block type)."
                 )
+
+        warnings.extend(_fix_legacy_block_fields(block, bid))
+    return warnings
+
+
+def _fix_legacy_block_fields(block: dict, bid: str) -> list[str]:
+    """Relocate/flag legacy block fields DSS silently ignores (#228)."""
+    warnings: list[str] = []
+
+    # `responseFormat` at the block root is ignored; DSS reads the JSON-output
+    # constraint from completionSettings.
+    if "responseFormat" in block:
+        settings = block.setdefault("completionSettings", {})
+        if isinstance(settings, dict) and "responseFormat" not in settings:
+            settings["responseFormat"] = block.pop("responseFormat")
+            warnings.append(
+                f"Block '{bid}' had a top-level 'responseFormat', which DSS "
+                "ignores; moved it under 'completionSettings.responseFormat'."
+            )
+        else:
+            block.pop("responseFormat")
+            warnings.append(
+                f"Block '{bid}' had a top-level 'responseFormat' that DSS "
+                "ignores; dropped it (completionSettings.responseFormat already set)."
+            )
+
+    # Legacy `clauses` -> `clausesBasedDecisions`. The shape differs across DSS
+    # versions, so don't silently transform — warn loudly and name the field.
+    if "clauses" in block and "clausesBasedDecisions" not in block:
+        block.pop("clauses")
+        warnings.append(
+            f"Block '{bid}' used legacy 'clauses', which DSS ignores; "
+            "routing decisions go in 'clausesBasedDecisions' (a list of "
+            "{condition, nextBlock}). The 'clauses' value was dropped — "
+            "re-add it under 'clausesBasedDecisions'."
+        )
     return warnings
 
 

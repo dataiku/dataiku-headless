@@ -1101,3 +1101,48 @@ def test_ml_set_feature_requires_role_or_rescaling(patch_client):
     )
     assert result.exit_code != 0
     assert "Nothing to change" in result.output
+
+
+# --- set-feature: re-enable initializes missing-value handling (#225) ---
+
+
+def test_ensure_feature_handling_copies_from_same_type_sibling():
+    from dku_cli.commands.ml import _ensure_feature_handling
+
+    per_feature = {
+        "f1": {
+            "type": "NUMERIC",
+            "role": "INPUT",
+            "numerical_handling": "REGULAR",
+            "missing_handling": "IMPUTE",
+            "missing_impute_with": "MEAN",
+            "rescaling": "AVGSTD",
+        },
+        "row_id": {"type": "NUMERIC", "role": "INPUT"},  # re-enabled, no handling
+    }
+    changed = _ensure_feature_handling(per_feature, "row_id")
+    assert changed is True
+    assert per_feature["row_id"]["missing_handling"] == "IMPUTE"
+    assert per_feature["row_id"]["missing_impute_with"] == "MEAN"
+    assert per_feature["row_id"]["numerical_handling"] == "REGULAR"
+    assert per_feature["row_id"]["rescaling"] == "AVGSTD"
+    # The re-enabled feature keeps its own role, not the donor's identity fields.
+    assert per_feature["row_id"]["role"] == "INPUT"
+
+
+def test_ensure_feature_handling_numeric_default_without_sibling():
+    from dku_cli.commands.ml import _ensure_feature_handling
+
+    per_feature = {"row_id": {"type": "NUMERIC", "role": "INPUT"}}
+    assert _ensure_feature_handling(per_feature, "row_id") is True
+    assert per_feature["row_id"]["missing_handling"] == "IMPUTE"
+    assert per_feature["row_id"]["rescaling"] == "AVGSTD"
+
+
+def test_ensure_feature_handling_noop_when_already_set():
+    from dku_cli.commands.ml import _ensure_feature_handling
+
+    per_feature = {
+        "amount": {"type": "NUMERIC", "role": "INPUT", "missing_handling": "IMPUTE"}
+    }
+    assert _ensure_feature_handling(per_feature, "amount") is False

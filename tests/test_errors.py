@@ -184,3 +184,45 @@ def test_handle_api_error_root_path_missing(capsys):
         handle_api_error(Exception("Root path of the dataset trigger does not exist"))
     err = capsys.readouterr().err
     assert "dku dataset upload" in err
+
+
+def test_handle_api_error_llm_provider_missing_scope(capsys):
+    """A provider 401 (missing_scope) arrives as an LLMException and must surface
+    the provider's own error, NOT the generic 'check your API key / dku auth
+    login' hint that points at the wrong thing (#226)."""
+    from dataikuapi.dss.llm_utils import LLMException
+
+    err_obj = LLMException(
+        "Missing scopes: model.request",
+        "missing_scope",
+        "invalid_request_error",
+        "openai",
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        handle_api_error(err_obj)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "Missing scopes: model.request" in err
+    assert "missing_scope" in err
+    assert "NOT your dku API key" in err
+    # The misleading generic dku-auth hint must NOT win for a provider error:
+    # point at the connection and say re-auth won't help.
+    assert "check your API key" not in err
+    assert "re-authenticate" not in err
+    assert "will NOT help" in err
+
+
+def test_handle_api_error_llm_provider_non_auth(capsys):
+    """A non-auth LLM provider failure still surfaces the provider body, without
+    the connection-credential guidance reserved for auth/scope errors."""
+    from dataikuapi.dss.llm_utils import LLMException
+
+    err_obj = LLMException(
+        "Rate limit exceeded", "rate_limit", "server_error", "anthropic"
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        handle_api_error(err_obj)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "Rate limit exceeded" in err
+    assert "NOT your dku API key" not in err

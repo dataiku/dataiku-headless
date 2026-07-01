@@ -50,6 +50,10 @@ def _redact_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, "", "", ""))
 
 
+def _shell_squote(value: str) -> str:
+    return value.replace("'", "'\\''")
+
+
 def _resolve_project_source(profile: str) -> tuple[str | None, str]:
     if os.environ.get("DKU_PROJECT"):
         return os.environ["DKU_PROJECT"], "env"
@@ -352,6 +356,53 @@ def status(
             console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
             console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command("export-env")
+def export_env(
+    ctx: typer.Context,
+) -> None:
+    """Emit shell `export` lines for DKU_URL / DKU_API_KEY.
+
+    For external scripts that use `dataikuapi` directly (not the `dku` CLI):
+
+        eval "$(dku auth export-env --profile X)"
+
+    Then `dataikuapi.DSSClient()` picks up the environment. Use `--format json`
+    to capture both values as an object for non-shell consumers.
+    """
+    fmt = resolve_output_format()
+    opts = ctx.obj or {}
+    profile = opts.get("profile") or get_active_profile()
+    flag_url = opts.get("url")
+    flag_api_key = opts.get("api_key")
+
+    profile_cfg = get_profile_config(profile)
+    if (
+        not flag_url
+        and not flag_api_key
+        and profile_cfg.get("auth_mode") == AUTH_MODE_IN_POD_TICKET
+    ):
+        error(
+            f'Profile "{profile}" uses in-pod ticket auth — no static API key to '
+            "export."
+        )
+        error(f"Run dataikuapi scripts with: dku ... --profile {profile}")
+        raise typer.Exit(1)
+
+    try:
+        url, api_key = resolve_auth(url=flag_url, api_key=flag_api_key, profile=profile)
+    except Exception:
+        error(f'Profile "{profile}" is not fully configured.')
+        error("Run 'dku auth login' to set up.")
+        raise typer.Exit(1)
+
+    if fmt == "json":
+        render_raw({"DKU_URL": url, "DKU_API_KEY": api_key}, output_format="json")
+        return
+
+    print(f"export DKU_URL='{_shell_squote(url)}'")
+    print(f"export DKU_API_KEY='{_shell_squote(api_key)}'")
 
 
 @app.command("list")

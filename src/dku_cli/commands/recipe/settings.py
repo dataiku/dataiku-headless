@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # ruff: noqa: F403,F405
 from dku_cli.enums import ContainerMode, EngineType, EnvMode
+from dku_cli.definition_merge import merge_params_preserving_siblings
 
 from ._common import *
 
@@ -195,10 +196,9 @@ def set_definition(
         )
         settings = recipe.get_settings()
         if definition:
-            new_def = read_json_input(definition)
-            new_def = _unwrap_recipe_definition_payload(new_def)
+            new_def = _unwrap_recipe_definition_payload(read_json_input(definition))
             raw = settings.get_recipe_raw_definition()
-            raw.update(new_def)
+            merge_params_preserving_siblings(raw, new_def)
             target = "definition"
         else:
             # A code recipe's payload IS its source code (stored as a string),
@@ -531,6 +531,40 @@ def get_settings_cmd(
         handle_api_error(e)
 
 
+# Only "NONE" is verified safe for a prompt recipe's resultValidation.
+# expectedFormat. DSS silently deserializes any unknown enum member (e.g.
+# "JSON") to null, and the build then crashes with a NullPointerException at
+# ExpectedFormat.ordinal(). Until other members are researched, block non-NONE.
+_SAFE_EXPECTED_FORMATS = frozenset({"NONE"})
+
+
+def _reject_unsafe_expected_format(recipe_type: str, new_payload: dict) -> None:
+    """Block a prompt recipe's resultValidation.expectedFormat from being set to
+    a build-crashing value (#227)."""
+    if recipe_type != "prompt":
+        return
+    result_validation = new_payload.get("resultValidation")
+    if not isinstance(result_validation, dict):
+        return
+    if "expectedFormat" not in result_validation:
+        return
+    value = result_validation.get("expectedFormat")
+    if value in _SAFE_EXPECTED_FORMATS:
+        return
+    exit_with_error(
+        f"resultValidation.expectedFormat={value!r} is not a usable value.",
+        details=[
+            "DSS silently deserializes an unknown expectedFormat to null, then "
+            "the build crashes: NullPointerException at ExpectedFormat.ordinal().",
+            "Only 'NONE' is verified safe — use it and parse JSON downstream with "
+            "a Prepare recipe (add-step JSONFlattener).",
+            'For JSON output *mode*, set completionSettings.responseFormat={"type":'
+            '"json"} instead (or create the recipe with --response-format json).',
+        ],
+        status=2,
+    )
+
+
 def _normalize_visual_payload(settings) -> dict:
     """Return the visual recipe payload as a parsed dict, regardless of how
     dataikuapi stored it.
@@ -677,6 +711,7 @@ def set_settings_cmd(
             # doesn't waste 30 min wondering why their custom metric still
             # sees `llm_raw_response` after `set-settings`.
             recipe_type = (raw.get("type") or "").lower()
+            _reject_unsafe_expected_format(recipe_type, new_payload)
             if (
                 recipe_type == "nlp_agent_evaluation"
                 and "outputColumnName" in new_payload
