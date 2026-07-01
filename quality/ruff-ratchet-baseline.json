@@ -425,7 +425,7 @@
     "src/dku_cli/commands/git_cmd.py": 479,
     "src/dku_cli/commands/govern_artifact.py": 430,
     "src/dku_cli/commands/govern_blueprint.py": 968,
-    "src/dku_cli/commands/govern_signoff.py": 310,
+    "src/dku_cli/commands/govern_signoff.py": 313,
     "src/dku_cli/commands/insight.py": 754,
     "src/dku_cli/commands/job.py": 513,
     "src/dku_cli/commands/knowledge.py": 309,

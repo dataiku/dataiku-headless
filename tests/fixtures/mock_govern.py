@@ -159,7 +159,7 @@ def configure_govern_client(client):
     # Sign-offs
     signoff_item = MagicMock()
     signoff_item.get_raw.return_value = {
-        "stepId": "exploration",
+        "signoffId": {"stepId": "exploration"},
         "status": "ONGOING",
     }
     artifact_obj.list_signoffs.return_value = [signoff_item]

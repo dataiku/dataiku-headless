@@ -104,9 +104,12 @@ def list_signoffs(
         data = []
         for item in signoffs:
             raw = item.get_raw()
+            signoff_id = (
+                raw.get("signoffId") if isinstance(raw.get("signoffId"), dict) else {}
+            )
             data.append(
                 {
-                    "step_id": raw.get("stepId", ""),
+                    "step_id": signoff_id.get("stepId", ""),
                     "status": raw.get("status", ""),
                 }
             )
