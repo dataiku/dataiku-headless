@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 
+from dku_cli.commands._source_type import SourceType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
 from dku_cli.output import hint, render, render_raw, resolve_output_format, success
@@ -70,8 +71,11 @@ def create(
     login: str = typer.Argument(help="Login for the new user"),
     password: str = typer.Option(..., "--password", help="Password"),
     display_name: str = typer.Option("", "--display-name", "-d", help="Display name"),
-    source_type: str = typer.Option(
-        "LOCAL", "--source-type", help="Source type: LOCAL or LDAP"
+    source_type: SourceType = typer.Option(
+        SourceType.LOCAL,
+        "--source-type",
+        case_sensitive=False,
+        help="Source type",
     ),
     groups: Optional[list[str]] = typer.Option(
         None, "--group", "-g", help="Group name (repeat for multiple)"
@@ -90,7 +94,7 @@ def create(
             login,
             password,
             display_name=display_name,
-            source_type=source_type,
+            source_type=str(source_type),
             groups=groups or [],
             profile=profile,
             email=email,

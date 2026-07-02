@@ -242,3 +242,151 @@ def test_auth_list_json_empty_profiles():
         result = runner.invoke(app, ["--format", "json", "auth", "list"])
     assert result.exit_code == 0
     assert json.loads(result.output) == []
+
+
+def test_auth_login_json_reports_file_credential_store(patch_client):
+    patch_client.get_auth_info.return_value = {"authIdentifier": "alice"}
+    patch_client.get_instance_info.return_value.raw = {
+        "dssVersion": "14.5.0",
+        "nodeType": "DESIGN",
+    }
+
+    with (
+        patch(
+            "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+            return_value=patch_client,
+        ),
+        patch("dku_cli.commands._auth_login.set_profile_config"),
+        patch(
+            "dku_cli.commands._auth_login.store_api_key",
+            return_value=(
+                "credentials file (/tmp/credentials.toml) (Keychain error: locked)"
+            ),
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "--format",
+                "json",
+                "auth",
+                "login",
+                "--url",
+                "https://dss.example.com/path",
+                "--api-key",
+                "dkuaps-test-key",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["credential_store"] == "file"
+    assert "plaintext credentials file" in payload["credential_warning"]
+    assert "Keychain error: locked" in payload["credential_warning"]
+    assert payload["url"] == "https://dss.example.com"
+    assert "dkuaps-test-key" not in result.output
+
+
+def test_auth_login_transport_error_exits_cleanly(patch_client):
+    """Regression: a raw requests/urllib3 error (unreachable URL, DSS down) must
+    print a compact 'Could not connect to' message and exit 1, not a traceback."""
+    import requests
+
+    patch_client.get_auth_info.side_effect = requests.exceptions.ConnectionError(
+        "connection refused"
+    )
+
+    with patch(
+        "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+        return_value=patch_client,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--url",
+                "http://127.0.0.1:9",
+                "--api-key",
+                "dkuaps-deadkey",
+            ],
+        )
+
+    assert result.exit_code == 1, result.output
+    assert "Could not connect to" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_auth_login_instance_info_transport_error_still_succeeds(patch_client):
+    """get_instance_info() can hit the same transport path after auth succeeds;
+    that must degrade to dss_version: unknown, not crash the login."""
+    import requests
+
+    patch_client.get_auth_info.return_value = {"authIdentifier": "alice"}
+    patch_client.get_instance_info.side_effect = requests.exceptions.ConnectionError(
+        "connection refused"
+    )
+
+    with (
+        patch(
+            "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+            return_value=patch_client,
+        ),
+        patch("dku_cli.commands._auth_login.set_profile_config"),
+        patch(
+            "dku_cli.commands._auth_login.store_api_key",
+            return_value="credentials file (/tmp/credentials.toml)",
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "--format",
+                "json",
+                "auth",
+                "login",
+                "--url",
+                "https://dss.example.com",
+                "--api-key",
+                "dkuaps-test-key",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dss_version"] == "unknown"
+    assert "Traceback" not in result.output
+
+
+def test_auth_login_text_warns_on_file_credential_store(patch_client):
+    patch_client.get_auth_info.return_value = {"authIdentifier": "alice"}
+    patch_client.get_instance_info.return_value.raw = {
+        "dssVersion": "14.5.0",
+        "nodeType": "DESIGN",
+    }
+
+    with (
+        patch(
+            "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+            return_value=patch_client,
+        ),
+        patch("dku_cli.commands._auth_login.set_profile_config"),
+        patch(
+            "dku_cli.commands._auth_login.store_api_key",
+            return_value="credentials file (/tmp/credentials.toml)",
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--url",
+                "https://dss.example.com",
+                "--api-key",
+                "dkuaps-test-key",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Stored in plaintext credentials file" in result.output

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,6 +14,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "quality" / "ruff-ratchet-baseline.json"
 RUFF_SELECT = "C901,E501"
+BROAD_EXCEPTION_ALLOW_MARKER = "quality-ratchet: allow-broad-exception"
+BASELINE_REF_ENV = "QUALITY_RATCHET_BASE_REF"
 
 
 def _run_ruff() -> list[dict[str, Any]]:
@@ -83,16 +86,22 @@ def _count_source_lines(filepath: Path) -> int:
 
 
 def _count_broad_exceptions(filepath: Path) -> int:
+    content = filepath.read_text()
     try:
-        tree = ast.parse(filepath.read_text())
+        tree = ast.parse(content)
     except SyntaxError:
         return 0
+    lines = content.splitlines()
 
     class _BroadExceptFinder(ast.NodeVisitor):
         def __init__(self):
             self.count = 0
 
         def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            line = lines[node.lineno - 1] if node.lineno <= len(lines) else ""
+            if BROAD_EXCEPTION_ALLOW_MARKER in line:
+                self.generic_visit(node)
+                return
             if node.type is None:
                 self.count += 1
             elif (isinstance(node.type, ast.Name) and node.type.id == "Exception") or (
@@ -172,6 +181,46 @@ def _write_baseline() -> None:
     )
 
 
+def _baseline_widenings(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    old_complexity = set(old["complexity"])
+    new_complexity = set(new["complexity"])
+    added_complexity = sorted(new_complexity - old_complexity)
+    if added_complexity:
+        failures.append("New baseline C901 entries:\n" + "\n".join(added_complexity))
+
+    for title, old_key, new_key in (
+        ("Baseline E501 counts widened", "line_length", "line_length"),
+        ("Baseline E501 max widened", "line_length_max", "line_length_max"),
+        ("Baseline oversized-file debt widened", "oversized_files", "oversized_files"),
+        (
+            "Baseline broad-exception debt widened",
+            "broad_exceptions",
+            "broad_exceptions",
+        ),
+        (
+            "Baseline inline-enum-validation debt widened",
+            "inline_enum_validation",
+            "inline_enum_validation",
+        ),
+    ):
+        widened = _dict_widenings(old.get(old_key, {}), new.get(new_key, {}))
+        if widened:
+            failures.append(
+                title
+                + ":\n"
+                + "\n".join(
+                    f"{path}: {old.get(old_key, {}).get(path, '-')} -> {count}"
+                    for path, count in sorted(widened.items())
+                )
+            )
+    return failures
+
+
+def _dict_widenings(old: dict[str, int], new: dict[str, int]) -> dict[str, int]:
+    return {path: count for path, count in new.items() if count > old.get(path, 0)}
+
+
 def _load_baseline() -> dict[str, Any]:
     if not BASELINE.exists():
         raise SystemExit(
@@ -179,6 +228,20 @@ def _load_baseline() -> dict[str, Any]:
             "Run scripts/check_quality_ratchet.py --write-baseline."
         )
     return json.loads(BASELINE.read_text())
+
+
+def _load_git_baseline(ref: str) -> dict[str, Any] | None:
+    rel = BASELINE.relative_to(ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{rel}"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return json.loads(result.stdout)
 
 
 _REGEN = "uv run python scripts/check_quality_ratchet.py --write-baseline"
@@ -220,26 +283,17 @@ def _check() -> None:
         if length > baseline_max.get(path, 0)
     }
 
-    def _dict_regression(
-        baselines: dict[str, int], currents: dict[str, int]
-    ) -> dict[str, int]:
-        return {
-            path: count
-            for path, count in currents.items()
-            if count > baselines.get(path, 0)
-        }
-
     baseline_oversized = baseline.get("oversized_files", {})
     current_oversized = current.get("oversized_files", {})
-    new_oversized = _dict_regression(baseline_oversized, current_oversized)
+    new_oversized = _dict_widenings(baseline_oversized, current_oversized)
 
     baseline_be = baseline.get("broad_exceptions", {})
     current_be = current.get("broad_exceptions", {})
-    new_be = _dict_regression(baseline_be, current_be)
+    new_be = _dict_widenings(baseline_be, current_be)
 
     baseline_ie = baseline.get("inline_enum_validation", {})
     current_ie = current.get("inline_enum_validation", {})
-    new_ie = _dict_regression(baseline_ie, current_ie)
+    new_ie = _dict_widenings(baseline_ie, current_ie)
 
     # A ratchet only tightens: REGRESSIONS fail the build, improvements never do.
     failures: list[str] = []
@@ -323,6 +377,28 @@ def _check() -> None:
     )
 
 
+def _check_baseline_diff() -> None:
+    ref = os.environ.get(BASELINE_REF_ENV, "HEAD")
+    base = _load_git_baseline(ref)
+    if base is None:
+        if ref != "HEAD":
+            raise SystemExit(
+                f"Could not read {BASELINE.relative_to(ROOT)} from {ref!r}. "
+                "Fetch the base ref or unset QUALITY_RATCHET_BASE_REF."
+            )
+        return
+    current = _load_baseline()
+    failures = _baseline_widenings(base, current)
+    if failures:
+        print("\n\n".join(failures), file=sys.stderr)
+        print(
+            f"\nquality/ruff-ratchet-baseline.json widened existing debt versus {ref}. "
+            "Keep unrelated baseline expansions out of this PR.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -330,10 +406,20 @@ def main() -> None:
         action="store_true",
         help="Refresh the committed Ruff quality baseline.",
     )
+    parser.add_argument(
+        "--check-baseline-diff",
+        action="store_true",
+        help=(
+            "Fail if the committed quality baseline was widened versus "
+            "QUALITY_RATCHET_BASE_REF, or HEAD when unset."
+        ),
+    )
     args = parser.parse_args()
 
     if args.write_baseline:
         _write_baseline()
+    elif args.check_baseline_diff:
+        _check_baseline_diff()
     else:
         _check()
 

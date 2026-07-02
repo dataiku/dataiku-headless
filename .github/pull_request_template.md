@@ -15,7 +15,7 @@
 Local checks (see [CONTRIBUTING.md](../CONTRIBUTING.md#local-checks)):
 
 - [ ] Tests, lint, and quality ratchet pass.
-- [ ] Security scan (`bandit`) and dependency audit (`make audit`) pass.
+- [ ] Dependency audit and secret scan (`make audit`) pass.
 - [ ] `make test-plugin` passes (if MCP packaging changed).
 - [ ] Manual smoke test performed (describe):
 

@@ -22,7 +22,7 @@ An agent re-derives knowledge on every action — no memory between tasks, every
 | `examples.py` | Per-command examples in agent help JSON | Only what the flag spec can't teach: payload shapes, repeatable flags, required combos, `@file`/stdin, KEY=VALUE syntax. No synopsis echoes. |
 | `output.py` | Dense default: TSV lists, compact-JSON objects. `--format json\|csv\|ids\|quiet` to override | Data → stdout, always pipe-safe. Messages/hints/titles → stderr. |
 | `errors.py` | Exception mapping | Always prescriptive text on stderr. Every `except` names the next command, pre-filled with ids. Not-found says what exists. |
-| `safety.py` | Destructive ops guard | Exit 77. Tiers: READ/WRITE (unguarded) → DELETE (`--yes`) → CASCADE (`--yes` + `--confirm-name`) → ADMIN (plus `--i-know-what-im-doing`). |
+| `safety.py` | Destructive ops guard | Exit 77. Tier details live in `dataiku-mcp/skills/dku-cli/references/safety.md`. |
 
 ## Adding a command
 
@@ -70,9 +70,9 @@ Rebuild MCP wheel: `make bundle` (in `dataiku-mcp/`)
 
 ## Testing
 
-`uv run pytest -v && uv run ruff check . && uv run ruff format .`
+See `CONTRIBUTING.md#local-checks` for the CI-aligned local gate.
 
-CI runs Python 3.10–3.13. One-way quality ratchet in `scripts/check_quality_ratchet.py` (blocks *new* C901/E501 debt). Regenerate: `uv run python scripts/check_quality_ratchet.py --write-baseline`.
+CI runs Python 3.10–3.13. One-way quality ratchet in `scripts/check_quality_ratchet.py` blocks new lint and structural debt. Regenerate: `uv run python scripts/check_quality_ratchet.py --write-baseline`.
 
 ## Pull requests
 
@@ -99,4 +99,4 @@ headers for headers' sake, no tables, no AI-generated padding.
 | `dataiku-mcp/skills/dku-cli/playbooks/` | Task walkthroughs, one per task |
 | `dataiku-mcp/skills/dku-cli/references/` | Cold detail — payloads, safety tiers |
 | `dataiku-mcp/skills/dku-cli/references/visual-recipe-traps.md` | A visual-recipe payload validates and writes but a step no-ops, a build NPEs, or DSS shows a spurious save prompt |
-| `docs/design/safety-stance.md` | Design rationale — why confirmation booleans don't authorize agents; how `--confirm-name`/`--yes`/exit-77 divide the work; the 2026-06 decision to keep the guard a CLI speed bump (no harness hooks) and how it behaves under Claude Code's permission modes |
+| `docs/design/safety-stance.md` | Design rationale — why confirmation booleans don't authorize agents; how `--confirm-name`/`--yes`/exit-77 divide the work; why the guard stays a CLI speed bump and how it behaves under Claude Code's permission modes |

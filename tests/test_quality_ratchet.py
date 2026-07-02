@@ -57,6 +57,25 @@ def test_e501_length_parses_actual_length():
     assert ratchet._e501_length({"message": "unparseable"}) == 0
 
 
+def test_count_broad_exceptions_ignores_marked_exception(tmp_path):
+    path = tmp_path / "sample.py"
+    path.write_text(
+        "try:\n"
+        "    work()\n"
+        "except Exception:  # quality-ratchet: allow-broad-exception\n"
+        "    recover()\n"
+    )
+
+    assert ratchet._count_broad_exceptions(path) == 0
+
+
+def test_count_broad_exceptions_counts_unmarked_exception(tmp_path):
+    path = tmp_path / "sample.py"
+    path.write_text("try:\n    work()\nexcept Exception:\n    recover()\n")
+
+    assert ratchet._count_broad_exceptions(path) == 1
+
+
 def test_check_passes_when_unchanged(monkeypatch, capsys):
     state = _state(line_length={"a.py": 2}, line_length_max={"a.py": 95})
     _patch(monkeypatch, state, dict(state))
@@ -113,3 +132,51 @@ def test_check_passes_when_debt_decreases(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Quality ratchet OK" in out
     assert "baseline can tighten" in out
+
+
+def test_baseline_diff_rejects_widened_debt():
+    old = _state(
+        complexity=["a.py::foo"],
+        line_length={"a.py": 1},
+        line_length_max={"a.py": 90},
+        oversized_files={"big.py": 251},
+        broad_exceptions={"broad.py": 1},
+        inline_enum_validation={"enum.py": 1},
+    )
+    new = _state(
+        complexity=["a.py::foo", "b.py::bar"],
+        line_length={"a.py": 2},
+        line_length_max={"a.py": 120},
+        oversized_files={"big.py": 252},
+        broad_exceptions={"broad.py": 2},
+        inline_enum_validation={"enum.py": 2},
+    )
+
+    failures = ratchet._baseline_widenings(old, new)
+
+    assert "New baseline C901 entries" in "\n".join(failures)
+    assert "Baseline E501 counts widened" in "\n".join(failures)
+    assert "Baseline E501 max widened" in "\n".join(failures)
+    assert "Baseline oversized-file debt widened" in "\n".join(failures)
+    assert "Baseline broad-exception debt widened" in "\n".join(failures)
+    assert "Baseline inline-enum-validation debt widened" in "\n".join(failures)
+
+
+def test_baseline_diff_allows_tightening():
+    old = _state(
+        complexity=["a.py::foo"],
+        line_length={"a.py": 2},
+        line_length_max={"a.py": 120},
+        oversized_files={"big.py": 252},
+        broad_exceptions={"broad.py": 2},
+        inline_enum_validation={"enum.py": 2},
+    )
+    new = _state(
+        line_length={"a.py": 1},
+        line_length_max={"a.py": 90},
+        oversized_files={"big.py": 251},
+        broad_exceptions={"broad.py": 1},
+        inline_enum_validation={"enum.py": 1},
+    )
+
+    assert ratchet._baseline_widenings(old, new) == []

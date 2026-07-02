@@ -7,6 +7,7 @@ from typing import Optional
 
 import typer
 
+from dku_cli.commands._source_type import SourceType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
 from dku_cli.output import hint, render, resolve_output_format, success
@@ -85,15 +86,18 @@ def create(
     description: Optional[str] = typer.Option(
         None, "--description", "-d", help="Group description"
     ),
-    source_type: str = typer.Option(
-        "LOCAL", "--source-type", help="Source type (LOCAL, LDAP, etc.)"
+    source_type: SourceType = typer.Option(
+        SourceType.LOCAL,
+        "--source-type",
+        case_sensitive=False,
+        help="Source type",
     ),
 ) -> None:
     """Create a DSS group."""
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         client.create_group(
-            name, description=description or "", source_type=source_type
+            name, description=description or "", source_type=str(source_type)
         )
         success(f"Created group '{name}'")
         hint(f"dku group get {name}")

@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from dku_cli import spec
 from dku_cli.main import app
+from dku_cli.spec_text import render_text_help
 
 runner = CliRunner()
 
@@ -131,11 +132,33 @@ def test_help_is_compact():
     assert "create-join" in json.loads(payload)["commands"]
 
 
-def test_help_is_always_spec_json():
-    """--help always emits spec JSON; there is no human/agent help mode."""
+def test_non_tty_help_is_spec_json():
     result = runner.invoke(app, ["recipe", "--help"])
     assert result.exit_code == 0
     assert "create-join" in json.loads(result.stdout)["commands"]
+
+
+def test_text_help_renderer_uses_readable_sections():
+    result = runner.invoke(app, ["recipe", "--help"])
+    node = json.loads(result.stdout)
+
+    text = render_text_help(node, "dku recipe")
+
+    assert "Usage: dku recipe [command] [options]" in text
+    assert "Commands:" in text
+    assert "create-join" in text
+    assert "\\n" not in text
+    assert "[options]Add" not in text
+
+
+def test_text_help_renderer_leaf_usage_does_not_claim_subcommands():
+    result = runner.invoke(app, ["recipe", "create-join", "--help"])
+    node = json.loads(result.stdout)
+
+    text = render_text_help(node, "dku recipe create-join")
+
+    assert "Usage: dku recipe create-join <recipe_name> [options]" in text
+    assert "[command]" not in text.splitlines()[0]
 
 
 # --- idx 15: secondary opts for bool flags in usage strings ------------------

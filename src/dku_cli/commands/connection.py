@@ -6,6 +6,10 @@ from typing import Optional
 
 import typer
 
+from dku_cli.commands._connection_discovery import (
+    list_connection_schemas,
+    list_connection_tables,
+)
 from dku_cli.errors import (
     exit_with_error,
     handle_api_error,
@@ -378,14 +382,7 @@ def schemas(
         proj = client.get_project(project_key)
 
         # Try SQL schemas first (most common), fall back to Iceberg namespaces
-        schema_list: list = []
-        try:
-            schema_list = proj.list_sql_schemas(connection_name)
-        except Exception:
-            try:
-                schema_list = proj.list_iceberg_namespaces(connection_name)
-            except Exception:
-                pass
+        schema_list = list_connection_schemas(proj, connection_name, fmt)
 
         if fmt == "json":
             render_raw(schema_list, output_format="json")
@@ -441,16 +438,7 @@ def tables(
         proj = client.get_project(project_key)
 
         # Try SQL tables first (most common), fall back to Iceberg tables
-        table_list: list = []
-        try:
-            table_list = proj.list_sql_tables(connection_name, schema_name=schema_name)
-        except Exception:
-            try:
-                table_list = proj.list_iceberg_tables(
-                    connection_name, namespace=schema_name
-                )
-            except Exception:
-                pass
+        table_list = list_connection_tables(proj, connection_name, schema_name, fmt)
 
         if fmt == "json":
             render_raw(table_list, output_format="json")

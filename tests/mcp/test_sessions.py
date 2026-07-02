@@ -38,6 +38,8 @@ def test_key_is_stable_and_opaque(tmp_path):
     assert s1 is s2
     assert s1.key == store.key_for("agent-A")
     assert "agent-A" not in str(s1.workdir)
+    assert "agent-A" not in store._sessions
+    assert set(store._sessions) == {s1.key}
 
 
 def test_distinct_agents_get_distinct_dirs(tmp_path):
@@ -64,8 +66,8 @@ def test_store_is_bounded_and_evicts_lru_workdir(tmp_path):
     c = store.get_or_create("bearer:c")
 
     assert len(store._sessions) == 2
-    assert "bearer:b" not in store._sessions
-    assert {"bearer:a", "bearer:c"} == set(store._sessions)
+    assert b.key not in store._sessions
+    assert {a.key, c.key} == set(store._sessions)
     assert not b.workdir.exists()
     assert a.workdir.is_dir() and c.workdir.is_dir()
 
@@ -87,12 +89,14 @@ def test_leased_session_is_exempt_from_eviction(tmp_path):
 
     with store.lease(a):
         store.get_or_create("bearer:c")
-        assert "bearer:a" in store._sessions
-        assert "bearer:b" not in store._sessions
+        assert a.key in store._sessions
+        assert all(
+            session.session_id != "bearer:b" for session in store._sessions.values()
+        )
         assert a.workdir.is_dir()
 
     store.get_or_create("bearer:d")
-    assert "bearer:a" not in store._sessions
+    assert a.key not in store._sessions
     assert not a.workdir.exists()
 
 
@@ -109,7 +113,7 @@ def test_all_sessions_leased_allows_temporary_overflow(tmp_path):
             assert c.workdir.is_dir()
     d = store.get_or_create("bearer:d")
     assert len(store._sessions) == 1
-    assert set(store._sessions) == {"bearer:d"}
+    assert set(store._sessions) == {d.key}
     assert d.workdir.is_dir()
 
 
@@ -118,7 +122,7 @@ def test_new_session_at_full_busy_cap_is_not_self_evicted(tmp_path):
     a = store.get_or_create("bearer:a")
     with store.lease(a):
         b = store.get_or_create("bearer:b")
-        assert "bearer:b" in store._sessions
+        assert b.key in store._sessions
         assert b.workdir.is_dir()
 
 

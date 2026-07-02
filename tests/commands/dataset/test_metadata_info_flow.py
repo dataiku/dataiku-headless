@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+
+from dataikuapi.utils import DataikuException
+
 from tests.commands.dataset.helpers import app, runner
 
 
@@ -278,11 +281,12 @@ def test_dataset_info_json(patch_client):
 def test_dataset_info_no_metrics(patch_client):
     """When the dataset has never been built, hint points at 'dku dataset build'."""
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
-    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    ds.get_last_metric_values.side_effect = DataikuException("No metrics")
     # Ensure get_info() returns no buildEndTime (never built)
     ds.get_info.return_value.get_raw.return_value = {"lastBuild": {}}
     result = runner.invoke(app, ["dataset", "info", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
+    assert "Could not fetch stored metrics" in result.output
     assert "not computed" in result.output
     assert "dku dataset build" in result.output
 
@@ -290,7 +294,7 @@ def test_dataset_info_no_metrics(patch_client):
 def test_dataset_info_stale_metrics_after_build_hints_recompute(patch_client):
     """When the dataset has been built but metrics are stale, hint points at --recompute."""
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
-    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    ds.get_last_metric_values.side_effect = DataikuException("No metrics")
     # Mock get_info() to return a recent buildEndTime — ms since epoch
     ds.get_info.return_value.get_raw.return_value = {
         "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
@@ -307,7 +311,7 @@ def test_dataset_info_stale_metrics_after_build_hints_recompute(patch_client):
 def test_dataset_info_stale_metrics_json_suppresses_hint(patch_client):
     """JSON mode must not emit the stderr hint (keeps programmatic output clean)."""
     ds = patch_client.get_project("PROJ1").get_dataset("ds1")
-    ds.get_last_metric_values.side_effect = Exception("No metrics")
+    ds.get_last_metric_values.side_effect = DataikuException("No metrics")
     ds.get_info.return_value.get_raw.return_value = {
         "lastBuild": {"buildEndTime": 1_712_000_000_000, "buildSuccess": True}
     }
@@ -344,6 +348,8 @@ def test_dataset_info_partial_metrics(patch_client):
 
     def _partial_metrics(mid):
         if mid == "records:COUNT_RECORDS":
+            # dataikuapi raises a BARE Exception (not DataikuException) for an
+            # absent global-partition value — must not crash `dku dataset info`.
             raise Exception("No data found for global partition")
         return {"basic:SIZE": 1545633, "basic:COUNT_FILES": 1}.get(mid, 0)
 

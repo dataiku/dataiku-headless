@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import NamedTuple
 
@@ -77,7 +78,13 @@ def _keyring_available() -> bool:
 
     try:
         backend = keyring.get_keyring()
-        return "fail" not in type(backend).__module__.lower()
+        backend_module = type(backend).__module__.lower()
+        # The `fail` and `null` backends are no-ops that silently discard
+        # credentials, so treat them as unavailable. Detect them by MODULE, not
+        # class name: every real first-party backend (macOS, SecretService,
+        # libsecret) is class-named "Keyring", so rejecting on the class name
+        # would wrongly downgrade a working keychain to the plaintext fallback.
+        return "fail" not in backend_module and "null" not in backend_module
     except Exception:
         return False
 
@@ -256,5 +263,7 @@ def _write_credentials(data: dict) -> None:
                 lines.append(f'{k} = "{v}"')
             lines.append("")
     CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CREDENTIALS_FILE.write_text("\n".join(lines) + "\n")
+    fd = os.open(CREDENTIALS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(lines) + "\n")
     CREDENTIALS_FILE.chmod(0o600)

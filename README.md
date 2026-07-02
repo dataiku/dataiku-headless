@@ -9,7 +9,7 @@ work together:
 - **One MCP code-mode tool — `dku_exec`.** A single tool that runs the `dku` CLI
   as your DSS user. Agents compose real shell commands instead of juggling
   hundreds of narrow tool definitions.
-- **A full `dku` CLI — ~70 command groups.** Projects, datasets, recipes, jobs,
+- **A full `dku` CLI — dozens of command groups.** Projects, datasets, recipes, jobs,
   scenarios, dashboards, models, agents, knowledge banks, plugins, webapps,
   Govern, admin, and more. Typed options, self-describing `--help`, prescriptive
   errors — built so an agent succeeds on the first try.
@@ -18,11 +18,11 @@ work together:
   without anyone managing skill files by hand.
 
 Every command executes **as you**, with **your DSS permissions and audit trail**,
-authenticated from the **OS keychain**.
+authenticated from `DKU_API_KEY` or a stored local credential.
 
 > **Security model — read before deploying.** Authorization is **your DSS API
 > key's permissions**, not the CLI. Execution isolation depends on the transport:
-> - **Local / stdio** (every quick-start below, and Claude Code / Codex / OpenCode):
+> - **Local / stdio** (every quick-start below, and Claude Code / Codex / Claude Desktop):
 >   `dku_exec` runs as **a normal shell on your machine with your full environment**
 >   — the same trust level as your agent's own shell. **No sandbox.**
 > - **Hosted / HTTP** (multi-tenant, *experimental*): runs inside a **bubblewrap**
@@ -48,7 +48,9 @@ Install from git or a local clone:
 
 ```bash
 uv tool install git+https://github.com/dataiku/dku-headless.git
-dku auth login             # store DSS URL + API key in the OS keychain
+export DKU_URL=https://dss.example.com
+export DKU_API_KEY=dkuaps-...
+dku whoami                 # verify connection
 ```
 
 All install paths — MCP extras, agent-host plugins (Claude Code, Codex, Claude
@@ -60,6 +62,32 @@ Desktop), updating, and auth — are in [`docs/install.md`](docs/install.md).
 dku whoami                  # verify connection
 dku project list            # list projects
 dku dataset head DS -P PROJ # preview data
+```
+
+## Configuration
+
+Common environment variables:
+
+- `DKU_URL`: DSS instance URL.
+- `DKU_API_KEY`: DSS API key for non-interactive use, CI, containers, and agent hosts.
+- `DKU_PROFILE`: select a saved auth profile created with `dku auth login`.
+- `DKU_PROJECT`: default project key for project-scoped commands.
+- `DKU_FORMAT`: default output mode (`tsv`, `json`, `csv`, `ids`, `quiet`).
+- `DKU_TEXT_HELP=1`: show readable help text in a terminal instead of compact JSON.
+- `DKU_DANGEROUS=1`: bypass tier-2 and tier-3 confirmation guards for the current session. Tier-4 admin guards still block.
+- `DKU_MCP_STATE_ROOT`: override the MCP server session-state directory.
+- `DKU_MCP_WORKDIR`: override the MCP server working directory for local path resolution.
+
+Precedence is flags first, then environment variables, then the active saved profile.
+
+Examples:
+
+```bash
+export DKU_URL=https://dss.example.com
+export DKU_API_KEY=dkuaps-...
+export DKU_PROJECT=MY_PROJECT
+export DKU_TEXT_HELP=1
+dku --help
 ```
 
 Full reference: [`dataiku-mcp/skills/dku-cli/SKILL.md`](dataiku-mcp/skills/dku-cli/SKILL.md)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
+import os
 
 from dku_cli.auth import (
     KeyStatus,
@@ -39,6 +40,17 @@ def test_file_fallback_store_and_retrieve(tmp_path):
             _store_file_fallback("file-test", "file-key-456")
             result = _get_file_fallback("file-test")
             assert result == "file-key-456"
+
+
+def test_file_fallback_is_created_private_before_write(tmp_path):
+    cred_file = tmp_path / "credentials.toml"
+    from dku_cli.auth import _store_file_fallback
+
+    with patch("dku_cli.auth.CREDENTIALS_FILE", cred_file):
+        _store_file_fallback("file-test", "file-key-456")
+
+    if os.name == "posix":
+        assert (cred_file.stat().st_mode & 0o777) == 0o600
 
 
 def test_file_fallback_delete(tmp_path):
@@ -79,6 +91,36 @@ def test_store_api_key_falls_back_when_keychain_write_fails(tmp_path):
         patch("dku_cli.auth._keyring_available", return_value=False),
     ):
         assert get_api_key("default") == "fallback-key"
+
+
+def _keyring_available_for(module: str, name: str) -> bool:
+    mock_keyring = MagicMock()
+    mock_backend = MagicMock()
+    type(mock_backend).__module__ = module
+    type(mock_backend).__name__ = name
+    mock_keyring.get_keyring.return_value = mock_backend
+    with patch.dict("sys.modules", {"keyring": mock_keyring}):
+        return _keyring_available()
+
+
+def test_keyring_available_false_for_noop_backends():
+    # `fail` and `null` are no-op backends that silently discard credentials.
+    # Both are class-named "Keyring", so detection must key on the module.
+    assert _keyring_available_for("keyring.backends.null", "Keyring") is False
+    assert _keyring_available_for("keyring.backends.fail", "Keyring") is False
+
+
+def test_keyring_available_true_for_real_backends():
+    # Regression guard: every real first-party backend is class-named "Keyring".
+    # Keying on the class name reports these as unavailable and silently
+    # downgrades credential storage to the plaintext file fallback.
+    for module in (
+        "keyring.backends.macOS",
+        "keyring.backends.SecretService",
+        "keyring.backends.libsecret",
+    ):
+        assert _keyring_available_for(module, "Keyring") is True, module
+    assert _keyring_available_for("keyring.backends.Windows", "WinVaultKeyring") is True
 
 
 def test_get_api_key_falls_back_when_keychain_read_fails(tmp_path):

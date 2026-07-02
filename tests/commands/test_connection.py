@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from dataikuapi.utils import DataikuException
 from typer.testing import CliRunner
 
 from dku_cli.main import app
@@ -146,7 +147,7 @@ def test_connection_schemas_json(patch_client):
 def test_connection_schemas_falls_back_to_iceberg(patch_client):
     """Falls back to Iceberg namespaces when SQL schemas fail."""
     proj = patch_client.get_project("PROJ1")
-    proj.list_sql_schemas.side_effect = Exception("Not a SQL connection")
+    proj.list_sql_schemas.side_effect = DataikuException("Not a SQL connection")
     result = runner.invoke(
         app, ["connection", "schemas", "my_iceberg", "--project", "PROJ1"]
     )
@@ -164,6 +165,21 @@ def test_connection_schemas_empty(patch_client):
         app, ["connection", "schemas", "my_conn", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
+    assert "no schemas" in result.output.lower()
+
+
+def test_connection_schemas_warns_when_all_probes_fail(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_sql_schemas.side_effect = DataikuException("SQL unavailable")
+    proj.list_iceberg_namespaces.side_effect = DataikuException("Iceberg unavailable")
+
+    result = runner.invoke(
+        app, ["connection", "schemas", "broken_conn", "--project", "PROJ1"]
+    )
+
+    assert result.exit_code == 0
+    assert "Could not list SQL schemas" in result.output
+    assert "Could not list Iceberg namespaces" in result.output
     assert "no schemas" in result.output.lower()
 
 
@@ -234,7 +250,7 @@ def test_connection_tables_json(patch_client):
 def test_connection_tables_falls_back_to_iceberg(patch_client):
     """Falls back to Iceberg tables when SQL tables fail."""
     proj = patch_client.get_project("PROJ1")
-    proj.list_sql_tables.side_effect = Exception("Not a SQL connection")
+    proj.list_sql_tables.side_effect = DataikuException("Not a SQL connection")
     result = runner.invoke(
         app, ["connection", "tables", "my_iceberg", "--project", "PROJ1"]
     )
@@ -256,6 +272,21 @@ def test_connection_tables_empty(patch_client):
     # Rich may wrap the hint across lines, so check key parts separately
     assert "schemas" in result.output
     assert "my_conn" in result.output
+
+
+def test_connection_tables_warns_when_all_probes_fail(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    proj.list_sql_tables.side_effect = DataikuException("SQL unavailable")
+    proj.list_iceberg_tables.side_effect = DataikuException("Iceberg unavailable")
+
+    result = runner.invoke(
+        app, ["connection", "tables", "broken_conn", "--project", "PROJ1"]
+    )
+
+    assert result.exit_code == 0
+    assert "Could not list SQL tables" in result.output
+    assert "Could not list Iceberg tables" in result.output
+    assert "no tables" in result.output.lower()
 
 
 def test_connection_tables_empty_with_schema_hint(patch_client):

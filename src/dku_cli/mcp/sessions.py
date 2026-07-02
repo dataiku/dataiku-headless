@@ -73,18 +73,18 @@ class SessionStore:
             return self._get_or_create_locked(session_id)
 
     def _get_or_create_locked(self, session_id: str) -> Session:
-        cached = self._sessions.get(session_id)
+        key = self.key_for(session_id)
+        cached = self._sessions.get(key)
         if cached is not None:
-            self._sessions.move_to_end(session_id)  # mark as recently used
+            self._sessions.move_to_end(key)  # mark as recently used
             return cached
 
-        key = self.key_for(session_id)
         workdir = self.root / "sessions" / key
         workdir.mkdir(parents=True, exist_ok=True)
         _chmod(workdir, 0o700)
 
         session = Session(session_id=session_id, key=key, workdir=workdir)
-        self._sessions[session_id] = session
+        self._sessions[key] = session
         self._evict_overflow(protect=session)
         return session
 

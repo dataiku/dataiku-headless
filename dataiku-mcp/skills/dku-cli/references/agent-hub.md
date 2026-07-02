@@ -25,8 +25,8 @@ the blob → mutate → PUT it back). No additional plugin API is needed for wha
 **The catch for headless tools (verified live, DSS 14.6 + plugin):** the backend resolves
 the *caller* identity ONLY from DSS browser-ticket headers — `before_request` calls
 `get_auth_info_from_browser_headers(request.headers)`
-(`python-lib/backend/utils/ws_utils.py:217`). A DSS **personal API key** (what `dku` /
-`dataikuapi` / external agents authenticate with) carries no such headers, so
+(`python-lib/backend/utils/ws_utils.py`, verified on DSS 14.6). A DSS **personal
+API key** (what `dku` / `dataikuapi` / external agents authenticate with) carries no such headers, so
 `authIdentifier` resolves to `None` and the route returns **401** — even though the *same*
 key returns 200 on `/public/api/...`. So the endpoint is **scriptable from a browser
 session but not yet drivable by a personal API key**.

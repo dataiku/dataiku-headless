@@ -28,7 +28,7 @@ Add the `[mcp]` extra for the `dku-mcp` server (required for agent-host integrat
 # from git
 uv tool install "dku-headless[mcp] @ git+https://github.com/dataiku/dku-headless.git"
 # from a clone
-uv tool install --from . "dku-headless[mcp]"
+uv tool install ".[mcp]"
 ```
 
 ### Verify
@@ -41,11 +41,47 @@ dku-mcp --help
 ### Authentication
 
 ```bash
-dku auth login              # interactive: DSS URL + API key
+export DKU_URL=https://dss.example.com
+export DKU_API_KEY=dkuaps-...
 dku whoami                  # verify connection
 ```
 
-Credentials are stored in the OS keychain via `keyring`, with a file fallback.
+For CI, containers, and agent harnesses, prefer `DKU_API_KEY`. For local
+interactive use, `dku auth login` stores a profile credential in the OS keychain
+via `keyring`; if no keychain is available, the CLI writes a mode-0600 plaintext
+credentials file and warns.
+
+Resolution order is:
+
+1. explicit CLI flags such as `--url`, `--api-key`, `--profile`, `--format`
+2. environment variables
+3. the active saved profile created by `dku auth login`
+
+### Common environment variables
+
+Use [`.env.example`](../.env.example) as the template.
+
+- `DKU_URL`: DSS instance URL.
+- `DKU_API_KEY`: DSS API key for non-interactive use.
+- `DKU_PROFILE`: select a saved profile.
+- `DKU_PROJECT`: default project key for project-scoped commands.
+- `DKU_FORMAT`: default output mode (`tsv`, `json`, `csv`, `ids`, `quiet`).
+- `DKU_TEXT_HELP=1`: show readable help text in a terminal instead of compact JSON.
+- `DKU_DANGEROUS=1`: bypass tier-2 and tier-3 confirmation guards for the current session.
+
+Notes:
+
+- `DKU_PROJECT` overrides the profile's saved `default_project`.
+- `DKU_API_KEY` / `DKU_URL` override stored profile credentials for the current session.
+- `DKU_TEXT_HELP` affects help rendering only. Non-interactive help remains compact JSON.
+- Tier-4 admin safety guards are never bypassed by `DKU_DANGEROUS`.
+
+### MCP runtime overrides
+
+For `dku-mcp`, the main operator-set overrides are:
+
+- `DKU_MCP_STATE_ROOT`: change where per-session MCP state is stored.
+- `DKU_MCP_WORKDIR`: change the working directory used to resolve local relative paths.
 
 ### Update
 

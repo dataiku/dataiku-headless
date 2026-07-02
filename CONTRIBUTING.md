@@ -19,7 +19,7 @@ Run before pushing (the pre-commit hooks cover most of this):
 ```bash
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
-uv run python scripts/check_quality_ratchet.py     # blocks new C901/E501/oversized-file debt
+uv run python scripts/check_quality_ratchet.py     # blocks new lint and structural debt
 make audit                                          # dependency CVE + secret scan
 make test-plugin                                    # only if MCP packaging changed
 ```
@@ -32,5 +32,3 @@ make test-plugin                                    # only if MCP packaging chan
 - Add tests for new code and bug fixes; update the relevant `docs/` or skill reference.
 
 Branch from `main`, open a PR against `main`, and fill in the PR template.
-
-## Security

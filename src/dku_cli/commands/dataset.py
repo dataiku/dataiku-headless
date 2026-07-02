@@ -14,6 +14,7 @@ from dku_cli.commands._dataset_create import (
     _create_filesystem_dataset,
     _translate_create_dataset_error,
 )
+from dku_cli.commands._dataset_info import read_last_build, read_metric_counts
 from dku_cli.commands._dataset_metadata import update_dataset_metadata
 from dku_cli.commands._dataset_quality import register_dataset_quality_commands
 from dku_cli.enums import (
@@ -833,64 +834,10 @@ def _gather_dataset_info(
     managed = ds_def.get("managed", False)
     tags = ds_def.get("tags", [])
 
-    last_build_time = None
-    build_success = None
-    try:
-        ds_info = ds.get_info()
-        raw_info = ds_info.get_raw()
-        last_build = raw_info.get("lastBuild", {})
-        if last_build.get("buildEndTime"):
-            from datetime import datetime, timezone
-
-            ts = last_build["buildEndTime"] / 1000
-            last_build_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            )
-        build_success = last_build.get("buildSuccess")
-    except Exception:
-        pass
-
-    metrics_stale = True
-
-    def _fresh_int(metric_id: str):
-        value = fresh_values.get(metric_id)
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
-    row_count = _fresh_int("records:COUNT_RECORDS")
-    data_size_bytes = _fresh_int("basic:SIZE")
-    file_count = _fresh_int("basic:COUNT_FILES")
-    if row_count is not None or data_size_bytes is not None:
-        metrics_stale = False
-
-    if row_count is None or data_size_bytes is None or file_count is None:
-        try:
-            metrics = ds.get_last_metric_values()
-            available_ids = metrics.get_all_ids()
-            if row_count is None and "records:COUNT_RECORDS" in available_ids:
-                try:
-                    row_count = metrics.get_global_value("records:COUNT_RECORDS")
-                    metrics_stale = False
-                except Exception:
-                    pass
-            if data_size_bytes is None and "basic:SIZE" in available_ids:
-                try:
-                    data_size_bytes = metrics.get_global_value("basic:SIZE")
-                    metrics_stale = False
-                except Exception:
-                    pass
-            if file_count is None and "basic:COUNT_FILES" in available_ids:
-                try:
-                    file_count = metrics.get_global_value("basic:COUNT_FILES")
-                    metrics_stale = False
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    last_build_time, build_success = read_last_build(ds, dataset_name, fmt)
+    row_count, data_size_bytes, file_count, metrics_stale = read_metric_counts(
+        ds, dataset_name, fmt, fresh_values
+    )
 
     display_row = {
         "name": dataset_name,

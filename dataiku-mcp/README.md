@@ -23,7 +23,7 @@ Prerequisite at runtime: a POSIX shell. The launcher installs
 ## Runtime
 
 - Tool: `dku_exec`
-- Auth: `DKU_API_KEY`
+- Auth: `DKU_URL` + `DKU_API_KEY` for normal local/stdio use
 - Scope: your DSS permissions and audit trail
 
 Entry points:
@@ -38,6 +38,19 @@ Modes:
 
 In hosted mode, the real boundary is DSS API key permissions plus the sandbox
 backend. `--dangerous` stripping is only a UX guard.
+
+Runtime config:
+
+- `DKU_URL`: DSS instance URL.
+- `DKU_API_KEY`: DSS API key used by local/stdio launches and Codex-hosted local runs.
+- `DKU_PROJECT`: default project injected into `dku_exec` sessions.
+- `DKU_MCP_STATE_ROOT`: override the per-session state directory.
+- `DKU_MCP_WORKDIR`: override the default working directory used for local path resolution.
+
+Local `stdio` mode inherits your full shell environment. Hosted `http` mode uses
+a scrubbed allowlist and explicit per-session auth. DSS-injected values such as
+`DKU_API_TICKET` and backend host/port vars are runtime plumbing, not setup
+knobs.
 
 ## Skills strategy
 

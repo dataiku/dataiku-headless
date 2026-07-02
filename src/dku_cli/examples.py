@@ -38,19 +38,22 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("dataset", "create-from-file"): [
         "dku dataset create-from-file customers ./customers.csv -P PROJ",
     ],
+    ("dataset", "schema"): [
+        "dku dataset schema customers -P PROJ --fields name,type,description",
+    ],
     # The recurring single-column-upload repair: upload resets formatParams, so
     # re-apply the CSV format via -d @file (payload shape non-derivable from
     # --help; no stdin redirection — '<' is not supported, use -d @file or -d -).
     ("dataset", "set-definition"): [
-        "dku dataset set-definition raw_input -d @def.json -P PROJ"
+        "dku dataset set-definition raw_input -d @def.json --deep-merge -P PROJ"
         '  # def.json: {"formatType":"csv","formatParams":{"style":"excel",'
         '"charset":"utf-8","separator":"\\t","quoteChar":"","escapeChar":"\\\\",'
         '"parseHeaderRow":true,"skipRowsBeforeHeader":0}}',
     ],
     # Repeatable -i + required output combination
     ("recipe", "create"): [
-        "dku recipe create compute_joined --type python -i orders -i customers"
-        " --output-ds joined -P PROJ",
+        "dku recipe create clean_orders --type prepare -i orders"
+        " --output-ds orders_clean -P PROJ",
     ],
     # Repeatable -i; --join-key 'left=right' and 'INDEX:key' prefix for 3+ inputs;
     # inequality operators make range self-joins flags-only (no payload surgery).
@@ -71,6 +74,18 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
         "dku recipe create-sql sql_orders -i orders --output-ds joined"
         " --connection pg_conn --sql 'SELECT * FROM orders' -P PROJ",
     ],
+    ("recipe", "create-llm-eval"): [
+        "dku recipe create-llm-eval review_evaluate --input review_answers"
+        " --eval-store REVIEW_ES --task-type QUESTION_ANSWERING"
+        " --metrics bertScore --input-col question --output-col llm_output"
+        " --ground-truth-col reference_answer -P PROJ",
+    ],
+    ("recipe", "create-embed"): [
+        "dku recipe create-embed embed_products --input products"
+        " --output-kb products_kb --embedding-llm EMBED_LLM"
+        " --embed-column description --metadata-col product_id"
+        " --metadata-col url -P PROJ",
+    ],
     # One artifact for a whole prepare pipeline: op DSL + raw {type,params}
     # escape in one array, validated as a batch before any save. Replaces N
     # add-* calls (each with its own --help). --replace for idempotent rebuilds.
@@ -87,10 +102,18 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("recipe", "set-code"): [
         "dku recipe set-code compute_joined --code @script.py -P PROJ",
     ],
+    ("recipe", "run"): [
+        "dku recipe run clean_orders -P PROJ --type RECURSIVE_BUILD --wait",
+    ],
     # --payload (not --definition) for visual config; --deep-merge to patch nested keys
     ("recipe", "set-definition"): [
         "dku recipe set-definition join_orders --payload"
         ' \'{"postFilter": {"enabled": true}}\' --deep-merge -P PROJ',
+    ],
+    ("job", "run"): [
+        "dku job run --target joined -P PROJ --type RECURSIVE_BUILD --wait",
+        "dku job run --target joined --target joined_metrics -P PROJ"
+        " --type RECURSIVE_BUILD --wait",
     ],
     # Repeatable --tool + @file system prompt; one-call tool-calling loop graph
     ("agent", "create-react"): [
@@ -103,9 +126,6 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ],
     # Input payload shape: logical input at the root, no {"input": ...} envelope
     ("agent-tool", "run"): [
-        'dku agent-tool run tool_id --input \'{"query": "refund policy"}\' -P PROJ',
-        "dku agent-tool run llm_tool --input "
-        '\'{"question": "Summarize the policy"}\' -P PROJ',
         "dku agent-tool run lookup_tool --input "
         '\'{"filter": {"column": "sku", "operator": "EQUALS", '
         '"value": "ABC-123"}}\' -P PROJ',
@@ -142,6 +162,10 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("dataset", "set-meaning"): [
         "dku dataset set-meaning sales geopoint=GeoPoint -P PROJ",
         "dku dataset set-meaning sales latitude=Latitude longitude=Longitude -P PROJ",
+    ],
+    ("knowledge", "search"): [
+        'dku knowledge search products_kb --query "specific product details"'
+        " --max 5 -P PROJ",
     ],
     # Ergonomic mode: -f KEY=VALUE (JSON arrays for list fields) vs raw --definition
     ("govern", "artifact", "create"): [

@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlsplit, urlunsplit
 
 import dataikuapi
 import typer
-from rich.prompt import Prompt
 
 from dku_cli.auth import (
     KeyStatus,
     delete_api_key,
     get_api_key_with_status,
     infer_api_key_kind,
-    store_api_key,
 )
-from dku_cli.brand import ICON, print_logo, welcome
+from dku_cli.brand import ICON
 from dku_cli.client import AUTH_MODE_IN_POD_TICKET, get_client, resolve_auth
+from dku_cli.commands._auth_login import login_impl, redact_url
 from dku_cli.config import (
     clear_profile_configs,
     delete_profile_config,
@@ -25,8 +23,6 @@ from dku_cli.config import (
     get_all_profiles,
     get_profile_config,
     set_active_profile,
-    set_default_project,
-    set_profile_config,
 )
 from dku_cli.output import (
     console,
@@ -39,15 +35,6 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS authentication profiles.")
-
-
-def _redact_url(url: str) -> str:
-    parts = urlsplit(url)
-    hostname = parts.hostname or ""
-    netloc = hostname
-    if parts.port:
-        netloc = f"{hostname}:{parts.port}"
-    return urlunsplit((parts.scheme, netloc, "", "", ""))
 
 
 def _shell_squote(value: str) -> str:
@@ -112,66 +99,7 @@ def login(
     Accepts any DSS API key format — Personal, Global, Deployer, Automation,
     or API-node. The detected kind is shown after a successful login.
     """
-    interactive = not api_key
-
-    if interactive:
-        print_logo(subtitle=f"dku auth login  —  profile: {profile}")
-
-    if not url:
-        url = Prompt.ask("DSS URL")
-    url = url.rstrip("/")
-
-    if not api_key:
-        api_key = Prompt.ask("API Key", password=True)
-
-    # Validate connection and detect node type. DSSClient.get_instance_info()
-    # works against every node type (including GOVERN), so it's our probe.
-    try:
-        import dataikuapi
-
-        client = dataikuapi.DSSClient(url, api_key=api_key)
-        auth_info = client.get_auth_info()
-        user = auth_info.get("authIdentifier", "unknown")
-    except Exception as e:
-        error(f"Could not connect to {url}: {e}")
-        raise typer.Exit(1)
-
-    # Get DSS version + node type
-    version = "unknown"
-    node_type: str | None = None
-    try:
-        raw = client.get_instance_info().raw
-        version = raw.get("dssVersion", "unknown")
-        node_type = (
-            raw.get("nodeType") or raw.get("rawNodeType") or ""
-        ).upper() or None
-    except Exception:
-        pass
-
-    # Store credentials (persists node_type alongside url)
-    set_profile_config(profile, url, node_type=node_type)
-    storage = store_api_key(profile, api_key)
-
-    success(welcome(user, url, version))
-    if node_type:
-        info(f"Node type: {node_type}")
-    info(f"API key kind: {infer_api_key_kind(api_key)}")
-    info(f"Credentials stored in {storage}")
-    if profile != "default":
-        info(f'Profile "{profile}" is now active')
-
-    # Prompt for default project in interactive mode — only meaningful on
-    # nodes that actually have projects.
-    if interactive and node_type in (None, "DESIGN", "AUTOMATION"):
-        try:
-            project_key = Prompt.ask(
-                "Default project? (leave blank to skip)", default=""
-            )
-            if project_key.strip():
-                set_default_project(project_key.strip())
-                info(f"Default project set to {project_key.strip()}")
-        except (EOFError, KeyboardInterrupt):
-            pass
+    login_impl(profile, url, api_key)
 
 
 @app.command()
@@ -316,7 +244,7 @@ def status(
             return
 
         console.print(f"[bold]Profile:[/bold]  {profile}")
-        console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
+        console.print(f"[bold]URL:[/bold]      {redact_url(url)}")
         console.print(f"[bold]URL Src:[/bold]  {url_source}")
         console.print(f"[bold]Key Src:[/bold]  {api_key_source}")
         console.print(f"[bold]Key Kind:[/bold] {api_key_kind}")
@@ -353,7 +281,7 @@ def status(
             )
         else:
             console.print(f"[bold]Profile:[/bold]  {profile}")
-            console.print(f"[bold]URL:[/bold]      {_redact_url(url)}")
+            console.print(f"[bold]URL:[/bold]      {redact_url(url)}")
             console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
         raise typer.Exit(1)
 

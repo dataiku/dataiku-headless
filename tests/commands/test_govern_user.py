@@ -59,6 +59,27 @@ def test_user_create(patch_client):
     gov.create_user.assert_called_once()
 
 
+def test_user_create_rejects_unknown_source_type(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "user",
+            "create",
+            "bob",
+            "--password",
+            "secret123",
+            "--source-type",
+            "REMOTE",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "local" in result.output
+    assert "ldap" in result.output
+    patch_client.get_govern_client().create_user.assert_not_called()
+
+
 def test_user_create_bulk(patch_client):
     result = runner.invoke(
         app,

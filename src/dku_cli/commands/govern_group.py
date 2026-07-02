@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 
+from dku_cli.commands._source_type import SourceType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import get_govern_client_from_ctx
 from dku_cli.output import hint, render, render_raw, resolve_output_format, success
@@ -69,14 +70,17 @@ def create(
     description: Optional[str] = typer.Option(
         None, "--description", "-d", help="Group description"
     ),
-    source_type: str = typer.Option(
-        "LOCAL", "--source-type", help="Source type: LOCAL or LDAP"
+    source_type: SourceType = typer.Option(
+        SourceType.LOCAL,
+        "--source-type",
+        case_sensitive=False,
+        help="Source type",
     ),
 ) -> None:
     """Create a Govern group. Requires admin API key."""
     try:
         govern = get_govern_client_from_ctx(ctx)
-        govern.create_group(name, description=description, source_type=source_type)
+        govern.create_group(name, description=description, source_type=str(source_type))
         success(f"Created group '{name}'")
         hint(f"dku govern group get {name}")
     except SystemExit:

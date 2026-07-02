@@ -59,6 +59,25 @@ def test_group_create(patch_client):
     )
 
 
+def test_group_create_rejects_unknown_source_type(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "group",
+            "create",
+            "new_group",
+            "--source-type",
+            "REMOTE",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "local" in result.output
+    assert "ldap" in result.output
+    patch_client.get_govern_client().create_group.assert_not_called()
+
+
 def test_group_delete_requires_confirm(patch_client):
     result = runner.invoke(app, ["govern", "group", "delete", "data_team"])
     assert result.exit_code != 0

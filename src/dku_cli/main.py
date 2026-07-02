@@ -92,16 +92,15 @@ def _raise_csv_field_limit() -> None:
 _raise_csv_field_limit()
 
 
-# Monkey-patch TyperGroup/Command help rendering: --help always emits the
-# compact machine-readable spec JSON for the node asked about, so a reflexive
-# `--help` returns exact flags, types, and choices with minimal token overhead.
+# Monkey-patch TyperGroup/Command help rendering: --help emits the compact
+# machine-readable spec JSON for the node asked about, so a reflexive `--help`
+# returns exact flags, types, and choices with minimal token overhead.
 def _spec_help(self, ctx, formatter) -> None:
-    import json
+    from dku_cli import spec, spec_text
 
-    from dku_cli.spec import spec_node_for
-
-    node = spec_node_for(self, ctx)
-    formatter.write(json.dumps(node, default=str, separators=(",", ":")) + "\n")
+    formatter.write(
+        spec_text.render_help(spec.spec_node_for(self, ctx), ctx.command_path)
+    )
 
 
 TyperGroup.format_help = _spec_help
