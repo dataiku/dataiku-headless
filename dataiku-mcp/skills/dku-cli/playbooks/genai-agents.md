@@ -1,4 +1,4 @@
-# GenAI & Agents
+# GenAI & Agents Playbook
 
 Build LLM-over-rows, RAG, and agents with `dku`. Escalation ladder — take the first
 rung that suffices: prompt/LLM recipe → embed + KB + RAG → visual (tool-using) agent →
@@ -88,7 +88,7 @@ This is the default for "run an LLM over a dataset".
 Multi-line prompts: pass `@file.txt` or `-` (stdin) to `--prompt` — a backslash `\n`
 inside a literal string stays literal.
 
-**Gotchas + fix:**
+**Gotchas:**
 - `recipe run` alone returns an empty output schema → always use `job run` on first
   build (auto-update-schema is on by default; don't pass `--no-auto-update-schema`).
 - `resultValidation.expectedFormat: "JSON"` crashes at build (NPE) → use `"NONE"`
@@ -131,7 +131,7 @@ FOLDER_ID` (wires `embed_documents.inputs.main` straight to the managed folder; 
 LLM source `retrieval-augmented-llm:RAG_ID`, or expose to a STANDARD_REACT block via a
 VectorStoreSearch tool (section 5).
 
-**Gotchas + fix** (the CLI warns on a missing `--embed-column` and rejects an
+**Gotchas** (the CLI warns on a missing `--embed-column` and rejects an
 `create-embed-docs` call lacking both `--input`/`--input-folder` — these are the ones
 left to you):
 - **Don't pre-create KBs with `dku knowledge create`** — `dku recipe create-embed
@@ -178,8 +178,8 @@ a basic "LLM + tools" agent.
   `STRUCTURED_AGENT` ("add-tool only supports TOOLS_USING_AGENT").
 - **Structured agents wire tools *inside* blocks** — a `CORE_LOOP` with
   `tools:[{type:"EXPLICIT_TOOL","toolRef":ID}]` + `passConversationHistory:true`.
-- **A lone `CORE_LOOP` with no emit path returns `response:null`** — always set
-  `defaultNextBlock` to an `EMIT_OUTPUT` block. `create-react` does this for you.
+- **A lone `CORE_LOOP` with no emit path silently returns `response:null`**
+  (fix in `references/agent-blocks.md`) — `create-react` does this for you.
 
 See section 4 and `references/agent-blocks.md`.
 
@@ -209,7 +209,7 @@ For multi-stage graphs (ROUTING / FOR_EACH / PARALLEL / PYTHON_CODE), use sectio
 3. For RAG, set the agent's LLM to `retrieval-augmented-llm:RAG_ID`, or attach a
    VectorStoreSearch tool.
 
-**Versioning gotcha + fix:** never edit the active version in place when iterating
+**Versioning gotcha:** never edit the active version in place when iterating
 prompts. Use `dku agent set-prompt AGENT_ID --prompt @sys.txt --new-version --activate`
 (also on `set-llm`/`add-tool`). Setting `activeVersion` in raw JSON alone does NOT
 persist server-side — the CLI handles deep-copy + saved-model activation.
@@ -264,7 +264,7 @@ model query, custom Python).
 - `DatasetRowLookup --dataset DS` — structured lookups.
 - Plugin tools use `Custom_agent_tool_<plugin>_<tool>` type names.
 
-**Gotchas + fix:**
+**Gotchas:**
 - **No built-in `PythonFunction` tool type.** Custom Python tools must be built as a
   plugin (`python-agent-tools/` folder) and pushed with `dku plugin push`. Tool/plugin
   JSON + `BaseAgentTool` lifecycle → `references/agent-blocks.md`.
@@ -289,7 +289,7 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
    `--needs-expectations`. Mismatch = traits silently skip tests.
 3. Results: `dku agent-review results REV --run RUN_ID --by-trait`.
 
-**Gotchas + fix:**
+**Gotchas:**
 - `agent-review run` **re-executes the agent fresh per test** (does not re-score a
   cached dataset). A slow agent → a slow review and burns API quota → iterate with
   `--no-wait` + `list-runs`, compare runs with `agent-review compare --runs A,B,C`.
@@ -299,7 +299,7 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
   (DSS reverts it). In metric Python avoid `"""docstrings"""` (JSON-escape breaks them)
   — use `'''` or `#`.
 
-**Eval-store traps (verified live, DSS 14.6):**
+**Eval-store gotchas (verified live, DSS 14.6):**
 - **`llmTaskType` is required** — set it with `--task-type` on `recipe create-llm-eval`
   (NOT on `evaluation-store create`); omit it and the build fails late "You need to
   select a Task".

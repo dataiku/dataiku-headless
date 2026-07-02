@@ -1,9 +1,9 @@
-# Tabular flow
+# Tabular Flow Playbook
 
-Build and transform datasets in a DSS flow. The hot path: get exact flags from
-`dku <group> <cmd> --help`; open `references/visual-recipe-payloads.md` only for
-JSON shapes the CLI flags don't cover, `references/prepare-processors.md` for
-processor params, `references/formulas.md` for GREL.
+Build and transform datasets in a DSS flow. References for JSON shapes the CLI
+flags don't cover: `references/visual-recipe-payloads.md`,
+`references/prepare-processors.md` (processor params), `references/formulas.md`
+(GREL).
 
 ## Capability ladder (take the first rung that fits)
 
@@ -31,10 +31,7 @@ dku dataset head OUT -P PROJ -n 5 && dku dataset info OUT -P PROJ --recompute
 When a recipe outputs to a managed **folder** (not a dataset), build with
 `dku recipe run RECIPE -P PROJ --wait`.
 
-**Verify means rows, not exit code.** `dku --format json dataset head` returning `[]`
-is 0 rows, not success. Empty arrays are data. Check row count, schema, and
-sample values against expectations before declaring done.
-Successful `--wait` builds (`job run`, `dataset build`, `recipe run`) print
+Per SKILL.md rule 5 (verify with real rows): successful `--wait` builds (`job run`, `dataset build`, `recipe run`) print
 `Built <ds>: N rows, M cols` per dataset — read it: a `0 rows` warning means
 fix the recipe before building anything downstream, and an all-string-schema
 hint means run `dku dataset infer-types DS --apply` before aggregating.
@@ -186,11 +183,9 @@ output schema is auto-applied so the first build succeeds — without that the s
 output stays at 0 columns and the build dies (`Schema incompatibility ... 0 columns
 in target`, often surfaced as a raw `IndexOutOfBoundsException`).
 
-**Rolling / trailing-N windows: the DSS engine ignores frame bounds.**
-`create-window --frame-preceding/--frame-following` (and `--frame-mode RANGE`)
-save into the payload but the DSS engine executes them as current-row-only or
-cumulative — a trailing-3 sum silently comes back cumulative, no error. Frame
-bounds only work on a SQL engine. On the DSS engine, pick by window size:
+**Rolling / trailing-N windows: the DSS engine ignores frame bounds** (mechanism
+and verified evidence: `references/visual-recipe-payloads.md`). On the DSS
+engine, pick by window size:
 
 - **Small fixed N (≈≤3) → Window `--lag-offsets` + null-aware GREL.** One
   Window (`create-window mw -i d --output-ds out -k category --order-key seq
@@ -262,7 +257,7 @@ shortcuts only when iterating on one step or inserting mid-pipeline with `--at`.
 Processor IDs and params: `references/prepare-processors.md`. GREL syntax:
 `references/formulas.md`. Add geo columns with `add-geopoint` before any geo op.
 
-**Prepare gotchas (with fix):**
+**Prepare gotchas:**
 
 - **`apply-schema` is required before the FIRST run** (else computed columns are
   silently missing) **AND again after adding rename/formula/select steps to an
@@ -426,7 +421,7 @@ before starting the next — don't batch-create then build all at once. Ask befo
 `RECURSIVE_BUILD` on a flow with Spark/BigQuery/Snowflake connections, and
 before LLM-heavy runs (sample 100 rows first to validate output format).
 
-**Build traps:**
+**Build gotchas:**
 
 - **`apply-schema` on a JOIN output can zero out its rows** — the recursive build
   then treats the empty state as up-to-date and downstream stays empty. If a join

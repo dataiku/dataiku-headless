@@ -260,6 +260,66 @@ def _root_detail(group: click.Group) -> dict:
     return out
 
 
+def _flat_index_commands(group: click.Command) -> dict[str, str]:
+    entries: dict[str, str] = {}
+
+    def walk(cmd: click.Command, prefix: tuple[str, ...]) -> None:
+        commands = _child_commands(cmd)
+        if commands is None:
+            return
+        for name, child in sorted(commands.items()):
+            if getattr(child, "hidden", False):
+                continue
+            path = (*prefix, name)
+            entries[" ".join(path)] = _one_line(child)
+            walk(child, path)
+
+    walk(group, ())
+    return entries
+
+
+def full_index(root: click.Group) -> dict[str, dict]:
+    """Every group's commands with a one-line description, in one pass.
+
+    Powers `references/command-index.md` and `dku commands`: a single,
+    generated artifact an agent reads once instead of drilling `--help` into
+    each group it hasn't touched yet. Only names and one-liners — exact
+    flags/types/defaults stay behind `--help`, unchanged.
+    """
+    index: dict[str, dict] = {}
+    root_commands: dict[str, str] = {}
+    for name, cmd in sorted(root.commands.items()):
+        if getattr(cmd, "hidden", False):
+            continue
+        commands = _child_commands(cmd)
+        if commands is None:
+            root_commands[name] = _one_line(cmd)
+            continue
+        index[name] = {
+            "help": _clean(cmd.help).split("\n", 1)[0],
+            "commands": _flat_index_commands(cmd),
+        }
+    if root_commands:
+        index["root"] = {
+            "help": "Root-level commands.",
+            "commands": root_commands,
+        }
+    return index
+
+
+def command_index_rows(index: dict[str, dict]) -> list[dict[str, str]]:
+    return [
+        {
+            "path": command if group == "root" else f"{group} {command}",
+            "group": group,
+            "command": command,
+            "description": one_liner,
+        }
+        for group, node in index.items()
+        for command, one_liner in node["commands"].items()
+    ]
+
+
 def spec_node_for(cmd: click.Command, ctx: click.Context | None = None) -> dict:
     """Spec node for a single Click command/group, built from the object itself.
 

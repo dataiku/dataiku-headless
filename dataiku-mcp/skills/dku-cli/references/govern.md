@@ -1,4 +1,4 @@
-# Govern — blueprints, fields, workflow, sign-offs
+# Reference: Govern
 
 Govern is a standalone node: **no projects/datasets/recipes** — only a
 governance schema (blueprints + versions) describing governed records

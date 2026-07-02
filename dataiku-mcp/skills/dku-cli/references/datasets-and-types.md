@@ -1,4 +1,4 @@
-# Datasets, Schema & Plugin Parameter Types
+# Reference: Datasets, Schema & Plugin Parameter Types
 
 Durable payload shapes for dataset definitions, schema/partitioning, and plugin/recipe parameter
 definitions. Exact CLI flags via `--help`. `dku dataset create` exposes only `--type`/`--connection`
@@ -49,7 +49,7 @@ verbatim in `dku --format json dataset get-definition`. Treat plugin-typed defin
 `variablesExpansionLoopConfig` (one row-set per `$VAR` combo, files like `metric_${region}_${year}.csv`):
 `{"enabled":true,"mode":"VARIABLE","variables":[{"name":"region","values":["us","eu"]},{"name":"year","values":["2024","2025"]}]}`.
 
-**Upload trap:** `dku dataset upload` resolves a local-FS path and fails for `UploadedFiles` backed by
+**Upload gotcha:** `dku dataset upload` resolves a local-FS path and fails for `UploadedFiles` backed by
 S3/Azure/GCS — use the UI Upload tile or `folder upload` + `folder create-dataset`.
 
 ## Schema

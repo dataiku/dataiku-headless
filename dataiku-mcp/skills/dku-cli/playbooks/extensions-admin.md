@@ -3,7 +3,7 @@
 Build reusable capabilities (plugins, webapps), govern AI initiatives, and operate
 the instance (auth, connections, code envs, deploy, bundles).
 
-Exact flags always come from `<command> --help`. This file is sequencing + traps.
+Exact flags always come from `<command> --help`. This file is sequencing + gotchas.
 Destructive-op tiers and exit 77: see `references/safety.md`.
 
 ## Canonical commands
@@ -69,7 +69,7 @@ dku --format json plugin get <plugin>
 dku plugin recipes <plugin>               # registered recipe types
 dku plugin usages <plugin>                # check before delete
 ```
-Gotchas (fixes inline):
+**Gotchas:**
 - **Code env never auto-creates** → backend silently runs without your deps. Always
   `create-code-env` + `set-code-env` after first install.
 - **Recipe type is `CustomCode_<recipeDir>`** — plugin id is NOT in the string. Verify
@@ -95,10 +95,8 @@ There is **no public API to create a webapp** — create it in the DSS UI, then 
 `dku webapp start | stop | restart | status | logs | get-definition | set-definition`.
 No `delete` via API (DSS returns 405) — delete in the UI.
 
-Backend rule (the #1 failure): **never write `app = Flask(__name__)`** in a plugin webapp —
-DSS injects `app` globally and registers `/__ping`; shadowing it makes the backend never
-start. Import config from `dataiku.customwebapp` (NOT `dataiku.webapp`). Dash/Streamlit
-backends DO define their own app object.
+Backend rule (the #1 failure): **never write `app = Flask(__name__)`** in a plugin
+webapp — why and the fix in `references/webapps.md`.
 
 Frontend rule: call backends via `window.getWebAppBackendUrl('endpoint')` (no `/api/`
 prefix; route names must match `@app.route`). In plugin webapps the function lives on
@@ -116,7 +114,7 @@ dku webapp logs   <id> -P <proj> --follow | grep -Ei 'error|traceback'
 you get the traceback even before attempting a restart. Capped at ~80 server-side
 lines; use `--follow` for live tail (refused when backend is stopped).
 
-Top webapp gotchas (fixes in `references/webapps.md`): wrong folder (`webapps/` not
+**Top webapp gotchas** (fixes in `references/webapps.md`): wrong folder (`webapps/` not
 `custom-webapps/`); missing `app.js`/`meta.json`; missing `codeEnv: PLUGIN_MANAGED`;
 Vite code-splitting/base-path breaking resource loading; WebSockets unsupported (poll only);
 plugin dir is read-only (use `workload_local_folder`); DSS caches `body.html` (recreate the

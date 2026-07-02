@@ -1,12 +1,11 @@
-## What changed
+<!-- Prose, not headers-for-header's-sake. No tables, no restating the diff,
+     no meta-commentary about the PR itself. -->
 
-<!-- Brief description of the changes in this PR. -->
+## Summary
 
-## Why
+<!-- What changed and why, in a couple sentences. Link any related issues. -->
 
-<!-- What problem does this solve? Link any related issues. -->
-
-## Agent impact
+## Agent impact (optional — skip if Summary already covers it)
 
 <!-- How does this change make agents more successful?
      Examples: clearer error messages, new --help output, reduced ambiguity. -->

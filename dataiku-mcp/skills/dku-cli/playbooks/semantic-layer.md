@@ -1,6 +1,8 @@
-# Semantic layer
+# Semantic Layer Playbook
 
-Maps datasets to business entities, relationships, and metrics for NL→SQL. One model per domain, multiple versions per model (only active version queried). Get exact flags from `dku semantic-model <cmd> --help`.
+Maps datasets to business entities, relationships, and metrics for NL→SQL. One model per domain, multiple versions per model (only active version queried).
+
+## Canonical commands
 
 ```bash
 # golden order: describe datasets → create → entities → relationships → glossary/metrics/golden-queries → activate+index → verify

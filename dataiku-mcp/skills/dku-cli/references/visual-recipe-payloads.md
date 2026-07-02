@@ -1,4 +1,4 @@
-# Visual recipe payloads
+# Reference: Visual Recipe Payloads
 
 Durable JSON shapes for configuring visual recipes beyond the `create-*` flags.
 Get flags from `--help`; open this only for payload shapes.
@@ -59,7 +59,7 @@ conditions, Prepare VisualIfRule.
    {"input": "age",    "operator": ">= [number]", "num": 18}]}}
 ```
 
-**`uiData.mode` selects which field DSS evaluates** — the central trap:
+**`uiData.mode` selects which field DSS evaluates** — the central gotcha:
 
 | mode | evaluates | syntax |
 |---|---|---|
@@ -113,7 +113,7 @@ return False when created via API — use GREL in a `FilterOnCustomFormula` step
   the error message names the wrong dataset, so don't chase the named one.
   Fix: split into a second join pair (or a cascaded join) so every condition
   stays within its declared pair.
-- **Self-join / same-named column trap:** default `AUTO_NON_CONFLICTING`
+- **Self-join / same-named column gotcha:** default `AUTO_NON_CONFLICTING`
   silently drops one side's column (no error). Set
   `outputColumnsSelectionMode: "MANUAL"` on **both** virtualInputs and enumerate
   `selectedColumns` with `alias` for the collisions.
@@ -333,7 +333,7 @@ Create with `dku recipe create-fuzzy-join`; payload reference for edits:
 
 `distanceType` ∈ `EXACT`, `LEVENSHTEIN`, `EUCLIDEAN`, `HAMMING`, `COSINE`,
 `JACCARD`; an exact key is a `distanceType:"EXACT", threshold:0` condition.
-Two silent traps (build exits 0, wrong rows):
+Two silent gotchas (build exits 0, wrong rows):
 - Join-level `fuzzyJoinMethod`/`fuzzyJoinMaxDistance` keys are **persisted but
   ignored** — the recipe quietly degrades to exact matching.
 - A condition without `"type":"FUZZY"` (e.g. `fuzzyMatchDesc` alone) is

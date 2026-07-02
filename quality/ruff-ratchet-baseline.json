@@ -456,9 +456,9 @@
     "src/dku_cli/commands/user.py": 308,
     "src/dku_cli/commands/webapp.py": 396,
     "src/dku_cli/enums.py": 316,
-    "src/dku_cli/errors.py": 481,
+    "src/dku_cli/errors.py": 477,
     "src/dku_cli/helpers.py": 542,
-    "src/dku_cli/main.py": 304
+    "src/dku_cli/main.py": 312
   },
   "ruff_select": "C901,E501"
 }

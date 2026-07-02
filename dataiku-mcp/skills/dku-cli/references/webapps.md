@@ -1,4 +1,4 @@
-# Webapps Reference
+# Reference: Webapps
 
 Durable webapp detail: backend patterns, frontend setup, deploy, pitfalls.
 CLI lifecycle (`dku webapp start/stop/logs/...`) lives in `playbooks/extensions-admin.md`.

@@ -1,4 +1,4 @@
-# Prompt Recipe — Payload Schema
+# Reference: Prompt Recipe Payload Schema
 
 Complete schema for the `payload` object of a DSS Prompt Recipe, captured from working UI-created recipes.
 
@@ -176,13 +176,4 @@ Then diff against the minimal payload above to see what changed, and copy the ne
 | Recipe created but `--output-ds` complained that output doesn't exist | Generic `dku recipe create -t prompt` does not auto-create outputs (unlike `create-prompt`, which does). | Use `dku recipe create-prompt ...` instead, or pre-create: `dku dataset create NAME --type Filesystem -c filesystem_managed -P PROJ` before `recipe create -t prompt`. |
 | `{{variable}}` renders literally in the LLM prompt | Placeholder name doesn't match any entry in `textPromptTemplateInputs`, OR the referenced `datasetColumnName` doesn't exist in the input dataset schema. | Verify both with `dku dataset schema INPUT -P PROJ` and cross-check the `name` field in `textPromptTemplateInputs`. |
 | All rows come back with the same generic answer | The prompt template doesn't actually vary per row — either no `{{variable}}` placeholders, or all placeholders reference the same static column. | Add row-varying placeholders. Use `dku dataset head INPUT -n 5` to confirm the input rows actually differ on the referenced columns. |
-
----
-
-## Critical gotchas
-
-### The user-message template lives in `payload.prompt.textPromptTemplate`, NOT `payload.prompt`
-The user prompt template is at `payload.prompt.textPromptTemplate` (with `{{var}}` placeholders), not at `payload.prompt` directly — the latter is the *container* for the whole prompt config. The only `promptMode` `dku recipe create-prompt` writes is `PROMPT_TEMPLATE_TEXT`. `responseFormat: {"type":"json"}` (on `payload.completionSettings`) is distinct from `resultValidation.expectedFormat: "JSON"` — that second form crashes at build time.
-
-### `dku recipe create-prompt` only exposes TEXT mode
-`--prompt` writes `payload.prompt.textPromptTemplate` (double-brace `{{var}}`). There is no `--prompt-mode` flag — STRUCTURED / chat / few-shot modes are reachable only via raw `set-settings` with a hand-built payload. Use `--input-var name=column` for placeholder bindings; `--response-format json` sets `payload.completionSettings.responseFormat={"type":"json"}` — distinct from `resultValidation.expectedFormat:JSON` which crashes builds.
+| Confusing `completionSettings.responseFormat` with `resultValidation.expectedFormat` | Two different fields with similar names; only the second crashes on `"JSON"` | Use `--response-format json` for `completionSettings.responseFormat` (safe); leave `resultValidation.expectedFormat` as `"NONE"`. |

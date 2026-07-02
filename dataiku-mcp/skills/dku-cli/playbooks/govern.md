@@ -1,4 +1,4 @@
-# Govern
+# Govern Playbook
 
 A separate node type: a governance schema (blueprints + versions) describing governed
 records (**artifacts**) that move through **workflow steps** gated by **sign-offs**

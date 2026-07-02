@@ -49,6 +49,18 @@ Skip it for one-shot reads and single commands.
 
 Never guess flags and never document them here — drill into command `--help`.
 
+## Don't know which command? Check the index once
+
+`references/command-index.md` lists every group/command with a one-line description,
+generated from the same source as `--help`. Use it when the capability table below has no
+row for the task, or the task spans domains you haven't touched yet — instead of
+re-deriving structure by drilling `--help` group by group.
+
+Know the keyword? `grep -i <keyword> references/command-index.md` (or `dku commands |
+grep`) and skip the rest of the file. Genuinely don't know what you're looking for? Read
+the whole file once — still cheaper than the round trips it replaces. Either way, once you
+have the exact command, go straight to `dku <group> <command> --help` for flags.
+
 ## Permanent rules
 
 1. **Prefer DSS-native features over custom code.** Capability ladder: visual recipe →
@@ -85,11 +97,14 @@ Composability is the CLI's DNA - do in one shell turn what separate calls can't:
 - **Discover + extract:** `dku --format ids dataset list -P PROJ | while read ds; do ...; done`
 - **Idempotent setup:** `dku project create P --if-not-exists && dku dataset create DS --if-not-exists -P P`
 - **One verified unit:** create → configure → build → verify in a single `&&` chain, ending in a real-data check.
+- **Batch discovery, not just execution:** need flags for several sibling commands? Chain the
+  `--help` calls instead of one probe per turn — `dku dq create --help && dku dq compute --help
+  && dku dq results --help`. One round trip, N payloads.
 
 Do NOT chain multiple *unverified dependent* mutations — a 10-recipe `&&` chain hides which
 upstream failed (silent cascade; rule 5). Verify real rows before chaining the next dependent stage.
 
-## Silent-failure traps (DSS rarely errors loudly)
+## Silent-failure gotchas (DSS rarely errors loudly)
 
 - **Unknown payload keys are ignored.** A wrong field name (`column` vs `inCol`, a mistyped
   processor param) is accepted as a no-op step — never trust exit 0; check real output rows.
@@ -98,7 +113,8 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
   saving; never reconstruct from memory.
 - **Wrong column / feature / LLM references don't error** — charts render blank, ML mis-guesses,
   prompts no-op. Verify against `dataset schema` / `--help` before trusting success.
-- **`dataset delete` silently drops recipes that consume it** (no cascade prompt). Re-list after.
+- **`dataset delete` silently drops recipes that consume it** (no cascade prompt). Re-list
+  after — detail and recovery in `references/safety.md`.
 
 ## Capability → playbook
 
@@ -119,6 +135,7 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 
 | Need | Reference |
 |---|---|
+| Every group/command in one read — cross-domain discovery, no row above fits | `references/command-index.md` |
 | Visual recipe JSON (join/group/window/filter/sort/pivot/topn/distinct/stack) + visual conditions | `references/visual-recipe-payloads.md` |
 | Visual recipe silent-failure traps (spurious unsaved-changes prompt, no-op steps, wrong-shape config, schema/type drift, grouping traps) | `references/visual-recipe-traps.md` |
 | Prepare processors: which one + params payload | `references/prepare-processors.md` |

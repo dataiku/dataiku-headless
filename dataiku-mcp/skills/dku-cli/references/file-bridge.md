@@ -1,4 +1,4 @@
-# File bridge — local files ↔ DSS
+# Reference: File Bridge
 
 When `dku` runs as a local MCP (stdio), `dku_exec` executes in the user's project
 directory with full filesystem access, so the agent can move data between the

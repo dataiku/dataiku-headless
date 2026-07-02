@@ -1,4 +1,4 @@
-# Plugins Reference
+# Reference: Plugins
 
 Durable plugin detail: component structure, parameter wiring, production patterns, testing.
 Sequencing and CLI deploy commands live in `playbooks/extensions-admin.md`.

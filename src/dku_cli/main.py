@@ -376,3 +376,22 @@ def whoami(ctx: typer.Context) -> None:
             render_raw(payload, output_format=output)
     except Exception as e:
         handle_api_error(e)
+
+
+@app.command(name="commands")
+def list_commands(ctx: typer.Context) -> None:
+    """List every group/command with a one-line description, in one read.
+
+    One pass over the whole command tree — pipe to grep/rg to find a
+    capability across groups instead of drilling `--help` into each one.
+    """
+    from dku_cli.output import render, resolve_output_format
+    from dku_cli.spec import command_index_rows, full_index
+
+    rows = command_index_rows(full_index(ctx.find_root().command))
+    columns = (
+        ["path"]
+        if resolve_output_format() == "ids"
+        else ["group", "command", "description"]
+    )
+    render(rows, columns)

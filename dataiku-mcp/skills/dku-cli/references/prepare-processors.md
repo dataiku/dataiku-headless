@@ -1,4 +1,4 @@
-# Prepare Processors Reference
+# Reference: Prepare Processors
 
 Pick a purpose-built processor over `CreateColumnWithGREL` (GREL is last resort). Insert with
 `dku recipe add-step RECIPE --type <Processor> --params '<JSON>' -P PROJ` (`--at N` to insert at
@@ -144,7 +144,7 @@ Processors taking column names in `columns[]`/`inCol` work with spaces (`DatePar
 processors (`CreateColumnWithGREL`, `ColumnCopier`, `VisualIfRule`, `FilterOnCustomFormula`) silently
 return null on spaced names — rename to remove spaces first, or use a Python recipe.
 
-## GREL gotchas (when a formula is unavoidable)
+## Gotchas (when a formula is unavoidable)
 
 - `round(x,2)` → silent empty (1-arg only); use `round(x*100)/100`.
 - `log()` is base-10; natural log = `ln()`.

@@ -1,4 +1,4 @@
-# Semantic model payload schemas
+# Reference: Semantic Model Payload Schemas
 
 For `set-version` bulk edits. Use `add-*` commands for most ops; drop to JSON for `sqlGenerationConfig`, `foreignKeys`, attribute descriptions.
 

@@ -1,4 +1,4 @@
-# Agent Hub — the end-user delivery surface for agents
+# Reference: Agent Hub
 
 Agent Hub is a **Dataiku plugin webapp** (`agent-hub`, current 1.5.x, requires DSS
 14.2+). You **build** agents with `playbooks/genai-agents.md`; you **surface** a
@@ -33,8 +33,6 @@ session but not yet drivable by a personal API key**.
 
 - **Creating the hub webapp is UI-only** — plugin-webapp creation isn't in the public SDK.
   Create it in the DSS UI: *Project > Web Apps > New Web App > Agent Hub*.
-- **Configuring** it works programmatically **from a browser/session context** via the
-  endpoint above; a headless personal API key cannot today (401).
 - **To unblock `dku`/CI/agents**, the plugin's `before_request` would need to accept the
   API-key identity as a fallback when browser headers are absent — a small change in
   `dss-plugin-agent-hub`, not a new API. Until then, don't ship API-key write verbs.
@@ -52,7 +50,7 @@ session but not yet drivable by a personal API key**.
 The webapp `config` field holds **only runtime knobs** — `storage_type`
 (`LOCAL`\|`REMOTE`), `db_connection` (if REMOTE), `tables_prefix`, `log_level`.
 
-> **Silent no-op trap:** writing hub-behavior keys (`agentHubLLM`, `enterpriseAgents`,
+> **Silent no-op gotcha:** writing hub-behavior keys (`agentHubLLM`, `enterpriseAgents`,
 > `agents_ids`, …) via `set-config` is *accepted but ignored* — the plugin never reads
 > them from the `config` field. This is exactly why the old `set-llm` / `add-agent` /
 > `set-agent` verbs were removed. Use `set-config` only for `log_level` / `storage_type`.
@@ -113,7 +111,7 @@ hardcode.** Current (1.5.x) `admin_settings.settings` shape:
 - **Orchestration:** in `tools` mode the `agentHubLLM` treats each enrolled agent as a
   callable tool and routes the query; in `manual` mode the user selects the agent.
 
-> **Legacy-shape trap:** older local exports use a snake_case shape (`LLMs[]`,
+> **Legacy-shape gotcha:** older local exports use a snake_case shape (`LLMs[]`,
 > `agents_ids[]`, `tool_agent_configurations[]`, `augmented_llms_ids[]`). Current hubs
 > store the camelCase `admin_settings` above — don't model new work on the old shape.
 
@@ -136,7 +134,7 @@ start` triggers `start_or_restart_backend()`, which re-runs them.
   Hub — it produces DSS agents. Agent Hub is the separate, UI-managed surface that
   *surfaces* those agents. There is no programmatic bridge between the two.
 
-## Gotchas (quick reference)
+## Gotchas
 
 - `dku agent-hub list` empty → no hub exists; create it in the UI first, then manage
   lifecycle/runtime via CLI.
@@ -148,5 +146,3 @@ start` triggers `start_or_restart_backend()`, which re-runs them.
   from a browser session, or export the `admin_settings` table with an API key.
 - A personal API key gets **401** on `/api/admin/config` (identity comes from browser-ticket
   headers); it gets 200 on `/public/api/...`. Don't mistake the 401 for "wrong URL."
-- The local plugin checkout may sit on a stale `1.2.0-alpha` branch; the shipping line is
-  1.5.x. Treat field names as version-sensitive.

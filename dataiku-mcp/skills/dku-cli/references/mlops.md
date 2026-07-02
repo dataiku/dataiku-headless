@@ -1,4 +1,4 @@
-# MLOps — model lifecycle, code envs, guardrails, semantic models, macros
+# Reference: MLOps
 
 Durable shapes and payloads for the LLM Mesh / MLOps surface. Exact CLI flags:
 `--help`.
@@ -251,21 +251,4 @@ When built-in DQ rules can't express the gate. **Prefer built-in DQ rules first.
   `ERROR` fails the build/scenario; `WARNING` is soft.
 - Plugin form: `python-probes/<n>/probe.{json,py}`, `python-checks/<n>/check.{json,py}`.
 
-## Manifest section style (App Designer / Project Setup)
-
-Section fields: `sectionTitle` (plain text header — **do NOT** bake the title
-into the body as `<h3>`), `sectionText` (body), `tiles[]`, optional
-`visibilityCondition`. Body is **markdown**; the only safe HTML escape hatches
-are `<i class="icon-warning-sign|icon-info-sign|icon-ok-sign">`, `<br>`, `<b>`.
-Custom `<div>`/inline styles/color spans are brittle and break on theme change /
-clone — split sections or move rich content to a wiki article instead.
-
-Cross-refs use wiki link syntax, exact IDs (case- and separator-sensitive —
-`Build_All` ≠ `BUILDALL`): `[label](article:ID)`, `(scenario:ID)`,
-`(dataset:NAME)`, `(dashboard:ID)`, `(folder:ID)`, `(recipe:NAME)`. Get the
-exact id from `dku --format json <noun> list`; don't guess by uppercasing.
-
-`visibilityCondition` (CEL-like: `model.<name>`, `&&`, `==`) gates a param or a
-whole section against `model.<paramName>`. Always pair a toggle param with a
-`defaultValue` so new instances render deterministically. Tile prompts: plain
-imperative voice, no trailing punctuation (`Upload data`, not `Click to upload!`).
+App Designer manifest section fields → `references/app-designer.md`.

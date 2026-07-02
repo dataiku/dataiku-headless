@@ -1,8 +1,7 @@
-# Playbook: Analytics & Apps
+# Analytics & Apps Playbook
 
 Dashboards + charts + insights, App Designer, and Visual ML / AutoML.
-Get exact flags from `dku <group> <cmd> --help`. Pull a reference only for full JSON shapes:
-`references/dashboards.md`, `references/app-designer.md`.
+Full JSON shapes: `references/dashboards.md`, `references/app-designer.md`.
 
 ## Canonical commands
 
@@ -72,7 +71,7 @@ Dashboard → `pages[]` → each page has a `grid` → `grid.tiles[]`.
 
 Full tile/field reference: `references/dashboards.md`.
 
-### Gotchas — with fix
+### Gotchas
 
 - **Wrong column names render a blank chart with NO server error.** Verify columns first: `dku dataset schema DS -P KEY`, then `dku insight validate INSIGHT_ID -P KEY`.
 - **Missing `engineType:"LINO"` or `params.datasetSmartName`** → empty/failed chart. Always include both (`--dataset` on create sets the latter).
@@ -108,7 +107,7 @@ Manifest shape (`set-definition -d @manifest.json` for full replace): `useAppHom
 
 Design: number sections as linear steps (upload → configure → run → results), bind every dataset/folder tile to a specific resource, give every tile a `prompt` and `help`, hide infra tabs via `instanceFeatures`.
 
-### Gotchas — with fix
+### Gotchas
 
 - **`--mode` matters.** `setup` (default) keeps the project `REGULAR` with `useAppHomepage` (Project Setup page). `template` flips it to `APP_TEMPLATE` (instantiable Dataiku App). Picking the wrong mode turns a reference project into an App or vice versa; reverting `template`→`setup` has no CLI verb (manual `projectAppType='REGULAR'` save).
 - **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but **`PUT` accepts writes** — a probe `PUT {}` silently wipes `homepageSections` (200 OK). The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
@@ -163,7 +162,7 @@ dku dataset head scored -P KEY                          # verify prediction colu
 
 Scoring-recipe naming reconcile rationale (DSS auto-names `score_<input>`): see `tabular-flow.md` → "Apply saved model".
 
-### Gotchas — with fix
+### Gotchas
 
 - **Auto-guess does NOT detect label leakage.** After `create-prediction` always audit `dku ml settings` and reject post-event columns, IDs, and any column derived from the target — before training, not after.
 - **Use `set-features` (one transactional write), NOT a `set-feature` loop.** Each `set-feature` is a full get→modify→save; firing several back-to-back races and silently drops some rejects, so you train on columns you meant to drop. `set-features` reads once, applies all roles, saves once, and aborts on a typo'd feature name.

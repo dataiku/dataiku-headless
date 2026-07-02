@@ -1,7 +1,6 @@
-# Playbook: Project Ops & Automation
+# Project Ops & Automation Playbook
 
 Project lifecycle, variables, scenarios, jobs, flow builds, bundles, cross-project sharing.
-Get exact flags from `dku <group> <cmd> --help`. Open a reference only for JSON payload shapes.
 
 ## Canonical commands
 

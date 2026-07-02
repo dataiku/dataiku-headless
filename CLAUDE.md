@@ -76,7 +76,9 @@ CI runs Python 3.10–3.13. One-way quality ratchet in `scripts/check_quality_ra
 
 ## Pull requests
 
-Every PR: **What changed**, **Why**, **Agent impact** (what gets easier for agents), **Test plan** (unit + live DSS).
+PR descriptions: prose, not a slot-filling template — say what changed and why in a couple
+sentences, note agent impact only if it's not obvious from that, list the test plan. No
+headers for headers' sake, no tables, no AI-generated padding.
 
 ## Distribution
 

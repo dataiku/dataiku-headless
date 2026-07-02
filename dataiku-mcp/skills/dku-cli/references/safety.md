@@ -1,4 +1,4 @@
-# Safety — destructive-op tiers, exit 77, admin lockout
+# Reference: Safety
 
 `dku` is guarded by default. Destructive commands refuse to run until the user
 explicitly confirms. This is the canonical safety reference; exact flags come

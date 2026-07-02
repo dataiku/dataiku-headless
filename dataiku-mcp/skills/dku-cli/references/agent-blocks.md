@@ -1,4 +1,4 @@
-# Agent Blocks, Graph & Tool Schemas
+# Reference: Agent Blocks, Graph & Tool Schemas
 
 Durable JSON shapes for structured-agent blocks, the block graph, visual-agent
 configuration, and LLM tool definitions. Workflow lives in
@@ -27,7 +27,7 @@ scoped to the current branch.
 }
 ```
 
-**Wiring fields (the trap):**
+**Wiring fields (the gotcha):**
 
 | Block type | Next-block field |
 |---|---|
@@ -85,7 +85,7 @@ after every `set-graph`.
 > JSON-mode-capable) model for any JSON-output or judge/eval block; keep
 > Anthropic for free-text blocks.
 
-**Runtime traps not caught at save.** `agent-block add`/`set-graph` validate
+**Runtime gotchas not caught at save.** `agent-block add`/`set-graph` validate
 structure and print prescriptive fixes — empty CEL, missing `outputKey`, duplicate
 IDs, missing `llmId`, legacy field names (auto-renamed). These four pass validation
 but misbehave at runtime, so they're on you:

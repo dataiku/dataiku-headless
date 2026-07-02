@@ -48,6 +48,19 @@ Set via `dku app-designer set-definition -P PROJ -d @manifest.json` (full replac
 | `visibilityCondition` | string | GREL expression controlling section visibility |
 | `tiles` | array | Tile objects |
 
+`sectionTitle` is a plain text header — do **not** also bake the title into
+`sectionText` as `<h3>`. `sectionText` is markdown; the only safe HTML escape
+hatches are `<i class="icon-warning-sign|icon-info-sign|icon-ok-sign">`, `<br>`,
+`<b>` — custom `<div>`/inline styles/color spans are brittle and break on theme
+change/clone, so split sections or move rich content to a wiki article instead.
+Wiki-link cross-refs need exact, case-sensitive IDs (`Build_All` ≠ `BUILDALL`):
+`[label](article:ID)`, `(scenario:ID)`, `(dataset:NAME)`, `(dashboard:ID)`,
+`(folder:ID)`, `(recipe:NAME)` — get the id from `dku --format json <noun> list`,
+don't guess by uppercasing. `visibilityCondition` gates a param or whole section
+against `model.<paramName>`; always pair a toggle param with a `defaultValue` so
+new instances render deterministically. Tile prompts: plain imperative voice, no
+trailing punctuation (`Upload data`, not `Click to upload!`).
+
 ### Instance features (all default `true`)
 
 `showFlowNavLink`, `showGenAiNavLink`, `showLabNavLink`, `showCodeNavLink`,

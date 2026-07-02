@@ -1,4 +1,4 @@
-# GREL formula reference
+# Reference: GREL Formulas
 
 Expression language for Prepare recipes, computed columns, formula processors,
 and CUSTOM-mode filters. Return formulas as plain text, no fences.
@@ -171,7 +171,7 @@ are digit-only — wrap with `concat("", ...)` or set-schema to STRING.
 Always run `apply-schema` after adding formula steps (and again after adding
 rename/select steps to an existing Prepare recipe).
 
-## Quick gotchas
+## Gotchas
 
 - **No leading unary minus**: `-v_amount` fails with `Bad negative number
   (Parsing error at offset 1)`. Write `0 - v_amount` (negative *literals* like

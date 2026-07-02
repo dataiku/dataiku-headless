@@ -261,3 +261,66 @@ def test_unset_sentinel_suppresses_default_key():
 def test_unset_import_is_defined():
     """spec.UNSET must always be importable (real click.core.UNSET or fallback)."""
     assert spec.UNSET is not None
+
+
+def test_full_index_covers_every_visible_group():
+    root = get_command(app)
+    index = spec.full_index(root)
+    assert "dataset" in index
+    assert "recipe" in index
+    assert "share" in index["dataset"]["commands"]
+    assert "whoami" in index["root"]["commands"]
+    assert "commands" in index["root"]["commands"]
+
+
+def test_full_index_covers_nested_commands():
+    root = get_command(app)
+    index = spec.full_index(root)
+    assert "metrics run" in index["dataset"]["commands"]
+    assert "blueprint list-signoff-configs" in index["govern"]["commands"]
+    assert "license upload" in index["admin"]["commands"]
+
+
+def test_full_index_covers_every_visible_leaf_path():
+    root = get_command(app)
+    index = spec.full_index(root)
+    indexed_paths = {
+        command if group == "root" else f"{group} {command}"
+        for group, node in index.items()
+        for command in node["commands"]
+    }
+
+    leaf_paths: set[str] = set()
+
+    def collect(cmd: click.Command, path: tuple[str, ...]) -> None:
+        commands = spec._child_commands(cmd)
+        if commands is None:
+            leaf_paths.add(" ".join(path))
+            return
+        for name, child in commands.items():
+            if not getattr(child, "hidden", False):
+                collect(child, (*path, name))
+
+    for name, cmd in root.commands.items():
+        if not getattr(cmd, "hidden", False):
+            collect(cmd, (name,))
+
+    assert leaf_paths <= indexed_paths
+
+
+def test_full_index_skips_hidden_groups_and_commands():
+    root = get_command(app)
+    index = spec.full_index(root)
+    assert "managedfolder" not in index
+    assert "managed-folder" not in index
+
+
+def test_full_index_entries_are_flat_one_liners():
+    """Only names + one-line help — no args/flags/types, that stays behind --help."""
+    root = get_command(app)
+    index = spec.full_index(root)
+    node = index["recipe"]
+    assert isinstance(node["help"], str)
+    for one_liner in node["commands"].values():
+        assert isinstance(one_liner, str)
+        assert "\n" not in one_liner

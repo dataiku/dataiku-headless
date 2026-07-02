@@ -1,4 +1,4 @@
-# Visual recipe traps
+# Reference: Visual Recipe Traps
 
 Failure modes that pass payload validation, survive a `set-definition`, look
 correct in `get-settings`, and still bite — at the next UI open, at build time,
@@ -209,7 +209,7 @@ column confirms a step.
 
 ---
 
-## Class 5 — grouping / aggregation traps
+## Class 5 — grouping / aggregation misconfiguration
 
 ### 5a. selected metric with no aggregation flag
 
