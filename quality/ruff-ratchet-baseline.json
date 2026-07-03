@@ -26,7 +26,7 @@
     "src/dku_cli/commands/config_cmd.py": 2,
     "src/dku_cli/commands/connection.py": 11,
     "src/dku_cli/commands/continuous.py": 4,
-    "src/dku_cli/commands/dashboard.py": 11,
+    "src/dku_cli/commands/dashboard.py": 13,
     "src/dku_cli/commands/dataset.py": 50,
     "src/dku_cli/commands/discussion.py": 4,
     "src/dku_cli/commands/dq.py": 7,
@@ -399,7 +399,7 @@
     "tests/test_govern_errors.py": 128
   },
   "oversized_files": {
-    "src/dku_cli/charts.py": 257,
+    "src/dku_cli/charts.py": 363,
     "src/dku_cli/commands/_dataset_create.py": 392,
     "src/dku_cli/commands/_dataset_quality.py": 424,
     "src/dku_cli/commands/_project_audit.py": 799,
@@ -413,7 +413,7 @@
     "src/dku_cli/commands/auth_cmd.py": 359,
     "src/dku_cli/commands/codeenv.py": 349,
     "src/dku_cli/commands/connection.py": 400,
-    "src/dku_cli/commands/dashboard.py": 373,
+    "src/dku_cli/commands/dashboard.py": 542,
     "src/dku_cli/commands/dataset.py": 2722,
     "src/dku_cli/commands/dq.py": 392,
     "src/dku_cli/commands/evaluation_store.py": 273,
@@ -423,7 +423,7 @@
     "src/dku_cli/commands/govern_artifact.py": 430,
     "src/dku_cli/commands/govern_blueprint.py": 968,
     "src/dku_cli/commands/govern_signoff.py": 313,
-    "src/dku_cli/commands/insight.py": 754,
+    "src/dku_cli/commands/insight.py": 791,
     "src/dku_cli/commands/job.py": 513,
     "src/dku_cli/commands/knowledge.py": 309,
     "src/dku_cli/commands/library.py": 484,
@@ -454,7 +454,7 @@
     "src/dku_cli/commands/webapp.py": 396,
     "src/dku_cli/enums.py": 316,
     "src/dku_cli/errors.py": 477,
-    "src/dku_cli/helpers.py": 542,
+    "src/dku_cli/helpers.py": 550,
     "src/dku_cli/main.py": 311
   },
   "ruff_select": "C901,E501"

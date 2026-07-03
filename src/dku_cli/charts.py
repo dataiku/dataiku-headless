@@ -12,6 +12,48 @@ from __future__ import annotations
 
 import difflib
 
+# Storage types → chart column type. Chart dimension/measure objects carry a
+# `type` field that must agree with the bound column's storage: the pivot
+# engine hard-fails at render time when a NUMERICAL/DATE-typed binding points
+# at a column that is not numeric/date in memory ("Column X was expected to be
+# NUMERICAL but is not (found STRING_DICT)"). An omitted or unrecognized type
+# string (e.g. "COUNT" on a column-bound measure) is read as NUMERICAL
+# server-side, so it fails the same way on string columns.
+NUMERIC_STORAGE_TYPES = {"tinyint", "smallint", "int", "bigint", "float", "double"}
+# DSS stores dates under several storage types — all map to the chart DATE type.
+DATE_STORAGE_TYPES = {"date", "dateonly", "datetime", "datetimenotz", "datetimetz"}
+# The chart column `type` strings the pivot engine recognizes.
+CHART_COLUMN_TYPES = {"ALPHANUM", "NUMERICAL", "DATE", "GEOPOINT", "GEOMETRY", "CUSTOM"}
+# Aggregations the engine can only compute on numeric values — they fail at
+# render time on string columns ("Cannot sum non numeric values") even when
+# the declared `type` passes the type check.
+NUMERIC_ONLY_FUNCTIONS = {
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+    "MEDIAN",
+    "PERCENTILE",
+    "STDEV",
+    "STDEV_POPULATION",
+    "VARIANCE",
+    "VARIANCE_POPULATION",
+}
+# The GUI palette's "Count of records" pseudo-column; a measure bound to it
+# (or to no column at all) counts rows and is never type-checked.
+COUNT_OF_RECORDS_SENTINEL = "__COUNT__"
+
+
+def chart_column_type(storage: str | None) -> str:
+    """Map a column's storage type to its chart column type."""
+    s = (storage or "").lower()
+    if s in NUMERIC_STORAGE_TYPES:
+        return "NUMERICAL"
+    if s in DATE_STORAGE_TYPES:
+        return "DATE"
+    return "ALPHANUM"
+
+
 # Every def slot that can carry a {"column": ...} reference. Column names are
 # NOT checked server-side — a typo saves fine and renders blank — so validate
 # checks all of them, not just genericDimension*/genericMeasures.
@@ -180,6 +222,8 @@ def columns_referenced(cdef: dict) -> list[str]:
     for slot in COLUMN_SLOTS:
         for item in cdef.get(slot) or []:
             if isinstance(item, dict) and item.get("column"):
+                if item["column"] == COUNT_OF_RECORDS_SENTINEL:
+                    continue
                 seen.setdefault(item["column"], None)
     return list(seen)
 
@@ -250,6 +294,109 @@ def _column_issues(cdef: dict, columns_by_name: dict[str, dict]) -> list[dict]:
     return out
 
 
+# Unaggregated slots (scatter/scatter_map). Their "treat as text" switch is the
+# `treatAsAlphanum` boolean on the binding — numParams/dateParams are ignored
+# there, and vice versa for the aggregated slots.
+UA_SLOTS = {"uaXDimension", "uaYDimension", "uaSize", "uaColor", "uaShape", "uaTooltip"}
+
+
+def _treated_as_alphanum(slot: str, obj: dict) -> bool:
+    if slot in UA_SLOTS:
+        return bool(obj.get("treatAsAlphanum"))
+    return "TREAT_AS_ALPHANUM" in (
+        (obj.get("numParams") or {}).get("mode"),
+        (obj.get("dateParams") or {}).get("mode"),
+    )
+
+
+def _type_mismatch_issue(slot: str, obj: dict, col: str, declared) -> dict:
+    if declared is None:
+        cause = "omitted `type` (DSS reads it as NUMERICAL)"
+    elif declared in CHART_COLUMN_TYPES:
+        cause = f"type '{declared}'"
+    else:
+        cause = f"unknown type '{declared}' (DSS reads it as NUMERICAL)"
+    fix = f'set "type": "ALPHANUM" on the \'{col}\' binding'
+    if obj.get("function") in ("COUNT", "COUNTD"):
+        fix += (
+            '; for a plain row count use {"function": "COUNT", '
+            '"type": "COUNT"} with no "column"'
+        )
+    return _issue(
+        "error",
+        f"{slot}: {cause} on non-numeric column '{col}' — render fails "
+        f"('Column {col} was expected to be NUMERICAL but is not "
+        "(found STRING_DICT)')",
+        fix,
+    )
+
+
+def _object_type_issue(
+    slot: str, obj: dict, columns_by_name: dict[str, dict]
+) -> dict | None:
+    col = obj.get("column")
+    if not col or col == COUNT_OF_RECORDS_SENTINEL:
+        return None  # count-of-records — never type-checked
+    info = columns_by_name.get(col)
+    if info is None:
+        return None  # unknown column — already flagged by _column_issues
+    declared = obj.get("type")
+    fn = obj.get("function")
+    if declared == "CUSTOM" or fn == "CUSTOM":
+        return None
+    col_type = chart_column_type(info.get("type"))
+    if slot == "boxplotValue" and col_type == "ALPHANUM":
+        # Any declared type is broken here: NUMERICAL/DATE fail the engine type
+        # check (400), and ALPHANUM passes it only to crash the boxplot
+        # computation (HTTP 500 'An internal error occurred').
+        return _issue(
+            "error",
+            f"boxplotValue: '{col}' is {col_type} — boxplots need a numeric "
+            "column; render fails whatever the declared type",
+            "bind a numeric column in boxplotValue, or count categories with "
+            "grouped_columns instead",
+        )
+    if slot == "uaShape":
+        return None  # shape is forced ALPHANUM at render time — any type works
+    if fn in NUMERIC_ONLY_FUNCTIONS and col_type != "NUMERICAL":
+        return _issue(
+            "error",
+            f"{slot}: {fn}({col}) — '{col}' is {col_type}, not numeric; "
+            "render fails ('Cannot sum non numeric values')",
+            "aggregate a numeric column, or count instead: "
+            f'{{"column": "{col}", "function": "COUNT", "type": "{col_type}"}}',
+        )
+    effective = declared if declared in CHART_COLUMN_TYPES else "NUMERICAL"
+    if (
+        effective in ("NUMERICAL", "DATE")
+        and col_type == "ALPHANUM"
+        and not _treated_as_alphanum(slot, obj)
+    ):
+        return _type_mismatch_issue(slot, obj, col, declared)
+    return None
+
+
+def _binding_type_issues(cdef: dict, columns_by_name: dict[str, dict]) -> list[dict]:
+    """Render-time type coherence — the same engine check guards every chart
+    backend (aggregated tensor, scatter, boxplots): a column-bound object whose
+    effective type (omitted/unknown → NUMERICAL) is NUMERICAL or DATE fails on
+    a column that is neither, and numeric-only aggregations fail on non-numeric
+    columns regardless of declared type. Exceptions: uaShape is forced ALPHANUM
+    at render, boxplotValue must be numeric outright, and geometry bindings are
+    meaning-checked (_geo_issues), never type-checked."""
+    out: list[dict] = []
+    for slot in COLUMN_SLOTS:
+        if slot == "geometry":
+            continue
+        for obj in cdef.get(slot) or []:
+            if not isinstance(obj, dict):
+                continue
+            issue = _object_type_issue(slot, obj, columns_by_name)
+            if issue:
+                out.append(issue)
+    return out
+
+
 def _geo_issues(
     ctype: str, spec: dict | None, cdef: dict, columns_by_name: dict[str, dict]
 ) -> list[dict]:
@@ -310,5 +457,6 @@ def lint_chart_def(cdef: dict, columns_by_name: dict[str, dict]) -> list[dict]:
     return (
         issues
         + _column_issues(cdef, columns_by_name)
+        + _binding_type_issues(cdef, columns_by_name)
         + _geo_issues(ctype, spec, cdef, columns_by_name)
     )

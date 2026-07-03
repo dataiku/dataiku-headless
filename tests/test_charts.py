@@ -114,9 +114,9 @@ def test_finicky_type_emits_caveat_but_no_error():
     # a structurally-valid sankey still warns (render-finicky), exit-OK
     cdef = {
         "type": "sankey",
-        "genericDimension0": [{"column": "region"}],
-        "genericDimension1": [{"column": "units"}],
-        "genericMeasures": [{"column": "revenue"}],
+        "genericDimension0": [{"column": "region", "type": "ALPHANUM"}],
+        "genericDimension1": [{"column": "units", "type": "NUMERICAL"}],
+        "genericMeasures": [{"column": "revenue", "type": "NUMERICAL"}],
     }
     issues = lint_chart_def(cdef, SCHEMA)
     assert _errs(issues) == []

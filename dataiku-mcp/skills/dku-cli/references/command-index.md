@@ -581,6 +581,7 @@ Every group and command with its one-line description — read this once per ses
 - `remove-tile` — Remove all tiles referencing an insight from a dashboard.
 - `set-definition` — Update a dashboard's definition from JSON.
 - `set-metadata` — Update dashboard description, short description, and/or tags.
+- `validate` — Pre-flight a dashboard layout before a human loads it.
 
 ### `insight` — Manage DSS insights (charts, reports, metrics views).
 

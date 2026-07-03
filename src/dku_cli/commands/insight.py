@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.charts import columns_referenced, lint_chart_def
+from dku_cli.charts import chart_column_type, columns_referenced, lint_chart_def
 from dku_cli.enums import ChartType, MeasureAgg
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    insight_url,
     read_json_input,
     resolve_project,
     update_taggable_metadata,
@@ -49,15 +50,6 @@ _DEFAULT_REFRESHABLE_SELECTION = {
     "_refreshTrigger": 0,
 }
 
-# Numeric storage types → chart column type NUMERICAL; everything else is
-# ALPHANUM except dates. Chart dimension/measure objects carry this `type`
-# field — omitting it makes DSS assume NUMERICAL and fail at render time on
-# string/meaning columns ("Column X was expected to be NUMERICAL but is not").
-_NUMERIC_STORAGE_TYPES = {"tinyint", "smallint", "int", "bigint", "float", "double"}
-# DSS stores dates under several storage types — all map to the chart DATE type.
-# Checking only "date" silently mis-typed dateonly/datetime columns as ALPHANUM,
-# which broke time-series charts (no date axis, no binning).
-_DATE_STORAGE_TYPES = {"date", "dateonly", "datetime", "datetimenotz", "datetimetz"}
 _DATE_MODES = {"YEAR", "QUARTER", "MONTH", "WEEK", "DAY", "HOUR"}
 # Chart types whose data does NOT live in genericDimension0/genericMeasures, so
 # the add-dimension/add-measure helpers can't fully configure them — they render
@@ -90,12 +82,7 @@ def _chart_column_type(proj, raw: dict, column: str, project_key: str) -> str | 
                 f"Inspect with: dku dataset schema {ds_name} -P {project_key}",
             ],
         )
-    storage = (by_name[column] or "").lower()
-    if storage in _NUMERIC_STORAGE_TYPES:
-        return "NUMERICAL"
-    if storage in _DATE_STORAGE_TYPES:
-        return "DATE"
-    return "ALPHANUM"
+    return chart_column_type(by_name[column])
 
 
 @app.command("list")
@@ -239,17 +226,20 @@ def create(
                 "refreshableSelection", _DEFAULT_REFRESHABLE_SELECTION
             )
         insight = proj.create_insight(creation_info)
+        url = insight_url(client, project_key, insight.insight_id)
         if output == "json":
             render_raw(
                 {
                     "id": insight.insight_id,
                     "name": creation_info.get("name", name),
                     "type": creation_info.get("type", insight_type),
+                    "url": url,
                 },
                 output_format=output,
             )
         else:
             success(f"Created insight '{name}' (id={insight.insight_id})")
+            hint(f"URL (cite this exact form; the '_' after the id matters): {url}")
             hint(f"dku insight get {insight.insight_id} -P {project_key}")
     except Exception as e:
         if if_not_exists and is_already_exists_error(e):
@@ -658,7 +648,27 @@ def add_dimension(
         chart_def = raw.setdefault("params", {}).setdefault("def", {})
         key = f"genericDimension{slot}"
         dims = chart_def.setdefault(key, [])
-        dim: dict = {"column": column}
+        # Full GUI shape: a bare {column, type} dim crashes the chart editor
+        # (TypeError reading numParams.nbBins / sort.type) — the frontend only
+        # autocompletes objects it recognizes as complete.
+        dim: dict = {
+            "column": column,
+            "isA": "dimension",
+            "maxValues": 100,
+            "generateOthersCategory": False,
+            "filters": [],
+            "sort": {
+                "type": "NATURAL",
+                "sortAscending": True,
+                "label": "Natural ordering",
+            },
+            "numParams": {
+                "mode": "FIXED_NB",
+                "nbBins": 10,
+                "binSize": 100,
+                "emptyBinsMode": "ZEROS",
+            },
+        }
         col_type = _chart_column_type(proj, raw, column, project_key)
         if col_type:
             dim["type"] = col_type
@@ -696,7 +706,11 @@ def add_measure(
     insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     column: str = typer.Option(
-        ..., "--column", "-c", help="Column name to add as measure"
+        None,
+        "--column",
+        "-c",
+        help="Column name to add as measure. Omit with --agg COUNT for a "
+        "plain row count ('Count of records').",
     ),
     aggregation: MeasureAgg = typer.Option(
         MeasureAgg.AVG,
@@ -720,6 +734,7 @@ def add_measure(
     """Add a measure column to a chart insight.
 
     dku insight add-measure INSIGHT_ID --column revenue --agg SUM -P PROJ
+    dku insight add-measure INSIGHT_ID --agg COUNT -P PROJ  # count of records
     # dual-axis combo: bars on the left, a rate line on the right
     dku insight add-measure INSIGHT_ID -c rate --agg AVG --axis 2 --as line -P PROJ
     """
@@ -727,6 +742,11 @@ def add_measure(
 
     dss_aggs = {"COUNT_DISTINCT": "COUNTD"}
     agg = aggregation.upper()
+    if column is None and agg != "COUNT":
+        exit_with_error(
+            f"--agg {agg} needs a --column; only --agg COUNT works without one "
+            "(plain row count)."
+        )
     if axis not in (1, 2):
         exit_with_error("--axis must be 1 (left) or 2 (right)")
     display_type = None
@@ -749,25 +769,43 @@ def add_measure(
                 f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
             )
         chart_def = raw.setdefault("params", {}).setdefault("def", {})
-        measure: dict = {"column": column, "function": dss_aggs.get(agg, agg)}
-        col_type = _chart_column_type(proj, raw, column, project_key)
-        if col_type:
-            # Charts require the measure's `type` to match the column. An
-            # omitted type is treated as NUMERICAL and string/meaning columns
-            # fail at render time with "Column X was expected to be NUMERICAL
-            # but is not (found STRING_DICT)".
-            if agg in ("AVG", "SUM", "MIN", "MAX") and col_type != "NUMERICAL":
-                exit_with_error(
-                    f"{agg}({column}) needs a numerical column, but "
-                    f"'{column}' is {col_type}.",
-                    details=[
-                        "Use --agg COUNT (row count) or --agg COUNT_DISTINCT "
-                        "for non-numeric columns,",
-                        "or fix the storage type first: dku dataset set-schema "
-                        f"... -P {project_key}",
-                    ],
-                )
-            measure["type"] = col_type
+        # isA/displayed mark the object as a complete measure — without them the
+        # chart editor treats it as a half-dropped palette column and either
+        # asserts ("no measure type") or rewrites the function on open.
+        if column is None:
+            # "Count of records": no column, pseudo-type COUNT — the one
+            # column-less measure shape the pivot engine accepts.
+            measure: dict = {
+                "function": "COUNT",
+                "type": "COUNT",
+                "isA": "measure",
+                "displayed": True,
+            }
+        else:
+            measure = {
+                "column": column,
+                "function": dss_aggs.get(agg, agg),
+                "isA": "measure",
+                "displayed": True,
+            }
+            col_type = _chart_column_type(proj, raw, column, project_key)
+            if col_type:
+                # Charts require the measure's `type` to match the column. An
+                # omitted type is treated as NUMERICAL and string/meaning columns
+                # fail at render time with "Column X was expected to be NUMERICAL
+                # but is not (found STRING_DICT)".
+                if agg in ("AVG", "SUM", "MIN", "MAX") and col_type != "NUMERICAL":
+                    exit_with_error(
+                        f"{agg}({column}) needs a numerical column, but "
+                        f"'{column}' is {col_type}.",
+                        details=[
+                            "Use --agg COUNT (row count) or --agg COUNT_DISTINCT "
+                            "for non-numeric columns,",
+                            "or fix the storage type first: dku dataset set-schema "
+                            f"... -P {project_key}",
+                        ],
+                    )
+                measure["type"] = col_type
         # axis1 is the DSS default — only write displayAxis for the right axis,
         # so a plain measure keeps its minimal shape.
         if axis == 2:
@@ -782,7 +820,8 @@ def add_measure(
         if display_type:
             extra.append(f"as {display_type}")
         suffix = f" ({', '.join(extra)})" if extra else ""
-        success(f"Added measure '{column}' ({agg}) to insight '{insight_id}'{suffix}")
+        label = column if column is not None else "count of records"
+        success(f"Added measure '{label}' ({agg}) to insight '{insight_id}'{suffix}")
     except typer.Exit:
         raise
     except Exception as e:

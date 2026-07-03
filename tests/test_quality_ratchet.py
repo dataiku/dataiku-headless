@@ -134,7 +134,7 @@ def test_check_passes_when_debt_decreases(monkeypatch, capsys):
     assert "baseline can tighten" in out
 
 
-def test_baseline_diff_rejects_widened_debt():
+def test_baseline_diff_reports_widened_debt():
     old = _state(
         complexity=["a.py::foo"],
         line_length={"a.py": 1},

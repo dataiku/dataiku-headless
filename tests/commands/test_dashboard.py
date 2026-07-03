@@ -35,6 +35,17 @@ def test_dashboard_get(patch_client):
     assert "dashboard1" in result.output
 
 
+def test_dashboard_get_shows_working_url(patch_client):
+    result = runner.invoke(
+        app, ["dashboard", "get", "dashboard1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    assert (
+        "https://dss.example.com/projects/PROJ1/dashboards/dashboard1/view/"
+        in result.output
+    )
+
+
 def test_dashboard_get_tile_count(patch_client):
     """Tile count must read from pages[i].grid.tiles (real DSS structure)."""
     result = runner.invoke(
@@ -85,7 +96,12 @@ def test_dashboard_create_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert parsed == {"id": "new_dashboard_1", "name": "New Dashboard"}
+    assert parsed == {
+        "id": "new_dashboard_1",
+        "name": "New Dashboard",
+        # trailing slash is load-bearing: /view (no slash) 404s in the DSS UI
+        "url": "https://dss.example.com/projects/PROJ1/dashboards/new_dashboard_1/view/",
+    }
 
 
 def test_dashboard_create_with_definition(patch_client):
@@ -330,6 +346,16 @@ def test_dashboard_add_tile(patch_client):
     # "Insight type null is unknown".
     assert tile["tileType"] == "INSIGHT"
     assert tile["insightType"] == "chart"
+    assert tile["box"] == {"top": 0, "left": 0, "width": 18, "height": 10}
+    # a top-level showTitle is dropped by DSS on save — titles live in titleOptions
+    assert "showTitle" not in tile
+    assert "resizeMode" not in tile
+    assert tile["titleOptions"]["showTitle"] == "YES"
+    assert tile["autoLoad"] is True
+    # chart tiles hide the chart's legend unless the tile opts in — multi-series
+    # charts are unreadable without it
+    assert tile["tileParams"]["showLegend"] is True
+    assert tile["tileParams"]["inheritLegendPlacement"] is True
 
 
 def test_dashboard_add_tile_unknown_insight_type_fails(patch_client):
@@ -359,27 +385,69 @@ def test_dashboard_add_tile_unknown_insight_type_fails(patch_client):
     settings.save.assert_not_called()
 
 
-def test_dashboard_add_tile_stacks_below_existing(patch_client):
+def _dash_with_tiles(patch_client, tiles):
     proj = patch_client.get_project("PROJ1")
     settings = proj.get_dashboard("dashboard1").get_settings()
     raw = {
         "id": "dashboard1",
         "name": "Dash",
-        "pages": [
-            {
-                "id": "p1",
-                "grid": {
-                    "tiles": [
-                        {
-                            "insightId": "i1",
-                            "box": {"left": 0, "top": 0, "width": 6, "height": 4},
-                        }
-                    ]
-                },
-            }
-        ],
+        "pages": [{"id": "p1", "grid": {"tiles": tiles}}],
     }
     settings.get_raw.return_value = raw
+    return raw
+
+
+def test_dashboard_add_tile_flows_beside_when_room(patch_client):
+    raw = _dash_with_tiles(
+        patch_client,
+        [{"insightId": "i1", "box": {"left": 0, "top": 0, "width": 18, "height": 10}}],
+    )
+    result = runner.invoke(
+        app,
+        ["dashboard", "add-tile", "dashboard1", "--insight", "insight2", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    new_tile = raw["pages"][0]["grid"]["tiles"][1]
+    assert new_tile["box"] == {"top": 0, "left": 18, "width": 18, "height": 10}
+
+
+def test_dashboard_add_tile_wraps_to_new_row_when_full(patch_client):
+    raw = _dash_with_tiles(
+        patch_client,
+        [{"insightId": "i1", "box": {"left": 0, "top": 0, "width": 24, "height": 10}}],
+    )
+    result = runner.invoke(
+        app,
+        ["dashboard", "add-tile", "dashboard1", "--insight", "insight2", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    new_tile = raw["pages"][0]["grid"]["tiles"][1]
+    # 24 + 18 > 36: wraps below the existing row
+    assert new_tile["box"] == {"top": 10, "left": 0, "width": 18, "height": 10}
+
+
+def test_dashboard_add_tile_dataset_table_gets_view_kind(patch_client):
+    raw = _dash_with_tiles(patch_client, [])
+    proj = patch_client.get_project("PROJ1")
+    proj.get_insight("table1").get_settings().get_raw.return_value = {
+        "id": "table1",
+        "type": "dataset_table",
+        "name": "My table",
+    }
+    result = runner.invoke(
+        app,
+        ["dashboard", "add-tile", "dashboard1", "--insight", "table1", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    tile = raw["pages"][0]["grid"]["tiles"][0]
+    # without EXPLORE the tile stays blank in dashboard view mode
+    assert tile["tileParams"]["viewKind"] == "EXPLORE"
+    assert tile["titleOptions"]["title"] == "My table"
+    # the legend switch is a chart-tile concern only
+    assert "showLegend" not in tile["tileParams"]
+
+
+def test_dashboard_add_tile_width_out_of_range(patch_client):
     result = runner.invoke(
         app,
         [
@@ -387,14 +455,123 @@ def test_dashboard_add_tile_stacks_below_existing(patch_client):
             "add-tile",
             "dashboard1",
             "--insight",
-            "insight2",
-            "--project",
+            "insight1",
+            "--width",
+            "40",
+            "-P",
             "PROJ1",
         ],
     )
+    assert result.exit_code == 2
+    assert "36" in result.output
+
+
+# --- validate ---
+
+
+def _validate(patch_client, tiles, insights=None, page_extra=None):
+    proj = patch_client.get_project("PROJ1")
+    page = {"id": "p1", "grid": {"tiles": tiles}}
+    page.update(page_extra or {})
+    proj.get_dashboard("dashboard1").get_settings().get_raw.return_value = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [page],
+    }
+    proj.list_insights.return_value = insights if insights is not None else []
+    return runner.invoke(app, ["dashboard", "validate", "dashboard1", "-P", "PROJ1"])
+
+
+def _insight_tile(iid, box, itype="chart", **extra):
+    return {
+        "tileType": "INSIGHT",
+        "insightId": iid,
+        "insightType": itype,
+        "box": box,
+        **extra,
+    }
+
+
+def test_dashboard_validate_passes(patch_client):
+    result = _validate(
+        patch_client,
+        [
+            _insight_tile("i1", {"top": 0, "left": 0, "width": 18, "height": 10}),
+            _insight_tile("i2", {"top": 0, "left": 18, "width": 18, "height": 10}),
+        ],
+        insights=[{"id": "i1", "type": "chart"}, {"id": "i2", "type": "chart"}],
+    )
     assert result.exit_code == 0
-    new_tile = raw["pages"][0]["grid"]["tiles"][1]
-    assert new_tile["box"]["top"] == 4  # stacked below first tile
+    assert "passes pre-flight" in result.output
+
+
+def test_dashboard_validate_overflowing_box(patch_client):
+    result = _validate(
+        patch_client,
+        [_insight_tile("i1", {"top": 0, "left": 30, "width": 12, "height": 6})],
+        insights=[{"id": "i1", "type": "chart"}],
+    )
+    assert result.exit_code == 1
+    assert "overflows the 36-column grid" in result.output
+    assert "clipped" in result.output
+
+
+def test_dashboard_validate_overlapping_tiles(patch_client):
+    result = _validate(
+        patch_client,
+        [
+            _insight_tile("i1", {"top": 0, "left": 0, "width": 12, "height": 4}),
+            _insight_tile("i2", {"top": 2, "left": 6, "width": 12, "height": 6}),
+        ],
+        insights=[{"id": "i1", "type": "chart"}, {"id": "i2", "type": "chart"}],
+    )
+    assert result.exit_code == 1
+    assert "overlap" in result.output
+    assert "displaces" in result.output
+    # Each tile's box is named so two tiles sharing a label are still tellable apart.
+    assert "(top 0, left 0, 12x4)" in result.output
+    assert "(top 2, left 6, 12x6)" in result.output
+
+
+def test_dashboard_validate_blank_dataset_table_tile(patch_client):
+    result = _validate(
+        patch_client,
+        [
+            _insight_tile(
+                "t1",
+                {"top": 0, "left": 0, "width": 36, "height": 8},
+                itype="dataset_table",
+            )
+        ],
+        insights=[{"id": "t1", "type": "dataset_table"}],
+    )
+    assert result.exit_code == 1
+    assert "viewKind" in result.output
+    assert "blank" in result.output
+
+
+def test_dashboard_validate_dangling_insight_reference(patch_client):
+    result = _validate(
+        patch_client,
+        [_insight_tile("ghost", {"top": 0, "left": 0, "width": 18, "height": 10})],
+        insights=[{"id": "other", "type": "chart"}],
+    )
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_dashboard_validate_tiles_outside_grid(patch_client):
+    result = _validate(
+        patch_client,
+        [],
+        page_extra={
+            "tiles": [
+                _insight_tile("i1", {"top": 0, "left": 0, "width": 18, "height": 10})
+            ]
+        },
+    )
+    assert result.exit_code == 1
+    assert "grid.tiles" in result.output
 
 
 def test_dashboard_add_tile_invalid_page(patch_client):

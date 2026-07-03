@@ -1,13 +1,22 @@
 # Reference: Dashboards & Charts
 
 Durable JSON payload shapes for chart insights and dashboards. Get exact CLI flags
-from `--help`; run `dku insight validate` before trusting a render — it checks both
-column references and the render-blocking sampling block.
+from `--help`; run `dku insight validate` before trusting a render — it checks column
+references, dimension/measure type coherence against the dataset schema, and the
+render-blocking sampling block.
 
 API/CLI-created charts are project **insights**: they appear in the project's
 Insights tab and on dashboards, **never** in the dataset's Charts tab (the
 dataset definition carries no charts; that tab is not reachable via the public
 API). Point users to Insights or pin the insight to a dashboard.
+
+**UI links** — `dashboard create`/`get` and `insight create` print the working URL;
+cite it verbatim. If you must build one by hand, the two routes disagree
+(a guessed link 404s):
+- Dashboard: `{host}/projects/{KEY}/dashboards/{DASH_ID}/view/` — the **trailing
+  slash is required**, the name slug is optional.
+- Insight: `{host}/projects/{KEY}/dashboards/insights/{INSIGHT_ID}_/view` — the
+  **`_` after the id is required**, a trailing slash 404s.
 
 ---
 
@@ -50,9 +59,17 @@ Set via `dku insight set-definition INSIGHT_ID -d @chart.json`.
   and `dku insight validate` fails any chart without it. Self-heal an older broken
   insight (e.g. created by a raw API call): `dku insight get ID -o json > def.json`
   then `dku insight set-definition ID -d @def.json` — the re-save injects the block.
-- Dimension/measure `type` is REQUIRED — an omitted `type` defaults to `NUMERICAL` and render
-  fails `expected NUMERICAL but is STRING_DICT` on string columns. On STRING_DICT id columns
-  prefer `--agg COUNT` over `COUNT_DISTINCT`.
+- Dimension/measure `type` must MATCH THE COLUMN's storage: `NUMERICAL` for numeric columns,
+  `ALPHANUM` for strings, `DATE` for dates — including on COUNT/COUNTD measures. The engine
+  reads an omitted (or unrecognized) `type` as `NUMERICAL`, and any NUMERICAL/DATE-typed
+  binding on a string column render-fails `expected to be NUMERICAL but is not (found
+  STRING_DICT)` regardless of the aggregation. Never write `"type": "NUMERICAL"` because the
+  *measure's output* is numeric — it describes the *column*. Exception: the column-less
+  count-of-records measure (see the measure spec below). This applies to every column slot
+  (`ua*`, `x/yDimension`, `boxplot*`, `colorMeasure`, …), with two twists: in `ua*` slots
+  the treat-as-text switch is `"treatAsAlphanum": true` on the binding (`numParams` is
+  ignored there), and `boxplotValue` needs a genuinely numeric column — a string column
+  fails whatever the declared type.
 
 ---
 
@@ -61,8 +78,8 @@ Set via `dku insight set-definition INSIGHT_ID -d @chart.json`.
 **A chart fails at RENDER time, not save time.** `set-definition` returns exit 0,
 then the dashboard tile shows `ArrayIndexOutOfBoundsException` / "an error occurred"
 / "dataset is empty". The cause is almost always: the value is in the wrong slot, a
-required slot is empty, or a geo column has no geo meaning. The table below is the
-render-verified mapping of type → **required slots** → when to reach for it. Run
+required slot is empty, or a geo column has no geo meaning. The table below maps
+type → **required slots** → when to reach for it. Run
 `dku insight validate INSIGHT_ID` after every `set-definition` — it enforces this
 table and is the only CLI verification (there is no render verb; see below).
 
@@ -158,7 +175,7 @@ geopoint=GeoPoint` → bind that column in `params.def.geometry` with `type:"GEO
 > via `set-definition`. `ArrayIndexOutOfBoundsException: Index 0 out of bounds for length 0`
 > always means a required slot is empty. Don't reason about it by hand — run
 > `dku insight validate INSIGHT_ID` and it names the empty slot, bad column, nulled
-> type, or missing geo meaning with the fix.
+> type, column/type mismatch, or missing geo meaning with the fix.
 
 ### Dimension object (`genericDimension0` / `genericDimension1`)
 
@@ -211,6 +228,21 @@ Optional flags: `isUnaggregated`, `multiplier` (`"Auto"`), `percentile`,
 - `function` ∈ `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, `COUNTD` (count distinct).
 - `displayType` ∈ `column` (bar), `line`, `area`.
 - `displayAxis` ∈ `axis1` (left), `axis2` (right).
+- `SUM`/`AVG`/`MIN`/`MAX` require a numeric column (render fails `Cannot sum non
+  numeric values`); on string columns count instead.
+
+Counting (`type` describes the column, never the result):
+
+```json
+{"function": "COUNT", "type": "COUNT", "displayed": true, "isA": "measure"}
+```
+- ↑ row count ("Count of records"): NO `column`, pseudo-type `COUNT`.
+- Count per category on a string column: `{"column": "model_id", "function": "COUNT",
+  "type": "ALPHANUM", ...}` — same for `COUNTD`.
+- `{"column": "model_id", "function": "COUNT", "type": "NUMERICAL"}`,
+  `"type": "COUNT"` *with* a column, and a missing `type` all render-fail on string
+  columns (`found STRING_DICT`) even though they save fine — `dku insight validate`
+  catches every one of these.
 
 ---
 
@@ -252,6 +284,15 @@ Structure: dashboard → `pages[]` → each page has a `grid` → `grid.tiles[]`
 
 36-column grid. `box` = `{top, left, width, height}`:
 `top` row (0-based), `left` column (0–35), `width` columns (max 36), `height` rows.
+Rows are as tall as columns are wide (square cells), and the whole grid scales with
+the viewport width — it never reflows, so a layout keeps its shape at any window size.
+
+Layout mistakes save fine and break silently: an overflowing box (`left+width > 36`)
+is stored verbatim and clipped offscreen, and overlapping tiles are displaced by the
+renderer, so what's shown differs from the definition. `dku dashboard add-tile`
+places tiles in reading order (beside the current row when there's room, else a new
+row); `dku dashboard validate` catches overflow, overlaps, blank dataset_table
+tiles, and dangling insight references before a human loads the page.
 
 ### INSIGHT tile
 
@@ -286,14 +327,19 @@ Structure: dashboard → `pages[]` → each page has a `grid` → `grid.tiles[]`
   `managed-folder_content`, `scenario_run_button`, `filters`, `discussions`.
 - `clickAction` ∈ `DO_NOTHING`, `OPEN_INSIGHT`, `OPEN_DASHBOARD` (pair with `clickActionDashboardId`),
   `OPEN_DATASET`, `OPEN_FOLDER`, `OPEN_SCENARIO`, `RUN_SCENARIO`.
+- DSS drops unknown tile fields on save (a top-level `showTitle` or `resizeMode`
+  comes back `null`) — titles live in `titleOptions.showTitle: "YES"`.
 
 Per-insight `tileParams` overrides (chart insights): `showXAxis`, `showXAxisTitle`,
 `showYAxis`, `showYAxisTitle`, `showLegend`, `showBrush`, `showBreadcrumb`,
 `inheritLegendPlacement`, `legendPlacement` (`OUTER_RIGHT`/`OUTER_BOTTOM`/`INNER_TOP_RIGHT`/…),
 `showTooltips`, `autoPlayAnimation`, `useInsightTheme`. For `web_app`: `loadTimeoutInSeconds`.
-For `dataset_table`: set **`viewKind: "EXPLORE"`** or the tile is click-to-load and
-never auto-renders on the dashboard (the data grid only appears after the viewer clicks
-it). Plus `showName`, `showDescription`, `showCustomFields`,
+`showLegend` defaults **false** on dashboard tiles even though the insight's own page
+shows the legend — a multi-series chart tile is unreadable without
+`"showLegend": true, "inheritLegendPlacement": true` (`add-tile` sets both).
+For `dataset_table`: set **`viewKind: "EXPLORE"`** or the tile stays blank in view
+mode — clicking it does nothing (`add-tile` sets this automatically). Plus
+`showName`, `showDescription`, `showCustomFields`,
 `showStorageType`, `showMeaning`, `showProgressBar`. For `scenario_run_button`:
 `buttonText`, `showLastRun` (users need `RUN_SCENARIOS` or the button renders disabled).
 
