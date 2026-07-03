@@ -28,7 +28,7 @@ Plain UTF-8 XML. `xml.etree.ElementTree.parse(f)`. Shape:
 - `GuiSettings.Plugin` → tool type (`AlteryxBasePluginsGui.Formula.Formula`, `…Join.Join`, `…TextInput.TextInput`).
 - `Properties/Configuration` → tool params (schema per tool; the § Tool → recipe quick reference routes each tool to its leaf file).
 - `<Connections>` → DAG. Each `<Connection>` has `<Origin ToolID="X" Connection="Output|Join|Left|Right"/>` + `<Destination ToolID="Y" Connection="Input"/>`. Join emits three outputs: `Left` (unmatched left), `Join` (matches), `Right` (unmatched right).
-- `TextBox` / `BrowseV2` are presentation-only — ignore as recipes. **Exception in an app:** a *terminal* `BrowseV2` is the result the user saw → rebuild it as a result tile (KPI/chart insight + dashboard, or `DOWNLOAD_DATASET`), see tools-io-apps-ml.md § Analytic Apps.
+- `TextBox` / `BrowseV2` are presentation-only — ignore as recipes, but **read their text**: TextBoxes carry migration intelligence (source-table lists, prod-vs-test markers like "à retirer en PROD", delivery changelogs) that belongs in the Phase-2 gate. `dump_workflow.py` dumps them verbatim in its ANNOTATIONS block. **Exception in an app:** a *terminal* `BrowseV2` is the result the user saw → rebuild it as a result tile (KPI/chart insight + dashboard, or `DOWNLOAD_DATASET`), see tools-io-apps-ml.md § Analytic Apps.
 
 ### `.yxzp`
 ZIP of the `.yxmd` + data files. `unzip`, work from the inner `.yxmd`. **Bundled macros live under `_externals/N/*.yxmc`** — parse a custom `.yxmc` (Knapsack/optimizer/Cleanse) with the same `ET` recipe to recover the real algorithm; the macro is source of truth, not the tool name. See tools-predictive-ml.md § Optimization & prescriptive macros.
@@ -90,9 +90,26 @@ See § Single-column TextInput upload traps for the format-param fixes, and the 
 ### External file inputs
 `AlteryxBasePluginsGui.DbFileInput.DbFileInput` — config has a `<File>` path, usually shipped alongside; if missing, ask the user. `.yxdb` files → read via `scripts/yxdb_read.py` or the native-folder path above.
 
+### In-Database workflows (`LockIn*`)
+
+`LockInGui.LockIn*` plugins are Alteryx's In-DB variants — the whole flow runs as SQL push-down on one connection. That is a **hard engine mandate**: in prod, keep every migrated dataset on that SQL connection so DSS pushes down the same way (the top-level "one engine per flow" rule). Without the connection, build on filesystem + DSS engine and document the engine deviation — the logic migrated is identical, only execution differs; re-point at delivery.
+
+| In-DB tool | Dataiku recipe |
+|---|---|
+| `LockInInput` | **Not a source** — its `<Query>` is workflow logic (embedded-SQL rule, migration SKILL.md). Base tables it reads → source datasets (in prod, SQL datasets on the same connection); the query's joins/filters/aggregations/CASE → visual recipes. A pure single-table `SELECT col, …` with no logic → just the source dataset |
+| `LockInFilter` | Prepare (filter) — `Mode: Simple` carries field/operator; `Custom` carries an expression |
+| `LockInFormula` | Prepare (formula steps) — same `FormulaFields` schema as regular `Formula` |
+| `LockInJoin` | Join — **one output only** (`JoinMode` INNER/LEFT/RIGHT/FULL), unlike the 3-anchor standard Join |
+| `LockInSelect` | Prepare (rename/drop/retype) — same `SelectFields` schema, `*Unknown` semantics apply |
+| `LockInUnion` | Stack — `Mode: ByName` ≙ UNION column alignment |
+| `LockInSummarize` | Group |
+| `LockInOutput` | The output dataset (`<Table>`, `CreateMode`). Wrapping write-side macros (Parquet rewrite, stats refresh, free-SQL DDL — e.g. `Hadoop_rewrite_table.yxmc`, `Passage_requete_libre*.yxmc`) are platform side-effects, not flow logic → DSS-native storage settings or a scenario SQL step; document the drop |
+
+`dump_workflow.py` prints an In-DB banner, one EMBEDDED LOGIC block per query (clause census + tables read + verbatim SQL), and the INPUT CONTRACT (deduplicated base tables = the leaf datasets). Cross-check that contract against any source-table TextBox — the mechanical extraction is authoritative (annotations go stale; here-be queries the doc forgot).
+
 ### Inventory shape
 
-Generate the skeleton mechanically — `scripts/dump_workflow.py workflow.yxmd` parses the tool list + connection DAG into this table (Tool ID / Plugin / Inputs / Outputs filled, presentation-only tools flagged); then fill *What It Does* + *Migratable?* by reading each tool's config.
+Generate the skeleton mechanically — `scripts/dump_workflow.py workflow.yxmd` parses the tool list + connection DAG into this table (Tool ID / Plugin / Inputs / Outputs filled, presentation-only tools flagged); then fill *What It Does* + *Migratable?* by reading each tool's config. The size comment counts canvas tools **plus embedded-SQL operations** — plan on the sum, not the tool count. Tools carrying embedded SQL arrive pre-flagged `⚠ decompose`; the EMBEDDED LOGIC, INPUT CONTRACT and ANNOTATIONS blocks below the table are part of the inventory — read them before drafting Phase 2.
 
 **The same script prints an OUTPUT CONTRACT block** — for each terminal tool (one feeding only a `BrowseV2`/sink) it reads the cached `Properties/MetaInfo/RecordInfo` of the anchor that feeds the sink and lists its fields *in order*. That ordered list is the output column contract: the migrated terminal dataset must match its set, names and order exactly. Record it in Phase 1 (it is the `columns` of your `--contract`) — the schema is pinned by the workflow even when no expected *values* ship, so "no ground-truth CSV" never excuses a wrong output column set. When Alteryx didn't cache the schema the block is empty → derive the contract from the terminal tool's own `AlteryxSelect`/config instead.
 
