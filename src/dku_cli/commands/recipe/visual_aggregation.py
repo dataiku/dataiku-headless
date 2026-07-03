@@ -64,12 +64,13 @@ def create_group(
             "Aggregation: 'col:func1,func2'. Functions accepted via --agg: "
             "sum, avg, min, max, count, count_distinct, concat, concat_distinct, "
             "stddev, first, last, first_last_not_null, sum2. Repeatable. "
-            "MEDIAN: DSS Group has a median aggregate but it is SQL-engine ONLY "
-            "(fails on the in-memory DSS engine: 'Median aggregation is not "
-            "implemented for DSS Engine') — set --engine SQL and add the `median` "
-            "JSON flag on the column via `dku recipe set-settings` (not reachable "
-            "through --agg). PERCENTILE/quantiles are NOT a Group aggregate at all "
-            "— use a SQL recipe with PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col)."
+            "MEDIAN/PERCENTILE: not an in-memory Group aggregate — Group's median "
+            "is SQL-engine ONLY (fails on the DSS engine: 'Median aggregation is "
+            "not implemented for DSS Engine') and percentile is not a Group "
+            "aggregate at all. Both are a VISUAL Window-rank pattern (row_number + "
+            "count over the group, then pick/weight the bracketing rows and Group "
+            "them) — no SQL recipe needed in-memory. Use a SQL PERCENTILE_CONT(p) "
+            "recipe only for SQL-backed input or a SQL engine-mandate."
         ),
     ),
     no_global_count: bool = typer.Option(
