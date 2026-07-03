@@ -88,37 +88,61 @@ dku recipe create-group grp -P PROJ -i in --output-ds agg \
 | `CountNonNull` | `count` (on a non-null column) |
 | `Min` / `Max` / `Avg` | `min` / `max` / `avg` |
 | `First` / `Last` | `first` / `last` |
-| `Median` | DSS `median` aggregate is **SQL-engine ONLY**, NOT reachable via `--agg` (set `--engine SQL` + `median` JSON flag via `set-settings`). In-memory engine fails `RuntimeException: Median aggregation is not implemented for DSS Engine`. On in-memory data, `create-sync` to SQL first — see § Median / percentile. |
+| `Median` | DSS `median` Group aggregate is **SQL-engine ONLY** (in-memory engine fails `RuntimeException: Median aggregation is not implemented for DSS Engine`) — but median is a **visual Window-rank pattern**, no SQL recipe needed in-memory. See § Median / percentile. |
 | `Concat` / `ConcatDistinct` | `concat` — Snowflake LISTAGG size cap (see Caveats + `../../dku-cli/playbooks/tabular-flow.md`) |
 | `StdDev` | `stddev` |
 | `Variance` | **NOT a `--agg` function** (`col:variance` rejected). Get `stddev`² in a downstream Prepare `--computed-col`, or SQL `VAR_POP`/`VAR_SAMP`. |
-| `Percentile` / `Quantile` | **NOT a Group aggregate at all** (`col:percentile` rejected). Use a SQL recipe `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY "col")` (`p` 0–1; every standard SQL engine). On filesystem inputs, `create-sync` to SQL first — see § Median / percentile. |
+| `Percentile` / `Quantile` | **NOT a Group aggregate at all** (`col:percentile` rejected), but the same **visual Window-rank pattern covers any `p`** (§ Median / percentile). SQL `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY "col")` only for SQL-backed input / engine mandate. |
 | `SumNo0` / `AvgNo0` / `MinNo0` / `MaxNo0` / `CountNo0` | **No direct DSS aggregation** — `*No0` variants ignore zeros (plus nulls), which DSS aggregations don't. Lift zero-exclusion to a `--computed-col` on the same Group, then aggregate it: `--computed-col 'col_no0=if(val("col")==0\|\|isBlank(val("col")), null, val("col")):double' --agg col_no0:avg`. The `if … null` converts zeros to nulls; `avg` already ignores nulls. **GREL `==` not `=`** — single `=` errors `Unexpected '='. Did you mean '=='?`; if it slips through, the job log shows a misleading `EOFException: Unexpected end of ZLIB input stream` (the GREL syntax error is the real cause). See `ayx/semantics.md` § Aggregation null-handling. |
 
 **Caveats:**
 - Group auto-names outputs `{col}_{func}` (`Sales_sum`). `--rename SRC:DST` fixes names inline (Group's `outputColumnNameOverrides` IS honored — unlike Pivot's, see `../../dku-cli/playbooks/tabular-flow.md`), or a downstream `ColumnRenamer`.
 - `Concat` on Snowflake → LISTAGG, capped per-group. For large text, aggregate in Python.
 
-### Median / percentile (no in-memory visual path)
+### Median / percentile → visual Window-rank (default); SQL only for engine-mandate
 
-Both `median` (SQL-engine only, not via `--agg`) and percentile/quantile (no Group aggregate at all) collapse to the same shape: sync input to a SQL connection (`duckdb_local` works for verification migrations), then ONE SQL recipe with `PERCENTILE_CONT`.
+Neither `median` (Group aggregate is SQL-engine-only) nor percentile (not a Group aggregate) has an in-memory *Group* path — but both are a **visual Window-rank pattern**, no SQL recipe. It reproduces `PERCENTILE_CONT(p)` over each group's non-null values.
+
+**Median (p=0.5) — plain `avg`, the common case:**
+1. **Filter** → value `NOT NULL`. Median is over reported values; ranking the nulls you are about to impute shifts `n`/positions → wrong median (`PERCENTILE_CONT` drops nulls for free, the Window does not).
+2. **Window** → partition the group key, order value ascending → `rn` (`row_number`) + `n` (`count`).
+3. **Filter** → middle rows: `0 <= 2*rn - n AND 2*rn - n <= 2` (odd `n` → 1 row, even `n` → 2).
+4. **Group** → `avg(value)` = `PERCENTILE_CONT(0.5)`.
+
+**Any `p` — weighted interpolation** (steps 1–2 as above, then a Prepare):
+
+```
+h  = (n - 1) * p + 1              # 1-indexed target rank
+lo = floor(h); hi = ceil(h); frac = h - lo
+wt = if(rn==lo && rn==hi, 1,      # integer h → single row, weight 1
+      if(rn==lo, 1-frac,          # lower bracket
+      if(rn==hi, frac, null)))    # upper bracket
+wv = value * wt
+```
+
+→ **Filter** `wt` not null (the ≤2 bracketing rows) → **Group** `sum(wv)` = `PERCENTILE_CONT(p)`. Median is this at `p=0.5`, where both weights are `0.5` → the plain-`avg` shortcut above.
+
+**Get these exact — wrong is a silently wrong number, not an error:**
+- **Non-null population** — filter nulls *before* the Window (step 1).
+- **Weights, not `avg`, for `p≠0.5`** — a plain `avg` of the two brackets is only correct at `p=0.5`.
+- **Integer `h`** → one row, `wt=1`; the first `if` branch prevents double-counting it as both brackets.
+- **Ties are value-safe** — the k-th order statistic is well-defined regardless of `row_number` tie-break, so `ORDER BY value` alone suffices.
+- **Parity is within float tolerance**, not byte-identical (~1e-12 on even-`n` interpolation) — validate the downstream aggregate within tolerance.
+- **DSS engine is fine** — `row_number`/`count`-over-partition are not frame-based, so the "Window frames ignored on DSS engine" trap does not apply.
+- **`PERCENTILE_DISC`** (actual data value, no interpolation): keep the single row `rn == max(1, ceil(p*n))`, `wt=1`.
+
+**SQL fallback** — only when the input is already SQL-backed or the flow carries a SQL engine-mandate (In-DB source); then skip the Window pattern:
 
 ```bash
 # Alteryx: Summarize(GroupBy Region, Median Sales, Percentile 90 of Sales)
-dku recipe create-sync sync_to_db -P PROJ -i input --output-ds input_db -c <sql_connection>
-dku recipe run sync_to_db -P PROJ --wait
-
 dku recipe create-sql med_pct -P PROJ -i input_db --output-ds med_pct_result \
     --connection <sql_connection> \
     --sql 'SELECT "Region",
                   PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY "Sales") AS "Median Sales",
                   PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY "Sales") AS "P90 Sales"
            FROM "${projectKey}_input_db" GROUP BY "Region"'
-dku recipe apply-schema med_pct -P PROJ
-dku recipe run med_pct -P PROJ --wait
+dku recipe apply-schema med_pct -P PROJ && dku recipe run med_pct -P PROJ --wait
 ```
-
-`PERCENTILE_CONT(0.5)` IS the median, so one SQL recipe covers both actions. Use `PERCENTILE_DISC(p)` (actual data value, no interpolation) if Alteryx's percentile method requires it. For a SQL-backed input, skip the sync.
 
 ### Sample (Mode=First, N=1) → TopN, not Sort+Sample
 

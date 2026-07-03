@@ -438,7 +438,7 @@
     "src/dku_cli/commands/recipe/genai_more.py": 482,
     "src/dku_cli/commands/recipe/prepare_steps.py": 1438,
     "src/dku_cli/commands/recipe/settings.py": 710,
-    "src/dku_cli/commands/recipe/visual_aggregation.py": 779,
+    "src/dku_cli/commands/recipe/visual_aggregation.py": 780,
     "src/dku_cli/commands/recipe/visual_code.py": 509,
     "src/dku_cli/commands/recipe/visual_io.py": 729,
     "src/dku_cli/commands/recipe/visual_joins.py": 943,
