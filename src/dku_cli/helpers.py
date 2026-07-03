@@ -187,6 +187,22 @@ def get_client_from_ctx(
 ALL_NODE_TYPES = {"DESIGN", "AUTOMATION", "GOVERN", "DEPLOYER", "API"}
 
 
+# UI link formats — the two routes disagree and a hand-guessed link 404s:
+# the dashboard route requires the trailing slash after
+# /view (name slug optional); the insight route requires the "_" after the id
+# and rejects a trailing slash. DSS canonicalizes the slug on load.
+def dashboard_url(client, project_key: str, dashboard_id: str) -> str:
+    base = client.host.rstrip("/")
+    return f"{base}/projects/{project_key}/dashboards/{dashboard_id}/view/"
+
+
+def insight_url(client, project_key: str, insight_id: str) -> str:
+    return (
+        f"{client.host.rstrip('/')}/projects/{project_key}"
+        f"/dashboards/insights/{insight_id}_/view"
+    )
+
+
 def get_govern_client_from_ctx(ctx: typer.Context):
     """Extract global opts from ctx.obj and return authenticated GovernClient.
 

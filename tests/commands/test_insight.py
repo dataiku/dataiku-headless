@@ -69,6 +69,12 @@ def test_insight_create_json(patch_client):
         "id": "new_insight_1",
         "name": "My Insight",
         "type": "dataset_table",
+        # the "_" after the id is load-bearing: a bare id (and a trailing
+        # slash) 404 in the DSS UI
+        "url": (
+            "https://dss.example.com/projects/PROJ1"
+            "/dashboards/insights/new_insight_1_/view"
+        ),
     }
 
 
@@ -247,7 +253,10 @@ def _setup_chart_insight(
     """Helper to configure mocks for validate tests."""
     proj = patch_client.get_project("PROJ1")
 
-    # Build chart def with column refs
+    # Build chart def with column refs; measures are SUMs, so their columns
+    # get a numeric storage type in the schema below (SUM on a non-numeric
+    # column is itself a render failure the linter flags).
+    measure_cols = set(chart_columns.get("measures", []))
     chart_def = {
         "type": "lines",
         "genericDimension0": [
@@ -257,7 +266,8 @@ def _setup_chart_insight(
             {"column": c, "type": "ALPHANUM"} for c in chart_columns.get("dim1", [])
         ],
         "genericMeasures": [
-            {"column": c, "function": "SUM"} for c in chart_columns.get("measures", [])
+            {"column": c, "function": "SUM", "type": "NUMERICAL"}
+            for c in chart_columns.get("measures", [])
         ],
     }
 
@@ -282,10 +292,15 @@ def _setup_chart_insight(
     insight_mock.get_settings.return_value = insight_settings
     proj.get_insight.return_value = insight_mock
 
-    # Dataset schema
+    # Dataset schema: measure columns are numeric, the rest strings
     ds_mock = MagicMock()
     ds_mock.get_definition.return_value = {
-        "schema": {"columns": [{"name": c} for c in schema_columns]},
+        "schema": {
+            "columns": [
+                {"name": c, "type": "double" if c in measure_cols else "string"}
+                for c in schema_columns
+            ]
+        },
     }
     proj.get_dataset.return_value = ds_mock
 
@@ -435,6 +450,320 @@ def test_insight_validate_geo_with_meaning_passes(patch_client):
     result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
     assert result.exit_code == 0
     assert "passes pre-flight" in result.output
+
+
+# ── measure/dimension type coherence ──
+# The pivot engine reads an omitted/unknown `type` as NUMERICAL, and any
+# NUMERICAL/DATE binding on a non-numeric column fails at render time with
+# "Column X was expected to be NUMERICAL but is not (found STRING_DICT)".
+
+_TYPED_SCHEMA = [
+    {"name": "model_id", "type": "string"},
+    {"name": "release_status", "type": "string"},
+    {"name": "materiality_score", "type": "double"},
+]
+
+
+def _status_dim():
+    return {"column": "release_status", "type": "ALPHANUM"}
+
+
+def test_insight_validate_numerical_measure_on_string_column(patch_client):
+    # the exact incident shape: COUNT typed NUMERICAL on a string column,
+    # saved via set-definition, previously passed validate and broke at render
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [
+                {"column": "model_id", "function": "COUNT", "type": "NUMERICAL"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "NUMERICAL" in result.output
+    assert "STRING_DICT" in result.output
+    assert 'set "type": "ALPHANUM"' in result.output
+
+
+def test_insight_validate_omitted_measure_type_on_string_column(patch_client):
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [{"column": "model_id", "function": "COUNT"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "omitted" in result.output
+
+
+def test_insight_validate_pseudo_type_count_with_column(patch_client):
+    # "type": "COUNT" is only valid on the column-less count-of-records
+    # measure; with a column DSS reads it as NUMERICAL and render fails
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [
+                {"column": "model_id", "function": "COUNT", "type": "COUNT"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "unknown type 'COUNT'" in result.output
+
+
+def test_insight_validate_count_of_records_passes(patch_client):
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [
+                {"function": "COUNT", "type": "COUNT", "isA": "measure"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+    assert "passes pre-flight" in result.output
+
+
+def test_insight_validate_count_alphanum_on_string_passes(patch_client):
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [
+                {"column": "model_id", "function": "COUNT", "type": "ALPHANUM"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+    assert "passes pre-flight" in result.output
+
+
+def test_insight_validate_sum_on_string_column(patch_client):
+    # numeric-only aggregations fail on string columns regardless of declared
+    # type ("Cannot sum non numeric values") — the set-definition escape hatch
+    # around add-measure's own guard
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [
+                {"column": "model_id", "function": "SUM", "type": "ALPHANUM"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "SUM(model_id)" in result.output
+    assert "not numeric" in result.output
+
+
+def test_insight_validate_dimension_numerical_on_string_column(patch_client):
+    # dimensions go through the same engine check ("In dimension: ...")
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [{"column": "model_id", "type": "NUMERICAL"}],
+            "genericMeasures": [
+                {"function": "COUNT", "type": "COUNT", "isA": "measure"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "genericDimension0" in result.output
+
+
+def test_insight_validate_treat_as_alphanum_passes(patch_client):
+    # TREAT_AS_ALPHANUM converts the binding to ALPHANUM client-side before
+    # the request — no render failure, so no lint error
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [
+                {
+                    "column": "model_id",
+                    "type": "NUMERICAL",
+                    "numParams": {"mode": "TREAT_AS_ALPHANUM"},
+                }
+            ],
+            "genericMeasures": [
+                {"function": "COUNT", "type": "COUNT", "isA": "measure"}
+            ],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+
+
+def _scatter_axes():
+    return {
+        "uaXDimension": [{"column": "materiality_score", "type": "NUMERICAL"}],
+        "uaYDimension": [{"column": "materiality_score", "type": "NUMERICAL"}],
+    }
+
+
+def test_insight_validate_ua_treat_as_alphanum_passes(patch_client):
+    # ua slots carry their "treat as text" switch as a boolean on the binding,
+    # not in numParams — the request goes out as ALPHANUM
+    _mk_chart(
+        patch_client,
+        {
+            "type": "scatter",
+            "uaXDimension": [
+                {
+                    "column": "model_id",
+                    "type": "NUMERICAL",
+                    "treatAsAlphanum": True,
+                }
+            ],
+            "uaYDimension": _scatter_axes()["uaYDimension"],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+
+
+def test_insight_validate_ua_numparams_treat_does_not_exempt(patch_client):
+    # numParams.mode is ignored on ua slots — only the treatAsAlphanum boolean
+    # converts the request to ALPHANUM, so this still fails at render
+    _mk_chart(
+        patch_client,
+        {
+            "type": "scatter",
+            "uaXDimension": [
+                {
+                    "column": "model_id",
+                    "type": "NUMERICAL",
+                    "numParams": {"mode": "TREAT_AS_ALPHANUM"},
+                }
+            ],
+            "uaYDimension": _scatter_axes()["uaYDimension"],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "uaXDimension" in result.output
+
+
+def test_insight_validate_ua_shape_any_type_passes(patch_client):
+    # uaShape is forced ALPHANUM before the request — never type-checked
+    _mk_chart(
+        patch_client,
+        {
+            "type": "scatter",
+            **_scatter_axes(),
+            "uaShape": [{"column": "model_id", "type": "NUMERICAL"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
+
+
+def test_insight_validate_ua_tooltip_numerical_on_string(patch_client):
+    # tooltip columns ride in the same request — a bad one breaks the chart
+    _mk_chart(
+        patch_client,
+        {
+            "type": "scatter",
+            **_scatter_axes(),
+            "uaTooltip": [{"column": "model_id", "type": "NUMERICAL"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "uaTooltip" in result.output
+
+
+def test_insight_validate_boxplot_value_string_fails(patch_client):
+    # ALPHANUM passes the engine type check but the boxplot computation
+    # itself needs doubles — HTTP 500 at render
+    _mk_chart(
+        patch_client,
+        {
+            "type": "boxplots",
+            "boxplotValue": [{"column": "model_id", "type": "ALPHANUM"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "boxplots need a numeric" in result.output
+
+
+def test_insight_validate_boxplot_value_numerical_on_string(patch_client):
+    # same failure class whatever the declared type — the fix is a different
+    # column, not a different type string
+    _mk_chart(
+        patch_client,
+        {
+            "type": "boxplots",
+            "boxplotValue": [{"column": "model_id", "type": "NUMERICAL"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "boxplots need a numeric" in result.output
+
+
+def test_insight_validate_boxplot_breakdown_numerical_on_string(patch_client):
+    _mk_chart(
+        patch_client,
+        {
+            "type": "boxplots",
+            "boxplotValue": [{"column": "materiality_score", "type": "NUMERICAL"}],
+            "boxplotBreakdownDim": [{"column": "model_id", "type": "NUMERICAL"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 1
+    assert "boxplotBreakdownDim" in result.output
+
+
+def test_insight_validate_count_sentinel_not_flagged(patch_client):
+    # "__COUNT__" is the GUI palette's count-of-records pseudo-column — not a
+    # real column, never type-checked, must not be reported as missing
+    _mk_chart(
+        patch_client,
+        {
+            "type": "grouped_columns",
+            "genericDimension0": [_status_dim()],
+            "genericMeasures": [{"column": "__COUNT__", "function": "COUNT"}],
+        },
+        _TYPED_SCHEMA,
+    )
+    result = runner.invoke(app, ["insight", "validate", "insight1", "-P", "PROJ1"])
+    assert result.exit_code == 0
 
 
 def test_insight_validate_bad_column_in_ua_slot(patch_client):
@@ -656,7 +985,18 @@ def test_insight_add_dimension(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert raw["params"]["def"]["genericDimension0"] == [{"column": "order_date"}]
+    [dim] = raw["params"]["def"]["genericDimension0"]
+    # Full GUI shape — bare {column} dims crash the chart editor (numParams/sort
+    # TypeErrors); no "type" here because the mock has no dataset binding.
+    assert dim["column"] == "order_date"
+    assert dim["isA"] == "dimension"
+    assert dim["sort"] == {
+        "type": "NATURAL",
+        "sortAscending": True,
+        "label": "Natural ordering",
+    }
+    assert dim["numParams"]["mode"] == "FIXED_NB"
+    assert dim["filters"] == []
     settings.save.assert_called_once()
 
 
@@ -677,7 +1017,9 @@ def test_insight_add_dimension_slot1(patch_client):
         ],
     )
     assert result.exit_code == 0
-    assert raw["params"]["def"]["genericDimension1"] == [{"column": "region"}]
+    [dim] = raw["params"]["def"]["genericDimension1"]
+    assert dim["column"] == "region"
+    assert dim["isA"] == "dimension"
 
 
 def test_insight_add_dimension_invalid_slot(patch_client):
@@ -720,7 +1062,7 @@ def test_insight_add_measure(patch_client):
     )
     assert result.exit_code == 0
     assert raw["params"]["def"]["genericMeasures"] == [
-        {"column": "revenue", "function": "SUM"}
+        {"column": "revenue", "function": "SUM", "isA": "measure", "displayed": True}
     ]
     settings.save.assert_called_once()
 
@@ -743,9 +1085,40 @@ def test_insight_add_measure_count_distinct_uses_dss_function_name(patch_client)
     )
     assert result.exit_code == 0
     assert raw["params"]["def"]["genericMeasures"] == [
-        {"column": "customer_id", "function": "COUNTD"}
+        {
+            "column": "customer_id",
+            "function": "COUNTD",
+            "isA": "measure",
+            "displayed": True,
+        }
     ]
     settings.save.assert_called_once()
+
+
+def test_insight_add_measure_count_of_records(patch_client):
+    """--agg COUNT with no --column emits the column-less 'Count of records'
+    measure — the one shape the pivot engine never type-checks."""
+    raw, settings = _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        ["insight", "add-measure", "insight1", "--agg", "COUNT", "-P", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert raw["params"]["def"]["genericMeasures"] == [
+        {"function": "COUNT", "type": "COUNT", "isA": "measure", "displayed": True}
+    ]
+    assert "count of records" in result.output
+    settings.save.assert_called_once()
+
+
+def test_insight_add_measure_no_column_requires_count(patch_client):
+    _chart_insight_mock(patch_client)
+    result = runner.invoke(
+        app,
+        ["insight", "add-measure", "insight1", "--agg", "SUM", "-P", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "COUNT" in result.output
 
 
 def test_insight_add_measure_invalid_agg(patch_client):
@@ -893,7 +1266,13 @@ def test_insight_add_measure_types_numeric_column(patch_client):
     )
     assert result.exit_code == 0
     assert raw["params"]["def"]["genericMeasures"] == [
-        {"column": "revenue", "function": "SUM", "type": "NUMERICAL"}
+        {
+            "column": "revenue",
+            "function": "SUM",
+            "type": "NUMERICAL",
+            "isA": "measure",
+            "displayed": True,
+        }
     ]
 
 
@@ -917,7 +1296,13 @@ def test_insight_add_measure_countd_on_string_types_alphanum(patch_client):
     )
     assert result.exit_code == 0
     assert raw["params"]["def"]["genericMeasures"] == [
-        {"column": "declaration_id", "function": "COUNTD", "type": "ALPHANUM"}
+        {
+            "column": "declaration_id",
+            "function": "COUNTD",
+            "type": "ALPHANUM",
+            "isA": "measure",
+            "displayed": True,
+        }
     ]
 
 
@@ -970,9 +1355,10 @@ def test_insight_add_dimension_types_date_column(patch_client):
         ["insight", "add-dimension", "insight1", "-c", "order_date", "-P", "PROJ1"],
     )
     assert result.exit_code == 0
-    assert raw["params"]["def"]["genericDimension0"] == [
-        {"column": "order_date", "type": "DATE"}
-    ]
+    [dim] = raw["params"]["def"]["genericDimension0"]
+    assert dim["column"] == "order_date"
+    assert dim["type"] == "DATE"
+    assert dim["isA"] == "dimension"
 
 
 # --- new helper flags: --breakdown / --date-mode / --axis / --as / set-colors ---
