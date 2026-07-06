@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.errors import handle_api_error
@@ -17,7 +15,7 @@ app = typer.Typer(help="Manage Govern time series.")
 @app.command()
 def create(
     ctx: typer.Context,
-    datapoints: Optional[str] = typer.Option(
+    datapoints: str | None = typer.Option(
         None,
         "--datapoints",
         help='JSON array of datapoints (string, @file.json, or - for stdin). Each: {"timestamp": <epoch_ms>, "value": <obj>}',
@@ -42,10 +40,10 @@ def create(
 def get(
     ctx: typer.Context,
     time_series_id: str = typer.Argument(help="Time series ID"),
-    min_timestamp: Optional[int] = typer.Option(
+    min_timestamp: int | None = typer.Option(
         None, "--min", help="Minimum timestamp (epoch ms)"
     ),
-    max_timestamp: Optional[int] = typer.Option(
+    max_timestamp: int | None = typer.Option(
         None, "--max", help="Maximum timestamp (epoch ms)"
     ),
 ) -> None:
@@ -92,10 +90,10 @@ def push_values(
 def delete(
     ctx: typer.Context,
     time_series_id: str = typer.Argument(help="Time series ID"),
-    min_timestamp: Optional[int] = typer.Option(
+    min_timestamp: int | None = typer.Option(
         None, "--min", help="Minimum timestamp (epoch ms) — delete from this time"
     ),
-    max_timestamp: Optional[int] = typer.Option(
+    max_timestamp: int | None = typer.Option(
         None, "--max", help="Maximum timestamp (epoch ms) — delete up to this time"
     ),
     confirm: bool = typer.Option(

@@ -393,18 +393,18 @@ def create_join(
         or right_limit_keep is not None
         or right_limit_strict
     )
-    if right_limit_enabled:
-        if (
-            rl_keep_upper in {"KEEP_LARGEST", "KEEP_SMALLEST"}
-            and not right_limit_decision_column
-        ):
-            exit_with_error(
-                f"--right-limit-keep {rl_keep_upper} requires --right-limit-decision-column.",
-                details=[
-                    "KEEP_LARGEST / KEEP_SMALLEST need a column to compare. "
-                    "Use --right-limit-decision-column COL (the right-side tiebreaker column)."
-                ],
-            )
+    if (
+        right_limit_enabled
+        and rl_keep_upper in {"KEEP_LARGEST", "KEEP_SMALLEST"}
+        and not right_limit_decision_column
+    ):
+        exit_with_error(
+            f"--right-limit-keep {rl_keep_upper} requires --right-limit-decision-column.",
+            details=[
+                "KEEP_LARGEST / KEEP_SMALLEST need a column to compare. "
+                "Use --right-limit-decision-column COL (the right-side tiebreaker column)."
+            ],
+        )
     # Parse + validate key specs BEFORE creating the recipe — an invalid
     # pair index must not leave a half-configured recipe behind (it would
     # run "successfully" to a 0-row / cartesian output).

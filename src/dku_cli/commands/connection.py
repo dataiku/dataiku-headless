@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.commands._connection_discovery import (
     list_connection_schemas,
     list_connection_tables,
 )
+from dku_cli.enums import ConnectionUsableBy
 from dku_cli.errors import (
     exit_with_error,
     handle_api_error,
@@ -107,7 +106,7 @@ def create(
     conn_type: str = typer.Option(
         ..., "--type", "-t", help="Connection type (e.g. PostgreSQL, Snowflake)"
     ),
-    definition: Optional[str] = typer.Option(
+    definition: str | None = typer.Option(
         None,
         "--definition",
         "-d",
@@ -288,9 +287,10 @@ def update(
     params: str | None = typer.Option(
         None, "--params", help="JSON patch for params (inline, @file, -)"
     ),
-    usable_by: str | None = typer.Option(
+    usable_by: ConnectionUsableBy | None = typer.Option(
         None,
         "--usable-by",
+        case_sensitive=False,
         help="ALL | ALLOWED (restrict to --allowed-groups)",
     ),
     allowed_groups: str | None = typer.Option(
@@ -315,10 +315,6 @@ def update(
         exit_with_error(
             "Nothing to update — pass at least one of --params, --usable-by, "
             "--allowed-groups, --description.",
-        )
-    if usable_by is not None and usable_by not in {"ALL", "ALLOWED"}:
-        exit_with_error(
-            f"--usable-by must be ALL or ALLOWED, got '{usable_by}'.",
         )
     params_patch = read_json_input(params) if params else None
     if params_patch is not None and not isinstance(params_patch, dict):
@@ -345,7 +341,7 @@ def update(
         if params_patch:
             current.setdefault("params", {}).update(params_patch)
         if usable_by:
-            current["usableBy"] = usable_by
+            current["usableBy"] = usable_by.value
         if allowed_groups is not None:
             current["allowedGroups"] = [
                 g.strip() for g in allowed_groups.split(",") if g.strip()
@@ -493,10 +489,7 @@ def sync_acls(
 
         client = get_client_from_ctx(ctx)
         conn = client.get_connection(connection_name)
-        if root:
-            future = conn.sync_root_acls()
-        else:
-            future = conn.sync_datasets_acls()
+        future = conn.sync_root_acls() if root else conn.sync_datasets_acls()
 
         if wait:
             future.wait_for_result()

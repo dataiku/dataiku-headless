@@ -25,4 +25,7 @@ regexes = [
   '''(?i)(dummy|example|placeholder|test|fake|sample|your)[-_]?(api|secret|token|key)''',
   '''(?i)dku[ap]\.0*(example|placeholder|xxxx)''',
   '''AKIAIOSFODNN7EXAMPLE''',
+  # Fixture token exercising the audit-log Bearer redaction in
+  # tests/mcp/test_executor.py — the test asserts this exact string is masked.
+  '''abc\.DEF-123_ghi''',
 ]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import typer
@@ -278,17 +279,13 @@ def build(
         if wait:
             job = store.build(wait=True, no_fail=True)
             status = {}
-            try:
+            with contextlib.suppress(Exception):
                 status = job.get_status() or {}
-            except Exception:
-                pass
             state = (status.get("baseStatus", {}) or {}).get("state", "DONE")
             if state in ("FAILED", "ABORTED"):
                 log_text = ""
-                try:
+                with contextlib.suppress(Exception):
                     log_text = job.get_log() or ""
-                except Exception:
-                    pass
                 details = [
                     f"Job ID: {job.id}",
                     f"Status: {state}",

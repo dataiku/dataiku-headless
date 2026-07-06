@@ -13,9 +13,9 @@ import pytest
 
 pytest.importorskip("fastmcp")
 
-from fastmcp import Client  # noqa: E402
+from fastmcp import Client
 
-from dku_cli.mcp.server import build_server  # noqa: E402
+from dku_cli.mcp.server import build_server
 
 
 def _server(tmp_path):

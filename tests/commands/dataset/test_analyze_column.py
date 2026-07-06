@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock
-from tests.commands.dataset.helpers import app, runner
 
+from tests.commands.dataset.helpers import app, runner
 
 # --- analyze-column ---
 

@@ -830,16 +830,16 @@ def create(
         ):
             _ensure_file_output_format(proj, output_ds)
         # Container / env-mode pinning for code recipes.
-        if container_mode is not None:
-            if container_mode.value == "EXPLICIT_CONTAINER" and not container_conf:
-                exit_with_error(
-                    "--container-mode EXPLICIT_CONTAINER requires --container-conf.",
-                )
-        if env_mode is not None:
-            if env_mode.value == "EXPLICIT_ENV" and not env_name:
-                exit_with_error(
-                    "--env-mode EXPLICIT_ENV requires --env-name.",
-                )
+        if (
+            container_mode is not None
+            and container_mode.value == "EXPLICIT_CONTAINER"
+            and not container_conf
+        ):
+            exit_with_error(
+                "--container-mode EXPLICIT_CONTAINER requires --container-conf.",
+            )
+        if env_mode is not None and env_mode.value == "EXPLICIT_ENV" and not env_name:
+            exit_with_error("--env-mode EXPLICIT_ENV requires --env-name.")
         if container_mode or env_mode:
             recipe = proj.get_recipe(recipe_name)
             recipe_settings = recipe.get_settings()

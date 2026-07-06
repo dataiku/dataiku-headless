@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-# ruff: noqa: F403,F405
-from ._common import *
 from dku_cli.enums import (
     EngineType,
     IdentifierMode,
@@ -13,6 +11,9 @@ from dku_cli.enums import (
     Slugification,
     ValueLimit,
 )
+
+# ruff: noqa: F403,F405
+from ._common import *
 
 
 @app.command("create-pivot")

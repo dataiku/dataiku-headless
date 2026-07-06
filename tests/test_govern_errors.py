@@ -78,9 +78,10 @@ def test_invalid_api_key_falls_back_when_no_url(monkeypatch):
     monkeypatch.delenv("DKU_DSS_URL", raising=False)
     monkeypatch.delenv("DKU_PROFILE", raising=False)
     # Force config lookup to fail so we exercise the fallback path.
-    import dku_cli.errors as errors_mod
+    # (_handle_invalid_api_key lives in _error_auth; errors re-exports it.)
+    import dku_cli._error_auth as error_auth_mod
 
-    monkeypatch.setattr(errors_mod, "_resolve_auth_context", lambda: (None, None))
+    monkeypatch.setattr(error_auth_mod, "_resolve_auth_context", lambda: (None, None))
     msg = "NotAuthenticatedException: Unknown API Key"
     result = _handle_invalid_api_key(msg)
     assert result is not None

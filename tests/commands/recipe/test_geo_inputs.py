@@ -46,7 +46,7 @@ def _setup_geojoin_mock(patch_client):
 
 def test_recipe_create_geojoin(patch_client):
     """Basic geo join recipe creation with 2 inputs."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    proj, builder, _settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -168,7 +168,7 @@ def test_recipe_create_geojoin_invalid_distance_unit(patch_client):
 
 def test_recipe_create_geojoin_with_operator(patch_client):
     """--operator INTERSECTS writes an INTERSECTS condition into joins[0].on."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     # DSS BUILDS from joins[0].on, so auto-detect must find a geo column to
     # write the condition: give each input a geopoint column.
     proj.get_dataset.return_value.get_schema.side_effect = None
@@ -207,7 +207,7 @@ def test_recipe_create_geojoin_with_operator(patch_client):
 
 def test_recipe_create_geojoin_with_distance(patch_client):
     """--distance and --distance-unit configure the DWITHIN condition threshold."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     # Auto-detect a geo column so the build-time condition is written.
     proj.get_dataset.return_value.get_schema.side_effect = None
     proj.get_dataset.return_value.get_schema.return_value = {
@@ -246,7 +246,7 @@ def test_recipe_create_geojoin_with_distance(patch_client):
 def test_recipe_create_geojoin_uppercase_distance_unit(patch_client):
     """case_sensitive=False: uppercase --distance-unit KM resolves to the
     lowercase-canonical 'km' member (GeoDistanceUnit's values are lowercase)."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -277,7 +277,7 @@ def test_recipe_create_geojoin_uppercase_distance_unit(patch_client):
 
 def test_recipe_create_geojoin_with_geo_columns(patch_client):
     """--geo-column specifies left and right geo columns."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -314,7 +314,7 @@ def test_recipe_create_geojoin_writes_on_condition(patch_client):
     DSS engine reads the spatial predicate from joins[0].on (DWITHIN + threshold
     + uppercase unit), NOT the join-level geoOperator/geoUnit fields.
     """
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -357,7 +357,7 @@ def test_recipe_create_geojoin_writes_on_condition(patch_client):
 
 def test_recipe_create_geojoin_beyond_distance_on_condition(patch_client):
     """BEYOND_DISTANCE maps to the BEYOND condition type with km→KILOMETER unit."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -396,7 +396,7 @@ def test_recipe_create_geojoin_beyond_distance_on_condition(patch_client):
 
 def test_recipe_create_geojoin_intersects_on_condition_no_threshold(patch_client):
     """INTERSECTS writes an INTERSECTS condition with no threshold/unit."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -431,7 +431,7 @@ def test_recipe_create_geojoin_intersects_on_condition_no_threshold(patch_client
 
 def test_recipe_create_geojoin_warns_when_no_geo_column(patch_client):
     """No --geo-column and no detectable geo column → warn, no on condition."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         # Auto-detect returns None for MagicMock schemas, so no condition is written.
         result = runner.invoke(
@@ -465,7 +465,7 @@ def test_recipe_create_geojoin_explicit_bad_column_errors(patch_client):
 
     Auto-detect failure stays a warning — covered by
     test_recipe_create_geojoin_warns_when_no_geo_column."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         # Schema has a geo column, but NOT the explicitly-named one.
         # Clear the helper's "unreadable schema" default so validation runs.
@@ -534,7 +534,7 @@ def test_recipe_create_geojoin_geo_columns_requires_two(patch_client):
 
 def test_recipe_create_geojoin_auto_applies_schema(patch_client):
     """Schema auto-propagation happens after creation."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    proj, _builder, _settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         recipe_mock = proj.get_recipe.return_value
         result = runner.invoke(
@@ -589,7 +589,7 @@ def _setup_fuzzyjoin_mock(patch_client):
 
 def test_recipe_create_fuzzy_join(patch_client):
     """Basic fuzzy join recipe creation."""
-    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    proj, builder, _settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -625,7 +625,7 @@ def test_recipe_create_fuzzy_join_condition_shape(patch_client):
     are persisted but ignored (recipe silently does exact matching), and a
     condition without type=FUZZY is dropped (silent cross join).
     """
-    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -739,7 +739,7 @@ def test_recipe_create_fuzzy_join_invalid_method(patch_client):
 
 def test_recipe_create_fuzzy_join_with_fuzzy_key(patch_client):
     """--fuzzy-key adds FUZZY condition to join."""
-    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -776,7 +776,7 @@ def test_recipe_create_fuzzy_join_with_fuzzy_key(patch_client):
 
 def test_recipe_create_fuzzy_join_with_exact_and_fuzzy_keys(patch_client):
     """Both --join-key (exact) and --fuzzy-key can be combined."""
-    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -814,7 +814,7 @@ def test_recipe_create_fuzzy_join_with_exact_and_fuzzy_keys(patch_client):
 
 def test_recipe_create_fuzzy_join_left_right_key(patch_client):
     """Fuzzy key with left=right syntax."""
-    proj, builder, settings, mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,
@@ -1207,7 +1207,7 @@ def test_recipe_create_geojoin_contains_condition(patch_client):
     """CONTAINS operator writes a CONTAINS MatchingCondition into on[] with the
     explicit -g geo columns (no distance/unit) — regression for the bug where
     on[] was left empty and the build failed with 'Empty join conditions'."""
-    proj, builder, settings, mock_cls, patcher = _setup_geojoin_mock(patch_client)
+    _proj, _builder, settings, _mock_cls, patcher = _setup_geojoin_mock(patch_client)
     try:
         result = runner.invoke(
             app,

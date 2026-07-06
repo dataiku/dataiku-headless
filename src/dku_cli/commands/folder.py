@@ -7,6 +7,7 @@ decompress.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import tempfile
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import typer
 
+from dku_cli.commands._folder_io import _ensure_safe_zip_paths, _put_file_with_retry
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import get_client_from_ctx, resolve_folder, resolve_project
 from dku_cli.output import (
@@ -388,10 +390,8 @@ def create_dataset(
             # Without this, an explicit --format csv produces a dataset DSS
             # can't read ("Missing parameters for CSV"). Detection failures
             # are tolerated — we'll fall back to a hand-rolled minimum below.
-            try:
+            with contextlib.suppress(Exception):
                 ds.autodetect_settings().save()
-            except Exception:
-                pass
             settings = ds.get_settings()
             raw = settings.get_raw()
             detected_format = (raw.get("formatType") or "").lower()
@@ -440,7 +440,7 @@ def create_dataset(
                 detected = ds.autodetect_settings()
                 detected.save()
                 format_msg = f" (format={detected.get_raw().get('formatType', '?')}, autodetected)"
-            except Exception as detect_err:  # noqa: BLE001
+            except Exception as detect_err:
                 warn(
                     f"Autodetect failed ({detect_err}); dataset created with default format. "
                     f"Re-run with --format <type> if reads break."
@@ -553,34 +553,6 @@ def ls(
         )
     except Exception as e:
         handle_api_error(e)
-
-
-def _put_file_with_retry(
-    folder, remote_path: str, local_path: Path, retries: int
-) -> int:
-    """Upload one file to a managed folder with bounded retry.
-
-    Returns the number of retries actually used (0 if first attempt succeeded).
-    Raises the last exception if all attempts fail. ``retries`` is the number
-    of EXTRA attempts after the first — so retries=2 means up to 3 total tries.
-    """
-    import time
-
-    attempts = max(1, retries + 1)
-    last_exc: Exception | None = None
-    for attempt in range(attempts):
-        try:
-            with local_path.open("rb") as f:
-                folder.put_file(remote_path, f)
-            return attempt
-        except Exception as exc:
-            last_exc = exc
-            if attempt + 1 < attempts:
-                # Brief linear backoff. Server-side hiccups (DSS proxy timeout,
-                # rate limits, transient socket) usually clear within a few s.
-                time.sleep(1.0 + attempt)
-    assert last_exc is not None
-    raise last_exc
 
 
 @app.command()
@@ -940,6 +912,8 @@ def decompress(
         with zipfile.ZipFile(archive_data, "r") as zf:
             members = [m for m in zf.infolist() if not m.is_dir()]
             info(f"Extracting {len(members)} file(s)...")
+
+            _ensure_safe_zip_paths(zf, archive_path)
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 zf.extractall(tmpdir)

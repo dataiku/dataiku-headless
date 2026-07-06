@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from dku_cli.mcp import server
 
 
@@ -63,7 +65,7 @@ def test_http_auth_no_bearer_returns_anon(monkeypatch):
     fake = type(sys)("fastmcp.server.dependencies")
 
     class _FakeNoAuth:
-        headers = {}
+        headers: ClassVar[dict] = {}
 
     fake.get_http_request = lambda: _FakeNoAuth()
     monkeypatch.setitem(sys.modules, "fastmcp.server.dependencies", fake)
@@ -83,7 +85,7 @@ def test_http_auth_with_bearer_returns_key(monkeypatch):
     fake = type(sys)("fastmcp.server.dependencies")
 
     class _FakeBearer:
-        headers = {"authorization": "Bearer dkuaps-test-key-123"}
+        headers: ClassVar[dict] = {"authorization": "Bearer dkuaps-test-key-123"}
 
     fake.get_http_request = lambda: _FakeBearer()
     monkeypatch.setitem(sys.modules, "fastmcp.server.dependencies", fake)

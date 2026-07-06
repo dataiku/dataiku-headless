@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 import typer
 
 from dku_cli.config import (
@@ -13,6 +11,7 @@ from dku_cli.config import (
     set_dangerous_mode,
     set_default_project,
 )
+from dku_cli.enums import SafetyMode
 from dku_cli.output import error, info, render, render_raw, success
 
 app = typer.Typer(help="Manage CLI configuration.")
@@ -98,7 +97,9 @@ def list_profiles_alias() -> None:
 
 @app.command("set-safety")
 def set_safety(
-    mode: str = typer.Argument(help="Safety mode: guarded or dangerous"),
+    mode: SafetyMode = typer.Argument(
+        case_sensitive=False, help="Safety mode: guarded or dangerous"
+    ),
 ) -> None:
     """Persist the safety mode to config.toml.
 
@@ -106,12 +107,8 @@ def set_safety(
     - dangerous: skip safety guards for tier 2–3 commands (tier 4 admin never
       bypassable). Equivalent to setting DKU_DANGEROUS=1 persistently.
     """
-    mode_lower = mode.strip().lower()
-    if mode_lower not in ("guarded", "dangerous"):
-        error("Safety mode must be 'guarded' or 'dangerous'.")
-        raise typer.Exit(1)
-    set_dangerous_mode(mode_lower == "dangerous")
-    success(f"Set safety mode = {mode_lower}")
+    set_dangerous_mode(mode == SafetyMode.dangerous)
+    success(f"Set safety mode = {mode.value}")
 
 
 @app.command("get-safety")
@@ -130,7 +127,7 @@ def get_safety(ctx: typer.Context) -> None:
         "config": "config.toml (dangerous_mode=true)",
         "default": "default (guarded is the default mode)",
     }
-    print(mode)
+    render_raw(mode)
     info(f"reason: {reason_map.get(reason, reason)}")
 
 
@@ -153,7 +150,7 @@ def variables(
 @app.command("set-variables")
 def set_variables(
     ctx: typer.Context,
-    set_var: Optional[List[str]] = typer.Option(
+    set_var: list[str] | None = typer.Option(
         None, "--set", help="Set standard variable (key=value)"
     ),
 ) -> None:

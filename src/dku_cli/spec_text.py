@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import json
 import os
 import shutil
 import sys
 import textwrap
+from collections.abc import Mapping
 
 from dku_cli.output import get_output_format
 

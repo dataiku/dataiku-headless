@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dku_cli import __version__
-from dku_cli.brand import ICON, version_string, welcome, status_ok, status_err
+from dku_cli.brand import ICON, status_err, status_ok, version_string, welcome
 
 
 def test_icon_is_diamond():

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 
-import dataikuapi
 import typer
 
 from dku_cli.auth import (
@@ -162,7 +161,7 @@ def status(
             else:
                 error(f'Profile "{profile}" (in-pod ticket) cannot resolve auth.')
                 error(str(e))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         host = os.environ.get("DKU_BACKEND_HOST", "?")
         port = os.environ.get("DKU_BACKEND_PORT", "?")
         proto = os.environ.get("DKU_BACKEND_PROTOCOL", "http")
@@ -189,7 +188,7 @@ def status(
             else:
                 error(f'Profile "{profile}" is not fully configured.')
                 error("Run 'dku auth login' to set up.")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         url_source, api_key_source = _resolve_auth_sources(
             flag_url, flag_api_key, url, api_key, profile
@@ -198,6 +197,8 @@ def status(
 
     try:
         if not is_ticket_mode:
+            import dataikuapi
+
             client = dataikuapi.DSSClient(url, api_key=api_key)
         auth_info = client.get_auth_info()
         user = auth_info.get("authIdentifier", "unknown")
@@ -283,7 +284,7 @@ def status(
             console.print(f"[bold]Profile:[/bold]  {profile}")
             console.print(f"[bold]URL:[/bold]      {redact_url(url)}")
             console.print(f"[bold]Status:[/bold]   [red]{ICON} Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @app.command("export-env")
@@ -323,7 +324,7 @@ def export_env(
     except Exception:
         error(f'Profile "{profile}" is not fully configured.')
         error("Run 'dku auth login' to set up.")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     if fmt == "json":
         render_raw({"DKU_URL": url, "DKU_API_KEY": api_key}, output_format="json")

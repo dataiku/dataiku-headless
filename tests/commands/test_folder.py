@@ -644,6 +644,57 @@ def test_folder_decompress(patch_client):
     assert folder.put_file.call_count == 2
 
 
+def test_folder_decompress_rejects_zip_slip(patch_client):
+    """A member with a `..` path component must be rejected before extraction —
+    Zip-Slip would otherwise write outside the destination folder."""
+    import io
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("ok.txt", "fine")
+        zf.writestr("../evil.txt", "pwned")
+    zip_bytes = zip_buffer.getvalue()
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": zip_bytes})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        ["folder", "decompress", "folder1", "/archive.zip", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "evil.txt" in result.output
+    folder.put_file.assert_not_called()
+
+
+def test_folder_decompress_rejects_backslash_rooted_paths(patch_client):
+    r"""A backslash-rooted entry (\Windows\win.ini) is an absolute path on
+    Windows — `Path(tmpdir) / member.filename` there resolves to C:\Windows\...
+    and the CLI would read an attacker-chosen local file into the folder."""
+    import io
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("ok.txt", "fine")
+        zf.writestr("\\Windows\\win.ini", "pwned")
+    zip_bytes = zip_buffer.getvalue()
+
+    folder = patch_client.get_project("PROJ1").get_managed_folder("folder1")
+    file_resp = type("Response", (), {"content": zip_bytes})()
+    folder.get_file.return_value = file_resp
+
+    result = runner.invoke(
+        app,
+        ["folder", "decompress", "folder1", "/archive.zip", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "unsafe path" in result.output
+    folder.put_file.assert_not_called()
+
+
 def test_folder_decompress_json(patch_client):
     import io
     import zipfile

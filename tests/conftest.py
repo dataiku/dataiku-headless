@@ -61,6 +61,44 @@ def _isolate_config_files(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def real_keyring():
+    """Opt back in to the real ``_keyring_available`` probe.
+
+    The autouse ``_neutralize_keyring`` fixture below forces
+    ``dku_cli.auth._keyring_available`` to return False for EVERY test so a
+    stray auth test can never reach the developer's real macOS Keychain.
+    A test that genuinely needs the real detection logic (or wants to drive
+    it itself) requests this fixture; it runs first, restores the original
+    callable, and the autouse fixture then sees the opt-in and skips its
+    patch. Tests that patch ``_keyring_available`` per-test (as
+    ``tests/test_auth.py`` does) don't need this — their ``with patch(...)``
+    simply overrides the autouse default inside their own context.
+    """
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _neutralize_keyring(request, monkeypatch):
+    """Globally stub keyring detection to False unless a test opts out.
+
+    ``store_api_key`` / ``get_api_key_with_status`` call
+    ``dku_cli.auth._keyring_available()`` and, when it returns True, hit the
+    OS keyring backend — on macOS that is the developer's real Keychain. The
+    per-test isolation in ``_isolate_config_files`` redirects the config and
+    credentials FILES, but nothing stops a future test that forgets to patch
+    ``_keyring_available`` from touching the real Keychain. This fixture
+    closes that gap for the whole suite by defaulting the probe to False.
+
+    Opt out by requesting the ``real_keyring`` fixture (restores the original
+    detection). Per-test ``patch("dku_cli.auth._keyring_available", ...)``
+    calls compose fine: they override this default within their context.
+    """
+    if "real_keyring" in request.fixturenames:
+        return
+    monkeypatch.setattr("dku_cli.auth._keyring_available", lambda: False, raising=False)
+
+
+@pytest.fixture
 def mock_client():
     """Create a mock DSSClient with common methods."""
     client = create_mock_client()

@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-import fnmatch
-import os
+import contextlib
 import sys
 from pathlib import Path, PurePosixPath
 
 import typer
 
+from dku_cli.commands._library_sync import (
+    _DEFAULT_EXCLUDES,
+    _collect_local_files,
+    _delete_folder_recursive,
+    _is_library_folder,
+    _list_remote_files,
+    _report_delete_failures,
+)
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, resolve_project
-from dku_cli.output import info, render, resolve_output_format, success
+from dku_cli.output import info, render, resolve_output_format, success, warn
 
 app = typer.Typer(help="Manage DSS project library files.")
 
@@ -22,14 +29,9 @@ def _get_or_create_folder(lib, folder_path: str):
     current = lib
     for part in parts:
         child = None
-        try:
+        with contextlib.suppress(Exception):
             child = current.get_folder(part)
-        except Exception:
-            pass
-        if child is None:
-            current = current.add_folder(part)
-        else:
-            current = child
+        current = current.add_folder(part) if child is None else child
     return current
 
 
@@ -160,50 +162,6 @@ def write(
         handle_api_error(e)
 
 
-def _is_library_folder(lib, path: str) -> bool:
-    """Return True if `path` resolves to a folder (not a file) in the library.
-
-    Best-effort: a folder responds to `.list()`, a file does not. Returns
-    False on any error so the caller can fall back to file-delete semantics.
-    """
-    try:
-        folder = lib.get_folder(path)
-        if folder is None:
-            return False
-        folder.list()
-        return True
-    except Exception:
-        return False
-
-
-def _delete_folder_recursive(lib, folder_path: str) -> tuple[int, int]:
-    """Delete every file under `folder_path`, then the folder itself.
-
-    Returns (file_count, folder_count) so callers can summarise.
-    """
-    files = _list_remote_files(lib, folder_path)
-    file_count = 0
-    for fpath in sorted(files):
-        try:
-            f = lib.get_file(fpath)
-            if f is not None:
-                f.delete()
-                file_count += 1
-        except Exception:
-            # Best-effort — ignore already-gone files
-            pass
-
-    folder_count = 0
-    try:
-        folder = lib.get_folder(folder_path)
-        if folder is not None and hasattr(folder, "delete"):
-            folder.delete()
-            folder_count = 1
-    except Exception:
-        pass
-    return file_count, folder_count
-
-
 @app.command()
 def delete(
     ctx: typer.Context,
@@ -260,7 +218,12 @@ def delete(
                     ],
                     status=2,
                 )
-            files_deleted, folders_deleted = _delete_folder_recursive(lib, path)
+            files_deleted, folders_deleted, failures = _delete_folder_recursive(
+                lib, path
+            )
+            _report_delete_failures(
+                failures, files_deleted, folders_deleted, path, project_key
+            )
             success(
                 f"Deleted {files_deleted} file(s) "
                 f"and {folders_deleted} folder(s) under '{path}'"
@@ -411,68 +374,6 @@ def mkdir(
         handle_api_error(e)
 
 
-# Default patterns to exclude from sync
-_DEFAULT_EXCLUDES = {
-    ".git",
-    "__pycache__",
-    ".DS_Store",
-    "*.pyc",
-    ".venv",
-    "node_modules",
-    ".ruff_cache",
-}
-
-
-def _collect_local_files(local_dir: Path, excludes: set[str]) -> list[tuple[Path, str]]:
-    """Walk *local_dir* and return (abs_path, relative_posix_path) pairs."""
-    files: list[tuple[Path, str]] = []
-    for dirpath, dirnames, filenames in os.walk(local_dir):
-        # Prune excluded directories in-place
-        dirnames[:] = [
-            d for d in dirnames if not any(fnmatch.fnmatch(d, pat) for pat in excludes)
-        ]
-        for fname in filenames:
-            if any(fnmatch.fnmatch(fname, pat) for pat in excludes):
-                continue
-            abs_path = Path(dirpath) / fname
-            rel = abs_path.relative_to(local_dir).as_posix()
-            files.append((abs_path, rel))
-    return files
-
-
-def _list_remote_files(lib, folder_path: str) -> set[str]:
-    """Recursively list all file paths under a library folder.
-
-    Returns paths normalised WITHOUT a leading slash (matches the form
-    `dku library write` / `delete` accept). Real DSS returns `item.path`
-    with a leading slash (e.g. ``/python/lib/foo.py``); we strip it.
-    """
-    remote: set[str] = set()
-
-    def _normalize(p: str) -> str:
-        return p.lstrip("/")
-
-    def _walk(container) -> None:
-        for item in container.list():
-            item_path = _normalize(item.path)
-            # DSSLibraryItem: check if it has a .list() method (folder)
-            try:
-                item.list()  # probe: raises if item is a file, not a folder
-                _walk(item)
-            except Exception:
-                remote.add(item_path)
-
-    try:
-        if folder_path == "/" or folder_path == "":
-            _walk(lib)
-        else:
-            folder = lib.get_folder(folder_path)
-            _walk(folder)
-    except Exception:
-        pass  # Folder doesn't exist yet — no remote files
-    return remote
-
-
 @app.command()
 def sync(
     ctx: typer.Context,
@@ -524,10 +425,7 @@ def sync(
         # Upload files
         uploaded = 0
         for abs_path, rel_posix in local_files:
-            if remote_base:
-                remote_path = f"{remote_base}/{rel_posix}"
-            else:
-                remote_path = rel_posix
+            remote_path = f"{remote_base}/{rel_posix}" if remote_base else rel_posix
 
             if dry_run:
                 info(f"(dry-run) Would upload: {rel_posix} → {remote_path}")
@@ -577,18 +475,30 @@ def sync(
             remote_files = _list_remote_files(lib, remote_base or "/")
             to_delete = remote_files - local_remotes
 
+            delete_failures = 0
             for rpath in sorted(to_delete):
                 if dry_run:
                     info(f"(dry-run) Would delete: {rpath}")
-                else:
-                    try:
-                        rf = lib.get_file(rpath)
-                        if rf is not None:
-                            rf.delete()
-                            info(f"Deleted: {rpath}")
-                    except Exception:
-                        pass  # File may already be gone
-                deleted += 1
+                    deleted += 1
+                    continue
+                try:
+                    rf = lib.get_file(rpath)
+                    if rf is not None:
+                        rf.delete()
+                        info(f"Deleted: {rpath}")
+                    deleted += 1
+                except Exception as del_err:
+                    delete_failures += 1
+                    warn(f"Failed to delete {rpath}: {del_err}")
+            if delete_failures:
+                exit_with_error(
+                    f"{delete_failures} remote file(s) could not be deleted "
+                    f"during sync (deleted {deleted}).",
+                    details=[
+                        "Re-run the sync, or delete the files individually: "
+                        f"dku library delete <path> -P {project_key}",
+                    ],
+                )
 
         if dry_run:
             summary = f"(dry-run) Would sync {uploaded} file(s)"

@@ -79,6 +79,6 @@ def run(
         from dku_cli.output import error
 
         error("Invalid JSON in --params")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except Exception as e:
         handle_api_error(e)

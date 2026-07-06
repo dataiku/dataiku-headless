@@ -433,12 +433,32 @@ def test_app_designer_remove_tile(patch_client):
             "0",
             "--index",
             "1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
     assert "Removed PROJECT_VARIABLES_EDIT tile" in result.output
     proj = patch_client.get_project("PROJ1")
     proj.get_app_manifest().save.assert_called()
+
+
+def test_app_designer_remove_tile_blocks_without_yes(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "app-designer",
+            "remove-tile",
+            "--project",
+            "PROJ1",
+            "--section",
+            "0",
+            "--index",
+            "1",
+        ],
+    )
+    assert result.exit_code == 77
+    proj = patch_client.get_project("PROJ1")
+    proj.get_app_manifest().save.assert_not_called()
 
 
 def test_app_designer_remove_tile_out_of_range(patch_client):
@@ -453,6 +473,7 @@ def test_app_designer_remove_tile_out_of_range(patch_client):
             "0",
             "--index",
             "99",
+            "--yes",
         ],
     )
     assert result.exit_code != 0
@@ -470,6 +491,7 @@ def test_app_designer_remove_tile_section_out_of_range(patch_client):
             "99",
             "--index",
             "0",
+            "--yes",
         ],
     )
     assert result.exit_code != 0

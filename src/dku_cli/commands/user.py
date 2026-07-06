@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
@@ -63,8 +61,8 @@ def create(
     login: str = typer.Argument(help="User login"),
     display_name: str = typer.Option(..., "--display-name", help="Display name"),
     email: str = typer.Option(..., "--email", help="Email address"),
-    password: Optional[str] = typer.Option(None, "--password", help="User password"),
-    groups: Optional[str] = typer.Option(
+    password: str | None = typer.Option(None, "--password", help="User password"),
+    groups: str | None = typer.Option(
         None, "--groups", help="Comma-separated group names"
     ),
 ) -> None:

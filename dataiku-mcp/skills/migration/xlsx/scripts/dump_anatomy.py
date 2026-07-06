@@ -319,9 +319,9 @@ def emit_dss_schema(path: str, sheet: str, header_row: int = 1) -> list[dict]:
             if v is None:
                 continue
             n += 1
-            if isinstance(v, bool) or isinstance(v, str):
+            if isinstance(v, (bool, str)):
                 seen_str = True
-            elif isinstance(v, dt.datetime) or isinstance(v, dt.date):
+            elif isinstance(v, (dt.datetime, dt.date)):
                 seen_date = True
             elif isinstance(v, float):
                 if v.is_integer():

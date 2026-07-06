@@ -615,12 +615,39 @@ def test_dashboard_remove_tile(patch_client):
             "insight1",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0
     assert "Removed 1 tile" in result.output
     assert raw["pages"][0]["grid"]["tiles"] == []
     settings.save.assert_called_once()
+
+
+def test_dashboard_remove_tile_blocks_without_yes(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_dashboard("dashboard1").get_settings()
+    raw = {
+        "id": "dashboard1",
+        "name": "Dash",
+        "pages": [{"id": "p1", "grid": {"tiles": [{"insightId": "insight1"}]}}],
+    }
+    settings.get_raw.return_value = raw
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "remove-tile",
+            "dashboard1",
+            "--insight",
+            "insight1",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 77
+    assert raw["pages"][0]["grid"]["tiles"] == [{"insightId": "insight1"}]
+    settings.save.assert_not_called()
 
 
 def test_dashboard_remove_tile_not_found(patch_client):
@@ -634,6 +661,7 @@ def test_dashboard_remove_tile_not_found(patch_client):
             "NONEXISTENT",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code != 0
@@ -664,6 +692,7 @@ def test_dashboard_remove_tile_scoped_to_page(patch_client):
             "0",
             "--project",
             "PROJ1",
+            "--yes",
         ],
     )
     assert result.exit_code == 0

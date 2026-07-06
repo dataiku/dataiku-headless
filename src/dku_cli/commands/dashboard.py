@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 
+from dku_cli.commands._dashboard_page import _default_page
 from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     dashboard_url,
@@ -23,24 +24,6 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS dashboards.")
-
-
-def _default_page() -> dict:
-    return {
-        "id": "page1",
-        "title": "Page 1",
-        "displayedTitle": "Page 1",
-        "show": True,
-        "showTitle": False,
-        "titleAlign": "CENTER",
-        "titleFontColor": "#333",
-        "titleFontSize": 28,
-        "enableCrossFilters": True,
-        "backgroundColor": "#FFFEF9",
-        "showFilterPanel": False,
-        "filtersParams": {"panelPosition": "TOP"},
-        "grid": {"tiles": []},
-    }
 
 
 @app.command("list")
@@ -602,6 +585,7 @@ def remove_tile(
     page: int = typer.Option(
         None, "--page", help="Page index to limit removal to (default: all pages)"
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove all tiles referencing an insight from a dashboard.
 
@@ -609,8 +593,19 @@ def remove_tile(
     dku dashboard remove-tile DASH_ID --insight INSIGHT_ID --page 0 -P PROJ
     """
     from dku_cli.errors import exit_with_error
+    from dku_cli.safety import Tier, guard
 
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="dashboard.remove_tile",
+        subject=f"tiles referencing insight '{insight_id}' in dashboard "
+        f"'{dashboard_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove tiles referencing '{insight_id}' from dashboard "
+        f"'{dashboard_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

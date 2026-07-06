@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
-from tests.commands.recipe.helpers import app, runner
 
+from tests.commands.recipe.helpers import app, runner
 
 # --- GenAI recipe creation ---
 

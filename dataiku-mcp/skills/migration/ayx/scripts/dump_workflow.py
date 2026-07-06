@@ -478,7 +478,7 @@ def render_contract(nodes, inputs, outputs, schemas, sink_anchor, files, dead):
                 up = next(iter(ups))
                 up_cached = schemas.get(up) or {}
                 if len(up_cached) == 1:
-                    ua, uf = next(iter(up_cached.items()))
+                    _ua, uf = next(iter(up_cached.items()))
                     hint = (
                         f" Direct upstream #{up} caches ({len(uf)} cols): "
                         f"{_fields_s(uf)} — apply this tool's own config on top."

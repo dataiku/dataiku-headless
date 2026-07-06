@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.errors import handle_api_error
@@ -65,7 +63,7 @@ def get(
 def download(
     ctx: typer.Context,
     file_id: str = typer.Argument(help="Uploaded file ID (e.g. uf.1)"),
-    dest: Optional[str] = typer.Option(
+    dest: str | None = typer.Option(
         None,
         "--dest",
         "-d",

@@ -6,10 +6,12 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
-import dataikuapi
+if TYPE_CHECKING:
+    import dataikuapi
 
 from dku_cli.client import (
     AUTH_MODE_IN_POD_TICKET,
@@ -21,7 +23,6 @@ from dku_cli.client import (
 )
 from dku_cli.config import get_default_project, get_profile_config
 from dku_cli.enums import EvalFlavor
-
 
 # Node types that support project-scoped commands (flow, datasets, recipes…).
 PROJECT_NODE_TYPES = {"DESIGN", "AUTOMATION"}
@@ -214,6 +215,75 @@ def get_govern_client_from_ctx(ctx: typer.Context):
     return get_govern_client(**{k: opts[k] for k in _CLIENT_OPTS if k in opts})
 
 
+def _dict_id(item) -> str:
+    return item.get("id", "")
+
+
+def _dict_name(item) -> str:
+    return item.get("name", "")
+
+
+def _attr_id(item) -> str:
+    return item.id
+
+
+def _attr_name(item) -> str:
+    return getattr(item, "name", "")
+
+
+def _resolve_named(
+    project,
+    ref: str,
+    *,
+    get,
+    list_,
+    kind: str,
+    empty_details: list[str],
+    verify=lambda handle: None,
+    id_of=_dict_id,
+    name_of=_dict_name,
+    list_label: str | None = None,
+    id_label: str | None = None,
+):
+    """Resolve a named DSS object by ID first, then by name.
+
+    Tries ``get(ref)`` (by ID) and forces existence with ``verify``. On a
+    not-found error, lists via ``list_`` and matches on ``name_of``, re-fetching
+    the matched item's id through ``get``. Aborts via ``exit_with_error`` with a
+    prescriptive message when neither path resolves.
+    """
+    import dataikuapi
+
+    from dku_cli.errors import exit_with_error, is_not_found_error
+
+    try:
+        handle = get(ref)
+        verify(handle)
+        return handle
+    except dataikuapi.utils.DataikuException as e:
+        if not is_not_found_error(e):
+            raise
+    items = list(list_())
+    for item in items:
+        if name_of(item) == ref:
+            return get(id_of(item))
+
+    plural = list_label or f"{kind.lower()}s"
+    singular = id_label or kind.lower()
+    listed = [f"  {id_of(item)} ({name_of(item)})" for item in items]
+    exit_with_error(
+        f"{kind} '{ref}' not found (checked as both ID and name).",
+        details=[
+            f"Available {plural}:",
+            *listed,
+            f"Use the {singular} ID (left column) or exact name.",
+        ]
+        if listed
+        else empty_details,
+        status=3,
+    )
+
+
 def resolve_agent(project, agent_ref: str):
     """Resolve an agent by ID or name.
 
@@ -221,39 +291,17 @@ def resolve_agent(project, agent_ref: str):
     falls back to listing agents and matching by name.
     Returns a DSSAgent handle.
     """
-    try:
-        agent = project.get_agent(agent_ref)
-        # Verify it exists by fetching settings (get_agent is lazy)
-        agent.get_settings()
-        return agent
-    except dataikuapi.utils.DataikuException as e:
-        if (
-            "not found" not in str(e).lower()
-            and "NotFoundException" not in str(e)
-            and "does not exist" not in str(e)
-        ):
-            raise
-    # Fall back to name lookup
-    agents = project.list_agents()
-    for a in agents:
-        if a.get("name", "") == agent_ref:
-            return project.get_agent(a.get("id", a["id"]))
-    from dku_cli.errors import exit_with_error
-
-    agent_names = [f"  {a.get('id', '')} ({a.get('name', '')})" for a in agents]
-    exit_with_error(
-        f"Agent '{agent_ref}' not found (checked as both ID and name).",
-        details=[
-            "Available agents:",
-            *agent_names,
-            "Use the agent ID (left column) or exact name.",
-        ]
-        if agent_names
-        else [
+    return _resolve_named(
+        project,
+        agent_ref,
+        get=project.get_agent,
+        verify=lambda h: h.get_settings(),
+        list_=project.list_agents,
+        kind="Agent",
+        empty_details=[
             "No agents found in this project.",
             "Create one with: dku agent create NAME -P PROJECT",
         ],
-        status=3,
     )
 
 
@@ -264,39 +312,17 @@ def resolve_knowledge_bank(project, kb_ref: str):
     falls back to listing knowledge banks and matching by name.
     Returns a DSSKnowledgeBank handle.
     """
-    try:
-        kb = project.get_knowledge_bank(kb_ref)
-        # Verify it exists by fetching settings (get_knowledge_bank is lazy)
-        kb.get_settings()
-        return kb
-    except dataikuapi.utils.DataikuException as e:
-        if (
-            "not found" not in str(e).lower()
-            and "NotFoundException" not in str(e)
-            and "does not exist" not in str(e)
-        ):
-            raise
-    # Fall back to name lookup
-    banks = project.list_knowledge_banks()
-    for b in banks:
-        if b.get("name", "") == kb_ref:
-            return project.get_knowledge_bank(b.get("id", b["id"]))
-    from dku_cli.errors import exit_with_error
-
-    kb_names = [f"  {b.get('id', '')} ({b.get('name', '')})" for b in banks]
-    exit_with_error(
-        f"Knowledge bank '{kb_ref}' not found (checked as both ID and name).",
-        details=[
-            "Available knowledge banks:",
-            *kb_names,
-            "Use the knowledge bank ID (left column) or exact name.",
-        ]
-        if kb_names
-        else [
+    return _resolve_named(
+        project,
+        kb_ref,
+        get=project.get_knowledge_bank,
+        verify=lambda h: h.get_settings(),
+        list_=project.list_knowledge_banks,
+        kind="Knowledge bank",
+        empty_details=[
             "No knowledge banks found in this project.",
             "Create one with: dku knowledge create NAME --embedding-llm LLM_ID -P PROJECT",
         ],
-        status=3,
     )
 
 
@@ -325,39 +351,17 @@ def resolve_semantic_model(project, sm_ref: str):
     falls back to listing semantic models and matching by name.
     Returns a DSSSemanticModel handle.
     """
-    try:
-        sm = project.get_semantic_model(sm_ref)
-        # Verify it exists by fetching definition (get_semantic_model is lazy)
-        sm._get_definition()
-        return sm
-    except dataikuapi.utils.DataikuException as e:
-        if (
-            "not found" not in str(e).lower()
-            and "NotFoundException" not in str(e)
-            and "does not exist" not in str(e)
-        ):
-            raise
-    # Fall back to name lookup
-    models = project.list_semantic_models()
-    for m in models:
-        if m.get("name", "") == sm_ref:
-            return project.get_semantic_model(m.get("id", m["id"]))
-    from dku_cli.errors import exit_with_error
-
-    sm_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
-    exit_with_error(
-        f"Semantic model '{sm_ref}' not found (checked as both ID and name).",
-        details=[
-            "Available semantic models:",
-            *sm_names,
-            "Use the semantic model ID (left column) or exact name.",
-        ]
-        if sm_names
-        else [
+    return _resolve_named(
+        project,
+        sm_ref,
+        get=project.get_semantic_model,
+        verify=lambda h: h._get_definition(),
+        list_=project.list_semantic_models,
+        kind="Semantic model",
+        empty_details=[
             "No semantic models found in this project.",
             "Create one with: dku semantic-model create NAME -P PROJECT",
         ],
-        status=3,
     )
 
 
@@ -388,38 +392,19 @@ def resolve_agent_review(project, review_ref: str):
             status=3,
         )
 
-    try:
-        review = project.get_agent_review(review_ref)
-        # get_agent_review returns a fully populated object (not lazy)
-        return review
-    except dataikuapi.utils.DataikuException as e:
-        if (
-            "not found" not in str(e).lower()
-            and "NotFoundException" not in str(e)
-            and "does not exist" not in str(e)
-        ):
-            raise
-    # Fall back to name lookup
-    reviews = project.list_agent_reviews()
-    for r in reviews:
-        if getattr(r, "name", "") == review_ref:
-            return project.get_agent_review(r.id)
-    from dku_cli.errors import exit_with_error
-
-    review_names = [f"  {r.id} ({r.name})" for r in reviews]
-    exit_with_error(
-        f"Agent review '{review_ref}' not found (checked as both ID and name).",
-        details=[
-            "Available agent reviews:",
-            *review_names,
-            "Use the review ID (left column) or exact name.",
-        ]
-        if review_names
-        else [
+    return _resolve_named(
+        project,
+        review_ref,
+        get=project.get_agent_review,
+        list_=project.list_agent_reviews,
+        kind="Agent review",
+        id_of=_attr_id,
+        name_of=_attr_name,
+        id_label="review",
+        empty_details=[
             "No agent reviews found in this project.",
             "Create one with: dku agent-review create NAME -P PROJECT",
         ],
-        status=3,
     )
 
 
@@ -430,39 +415,18 @@ def resolve_folder(project, folder_ref: str):
     falls back to listing managed folders and matching by name.
     Returns a DSSManagedFolder handle.
     """
-    try:
-        folder = project.get_managed_folder(folder_ref)
-        # Verify it exists by fetching settings (get_managed_folder is lazy)
-        folder.get_settings()
-        return folder
-    except dataikuapi.utils.DataikuException as e:
-        if (
-            "not found" not in str(e).lower()
-            and "NotFoundException" not in str(e)
-            and "does not exist" not in str(e)
-        ):
-            raise
-    # Fall back to name lookup
-    folders = project.list_managed_folders()
-    for f in folders:
-        if f.get("name", "") == folder_ref:
-            return project.get_managed_folder(f.get("id"))
-    from dku_cli.errors import exit_with_error
-
-    folder_names = [f"  {f.get('id', '')} ({f.get('name', '')})" for f in folders]
-    exit_with_error(
-        f"Managed folder '{folder_ref}' not found (checked as both ID and name).",
-        details=[
-            "Available managed folders:",
-            *folder_names,
-            "Use the folder ID (left column) or exact name.",
-        ]
-        if folder_names
-        else [
+    return _resolve_named(
+        project,
+        folder_ref,
+        get=project.get_managed_folder,
+        verify=lambda h: h.get_settings(),
+        list_=project.list_managed_folders,
+        kind="Managed folder",
+        id_label="folder",
+        empty_details=[
             "No managed folders found in this project.",
             "Create one with: dku folder create NAME -P PROJECT",
         ],
-        status=3,
     )
 
 
@@ -473,37 +437,17 @@ def resolve_saved_model(project, model_ref: str):
     falls back to listing saved models and matching by name.
     Returns a DSSSavedModel handle.
     """
-    try:
-        model = project.get_saved_model(model_ref)
-        model.get_settings()
-        return model
-    except dataikuapi.utils.DataikuException as e:
-        if (
-            "not found" not in str(e).lower()
-            and "NotFoundException" not in str(e)
-            and "does not exist" not in str(e)
-        ):
-            raise
-    models = project.list_saved_models()
-    for m in models:
-        if m.get("name", "") == model_ref:
-            return project.get_saved_model(m.get("id"))
-    from dku_cli.errors import exit_with_error
-
-    model_names = [f"  {m.get('id', '')} ({m.get('name', '')})" for m in models]
-    exit_with_error(
-        f"Saved model '{model_ref}' not found (checked as both ID and name).",
-        details=[
-            "Available saved models:",
-            *model_names,
-            "Use the saved model ID (left column) or exact name.",
-        ]
-        if model_names
-        else [
+    return _resolve_named(
+        project,
+        model_ref,
+        get=project.get_saved_model,
+        verify=lambda h: h.get_settings(),
+        list_=project.list_saved_models,
+        kind="Saved model",
+        empty_details=[
             "No saved models found in this project.",
             "Train one with: dku ml create-prediction / create-clustering + train + deploy.",
         ],
-        status=3,
     )
 
 
@@ -639,7 +583,9 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
     returns the first match. If more than one kind matches, aborts with an
     ambiguity error so the caller can disambiguate via --type.
     """
-    from dku_cli.errors import exit_with_error
+    import dataikuapi
+
+    from dku_cli.errors import exit_with_error, is_not_found_error
 
     kind = (explicit_type or "").upper() or None
 
@@ -649,11 +595,7 @@ def resolve_recipe_input_ref(project, ref: str, explicit_type: str | None = None
             project.get_dataset(ref).get_definition()
             return ref
         except dataikuapi.utils.DataikuException as e:
-            if (
-                "not found" in str(e).lower()
-                or "NotFoundException" in str(e)
-                or "does not exist" in str(e)
-            ):
+            if is_not_found_error(e):
                 return None
             raise
 

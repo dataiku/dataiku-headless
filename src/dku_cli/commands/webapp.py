@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import time
 
 import typer
-
-from dataikuapi.utils import DataikuException
 
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
@@ -15,6 +12,7 @@ from dku_cli.output import (
     error,
     hint,
     info,
+    print_text,
     render,
     render_raw,
     resolve_output_format,
@@ -153,11 +151,12 @@ def start(
     non-zero — so deploy scripts and CI pipelines get actionable output without
     needing to poll `dku webapp logs` separately.
     """
+    from dataikuapi.utils import DataikuException
+
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
+        webapp = client.get_project(project_key).get_webapp(webapp_id)
         future = webapp.start_or_restart_backend()
         try:
             future.wait_for_result()
@@ -165,7 +164,7 @@ def start(
             error(f"Web app '{webapp_id}' backend failed to start.")
             print(str(boot_err))
             _print_crash_tail(webapp, webapp_id)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from boot_err
         success(f"Started web app '{webapp_id}'")
         hint(f"dku webapp logs {webapp_id} -P {project_key}")
     except typer.Exit:
@@ -185,11 +184,12 @@ def restart(
     Same wait-and-diagnose behaviour as `start`: blocks until the backend is up
     or has crashed, then surfaces the crash reason and last log tail on failure.
     """
+    from dataikuapi.utils import DataikuException
+
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        webapp = proj.get_webapp(webapp_id)
+        webapp = client.get_project(project_key).get_webapp(webapp_id)
         future = webapp.start_or_restart_backend()
         try:
             future.wait_for_result()
@@ -197,7 +197,7 @@ def restart(
             error(f"Web app '{webapp_id}' backend failed to start.")
             print(str(boot_err))
             _print_crash_tail(webapp, webapp_id)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from boot_err
         success(f"Restarted web app '{webapp_id}'")
     except typer.Exit:
         raise
@@ -515,13 +515,13 @@ def logs(
                 "serverTailSize": len(lines),
                 "lines": shown,
             }
-            print(json.dumps(payload, indent=2))
+            render_raw(payload, output_format="json")
             return
 
         if crashed:
             warn(f"Backend is not running — showing last crash log for '{webapp_id}'.")
         for line in shown:
-            print(line)
+            print_text(line)
         if tail is None and total > len(shown):
             info(
                 f"Showing {len(shown)} of {total} total log lines "

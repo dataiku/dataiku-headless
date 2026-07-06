@@ -207,6 +207,24 @@ def test_git_switch_failure_exits_nonzero(patch_client):
     assert result.exit_code == 1
 
 
+def test_git_switch_failure_keeps_full_output(patch_client):
+    # Regression: `.rstrip(": ")` truncated legitimate output ending in those
+    # chars (it strips a char SET, not a suffix). "d:tree" would have lost its
+    # trailing chars. Ensure the full server output survives.
+    _git(patch_client).switch.return_value = {"success": False, "output": "err: d:tree"}
+    result = runner.invoke(app, ["git", "switch", "main", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "err: d:tree" in result.output
+
+
+def test_git_switch_failure_no_output_omits_colon(patch_client):
+    _git(patch_client).switch.return_value = {"success": False, "output": ""}
+    result = runner.invoke(app, ["git", "switch", "main", "--project", "PROJ1"])
+    assert result.exit_code == 1
+    assert "failed in PROJ1" in result.output
+    assert "failed in PROJ1:" not in result.output
+
+
 # --- branches ---
 
 
@@ -423,6 +441,13 @@ def test_git_remote_get_json(patch_client):
     parsed = json.loads(result.output)
     assert parsed["url"] == "https://github.com/example/project.git"
     assert parsed["name"] == "origin"
+
+
+def test_git_remote_get_none_configured(patch_client):
+    _git(patch_client).get_remote.return_value = None
+    result = runner.invoke(app, ["git", "remote", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    assert "No remote" in result.output
 
 
 def test_git_remote_set(patch_client):

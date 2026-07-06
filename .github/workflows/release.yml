@@ -17,6 +17,7 @@ jobs:
   release:
     name: Build & GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -61,7 +62,7 @@ jobs:
 
       - name: Test
         if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'
-        run: uv run pytest -q
+        run: uv run pytest -q -n auto
 
       - name: Build CLI wheel
         if: github.event_name == 'workflow_dispatch' || steps.release.outputs.publish == 'true'

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 
@@ -183,7 +182,7 @@ def inspect(
             flow = proj.get_flow()
             graph_obj = flow.get_graph()
             downstream_nodes: set = set()
-            for node_id, node in graph_obj.nodes.items():
+            for node in graph_obj.nodes.values():
                 downstream_nodes.update(node.get("successors", []))
             source_nodes = [
                 node_id
@@ -388,13 +387,13 @@ def import_project(
     archive_path: Path = typer.Argument(
         help="Path to the project archive (.zip) to import"
     ),
-    target_key: Optional[str] = typer.Option(
+    target_key: str | None = typer.Option(
         None,
         "--as",
         "-k",
         help="Project key to import under (default: original key in the archive)",
     ),
-    remap_connection: List[str] = typer.Option(
+    remap_connection: list[str] = typer.Option(
         [],
         "--remap-connection",
         help="Connection remap SRC=TGT (repeatable, e.g. --remap-connection pg_old=pg_new)",
@@ -507,13 +506,13 @@ def create(
     description: str = typer.Option(
         "", "--description", "-d", help="Short description"
     ),
-    owner: Optional[str] = typer.Option(
+    owner: str | None = typer.Option(
         None, "--owner", help="Project owner login (default: current user)"
     ),
-    folder_id: Optional[str] = typer.Option(
+    folder_id: str | None = typer.Option(
         None, "--folder", help="Project folder ID to create in"
     ),
-    tags: Optional[str] = typer.Option(None, "--tags", help="Comma-separated tags"),
+    tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
     if_not_exists: bool = typer.Option(
         False, "--if-not-exists", help="Skip if project already exists"
     ),
@@ -664,12 +663,12 @@ def duplicate(
 def set_metadata(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
-    project: Optional[str] = typer.Option(None, "--project", "-P", help="Project key"),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="New display name"),
-    description: Optional[str] = typer.Option(
+    project: str | None = typer.Option(None, "--project", "-P", help="Project key"),
+    name: str | None = typer.Option(None, "--name", "-n", help="New display name"),
+    description: str | None = typer.Option(
         None, "--description", "-d", help="New short description"
     ),
-    tags: Optional[str] = typer.Option(
+    tags: str | None = typer.Option(
         None, "--tags", help="Comma-separated tags (replaces existing)"
     ),
 ) -> None:
@@ -768,7 +767,7 @@ def set_variables(
     ctx: typer.Context,
     project_key: str = typer.Argument(None, help="Project key (or use -P)"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
-    set_var: Optional[List[str]] = typer.Option(
+    set_var: list[str] | None = typer.Option(
         None,
         "--set",
         help=(
@@ -777,7 +776,7 @@ def set_variables(
             "number/object) use --definition with JSON."
         ),
     ),
-    definition: Optional[str] = typer.Option(
+    definition: str | None = typer.Option(
         None,
         "--definition",
         help="Full variables JSON (string, @file.json, or - for stdin)",
@@ -1000,11 +999,12 @@ def _walk_recipe_payload_columns(payload, column: str) -> list[str]:
         elif isinstance(node, list):
             for i, item in enumerate(node):
                 _walk(item, f"{path}[{i}]")
-        elif isinstance(node, str):
-            # A bare string that exactly equals the column name OR contains
-            # it as a token (formula expressions, GREL code).
-            if node == column or _scan_text_for_column(node, column):
-                hits.append(path or "<root>")
+        # A bare string that exactly equals the column name OR contains it as a
+        # token (formula expressions, GREL code).
+        elif isinstance(node, str) and (
+            node == column or _scan_text_for_column(node, column)
+        ):
+            hits.append(path or "<root>")
 
     _walk(payload, "")
     return hits

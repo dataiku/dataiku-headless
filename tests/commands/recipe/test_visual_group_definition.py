@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+
 from tests.commands.recipe.helpers import app, runner
 from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_mock
-
 
 # ── set-definition --payload flag ─────────────────────────────────────
 

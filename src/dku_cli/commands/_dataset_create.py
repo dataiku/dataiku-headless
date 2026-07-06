@@ -7,7 +7,6 @@ import typer
 from dku_cli.errors import exit_with_error
 from dku_cli.helpers import read_json_input
 
-
 # Dataset types that live on a SQL connection. `dku dataset create --type <T> -c <C>`
 # for these types should produce a managed, writable `mode: "table"` dataset by
 # default — otherwise the dataset comes up as an unmanaged query-mode dataset

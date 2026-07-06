@@ -423,7 +423,7 @@ def test_recipe_create_join_multi_input_unprefixed_key_warns_cartesian(patch_cli
 
 def test_recipe_create_join_multi_input_all_keyed_no_warning(patch_client):
     """When every extra pair is index-prefixed, no cartesian warning fires."""
-    _proj, _settings, mock_joins = _setup_join_mock(patch_client, num_joins=2)
+    _proj, _settings, _mock_joins = _setup_join_mock(patch_client, num_joins=2)
     result = runner.invoke(
         app,
         [

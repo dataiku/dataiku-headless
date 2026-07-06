@@ -23,6 +23,7 @@ Reads the diff like a doctor, then prints a signature hint:
 
 import argparse
 import calendar as cal
+import contextlib
 import csv
 import os
 import re
@@ -32,29 +33,28 @@ import sys
 
 def load_dump_row(path, row_n, date_row):
     cells, dates = {}, {}
-    for line in open(path, encoding="utf-8"):
-        p = line.rstrip("\n").split("\t")
-        if len(p) < 3:
-            continue
-        m = re.match(r"^([A-Z]+)(\d+)$", p[0])
-        if not m:
-            continue
-        col, row = m.group(1), int(m.group(2))
-        val = p[4] if len(p) >= 5 and p[3] == "=>" else p[2]
-        if row == date_row and "datetime" in val:
-            dm = re.search(r"datetime\.datetime\((\d+), (\d+)", val)
-            if dm:
-                y, mo = int(dm.group(1)), int(dm.group(2))
-                dates[col] = f"{y:04d}-{mo:02d}-{cal.monthrange(y, mo)[1]:02d}"
-        elif row == row_n:
-            cells[col] = val
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            p = line.rstrip("\n").split("\t")
+            if len(p) < 3:
+                continue
+            m = re.match(r"^([A-Z]+)(\d+)$", p[0])
+            if not m:
+                continue
+            col, row = m.group(1), int(m.group(2))
+            val = p[4] if len(p) >= 5 and p[3] == "=>" else p[2]
+            if row == date_row and "datetime" in val:
+                dm = re.search(r"datetime\.datetime\((\d+), (\d+)", val)
+                if dm:
+                    y, mo = int(dm.group(1)), int(dm.group(2))
+                    dates[col] = f"{y:04d}-{mo:02d}-{cal.monthrange(y, mo)[1]:02d}"
+            elif row == row_n:
+                cells[col] = val
     out = {}
     for col, me in dates.items():
         if col in cells:
-            try:
+            with contextlib.suppress(ValueError):
                 out[me] = float(cells[col])
-            except ValueError:
-                pass
     return out
 
 

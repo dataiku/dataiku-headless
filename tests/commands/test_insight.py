@@ -1001,7 +1001,7 @@ def test_insight_add_dimension(patch_client):
 
 
 def test_insight_add_dimension_slot1(patch_client):
-    raw, settings = _chart_insight_mock(patch_client)
+    raw, _settings = _chart_insight_mock(patch_client)
     result = runner.invoke(
         app,
         [
@@ -1152,13 +1152,25 @@ def test_insight_clear_columns(patch_client):
     raw["params"]["def"]["genericMeasures"] = [{"column": "rev", "function": "SUM"}]
 
     result = runner.invoke(
-        app, ["insight", "clear-columns", "insight1", "--project", "PROJ1"]
+        app, ["insight", "clear-columns", "insight1", "--project", "PROJ1", "--yes"]
     )
     assert result.exit_code == 0
     assert raw["params"]["def"]["genericDimension0"] == []
     assert raw["params"]["def"]["genericDimension1"] == []
     assert raw["params"]["def"]["genericMeasures"] == []
     settings.save.assert_called_once()
+
+
+def test_insight_clear_columns_blocks_without_yes(patch_client):
+    raw, settings = _chart_insight_mock(patch_client)
+    raw["params"]["def"]["genericDimension0"] = [{"column": "date"}]
+
+    result = runner.invoke(
+        app, ["insight", "clear-columns", "insight1", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 77
+    assert raw["params"]["def"]["genericDimension0"] == [{"column": "date"}]
+    settings.save.assert_not_called()
 
 
 # ── chart sampling defaults + column typing (DSS 14.6 NPE / COUNTD fixes) ──
@@ -1249,7 +1261,7 @@ def _bound_chart_with_schema(patch_client):
 
 
 def test_insight_add_measure_types_numeric_column(patch_client):
-    raw, settings = _bound_chart_with_schema(patch_client)
+    raw, _settings = _bound_chart_with_schema(patch_client)
     result = runner.invoke(
         app,
         [
@@ -1279,7 +1291,7 @@ def test_insight_add_measure_types_numeric_column(patch_client):
 def test_insight_add_measure_countd_on_string_types_alphanum(patch_client):
     """COUNTD on a string column must carry type ALPHANUM — an omitted type is
     treated as NUMERICAL and fails at render ("found STRING_DICT")."""
-    raw, settings = _bound_chart_with_schema(patch_client)
+    raw, _settings = _bound_chart_with_schema(patch_client)
     result = runner.invoke(
         app,
         [
@@ -1307,7 +1319,7 @@ def test_insight_add_measure_countd_on_string_types_alphanum(patch_client):
 
 
 def test_insight_add_measure_blocks_numeric_agg_on_string(patch_client):
-    raw, settings = _bound_chart_with_schema(patch_client)
+    _raw, settings = _bound_chart_with_schema(patch_client)
     result = runner.invoke(
         app,
         [
@@ -1328,7 +1340,7 @@ def test_insight_add_measure_blocks_numeric_agg_on_string(patch_client):
 
 
 def test_insight_add_measure_unknown_column_lists_available(patch_client):
-    raw, settings = _bound_chart_with_schema(patch_client)
+    _raw, settings = _bound_chart_with_schema(patch_client)
     result = runner.invoke(
         app,
         [
@@ -1349,7 +1361,7 @@ def test_insight_add_measure_unknown_column_lists_available(patch_client):
 
 
 def test_insight_add_dimension_types_date_column(patch_client):
-    raw, settings = _bound_chart_with_schema(patch_client)
+    raw, _settings = _bound_chart_with_schema(patch_client)
     result = runner.invoke(
         app,
         ["insight", "add-dimension", "insight1", "-c", "order_date", "-P", "PROJ1"],
@@ -1365,7 +1377,7 @@ def test_insight_add_dimension_types_date_column(patch_client):
 
 
 def test_add_dimension_breakdown_goes_to_dim1(patch_client):
-    raw, settings = _bound_chart_with_schema(patch_client)
+    raw, _settings = _bound_chart_with_schema(patch_client)
     result = runner.invoke(
         app,
         [

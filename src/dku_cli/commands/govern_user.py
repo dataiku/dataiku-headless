@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.commands._source_type import SourceType
@@ -77,7 +75,7 @@ def create(
         case_sensitive=False,
         help="Source type",
     ),
-    groups: Optional[list[str]] = typer.Option(
+    groups: list[str] | None = typer.Option(
         None, "--group", "-g", help="Group name (repeat for multiple)"
     ),
     profile: str = typer.Option(
@@ -85,7 +83,7 @@ def create(
         "--profile",
         help="User profile (e.g. FULL_DESIGNER, DATA_DESIGNER, AI_CONSUMER)",
     ),
-    email: Optional[str] = typer.Option(None, "--email", "-e", help="Email address"),
+    email: str | None = typer.Option(None, "--email", "-e", help="Email address"),
 ) -> None:
     """Create a Govern user. Requires admin API key."""
     try:

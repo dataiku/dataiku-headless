@@ -8,6 +8,7 @@ import zipfile
 
 import typer
 
+from dku_cli.commands._app_designer_tiles import _tile_target
 from dku_cli.enums import AppEnableMode
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
@@ -17,7 +18,6 @@ from dku_cli.helpers import (
     resolve_project,
 )
 from dku_cli.output import render, render_raw, resolve_output_format, success, warn
-
 
 _REGULAR_MANIFEST_ERROR = "neither an app template nor an app instance"
 
@@ -133,35 +133,6 @@ def _handle_app_error(e: Exception, project_key: str) -> None:
 app = typer.Typer(help="Manage App Designer manifest and tiles.")
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _tile_target(tile: dict) -> str:
-    """Extract a human-readable target reference from a tile."""
-    # Dataset/folder/dashboard binding (applies to many tile types)
-    ds = tile.get("datasetName", "")
-    fid = tile.get("folderId", "")
-    did = tile.get("dashboardId", "")
-
-    t = tile.get("type", "")
-    if t == "SCENARIO_RUN":
-        return tile.get("scenarioId", "")
-    if t == "PROJECT_VARIABLES_EDIT":
-        n = len(tile.get("params", []))
-        return f"{n} param(s)"
-    if t == "INLINE_PYTHON_RUN":
-        return "(code)"
-    if ds:
-        return ds
-    if did:
-        return did
-    if fid:
-        return fid
-    return ""
-
-
 def _build_tile(
     tile_type: str,
     scenario: str | None,
@@ -221,11 +192,6 @@ def _build_tile(
         tile["behavior"] = behavior
 
     return tile
-
-
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -473,9 +439,20 @@ def remove_tile(
     index: int = typer.Option(
         ..., "--index", "-i", help="Tile index within section (from list-tiles)"
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Remove a tile by section and tile index."""
+    from dku_cli.safety import Tier, guard
+
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="app_designer.remove_tile",
+        subject=f"tile at section {section}, index {index} in {project_key}",
+        yes=yes,
+        prompt=f"Remove tile at section {section}, index {index}?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         raw = _read_manifest(client, project_key)

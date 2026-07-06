@@ -11,7 +11,6 @@ import difflib
 from dku_cli.enums import EnvMode
 from dku_cli.errors import exit_with_error
 
-
 VALID_FREQUENCIES = frozenset({"Minutely", "Hourly", "Daily", "Weekly", "Monthly"})
 VALID_DAYS_OF_WEEK = frozenset(
     {

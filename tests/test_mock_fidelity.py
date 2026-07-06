@@ -77,7 +77,7 @@ def _assert_methods(cls, methods: list[str]) -> None:
 # is meaningful. Fail loudly here (not skip): a broken install is a real bug.
 # ---------------------------------------------------------------------------
 def test_dataikuapi_importable():
-    import dataikuapi  # noqa: F401
+    import dataikuapi
 
     assert dataikuapi is not None
 

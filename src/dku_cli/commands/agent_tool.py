@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import typer
 
+from dku_cli.definition_merge import merge_params_preserving_siblings
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -22,7 +24,6 @@ from dku_cli.output import (
     success,
     warn,
 )
-from dku_cli.definition_merge import merge_params_preserving_siblings
 
 from .agent_tool_catalog import BUILTIN_TOOL_PARAM_KEYS
 
@@ -239,10 +240,9 @@ def create(
         # next `agent-tool create` with the same name fails with "already
         # exists" — exactly the orphan-tool footgun the user reported.
         def _cleanup_orphan() -> None:
-            try:
+            # Best-effort — the original error is more informative.
+            with contextlib.suppress(Exception):
                 tool.delete()
-            except Exception:
-                pass  # Best-effort — the original error is more informative.
 
         try:
             # Post-creation param configuration for built-in types

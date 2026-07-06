@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.enums import (
@@ -183,7 +181,7 @@ def add_feedback(
         case_sensitive=False,
         help="Feedback status: APPROVED, MINOR_ISSUE, MAJOR_ISSUE",
     ),
-    comment: Optional[str] = typer.Option(
+    comment: str | None = typer.Option(
         None, "--comment", "-c", help="Feedback comment"
     ),
 ) -> None:
@@ -214,7 +212,7 @@ def add_approval(
         case_sensitive=False,
         help="Approval status: APPROVED, REJECTED, ABANDONED",
     ),
-    comment: Optional[str] = typer.Option(
+    comment: str | None = typer.Option(
         None, "--comment", "-c", help="Approval comment"
     ),
 ) -> None:

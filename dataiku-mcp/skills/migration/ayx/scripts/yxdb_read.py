@@ -33,7 +33,7 @@ def spatial_to_wkt(blob):
     if shape_type not in (3, 5):  # only Polyline / Polygon below
         return None
     n_parts, n_pts = struct.unpack_from("<2i", blob, 36)
-    parts = list(struct.unpack_from(f"<{n_parts}i", blob, 44)) + [n_pts]
+    parts = [*list(struct.unpack_from(f"<{n_parts}i", blob, 44)), n_pts]
     pts = struct.unpack_from(f"<{2 * n_pts}d", blob, 44 + n_parts * 4)
     # decode check: byte length is exactly 44 + n_parts*4 + n_pts*16
     rings = [pts[2 * parts[k] : 2 * parts[k + 1]] for k in range(n_parts)]

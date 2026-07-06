@@ -65,9 +65,7 @@ def test_auth_status_shows_sources_and_project(patch_client):
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),
         ),
-        patch(
-            "dku_cli.commands.auth_cmd.dataikuapi.DSSClient", return_value=patch_client
-        ),
+        patch("dataikuapi.DSSClient", return_value=patch_client),
     ):
         result = runner.invoke(app, ["auth", "status"])
 
@@ -98,9 +96,7 @@ def test_auth_status_project_access_error(patch_client):
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),
         ),
-        patch(
-            "dku_cli.commands.auth_cmd.dataikuapi.DSSClient", return_value=patch_client
-        ),
+        patch("dataikuapi.DSSClient", return_value=patch_client),
     ):
         result = runner.invoke(app, ["auth", "status"])
 
@@ -129,9 +125,7 @@ def test_auth_status_uses_requested_profile_default_project(patch_client):
             "dku_cli.commands.auth_cmd.resolve_auth",
             return_value=("https://dss.example.com", "secret"),
         ),
-        patch(
-            "dku_cli.commands.auth_cmd.dataikuapi.DSSClient", return_value=patch_client
-        ),
+        patch("dataikuapi.DSSClient", return_value=patch_client),
     ):
         result = runner.invoke(app, ["--profile", "other", "auth", "status"])
 
@@ -253,7 +247,7 @@ def test_auth_login_json_reports_file_credential_store(patch_client):
 
     with (
         patch(
-            "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+            "dataikuapi.DSSClient",
             return_value=patch_client,
         ),
         patch("dku_cli.commands._auth_login.set_profile_config"),
@@ -297,7 +291,7 @@ def test_auth_login_transport_error_exits_cleanly(patch_client):
     )
 
     with patch(
-        "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+        "dataikuapi.DSSClient",
         return_value=patch_client,
     ):
         result = runner.invoke(
@@ -329,7 +323,7 @@ def test_auth_login_instance_info_transport_error_still_succeeds(patch_client):
 
     with (
         patch(
-            "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+            "dataikuapi.DSSClient",
             return_value=patch_client,
         ),
         patch("dku_cli.commands._auth_login.set_profile_config"),
@@ -367,7 +361,7 @@ def test_auth_login_text_warns_on_file_credential_store(patch_client):
 
     with (
         patch(
-            "dku_cli.commands._auth_login.dataikuapi.DSSClient",
+            "dataikuapi.DSSClient",
             return_value=patch_client,
         ),
         patch("dku_cli.commands._auth_login.set_profile_config"),

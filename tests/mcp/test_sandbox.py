@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 from dku_cli.mcp import sandbox
 
 
@@ -77,10 +79,10 @@ def test_select_backend_auto_returns_runnable():
 def test_bubblewrap_backend_does_not_mount_host_root(tmp_path):
     backend = sandbox.BubblewrapBackend()
     args = backend._wrap(str(tmp_path))
-    ro_binds = list(zip(args, args[1:], args[2:]))
+    ro_binds = list(zip(args, args[1:], args[2:], strict=False))
 
     assert ("--ro-bind", "/", "/") not in ro_binds
     if "/etc/ssl" in args or "/etc/resolv.conf" in args:
-        assert ("--dir", "/etc") in list(zip(args, args[1:]))
+        assert ("--dir", "/etc") in list(itertools.pairwise(args))
     assert str(tmp_path) in args
     assert "/tmp" in args  # fresh tmpfs, not host /tmp

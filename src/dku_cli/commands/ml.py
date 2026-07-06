@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
-from typing import List, Optional
 
 import typer
 
@@ -39,7 +37,7 @@ def create_prediction(
     ctx: typer.Context,
     dataset: str = typer.Argument(help="Input dataset name"),
     target: str = typer.Argument(help="Target variable to predict"),
-    prediction_type: Optional[str] = typer.Option(
+    prediction_type: str | None = typer.Option(
         None,
         "--type",
         "-t",
@@ -124,7 +122,7 @@ def create_timeseries(
     dataset: str = typer.Argument(help="Input dataset name"),
     target: str = typer.Argument(help="Target variable to forecast"),
     time_column: str = typer.Argument(help="Time variable column (must be Date type)"),
-    identifiers: Optional[List[str]] = typer.Option(
+    identifiers: list[str] | None = typer.Option(
         None,
         "--identifier",
         "-i",
@@ -169,7 +167,7 @@ def create_causal(
     dataset: str = typer.Argument(help="Input dataset name"),
     outcome: str = typer.Argument(help="Outcome variable to predict"),
     treatment: str = typer.Argument(help="Treatment variable"),
-    prediction_type: Optional[str] = typer.Option(
+    prediction_type: str | None = typer.Option(
         None,
         "--type",
         "-t",
@@ -260,7 +258,7 @@ def status(
         st = mltask.get_status()
 
         if output == "json":
-            print(json.dumps(st, indent=2, default=str))
+            render_raw(st, output_format="json")
         else:
             model_ids = st.get("fullModelIds", [])
             data = [
@@ -307,7 +305,7 @@ def train(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
-    session_name: Optional[str] = typer.Option(
+    session_name: str | None = typer.Option(
         None, "--session-name", help="Training session name"
     ),
     wait: bool = typer.Option(
@@ -453,10 +451,8 @@ def models(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
-    session: Optional[str] = typer.Option(
-        None, "--session", help="Filter by session ID"
-    ),
-    algorithm: Optional[str] = typer.Option(
+    session: str | None = typer.Option(None, "--session", help="Filter by session ID"),
+    algorithm: str | None = typer.Option(
         None, "--algorithm", help="Filter by algorithm name"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -537,7 +533,7 @@ def details(
         perf = model_details.get_performance_metrics()
 
         if output == "json":
-            print(json.dumps(perf, indent=2, default=str))
+            render_raw(perf, output_format="json")
         else:
             data = [
                 {"metric": k, "value": v}
@@ -571,7 +567,7 @@ def deploy(
     train_dataset: str = typer.Option(
         ..., "--train-dataset", help="Dataset to use as training set"
     ),
-    test_dataset: Optional[str] = typer.Option(
+    test_dataset: str | None = typer.Option(
         None, "--test-dataset", help="Optional test dataset"
     ),
     redo_optimization: bool = typer.Option(
@@ -627,10 +623,10 @@ def redeploy(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     model_id: str = typer.Argument(help="Trained model ID"),
-    saved_model_id: Optional[str] = typer.Option(
+    saved_model_id: str | None = typer.Option(
         None, "--saved-model-id", help="Existing saved model ID to update"
     ),
-    recipe_name: Optional[str] = typer.Option(
+    recipe_name: str | None = typer.Option(
         None, "--recipe-name", help="Existing training recipe name to update"
     ),
     activate: bool = typer.Option(
@@ -742,7 +738,7 @@ def settings(
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
         raw = mltask.get_settings().get_raw()
-        print(json.dumps(raw, indent=2, default=str))
+        render_raw(raw, output_format="json")
     except Exception as e:
         handle_api_error(e)
 
@@ -783,10 +779,10 @@ def set_algorithm(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
-    enable: Optional[List[str]] = typer.Option(
+    enable: list[str] | None = typer.Option(
         None, "--enable", help="Algorithm(s) to enable (repeatable)"
     ),
-    disable: Optional[List[str]] = typer.Option(
+    disable: list[str] | None = typer.Option(
         None, "--disable", help="Algorithm(s) to disable (repeatable)"
     ),
     disable_all: bool = typer.Option(
@@ -895,7 +891,7 @@ def set_params(
         help="Algorithm name in UPPERCASE (from 'dku ml algorithms'), e.g. "
         "RANDOM_FOREST_CLASSIFICATION or KMEANS",
     ),
-    set_values: List[str] = typer.Option(
+    set_values: list[str] = typer.Option(
         ...,
         "--set",
         help="param=value (repeatable). Grid hyperparameters take comma lists: "
@@ -947,7 +943,7 @@ def set_params(
 
         missing = [k for k, _ in assignments if k not in algo]
         if missing:
-            valid = sorted(k for k in algo.keys() if not k.endswith("_Internals"))
+            valid = sorted(k for k in algo if not k.endswith("_Internals"))
             exit_with_error(
                 f"Parameter(s) not found on {algorithm.upper()}: {', '.join(missing)}.",
                 details=[f"Valid parameters: {', '.join(valid)}"],
@@ -973,9 +969,9 @@ def set_params(
 
 
 def _validate_split_flags(
-    train_ratio: Optional[float],
-    seed: Optional[int],
-    kfold: Optional[int],
+    train_ratio: float | None,
+    seed: int | None,
+    kfold: int | None,
     no_kfold: bool,
 ) -> None:
     if train_ratio is None and seed is None and kfold is None and not no_kfold:
@@ -998,9 +994,9 @@ def _validate_split_flags(
 
 def _apply_split_changes(
     split: dict,
-    train_ratio: Optional[float],
-    seed: Optional[int],
-    kfold: Optional[int],
+    train_ratio: float | None,
+    seed: int | None,
+    kfold: int | None,
     no_kfold: bool,
 ) -> list[str]:
     changes = []
@@ -1027,13 +1023,13 @@ def set_split(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
-    train_ratio: Optional[float] = typer.Option(
+    train_ratio: float | None = typer.Option(
         None,
         "--train-ratio",
         help="Train fraction for the random split, e.g. 0.7 for 70/30",
     ),
-    seed: Optional[int] = typer.Option(None, "--seed", help="Split random seed"),
-    kfold: Optional[int] = typer.Option(
+    seed: int | None = typer.Option(None, "--seed", help="Split random seed"),
+    kfold: int | None = typer.Option(
         None, "--kfold", help="Enable k-fold cross-test with this many folds"
     ),
     no_kfold: bool = typer.Option(
@@ -1143,20 +1139,20 @@ def set_feature(
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
     feature: str = typer.Argument(help="Feature (column) name"),
-    role: Optional[FeatureRole] = typer.Option(
+    role: FeatureRole | None = typer.Option(
         None,
         "--role",
         case_sensitive=False,
         help="INPUT | REJECT | TARGET (prediction only) | WEIGHT (prediction only)",
     ),
-    rescaling: Optional[FeatureRescaling] = typer.Option(
+    rescaling: FeatureRescaling | None = typer.Option(
         None,
         "--rescaling",
         case_sensitive=False,
         help="NONE | AVGSTD | MINMAX — numeric feature rescaling (DSS default "
         "is AVGSTD; set NONE to mirror tools that train on raw values)",
     ),
-    missing_handling: Optional[FeatureMissingHandling] = typer.Option(
+    missing_handling: FeatureMissingHandling | None = typer.Option(
         None,
         "--missing-handling",
         case_sensitive=False,
@@ -1280,14 +1276,14 @@ def _apply_feature_changes(
 
 
 def _feature_role_assignments(
-    reject: Optional[str],
-    input_features: Optional[str],
-    target: Optional[str],
-    weight: Optional[str],
+    reject: str | None,
+    input_features: str | None,
+    target: str | None,
+    weight: str | None,
 ) -> list[tuple[str, str]]:
     """Flatten the role flags into (feature, role) pairs (one comprehension)."""
 
-    def _split(value: Optional[str]) -> list[str]:
+    def _split(value: str | None) -> list[str]:
         return [c.strip() for c in value.split(",") if c.strip()] if value else []
 
     role_lists = [
@@ -1304,16 +1300,16 @@ def set_features(
     ctx: typer.Context,
     analysis_id: str = typer.Argument(help="Analysis ID"),
     mltask_id: str = typer.Argument(help="ML task ID"),
-    reject: Optional[str] = typer.Option(
+    reject: str | None = typer.Option(
         None, "--reject", help="Comma-separated features to REJECT"
     ),
-    input_features: Optional[str] = typer.Option(
+    input_features: str | None = typer.Option(
         None, "--input", help="Comma-separated features to set as INPUT"
     ),
-    target: Optional[str] = typer.Option(
+    target: str | None = typer.Option(
         None, "--target", help="Feature to set as TARGET (prediction tasks only)"
     ),
-    weight: Optional[str] = typer.Option(
+    weight: str | None = typer.Option(
         None, "--weight", help="Feature to set as WEIGHT (prediction tasks only)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -1357,7 +1353,7 @@ def set_features(
                 resolved.append(
                     (task_settings.get_feature_preprocessing(feat), role, feat)
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 missing.append(feat)
         if missing:
             settings_cmd = f"dku ml settings {analysis_id} {mltask_id} -P {project_key}"

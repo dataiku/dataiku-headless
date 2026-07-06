@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock
+
 from tests.commands.recipe.helpers import app, runner
 from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_mock
 from tests.helpers import strip_ansi as _strip_ansi
@@ -635,7 +636,7 @@ def test_recipe_create_filter_with_formula(patch_client):
 
 def test_recipe_create_filter_remove_row(patch_client):
     """--action REMOVE_ROW drops matching rows instead of keeping them."""
-    proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
+    _proj, _recipe_mock, settings = _setup_prepare_mock(patch_client, steps=[])
 
     result = runner.invoke(
         app,

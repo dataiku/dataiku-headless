@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from typing import List
-
 import typer
 
 from dku_cli.enums import (
@@ -107,7 +104,7 @@ def get(
                 detail["prediction_type"] = prediction_type
             if algorithm:
                 detail["algorithm"] = algorithm
-            print(json.dumps(detail, indent=2, default=str))
+            render_raw(detail, output_format="json")
         else:
             data = [
                 {"field": "ID", "value": model_id},
@@ -510,7 +507,7 @@ def metrics(
         perf = details.get_performance_metrics()
 
         if output == "json":
-            print(json.dumps(perf, indent=2, default=str))
+            render_raw(perf, output_format="json")
         else:
             data = [
                 {"metric": k, "value": v}
@@ -624,7 +621,7 @@ def set_threshold(
 def delete_version(
     ctx: typer.Context,
     model_id: str = typer.Argument(help="Saved model ID"),
-    version: List[str] = typer.Option(
+    version: list[str] = typer.Option(
         ..., "--version", "-v", help="Version ID(s) to delete (repeatable)"
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),

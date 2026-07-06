@@ -18,6 +18,7 @@ single in-process pass (no subprocess fan-out).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -236,7 +237,7 @@ def _dataset_sample(
     for i, row in enumerate(proj.get_dataset(name).iter_rows()):
         if i >= max_rows:
             break
-        rows.append(dict(zip(names, row)))
+        rows.append(dict(zip(names, row, strict=False)))
     return rows
 
 
@@ -273,10 +274,8 @@ def flow_check_clean(proj) -> tuple[bool, str]:
                         )
         return True, ""
     finally:
-        try:
+        with contextlib.suppress(Exception):
             tool.stop()
-        except Exception:
-            pass
 
 
 # --- checks: structure -------------------------------------------------------

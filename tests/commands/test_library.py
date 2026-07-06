@@ -241,6 +241,42 @@ def test_library_delete_recursive_wipes_folder(patch_client):
     assert "Deleted" in result.output
 
 
+def test_library_delete_recursive_surfaces_file_delete_failures(patch_client):
+    """Regression: the per-file `except Exception: pass` swallowed real delete
+    failures and reported success. A failing file delete must now exit nonzero."""
+    from unittest.mock import MagicMock
+
+    proj = patch_client.get_project("PROJ1")
+    lib = proj.get_library()
+
+    folder = lib.get_folder.return_value
+    f1 = MagicMock()
+    f1.path = "python/pm/broken.py"
+    folder.list.return_value = [f1]
+    f1.list.side_effect = Exception("not a folder")
+
+    file_handle = MagicMock()
+    file_handle.delete.side_effect = Exception("permission denied")
+    lib.get_file.return_value = file_handle
+
+    result = runner.invoke(
+        app,
+        [
+            "library",
+            "delete",
+            "python/pm",
+            "--recursive",
+            "--project",
+            "PROJ1",
+            "--yes",
+            "--confirm-name",
+            "python/pm",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "failed" in result.output.lower()
+
+
 # ── delete-folder (tier-3 cascade) ────────────────────────────────────────
 
 
@@ -475,3 +511,30 @@ def test_library_sync_empty_dir(patch_client, tmp_path):
     )
     assert result.exit_code == 0
     assert "No files to sync" in result.output
+
+
+def test_library_sync_delete_surfaces_remote_delete_failures(patch_client, tmp_path):
+    """Same contract as `library delete`: a failing remote delete during
+    `sync --delete` must exit nonzero, not warn-and-report-success."""
+    from unittest.mock import MagicMock
+
+    (tmp_path / "keep.py").write_text("x = 1")
+
+    proj = patch_client.get_project("PROJ1")
+    lib = proj.get_library()
+
+    stale = MagicMock()
+    stale.path = "/stale.py"
+    stale.list.side_effect = Exception("not a folder")
+    lib.list.return_value = [stale]
+
+    file_handle = MagicMock()
+    file_handle.delete.side_effect = Exception("permission denied")
+    lib.get_file.return_value = file_handle
+
+    result = runner.invoke(
+        app,
+        ["library", "sync", str(tmp_path), "/", "--project", "PROJ1", "--delete"],
+    )
+    assert result.exit_code != 0
+    assert "could not be deleted" in result.output

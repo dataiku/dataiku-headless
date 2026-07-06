@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 import typer
 
@@ -83,7 +82,7 @@ def get(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Group name"),
-    description: Optional[str] = typer.Option(
+    description: str | None = typer.Option(
         None, "--description", "-d", help="Group description"
     ),
     source_type: SourceType = typer.Option(

@@ -186,6 +186,31 @@ def test_handle_api_error_root_path_missing(capsys):
     assert "dku dataset upload" in err
 
 
+def test_handle_api_error_broken_pipe_exits_zero(capsys):
+    """A BrokenPipeError must exit 0 and never be mislabeled 'DSS API error'."""
+    with pytest.raises(SystemExit) as excinfo:
+        handle_api_error(BrokenPipeError(32, "Broken pipe"))
+
+    assert excinfo.value.code == 0
+    err = capsys.readouterr().err
+    assert "DSS API error" not in err
+
+
+def test_handle_errors_broken_pipe_from_command_body_exits_zero(capsys):
+    """A command body that raises BrokenPipeError exits 0 with no error label."""
+
+    @handle_errors
+    def command() -> None:
+        raise BrokenPipeError(32, "Broken pipe")
+
+    with pytest.raises(SystemExit) as excinfo:
+        command()
+
+    assert excinfo.value.code == 0
+    err = capsys.readouterr().err
+    assert "DSS API error" not in err
+
+
 def test_handle_api_error_llm_provider_missing_scope(capsys):
     """A provider 401 (missing_scope) arrives as an LLMException and must surface
     the provider's own error, NOT the generic 'check your API key / dku auth

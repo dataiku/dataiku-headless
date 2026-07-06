@@ -8,7 +8,6 @@ from dataikuapi.utils import DataikuException
 
 from tests.commands.dataset.helpers import app, runner
 
-
 # --- rename ---
 
 

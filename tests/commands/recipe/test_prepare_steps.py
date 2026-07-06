@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+
 from tests.commands.recipe.helpers import app, runner
 from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_mock
-
 
 # Prepare recipe step commands
 # ---------------------------------------------------------------------------
@@ -344,7 +344,7 @@ def test_recipe_add_step_dateformatter_correct_params_accepted(patch_client):
 
 def test_recipe_add_step_warns_dateparser_no_outcol(patch_client):
     """DateParser without outCol silently produces nulls — CLI should warn."""
-    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
         [
@@ -367,7 +367,7 @@ def test_recipe_add_step_warns_dateparser_no_outcol(patch_client):
 
 def test_recipe_add_step_dateparser_with_outcol_no_warning(patch_client):
     """DateParser with outCol should not warn."""
-    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
         [
@@ -863,7 +863,7 @@ def test_recipe_add_formula_warns_on_status_errors(patch_client):
 
 def test_recipe_add_formula_no_warning_when_status_clean(patch_client):
     """No status errors → no lint noise after the success line."""
-    _proj, recipe_mock, settings = _setup_prepare_mock(patch_client)
+    _proj, recipe_mock, _settings = _setup_prepare_mock(patch_client)
     recipe_mock.get_status.return_value.get_status_messages.return_value = []
     result = runner.invoke(
         app,
@@ -1912,7 +1912,7 @@ def test_recipe_add_step_dateparser_normalizes_string_outtype(patch_client):
 
 def test_recipe_add_step_dateparser_object_outtype_not_touched(patch_client):
     """An object outType passes through unchanged (no normalization warning)."""
-    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
     result = runner.invoke(
         app,
         [
@@ -2570,7 +2570,7 @@ def test_apply_spec_not_an_array_rejected(patch_client):
 
 
 def test_apply_spec_empty_array_rejected(patch_client):
-    _proj, _recipe, settings = _setup_prepare_mock(patch_client)
+    _proj, _recipe, _settings = _setup_prepare_mock(patch_client)
     result = _apply([])
     assert result.exit_code != 0
     assert "empty" in result.output.lower()

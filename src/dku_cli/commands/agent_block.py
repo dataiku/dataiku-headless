@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 
+from dku_cli.enums import AgentBlockMode
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -400,9 +401,7 @@ def list_blocks(
     """List blocks in an agent's block graph."""
     output = resolve_output_format()
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        _, _, agent_cfg, _ = _fetch_settings(ctx, agent_id, project, version)
 
         # On DSS 14.5+, blocks live in structuredAgentSettings with no explicit
         # mode field — presence of blocks means block-graph mode is active.
@@ -454,9 +453,7 @@ def get_block(
     """Show a single block definition."""
     output = resolve_output_format()
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        _, _, agent_cfg, _ = _fetch_settings(ctx, agent_id, project, version)
 
         block = _find_block(agent_cfg, block_id)
         if block is None:
@@ -504,7 +501,7 @@ def add_block(
                 f"Unknown block type '{block_type}'. Known: {', '.join(sorted(_KNOWN_BLOCK_TYPES))}"
             )
 
-        settings, raw, agent_cfg, version_id = _fetch_settings(
+        settings, raw, agent_cfg, _version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
@@ -586,7 +583,7 @@ def remove_block(
         prompt=f"Remove block '{block_id}' from agent '{agent_id}'?",
     )
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
+        settings, _raw, agent_cfg, _version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
@@ -633,7 +630,7 @@ def connect_blocks(
 ) -> None:
     """Connect two blocks (set nextBlock on source)."""
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
+        settings, _raw, agent_cfg, _version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
@@ -677,7 +674,7 @@ def disconnect_block(
 ) -> None:
     """Disconnect a block (remove nextBlock, making it terminal)."""
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
+        settings, _raw, agent_cfg, _version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
@@ -715,7 +712,7 @@ def set_start(
 ) -> None:
     """Set the starting block of the agent's block graph."""
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
+        settings, _raw, agent_cfg, _version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
@@ -736,33 +733,34 @@ def set_start(
 def set_mode(
     ctx: typer.Context,
     agent_id: str = typer.Argument(help="Agent ID"),
-    mode: str = typer.Argument(help="Mode: SIMPLE or BLOCKS_GRAPH"),
+    mode: AgentBlockMode = typer.Argument(
+        case_sensitive=False, help="Mode: SIMPLE or BLOCKS_GRAPH"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
     version: str | None = typer.Option(
         None, "--version", help="Version ID (default: active)"
     ),
 ) -> None:
     """Switch agent mode between SIMPLE and BLOCKS_GRAPH."""
-    if mode not in ("SIMPLE", "BLOCKS_GRAPH"):
-        exit_with_error(
-            f"Invalid mode '{mode}'. Must be SIMPLE or BLOCKS_GRAPH.",
-            status=1,
-        )
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
+        settings, _raw, agent_cfg, _version_id = _fetch_settings(
             ctx, agent_id, project, version
         )
 
-        agent_cfg["mode"] = mode
+        agent_cfg["mode"] = mode.value
 
-        if mode == "BLOCKS_GRAPH":
+        if mode == AgentBlockMode.BLOCKS_GRAPH:
             if not agent_cfg.get("blocks"):
                 agent_cfg["blocks"] = []
-        elif mode == "SIMPLE" and agent_cfg.get("blocks"):
+        elif mode == AgentBlockMode.SIMPLE and agent_cfg.get("blocks"):
             warn("Existing blocks will be preserved but inactive in SIMPLE mode.")
 
         settings.save()
-        success(f"Set mode to '{mode}' for agent '{agent_id}'")
+        warn(
+            "On DSS ≥14.5 the mode is derived from block presence, not this field — "
+            "this setting may have no effect."
+        )
+        success(f"Set mode to '{mode.value}' for agent '{agent_id}'")
     except Exception as e:
         handle_api_error(e)
 
@@ -779,9 +777,7 @@ def get_graph(
     """Dump the full block graph definition (auto-detects settings key)."""
     output = resolve_output_format()
     try:
-        settings, raw, agent_cfg, version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        _, _, agent_cfg, _ = _fetch_settings(ctx, agent_id, project, version)
         render_raw(agent_cfg, output_format=output)
     except Exception as e:
         handle_api_error(e)

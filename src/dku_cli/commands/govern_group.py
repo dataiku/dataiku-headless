@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.commands._source_type import SourceType
@@ -67,7 +65,7 @@ def get(
 def create(
     ctx: typer.Context,
     name: str = typer.Argument(help="Name for the new group"),
-    description: Optional[str] = typer.Option(
+    description: str | None = typer.Option(
         None, "--description", "-d", help="Group description"
     ),
     source_type: SourceType = typer.Option(

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dku_cli.enums import AgentEvalInputFormat, LLMEvalInputFormat, SamplingMethod
+
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import AgentEvalInputFormat, LLMEvalInputFormat, SamplingMethod
 
 
 @app.command("create-extract")

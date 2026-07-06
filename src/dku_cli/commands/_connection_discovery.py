@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataikuapi.utils import DataikuException
-
 from dku_cli.output import warn
 
 
 def list_connection_schemas(proj, connection_name: str, fmt: str) -> list:
+    # Lazy: keep the HTTP stack off the `dku --help` cold-import path.
+    from dataikuapi.utils import DataikuException
+
     sql_error: Exception | None = None
     try:
         return proj.list_sql_schemas(connection_name)
@@ -25,6 +26,8 @@ def list_connection_schemas(proj, connection_name: str, fmt: str) -> list:
 def list_connection_tables(
     proj, connection_name: str, schema_name: str | None, fmt: str
 ) -> list:
+    from dataikuapi.utils import DataikuException
+
     sql_error: Exception | None = None
     try:
         return proj.list_sql_tables(connection_name, schema_name=schema_name)

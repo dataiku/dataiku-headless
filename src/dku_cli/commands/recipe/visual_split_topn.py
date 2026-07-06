@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dku_cli.enums import EngineType, SplitMode
+
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import EngineType, SplitMode
 
 
 @app.command("create-split")

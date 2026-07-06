@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from tests.commands.dataset.helpers import app, runner
 from tests.helpers import strip_ansi as _strip_ansi
 
-
 # --- dataset create --if-not-exists ---
 
 
@@ -330,6 +329,27 @@ def test_dataset_set_definition_merge_and_deep_merge_conflict(patch_client):
     )
     assert result.exit_code == 1
     assert "Use either --merge or --deep-merge" in result.output
+
+
+def test_dataset_set_definition_rejects_json_array(patch_client):
+    """A JSON array crashes the merge paths with a raw traceback; the CLI must
+    fail prescriptively before touching set_definition."""
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-definition",
+            "ds1",
+            "--definition",
+            "[1, 2, 3]",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not an array" in result.output
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.set_definition.assert_not_called()
 
 
 def test_dataset_set_schema(patch_client):

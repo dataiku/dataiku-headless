@@ -4,7 +4,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_SOURCE = ROOT / "src" / "dku_cli" / "__init__.py"
 

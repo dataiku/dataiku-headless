@@ -24,6 +24,7 @@ that succeeded.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 
@@ -142,15 +143,11 @@ def _summarize_dataset(
 
     count: int | None = None
     exact = True
-    try:
+    with contextlib.suppress(Exception):
         count = _fresh_metric_count(ds, job_start_ms)
-    except Exception:
-        pass
     if count is None:
-        try:
+        with contextlib.suppress(Exception):
             count = _sql_count(client, ds_def, project_key)
-        except Exception:
-            pass
     if count is None:
         count, exact = _probe_count(ds)
 

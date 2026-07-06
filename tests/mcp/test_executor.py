@@ -6,7 +6,7 @@ import json
 import os
 
 from dku_cli.mcp import executor, policy
-from dku_cli.mcp.audit import AuditLog
+from dku_cli.mcp.audit import AuditLog, redact_secrets
 from dku_cli.mcp.sandbox import SubprocessBackend
 from dku_cli.mcp.sessions import SessionStore
 
@@ -98,6 +98,229 @@ def test_truncate_flags_oversized_output():
     big, flag = executor._truncate("x" * (executor._MAX_OUTPUT + 100))
     assert flag is True
     assert "truncated" in big
+
+
+class _FixedBackend:
+    """Sandbox backend that returns pre-set stdout/stderr for output tests."""
+
+    name = "fixed"
+
+    def __init__(self, stdout: str, stderr: str, exit_code: int = 0):
+        self._out = stdout
+        self._err = stderr
+        self._code = exit_code
+
+    def run(self, script, *, cwd, env, timeout):
+        from dku_cli.mcp.sandbox import RunResult
+
+        return RunResult(exit_code=self._code, stdout=self._out, stderr=self._err)
+
+
+def test_combined_output_respects_single_budget(tmp_path):
+    # Both streams individually exceed the ceiling; combined must stay ~<= budget.
+    big = "o" * (executor._MAX_OUTPUT * 2)
+    err = "e" * (executor._MAX_OUTPUT * 2)
+    result = executor.run_exec(
+        "irrelevant",
+        session=_session(tmp_path),
+        backend=_FixedBackend(big, err),
+        timeout=10,
+    )
+    marker_slack = 256  # room for the two "[...truncated N chars]" markers
+    assert (
+        len(result.stdout) + len(result.stderr) <= executor._MAX_OUTPUT + marker_slack
+    )
+    assert result.truncated is True
+    assert "truncated" in result.stdout
+    # stdout gets the bulk of the budget, but stderr keeps its reserved floor —
+    # a huge stdout must not squeeze the diagnostic down to a bare marker.
+    assert len(result.stdout) >= executor._MAX_OUTPUT - executor._STDERR_FLOOR
+    assert "eee" in result.stderr
+    assert "truncated" in result.stderr
+
+
+def test_stderr_floor_preserves_error_message_when_stdout_caps(tmp_path):
+    """A command that dumps >100KB of data and then fails must still return its
+    (short) stderr diagnostic intact — the exact prescriptive error the CLI
+    works hard to produce."""
+    big = "o" * (executor._MAX_OUTPUT * 2)
+    diagnostic = "Error: dataset not found. Next: dku dataset list -P PROJ"
+    result = executor.run_exec(
+        "irrelevant",
+        session=_session(tmp_path),
+        backend=_FixedBackend(big, diagnostic, exit_code=1),
+        timeout=10,
+    )
+    assert result.stderr == diagnostic
+    assert result.exit_code == 1
+
+
+def test_small_outputs_unchanged(tmp_path):
+    result = executor.run_exec(
+        "irrelevant",
+        session=_session(tmp_path),
+        backend=_FixedBackend("hello", "world"),
+        timeout=10,
+    )
+    assert result.stdout == "hello"
+    assert result.stderr == "world"
+    assert result.truncated is False
+
+
+def test_audit_redacts_secret_values(tmp_path):
+    audit_path = tmp_path / "audit.jsonl"
+    audit = AuditLog(audit_path)
+    executor.run_exec(
+        "dku auth login --token sk-abc123DEF_ghi --url https://dss",
+        session=_session(tmp_path),
+        backend=_FixedBackend("", ""),
+        timeout=10,
+        audit=audit,
+    )
+    event = json.loads(audit_path.read_text(encoding="utf-8").strip())
+    logged = event["commands"]
+    assert "sk-abc123DEF_ghi" not in logged
+    assert "--token" in logged  # flag name kept
+    assert "***" in logged
+    assert "https://dss" in logged  # non-secret flag untouched
+
+
+# --- secret redaction (audit log) -------------------------------------------
+
+
+def test_redact_flag_space_forms():
+    for flag in ("--password", "--pass", "--token", "--api-key", "--secret", "--key"):
+        out = redact_secrets(f"cmd {flag} s3cr3tValue rest")
+        assert "s3cr3tValue" not in out
+        assert flag in out and "***" in out and "rest" in out
+
+
+def test_redact_flag_equals_forms():
+    out = redact_secrets("cmd --api-key=s3cr3tValue --other keep")
+    assert "s3cr3tValue" not in out
+    assert "--api-key=***" in out
+    assert "keep" in out
+
+
+def test_redact_short_flag_form():
+    out = redact_secrets("cmd -key hunter2")
+    assert "hunter2" not in out
+    assert "***" in out
+
+
+def test_redact_bearer_token():
+    out = redact_secrets("curl -H 'Authorization: Bearer abc.DEF-123_ghi'")
+    assert "abc.DEF-123_ghi" not in out
+    assert "Bearer ***" in out
+
+
+def test_redact_sk_key_anywhere():
+    out = redact_secrets("export OPENAI=sk-abcDEF_012-xyz && run")
+    assert "sk-abcDEF_012-xyz" not in out
+    assert "***" in out and "run" in out
+
+
+def test_redact_env_assignments():
+    for name in ("API_KEY", "api-key", "TOKEN", "SECRET", "PASSWORD", "apikey"):
+        out = redact_secrets(f"{name}=topsecret dku run")
+        assert "topsecret" not in out
+        assert f"{name}=***" in out
+
+
+def test_redact_prefixed_env_assignments():
+    """`\\b` fails on `_` (a word char), so DKU_API_KEY= — the product's own
+    env var and the most likely secret shape in dku commands — leaked."""
+    for name in ("DKU_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "MY_PASSWORD"):
+        out = redact_secrets(f"{name}=topsecret dku dataset list")
+        assert "topsecret" not in out
+        assert f"{name}=***" in out
+
+
+def test_redact_json_payload_fields():
+    """JSON/heredoc payloads flow through dku_exec verbatim; secret-named
+    string fields must mask even though there is no flag or `=` in sight."""
+    for key in (
+        "api_key",
+        "apiKey",
+        "token",
+        "secret",
+        "password",
+        "authToken",
+        "clientSecret",
+        "DKU_API_KEY",
+    ):
+        out = redact_secrets(f'dku x --payload \'{{"{key}": "supersecret"}}\'')
+        assert "supersecret" not in out
+        assert key in out  # field name kept for the audit trail
+        assert '"***"' in out
+
+
+def test_redact_json_heredoc_multiline():
+    cmd = (
+        "dku connection create <<EOF\n"
+        '{\n  "name": "pg",\n  "password": "hunter2",\n  "host": "db.internal"\n}\n'
+        "EOF"
+    )
+    out = redact_secrets(cmd)
+    assert "hunter2" not in out
+    assert '"password": "***"' in out
+    assert '"host": "db.internal"' in out
+
+
+def test_redact_json_escaped_quotes_in_value():
+    out = redact_secrets('{"api_key": "sup\\"er\\"secret"}')
+    assert "secret" not in out
+    assert '"api_key": "***"' in out
+
+
+def test_redact_json_single_quoted_fields():
+    out = redact_secrets("{'api_key': 'supersecret'}")
+    assert "supersecret" not in out
+    assert "'***'" in out
+
+
+def test_redact_json_keeps_column_key_fields_visible():
+    """Payload fields ending in Key are column references, not secrets —
+    same false-positive class as --join-key on the flag side."""
+    payload = (
+        '{"projectKey": "MYPROJ", "joinKey": "customer_id", "partitionKey": "day"}'
+    )
+    assert redact_secrets(payload) == payload
+
+
+def test_redact_json_keeps_nonstring_values():
+    payload = '{"tokenBudget": 100, "maxTokens": true}'
+    assert redact_secrets(payload) == payload
+
+
+def test_redact_keeps_column_key_flags_visible():
+    """Visual-recipe column flags end in `-key` but are NOT secrets; masking
+    them destroys the audit trail for most recipe commands."""
+    cmd = (
+        "dku recipe join --join-key customer_id --project-key MYPROJ "
+        "--group-key region --partition-key day --sort-key ts"
+    )
+    assert redact_secrets(cmd) == cmd
+
+
+def test_redact_keeps_sk_substrings_in_ordinary_words():
+    cmd = "pip install flask-cors task-runner"
+    assert redact_secrets(cmd) == cmd
+
+
+def test_redact_passthrough_no_secret():
+    plain = "dku dataset list -P PROJ --format json | jq '.[].name'"
+    assert redact_secrets(plain) == plain
+
+
+def test_redact_does_not_mangle_ordinary_commands():
+    # -P PROJ, --format, filenames, keys-as-jq-paths must survive untouched.
+    cmd = "dku recipe run -P MYPROJ --format tsv > /tmp/out.tsv"
+    assert redact_secrets(cmd) == cmd
+
+
+def test_redact_empty_string():
+    assert redact_secrets("") == ""
 
 
 def test_build_env_sets_project_and_noninteractive(monkeypatch):

@@ -108,7 +108,7 @@ def test_get_client_in_pod_ticket_mode(monkeypatch):
             return_value={"auth_mode": AUTH_MODE_IN_POD_TICKET, "node_type": "DESIGN"},
         ),
         patch("dku_cli.client.get_active_profile", return_value="design"),
-        patch("dku_cli.client.dataikuapi.DSSClient", return_value=sentinel) as mk,
+        patch("dataikuapi.DSSClient", return_value=sentinel) as mk,
     ):
         client = get_client()
 
@@ -135,7 +135,7 @@ def test_get_client_in_pod_ticket_mode_https(monkeypatch):
             return_value={"auth_mode": AUTH_MODE_IN_POD_TICKET, "node_type": "DESIGN"},
         ),
         patch("dku_cli.client.get_active_profile", return_value="design"),
-        patch("dku_cli.client.dataikuapi.DSSClient", return_value=sentinel) as mk,
+        patch("dataikuapi.DSSClient", return_value=sentinel) as mk,
     ):
         client = get_client()
 
@@ -166,7 +166,7 @@ def test_get_client_in_pod_ticket_mode_http_default(monkeypatch):
             return_value={"auth_mode": AUTH_MODE_IN_POD_TICKET},
         ),
         patch("dku_cli.client.get_active_profile", return_value="design"),
-        patch("dku_cli.client.dataikuapi.DSSClient", return_value=sentinel) as mk,
+        patch("dataikuapi.DSSClient", return_value=sentinel) as mk,
     ):
         client = get_client()
 
@@ -217,7 +217,7 @@ def test_get_client_explicit_url_overrides_ticket_mode(monkeypatch):
             "dku_cli.client.get_api_key_with_status",
             return_value=_key_result("explicit-key-from-keychain"),
         ),
-        patch("dku_cli.client.dataikuapi.DSSClient", return_value=sentinel) as mk,
+        patch("dataikuapi.DSSClient", return_value=sentinel) as mk,
     ):
         # Only URL passed explicitly — falls through to API-key resolution.
         client = get_client(url="https://other.example.com", api_key="other-key")
@@ -246,7 +246,7 @@ def test_get_client_api_key_mode_unaffected(monkeypatch):
             "dku_cli.client.get_api_key_with_status",
             return_value=_key_result("design-key"),
         ),
-        patch("dku_cli.client.dataikuapi.DSSClient", return_value=sentinel) as mk,
+        patch("dataikuapi.DSSClient", return_value=sentinel) as mk,
     ):
         client = get_client()
 

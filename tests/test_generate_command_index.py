@@ -43,7 +43,7 @@ def test_render_errors_on_stale_category_entry():
         for name in names
     }
     original = gen.CATEGORIES
-    gen.CATEGORIES = original + [("Ghost", ["ghost-group"])]
+    gen.CATEGORIES = [*original, ("Ghost", ["ghost-group"])]
     try:
         with pytest.raises(SystemExit, match="no longer exist"):
             gen._render(index)

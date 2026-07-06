@@ -71,6 +71,21 @@ def test_plugin_list_dev_column_reads_isdev_bool_key(patch_client):
     assert parsed["prod"]["dev"] is False
 
 
+def test_plugin_list_object_branch_surfaces_id_and_version(patch_client):
+    """Regression: the non-dict branch hard-coded version="" (and used the wrong
+    id attr). It must read getattr(p, "id"/"version")."""
+    from types import SimpleNamespace
+
+    patch_client.list_plugins.return_value = [
+        SimpleNamespace(plugin_id="objp", version="2.3.4"),
+    ]
+    result = runner.invoke(app, ["--format", "json", "plugin", "list"])
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed[0]["id"] == "objp"
+    assert parsed[0]["version"] == "2.3.4"
+
+
 def test_plugin_get_dev_field_reads_dev_string_key(patch_client):
     """`plugin get` must read the same 'dev' string key for its Dev field."""
     plugin_obj = MagicMock()
@@ -467,7 +482,7 @@ def test_plugin_create_code_env_force_creates_despite_existing(patch_client):
 
 
 def test_plugin_set_code_env(patch_client):
-    plugin_obj, settings = _mock_plugin_with_settings(patch_client)
+    _plugin_obj, settings = _mock_plugin_with_settings(patch_client)
 
     result = runner.invoke(
         app, ["plugin", "set-code-env", "my-plugin", "my_custom_env"]

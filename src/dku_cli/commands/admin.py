@@ -34,6 +34,7 @@ from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
 from dku_cli.output import (
     hint,
     info,
+    print_text,
     render,
     render_raw,
     resolve_output_format,
@@ -132,7 +133,7 @@ def get_log(
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         content = client.get_log(name)
         if isinstance(content, str):
-            print(content)
+            print_text(content)
         else:
             # Some versions return the log as a dict or other structure
             render_raw(content, output_format="json")
@@ -1762,9 +1763,7 @@ def _format_footprint(fp) -> list[dict]:
 
 
 @footprint_app.command("global")
-def global_(  # noqa: A001 — "global" is a Python keyword
-    ctx: typer.Context,
-) -> None:
+def global_(ctx: typer.Context) -> None:
     """Size of instance-wide directories (code envs, plugins, libs)."""
     fmt = resolve_output_format()
     try:

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dku_cli.enums import EngineType, FrameMode, LagDateUnit
+
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import EngineType, FrameMode, LagDateUnit
 
 _VALID_WINDOW_TYPES = frozenset(
     {

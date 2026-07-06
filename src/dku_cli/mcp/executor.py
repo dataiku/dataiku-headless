@@ -15,13 +15,17 @@ import time
 from dataclasses import dataclass
 
 from dku_cli.mcp import policy
-from dku_cli.mcp.audit import AuditLog
+from dku_cli.mcp.audit import AuditLog, redact_secrets
 from dku_cli.mcp.sandbox import SandboxBackend
 from dku_cli.mcp.sessions import Session
 
 # Max chars per stream returned to the model — keep big intermediate output
 # in the sandbox; the agent should filter/aggregate before returning.
 _MAX_OUTPUT = 100_000
+# When stdout alone would eat the whole budget, keep this much for stderr —
+# a failing command's diagnostic must never be truncated to nothing just
+# because the command also dumped a lot of data.
+_STDERR_FLOOR = 8_000
 
 
 @dataclass
@@ -145,11 +149,14 @@ def build_env(
     return env
 
 
-def _truncate(text: str) -> tuple[str, bool]:
-    if len(text) <= _MAX_OUTPUT:
+def _truncate(text: str, budget: int = _MAX_OUTPUT) -> tuple[str, bool]:
+    if len(text) <= budget:
         return text, False
-    dropped = len(text) - _MAX_OUTPUT
-    return text[:_MAX_OUTPUT] + f"\n[...truncated {dropped} chars]", True
+    dropped = len(text) - budget
+    marker = f"\n[...truncated {dropped} chars]"
+    if budget <= 0:
+        return marker.lstrip("\n"), True
+    return text[:budget] + marker, True
 
 
 def _resource_limits(timeout: int, mode: str = "hosted") -> str:
@@ -212,8 +219,18 @@ def run_exec(
     raw = backend.run(script, cwd=workdir, env=env, timeout=timeout)
     duration_ms = int((time.monotonic() - started) * 1000)
 
-    stdout, t_out = _truncate(raw.stdout)
-    stderr, t_err = _truncate(raw.stderr)
+    # Combined budget: the two streams together never exceed _MAX_OUTPUT (plus
+    # the short truncation markers). stderr gets a reserved floor first — its
+    # actual size up to _STDERR_FLOOR — so a huge stdout can't starve the
+    # error message; stdout takes the rest, and any stdout headroom flows back
+    # to stderr.
+    stderr_reserve = min(len(raw.stderr), _STDERR_FLOOR)
+    stdout, t_out = _truncate(raw.stdout, budget=_MAX_OUTPUT - stderr_reserve)
+    # The floor is guaranteed even after stdout's truncation marker: without
+    # the max(), the marker's own length would eat into stderr's reserve.
+    stderr, t_err = _truncate(
+        raw.stderr, budget=max(stderr_reserve, _MAX_OUTPUT - len(stdout))
+    )
     result = ExecResult(
         exit_code=raw.exit_code,
         stdout=stdout,
@@ -232,7 +249,9 @@ def run_exec(
                 "backend": backend.name,
                 "trust_mode": mode,
                 "auth_mode": (dss_auth or {}).get("mode", "none"),
-                "commands": sanitized[:2000],
+                # Redact before truncating: a cutoff mid-value would strip the
+                # closing delimiter the patterns need, leaking a partial secret.
+                "commands": redact_secrets(sanitized)[:2000],
                 "exit_code": raw.exit_code,
                 "duration_ms": duration_ms,
             }

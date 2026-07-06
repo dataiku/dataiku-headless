@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import time
 from pathlib import Path
@@ -104,7 +105,7 @@ def _autodetect_and_warn(
             _settings, full_cols, _reasons = _redetect_schema_keeping_format(
                 client, project_key, dataset_name, infer_types=True
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             full_cols = []
         if full_cols:
             fresh = ds.get_settings()
@@ -176,8 +177,7 @@ def _redetect_schema_keeping_format(
     settings = ds.get_settings()
     future_resp = client._perform_json(
         "POST",
-        "/projects/%s/datasets/%s/actions/testAndDetectSettings/fsLike"
-        % (project_key, dataset_name),
+        f"/projects/{project_key}/datasets/{dataset_name}/actions/testAndDetectSettings/fsLike",
         body={"detectPossibleFormats": False, "inferStorageTypes": infer_types},
     )
     result = DSSFuture(client, future_resp.get("jobId"), future_resp).wait_for_result()
@@ -239,7 +239,7 @@ def _maybe_infer_storage_types(client, project_key: str, dataset_name: str, sett
         _detected, typed_cols, _reasons = _redetect_schema_keeping_format(
             client, project_key, dataset_name, infer_types=True
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         return settings
     if typed_cols and not all(c.get("type") == "string" for c in typed_cols):
         settings.get_raw()["schema"] = {"columns": typed_cols, "userModified": True}
@@ -363,7 +363,7 @@ def _dataset_exists(proj, name: str) -> bool:
     try:
         proj.get_dataset(name).get_schema()
         return True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         if is_not_found_error(e):
             return False
         raise
@@ -522,7 +522,7 @@ def _parse_result(result: dict, col_type: str) -> dict:
                 top_values = []
                 values = grouping.get("values", [])
                 results = r.get("results", [])
-                for val, res in zip(values, results):
+                for val, res in zip(values, results, strict=False):
                     top_values.append(
                         {
                             "value": val,
@@ -973,7 +973,7 @@ def info_cmd(
             data = []
             for fname in field_names:
                 row = {"field": fname}
-                for ds_name, dr in zip(dataset_names, display_rows):
+                for ds_name, dr in zip(dataset_names, display_rows, strict=False):
                     row[ds_name] = dr[fname]
                 data.append(row)
             render(
@@ -1074,7 +1074,7 @@ def head(
         for i, row in enumerate(ds.iter_rows()):
             if not unlimited and i >= rows:
                 break
-            full_row = dict(zip(all_columns, row))
+            full_row = dict(zip(all_columns, row, strict=False))
             data.append({c: full_row[c] for c in display_columns})
 
         render(
@@ -1869,9 +1869,11 @@ def download(
         ds = client.get_project(project_key).get_dataset(dataset_name)
         cols = [c["name"] for c in ds.get_schema().get("columns", [])]
 
-        fh = open(output, "w", newline="", encoding="utf-8") if output else sys.stdout
         n = 0
-        try:
+        fh = sys.stdout
+        with contextlib.ExitStack() as es:
+            if output:
+                fh = es.enter_context(open(output, "w", newline="", encoding="utf-8"))
             writer = csv.writer(fh)
             if cols:
                 writer.writerow(cols)
@@ -1880,9 +1882,6 @@ def download(
                     break
                 writer.writerow(row)
                 n += 1
-        finally:
-            if output:
-                fh.close()
 
         if output:
             success(f"Downloaded {n} rows from '{dataset_name}' → {output}")
@@ -2093,6 +2092,9 @@ def set_definition(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         new_def = read_json_input(definition)
+        if not isinstance(new_def, dict):
+            cmd = f"dku dataset get-definition {dataset_name} -P {project_key}"
+            exit_with_error(f"Definition must be a JSON object, not an array — {cmd}")
         if merge or deep_merge:
             current = ds.get_definition()
             if deep_merge:
@@ -2240,7 +2242,7 @@ def _collect_type_proposals(
         if i >= sample_rows:
             break
         n_sampled = i + 1
-        full_row = dict(zip(all_names, row))
+        full_row = dict(zip(all_names, row, strict=False))
         for c in string_cols:
             samples[c].append(full_row.get(c))
 
@@ -2635,7 +2637,7 @@ def set_column_description(
                 f"Got {len(columns)} arguments — must be even (column name, description, column name, description, ...).",
             ],
         )
-    pairs = dict(zip(columns[0::2], columns[1::2]))
+    pairs = dict(zip(columns[0::2], columns[1::2], strict=False))
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -3255,10 +3257,9 @@ def _resolve_sql_table(ds_def: dict, project_key: str) -> tuple[str, str] | None
 
 def _row_count_via_metrics(ds) -> int | None:
     """Compute and read the COUNT_RECORDS metric (works for any dataset type)."""
-    try:
+    # fall through to read whatever value is available
+    with contextlib.suppress(Exception):
         ds.compute_metrics(metric_ids=["records:COUNT_RECORDS"])
-    except Exception:
-        pass  # fall through to read whatever value is available
     try:
         return ds.get_last_metric_values().get_global_value("records:COUNT_RECORDS")
     except Exception:
@@ -3387,7 +3388,7 @@ def query(
         result = client.sql_query(query_text, connection=connection)
         schema = result.get_schema()
         columns = [col["name"] for col in schema]
-        data = [dict(zip(columns, row)) for row in result.iter_rows()]
+        data = [dict(zip(columns, row, strict=False)) for row in result.iter_rows()]
         render(
             data,
             columns,

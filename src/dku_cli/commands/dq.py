@@ -109,7 +109,7 @@ def _build_rule_config(
 
     dss_type = TYPE_MAP.get(rule_type)
     if not dss_type:
-        valid = ", ".join(sorted(list(TYPE_MAP.keys()) + ["value-in-range"]))
+        valid = ", ".join(sorted([*list(TYPE_MAP.keys()), "value-in-range"]))
         raise typer.BadParameter(
             f"Unknown rule type '{rule_type}'. Valid types: {valid}"
         )
@@ -191,7 +191,7 @@ def list_rules(
     """List data quality rules defined on a dataset."""
     output = resolve_output_format()
     try:
-        _, project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, _project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
         rules = ruleset.list_rules(as_type="dict")
 
         if output == "json":
@@ -291,7 +291,7 @@ def create_rule(
         )
 
     try:
-        _, project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, _project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
 
         if config:
             rule_configs = [read_json_input(config)]

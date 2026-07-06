@@ -173,9 +173,7 @@ def add_entity(
                 f"{sm_ref} -P {project_key}"
             )
         info(
-            "Run 'dku semantic-model update-index {} --wait -P {}' to populate distinct values.".format(
-                sm_ref, project_key
-            )
+            f"Run 'dku semantic-model update-index {sm_ref} --wait -P {project_key}' to populate distinct values."
         )
     except SystemExit:
         raise
@@ -318,10 +316,7 @@ def sync_descriptions(
         version_id = _resolve_version_id(sm, version)
         settings, raw = _load_version_settings(sm, version_id)
 
-        if entity:
-            targets = [_find_entity(raw, entity)]
-        else:
-            targets = raw.get("entities", [])
+        targets = [_find_entity(raw, entity)] if entity else raw.get("entities", [])
         if not targets:
             exit_with_error(
                 f"No entities on version '{version_id}' — nothing to sync.",

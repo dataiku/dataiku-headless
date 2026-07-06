@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from dku_cli.charts import chart_column_type, columns_referenced, lint_chart_def
-from dku_cli.enums import ChartType, MeasureAgg
+from dku_cli.enums import ChartType, DimensionDateMode, MeasureAgg, MeasureDisplayAs
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -50,7 +50,6 @@ _DEFAULT_REFRESHABLE_SELECTION = {
     "_refreshTrigger": 0,
 }
 
-_DATE_MODES = {"YEAR", "QUARTER", "MONTH", "WEEK", "DAY", "HOUR"}
 # Chart types whose data does NOT live in genericDimension0/genericMeasures, so
 # the add-dimension/add-measure helpers can't fully configure them — they render
 # blank until type-specific fields are set via set-definition. set-chart-type
@@ -520,7 +519,7 @@ def head(
         for i, row in enumerate(ds.iter_rows()):
             if i >= rows:
                 break
-            data.append(dict(zip(columns, row)))
+            data.append(dict(zip(columns, row, strict=False)))
         if not data:
             from dku_cli.output import warn
 
@@ -605,9 +604,10 @@ def add_dimension(
         help="Add as the color/series breakdown (genericDimension1) instead of the "
         "X axis — for stacked / colored charts and pivot columns (same as --slot 1).",
     ),
-    date_mode: str = typer.Option(
+    date_mode: DimensionDateMode = typer.Option(
         None,
         "--date-mode",
+        case_sensitive=False,
         help="Bin a DATE column by YEAR|QUARTER|MONTH|WEEK|DAY|HOUR (sets dateParams). "
         "Needed for a real time axis — a raw date dim plots every distinct value.",
     ),
@@ -626,14 +626,7 @@ def add_dimension(
         slot = 1
     if slot not in (0, 1):
         exit_with_error("--slot must be 0 or 1")
-    mode = None
-    if date_mode is not None:
-        mode = date_mode.upper()
-        if mode not in _DATE_MODES:
-            exit_with_error(
-                f"Unknown --date-mode '{date_mode}'",
-                details=[f"Valid: {', '.join(sorted(_DATE_MODES))}"],
-            )
+    mode = date_mode.value if date_mode is not None else None
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -724,9 +717,10 @@ def add_measure(
         help="Y axis: 1 (left, default) or 2 (right). Use 2 for a dual-axis combo "
         "(e.g. revenue bars on axis 1 + a rate line on axis 2).",
     ),
-    display_as: str = typer.Option(
+    display_as: MeasureDisplayAs = typer.Option(
         None,
         "--as",
+        case_sensitive=False,
         help="Render THIS measure as: column | line | area (default: the chart's "
         "native type). Mix with --axis 2 for combo charts.",
     ),
@@ -749,14 +743,7 @@ def add_measure(
         )
     if axis not in (1, 2):
         exit_with_error("--axis must be 1 (left) or 2 (right)")
-    display_type = None
-    if display_as is not None:
-        display_type = display_as.lower()
-        if display_type not in ("column", "line", "area"):
-            exit_with_error(
-                f"Unknown --as '{display_as}'",
-                details=["Valid: column, line, area"],
-            )
+    display_type = display_as.value if display_as is not None else None
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -833,6 +820,7 @@ def clear_columns(
     ctx: typer.Context,
     insight_id: str = typer.Argument(help="Insight ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
 ) -> None:
     """Clear all dimension and measure column bindings from a chart insight.
 
@@ -840,8 +828,17 @@ def clear_columns(
       dku insight clear-columns INSIGHT_ID -P PROJ
     """
     from dku_cli.errors import exit_with_error
+    from dku_cli.safety import Tier, guard
 
     project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="insight.clear_columns",
+        subject=f"all column bindings of insight '{insight_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Clear all column bindings from insight '{insight_id}'?",
+    )
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)

@@ -302,7 +302,7 @@ def test_knowledge_build_by_name(patch_client):
 
 def test_knowledge_search_by_name(patch_client):
     """Search command resolves by name."""
-    proj, kb_mock = _setup_name_resolution(patch_client)
+    proj, _kb_mock = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app,
         ["knowledge", "search", "My KB", "--query", "test", "--project", "PROJ1"],
@@ -313,7 +313,7 @@ def test_knowledge_search_by_name(patch_client):
 
 def test_knowledge_delete_by_name(patch_client):
     """Delete command resolves by name."""
-    proj, kb_mock = _setup_name_resolution(patch_client)
+    _proj, kb_mock = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app, ["knowledge", "delete", "My KB", "--project", "PROJ1", "--yes"]
     )
@@ -323,7 +323,7 @@ def test_knowledge_delete_by_name(patch_client):
 
 def test_knowledge_not_found(patch_client):
     """Unknown name/ID gives prescriptive error listing available KBs."""
-    proj, _ = _setup_name_resolution(patch_client)
+    _proj, _ = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app, ["knowledge", "build", "nonexistent", "--project", "PROJ1"]
     )

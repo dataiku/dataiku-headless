@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dku_cli.enums import EngineType, ExportFormat, MergeFolderConflict
+
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import EngineType, ExportFormat
 
 
 @app.command("create-update")
@@ -300,9 +301,10 @@ def create_merge_folder(
         "--clear-before-copy",
         help="Delete destination contents before copying",
     ),
-    conflict_handling: str = typer.Option(
-        "OVERWRITE",
+    conflict_handling: MergeFolderConflict = typer.Option(
+        MergeFolderConflict.OVERWRITE,
         "--conflict",
+        case_sensitive=False,
         help="OVERWRITE | SKIP | FAIL when same path exists in multiple sources",
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
@@ -316,10 +318,6 @@ def create_merge_folder(
             -i upload_us -i upload_eu -i upload_apac \\
             --output-folder all_uploads --clear-before-copy -P PROJ
     """
-    if conflict_handling not in {"OVERWRITE", "SKIP", "FAIL"}:
-        exit_with_error(
-            f"Invalid --conflict '{conflict_handling}'. Use OVERWRITE, SKIP, or FAIL.",
-        )
     project_key = resolve_project(project)
     try:
         from dku_cli.helpers import resolve_folder
@@ -342,7 +340,7 @@ def create_merge_folder(
         raw_def = settings.get_recipe_raw_definition()
         raw_def["params"] = {
             "clearBeforeCopy": clear_before_copy,
-            "conflictHandling": conflict_handling,
+            "conflictHandling": conflict_handling.value,
         }
         settings.save()
         success(

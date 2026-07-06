@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -45,9 +45,6 @@ def _write_toml(path: Path, data: dict[str, Any]) -> None:
                 lines.append(f"{_toml_key(k)} = {_toml_value(v)}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
-    # Restrict credentials file permissions
-    if path == CREDENTIALS_FILE:
-        path.chmod(0o600)
 
 
 def _toml_value(v: Any) -> str:

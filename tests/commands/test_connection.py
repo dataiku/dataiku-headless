@@ -402,8 +402,8 @@ def test_connection_update_bad_usable_by(patch_client):
             "--yes",
         ],
     )
-    assert result.exit_code == 1
-    assert "ALL" in result.output
+    assert result.exit_code == 2
+    assert "allowed" in result.output.lower()
 
 
 def test_connection_update_dry_run(patch_client):

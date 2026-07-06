@@ -18,14 +18,20 @@ to DSS stay in the exact case DSS expects regardless of how the user typed it.
 
 from __future__ import annotations
 
-from enum import Enum
+from dku_cli import _enum_groups
 
-
-class _StrEnum(str, Enum):
-    """str-mixin base. `str(member)` returns the value, not `Class.NAME`."""
-
-    def __str__(self) -> str:  # keep f-strings / payloads emitting the raw value
-        return self.value
+# Explicit re-exports: these definitions live in _enum_groups (size-ratchet
+# extraction); this module stays their sole public home — keep importing them
+# as `from dku_cli.enums import ...` everywhere.
+_StrEnum = _enum_groups._StrEnum
+AgentBlockMode = _enum_groups.AgentBlockMode
+ChartType = _enum_groups.ChartType
+ConnectionUsableBy = _enum_groups.ConnectionUsableBy
+DimensionDateMode = _enum_groups.DimensionDateMode
+MeasureAgg = _enum_groups.MeasureAgg
+MeasureDisplayAs = _enum_groups.MeasureDisplayAs
+MergeFolderConflict = _enum_groups.MergeFolderConflict
+SafetyMode = _enum_groups.SafetyMode
 
 
 # --- recipes: engine & run config -------------------------------------------
@@ -448,28 +454,6 @@ class MigrationBehavior(_StrEnum):
 class AppEnableMode(_StrEnum):
     setup = "setup"
     template = "template"
-
-
-class ChartType(_StrEnum):
-    lines = "lines"
-    multi_columns_lines = "multi_columns_lines"
-    stacked_bars = "stacked_bars"
-    grouped_columns = "grouped_columns"
-    pie = "pie"
-    scatter = "scatter"
-    boxplots = "boxplots"
-    treemap = "treemap"
-    pivot_table = "pivot_table"
-    stacked_area = "stacked_area"
-
-
-class MeasureAgg(_StrEnum):
-    AVG = "AVG"
-    SUM = "SUM"
-    COUNT = "COUNT"
-    MIN = "MIN"
-    MAX = "MAX"
-    COUNT_DISTINCT = "COUNT_DISTINCT"
 
 
 class JobType(_StrEnum):

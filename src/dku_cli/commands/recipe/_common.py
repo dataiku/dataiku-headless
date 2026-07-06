@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-# ruff: noqa: F401
-
 import json
 import sys
 import time
 from pathlib import Path
 
 import typer
-
-from dataikuapi.dss.recipe import (
-    FuzzyJoinRecipeCreator,
-    GeoJoinRecipeCreator,
-)
 
 from dku_cli.errors import (
     exit_with_error,
@@ -680,7 +673,7 @@ def _reconcile_scoring_name(recipe, requested_name: str) -> str:
     if created and created != requested_name:
         try:
             recipe.rename(requested_name)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             warn(
                 f"DSS created the scoring recipe as '{created}' (could not rename to "
                 f"'{requested_name}': {exc}). Use '{created}' for follow-up commands."
@@ -730,47 +723,14 @@ def _raw_create_recipe(
 # when a recipe submodule starts or stops using a `_common` symbol — a glob over
 # globals() would silently re-export every import and mask accidental shadowing.
 __all__ = [
-    # Re-exported stdlib / third-party so submodules can `from ._common import *`.
-    "Path",
-    "json",
-    "sys",
-    "time",
-    "typer",
-    # dataikuapi recipe creators (also imported explicitly by __init__.py).
-    "FuzzyJoinRecipeCreator",
-    "GeoJoinRecipeCreator",
-    # Error helpers.
-    "exit_with_error",
-    "handle_api_error",
-    "is_already_exists_error",
-    "is_connection_required_error",
-    "is_not_found_error",
-    # Project / client / input helpers.
-    "get_client_from_ctx",
-    "read_json_input",
-    "read_text_input",
-    "resolve_build_output_types",
-    "resolve_folder",
-    "resolve_project",
-    "resolve_recipe_input_ref",
-    "resolve_saved_model",
-    # Output helpers.
-    "filter_fields",
-    "info",
-    "render",
-    "render_raw",
-    "resolve_output_format",
-    "recipe_created_hint",
-    "success",
-    "warn",
-    # The shared Typer app.
-    "app",
     # Recipe-type constants.
     "_INPUT_OPTIONAL_TYPES",
     "_KNOWN_RECIPE_TYPES",
     "_SCORING_RECIPE_TYPES",
     "_TEXT_PAYLOAD_RECIPE_TYPES",
     "_VISUAL_RECIPE_TYPES",
+    # Re-exported stdlib / third-party so submodules can `from ._common import *`.
+    "Path",
     # Shared recipe helpers.
     "_apply_engine_type",
     "_apply_pipeline_options",
@@ -780,10 +740,10 @@ __all__ = [
     "_create_eval_recipe",
     "_deep_merge_dict",
     "_ensure_output_dataset",
-    "_get_or_create_recipe_params",
     "_ensure_output_folder",
-    "_enum_value",
     "_ensure_steps_array",
+    "_enum_value",
+    "_get_or_create_recipe_params",
     "_get_prepare_settings",
     "_get_recipe_or_exit",
     "_get_recipe_payload",
@@ -797,4 +757,34 @@ __all__ = [
     "_require_existing_dataset",
     "_validate_step_index",
     "_wire_single_output",
+    # The shared Typer app.
+    "app",
+    # Error helpers.
+    "exit_with_error",
+    # Output helpers.
+    "filter_fields",
+    # Project / client / input helpers.
+    "get_client_from_ctx",
+    "handle_api_error",
+    "info",
+    "is_already_exists_error",
+    "is_connection_required_error",
+    "is_not_found_error",
+    "json",
+    "read_json_input",
+    "read_text_input",
+    "recipe_created_hint",
+    "render",
+    "render_raw",
+    "resolve_build_output_types",
+    "resolve_folder",
+    "resolve_output_format",
+    "resolve_project",
+    "resolve_recipe_input_ref",
+    "resolve_saved_model",
+    "success",
+    "sys",
+    "time",
+    "typer",
+    "warn",
 ]

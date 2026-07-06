@@ -44,7 +44,7 @@ def test_list_blocks_json(patch_client):
     assert "classify" in ids
     assert "emit_result" in ids
     # Starting block should be marked
-    start_block = [b for b in parsed if b["id"] == "init_state"][0]
+    start_block = next(b for b in parsed if b["id"] == "init_state")
     assert start_block["start"] == "*"
 
 
@@ -308,7 +308,7 @@ def test_connect_blocks(patch_client):
         .get_raw()
     )
     blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
-    emit_block = [b for b in blocks if b["id"] == "emit_result"][0]
+    emit_block = next(b for b in blocks if b["id"] == "emit_result")
     assert emit_block["nextBlock"] == "init_state"
 
 
@@ -379,7 +379,7 @@ def test_connect_standard_react_uses_default_next_block(patch_client):
         .get_raw()
     )
     blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
-    react = [b for b in blocks if b["id"] == "react_block"][0]
+    react = next(b for b in blocks if b["id"] == "react_block")
     assert react.get("defaultNextBlock") == "emit_result"
     assert "nextBlock" not in react
 
@@ -427,7 +427,7 @@ def test_disconnect_block(patch_client):
         .get_raw()
     )
     blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
-    classify_block = [b for b in blocks if b["id"] == "classify"][0]
+    classify_block = next(b for b in blocks if b["id"] == "classify")
     assert "nextBlock" not in classify_block
 
 
@@ -462,7 +462,7 @@ def test_disconnect_standard_react_clears_default_next_block(patch_client):
         .get_raw()
     )
     blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
-    react = [b for b in blocks if b["id"] == "react_block"][0]
+    react = next(b for b in blocks if b["id"] == "react_block")
     assert react.get("defaultNextBlock") == "emit_result"
 
     # Now disconnect it
@@ -482,7 +482,7 @@ def test_disconnect_standard_react_clears_default_next_block(patch_client):
 
     # Verify defaultNextBlock is gone
     blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
-    react = [b for b in blocks if b["id"] == "react_block"][0]
+    react = next(b for b in blocks if b["id"] == "react_block")
     assert "defaultNextBlock" not in react
 
 
@@ -570,11 +570,21 @@ def test_set_mode_to_blocks_graph(patch_client):
         app, ["agent-block", "set-mode", "agent1", "BLOCKS_GRAPH", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
+    assert "14.5" in result.output  # warns that mode may be a no-op on DSS ≥14.5
 
     raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
     tuas = raw["versions"][0]["toolsUsingAgentSettings"]
     assert tuas["mode"] == "BLOCKS_GRAPH"
     assert isinstance(tuas.get("blocks"), list)
+
+
+def test_set_mode_case_insensitive(patch_client):
+    result = runner.invoke(
+        app, ["agent-block", "set-mode", "agent1", "blocks_graph", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    raw = patch_client.get_project("PROJ1").get_agent("agent1").get_settings().get_raw()
+    assert raw["versions"][0]["toolsUsingAgentSettings"]["mode"] == "BLOCKS_GRAPH"
 
 
 def test_set_mode_to_simple(patch_client):
@@ -777,7 +787,7 @@ def test_list_blocks_default_next_block_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    loop = [b for b in parsed if b["id"] == "main_loop"][0]
+    loop = next(b for b in parsed if b["id"] == "main_loop")
     assert loop["next_block"] == "output (default)"
 
 
@@ -873,7 +883,7 @@ def test_connect_core_loop_uses_default_next_block(patch_client):
         .get_raw()
     )
     blocks = raw["versions"][0]["structuredAgentSettings"]["blocks"]
-    loop = [b for b in blocks if b["id"] == "new_loop"][0]
+    loop = next(b for b in blocks if b["id"] == "new_loop")
     assert loop.get("defaultNextBlock") == "output"
     assert "nextBlock" not in loop
 

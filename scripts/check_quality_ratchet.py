@@ -18,6 +18,19 @@ BROAD_EXCEPTION_ALLOW_MARKER = "quality-ratchet: allow-broad-exception"
 BASELINE_REF_ENV = "QUALITY_RATCHET_BASE_REF"
 
 
+def _tracked_python_files() -> list[str]:
+    """Git-tracked *.py files. Scoping the scan to committed code keeps
+    untracked scratch (e.g. experimental hooks) from injecting phantom debt."""
+    result = subprocess.run(
+        ["git", "ls-files", "*.py"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
 def _run_ruff() -> list[dict[str, Any]]:
     result = subprocess.run(
         [
@@ -27,9 +40,12 @@ def _run_ruff() -> list[dict[str, Any]]:
             "check",
             "--select",
             RUFF_SELECT,
+            # Count real violations regardless of inline suppression — an
+            # E501 noqa directive must not be able to game the E501 tallies.
+            "--ignore-noqa",
             "--output-format",
             "json",
-            ".",
+            *_tracked_python_files(),
         ],
         cwd=ROOT,
         text=True,
@@ -85,32 +101,45 @@ def _count_source_lines(filepath: Path) -> int:
     return significant
 
 
+_BROAD_NAMES = {"Exception", "BaseException"}
+
+
+def _is_broad_type(type_node: ast.expr | None) -> bool:
+    # Bare `except:` catches everything.
+    if type_node is None:
+        return True
+    # `except Exception` / `except BaseException`
+    if isinstance(type_node, ast.Name) and type_node.id in _BROAD_NAMES:
+        return True
+    # `except foo.Exception` / dotted BaseException
+    if isinstance(type_node, ast.Attribute) and type_node.attr in _BROAD_NAMES:
+        return True
+    # `except (Exception, ...)` / `(BaseException, ...)` — a tuple that
+    # includes a broad catch-all is just as broad.
+    if isinstance(type_node, ast.Tuple):
+        return any(_is_broad_type(elt) for elt in type_node.elts)
+    return False
+
+
+class _BroadExceptFinder(ast.NodeVisitor):
+    def __init__(self, lines: list[str]):
+        self.count = 0
+        self._lines = lines
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        line = self._lines[node.lineno - 1] if node.lineno <= len(self._lines) else ""
+        if BROAD_EXCEPTION_ALLOW_MARKER not in line and _is_broad_type(node.type):
+            self.count += 1
+        self.generic_visit(node)
+
+
 def _count_broad_exceptions(filepath: Path) -> int:
     content = filepath.read_text()
     try:
         tree = ast.parse(content)
     except SyntaxError:
         return 0
-    lines = content.splitlines()
-
-    class _BroadExceptFinder(ast.NodeVisitor):
-        def __init__(self):
-            self.count = 0
-
-        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-            line = lines[node.lineno - 1] if node.lineno <= len(lines) else ""
-            if BROAD_EXCEPTION_ALLOW_MARKER in line:
-                self.generic_visit(node)
-                return
-            if node.type is None:
-                self.count += 1
-            elif (isinstance(node.type, ast.Name) and node.type.id == "Exception") or (
-                isinstance(node.type, ast.Attribute) and node.type.attr == "Exception"
-            ):
-                self.count += 1
-            self.generic_visit(node)
-
-    finder = _BroadExceptFinder()
+    finder = _BroadExceptFinder(content.splitlines())
     finder.visit(tree)
     return finder.count
 

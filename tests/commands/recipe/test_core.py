@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch
+
 from tests.commands.recipe.helpers import app, runner
 from tests.commands.recipe.helpers import setup_prepare_mock as _setup_prepare_mock
 
@@ -74,8 +75,8 @@ def test_recipe_get_definition_sql_query_raw_payload(patch_client):
     """SQL query recipes have raw text payloads — obj_payload raises JSONDecodeError.
     get-definition must not crash and should show a text preview of the SQL.
     """
-    from unittest.mock import PropertyMock
     import json as _json
+    from unittest.mock import PropertyMock
 
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
@@ -108,8 +109,8 @@ def test_recipe_get_definition_sql_query_raw_payload(patch_client):
 
 def test_recipe_get_definition_sql_query_json_output(patch_client):
     """In JSON mode, SQL recipe payload must serialize as a string, not crash."""
-    from unittest.mock import PropertyMock
     import json as _json
+    from unittest.mock import PropertyMock
 
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
@@ -1791,3 +1792,27 @@ def test_recipe_set_engine_bad_value_rejected_at_parse(patch_client):
         ["recipe", "set-engine", "j1", "--engine", "TURBO", "--project", "PROJ1"],
     )
     assert result.exit_code == 2
+
+
+def test_recipe_create_merge_folder_bad_conflict_rejected_at_parse(patch_client):
+    """--conflict is the MergeFolderConflict click.Choice; a bad value is
+    rejected at parse time (exit 2) before any client call."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-merge-folder",
+            "merge1",
+            "--input",
+            "upload_us",
+            "--output-folder",
+            "all_uploads",
+            "--conflict",
+            "APPEND",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 2
+    proj = patch_client.get_project("PROJ1")
+    proj.new_recipe.assert_not_called()

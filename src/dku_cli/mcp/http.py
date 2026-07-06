@@ -240,7 +240,7 @@ _LANDING_TPL = """<!doctype html>
 </html>"""
 
 
-def landing_html(*, mcp_url: str, base: str, backend: str = "bubblewrap") -> str:
+def landing_html(*, mcp_url: str, backend: str = "bubblewrap") -> str:
     """A connect-info page for the exposed port, with one-click copy snippets.
 
     Shown to a human who opens the Code Studio's exposed-port URL in a browser.
@@ -312,17 +312,17 @@ def build_http_app(
     if landing:
 
         @mcp.custom_route("/", methods=["GET"])
-        async def _landing(request):  # noqa: ANN001
+        async def _landing(request):
             prefix = (
                 resolve_proxy_prefix(proxy_prefix_env, port) if behind_proxy else ""
             )
             base = external_base(request, prefix, public_url)
             return HTMLResponse(
-                landing_html(mcp_url=f"{base}{mcp_path}", base=base, backend=backend)
+                landing_html(mcp_url=f"{base}{mcp_path}", backend=backend)
             )
 
     @mcp.custom_route("/healthz", methods=["GET"])
-    async def _healthz(request):  # noqa: ANN001
+    async def _healthz(request):
         return JSONResponse({"status": "ok", "server": "dku-mcp"})
 
     middleware = None

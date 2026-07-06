@@ -50,6 +50,26 @@ def test_config_get_default_project():
         assert "MYPROJ" in result.output
 
 
+def test_config_set_safety_dangerous():
+    with patch("dku_cli.commands.config_cmd.set_dangerous_mode") as mock_set:
+        result = runner.invoke(app, ["config", "set-safety", "dangerous"])
+        assert result.exit_code == 0
+        mock_set.assert_called_once_with(True)
+
+
+def test_config_set_safety_case_insensitive():
+    with patch("dku_cli.commands.config_cmd.set_dangerous_mode") as mock_set:
+        result = runner.invoke(app, ["config", "set-safety", "GUARDED"])
+        assert result.exit_code == 0
+        mock_set.assert_called_once_with(False)
+
+
+def test_config_set_safety_bad_value():
+    result = runner.invoke(app, ["config", "set-safety", "wide-open"])
+    assert result.exit_code == 2
+    assert "guarded" in result.output
+
+
 def test_config_get_unknown_key():
     result = runner.invoke(app, ["config", "get", "nonexistent_key"])
     assert result.exit_code != 0

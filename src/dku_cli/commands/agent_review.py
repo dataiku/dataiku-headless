@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import typer
 
 from dku_cli.commands.agent import _activate_version, _deep_copy_version
@@ -89,12 +91,15 @@ def list_reviews(
 
         data = []
         for r in reviews:
+            # DSSAgentReviewListItem has no get_raw(); its raw payload is the
+            # documented `.data` attribute (and the item is a dict subclass).
+            raw = getattr(r, "data", None) or (r if isinstance(r, dict) else {})
             data.append(
                 {
                     "id": r.id,
                     "name": r.name,
-                    "agent_id": getattr(r, "data", {}).get("agentSmartId", ""),
-                    "owner": getattr(r, "data", {}).get("owner", ""),
+                    "agent_id": raw.get("agentSmartId", ""),
+                    "owner": raw.get("owner", ""),
                 }
             )
 
@@ -808,7 +813,7 @@ def results(
         trait_cols = [trait_names[tid] for tid in ordered_trait_ids]
         columns = base_cols + trait_cols
         if show_justifications:
-            columns = columns + ["justifications"]
+            columns = [*columns, "justifications"]
 
         render(
             data,
@@ -959,7 +964,7 @@ def compare_runs(
 
         render(
             data,
-            ["trait"] + run_ids,
+            ["trait", *run_ids],
             output_format=output,
             title=f"Trait pass-rate comparison ({review.id})",
         )
@@ -993,10 +998,8 @@ def get_result(
 
         # Best-effort trait-id → name map via the parent review.
         names: dict[str, str] = {}
-        try:
+        with contextlib.suppress(Exception):
             names = _trait_id_to_name(proj.get_agent_review(result.agent_review_id))
-        except Exception:
-            pass
 
         ai = _result_per_trait_status(result)
         final = _result_per_trait_final_status(result)

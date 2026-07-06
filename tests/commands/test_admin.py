@@ -586,7 +586,7 @@ def test_admin_cst_remove_block_requires_yes(patch_client):
 
 
 def test_admin_cst_remove_block_with_yes(patch_client):
-    raw, settings, _ = _wire_cst_template_settings(
+    raw, _settings, _ = _wire_cst_template_settings(
         patch_client,
         blocks=[
             {"type": "dss_base_image", "params": {}},
@@ -681,7 +681,7 @@ def test_admin_cst_set_block_params_merges(patch_client):
 
 def test_admin_cst_set_block_params_replace(patch_client):
     """--replace overwrites the whole params object."""
-    raw, settings, _ = _wire_cst_template_settings(
+    raw, _settings, _ = _wire_cst_template_settings(
         patch_client,
         blocks=[{"type": "pycdstdioblk_x_y", "params": {"webapp_port": 5000}}],
     )

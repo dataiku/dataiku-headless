@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
+from dku_cli.commands.recipe import app
 from dku_cli.commands.recipe._common import (
     _input_connection_name,
     _resolve_managed_output_connection,
@@ -18,7 +19,6 @@ from dku_cli.commands.recipe.core import (
     _resolve_plugin_role,
 )
 from dku_cli.commands.recipe.genai_embed import _files_in_folder_backing
-from dku_cli.commands.recipe import app
 
 runner = CliRunner()
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
 
 import typer
 
@@ -92,19 +91,19 @@ def _validate_reference_fields(
 @app.command("list")
 def list_artifacts(
     ctx: typer.Context,
-    blueprint: Optional[str] = typer.Option(
+    blueprint: str | None = typer.Option(
         None, "--blueprint", "-b", help="Filter by blueprint ID"
     ),
-    name: Optional[str] = typer.Option(
+    name: str | None = typer.Option(
         None,
         "--name",
         "-n",
         help="Filter by artifact name (contains, case-insensitive)",
     ),
-    archived: Optional[bool] = typer.Option(
+    archived: bool | None = typer.Option(
         None, "--archived/--no-archived", help="Filter by archived status"
     ),
-    field: Optional[List[str]] = typer.Option(
+    field: list[str] | None = typer.Option(
         None,
         "--field",
         "-f",
@@ -263,20 +262,20 @@ def get(
 @app.command()
 def create(
     ctx: typer.Context,
-    blueprint: Optional[str] = typer.Option(
+    blueprint: str | None = typer.Option(
         None,
         "--blueprint",
         "-b",
         help="Blueprint ID (e.g. bp.system.govern_project). Auto-resolves active version.",
     ),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="Artifact name"),
-    field: Optional[list[str]] = typer.Option(
+    name: str | None = typer.Option(None, "--name", "-n", help="Artifact name"),
+    field: list[str] | None = typer.Option(
         None,
         "--field",
         "-f",
         help='Set a field: key=value. Repeat for multiple fields. Lists: key=["a","b"].',
     ),
-    definition: Optional[str] = typer.Option(
+    definition: str | None = typer.Option(
         None,
         "--definition",
         help="Full artifact JSON (string, @file.json, or - for stdin). Overrides --blueprint/--name/--field.",

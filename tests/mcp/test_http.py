@@ -8,6 +8,7 @@ installed.
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from dku_cli.mcp import http as mcp_http
@@ -137,7 +138,6 @@ def test_proxy_prefix_middleware_noop_without_prefix():
 def test_landing_html_contains_endpoint_and_bearer():
     page = mcp_http.landing_html(
         mcp_url="https://dss.example.com/web-apps/P/cs/5050/mcp",
-        base="https://dss.example.com/web-apps/P/cs/5050",
     )
     assert "https://dss.example.com/web-apps/P/cs/5050/mcp" in page
     assert "Authorization: Bearer" in page
@@ -148,7 +148,6 @@ def test_landing_html_contains_endpoint_and_bearer():
 def test_landing_html_has_client_quickconnect_snippets():
     page = mcp_http.landing_html(
         mcp_url="https://dss.example.com/web-apps/P/cs/5050/mcp",
-        base="https://dss.example.com/web-apps/P/cs/5050",
     )
     assert "Claude Code" in page and "Codex" in page
     assert "claude mcp add --transport http" in page
@@ -162,7 +161,6 @@ def test_landing_html_has_client_quickconnect_snippets():
 def test_landing_html_note_is_backend_aware():
     bwrap = mcp_http.landing_html(
         mcp_url="https://dss.example.com/mcp",
-        base="https://dss.example.com",
         backend="bubblewrap",
     )
     assert "sandboxed (bubblewrap)" in bwrap
@@ -170,7 +168,6 @@ def test_landing_html_note_is_backend_aware():
 
     insecure = mcp_http.landing_html(
         mcp_url="https://dss.example.com/mcp",
-        base="https://dss.example.com",
         backend="subprocess",
     )
     # Under the subprocess fallback the page must degrade the isolation claim.

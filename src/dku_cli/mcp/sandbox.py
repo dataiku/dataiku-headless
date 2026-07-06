@@ -188,7 +188,7 @@ class BubblewrapBackend(SandboxBackend):
         return args
 
     def run(self, commands: str, *, cwd: str, env: dict, timeout: int) -> RunResult:
-        argv = self._wrap(cwd) + ["bash", "-c", commands]
+        argv = [*self._wrap(cwd), "bash", "-c", commands]
         try:
             proc = subprocess.run(
                 argv,

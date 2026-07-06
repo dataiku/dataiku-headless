@@ -31,7 +31,7 @@ def _wire_code_agent_saved_model(patch_client, inline_versions, *, active="v1"):
 
 def test_agent_set_code_happy(patch_client):
     """set-code mutates the active inline version's code in place + round-trips."""
-    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
+    _sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
         patch_client, [{"versionId": "v1", "code": "old"}]
     )
     sm_raw["savedModelType"] = "PYTHON_AGENT"
@@ -46,7 +46,7 @@ def test_agent_set_code_happy(patch_client):
 
 def test_agent_set_code_new_version_activate(patch_client):
     """--new-version appends a fresh version; --activate flips the active pointer."""
-    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
+    sm, _sm_settings, sm_raw = _wire_code_agent_saved_model(
         patch_client, [{"versionId": "v1", "code": "old"}]
     )
     sm_raw["savedModelType"] = "PYTHON_AGENT"
@@ -73,7 +73,7 @@ def test_agent_set_code_new_version_activate(patch_client):
 
 def test_agent_set_code_rejects_non_python_agent(patch_client):
     """A non-PYTHON_AGENT is rejected up front, before any save()."""
-    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
+    _sm, sm_settings, sm_raw = _wire_code_agent_saved_model(
         patch_client, [{"versionId": "v1"}]
     )
     sm_raw["savedModelType"] = "TOOLS_USING_AGENT"
@@ -88,7 +88,7 @@ def test_agent_set_code_rejects_non_python_agent(patch_client):
 
 def test_agent_set_code_no_inline_versions(patch_client):
     """An agent with no inline versions is not a Code Agent → prescriptive error."""
-    sm, sm_settings, sm_raw = _wire_code_agent_saved_model(patch_client, [])
+    _sm, sm_settings, _sm_raw = _wire_code_agent_saved_model(patch_client, [])
     result = runner.invoke(
         app, ["agent", "set-code", "agent1", "-f", "x=1", "-P", "PROJ1"]
     )
@@ -697,6 +697,39 @@ def test_agent_test_by_name(patch_client):
     )
     assert result.exit_code == 0
     assert "Hello from LLM" in result.output
+
+
+def _agent_completion_result(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    return proj.get_agent("agent1").as_llm().new_completion().execute()
+
+
+def test_agent_test_failure_exits_nonzero(patch_client):
+    result_obj = _agent_completion_result(patch_client)
+    result_obj.success = False
+    result_obj.text = ""
+    result = runner.invoke(
+        app,
+        ["agent", "test", "agent1", "Hello", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "completion failed" in result.output
+
+
+def test_agent_test_failure_json_reports_success_false_and_exits_nonzero(
+    patch_client,
+):
+    """A failed completion must exit non-zero under --format json too, or
+    `dku agent test ... -f json && deploy` proceeds on a broken agent."""
+    result_obj = _agent_completion_result(patch_client)
+    result_obj.success = False
+    result = runner.invoke(
+        app,
+        ["--format", "json", "agent", "test", "agent1", "Hello", "--project", "PROJ1"],
+    )
+    parsed = json.loads(result.output)
+    assert parsed["success"] is False
+    assert result.exit_code == 1
 
 
 # --- set-metadata ---

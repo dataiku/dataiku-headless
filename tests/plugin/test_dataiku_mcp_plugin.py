@@ -145,7 +145,9 @@ def test_semantic_release_commits_generated_plugin_assets():
     semantic = config["tool"]["semantic_release"]
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
 
-    assert config["project"]["optional-dependencies"]["mcp"] == ["fastmcp>=2.0,<4"]
+    # >=3 (not >=2.0): the lock resolves fastmcp 3.x and CI only ever exercises
+    # 3.x — a wider lower bound would advertise untested compatibility.
+    assert config["project"]["optional-dependencies"]["mcp"] == ["fastmcp>=3,<4"]
     assert semantic["build_command"] == "uv lock && make plugin"
     assert set(semantic["assets"]) >= {
         ".claude-plugin/marketplace.json",

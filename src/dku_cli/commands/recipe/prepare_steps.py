@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dku_cli.enums import FilterAction, GeoDistanceUnitMiles, ReorderMode
+
 # ruff: noqa: F403,F405
 from ._common import *
-from dku_cli.enums import FilterAction, GeoDistanceUnitMiles, ReorderMode
 
 # ---------------------------------------------------------------------------
 # Prepare recipe step commands
@@ -1071,9 +1072,9 @@ def add_rename(
         if not stripped.startswith(("{", "@", "-")):
             pairs = [p for p in stripped.split(",") if p.strip()]
             if pairs and all(p.count(":") == 1 for p in pairs):
-                parsed = dict(
-                    (k.strip(), v.strip()) for k, v in (p.split(":") for p in pairs)
-                )
+                parsed = {
+                    k.strip(): v.strip() for k, v in (p.split(":") for p in pairs)
+                }
             else:
                 exit_with_error(
                     f"Could not parse --mappings {mappings!r}.",

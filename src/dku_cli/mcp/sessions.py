@@ -17,7 +17,7 @@ import secrets
 import shutil
 import threading
 from collections import OrderedDict
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,6 +50,7 @@ class SessionStore:
     ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        _chmod(self.root, 0o700)
         self._secret = self._load_or_create_secret()
         self._max_sessions = max(1, int(max_sessions))
         self._sessions: OrderedDict[str, Session] = OrderedDict()
@@ -99,21 +100,6 @@ class SessionStore:
             with self._lock:
                 session.active -= 1
 
-    @contextmanager
-    def lease(self, session: Session):
-        """Mark a session in-use for the duration of an execution.
-
-        A leased session is exempt from LRU eviction, so a concurrent burst of
-        new sessions cannot rmtree the workdir of a still-running command.
-        """
-        with self._lock:
-            session.active += 1
-        try:
-            yield session
-        finally:
-            with self._lock:
-                session.active -= 1
-
     def _evict_overflow(self, *, protect: Session | None = None) -> None:
         """Drop least-recently-used idle sessions over the cap, removing their workdirs.
 
@@ -138,8 +124,6 @@ class SessionStore:
 
 
 def _chmod(path: Path, mode: int) -> None:
-    try:
+    # Best-effort: some filesystems (e.g. Windows) don't support POSIX modes.
+    with suppress(OSError):
         os.chmod(path, mode)
-    except OSError:
-        # Best-effort: some filesystems (e.g. Windows) don't support POSIX modes.
-        pass

@@ -32,3 +32,9 @@ make test-plugin                                    # only if MCP packaging chan
 - Add tests for new code and bug fixes; update the relevant `docs/` or skill reference.
 
 Branch from `main`, open a PR against `main`, and fill in the PR template.
+
+## Security
+
+Please do not file security issues as public issues or PRs. Report suspected
+vulnerabilities privately via GitHub Security Advisories as described in
+[`SECURITY.md`](SECURITY.md).

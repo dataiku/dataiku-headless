@@ -6,9 +6,14 @@ import os
 import sys
 from typing import NamedTuple
 
-from platformdirs import user_config_dir
-from pathlib import Path
-from dku_cli.config import get_profile_credential_store, set_profile_credential_store
+from dku_cli.config import (
+    CONFIG_DIR,
+    CREDENTIALS_FILE,
+    _toml_key,
+    _toml_value,
+    get_profile_credential_store,
+    set_profile_credential_store,
+)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -16,8 +21,8 @@ else:
     import tomli as tomllib
 
 SERVICE_NAME = "dku-cli"
-CONFIG_DIR = Path(user_config_dir("dku", ensure_exists=True))
-CREDENTIALS_FILE = CONFIG_DIR / "credentials.toml"
+
+__all__ = ["CONFIG_DIR", "CREDENTIALS_FILE"]
 
 
 class KeyStatus:
@@ -258,9 +263,11 @@ def _write_credentials(data: dict) -> None:
     lines: list[str] = []
     for profile, values in data.items():
         if isinstance(values, dict):
-            lines.append(f"[{profile}]")
+            # Quote the header: a profile like `dss.prod` would otherwise parse
+            # as a nested table and the stored key becomes unretrievable.
+            lines.append(f"[{_toml_key(profile)}]")
             for k, v in values.items():
-                lines.append(f'{k} = "{v}"')
+                lines.append(f"{k} = {_toml_value(v)}")
             lines.append("")
     CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(CREDENTIALS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

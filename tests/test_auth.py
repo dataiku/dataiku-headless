@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
 import os
+from unittest.mock import MagicMock, patch
 
 from dku_cli.auth import (
     KeyStatus,
@@ -23,23 +23,25 @@ def test_keyring_available_false_when_fail_backend():
     mock_keyring.get_keyring.return_value = mock_backend
     with patch.dict("sys.modules", {"keyring": mock_keyring}):
         with patch("dku_cli.auth._keyring_available", return_value=False):
-            assert not _keyring_available() or True  # We patched it
+            assert not _keyring_available()
 
 
 def test_file_fallback_store_and_retrieve(tmp_path):
     cred_file = tmp_path / "credentials.toml"
-    with patch("dku_cli.auth.CREDENTIALS_FILE", cred_file):
+    config_file = tmp_path / "config.toml"
+    with (
+        patch("dku_cli.auth.CREDENTIALS_FILE", cred_file),
+        patch("dku_cli.config.CONFIG_FILE", config_file),
+        patch("dku_cli.auth._keyring_available", return_value=False),
+    ):
         store_result = store_api_key("test-profile", "test-key-123")
-        assert "credentials file" in store_result or "Keychain" in store_result or True
+        assert store_result == f"credentials file ({cred_file})"
 
-        # If keyring is available on this system, it may use that
-        # Test the file fallback path explicitly
-        from dku_cli.auth import _store_file_fallback, _get_file_fallback
+        from dku_cli.auth import _get_file_fallback, _store_file_fallback
 
-        with patch("dku_cli.auth.CREDENTIALS_FILE", cred_file):
-            _store_file_fallback("file-test", "file-key-456")
-            result = _get_file_fallback("file-test")
-            assert result == "file-key-456"
+        _store_file_fallback("file-test", "file-key-456")
+        result = _get_file_fallback("file-test")
+        assert result == "file-key-456"
 
 
 def test_file_fallback_is_created_private_before_write(tmp_path):
@@ -57,9 +59,9 @@ def test_file_fallback_delete(tmp_path):
     cred_file = tmp_path / "credentials.toml"
     with patch("dku_cli.auth.CREDENTIALS_FILE", cred_file):
         from dku_cli.auth import (
-            _store_file_fallback,
             _delete_file_fallback,
             _get_file_fallback,
+            _store_file_fallback,
         )
 
         _store_file_fallback("del-test", "del-key")
@@ -376,3 +378,89 @@ def test_get_api_key_missing_when_neither_store_has_key(tmp_path):
         result = get_api_key_with_status("default")
         assert result.key is None
         assert result.status == KeyStatus.MISSING
+
+
+# ── TOML escaping: keys with quotes/backslashes must round-trip ──────────
+
+
+def test_file_fallback_round_trips_api_key_with_double_quote(tmp_path):
+    """A key containing a double quote must write parseable TOML and read back."""
+    cred_file = tmp_path / "credentials.toml"
+    config_file = tmp_path / "config.toml"
+    tricky = 'dkuaps-ab"cd"ef'
+    with (
+        patch("dku_cli.auth.CREDENTIALS_FILE", cred_file),
+        patch("dku_cli.config.CONFIG_FILE", config_file),
+        patch("dku_cli.auth._keyring_available", return_value=False),
+    ):
+        store_api_key("default", tricky)
+        assert get_api_key("default") == tricky
+
+
+def test_file_fallback_write_is_owner_only(tmp_path):
+    """The credentials file auth writes must be chmod 0600 (owner read/write)."""
+    import stat
+
+    cred_file = tmp_path / "credentials.toml"
+    config_file = tmp_path / "config.toml"
+    with (
+        patch("dku_cli.auth.CREDENTIALS_FILE", cred_file),
+        patch("dku_cli.config.CONFIG_FILE", config_file),
+        patch("dku_cli.auth._keyring_available", return_value=False),
+    ):
+        store_api_key("default", "dkuaps-secret")
+
+    assert stat.S_IMODE(cred_file.stat().st_mode) == 0o600
+
+
+def test_auth_reuses_config_constants_without_import_time_mkdir():
+    """auth imports config's path constants (one home) and never mkdir on import.
+
+    Regression: auth.py used to redefine CONFIG_DIR via
+    user_config_dir(ensure_exists=True), which writes to ~/.config at import
+    time — crashing on a read-only Code Studio pod. The dir must come from
+    config.py (ensure_exists=False) and auth must not call user_config_dir.
+    """
+    import inspect
+
+    import dku_cli.auth as auth_mod
+    import dku_cli.config as config_mod
+
+    assert auth_mod.CONFIG_DIR == config_mod.CONFIG_DIR
+    assert auth_mod.CREDENTIALS_FILE == config_mod.CREDENTIALS_FILE
+
+    # config resolves the dir lazily (ensure_exists=False), never at import.
+    config_src = inspect.getsource(config_mod)
+    assert "ensure_exists=False" in config_src
+    assert "ensure_exists=True" not in config_src
+
+    # auth must no longer redefine the dir via platformdirs.
+    assert "user_config_dir" not in inspect.getsource(auth_mod)
+
+
+def test_file_fallback_round_trips_api_key_with_backslash(tmp_path):
+    """A key containing a backslash must write parseable TOML and read back."""
+    cred_file = tmp_path / "credentials.toml"
+    config_file = tmp_path / "config.toml"
+    tricky = "dkuaps-ab\\cd\\ef"
+    with (
+        patch("dku_cli.auth.CREDENTIALS_FILE", cred_file),
+        patch("dku_cli.config.CONFIG_FILE", config_file),
+        patch("dku_cli.auth._keyring_available", return_value=False),
+    ):
+        store_api_key("default", tricky)
+        assert get_api_key("default") == tricky
+
+
+def test_file_fallback_profile_names_are_toml_safe(tmp_path):
+    """The section header must be quoted: an unquoted profile like `dss.prod`
+    parses as a NESTED table, so the stored key silently becomes unretrievable
+    ("No API key configured" right after a successful login)."""
+    cred_file = tmp_path / "credentials.toml"
+    from dku_cli.auth import _get_file_fallback, _store_file_fallback
+
+    with patch("dku_cli.auth.CREDENTIALS_FILE", cred_file):
+        for profile in ("dss.prod", "with ]bracket", "plain"):
+            _store_file_fallback(profile, f"key-for-{profile}")
+        for profile in ("dss.prod", "with ]bracket", "plain"):
+            assert _get_file_fallback(profile) == f"key-for-{profile}"

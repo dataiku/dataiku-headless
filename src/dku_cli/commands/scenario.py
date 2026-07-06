@@ -2,25 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import typer
 
-from dku_cli.enums import EnvMode
-from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
-from dku_cli.helpers import (
-    get_client_from_ctx,
-    read_json_input,
-    read_text_input,
-    resolve_project,
-)
-from dku_cli.output import (
-    error,
-    info,
-    render,
-    render_raw,
-    resolve_output_format,
-    success,
-    warn,
-)
 from dku_cli.commands.scenario_payloads import (
     KNOWN_STEP_TYPES,
     build_python_trigger,
@@ -33,6 +18,24 @@ from dku_cli.commands.scenario_payloads import (
     validate_build_job_type,
     validate_handle_warnings_as,
     validate_run_options,
+)
+from dku_cli.enums import EnvMode
+from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    read_json_input,
+    read_text_input,
+    resolve_project,
+)
+from dku_cli.output import (
+    error,
+    info,
+    print_text,
+    render,
+    render_raw,
+    resolve_output_format,
+    success,
+    warn,
 )
 
 app = typer.Typer(help="Manage DSS scenarios.")
@@ -442,7 +445,7 @@ def get_code(
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         payload = scenario.get_payload()
-        print(payload)
+        print_text(payload)
     except Exception as e:
         handle_api_error(e)
 
@@ -568,10 +571,8 @@ def runs(
         for r in run_list:
             start = ""
             if hasattr(r, "get_start_time"):
-                try:
+                with contextlib.suppress(Exception):
                     start = str(r.get_start_time())
-                except Exception:
-                    pass
             duration = ""
             try:
                 dur_secs = r.get_duration()
@@ -728,7 +729,7 @@ def run_log(
                 return
         if tail is not None:
             log_text = _scenario_tail_lines(log_text, tail)
-        print(log_text)
+        print_text(log_text)
     except typer.Exit:
         raise
     except Exception as e:
@@ -1277,7 +1278,7 @@ def _warn_dropped_step_params(scenario, idx: int, step: dict) -> None:
     try:
         fresh_steps = _resolve_step_settings(scenario).raw_steps
         kept = fresh_steps[idx].get("params", {})
-    except Exception:  # noqa: BLE001
+    except Exception:
         return
     if not isinstance(kept, dict):
         return
@@ -1318,7 +1319,7 @@ def list_steps(
         settings = _resolve_step_settings(scenario)
         steps = settings.raw_steps
         if output == "json":
-            print(__import__("json").dumps(steps, indent=2, default=str))
+            render_raw(steps, output_format="json")
             return
         rows = [
             {

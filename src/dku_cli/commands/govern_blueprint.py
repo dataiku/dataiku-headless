@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from dku_cli.commands._govern_blueprint_describe import (
     _build_field_rows,
-    _build_signoff_rows as _build_signoff_rows,
     _build_step_rows,
     _build_view_rows,
     _describe_version_warnings,
@@ -17,6 +14,9 @@ from dku_cli.commands._govern_blueprint_describe import (
     _resolve_blueprint_name,
     _resolve_version_status,
     _workflow_steps,
+)
+from dku_cli.commands._govern_blueprint_describe import (
+    _build_signoff_rows as _build_signoff_rows,
 )
 from dku_cli.enums import (
     BlueprintStatus,
@@ -380,7 +380,7 @@ def fields(
     blueprint_id: str = typer.Argument(
         help="Blueprint ID (e.g. bp.system.govern_project)"
     ),
-    version_id: Optional[str] = typer.Option(
+    version_id: str | None = typer.Option(
         None, "--version", "-v", help="Version ID (default: active version)"
     ),
 ) -> None:
@@ -634,10 +634,10 @@ def create_version(
     new_identifier: str = typer.Argument(
         help="New version identifier (letters, digits, hyphen, underscore). Becomes 'bv.<identifier>'."
     ),
-    name: Optional[str] = typer.Option(
+    name: str | None = typer.Option(
         None, "--name", "-n", help="Human-readable version name"
     ),
-    origin_version_id: Optional[str] = typer.Option(
+    origin_version_id: str | None = typer.Option(
         None,
         "--from",
         "-f",
@@ -711,9 +711,7 @@ def set_version_definition(
         defn = version.get_definition()
         new_def = read_json_input(definition)
         if not isinstance(new_def, dict):
-            exit_with_error(
-                "Definition must be a JSON object (got list or scalar).",
-            )
+            exit_with_error("Definition must be a JSON object (got list or scalar).")
         defn.definition = new_def
         lint_warnings = _lint_version_definition(new_def)
         defn.save(danger_zone_accepted=force)
@@ -1166,7 +1164,7 @@ def import_version(
         case_sensitive=False,
         help="How strictly to validate signoff reviewer/approver references: ALL (strict — fail if any user/group/role/key missing), EXISTING (keep only existing, drop missing silently), NONE (skip validation, drop everything).",
     ),
-    migration_behavior: Optional[MigrationBehavior] = typer.Option(
+    migration_behavior: MigrationBehavior | None = typer.Option(
         None,
         "--migration-behavior",
         case_sensitive=False,

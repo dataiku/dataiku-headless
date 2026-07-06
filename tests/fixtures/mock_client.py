@@ -136,69 +136,6 @@ def create_mock_client():
         },
     ]
 
-    # Project Git
-    git_mock = MagicMock()
-    git_mock.get_status.return_value = {
-        "currentBranch": "master",
-        "clean": True,
-        "hasUncommittedChanges": False,
-        "added": [],
-        "changed": [],
-        "removed": [],
-        "modified": [],
-        "untracked": [],
-        "conflicting": [],
-    }
-    git_mock.log.return_value = {
-        "entries": [
-            {
-                "commitId": "abc123def456",
-                "message": "Initial commit",
-                "author": "testuser",
-                "date": 1711900800000,
-            }
-        ],
-        "nextCommit": None,
-    }
-    git_mock.diff.return_value = {
-        "addedLines": 10,
-        "removedLines": 5,
-        "changedFiles": 2,
-        "entries": [],
-    }
-    git_mock.commit.return_value = None
-    git_mock.pull.return_value = {
-        "success": True,
-        "logs": [],
-        "output": "Already up to date",
-    }
-    git_mock.push.return_value = {"success": True, "logs": [], "output": "ok"}
-    git_mock.fetch.return_value = {"success": True, "logs": [], "output": "ok"}
-    git_mock.list_branches.return_value = ["master", "feature/test"]
-    git_mock.create_branch.return_value = {
-        "success": True,
-        "output": "Created branch",
-    }
-    git_mock.delete_branch.return_value = None
-    git_mock.switch.return_value = {
-        "success": True,
-        "messages": [],
-        "output": "Switched",
-    }
-    git_mock.list_tags.return_value = [
-        {
-            "name": "refs/tags/v1.0",
-            "shortName": "v1.0",
-            "commit": "abc123def456",
-            "annotations": "",
-            "readOnly": False,
-        }
-    ]
-    git_mock.create_tag.return_value = None
-    git_mock.get_remote.return_value = "https://github.com/example/project.git"
-    git_mock.set_remote.return_value = None
-    proj1.get_project_git.return_value = git_mock
-
     # Library mock — mimics DSSLibrary/DSSLibraryFile/DSSLibraryFolder
     library_mock = MagicMock()
 
@@ -2126,7 +2063,7 @@ def create_mock_client():
 
     def _get_algorithm_settings(name):
         if name not in ml_algo_settings:
-            raise ValueError("Unknown algorithm: {}".format(name))
+            raise ValueError(f"Unknown algorithm: {name}")
         return ml_algo_settings[name]
 
     ml_settings_mock.get_algorithm_settings.side_effect = _get_algorithm_settings

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
-import dataikuapi
+if TYPE_CHECKING:
+    import dataikuapi
 
 from dku_cli.auth import KeyStatus, get_api_key_with_status
 from dku_cli.config import (
@@ -111,6 +113,8 @@ def _in_pod_ticket_client(profile: str) -> dataikuapi.DSSClient | None:
     inject are missing — that means the CLI is being run outside a
     DSS-launched container, where ticket mode can't work.
     """
+    import dataikuapi
+
     cfg = get_profile_config(profile)
     if cfg.get("auth_mode") != AUTH_MODE_IN_POD_TICKET:
         return None
@@ -164,6 +168,8 @@ def get_client(
     --url nor --api-key are passed (an explicit override means the caller is
     pointing at a different DSS, where the in-pod ticket would not be valid).
     """
+    import dataikuapi
+
     if not url and not api_key:
         active = profile or os.environ.get("DKU_PROFILE") or get_active_profile()
         ticket_client = _in_pod_ticket_client(active)
@@ -184,6 +190,8 @@ def get_govern_client(
     injects a ticket valid against the local backend, and Govern always lives
     on a separate node from the studio that launched the pod.
     """
+    import dataikuapi
+
     resolved_url, resolved_key = resolve_auth(url, api_key, profile)
     return dataikuapi.GovernClient(resolved_url, api_key=resolved_key)
 
@@ -196,6 +204,8 @@ def probe_node_type(url: str, api_key: str) -> str | None:
     get_instance_info() works on every node type — GovernClient also works but
     fails for non-govern auth edge cases. Returns None if both probes fail.
     """
+    import dataikuapi
+
     # DSSClient.get_instance_info() succeeds against any node the API key
     # is valid on, including GOVERN (the endpoint /instance-info is shared).
     try:

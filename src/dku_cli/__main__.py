@@ -1,5 +1,5 @@
 """Allow running as `python -m dku_cli`."""
 
-from dku_cli.main import app
+from dku_cli.main import run
 
-app()
+run()

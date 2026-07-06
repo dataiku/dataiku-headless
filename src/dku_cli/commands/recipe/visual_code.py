@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 # ruff: noqa: F403,F405
 from dku_cli.enums import EngineType, FilterAction
 
@@ -483,10 +485,8 @@ def create_sort(
             recipe_obj = proj.get_recipe(recipe_name)
             sort_settings = recipe_obj.get_settings()
             if sort_col:
-                try:
+                with contextlib.suppress(AttributeError, TypeError):
                     sort_settings.clear_sorting_keys()
-                except (AttributeError, TypeError):
-                    pass
                 for col_spec in sort_col:
                     if ":" in col_spec:
                         col, direction = col_spec.rsplit(":", 1)

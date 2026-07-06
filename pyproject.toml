@@ -35,13 +35,13 @@ dependencies = [
 ]
 
 [project.scripts]
-dku = "dku_cli.main:app"
+dku = "dku_cli.main:run"
 dku-mcp = "dku_cli.mcp.cli:app"
 
 [project.optional-dependencies]
 # Runtime for the `dku-mcp serve` MCP server. Kept optional so the base CLI
 # install stays lean.
-mcp = ["fastmcp>=2.0,<4"]
+mcp = ["fastmcp>=3,<4"]
 
 [project.urls]
 Homepage = "https://github.com/dataiku/dku-headless"
@@ -58,10 +58,30 @@ dev = [
     "pyyaml>=6.0.3",
     "ruff>=0.15.7",
     "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
 ]
+[tool.ruff]
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "C4", "RUF"]
+ignore = [
+    "B008",
+    # Ambiguous-unicode rules flag deliberate typography in user-facing help
+    # text, output strings, and docstrings — en dashes ("READ – WRITE") and
+    # multiplication signs ("3× faster"). "Fixing" them degrades the prose.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["SIM117", "B017"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v"
+addopts = "--timeout=120"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dku_cli"]

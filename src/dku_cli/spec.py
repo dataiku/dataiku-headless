@@ -14,9 +14,9 @@ whole tree from the root.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import json
 import re
+from collections.abc import Mapping
 
 import click
 

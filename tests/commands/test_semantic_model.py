@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from unittest.mock import MagicMock
 
@@ -274,10 +275,8 @@ def test_get_version_uninitialized_hint_is_parseable(patch_client):
         ],
     )
     streams = result.output
-    try:
+    with contextlib.suppress(ValueError, AttributeError):
         streams += result.stderr
-    except (ValueError, AttributeError):
-        pass
     assert "unexpected extra argument" not in streams.lower()
 
 
@@ -473,7 +472,7 @@ def test_update_index_wait(patch_client):
 
 def test_get_by_name(patch_client):
     """Passing a name instead of ID should resolve via list_semantic_models."""
-    proj, sm_mock = _setup_name_resolution(patch_client)
+    proj, _sm_mock = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app,
         ["semantic-model", "get", "My Semantic Model", "--project", "PROJ1"],
@@ -484,7 +483,7 @@ def test_get_by_name(patch_client):
 
 def test_delete_by_name(patch_client):
     """Delete command resolves by name."""
-    proj, sm_mock = _setup_name_resolution(patch_client)
+    _proj, sm_mock = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app,
         [
@@ -502,7 +501,7 @@ def test_delete_by_name(patch_client):
 
 def test_not_found(patch_client):
     """Unknown name/ID gives prescriptive error listing available SMs."""
-    proj, _ = _setup_name_resolution(patch_client)
+    _proj, _ = _setup_name_resolution(patch_client)
     result = runner.invoke(
         app,
         ["semantic-model", "get", "nonexistent", "--project", "PROJ1"],

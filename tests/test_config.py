@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-
 from dku_cli.config import (
     _read_toml,
     _toml_key,
-    _write_toml,
     _toml_value,
+    _write_toml,
     clear_profile_configs,
     delete_profile_config,
     get_config,
@@ -157,6 +156,24 @@ def test_set_profile_credential_store_preserves_existing_values(tmp_path):
     assert result["default"]["url"] == "https://default.example.com"
     assert result["default"]["default_project"] == "PROJ1"
     assert result["default"]["credential_store"] == "file"
+
+
+def test_write_toml_does_not_chmod_credentials_path(tmp_path):
+    """config never writes credentials; _write_toml must not chmod that path.
+
+    The old dead branch chmod'd 0600 whenever the target equalled
+    CREDENTIALS_FILE, but config.py never targets it — auth.py owns credential
+    writes. Writing config to a path named like the credentials file must not
+    invoke Path.chmod at all.
+    """
+    path = tmp_path / "credentials.toml"
+    with (
+        patch("dku_cli.config.CREDENTIALS_FILE", path),
+        patch("pathlib.Path.chmod") as chmod,
+    ):
+        _write_toml(path, {"default": {"url": "https://dss.example.com"}})
+
+    chmod.assert_not_called()
 
 
 def test_get_profile_credential_store_returns_value(tmp_path):

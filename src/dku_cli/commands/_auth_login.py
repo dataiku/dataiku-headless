@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit, urlunsplit
 
-import dataikuapi
-import requests
 import typer
-from dataikuapi.utils import DataikuException
 from rich.prompt import Prompt
 
 from dku_cli.auth import infer_api_key_kind, store_api_key
@@ -63,17 +60,25 @@ def _resolve_login_inputs(
 
 
 def _authenticate(url: str, api_key: str):
+    # Lazy: keep the HTTP stack off the `dku --help` cold-import path.
+    import dataikuapi
+    import requests
+    from dataikuapi.utils import DataikuException
+
     try:
         client = dataikuapi.DSSClient(url, api_key=api_key)
         auth_info = client.get_auth_info()
         user = auth_info.get("authIdentifier", "unknown")
     except (DataikuException, requests.RequestException) as e:
         error(f"Could not connect to {url}: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     return client, user
 
 
 def _instance_metadata(client) -> tuple[str, str | None]:
+    import requests
+    from dataikuapi.utils import DataikuException
+
     version = "unknown"
     node_type: str | None = None
     try:

@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
+# Raise the csv field-size limit at startup. dataikuapi streams dataset rows
+# as CSV and parses them with the stdlib `csv` module, whose default
+# field_size_limit (131072 bytes) rejects large cells — geometry WKT/GeoJSON,
+# long JSON blobs, big text columns — with "field larger than field limit",
+# surfacing as a confusing DSS API error on `dataset head` / `sql query`.
+# The limit is a module global, so raising it here fixes every iter_rows read.
+# Use the standard decrement-on-OverflowError idiom (sys.maxsize overflows the
+# C long on some platforms).
+import csv as _csv
 import sys
-from typing import Optional
 
 import typer
 from typer.core import TyperCommand, TyperGroup
 
+from dku_cli._format_flag import _extract_format_flag, _owned_opts
 from dku_cli.brand import version_string
 from dku_cli.commands import (
+    admin,
     agent,
     agent_block,
     agent_hub,
     agent_review,
     agent_tool,
-    admin,
     analysis,
     api_deployer,
     api_key,
@@ -68,16 +77,6 @@ from dku_cli.commands import (
     workspace,
 )
 
-# Raise the csv field-size limit at startup. dataikuapi streams dataset rows
-# as CSV and parses them with the stdlib `csv` module, whose default
-# field_size_limit (131072 bytes) rejects large cells — geometry WKT/GeoJSON,
-# long JSON blobs, big text columns — with "field larger than field limit",
-# surfacing as a confusing DSS API error on `dataset head` / `sql query`.
-# The limit is a module global, so raising it here fixes every iter_rows read.
-# Use the standard decrement-on-OverflowError idiom (sys.maxsize overflows the
-# C long on some platforms).
-import csv as _csv
-
 
 def _raise_csv_field_limit() -> None:
     limit = sys.maxsize
@@ -117,56 +116,8 @@ TyperCommand.format_help = _spec_help
 #     keeps it — those spellings are never extracted there;
 #   * groups only scan their leading flag run (a subcommand name ends it), so
 #     a trailing flag is always interpreted by the leaf that owns it.
-# Tokens after `--` are left untouched.
-_FORMAT_FLAGS = ("--format", "-o")
-
-
-def _extract_format_flag(
-    args: list[str],
-    ctx,
-    *,
-    owned: frozenset[str] = frozenset(),
-    prefix_only: bool = False,
-) -> list[str]:
-    flags = tuple(f for f in _FORMAT_FLAGS if f not in owned)
-    rest: list[str] = []
-    value: str | None = None
-    i = 0
-    while i < len(args):
-        tok = args[i]
-        if tok == "--" or (prefix_only and not tok.startswith("-")):
-            rest.extend(args[i:])
-            break
-        if tok in flags:
-            if i + 1 >= len(args):
-                raise typer.BadParameter(f"Option '{tok}' requires an argument.")
-            value = args[i + 1]
-            i += 2
-            continue
-        if any(tok.startswith(f + "=") for f in flags):
-            value = tok.split("=", 1)[1]
-            i += 1
-            continue
-        rest.append(tok)
-        i += 1
-    if value is not None:
-        from dku_cli.output import OUTPUT_FORMATS, set_output_format
-
-        if value.lower() not in OUTPUT_FORMATS:
-            raise typer.BadParameter(
-                f"Invalid value for '--format': must be one of: "
-                f"{', '.join(OUTPUT_FORMATS)}"
-            )
-        set_output_format(value)
-    return rest
-
-
-def _owned_opts(cmd) -> frozenset[str]:
-    return frozenset(
-        o for p in cmd.params for o in (*p.opts, *getattr(p, "secondary_opts", ()))
-    )
-
-
+# Tokens after `--` are left untouched. The extraction helpers live in
+# dku_cli._format_flag; the parse_args wiring stays here.
 _original_group_parse_args = TyperGroup.parse_args
 _original_command_parse_args = TyperCommand.parse_args
 
@@ -280,16 +231,16 @@ def _configure_output(format_: str | None) -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    url: Optional[str] = typer.Option(
+    url: str | None = typer.Option(
         None, "--url", envvar="DKU_URL", help="DSS instance URL"
     ),
-    api_key: Optional[str] = typer.Option(
+    api_key: str | None = typer.Option(
         None, "--api-key", envvar="DKU_API_KEY", help="API key"
     ),
-    profile: Optional[str] = typer.Option(
+    profile: str | None = typer.Option(
         None, "--profile", "-p", envvar="DKU_PROFILE", help="Auth profile name"
     ),
-    format_: Optional[str] = typer.Option(
+    format_: str | None = typer.Option(
         None,
         "--format",
         "-o",
@@ -298,13 +249,13 @@ def main(
         "to pipe), or quiet (data only, no stderr messages). Default: TSV "
         "for lists, compact JSON for objects. Accepted at any position.",
     ),
-    dangerous: Optional[bool] = typer.Option(
+    dangerous: bool | None = typer.Option(
         None,
         "--dangerous",
         envvar="DKU_DANGEROUS",
         help="Disable safety guards for destructive commands (tiers 2–3). Prints a warning banner.",
     ),
-    version: Optional[bool] = typer.Option(
+    version: bool | None = typer.Option(
         None,
         "--version",
         "-V",
@@ -337,7 +288,7 @@ def whoami(ctx: typer.Context) -> None:
     from dku_cli.client import resolve_node_type
     from dku_cli.errors import handle_api_error
     from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
-    from dku_cli.output import render, render_raw, resolve_output_format
+    from dku_cli.output import render, render_raw, resolve_output_format, warn
 
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
@@ -345,12 +296,15 @@ def whoami(ctx: typer.Context) -> None:
         user_name = auth_info.get("authIdentifier", "unknown")
         groups = auth_info.get("groups", [])
 
+        url = client.host
         try:
-            url = client.host
-            version = client.get_instance_info().raw.get("dssVersion", "")
+            version = client.get_instance_info().raw.get("dssVersion") or None
         except Exception:
-            version = ""
-            url = ""
+            version = None
+            warn(
+                "Authenticated, but could not read instance info "
+                "(dss_version unavailable) — the account may lack admin rights."
+            )
 
         opts = ctx.obj or {}
         node_type = resolve_node_type(profile=opts.get("profile"))
@@ -394,3 +348,18 @@ def list_commands(ctx: typer.Context) -> None:
         else ["group", "command", "description"]
     )
     render(rows, columns)
+
+
+def run() -> None:
+    """Console-script entry point.
+
+    The BrokenPipeError net must live here, not only in ``__main__.py`` — the
+    installed ``dku`` binary calls this directly and never passes through
+    ``python -m dku_cli``, so a net that exists only there protects nothing.
+    """
+    from dku_cli.errors import _exit_on_broken_pipe
+
+    try:
+        app()
+    except BrokenPipeError:
+        _exit_on_broken_pipe()

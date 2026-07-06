@@ -15,10 +15,8 @@ from __future__ import annotations
 import os
 import sys
 from enum import IntEnum
-from typing import Optional
 
 import typer
-
 
 SAFETY_BLOCKED_EXIT = 77
 
@@ -53,7 +51,7 @@ def _tier_label(tier: Tier) -> str:
     }[tier]
 
 
-def is_dangerous_mode(ctx: Optional[typer.Context] = None) -> tuple[bool, str]:
+def is_dangerous_mode(ctx: typer.Context | None = None) -> tuple[bool, str]:
     """Return (enabled, reason).
 
     Precedence: --dangerous flag > DKU_DANGEROUS env > config.toml.
@@ -113,7 +111,7 @@ def _reconstruct_rerun(extra_flags: list[str]) -> str:
             continue
         cleaned.append(arg)
 
-    return " ".join([head] + cleaned + extra_flags)
+    return " ".join([head, *cleaned, *extra_flags])
 
 
 def _emit_block(
@@ -144,7 +142,7 @@ def _emit_block(
     err_console.print(f"[dim]Exit code: {SAFETY_BLOCKED_EXIT}  (safety_blocked)[/dim]")
 
 
-def _warn_dangerous_once(ctx: Optional[typer.Context], reason: str) -> None:
+def _warn_dangerous_once(ctx: typer.Context | None, reason: str) -> None:
     global _dangerous_banner_emitted
     if _dangerous_banner_emitted:
         return
@@ -154,7 +152,7 @@ def _warn_dangerous_once(ctx: Optional[typer.Context], reason: str) -> None:
     warn(f"DANGEROUS MODE active ({reason}) — safety guards disabled.")
 
 
-def _require_named_target(tier: Tier, action: str, target_id: Optional[str]) -> None:
+def _require_named_target(tier: Tier, action: str, target_id: str | None) -> None:
     if tier >= Tier.CASCADE and not target_id:
         raise ValueError(
             f"guard(action={action!r}) tier {_tier_label(tier)} needs a non-empty "
@@ -163,16 +161,16 @@ def _require_named_target(tier: Tier, action: str, target_id: Optional[str]) -> 
 
 
 def guard(
-    ctx: Optional[typer.Context],
+    ctx: typer.Context | None,
     *,
     tier: Tier,
     action: str,
     subject: str,
     yes: bool = False,
-    target_id: Optional[str] = None,
-    confirm_name: Optional[str] = None,
+    target_id: str | None = None,
+    confirm_name: str | None = None,
     i_know: bool = False,
-    prompt: Optional[str] = None,
+    prompt: str | None = None,
 ) -> None:
     """Enforce safety policy for a destructive operation.
 
@@ -237,7 +235,7 @@ def _emit_generic_block(
     action: str,
     subject: str,
     tier: Tier,
-    prompt_override: Optional[str],
+    prompt_override: str | None,
     extra_flags: list[str],
 ) -> None:
     prompt_to_user = (
@@ -254,7 +252,7 @@ def _emit_generic_block(
 
 def _emit_cascade_name_mismatch(
     target_id: str,
-    confirm_name: Optional[str],
+    confirm_name: str | None,
 ) -> None:
     rerun = _reconstruct_rerun(["--yes", "--confirm-name", target_id])
 
@@ -276,9 +274,9 @@ def _emit_cascade_name_mismatch(
 def _emit_admin_refusal(
     action: str,
     subject: str,
-    target_id: Optional[str],
+    target_id: str | None,
     yes: bool,
-    confirm_name: Optional[str],
+    confirm_name: str | None,
     i_know: bool,
 ) -> None:
     missing = []

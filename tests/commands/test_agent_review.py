@@ -42,6 +42,34 @@ def test_list_json(patch_client):
     assert parsed[0]["name"] == "Quality Check"
 
 
+def test_list_surfaces_agent_id_and_owner(patch_client):
+    """Regression: agent_id/owner rendered blank because the list command
+    probed for a get_raw() method that DSSAgentReviewListItem does not have.
+    Use the REAL dataikuapi class here — a MagicMock fabricates any method the
+    code probes for, which is exactly how the blank-fields bug slipped by."""
+    from dataikuapi.dss.agent_review import DSSAgentReviewListItem
+
+    item = DSSAgentReviewListItem(
+        None,
+        "PROJ1",
+        {
+            "id": "review1",
+            "name": "Quality Check",
+            "agentSmartId": "agent1",
+            "owner": "testuser",
+        },
+    )
+    proj = patch_client.get_project("PROJ1")
+    proj.list_agent_reviews.return_value = [item]
+    result = runner.invoke(
+        app, ["--format", "json", "agent-review", "list", "--project", "PROJ1"]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed[0]["agent_id"] == "agent1"
+    assert parsed[0]["owner"] == "testuser"
+
+
 # --- create ---
 
 

@@ -315,7 +315,7 @@ def query(
 
         data = []
         for row in rows:
-            data.append({col: val for col, val in zip(columns, row)})
+            data.append(dict(zip(columns, row, strict=False)))
 
         n = len(rows)
         render(

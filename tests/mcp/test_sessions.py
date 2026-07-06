@@ -17,6 +17,13 @@ def test_get_or_create_makes_isolated_dir(tmp_path):
         assert (session.workdir.stat().st_mode & 0o777) == 0o700
 
 
+def test_state_root_is_private(tmp_path):
+    root = tmp_path / "state"
+    SessionStore(root)
+    if os.name == "posix":
+        assert (root.stat().st_mode & 0o777) == 0o700
+
+
 def test_default_state_root_is_user_scoped(monkeypatch, tmp_path):
     monkeypatch.delenv("DKU_MCP_STATE_ROOT", raising=False)
     root = default_state_root()
@@ -87,7 +94,7 @@ def test_leased_session_is_exempt_from_eviction(tmp_path):
     a = store.get_or_create("bearer:a")
     store.get_or_create("bearer:b")
 
-    with store.lease(a):
+    with store.acquire(a.session_id):
         store.get_or_create("bearer:c")
         assert a.key in store._sessions
         assert all(
@@ -103,11 +110,11 @@ def test_leased_session_is_exempt_from_eviction(tmp_path):
 def test_all_sessions_leased_allows_temporary_overflow(tmp_path):
     store = SessionStore(tmp_path, max_sessions=1)
     a = store.get_or_create("bearer:a")
-    with store.lease(a):
+    with store.acquire(a.session_id):
         b = store.get_or_create("bearer:b")
         assert len(store._sessions) == 2
         assert a.workdir.is_dir() and b.workdir.is_dir()
-        with store.lease(b):
+        with store.acquire(b.session_id):
             c = store.get_or_create("bearer:c")
             assert len(store._sessions) == 3
             assert c.workdir.is_dir()
@@ -120,7 +127,7 @@ def test_all_sessions_leased_allows_temporary_overflow(tmp_path):
 def test_new_session_at_full_busy_cap_is_not_self_evicted(tmp_path):
     store = SessionStore(tmp_path, max_sessions=1)
     a = store.get_or_create("bearer:a")
-    with store.lease(a):
+    with store.acquire(a.session_id):
         b = store.get_or_create("bearer:b")
         assert b.key in store._sessions
         assert b.workdir.is_dir()

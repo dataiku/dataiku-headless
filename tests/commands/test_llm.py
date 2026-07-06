@@ -301,8 +301,8 @@ def test_llm_endpoint_dense(patch_client):
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert (
-        "https://dss.example.com/public/api/projects/PROJ1/llms/openai/v1"
-        == data["base_url"]
+        data["base_url"]
+        == "https://dss.example.com/public/api/projects/PROJ1/llms/openai/v1"
     )
     assert "Bearer" in data["auth_header"]
     # The hard-won Mesh auth gotcha must be surfaced.

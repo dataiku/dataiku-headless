@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import copy
-import json
-import time
 from pathlib import Path
 
 import typer
 
+from dku_cli.commands._agent_versions import (
+    _activate_version,
+    _deep_copy_version,
+    _find_loop_block,
+    _next_version_id,
+    _resolve_target_version_raw,
+    _set_structured_agent_llm,
+)
 from dku_cli.enums import AgentType
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
@@ -24,6 +30,7 @@ from dku_cli.output import (
     error,
     hint,
     info,
+    print_text,
     render,
     render_raw,
     resolve_output_format,
@@ -32,123 +39,6 @@ from dku_cli.output import (
 )
 
 app = typer.Typer(help="Manage DSS agents.")
-
-
-# ── Version helpers ─────────────────────────────────────────────────────
-
-
-def _next_version_id(versions: list) -> str:
-    """Pick the next `vN` version id by inspecting existing ids."""
-    nums: list[int] = []
-    for v in versions:
-        vid = v.get("versionId", "")
-        if vid.startswith("v"):
-            try:
-                nums.append(int(vid[1:]))
-            except ValueError:
-                pass
-    return f"v{max(nums) + 1 if nums else 1}"
-
-
-def _deep_copy_version(settings, source_vid: str | None = None) -> tuple[dict, str]:
-    """Deep-copy a version into a new version dict appended to raw['versions'].
-
-    Source defaults to the agent's active version. Returns (new_version_dict, new_vid).
-    The new dict is a live reference inside raw['versions'] — mutate it then call
-    settings.save() to persist. Caller activates via saved_model.set_active_version()
-    (setting raw['activeVersion'] alone is not persisted).
-    """
-    raw = settings.get_raw()
-    versions = raw.get("versions", [])
-    if not versions:
-        error("Agent has no versions to copy from.")
-        raise typer.Exit(1)
-
-    src_vid = source_vid or raw.get("activeVersion") or versions[0]["versionId"]
-    source = next((v for v in versions if v.get("versionId") == src_vid), None)
-    if source is None:
-        error(
-            f"Version '{src_vid}' not found. Use `dku agent list-versions` to list available versions."
-        )
-        raise typer.Exit(1)
-
-    new_vid = _next_version_id(versions)
-    new_version = copy.deepcopy(source)
-    new_version["versionId"] = new_vid
-    now_ms = int(time.time() * 1000)
-    tag = {
-        "versionNumber": 0,
-        "lastModifiedBy": {"login": "api"},
-        "lastModifiedOn": now_ms,
-    }
-    new_version["versionTag"] = tag
-    new_version["creationTag"] = dict(tag)
-    versions.append(new_version)
-    return new_version, new_vid
-
-
-def _resolve_target_version_raw(
-    settings, *, new_version: bool, source_vid: str | None = None
-) -> tuple[dict, str | None]:
-    """Return (version_raw_dict, new_vid_or_None).
-
-    When new_version is True: deep-copies the source (or active) version, appends it,
-    returns the new dict + new id. When False: returns the active version's raw dict
-    + None, matching legacy in-place behavior.
-    """
-    if new_version:
-        return _deep_copy_version(settings, source_vid=source_vid)
-
-    active_ver_id = settings.active_version
-    if active_ver_id is None:
-        version_ids = settings.get_version_ids()
-        if not version_ids:
-            error("Agent has no versions.")
-            raise typer.Exit(1)
-        active_ver_id = version_ids[0]
-    return settings.get_version_settings(active_ver_id).get_raw(), None
-
-
-def _activate_version(proj, agent_id: str, new_vid: str) -> None:
-    """Flip the active version. Uses saved_model API — setting activeVersion in raw is not persisted."""
-    proj.get_saved_model(agent_id).set_active_version(new_vid)
-
-
-_LOOP_BLOCK_TYPES = frozenset({"CORE_LOOP", "STANDARD_REACT"})
-
-
-def _find_loop_block(cfg: dict) -> dict | None:
-    """Return the tool-calling loop block, or None if the graph has none.
-
-    Prefers the starting block when it is a loop; otherwise the first loop block.
-    """
-    blocks = cfg.get("blocks") or []
-    start_id = cfg.get("startingBlockId")
-    for b in blocks:
-        if b.get("id") == start_id and b.get("type") in _LOOP_BLOCK_TYPES:
-            return b
-    for b in blocks:
-        if b.get("type") in _LOOP_BLOCK_TYPES:
-            return b
-    return None
-
-
-def _set_structured_agent_llm(ver_raw: dict, llm_id: str) -> bool:
-    """Write llm_id into a structured agent's loop block.
-
-    A block-based structured agent (e.g. create-react) holds its model in the
-    loop block's llmId, not in a top-level structuredAgentSettings.llmId — DSS
-    ignores the latter for these agents, so writing it persists nothing the
-    runtime reads. Mirrors how set-prompt targets the loop block. Returns True
-    when a loop block was found and written.
-    """
-    cfg = ver_raw.setdefault("structuredAgentSettings", {})
-    loop_block = _find_loop_block(cfg)
-    if loop_block is not None:
-        loop_block["llmId"] = llm_id
-        return True
-    cfg["llmId"] = llm_id
-    return False
 
 
 @app.command("list")
@@ -1226,9 +1116,27 @@ def test(
                 "response": result.text,
                 "success": result.success,
             }
-            print(json.dumps(detail, indent=2, default=str))
+            render_raw(detail, output_format="json")
+            # Same failure contract as the text branch: a failed completion
+            # must be a non-zero exit, or `dku agent test ... -f json && deploy`
+            # sails past a broken agent.
+            if not result.success:
+                raise typer.Exit(1)
         else:
-            print(result.text)
+            if result.text:
+                print_text(result.text)
+            if not result.success:
+                exit_with_error(
+                    f"Agent '{agent.id}' completion failed.",
+                    details=[
+                        "Inspect the wiring: dku agent get "
+                        f"{agent.id} -P {project_key}",
+                        "Structured agents need streamOutput:true on the terminal "
+                        "block to return text.",
+                    ],
+                )
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

@@ -1027,10 +1027,8 @@ def check(
                 )
                 raise typer.Exit(1)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 tool.stop()
-            except Exception:
-                pass
     except typer.Exit:
         raise
     except Exception as e:
@@ -1096,7 +1094,7 @@ def sources(
         else:
             # Original behavior: all project root sources
             downstream_nodes: set[str] = set()
-            for node_id, node in graph_obj.nodes.items():
+            for node in graph_obj.nodes.values():
                 successors = node.get("successors", [])
                 downstream_nodes.update(successors)
 

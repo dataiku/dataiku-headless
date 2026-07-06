@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dku_cli.definition_merge import merge_params_preserving_siblings
+
 # ruff: noqa: F403,F405
 from dku_cli.enums import ContainerMode, EngineType, EnvMode
-from dku_cli.definition_merge import merge_params_preserving_siblings
 
 from ._common import *
 

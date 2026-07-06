@@ -67,7 +67,7 @@ def test_is_dangerous_mode_hosted_ignores_config(monkeypatch):
     monkeypatch.delenv("DKU_DANGEROUS", raising=False)
     monkeypatch.setenv("DKU_MCP_HOSTED", "1")
     with patch("dku_cli.config.get_dangerous_mode", return_value=True):
-        enabled, reason = is_dangerous_mode(None)
+        enabled, _reason = is_dangerous_mode(None)
     assert enabled is False
 
 

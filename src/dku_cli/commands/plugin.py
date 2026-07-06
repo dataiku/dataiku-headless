@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 from zipfile import ZipFile
@@ -40,9 +41,9 @@ def _zip_directory(dir_path: Path) -> Path:
             "  ├── python-lib/\n"
             "  └── python-structured-agent-blocks/ (or other component dirs)"
         )
-    fd = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    tmp = Path(fd.name)
-    fd.close()
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".zip")
+    os.close(tmp_fd)
+    tmp = Path(tmp_name)
     with ZipFile(tmp, "w") as zf:
         for file in sorted(dir_path.rglob("*")):
             if file.is_file():
@@ -79,9 +80,9 @@ def _repack_flat(zip_path: Path, wrapper: str) -> Path:
     Returns the path to a new temp ZIP (caller is responsible for deleting it).
     """
     prefix = wrapper.rstrip("/") + "/"
-    fd = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    out = Path(fd.name)
-    fd.close()
+    out_fd, out_name = tempfile.mkstemp(suffix=".zip")
+    os.close(out_fd)
+    out = Path(out_name)
     with ZipFile(zip_path) as src, ZipFile(out, "w") as dst:
         for name in src.namelist():
             if name.endswith("/") or not name.startswith(prefix):
@@ -154,15 +155,11 @@ def list_plugins(
 
         data = []
         for p in plugins:
-            data.append(
-                {
-                    "id": p.get("id", "")
-                    if isinstance(p, dict)
-                    else getattr(p, "plugin_id", ""),
-                    "version": p.get("version", "") if isinstance(p, dict) else "",
-                    "dev": _plugin_is_dev(p),
-                }
-            )
+            if isinstance(p, dict):
+                pid, ver = p.get("id", ""), p.get("version", "")
+            else:
+                pid, ver = getattr(p, "plugin_id", ""), getattr(p, "version", "")
+            data.append({"id": pid, "version": ver, "dev": _plugin_is_dev(p)})
 
         render(
             data,
@@ -664,7 +661,7 @@ def recipes(
         matched = False
         opaque = []  # installed (non-dev) plugins we can't enumerate via API
         for p in plugins:
-            pid = p.get("id", "") if isinstance(p, dict) else ""
+            pid = p.get("id", "") if isinstance(p, dict) else getattr(p, "id", "")
             if plugin_id and pid != plugin_id:
                 continue
             matched = True

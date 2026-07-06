@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from dataikuapi.utils import DataikuException
-
 from dku_cli.output import warn
 
 
 def read_last_build(ds, dataset_name: str, fmt: str):
+    # Lazy: keep the HTTP stack off the `dku --help` cold-import path.
+    from dataikuapi.utils import DataikuException
+
     last_build_time = None
     build_success = None
     try:
@@ -26,6 +27,8 @@ def read_last_build(ds, dataset_name: str, fmt: str):
 
 
 def read_metric_counts(ds, dataset_name: str, fmt: str, fresh_values: dict[str, str]):
+    from dataikuapi.utils import DataikuException
+
     row_count = _fresh_int(fresh_values, "records:COUNT_RECORDS")
     data_size_bytes = _fresh_int(fresh_values, "basic:SIZE")
     file_count = _fresh_int(fresh_values, "basic:COUNT_FILES")
