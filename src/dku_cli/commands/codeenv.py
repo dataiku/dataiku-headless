@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
@@ -81,42 +79,7 @@ def get(
         client = get_client_from_ctx(ctx)
         env = client.get_code_env(lang, name)
         definition = env.get_definition()
-
-        if output == "json":
-            print(json.dumps(definition, indent=2, default=str))
-        else:
-            desc = definition.get("desc", {})
-            packages = definition.get("specPackageList", "").strip().splitlines()
-            packages = [p for p in packages if p]  # filter empty
-            # `corePackagesSet` is just the SELECTED set name (a dropdown value
-            # that persists whether or not core packages are installed). The
-            # authoritative install indicator is `installCorePackages`. Show
-            # both so the display does not falsely imply core packages are
-            # present after a `--no-core-packages` create.
-            core_set = desc.get("corePackagesSet") or "(none)"
-            if desc.get("installCorePackages"):
-                core_display = core_set
-            else:
-                core_display = f"disabled (selected set: {core_set})"
-            data = [
-                {"field": "Name", "value": definition.get("envName", name)},
-                {"field": "Language", "value": definition.get("envLang", lang)},
-                {"field": "Type", "value": definition.get("deploymentMode", "")},
-                {"field": "Interpreter", "value": desc.get("pythonInterpreter", "")},
-                {
-                    "field": "Core packages",
-                    "value": core_display,
-                },
-                {"field": "Spec packages", "value": str(len(packages))},
-                {"field": "Owner", "value": definition.get("owner", "")},
-            ]
-
-            render(
-                data,
-                ["field", "value"],
-                output_format=output,
-                title=f"Code Env: {name}",
-            )
+        render_raw(definition, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

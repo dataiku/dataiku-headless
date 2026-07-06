@@ -256,7 +256,6 @@ def status(
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
         st = mltask.get_status()
-
         if output == "json":
             render_raw(st, output_format="json")
         else:

@@ -38,6 +38,6 @@ One step — create an UploadedFiles dataset, upload the file, auto-detect schem
 ## Typical local loop
 
 1. `dku dataset create-from-file raw ./input.csv -P P` — load a CSV.
-2. Build on it (`dku recipe create …`, `dku job build …`, verify).
+2. Build on it (`dku recipe create …`, `dku job run --target …`, verify).
 3. `dku dataset download result ./out.csv -P P` — pull the result back to
    inspect or chart locally.

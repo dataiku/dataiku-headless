@@ -23,6 +23,40 @@ def test_dataset_rename(patch_client):
     ds.rename.assert_called_once_with("ds1_renamed")
 
 
+def test_dataset_rename_warns_when_path_unchanged(patch_client):
+    """Managed dataset with a path still keyed on the old name gets a warning."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {
+        "type": "Filesystem",
+        "managed": True,
+        "params": {"connection": "filesystem_managed", "path": "PROJ1/ds1"},
+    }
+    result = runner.invoke(
+        app,
+        ["dataset", "rename", "ds1", "--name", "ds1_renamed", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "storage path still" in result.output.lower()
+    assert "PROJ1/ds1" in result.output
+    assert "ds1_renamed" in result.output
+
+
+def test_dataset_rename_no_warning_without_path(patch_client):
+    """Dataset definitions without a params.path (e.g. managed SQL) stay silent."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.get_definition.return_value = {
+        "type": "PostgreSQL",
+        "managed": True,
+        "params": {"connection": "pg_conn"},
+    }
+    result = runner.invoke(
+        app,
+        ["dataset", "rename", "ds1", "--name", "ds1_renamed", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0
+    assert "storage path" not in result.output.lower()
+
+
 # --- copy ---
 
 
@@ -55,6 +89,58 @@ def test_dataset_copy_with_name(patch_client):
     )
     assert result.exit_code == 0
     assert "PROJ2.ds1_copy" in result.output
+
+
+def test_dataset_copy_destination_missing(patch_client):
+    """Destination not-found gets a prescriptive create-target-first error.
+
+    Uses the real DSS server message shape (verified live on DSS 14.6).
+    """
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.copy_to.side_effect = DataikuException(
+        "com.dataiku.dip.server.controllers.NotFoundException: "
+        "dataset does not exist: PROJ2.ds1"
+    )
+    result = runner.invoke(
+        app,
+        ["dataset", "copy", "ds1", "--to-project", "PROJ2", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 3
+    assert "Destination dataset PROJ2.ds1 does not exist" in result.output
+    assert "dataset copy" in result.output
+    assert "dataset create ds1" in result.output
+    assert "dataset set-schema ds1" in result.output
+
+
+def test_dataset_copy_destination_missing_prefix_project_keys(patch_client):
+    """Source key prefixing the target key (TEST -> TEST2) must still rewrite —
+    a bare-key substring check sees 'TEST' inside 'TEST2.ds1' and bails."""
+    ds = patch_client.get_project("TEST").get_dataset("ds1")
+    ds.copy_to.side_effect = DataikuException(
+        "com.dataiku.dip.server.controllers.NotFoundException: "
+        "dataset does not exist: TEST2.ds1"
+    )
+    result = runner.invoke(
+        app,
+        ["dataset", "copy", "ds1", "--to-project", "TEST2", "--project", "TEST"],
+    )
+    assert result.exit_code == 3
+    assert "Destination dataset TEST2.ds1 does not exist" in result.output
+
+
+def test_dataset_copy_source_missing_falls_through(patch_client):
+    """Source not-found is NOT rewritten — falls through to the generic handler."""
+    ds = patch_client.get_project("PROJ1").get_dataset("ds1")
+    ds.copy_to.side_effect = DataikuException(
+        "com.dataiku.dip.exceptions.NotFoundException: Dataset PROJ1.ds1 not found"
+    )
+    result = runner.invoke(
+        app,
+        ["dataset", "copy", "ds1", "--to-project", "PROJ2", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 3
+    assert "Destination dataset" not in result.output
+    assert "Not found" in result.output
 
 
 # --- partitions ---

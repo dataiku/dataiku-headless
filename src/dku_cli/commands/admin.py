@@ -159,22 +159,7 @@ def usage(
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         summary = client.get_global_usage_summary(with_per_project=per_project)
         raw = summary.raw
-
-        if fmt == "json":
-            render_raw(raw, output_format="json")
-        else:
-            data = [
-                {"metric": k, "value": str(v)}
-                for k, v in raw.items()
-                if not isinstance(v, (dict, list))
-            ]
-            render(
-                data,
-                ["metric", "value"],
-                output_format=fmt,
-                title="Usage Summary",
-                headers={"metric": "METRIC", "value": "VALUE"},
-            )
+        render_raw(raw, output_format=fmt)
     except Exception as e:
         handle_api_error(e)
 
@@ -193,21 +178,7 @@ def instance_info(
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         info_obj = client.get_instance_info()
         raw = info_obj.raw
-
-        if fmt == "json":
-            render_raw(raw, output_format="json")
-        else:
-            data = [
-                {"field": k, "value": str(v)}
-                for k, v in raw.items()
-                if not isinstance(v, (dict, list))
-            ]
-            render(
-                data,
-                ["field", "value"],
-                output_format=fmt,
-                title="Instance Info",
-            )
+        render_raw(raw, output_format=fmt)
     except Exception as e:
         handle_api_error(e)
 
@@ -291,16 +262,7 @@ def license_status(
     try:
         client = get_client_from_ctx(ctx)
         status = client.get_licensing_status()
-        if fmt == "json":
-            render_raw(status, output_format="json")
-        else:
-            flat = {k: v for k, v in status.items() if not isinstance(v, (dict, list))}
-            render(
-                [{"field": k, "value": str(v)} for k, v in flat.items()],
-                ["field", "value"],
-                output_format=fmt,
-                title="License Status",
-            )
+        render_raw(status, output_format=fmt)
     except Exception as e:
         handle_api_error(e)
 

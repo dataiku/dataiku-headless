@@ -31,7 +31,7 @@ An agent re-derives knowledge on every action — no memory between tasks, every
 3. Every fixed-choice set → `enum._StrEnum` → `click.Choice(case_sensitive=False)`.
 4. Destructive commands must call `safety.guard(ctx, tier=..., action=..., subject=..., yes=...)`.
 5. Every error path ends with a prescriptive next command.
-6. Render through `output.render()` / `render_raw()` — never print data yourself. No per-command format flags; `--format` is global.
+6. Render through `output.render()` / `render_raw()` — never print data yourself. No per-command format flags; `--format` is global. Shape rule: lists → `render()`; single objects → `render_raw()`; never synthesize a field/value table.
 7. Add an example to `examples.py` only if the invocation is non-derivable from `--help` (JSON payload, repeatable flag, required combo, `@file`, KEY=VALUE). A `<command> <arg>` synopsis echo is noise — skip it.
 8. Prefer zero-flag: `-P` + `DKU_PROJECT` covers the common case. Don't add redundant flags.
 9. Tests: happy path (default TSV + `--format json`), error path (prescriptive message), `-P` resolution, safety guard (if destructive).

@@ -62,13 +62,15 @@ def test_recipe_get_definition_json(patch_client):
 
 
 def test_recipe_get_definition_table(patch_client):
-    """get-definition shows key fields in table mode."""
+    """Default (dense) output is compact JSON, not a field/value table."""
     result = runner.invoke(
         app, ["recipe", "get-definition", "recipe1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    assert "Type" in result.output
-    assert "Payload" in result.output
+    parsed = json.loads(result.output)
+    assert "definition" in parsed
+    assert "payload" in parsed
+    assert parsed["definition"]["type"] == "python"
 
 
 def test_recipe_get_definition_sql_query_raw_payload(patch_client):

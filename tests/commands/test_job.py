@@ -158,6 +158,35 @@ def test_job_status_json_with_failed_activity(patch_client):
     assert activities["compute_other_NP"]["error"] is None
 
 
+def test_job_status_default_format_failed_job_stdout_is_json(patch_client):
+    """A FAILED job's default output must stay pipe-safe: one JSON object on
+    stdout, no trailing failed-activities table (the data is already in
+    `activities`). The failure case is exactly where agents parse status."""
+    job = patch_client.get_project("PROJ1").get_job("job1")
+    job.get_status.return_value = {
+        "baseStatus": {
+            "def": {"id": "job1", "initiator": "testuser"},
+            "state": "FAILED",
+            "activities": {
+                "build_my_recipe_NP": {
+                    "state": "FAILED",
+                    "startTime": 1700000000000,
+                    "endTime": 1700000060000,
+                    "firstFailure": {"message": "boom"},
+                },
+            },
+        },
+        "errorMessage": "Recipe failed",
+    }
+    result = runner.invoke(app, ["job", "status", "job1", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.stdout)
+    assert parsed["state"] == "FAILED"
+    assert parsed["activities"][0]["error"] == "boom"
+    # Debug hint stays on stderr.
+    assert "dku job log job1" in result.stderr
+
+
 def test_job_log_docker_socket_hint(patch_client):
     """A Docker-daemon-unreachable signature in the job log surfaces the
     recipe-level containerMode=NONE recovery recipe."""

@@ -66,25 +66,7 @@ def get(
         app_handle = client.get_app(app_id)
         manifest = app_handle.get_manifest()
         raw = manifest.get_raw()
-
-        if output == "json":
-            render_raw(raw, output_format=output)
-        else:
-            total_tiles = sum(
-                len(s.get("tiles", [])) for s in raw.get("homepageSections", [])
-            )
-            data = [
-                {"field": "App ID", "value": app_id},
-                {"field": "Label", "value": raw.get("label", "")},
-                {"field": "Description", "value": raw.get("shortDesc", "")},
-                {"field": "Homepage", "value": str(raw.get("useAppHomepage", False))},
-                {"field": "Tiles", "value": str(total_tiles)},
-                {
-                    "field": "Permission",
-                    "value": raw.get("instantiationPermission", ""),
-                },
-            ]
-            render(data, ["field", "value"], title=f"App: {app_id}")
+        render_raw(raw, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

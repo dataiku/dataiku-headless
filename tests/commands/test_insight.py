@@ -32,7 +32,9 @@ def test_insight_list_json(patch_client):
 def test_insight_get(patch_client):
     result = runner.invoke(app, ["insight", "get", "insight1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "insight1" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "insight1"
+    assert parsed["type"] == "chart"
 
 
 def test_insight_get_json(patch_client):

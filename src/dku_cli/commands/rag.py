@@ -140,37 +140,7 @@ def get(
         rag = proj.get_retrieval_augmented_llm(rag_id)
         settings = rag.get_settings()
         raw = settings.get_raw()
-
-        if fmt == "json":
-            render_raw(raw, output_format="json")
-        else:
-            # RAG settings are nested: versions[activeVersion].ragllmSettings
-            active_ver = raw.get("activeVersion")
-            rag_settings = {}
-            for v in raw.get("versions", []):
-                if v.get("versionId") == active_ver:
-                    rag_settings = v.get("ragllmSettings", {})
-                    break
-
-            data = [
-                {"field": "ID", "value": raw.get("id", rag_id)},
-                {"field": "Name", "value": raw.get("name", "(unnamed)")},
-                {"field": "LLM ID", "value": rag_settings.get("llmId", "")},
-                {
-                    "field": "KB Ref",
-                    "value": rag_settings.get("kbRef", raw.get("knowledgeBankRef", "")),
-                },
-                {
-                    "field": "Active Version",
-                    "value": active_ver or "(none)",
-                },
-            ]
-            render(
-                data,
-                ["field", "value"],
-                output_format=fmt,
-                title=f"RAG LLM: {rag_id}",
-            )
+        render_raw(raw, output_format=fmt)
     except typer.Exit:
         raise
     except Exception as e:

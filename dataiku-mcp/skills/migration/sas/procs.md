@@ -29,7 +29,7 @@ Translation details for SAS PROCs, canonical visual patterns, and SQL-recipe tra
 | `PROC TRANSREG` | AutoML preprocessing (one-hot, impact, flag-miss) or Python (`category_encoders`) | Visual / Code | Most SAS uses are categorical encoding — let AutoML handle it. Spline / Box-Cox transforms need `patsy` or `statsmodels` in a Python recipe |
 | `PROC PRINCOMP` | AutoML preprocessing (PCA reduction) or Python (`sklearn.decomposition.PCA`) | Visual / Code | Reach for AutoML when PCA feeds a downstream model; Python when the scores need to feed a downstream recipe (AutoML's PCA is internal to the training pipeline) |
 | `LIBNAME` | Connection | Config | `dku connection list` |
-| `%LET` | Project variable | Config | `dku project set-variable` |
+| `%LET` | Project variable | Config | `dku project set-variables` |
 
 ### Statistical PROCs
 
@@ -64,7 +64,7 @@ Some PROCs migrate to Dataiku features outside the Flow. Don't force them into a
 
 | PROC | Dataiku answer | Why it's not a recipe |
 |---|---|---|
-| `PROC SGPLOT` / `SGPANEL` / `SGSCATTER` | Dataiku **Chart** on the output dataset, or **Dashboard tile** | Plots don't produce data. Migrate to a chart definition (`dku chart create`) or a dashboard insight, not a Python recipe that writes a PNG |
+| `PROC SGPLOT` / `SGPANEL` / `SGSCATTER` | Dataiku **Chart** on the output dataset, or **Dashboard tile** | Plots don't produce data. Migrate to a chart insight (`dku insight create NAME --type chart --ds DATASET`) or a dashboard insight, not a Python recipe that writes a PNG |
 | `PROC TEMPLATE` (ODS graphics templates) | Dashboard styling / shared chart config | Presentation layer, not a pipeline step |
 | `PROC REPORT` / `PROC TABULATE` | Dashboard with **pivot-table insight** + cross-tab Group/Pivot recipes for the data | These are reporting, not transformation. Migrate the *data prep* as Group + Pivot; migrate the *layout* as a dashboard |
 | `PROC COMPARE` | **Phase 4 verification**, not a migrated step | A parity/QA tool. Replace with `dku --format json dataset head` on both sides during integration test (see SKILL.md § Phase 4) |

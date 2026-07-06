@@ -124,7 +124,7 @@ def create_extract_failed_rows(
         "--rule-id",
         help=(
             "Check rule ID to extract failures for (repeatable). "
-            "Use 'dku dq list-checks DATASET -P PROJ' to discover IDs. "
+            "Use 'dku dq list DATASET -P PROJ' to discover IDs. "
             "Default: extract failures for all enabled rules on the input."
         ),
     ),
@@ -151,7 +151,7 @@ def create_extract_failed_rows(
 
     Quarantines rows that violated dataset checks on the input.
 
-    The input dataset MUST have checks defined (`dku dq add-check ...`).
+    The input dataset MUST have checks defined (`dku dq create ...`).
     Without --rule-id, the recipe extracts rows failing ANY enabled rule.
 
     Example:

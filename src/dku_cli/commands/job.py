@@ -236,50 +236,17 @@ def status(
 
         activities = _extract_activities(raw)
 
-        if output == "json":
-            payload = {
-                "job_id": job_id,
-                "state": state,
-                "initiator": base.get("def", {}).get("initiator", ""),
-                "start": _format_epoch_ms(start_ms),
-                "end": _format_epoch_ms(end_ms),
-                "duration_ms": _duration_ms(start_ms, end_ms),
-                "error": error_msg or None,
-                "activities": activities,
-            }
-            render_raw(payload, output_format="json")
-            return
-
-        data = [
-            {"field": "Job ID", "value": job_id},
-            {"field": "State", "value": state},
-            {"field": "Initiator", "value": base.get("def", {}).get("initiator", "")},
-            {"field": "Start", "value": _format_epoch_ms(start_ms)},
-            {"field": "End", "value": _format_epoch_ms(end_ms)},
-            {"field": "Duration", "value": _format_duration_ms(start_ms, end_ms)},
-        ]
-        if state == "FAILED" and error_msg:
-            data.append({"field": "Error", "value": error_msg})
-
-        render(data, ["field", "value"], output_format=output, title=f"Job: {job_id}")
-
-        if activities:
-            failed_acts = [a for a in activities if a.get("state") == "FAILED"]
-            if failed_acts:
-                act_rows = [
-                    {
-                        "activity": a.get("name", ""),
-                        "state": a.get("state", ""),
-                        "error": (a.get("error") or "")[:80],
-                    }
-                    for a in failed_acts
-                ]
-                render(
-                    act_rows,
-                    ["activity", "state", "error"],
-                    output_format=output,
-                    title="Failed activities",
-                )
+        payload = {
+            "job_id": job_id,
+            "state": state,
+            "initiator": base.get("def", {}).get("initiator", ""),
+            "start": _format_epoch_ms(start_ms),
+            "end": _format_epoch_ms(end_ms),
+            "duration_ms": _duration_ms(start_ms, end_ms),
+            "error": error_msg or None,
+            "activities": activities,
+        }
+        render_raw(payload, output_format=output)
 
         if state == "FAILED" and output != "json":
             info(f"Debug with: dku job log {job_id} -P {project_key}")

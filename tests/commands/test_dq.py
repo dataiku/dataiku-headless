@@ -393,7 +393,8 @@ def test_dq_compute_single_rule(patch_client):
 def test_dq_status(patch_client):
     result = runner.invoke(app, ["dq", "status", "ds1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    assert "OK" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["status"] == "OK"
 
 
 def test_dq_status_json(patch_client):

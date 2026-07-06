@@ -297,7 +297,7 @@ def test_scenario_set_definition_warns_on_step_count_mismatch(patch_client):
 
 
 def test_scenario_set_active_enables_scenario_and_triggers(patch_client):
-    """set-active --enable flips both scenario.active AND every triggers[].active."""
+    """set-active --active (default) flips scenario.active AND every trigger."""
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
     raw = scenario.get_settings().get_raw()
@@ -317,8 +317,8 @@ def test_scenario_set_active_enables_scenario_and_triggers(patch_client):
     scenario.get_settings().save.assert_called()
 
 
-def test_scenario_set_active_disable_drops_both(patch_client):
-    """set-active --disable flips both off."""
+def test_scenario_set_active_inactive_drops_both(patch_client):
+    """set-active --inactive flips both off."""
     proj = patch_client.get_project("PROJ1")
     scenario = proj.get_scenario("scen1")
     raw = scenario.get_settings().get_raw()
@@ -327,7 +327,7 @@ def test_scenario_set_active_disable_drops_both(patch_client):
 
     result = runner.invoke(
         app,
-        ["scenario", "set-active", "scen1", "--disable", "--project", "PROJ1"],
+        ["scenario", "set-active", "scen1", "--inactive", "--project", "PROJ1"],
     )
     assert result.exit_code == 0, result.output
     assert raw["active"] is False

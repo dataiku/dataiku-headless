@@ -222,3 +222,27 @@ def test_set_definition_no_warning_when_all_persisted(patch_client):
     )
     assert result.exit_code == 0
     assert "NOT persisted" not in result.output
+
+
+def test_set_definition_strips_smart_name(patch_client):
+    """A get-definition -> set-definition round-trip carries smartName back;
+    it's DSS-computed and must be dropped, not sent or flagged as unpersisted."""
+    proj = patch_client.get_project("PROJ1")
+    ds = proj.get_dataset.return_value
+    ds.get_definition.return_value = {"type": "UploadedFiles", "params": {}}
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "set-definition",
+            "ds1",
+            "-d",
+            '{"type": "UploadedFiles", "smartName": "PROJ1.ds1", "params": {}}',
+            "-P",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "NOT persisted" not in result.output
+    sent = ds.set_definition.call_args[0][0]
+    assert "smartName" not in sent

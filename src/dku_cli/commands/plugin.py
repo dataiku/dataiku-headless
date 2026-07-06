@@ -344,51 +344,27 @@ def get(
         raw = plugin_settings.get_raw()
         code_env = raw.get("codeEnvName", "")
 
-        if output == "json":
-            render_raw(
-                {
-                    "id": plugin_id,
-                    "version": plugin_meta.get("version", "")
-                    if isinstance(plugin_meta, dict)
-                    else "",
-                    "dev": _plugin_is_dev(plugin_meta),
-                    "codeEnvName": code_env,
-                    "config": raw.get("config", {}),
-                },
-                output_format="json",
+        config = raw.get("config", {})
+        masked_config = {
+            k: (
+                "****"
+                if "password" in k.lower()
+                or "secret" in k.lower()
+                or "key" in k.lower()
+                else v
             )
-        else:
-            data = [
-                {"field": "ID", "value": plugin_id},
-                {
-                    "field": "Version",
-                    "value": plugin_meta.get("version", "")
-                    if isinstance(plugin_meta, dict)
-                    else "",
-                },
-                {
-                    "field": "Dev",
-                    "value": str(_plugin_is_dev(plugin_meta)),
-                },
-                {"field": "Code Env", "value": code_env or "(default)"},
-            ]
-            config = raw.get("config", {})
-            for k, v in config.items():
-                display_v = (
-                    "****"
-                    if "password" in k.lower()
-                    or "secret" in k.lower()
-                    or "key" in k.lower()
-                    else str(v)
-                )
-                data.append({"field": k, "value": display_v})
-
-            render(
-                data,
-                ["field", "value"],
-                output_format=output,
-                title=f"Plugin: {plugin_id}",
-            )
+            for k, v in config.items()
+        }
+        result = {
+            "id": plugin_id,
+            "version": plugin_meta.get("version", "")
+            if isinstance(plugin_meta, dict)
+            else "",
+            "dev": _plugin_is_dev(plugin_meta),
+            "codeEnvName": code_env,
+            "config": masked_config,
+        }
+        render_raw(result, output_format=output)
     except SystemExit:
         raise
     except Exception as e:

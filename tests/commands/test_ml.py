@@ -224,9 +224,12 @@ def test_ml_list_dict_payload(patch_client):
 
 
 def test_ml_status(patch_client):
-    result = runner.invoke(app, ["ml", "status", "a1", "t1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["--format", "json", "ml", "status", "a1", "t1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
-    assert "False" in result.output  # guessing: False
+    parsed = json.loads(result.output)
+    assert parsed["guessing"] is False
 
 
 def test_ml_status_json(patch_client):

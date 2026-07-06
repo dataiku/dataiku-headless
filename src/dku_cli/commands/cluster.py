@@ -167,21 +167,7 @@ def status(
         cluster = client.get_cluster(cluster_id)
         st = cluster.get_status()
         raw = st.get_raw()
-
-        if fmt == "json":
-            render_raw(raw, output_format="json")
-        else:
-            data = [
-                {"field": k, "value": str(v)}
-                for k, v in raw.items()
-                if not isinstance(v, (dict, list))
-            ]
-            render(
-                data,
-                ["field", "value"],
-                output_format=fmt,
-                title=f"Cluster Status: {cluster_id}",
-            )
+        render_raw(raw, output_format=fmt)
     except Exception as e:
         handle_api_error(e)
 

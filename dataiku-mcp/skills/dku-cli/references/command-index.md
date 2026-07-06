@@ -23,7 +23,7 @@ Every group and command with its one-line description — read this once per ses
 - `checks run` — Compute every enabled data-quality rule on the dataset.
 - `checks status` — Show the overall data-quality status of the dataset.
 - `clear` — Clear all data from a dataset.
-- `copy` — Copy a dataset to another project.
+- `copy` — Copy dataset DATA into an existing dataset in another project.
 - `count` — Count rows in a dataset by its logical name.
 - `create` — Create a new dataset.
 - `create-from-file` — Create an UploadedFiles dataset from a LOCAL file and auto-detect its schema.

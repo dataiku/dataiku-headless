@@ -369,8 +369,8 @@ def set_active(
     scenario_id: str = typer.Argument(help="Scenario ID"),
     enable: bool = typer.Option(
         True,
-        "--enable/--disable",
-        help="Enable (default) or disable the scenario.",
+        "--active/--inactive",
+        help="Activate (default) or deactivate the scenario.",
     ),
     skip_triggers: bool = typer.Option(
         False,
@@ -392,7 +392,7 @@ def set_active(
 
     Examples:
       dku scenario set-active daily -P PROJ
-      dku scenario set-active daily --disable -P PROJ
+      dku scenario set-active daily --inactive -P PROJ
       dku scenario set-active daily --skip-triggers -P PROJ
     """
     project_key = resolve_project(project)

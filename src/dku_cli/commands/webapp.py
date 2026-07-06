@@ -238,17 +238,8 @@ def status(
         webapp = proj.get_webapp(webapp_id)
         backend_state = webapp.get_state()
 
-        data = [
-            {"field": "ID", "value": webapp_id},
-            {"field": "Running", "value": str(backend_state.running)},
-        ]
-
-        render(
-            data,
-            ["field", "value"],
-            output_format=output,
-            title=f"Web App: {webapp_id}",
-        )
+        result = {"id": webapp_id, "running": backend_state.running}
+        render_raw(result, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

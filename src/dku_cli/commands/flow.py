@@ -993,24 +993,9 @@ def check(
                                     "message": msg.get("message", ""),
                                 }
                             )
-            if output == "json":
-                render_raw({"summary": summary, "errors": errors}, output_format="json")
-            else:
-                render(
-                    [{"field": k, "value": str(v)} for k, v in summary.items()],
-                    ["field", "value"],
-                    output_format=output,
-                    title=f"Flow Check Summary ({project_key})",
-                )
-                if errors:
-                    render(
-                        errors,
-                        ["node", "code", "message"],
-                        output_format=output,
-                        title="Errors",
-                    )
-                else:
-                    success("Consistency check complete.")
+            render_raw({"summary": summary, "errors": errors}, output_format=output)
+            if output != "json" and not errors:
+                success("Consistency check complete.")
 
             # Fatal/ERROR consistency messages mean the flow is broken — exit
             # non-zero on BOTH paths so an agent chaining `flow check &&

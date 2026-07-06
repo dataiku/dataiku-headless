@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 
+from dku_cli.commands import _dataset_metadata
 from dku_cli.commands._dataset_create import (
     _apply_uploaded_files_connection,
     _build_create_dataset_payload,
@@ -16,7 +17,6 @@ from dku_cli.commands._dataset_create import (
     _translate_create_dataset_error,
 )
 from dku_cli.commands._dataset_info import read_last_build, read_metric_counts
-from dku_cli.commands._dataset_metadata import update_dataset_metadata
 from dku_cli.commands._dataset_quality import register_dataset_quality_commands
 from dku_cli.enums import (
     BigQueryPartitioningPeriod,
@@ -2095,6 +2095,7 @@ def set_definition(
         if not isinstance(new_def, dict):
             cmd = f"dku dataset get-definition {dataset_name} -P {project_key}"
             exit_with_error(f"Definition must be a JSON object, not an array — {cmd}")
+        new_def = _dataset_metadata.drop_non_persisted_keys(new_def)
         if merge or deep_merge:
             current = ds.get_definition()
             if deep_merge:
@@ -2104,7 +2105,7 @@ def set_definition(
             else:
                 merged = dict(current)
                 merged.update(new_def)
-            ds.set_definition(merged)
+            ds.set_definition(_dataset_metadata.drop_non_persisted_keys(merged))
         else:
             ds.set_definition(new_def)
         success(
@@ -2518,13 +2519,16 @@ def rename(
     new_name: str = typer.Option(..., "--name", help="New dataset name"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Rename a dataset."""
+    """Rename a dataset.
+
+    Metadata-only: DSS's rename does not move the managed storage path. A
+    managed dataset's `params.path` stays pinned to the old name, so a
+    dataset later created under the vacated old name gets the same default
+    path and collides with this one on disk.
+    """
     project_key = resolve_project(project)
     try:
-        client = get_client_from_ctx(ctx)
-        ds = client.get_project(project_key).get_dataset(dataset_name)
-        ds.rename(new_name)
-        success(f"Renamed '{dataset_name}' to '{new_name}'")
+        _dataset_metadata.rename_dataset(ctx, dataset_name, new_name, project_key)
     except Exception as e:
         handle_api_error(e)
 
@@ -2535,20 +2539,27 @@ def copy(
     dataset_name: str = typer.Argument(help="Source dataset name"),
     to_project: str = typer.Option(..., "--to-project", help="Target project key"),
     name: str | None = typer.Option(
-        None, "--name", help="Name in target project (default: same name)"
+        None, "--name", help="Target name (default: same). Must already exist."
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Copy a dataset to another project."""
+    """Copy dataset DATA into an existing dataset in another project.
+
+    Data-only: the destination dataset must already exist with a matching
+    schema — this does not create it. Pre-create it first:
+      dku dataset create <name> --type <TYPE> --connection <CONN> -P <to-project>
+      dku dataset set-schema <name> -P <to-project> -d '<schema>'
+    """
     project_key = resolve_project(project)
+    new_name = name or dataset_name
     try:
-        client = get_client_from_ctx(ctx)
-        ds = client.get_project(project_key).get_dataset(dataset_name)
-        new_name = name or dataset_name
-        target_ds = client.get_project(to_project).get_dataset(new_name)
-        ds.copy_to(target_ds)
-        success(f"Copied '{dataset_name}' to {to_project}.{new_name}")
+        _dataset_metadata.copy_dataset(
+            ctx, dataset_name, to_project, new_name, project_key
+        )
     except Exception as e:
+        _dataset_metadata.raise_if_copy_destination_missing(
+            e, project_key, dataset_name, to_project, new_name
+        )
         handle_api_error(e)
 
 
@@ -2603,7 +2614,7 @@ def set_metadata(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        update_dataset_metadata(
+        _dataset_metadata.update_dataset_metadata(
             ds, dataset_name, project_key, description, short_desc, tags
         )
         success(f"Updated metadata for dataset '{dataset_name}'")

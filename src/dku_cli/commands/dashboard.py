@@ -72,29 +72,13 @@ def get(
         proj = client.get_project(project_key)
         dashboard = proj.get_dashboard(dashboard_id)
         raw = dashboard.get_settings().get_raw()
-
-        if output == "json":
-            render_raw(raw, output_format=output)
-        else:
-            pages = raw.get("pages", [])
-            tiles = sum(
-                len(p.get("grid", {}).get("tiles", p.get("tiles", []))) for p in pages
-            )
-            data = [
-                {"field": "ID", "value": raw.get("id", dashboard_id)},
-                {"field": "Name", "value": raw.get("name", "")},
-                {"field": "Pages", "value": str(len(pages))},
-                {"field": "Tiles", "value": str(tiles)},
-                {
-                    "field": "URL",
-                    "value": dashboard_url(client, project_key, dashboard_id),
-                },
-            ]
-            render(
-                data,
-                ["field", "value"],
-                title=f"Dashboard: {dashboard_id}",
-            )
+        pages = raw.get("pages", [])
+        tile_count = sum(
+            len(p.get("grid", {}).get("tiles", p.get("tiles", []))) for p in pages
+        )
+        raw["working_url"] = dashboard_url(client, project_key, dashboard_id)
+        raw["tile_count"] = tile_count
+        render_raw(raw, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

@@ -47,8 +47,9 @@ def test_codeenv_get_core_packages_installed(patch_client):
 
 
 def test_codeenv_get_core_packages_disabled(patch_client):
-    """When installCorePackages is False the table must NOT imply core packages
-    are present — corePackagesSet alone (a persisted dropdown value) is misleading.
+    """When installCorePackages is False, the raw definition must NOT imply core
+    packages are present — corePackagesSet alone (a persisted dropdown value) is
+    misleading without installCorePackages.
     """
     env = patch_client.get_code_env.return_value
     env.get_definition.return_value = {
@@ -64,8 +65,10 @@ def test_codeenv_get_core_packages_disabled(patch_client):
     }
     result = runner.invoke(app, ["code-env", "get", "bare"])
     assert result.exit_code == 0
-    assert "disabled" in result.output
-    assert "PANDAS23" in result.output  # selected set still surfaced for context
+    parsed = json.loads(result.output)
+    assert parsed["desc"]["installCorePackages"] is False
+    # selected set still surfaced for context
+    assert parsed["desc"]["corePackagesSet"] == "PANDAS23"
 
 
 def test_codeenv_delete(patch_client):

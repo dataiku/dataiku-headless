@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 import typer
 
 from dku_cli.commands._source_type import SourceType
 from dku_cli.errors import handle_api_error
 from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx
-from dku_cli.output import hint, render, resolve_output_format, success
+from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage DSS groups.")
 
@@ -55,18 +53,14 @@ def get(
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         group = client.get_group(name)
         defn = group.get_definition()
-
         if output == "json":
-            print(json.dumps(defn, indent=2, default=str))
+            render_raw(defn, output_format="json")
         else:
             data = [
                 {"field": "Name", "value": defn.get("name", name)},
                 {"field": "Description", "value": defn.get("description", "")},
                 {"field": "Source", "value": defn.get("sourceType", "")},
-                {
-                    "field": "Admin",
-                    "value": str(defn.get("admin", False)),
-                },
+                {"field": "Admin", "value": str(defn.get("admin", False))},
             ]
             render(
                 data,

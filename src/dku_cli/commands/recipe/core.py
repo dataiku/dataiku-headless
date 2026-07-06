@@ -175,26 +175,13 @@ def get(
         recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
         settings = recipe.get_settings()
         raw_def = settings.get_recipe_raw_definition()
-
-        if output == "json":
-            print(json.dumps(raw_def, indent=2, default=str))
-        else:
-            input_refs = settings.get_flat_input_refs()
-            output_refs = settings.get_flat_output_refs()
-
-            data = [
-                {"field": "Name", "value": recipe_name},
-                {"field": "Type", "value": raw_def.get("type", "")},
-                {"field": "Inputs", "value": ", ".join(input_refs) or "(none)"},
-                {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
-            ]
-
-            render(
-                data,
-                ["field", "value"],
-                output_format=output,
-                title=f"Recipe: {recipe_name}",
-            )
+        result = {
+            "name": recipe_name,
+            "type": raw_def.get("type", ""),
+            "inputs": settings.get_flat_input_refs(),
+            "outputs": settings.get_flat_output_refs(),
+        }
+        render_raw(result, output_format=output)
     except Exception as e:
         handle_api_error(e)
 
@@ -234,35 +221,8 @@ def get_definition(
             except (json.JSONDecodeError, ValueError):
                 payload = _get_text_payload(settings)
 
-        if output == "json":
-            result = {"definition": raw_def, "payload": payload}
-            print(json.dumps(result, indent=2, default=str))
-        else:
-            input_refs = settings.get_flat_input_refs()
-            output_refs = settings.get_flat_output_refs()
-            if isinstance(payload, str):
-                preview = payload[:200] + ("..." if len(payload) > 200 else "")
-                payload_display = preview if preview else "(none)"
-            else:
-                payload_display = (
-                    json.dumps(payload, default=str) if payload else "(none)"
-                )
-            data = [
-                {"field": "Name", "value": recipe_name},
-                {"field": "Type", "value": raw_def.get("type", "")},
-                {"field": "Inputs", "value": ", ".join(input_refs) or "(none)"},
-                {"field": "Outputs", "value": ", ".join(output_refs) or "(none)"},
-                {
-                    "field": "Payload",
-                    "value": payload_display,
-                },
-            ]
-            render(
-                data,
-                ["field", "value"],
-                output_format=output,
-                title=f"Recipe Definition: {recipe_name}",
-            )
+        result = {"definition": raw_def, "payload": payload}
+        render_raw(result, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

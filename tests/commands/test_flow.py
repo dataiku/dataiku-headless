@@ -185,6 +185,16 @@ def test_flow_check_fatal_error_exits_nonzero(patch_client):
     assert "consistency check complete" not in combined
 
 
+def test_flow_check_fatal_error_default_stdout_is_json(patch_client):
+    """With errors present, default stdout must stay one parseable JSON object —
+    no trailing errors table (the errors are already in the payload)."""
+    _set_check_state_with_fatal_error(patch_client)
+    result = runner.invoke(app, ["flow", "check", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    parsed = json.loads(result.stdout)
+    assert parsed["errors"][0]["node"] == "recipe_broken"
+
+
 def test_flow_check_fatal_error_exits_nonzero_json(patch_client):
     """The same gate applies to the --format json path."""
     _set_check_state_with_fatal_error(patch_client)

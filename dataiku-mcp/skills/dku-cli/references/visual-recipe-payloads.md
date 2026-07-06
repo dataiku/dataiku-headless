@@ -348,7 +348,7 @@ before distance.
 {"columnRules": [{"ruleColumn": "email", "ruleId": "email_format_regex", "isSelected": true}]}
 ```
 
-References ruleIds in the input dataset's `checks[]` (`dku dq list-checks DS`).
+References ruleIds in the input dataset's `checks[]` (`dku dq list DS`).
 Empty `columnRules[]` extracts failures for ALL enabled rules.
 
 ## List Folder Contents / Merge Folder — `recipe.params`, NOT payload

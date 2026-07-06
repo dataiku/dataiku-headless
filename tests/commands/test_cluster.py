@@ -63,7 +63,8 @@ def test_cluster_stop(patch_client):
 def test_cluster_status(patch_client):
     result = runner.invoke(app, ["cluster", "status", "k8s-prod"])
     assert result.exit_code == 0
-    assert "RUNNING" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["state"] == "RUNNING"
 
 
 def test_cluster_status_json(patch_client):

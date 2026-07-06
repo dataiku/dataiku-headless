@@ -433,21 +433,7 @@ def checks_status(
                 f"dku dataset checks run {dataset_name} -P {project_key}"
             )
             return
-        if output == "json":
-            render_raw(status, output_format="json")
-            return
-        rows = []
-        if isinstance(status, dict):
-            for k, v in status.items():
-                rows.append({"field": k, "value": str(v)})
-        else:
-            rows.append({"field": "status", "value": str(status)})
-        render(
-            rows,
-            ["field", "value"],
-            output_format=output,
-            title=f"Data Quality Status: {dataset_name}",
-        )
+        render_raw(status, output_format=output)
     except typer.Exit:
         raise
     except Exception as e:

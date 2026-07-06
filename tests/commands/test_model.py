@@ -27,8 +27,13 @@ def test_model_list_json(patch_client):
 
 
 def test_model_get(patch_client):
-    result = runner.invoke(app, ["model", "get", "model1", "--project", "PROJ1"])
+    result = runner.invoke(
+        app, ["--format", "json", "model", "get", "model1", "--project", "PROJ1"]
+    )
     assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "model1"
+    assert parsed["active_version"] == "v1"
 
 
 def test_model_get_json(patch_client):

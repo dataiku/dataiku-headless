@@ -155,20 +155,7 @@ def get(
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
         raw = insight.get_settings().get_raw()
-
-        if output == "json":
-            render_raw(raw, output_format=output)
-        else:
-            data = [
-                {"field": "ID", "value": raw.get("id", insight_id)},
-                {"field": "Name", "value": raw.get("name", "")},
-                {"field": "Type", "value": raw.get("type", "")},
-            ]
-            render(
-                data,
-                ["field", "value"],
-                title=f"Insight: {insight_id}",
-            )
+        render_raw(raw, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

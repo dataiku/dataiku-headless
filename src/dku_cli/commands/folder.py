@@ -227,23 +227,7 @@ def get(
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
         raw = folder.get_settings().get_raw()
-
-        if output == "json":
-            render_raw(raw, output_format="json")
-        else:
-            params = raw.get("params", {})
-            data = [
-                {"field": "id", "value": raw.get("id", "")},
-                {"field": "name", "value": raw.get("name", "")},
-                {"field": "type", "value": raw.get("type", "")},
-                {"field": "connection", "value": params.get("connection", "")},
-                {"field": "path", "value": params.get("path", "")},
-            ]
-            render(
-                data,
-                ["field", "value"],
-                title=f"Folder: {raw.get('name', folder_ref)}",
-            )
+        render_raw(raw, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

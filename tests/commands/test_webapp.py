@@ -136,6 +136,8 @@ def test_webapp_stop(patch_client):
 def test_webapp_status(patch_client):
     result = runner.invoke(app, ["webapp", "status", "webapp1", "--project", "PROJ1"])
     assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["running"] is True
 
 
 def test_webapp_status_json(patch_client):
@@ -144,7 +146,7 @@ def test_webapp_status_json(patch_client):
     )
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert any(d["value"] == "True" for d in parsed)
+    assert parsed["running"] is True
 
 
 # ── get-definition / set-definition ─────────────────────────────────────

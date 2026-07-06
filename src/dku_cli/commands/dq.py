@@ -359,15 +359,7 @@ def get_status(
     try:
         _, _, ruleset = _get_ruleset(ctx, dataset_name, project)
         status = ruleset.get_status()
-
-        if output == "json":
-            render_raw(status, output_format="json")
-        else:
-            if isinstance(status, dict):
-                for k, v in status.items():
-                    info(f"{k}: {v}")
-            else:
-                info(f"Status: {status}")
+        render_raw(status, output_format=output)
     except Exception as e:
         handle_api_error(e)
 

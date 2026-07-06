@@ -33,8 +33,8 @@ def test_admin_get_log(patch_client):
 def test_admin_usage(patch_client):
     result = runner.invoke(app, ["admin", "usage"])
     assert result.exit_code == 0
-    assert "projects" in result.output
-    assert "10" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["projects"] == 10
 
 
 def test_admin_usage_json(patch_client):
@@ -48,7 +48,8 @@ def test_admin_usage_json(patch_client):
 def test_admin_instance_info(patch_client):
     result = runner.invoke(app, ["admin", "instance-info"])
     assert result.exit_code == 0
-    assert "DESIGN" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["nodeType"] == "DESIGN"
 
 
 def test_admin_instance_info_json(patch_client):
@@ -74,7 +75,8 @@ def test_admin_sanity_check(patch_client):
 def test_admin_license_status(patch_client):
     result = runner.invoke(app, ["admin", "license", "status"])
     assert result.exit_code == 0
-    assert "ENTERPRISE" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["edition"] == "ENTERPRISE"
 
 
 def test_admin_license_upload_blocks_without_admin_flags(patch_client, tmp_path):

@@ -32,7 +32,8 @@ def test_dashboard_get(patch_client):
         app, ["dashboard", "get", "dashboard1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    assert "dashboard1" in result.output
+    parsed = json.loads(result.output)
+    assert parsed["id"] == "dashboard1"
 
 
 def test_dashboard_get_shows_working_url(patch_client):
