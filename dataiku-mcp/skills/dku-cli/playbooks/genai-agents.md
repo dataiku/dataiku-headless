@@ -288,6 +288,11 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
    traits need `--no-needs-reference`; expectation-scored traits need
    `--needs-expectations`. Mismatch = traits silently skip tests.
 3. Results: `dku agent-review results REV --run RUN_ID --by-trait`.
+4. **Refine the suite in place** (don't rebuild it): `update-trait` / `remove-trait`
+   edit or drop a criterion (resolve by trait id OR name — an ambiguous name fails
+   and asks for the id; edits are full-replace so untouched traits survive);
+   `update-test` / `delete-test` edit or drop a single test by its id. `remove-trait`
+   and `delete-test` are DELETE-tier (`--yes`).
 
 **Gotchas:**
 - `agent-review run` **re-executes the agent fresh per test** (does not re-score a

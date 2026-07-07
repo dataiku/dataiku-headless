@@ -371,6 +371,211 @@ def add_trait(
         handle_api_error(e)
 
 
+def _resolve_trait(traits: list, selector: str, project_key: str, review_id: str):
+    """Locate a trait dict in a review's raw traits list by id or name.
+
+    Returns the live dict from ``traits`` so callers can mutate it in place and
+    persist with ``review.save()``. Exact id wins; an exact name match is the
+    fallback, but an ambiguous name (≥2 traits share it) fails prescriptively so
+    the agent passes the unambiguous id. Not-found lists what exists.
+    """
+    for trait in traits:
+        if trait.get("id") == selector:
+            return trait
+    name_matches = [t for t in traits if t.get("name") == selector]
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if len(name_matches) > 1:
+        exit_with_error(
+            f"Trait name '{selector}' matches {len(name_matches)} traits.",
+            details=[
+                "Pass the trait ID instead (id  name):",
+                *[f"  {t.get('id')}  {t.get('name')}" for t in name_matches],
+                f"List all: dku agent-review get {review_id} -P {project_key}",
+            ],
+            status=3,
+        )
+    if traits:
+        details = [
+            "Available traits (id  name):",
+            *[f"  {t.get('id')}  {t.get('name')}" for t in traits],
+        ]
+    else:
+        details = [
+            f"Review '{review_id}' has no traits yet.",
+            "Add one: dku agent-review add-trait "
+            f"{review_id} --name NAME --criteria '...' -P {project_key}",
+        ]
+    exit_with_error(
+        f"No trait matching '{selector}' on review '{review_id}'.",
+        details=[
+            *details,
+            f"List all: dku agent-review get {review_id} -P {project_key}",
+        ],
+        status=3,
+    )
+
+
+def _apply_trait_edits(t: dict, **fields) -> list[str]:
+    """Set each provided (non-None) field on a trait dict in place.
+
+    Returns the DSS keys that were written, in declaration order.
+    """
+    changed = []
+    for key, value in fields.items():
+        if value is not None:
+            t[key] = value
+            changed.append(key)
+    return changed
+
+
+def _warn_trait_wiring(t: dict) -> None:
+    """Warn when a trait's criteria names a field the trait isn't wired to receive."""
+    lc = (t.get("criteria") or "").lower()
+    if "expectation" in lc and not t.get("needsExpectations"):
+        warn(
+            "Criteria mentions expectations but needsExpectations is off — the "
+            "judge will NOT see the test's expectations. Set --needs-expectations."
+        )
+    if "reference" in lc and not t.get("needsReference"):
+        warn(
+            "Criteria mentions the reference answer but needsReference is off — "
+            "the judge will NOT see the test's reference answer."
+        )
+
+
+@app.command("update-trait")
+def update_trait(
+    ctx: typer.Context,
+    review_id: str = typer.Argument(help="Review ID or name"),
+    trait: str = typer.Option(
+        ..., "--trait", help="Trait ID or name to edit (see `get REVIEW`)"
+    ),
+    name: str = typer.Option(None, "--name", help="New trait name"),
+    description: str = typer.Option(
+        None, "--description", help="New trait description"
+    ),
+    criteria: str = typer.Option(
+        None, "--criteria", help="New evaluation criteria/prompt for the LLM judge"
+    ),
+    needs_reference: bool = typer.Option(
+        None,
+        "--needs-reference/--no-needs-reference",
+        help="Change whether the judge gets the test's reference answer.",
+    ),
+    needs_expectations: bool = typer.Option(
+        None,
+        "--needs-expectations/--no-needs-expectations",
+        help="Change whether the judge gets the test's expectations.",
+    ),
+    llm: str = typer.Option(
+        None, "--llm", help="New LLM ID for this trait's evaluation"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Edit an existing trait on a review. Only the flags you pass change.
+
+    Traits are full-replace under the hood (DSS has no per-trait PATCH), so this
+    reads the review, mutates the one matched trait, and saves the whole list —
+    other traits are preserved untouched.
+
+    Examples:
+      dku agent-review update-trait REV1 --trait Tone --criteria "Be concise" -P PROJ
+      dku agent-review update-trait REV1 --trait TRAIT_ID --no-needs-reference -P PROJ
+    """
+    if all(
+        v is None
+        for v in (name, description, criteria, needs_reference, needs_expectations, llm)
+    ):
+        exit_with_error(
+            "Nothing to update on this trait.",
+            details=[
+                "Pass at least one of: --name, --description, --criteria, "
+                "--needs-reference/--no-needs-reference, "
+                "--needs-expectations/--no-needs-expectations, --llm.",
+                "Example: dku agent-review update-trait "
+                f"{review_id} --trait {trait!r} --criteria '...' -P PROJ",
+            ],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        review = resolve_agent_review(proj, review_id)
+        traits = review.get_raw().get("traits") or []
+        t = _resolve_trait(traits, trait, project_key, review_id)
+
+        changed = _apply_trait_edits(
+            t,
+            name=name,
+            description=description,
+            criteria=criteria,
+            needsReference=needs_reference,
+            needsExpectations=needs_expectations,
+            llmId=llm,
+        )
+        review.save()
+        success(
+            f"Updated trait '{t.get('name')}' (id={t.get('id')}) on review "
+            f"'{review_id}': {', '.join(changed)}"
+        )
+        # Wiring nudge, evaluated on the trait's FINAL state (same as add-trait).
+        _warn_trait_wiring(t)
+        hint(f"dku agent-review get {review_id} -P {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("remove-trait")
+def remove_trait(
+    ctx: typer.Context,
+    review_id: str = typer.Argument(help="Review ID or name"),
+    trait: str = typer.Option(
+        ..., "--trait", help="Trait ID or name to remove (see `get REVIEW`)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+) -> None:
+    """Remove a trait from a review. Other traits are preserved.
+
+    Deletes the criterion's prompt/wiring (re-addable with add-trait, but its
+    text is not recoverable), so this is DELETE-tier — pass --yes to proceed.
+
+    Examples:
+      dku agent-review remove-trait REV1 --trait "Tone" --yes -P PROJ
+      dku agent-review remove-trait REV1 --trait TRAIT_ID --yes -P PROJ
+    """
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent_review.remove_trait",
+        subject=f"trait '{trait}' on agent review '{review_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Remove trait '{trait}' from agent review '{review_id}'?",
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        review = resolve_agent_review(proj, review_id)
+        raw = review.get_raw()
+        traits = raw.get("traits") or []
+        matched = _resolve_trait(traits, trait, project_key, review_id)
+        raw["traits"] = [t for t in traits if t is not matched]
+        review.save()
+        success(
+            f"Removed trait '{matched.get('name')}' (id={matched.get('id')}) "
+            f"from review '{review_id}'"
+        )
+        hint(f"dku agent-review get {review_id} -P {project_key}")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
 @app.command("list-tests")
 def list_tests(
     ctx: typer.Context,
@@ -440,6 +645,102 @@ def create_test(
         )
         success(f"Created test (id={test.id}) in review '{review_id}'")
         hint(f"dku agent-review run {review_id} -P {project_key}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+def _get_test(client, project_key: str, test_id: str):
+    """Fetch a single agent-review test by ID.
+
+    Tests are project-addressable (``GET /agent-reviews/tests/{id}`` — no review
+    ID in the path), so a bare DSSAgentReview handle is used purely as the SDK
+    accessor, mirroring ``_get_result``.
+    """
+    from dataikuapi.dss.agent_review import DSSAgentReview
+
+    return DSSAgentReview(client, project_key, {}).get_test(test_id)
+
+
+@app.command("update-test")
+def update_test(
+    ctx: typer.Context,
+    test_id: str = typer.Argument(help="Test ID (from `agent-review list-tests`)"),
+    query: str = typer.Option(None, "--query", "-q", help="New test query"),
+    reference: str = typer.Option(
+        None, "--reference", "-r", help="New reference answer"
+    ),
+    expectations: str = typer.Option(
+        None, "--expectations", "-e", help="New expectations"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Edit a test's query, reference answer, or expectations.
+
+    Only the fields you pass change; the rest are preserved. Pass an empty string
+    (e.g. --reference "") to clear a field. Test IDs come from `list-tests`.
+
+    Examples:
+      dku agent-review update-test TEST_ID --query "New question text" -P PROJ
+      dku agent-review update-test TEST_ID -r "30-day refund" -e "be concise" -P PROJ
+    """
+    if query is None and reference is None and expectations is None:
+        exit_with_error(
+            "Nothing to update on this test.",
+            details=[
+                "Pass at least one of: --query/-q, --reference/-r, --expectations/-e.",
+                f'Example: dku agent-review update-test {test_id} -q "..." -P PROJ',
+            ],
+        )
+    project_key = resolve_project(project)
+    try:
+        client = get_client_from_ctx(ctx)
+        test = _get_test(client, project_key, test_id)
+        changed = []
+        if query is not None:
+            test.query = query
+            changed.append("query")
+        if reference is not None:
+            test.reference_answer = reference
+            changed.append("reference_answer")
+        if expectations is not None:
+            test.expectations = expectations
+            changed.append("expectations")
+        test.save()
+        success(f"Updated test '{test_id}': {', '.join(changed)}")
+    except Exception as e:
+        handle_api_error(e)
+
+
+@app.command("delete-test")
+def delete_test(
+    ctx: typer.Context,
+    test_id: str = typer.Argument(help="Test ID (from `agent-review list-tests`)"),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip safety guard"),
+) -> None:
+    """Delete a single test from an agent review.
+
+    Examples:
+      dku agent-review delete-test TEST_ID --yes -P PROJ
+    """
+    from dku_cli.safety import Tier, guard
+
+    project_key = resolve_project(project)
+    guard(
+        ctx,
+        tier=Tier.DELETE,
+        action="agent_review.delete_test",
+        subject=f"agent-review test '{test_id}' in {project_key}",
+        yes=yes,
+        prompt=f"Delete agent-review test '{test_id}' from {project_key}?",
+    )
+    try:
+        client = get_client_from_ctx(ctx)
+        test = _get_test(client, project_key, test_id)
+        test.delete()
+        success(f"Deleted test '{test_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 

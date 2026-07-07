@@ -939,3 +939,388 @@ def test_override_trait_requires_verdict(patch_client):
         ],
     )
     assert result.exit_code != 0
+
+
+# --- update-trait ---
+
+
+def test_update_trait_criteria_by_name(patch_client):
+    """Edit a trait located by its display name; other traits untouched."""
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Accuracy",
+            "--criteria",
+            "Does the answer exactly match the reference?",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    review.save.assert_called_once()
+    traits = {t["id"]: t for t in review.data["traits"]}
+    assert traits["trait_accuracy"]["criteria"] == (
+        "Does the answer exactly match the reference?"
+    )
+    # The other trait is preserved untouched (full-replace must not drop it).
+    assert "trait_tone" in traits
+
+
+def test_update_trait_by_id(patch_client):
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "trait_tone",
+            "--name",
+            "Politeness",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    traits = {t["id"]: t for t in review.data["traits"]}
+    assert traits["trait_tone"]["name"] == "Politeness"
+
+
+def test_update_trait_no_needs_reference(patch_client):
+    """Boolean wiring flags are tri-state: only the one passed changes."""
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Tone",
+            "--no-needs-reference",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    traits = {t["id"]: t for t in review.data["traits"]}
+    assert traits["trait_tone"]["needsReference"] is False
+
+
+def test_update_trait_llm(patch_client):
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Accuracy",
+            "--llm",
+            "openai:gpt-4o",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    traits = {t["id"]: t for t in review.data["traits"]}
+    assert traits["trait_accuracy"]["llmId"] == "openai:gpt-4o"
+
+
+def test_update_trait_requires_a_field(patch_client):
+    """No mutating flags → prescriptive error, nothing saved."""
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Accuracy",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Nothing to update" in result.output
+    review.save.assert_not_called()
+
+
+def test_update_trait_not_found_lists_available(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Nonexistent",
+            "--criteria",
+            "x",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 3
+    # Not-found must say what exists (id + name).
+    assert "trait_accuracy" in result.output
+    assert "Accuracy" in result.output
+
+
+def test_update_trait_ambiguous_name(patch_client):
+    """Two traits share a name → fail prescriptively (exit 3) listing both IDs."""
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    review.data["traits"] = [
+        {"id": "t_a", "name": "Accuracy"},
+        {"id": "t_b", "name": "Accuracy"},
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Accuracy",
+            "--criteria",
+            "x",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 3
+    # Prescriptive: directs to the unambiguous id and lists every candidate.
+    assert "Pass the trait ID" in result.output
+    assert "t_a" in result.output and "t_b" in result.output
+    review.save.assert_not_called()
+
+
+def test_update_trait_wiring_nudge(patch_client):
+    """Criteria mentions expectations but trait isn't wired for them → warn."""
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "update-trait",
+            "review1",
+            "--trait",
+            "Accuracy",
+            "--criteria",
+            "Does the answer satisfy the stated expectations?",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "needsExpectations" in result.output
+
+
+# --- remove-trait ---
+
+
+def test_remove_trait(patch_client):
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "remove-trait",
+            "review1",
+            "--trait",
+            "Tone",
+            "--yes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    review.save.assert_called_once()
+    remaining = [t["id"] for t in review.data["traits"]]
+    assert remaining == ["trait_accuracy"]
+
+
+def test_remove_trait_by_id(patch_client):
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "remove-trait",
+            "review1",
+            "--trait",
+            "trait_accuracy",
+            "--yes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0
+    remaining = [t["id"] for t in review.data["traits"]]
+    assert remaining == ["trait_tone"]
+
+
+def test_remove_trait_requires_yes(patch_client):
+    """DELETE-tier: without --yes the safety guard blocks (exit 77)."""
+    review = patch_client.get_project("PROJ1").get_agent_review("review1")
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "remove-trait",
+            "review1",
+            "--trait",
+            "Tone",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 77
+    review.save.assert_not_called()
+    # Traits must be untouched when the guard blocks.
+    assert len(review.data["traits"]) == 2
+
+
+def test_remove_trait_not_found(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "agent-review",
+            "remove-trait",
+            "review1",
+            "--trait",
+            "Ghost",
+            "--yes",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 3
+    assert "Accuracy" in result.output
+
+
+# --- update-test ---
+
+
+def _test_obj():
+    from unittest.mock import MagicMock
+
+    t = MagicMock()
+    t.id = "test1"
+    t.query = "What is 2+2?"
+    t.reference_answer = "4"
+    t.expectations = "Should be numeric"
+    return t
+
+
+def test_update_test_query(patch_client):
+    mock_test = _test_obj()
+    with patch("dku_cli.commands.agent_review._get_test", return_value=mock_test):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "update-test",
+                "test1",
+                "--query",
+                "What is 3+3?",
+                "--project",
+                "PROJ1",
+            ],
+        )
+    assert result.exit_code == 0
+    assert mock_test.query == "What is 3+3?"
+    mock_test.save.assert_called_once()
+
+
+def test_update_test_multiple_fields(patch_client):
+    mock_test = _test_obj()
+    with patch("dku_cli.commands.agent_review._get_test", return_value=mock_test):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "update-test",
+                "test1",
+                "-q",
+                "Q",
+                "-r",
+                "R",
+                "-e",
+                "E",
+                "--project",
+                "PROJ1",
+            ],
+        )
+    assert result.exit_code == 0
+    assert mock_test.query == "Q"
+    assert mock_test.reference_answer == "R"
+    assert mock_test.expectations == "E"
+
+
+def test_update_test_clear_field_with_empty_string(patch_client):
+    """An explicit empty string clears a field (distinct from omitting it)."""
+    mock_test = _test_obj()
+    with patch("dku_cli.commands.agent_review._get_test", return_value=mock_test):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "update-test",
+                "test1",
+                "--reference",
+                "",
+                "--project",
+                "PROJ1",
+            ],
+        )
+    assert result.exit_code == 0
+    assert mock_test.reference_answer == ""
+    mock_test.save.assert_called_once()
+
+
+def test_update_test_requires_a_field(patch_client):
+    result = runner.invoke(
+        app, ["agent-review", "update-test", "test1", "--project", "PROJ1"]
+    )
+    assert result.exit_code != 0
+    assert "Nothing to update" in result.output
+
+
+# --- delete-test ---
+
+
+def test_delete_test(patch_client):
+    mock_test = _test_obj()
+    with patch("dku_cli.commands.agent_review._get_test", return_value=mock_test):
+        result = runner.invoke(
+            app,
+            [
+                "agent-review",
+                "delete-test",
+                "test1",
+                "--yes",
+                "--project",
+                "PROJ1",
+            ],
+        )
+    assert result.exit_code == 0
+    mock_test.delete.assert_called_once()
+
+
+def test_delete_test_requires_yes(patch_client):
+    """DELETE-tier: without --yes the safety guard blocks (exit 77)."""
+    mock_test = _test_obj()
+    with patch("dku_cli.commands.agent_review._get_test", return_value=mock_test):
+        result = runner.invoke(
+            app, ["agent-review", "delete-test", "test1", "--project", "PROJ1"]
+        )
+    assert result.exit_code == 77
+    mock_test.delete.assert_not_called()

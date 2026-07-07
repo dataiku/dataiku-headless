@@ -321,6 +321,7 @@ Every group and command with its one-line description — read this once per ses
 - `create` — Create a new agent review.
 - `create-test` — Create a single test case for an agent review.
 - `delete` — Delete an agent review. Accepts review ID or name.
+- `delete-test` — Delete a single test from an agent review.
 - `export-tests` — Export tests from an agent review to a dataset.
 - `get` — Show agent review settings. Accepts review ID or name.
 - `get-result` — Show one result's detail with its human-verification state.
@@ -329,10 +330,13 @@ Every group and command with its one-line description — read this once per ses
 - `list-runs` — List runs of an agent review.
 - `list-tests` — List tests in an agent review.
 - `override-trait` — Override one trait's AI verdict on a result with a human PASS/FAIL.
+- `remove-trait` — Remove a trait from a review. Other traits are preserved.
 - `results` — Show results of a review run — per-test trait evaluations.
 - `run` — Execute a review run — evaluates the agent against all tests.
 - `set-agent` — Link an agent review to an agent.
 - `set-llm` — Set the helper LLM used for trait evaluation.
+- `update-test` — Edit a test's query, reference answer, or expectations.
+- `update-trait` — Edit an existing trait on a review. Only the flags you pass change.
 - `verify` — Record a human (SME) review on a result — DSS 14.6 human verification.
 
 ### `agent-tool` — Manage DSS agent tools.
