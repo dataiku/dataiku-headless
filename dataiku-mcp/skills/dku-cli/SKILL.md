@@ -152,4 +152,6 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 | Model lifecycle (drift/retrain/MLflow/API serving), code envs, guardrails, semantic models, macros | `references/mlops.md` |
 | Semantic model entity/attribute/metric/relationship/golden-query/glossary payload schemas + distinctValuesHandlingMode | `references/semantic-models.md` |
 | Agent Hub (deliver agents to end users): the `/api/admin/config` endpoint vs the API-key 401, what `dku agent-hub` can/can't do, the read-only export path | `references/agent-hub.md` |
+| Visual Graph plugin (Kuzu): editor webapp, publish, Cypher recipes, graph-search agent tool | `references/visual-graph.md` |
+| Snowflake ML (`ANOMALY_DETECTION`/`FORECAST`) from DSS SQL | `references/snowflake-ml.md` |
 | Safety tiers, exit 77, admin lockout | `references/safety.md` |

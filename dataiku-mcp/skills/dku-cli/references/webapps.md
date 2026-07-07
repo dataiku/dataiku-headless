@@ -14,7 +14,9 @@ Framework: **DASH** (Python, data/chart-driven, components+callbacks) vs **STAND
 (handcrafted HTML/CSS/JS, optional Flask backend). Prefer DASH for charts/exploration;
 STANDARD for fine HTML control. Also BOKEH, STREAMLIT, SHINY. DASH needs a code env with
 `dash`; STANDARD+backend needs `Flask`; STANDARD without backend needs none. Set the code
-env explicitly. **No public API creates a webapp** — create in the UI, then manage via CLI.
+env explicitly — `envMode: INHERIT` (the 4-tab default) can resolve to a project-default env
+without flask; `USE_BUILTIN_MODE` is the zero-build fix for plain Flask backends.
+**No public API creates a webapp** — create in the UI, then manage via CLI.
 
 ## Backend
 
@@ -57,6 +59,18 @@ yields `write() before start_response` 500s that kill the backend).
 row-level security. Resolve the caller with
 `api_client().get_auth_info_from_browser_headers(dict(request.headers))["authIdentifier"]`,
 then wrap API calls in `with WebappImpersonationContext(user_login):`.
+
+**Backend env contents vary by install** — flask yes, but e.g. cloud-stacks builtin ships
+numpy with no pandas/sklearn. Verify imports on the target instance and guard optional ones.
+Pure-python deps: vendor into the project library (`dku library sync <local_pkg_dir>
+python/<pkg>`) and import directly from the backend; plugin webapps ship them in the
+plugin's `python-lib/`.
+
+**Plugin webapp code resolution:** an instance runs the PLUGIN's `backend.py`/`app.js`;
+the instance's `python`/`js` params are ignored (they only work for project webapps).
+Python changes deploy via `dku plugin push <zip> --update` + `dku webapp restart`; JS needs
+only a page reload. API-key calls to a plugin-webapp backend can 401 even with
+`backendAPIAccessEnabled` — verify via a browser session.
 
 ## Frontend
 
@@ -136,6 +150,8 @@ var for multi-tenant isolation. In DSS use `db.create_all()` — **no Alembic su
 | `IllegalStateException: no JavaScript file` | missing `app.js` (DSS requires it, even empty) + `meta.json` |
 | Flask backend never served | `meta.json` must CONTAIN `{"backendEnabled": true}`, not just exist |
 | backend missing deps | `codeEnv: PLUGIN_MANAGED` absent from webapp.json |
+| `ModuleNotFoundError: No module named 'flask'` in `webapp logs`, `Running=False` (nginx `/__ping` refused noise below the traceback) | `envMode: INHERIT` resolved to an env without flask → `get-definition`, set `envSelection: {"envMode":"USE_BUILTIN_MODE"}` (or `EXPLICIT_ENV` with flask), `set-definition`, `start` |
+| plugin webapp still runs old backend after updating instance params | instances execute the plugin's files → edit in the plugin, `plugin push --update`, `webapp restart` |
 | random 404 on chunk files | Vite code-splitting / wrong `base` → single-bundle + plugin `base` path |
 | Socket.IO 500 kills backend | websocket transport in DSS → polling only |
 | `body.html`/`webapp.json` edits not taking effect | DSS caches aggressively → delete & recreate the webapp instance |

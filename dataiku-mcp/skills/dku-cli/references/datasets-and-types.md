@@ -52,6 +52,13 @@ verbatim in `dku --format json dataset get-definition`. Treat plugin-typed defin
 **Upload gotcha:** `dku dataset upload` resolves a local-FS path and fails for `UploadedFiles` backed by
 S3/Azure/GCS — use the UI Upload tile or `folder upload` + `folder create-dataset`.
 
+**Uploaded-dataset typing:** `autodetect_settings()` leaves a column `string` unless the values match a
+recognized pattern — python `str(datetime)` output (`2025-01-01 00:00:00+00:00`) stays string; ISO-8601-Z
+(`2025-01-01T00:00:00.000Z`) detects as date. Force the intended types after autodetect with `set_schema`
+(copying the source dataset's schema round-trips cleanly). A string time column makes TS-forecasting task
+creation fail with an opaque NPE (`Cannot read field "per_feature" ... getPreprocessingParams() is null`)
+— nothing in the error points at the column type.
+
 ## Schema
 
 Column storage types: `string`, `int` (32-bit), `bigint` (64-bit), `float` (32-bit), `double` (64-bit),
