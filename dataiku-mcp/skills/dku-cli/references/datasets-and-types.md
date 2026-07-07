@@ -54,8 +54,9 @@ S3/Azure/GCS — use the UI Upload tile or `folder upload` + `folder create-data
 
 ## Schema
 
-Column storage types: `string`, `int` (32-bit), `bigint` (64-bit), `float` (32-bit), `double` (64-bit),
-`boolean`, `date` (ISO string), `array` (→list), `object` (→dict). Schema shape:
+Column storage types: `string`, `tinyint`/`smallint`/`int` (32-bit)/`bigint` (64-bit), `float` (32-bit)/`double` (64-bit),
+`boolean`, `date` (timezone-aware timestamp), `dateonly`, `datetimenotz`, `geopoint`, `geometry`,
+`array` (→list), `object` (→dict), `map`. Schema shape:
 
 ```json
 {"columns":[{"name":"id","type":"string"},{"name":"ts","type":"date"},{"name":"meta","type":"object"}]}

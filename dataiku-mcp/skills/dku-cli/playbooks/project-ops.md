@@ -64,30 +64,30 @@ A scenario = **triggers** (when) + **steps** (what) + **reporters** (who is told
 
 ```bash
 dku scenario create daily_build -P KEY
-# steps go through set-definition (FULL replace — include params.steps)
-dku --format json scenario get-definition daily_build -P KEY   # header-only: NO steps, NO triggers
-dku scenario set-definition daily_build -P KEY -d @scen.json
+dku scenario add-step-build daily_build ... -P KEY   # typed step verbs — flags from --help
+dku scenario list-steps daily_build -P KEY
 dku scenario run daily_build -P KEY --wait
 ```
 
-- **`set-definition` is a FULL replace** of `params.steps`, `params.reporters`, and header. Supply a complete definition, never a partial patch. For header-only edits use `set-metadata` instead.
-- **`get-definition` returns header only** — no `params.steps`, no `triggers`. Round-trip the complete step payload you are editing; do not reconstruct from memory. For triggers use `list-triggers`.
-- Common step types in `params.steps`: `build_flowitem` (`params.builds` = list of `{type:"DATASET"|"MANAGED_FOLDER", itemId, partitionsSpec}` + `params.buildMode`), `custom_python` (`params.script`), `exec_sql` (`params.sql`, `params.connection`). For unfamiliar shapes, build one in the DSS UI and round-trip it.
-- **Gate critical builds on data quality:** add a *Compute Metrics* step then a *Run Checks* step on the output dataset — checks fail the scenario (`ERROR`) or warn (`WARNING`) so bad data stops the pipeline loudly instead of propagating. These step shapes are opaque JSON; build the gate once in the UI and round-trip it.
+- **Steps have typed verbs** — `add-step-build`, `add-step-sql`, `add-step-python`, `add-step-compute-metrics`, `add-step-check-dataset`, `add-step-run-scenario`, `add-step-export-dashboard`, … (full set in `dku scenario --help`), plus `list-steps` / `remove-step`. Reach for raw `set-definition` only for a step type with no verb.
+- **Gate critical builds on data quality:** `add-step-compute-metrics` then `add-step-check-dataset` on the output dataset — checks fail the scenario (`ERROR`) or warn (`WARNING`) so bad data stops the pipeline loudly instead of propagating.
+- Raw escape hatch: **`set-definition` is a FULL replace** of `params.steps`, `params.reporters`, and header — supply a complete definition, never a partial patch (header-only edits: `set-metadata`). **`get-definition` returns header only** — no `params.steps`, no `triggers` (use `list-steps` / `list-triggers`); round-trip the complete step payload you are editing, never reconstruct from memory. Step-type keys: `build_flowitem` (`params.builds` = list of `{type:"DATASET"|"MANAGED_FOLDER", itemId, partitionsSpec}` + `params.buildMode`), `custom_python` (`params.script`), `exec_sql` (`params.sql`, `params.connection`); for a shape no verb covers, build it once in the DSS UI and round-trip it.
 - Build modes: `RECURSIVE` (full refresh), `NON_RECURSIVE`, smart reconstruction (skip up-to-date). Prefer smart/non-recursive; reserve recursive for full refresh.
 
 ### Triggers
 
 ```bash
 dku scenario list-triggers SCEN -P KEY                  # shows index + type + active + params
+dku scenario add-trigger-time SCEN --frequency Daily --hour 6 -P KEY   # typed time trigger
 dku scenario add-trigger-dataset SCEN --dataset DS -P KEY   # shortcut for dataset-change
+dku scenario add-trigger-python SCEN ... -P KEY             # custom-python trigger — flags from --help
 dku scenario add-trigger SCEN --trigger @trigger.json -P KEY # raw JSON (inline/@file/-)
 dku scenario remove-trigger SCEN --index N -P KEY       # index from list-triggers
 ```
 
 Multiple triggers OR together — any match fires. Raw trigger JSON needs `type`, `active`, `params`:
 
-- **Time (`temporal`)**: `params.frequency` ∈ `Minutely|Hourly|Daily|Weekly|Monthly`, plus `hour`/`minute`/`timezone`. `Weekly` adds `daysOfWeek`; `Monthly` adds `monthlyRunOn`.
+- **Time (`temporal`)**: use `add-trigger-time` (`--frequency Minutely|Hourly|Daily|Weekly|Monthly`, `--hour`/`--minute`/`--timezone`, `--days`, `--monthly-run-on`, `--repeat-every`). Raw JSON only for a shape the verb can't express.
 - **Dataset change (`ds_modified`)**: `delay` (check interval, seconds) and `graceDelaySettings` are **root-level, NOT inside params**; `params.watches` = `[{type:"DATASET", itemId:"DS"}]`. Gotcha: putting `delay` under `params` silently never fires.
 - **SQL (`sql_query`)**: `params.connection` + `params.query`; fires on non-empty result. For incremental triggers, filter on the built-in `${scenarioTriggerPreviousFireDate}` (e.g. `WHERE created_at > '${scenarioTriggerPreviousFireDate}'`) so each fire only sees new rows.
 

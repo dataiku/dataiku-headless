@@ -360,8 +360,10 @@ make it one of your stages instead: `dku flow move <stage-1 nodes> --zone defaul
 then `dku flow set-zone default --name ingest --short-desc '...'`. `flow move -t AUTO`
 resolves the item type for you and mixes types in one call. Rename recipes verb-first and descriptive (`join_homeequity_to_us_data`, not
 `compute_joined_3`); the recipe names the action, the dataset names the thing. Give every dataset *and*
-recipe a hand-written one-liner in the project's working language (`dku dataset set-metadata --short-desc`,
-`dku recipe set-description`).
+recipe a hand-written one-liner in the project's working language. Datasets have no
+`shortDesc` — the flow tile renders the long description (`dku dataset set-metadata --description`);
+recipes render `shortDesc` (`dku recipe set-metadata --short-desc`). These are the exact
+fields `dku project audit` checks.
 
 A zone's short description shows on the main flow UI — a paragraph per zone
 (`dku flow set-zone ZONE --short-desc '...'`) documents the flow where readers

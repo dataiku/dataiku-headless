@@ -80,8 +80,8 @@ dku plugin usages <plugin>                # check before delete
 - `dku plugin delete --force` deletes even when in use; requires `--yes`.
 
 ### Review
-Spawn the `plugin-reviewer` agent for a scored report. Fallback: read all source, apply
-the checklist in `references/plugins.md`, run `ruff check` + `ruff format --check`.
+Read all source, apply the checklist in `references/plugins.md`, run `ruff check` +
+`ruff format --check`.
 
 ---
 
@@ -91,7 +91,8 @@ Two kinds: **project webapp** (4-tab editor in a project) and **plugin webapp**
 (`webapps/<id>/` shipped in a plugin). Framework: prefer **DASH** for data/chart-driven
 apps, **STANDARD** for handcrafted HTML/CSS/JS. Durable patterns: `references/webapps.md`.
 
-There is **no public API to create a webapp** — create it in the DSS UI, then drive it:
+Create with `dku webapp create` (STANDARD / BOKEH / DASH / STREAMLIT / SHINY;
+`--from-plugin PLUGIN --component ID` for a plugin-webapp instance), then drive it:
 `dku webapp start | stop | restart | status | logs | get-definition | set-definition`.
 No `delete` via API (DSS returns 405) — delete in the UI.
 

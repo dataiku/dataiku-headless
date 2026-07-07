@@ -57,7 +57,7 @@ GREL function names are **case-sensitive**. See `../../dku-cli/references/formul
 
 ### Geography / reference-data lookups
 
-SAS ships reference tables (`SASHELP.ZIPCODE`, `SASHELP.US_DATA`) and functions (`STFIPS`, `STNAME`, `ZIPSTATE`) that don't exist in Dataiku. The SKILL.md non-migratable patterns table flags this; at the function level:
+SAS ships reference tables (`SASHELP.ZIPCODE`, `SASHELP.US_DATA`) and functions (`STFIPS`, `STNAME`, `ZIPSTATE`) that don't exist in Dataiku. The `overview.md` § Non-migratable patterns table flags this; at the function level:
 
 | SAS | Dataiku answer |
 |---|---|
@@ -69,7 +69,7 @@ Prompt the user for the reference CSV during Phase 1 inventory — don't silentl
 
 ### Dates (SQL recipe equivalents — engine-specific)
 
-SAS date functions don't have a single portable SQL equivalent. The column below shows the most common shape, but **check your target engine** — the exact function name varies (`DATEDIFF` / `MONTHS_BETWEEN` / `DATE_DIFF`), and so does the argument order. See the Postgres-specific forms in § SAS → SQL recipe translations below.
+SAS date functions don't have a single portable SQL equivalent. The column below shows the most common shape, but **check your target engine** — the exact function name varies (`DATEDIFF` / `MONTHS_BETWEEN` / `DATE_DIFF`), and so does the argument order. See the Postgres-specific forms in `procs.md` § SAS → SQL recipe translations.
 
 | SAS | Shape (varies per engine) | Note |
 |---|---|---|
@@ -132,11 +132,11 @@ dku recipe add-find-replace RECIPE -c OUTCOME --find "0" --replace "Paid" -P PRO
 # Rename
 dku recipe add-rename RECIPE --from MORTDUE --to mortgage_due -P PROJ
 
-# Bin numeric (SAS: PUT(x, spend_tier.) with VALUE format ranges)
-dku recipe add-step RECIPE -t BinnerProcessor --params '{"column":"total_spend", "binnerMode":"CUSTOM", "customBoundaries":[500, 5000], "customBoundariesLabels":["Low","Medium","High"], "outputColumn":"spend_tier"}' -P PROJ
+# Bin numeric (SAS: PUT(x, spend_tier.) with VALUE format ranges) — shape: prepare-processors.md § table, BinnerProcessor row
+dku recipe add-step RECIPE -t BinnerProcessor --params '{"input":"total_spend", "output":"spend_tier", "mode":"CUSTOM", "bins":[{"inf":0,"sup":500},{"inf":500,"sup":5000}]}' -P PROJ
 
-# Date parsing
-dku recipe add-step RECIPE -t DateParser --params '{"appliesTo":"SINGLE_COLUMN", "columns":["date_col"], "formats":["M/d/yy"], "lang":"auto", "timezone_id":"UTC", "outCol":"", "outType":{"name":"out", "type":"date"}}' -P PROJ
+# Date parsing — always set outCol (in-place parse silently yields all nulls)
+dku recipe add-step RECIPE -t DateParser --params '{"appliesTo":"SINGLE_COLUMN", "columns":["date_col"], "formats":["M/d/yy"], "lang":"auto", "timezone_id":"UTC", "outCol":"date_parsed", "outType":{"name":"out", "type":"date"}}' -P PROJ
 
 # Date difference (input2 - input1)
 dku recipe add-step RECIPE -t DateDifference --params '{"input1":"start", "compareTo":"COLUMN", "input2":"end", "output":"days_diff", "outputUnit":"DAYS", "timezone_id":"UTC"}' -P PROJ

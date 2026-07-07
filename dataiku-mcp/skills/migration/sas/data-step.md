@@ -123,7 +123,7 @@ A cluster of DATA-step statements exist only to write to the SAS log, mutate int
 
 | SAS statement | Purpose | What to do |
 |---|---|---|
-| `ABORT` | End DATA step, job, or session with a return code | Drop. Pre-run data validation moves to scenario checks (§ Scheduling) |
+| `ABORT` | End DATA step, job, or session with a return code | Drop. Pre-run data validation moves to scenario checks (`ml-scenarios.md` § Scheduling trigger) |
 | `ERROR 'msg';` | Sets `_ERROR_=1` and writes to log | Drop. A recipe that encounters bad data should either fail (raise in Python) or filter the bad rows (Prepare) |
 | `PUTLOG 'msg' var=;` | Write to SAS log | Drop. For a Python recipe, `print()` goes to DSS job logs. For visual recipes, there's no log writer — that's not a failure, just not a thing |
 | `LIST;` | Dump the current input record to the log | Drop. Debugging aid only |
@@ -142,7 +142,7 @@ Why drop instead of translate: these statements encode how the SAS program debug
 
 ## External-file I/O (INFILE / INPUT statement, FILE / PUT statement)
 
-The `INPUT()` and `PUT()` *functions* (covered in § Function mapping) convert between strings and numerics in memory. The `INPUT` / `PUT` *statements* and their companions `INFILE` / `FILE` read and write external files — they're how SAS does ingest and export.
+The `INPUT()` and `PUT()` *functions* (covered in `functions-formats.md` § Function mapping) convert between strings and numerics in memory. The `INPUT` / `PUT` *statements* and their companions `INFILE` / `FILE` read and write external files — they're how SAS does ingest and export.
 
 | SAS statement | What it does | Dataiku equivalent |
 |---|---|---|
@@ -154,7 +154,7 @@ The `INPUT()` and `PUT()` *functions* (covered in § Function mapping) convert b
 | `file '/path/out.dat';` + `put a $ b c;` | Write formatted external file | Dataset download, or Sync recipe to a Filesystem / cloud connection. For fixed-width output, a Python recipe building the line and writing to a managed folder |
 | `file log;` + `put ...;` | Log diagnostic | DSS job logs capture `print()` from a Python recipe — don't migrate as a pipeline step |
 | `file print;` + `put ...;` | Printed report | Dashboard tile or `PROC REPORT`-style aggregate — not a recipe output |
-| `%include 'config.sas';` pointing at a data file | Not I/O — macro include | See SKILL.md § `%include` chains |
+| `%include 'config.sas';` pointing at a data file | Not I/O — macro include | See `overview.md` § `%include` chains |
 
 **Inventory rule:** during Phase 1, list every `INFILE` / `FILE` statement and map each to an upload / sync / download step before planning the downstream DATA steps. Getting the ingest wrong silently casts columns to STRING and breaks every downstream filter.
 

@@ -31,8 +31,9 @@ API key** (what `dku` / `dataikuapi` / external agents authenticate with) carrie
 key returns 200 on `/public/api/...`. So the endpoint is **scriptable from a browser
 session but not yet drivable by a personal API key**.
 
-- **Creating the hub webapp is UI-only** — plugin-webapp creation isn't in the public SDK.
-  Create it in the DSS UI: *Project > Web Apps > New Web App > Agent Hub*.
+- **Create the hub webapp with `dku webapp create NAME --from-plugin <plugin-id>
+  --component <webapp-component>`** (the CLI's create-then-retype path for plugin
+  webapps), or in the DSS UI: *Project > Web Apps > New Web App > Agent Hub*.
 - **To unblock `dku`/CI/agents**, the plugin's `before_request` would need to accept the
   API-key identity as a fallback when browser headers are absent — a small change in
   `dss-plugin-agent-hub`, not a new API. Until then, don't ship API-key write verbs.

@@ -15,7 +15,7 @@ What `[Row-N:Col]` returns when offset N runs off the partition start/end:
 | `<OtherRows>` | Alteryx at boundary | DSS translation |
 |---|---|---|
 | `NULL` (default) | null | DSS Window `Lag(col,k)` also nulls at boundary — semantics match. Use Window directly. |
-| `Empty` | "" | Same as NULL for numeric cols. Same Window translation. |
+| `Empty` | `""` string, `0` numeric | NOT the same as NULL on numeric cols — the boundary row participates (first delta measured from `0`, and it contributes to a downstream SUM). Port as `coalesce(lag(col,1), 0)`; string cols → `""`. See `semantics.md` § Boundary init. |
 | `Nearest` | first/last value of partition (edge value) | DSS `Lag` nulls at boundary — does NOT match. Add `FirstValue(col)` over partition + a Prepare `if(isBlank(lag_k), first_v, lag_k)` per offset before averaging. |
 
 `Nearest` is the trap: common in moving-average flows (makes leading-edge averages well-defined). DSS Window's *natural partial-window* gives a THIRD answer (avg over available rows). 3-row MA at row 2, input `(218,200,…)`:
@@ -118,7 +118,7 @@ dku recipe create-window runtot -P PROJ -i in --output-ds out \
 **Caveats:**
 - Output is hardcoded `<src_col>_sum`. If downstream references the Alteryx name (`RunTot_Sales`), chain a Prepare `add-rename`, or just reference `Sales_sum`.
 - Alteryx orders by **input row order** (= upstream Sort tool). DSS needs an explicit `--order-key`. No natural order column → add a row id upstream (`create-window … --compute 'rowNumber::rn'` no partition) or fold the Sort tool's keys into `--order-key`.
-- **Collapse hint:** `RunningTotal` followed by `MultiRowFormula` referencing `[Row-1:RunTot_X]` with `NumRows=1` (greedy fill / allocate-by-priority) → do NOT add a Lag column; algebra `[Row-1:RunTot_X] == RunTot_X - X`. One Window + one `add-formula` instead of Window+Lag+Prepare. See `ayx/overview.md` § Collapse triggers (`Sort → RunningTotal → MultiRowFormula`).
+- **Collapse hint:** `RunningTotal` followed by `MultiRowFormula` referencing `[Row-1:RunTot_X]` with `NumRows=1` (greedy fill / allocate-by-priority) → do NOT add a Lag column; algebra `[Row-1:RunTot_X] == RunTot_X - X`. One Window + one `add-formula` instead of Window+Lag+Prepare. See `overview.md` § Collapse triggers (`Sort → RunningTotal → MultiRowFormula`).
 
 ---
 
@@ -272,7 +272,7 @@ DSS — ONE `add-formula` building the ISO string:
 (if(substring(strval("date"),0,1)=="0","19","20") + substring(strval("date"),1,3)) + "-" + substring(strval("date"),3,5) + "-" + substring(strval("date"),5,7)
 ```
 - **Use `strval("date")`, NOT bareword `date`.** Digit-only with a leading zero (`"0990930"`); a bareword auto-coerces to a number, drops the leading zero (`990930`), shifts every `substring` offset — silently wrong, no error. (See `../../dku-cli/references/formulas.md` "Leading zeros disappear → wrap in `strval`".)
-- Keep the source column **string** on ingest; remember the single-column-CSV `formatType:"csv"→"line"` header-leak trap (`migration/ayx/overview.md` § Single-column TextInput) — `set-schema` to one column can flip the format so the header is read as data. Verify row count after upload.
+- Keep the source column **string** on ingest; remember the single-column-CSV `formatType:"csv"→"line"` header-leak trap (`overview.md` § Single-column TextInput) — `set-schema` to one column can flip the format so the header is read as data. Verify row count after upload.
 - `substring(s, from, to)` is from-inclusive / to-exclusive (Java).
 
 ### Manual zero-padding macros (TextToColumns + padleft + concat + DateTime)

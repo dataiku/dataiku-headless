@@ -12,9 +12,9 @@ Translation details for SAS PROCs, canonical visual patterns, and SQL-recipe tra
 | `PROC SQL` (simple filter/aggregation) | Prepare + Group | Visual | Decompose |
 | `PROC SQL` (joins) | Join | Visual | Break into visual steps |
 | `PROC SQL` (window / CTE / complex) | SQL recipe | Code | |
-| `PROC SQL` (ODBC passthrough) | SQL recipe on a Dataiku SQL connection | Code | See Enterprise driver scripts below |
-| `PROC MEANS` / `PROC SUMMARY` | Group | Visual | Only `n/mean/std/min/max/sum/count` — percentile/median/mode need SQL or Python |
-| `PROC UNIVARIATE` | SQL recipe first, Python as fallback | SQL / Code | SQL recipe with `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col)` preserves push-down. Python only when the engine has no percentile function |
+| `PROC SQL` (ODBC passthrough) | SQL recipe on a Dataiku SQL connection | Code | See `flow-patterns.md` § Recognizing enterprise driver scripts |
+| `PROC MEANS` / `PROC SUMMARY` | Group | Visual | Only `n/mean/std/min/max/sum/count` — percentile/median → visual Window-rank pattern (`../ayx/tools-join-reshape.md` § Median / percentile); SQL `PERCENTILE_CONT` only when the input is already SQL-backed |
+| `PROC UNIVARIATE` | Visual Window-rank pattern | Visual | Median/quantiles → Window-rank (`../ayx/tools-join-reshape.md` § Median / percentile). On SQL-backed input, `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col)` keeps push-down (§ SAS → SQL recipe translations). Never a plain Group, never Python |
 | `PROC FREQ` | Group (+ Pivot for multi-dim) | Visual | One-way frequencies → Group with count. Two-way cross-tabs (`TABLES a*b`) → Group by `(a, b)` then Pivot with `a` as row key, `b` as column key |
 | `PROC TRANSPOSE` | Pivot | Visual | `ID` → pivot column, `VAR` → value. Unmatched cells become `.` (missing), not 0 |
 | `PROC LOGISTIC` / `PROC REG` / `PROC GLM` | AutoML | Visual | Binary classification / regression |
@@ -67,7 +67,7 @@ Some PROCs migrate to Dataiku features outside the Flow. Don't force them into a
 | `PROC SGPLOT` / `SGPANEL` / `SGSCATTER` | Dataiku **Chart** on the output dataset, or **Dashboard tile** | Plots don't produce data. Migrate to a chart insight (`dku insight create NAME --type chart --ds DATASET`) or a dashboard insight, not a Python recipe that writes a PNG |
 | `PROC TEMPLATE` (ODS graphics templates) | Dashboard styling / shared chart config | Presentation layer, not a pipeline step |
 | `PROC REPORT` / `PROC TABULATE` | Dashboard with **pivot-table insight** + cross-tab Group/Pivot recipes for the data | These are reporting, not transformation. Migrate the *data prep* as Group + Pivot; migrate the *layout* as a dashboard |
-| `PROC COMPARE` | **Phase 4 verification**, not a migrated step | A parity/QA tool. Replace with `dku --format json dataset head` on both sides during integration test (see SKILL.md § Phase 4) |
+| `PROC COMPARE` | **Phase 4 verification**, not a migrated step | A parity/QA tool. Replace with `dku --format json dataset head` on both sides during integration test (see `../references/workflow.md` § Phase 4 — Integration test) |
 | `PROC PRINT` | Implicit (DSS shows data in the Explore tab) | Not a migration target |
 | `PROC CONTENTS` | `dku dataset schema DS -P PROJ` | Metadata lookup, not a recipe |
 
@@ -323,6 +323,9 @@ The rows below come in two flavours:
 ### `PROC UNIVARIATE` → `PERCENTILE_CONT`
 
 Standard SQL — works on Postgres, Oracle, SQL Server, Snowflake, BigQuery, Redshift, DuckDB.
+Parity caveat: `PERCENTILE_CONT` interpolates linearly; SAS defaults to `QNTLDEF=5`
+(averaged inverted CDF), so values differ at non-integer positions — `semantics.md`
+§ PROC UNIVARIATE defaults.
 
 ```sql
 SELECT

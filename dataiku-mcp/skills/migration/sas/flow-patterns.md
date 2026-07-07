@@ -24,7 +24,7 @@ sources on SQL conn → 7 SQL recipes (extracts) → many visual/SQL recipes (ap
 5. Pivot (`PROC TRANSPOSE`)? → **Pivot**
 6. `PROC SORT NODUPKEY` / "keep first per group"? → **Sort + Distinct** or **Window** (row_number)
 7. Needs `LAG`, `ROW_NUMBER`, cumulative sums, state-machine-like patterns? → **SQL recipe**
-8. Needs medians / quartiles / percentiles? → **SQL recipe** with `PERCENTILE_CONT`
+8. Needs medians / quartiles / percentiles? → **visual Window-rank pattern** (`../ayx/tools-join-reshape.md` § Median / percentile); SQL `PERCENTILE_CONT` only when the input is already SQL-backed
 9. Needs a SAS-specific feature with no SQL equivalent (special missing `.A`–`.Z`, hash with non-equality keys, complex `DO WHILE` state)? → **Python recipe** — only for that step
 
 Reach step 9 only after 1-8 are exhausted.
@@ -71,7 +71,7 @@ Translate the passthrough body character-for-character. Adaptations:
 
 ### Step 3 — Downstream flow, one recipe at a time
 
-Use Phase 3 protocol from the SKILL.md. For visual recipes:
+Use the Phase 3 protocol from `../references/workflow.md` § Phase 3. For visual recipes:
 ```bash
 dku recipe create-<type> RECIPE -i INPUT --output-ds OUTPUT [opts] -P PROJ
 dku recipe apply-schema RECIPE -P PROJ
@@ -97,7 +97,7 @@ Split by dimension with a Split recipe (for many values) or two Prepare filters 
 
 ### Step 5 — Parity check
 
-Run the same SAS program against inline `datalines;` blocks of the same synthetic source tables (strip `connect to odbc as remote`, replace `to_date` with SAS date literals). Pull both sides via `dku --format json dataset head` and compare row-by-row. On the first run, expect small mismatches on `.5` boundaries — usually engine rounding semantics. See Rounding below.
+Run the same SAS program against inline `datalines;` blocks of the same synthetic source tables (strip `connect to odbc as remote`, replace `to_date` with SAS date literals). Pull both sides via `dku --format json dataset head` and compare row-by-row. On the first run, expect small mismatches on `.5` boundaries — usually engine rounding semantics. See `functions-formats.md` § Rounding parity.
 
 ### Recognizing enterprise driver scripts
 
