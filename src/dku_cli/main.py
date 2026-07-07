@@ -65,6 +65,7 @@ from dku_cli.commands import (
     project,
     project_deployer,
     project_folder,
+    project_standards,
     rag,
     recipe,
     scenario,
@@ -168,6 +169,7 @@ app.add_typer(evaluation_store.app, name="evaluation-store")
 app.add_typer(project.app, name="project")
 app.add_typer(project_deployer.app, name="project-deployer")
 app.add_typer(project_folder.app, name="project-folder")
+app.add_typer(project_standards.app, name="project-standards")
 app.add_typer(dataset.app, name="dataset")
 app.add_typer(scenario.app, name="scenario")
 app.add_typer(semantic_model.app, name="semantic-model")

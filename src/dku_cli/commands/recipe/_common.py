@@ -284,13 +284,9 @@ def _get_or_create_recipe_params(settings) -> dict:
 
 def _deep_merge_dict(base: dict, patch: dict) -> dict:
     """Recursively merge *patch* into *base*. Non-dict values in *patch* replace *base*."""
-    merged = dict(base)
-    for key, value in patch.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = _deep_merge_dict(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
+    from dku_cli.definition_merge import deep_merge_dicts
+
+    return deep_merge_dicts(base, patch)
 
 
 def _build_pipeline_filter(expression: str) -> dict:

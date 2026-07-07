@@ -450,6 +450,38 @@ def get_code(
         handle_api_error(e)
 
 
+def _find_step(steps: list, selector: str, scenario_id: str, project_key: str):
+    """Resolve a --step selector (0-based index or step name) to (index, step)."""
+    if selector.lstrip("-").isdigit():
+        idx = int(selector)
+        if idx < 0 or idx >= len(steps):
+            exit_with_error(
+                f"Step index {idx} out of range (0–{len(steps) - 1}).",
+                details=[
+                    f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
+                ],
+            )
+        return idx, steps[idx]
+    matches = [(i, s) for i, s in enumerate(steps) if s.get("name") == selector]
+    if not matches:
+        names = ", ".join(repr(s.get("name", "")) for s in steps) or "(none)"
+        exit_with_error(
+            f"No step named '{selector}'. Steps: {names}.",
+            details=[
+                f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
+            ],
+        )
+    if len(matches) > 1:
+        exit_with_error(
+            f"Step name '{selector}' matches {len(matches)} steps — "
+            "use the 0-based index instead.",
+            details=[
+                f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
+            ],
+        )
+    return matches[0]
+
+
 @app.command("set-code")
 def set_code(
     ctx: typer.Context,
@@ -460,17 +492,79 @@ def set_code(
         "-c",
         help="Scenario script (literal, @file.py, or - for stdin)",
     ),
+    step: str = typer.Option(
+        None,
+        "--step",
+        help=(
+            "For step-based scenarios: target step (0-based index or step name). "
+            "Only valid for custom_python steps; writes the step's params.script."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Set the script/code of a scenario."""
+    """Set the script/code of a scenario, or of one custom_python step.
+
+    Bare (no --step) only applies to custom_python (script-based) scenarios.
+    On a step-based scenario, target the step: --step <index-or-name>.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
         script = read_text_input(code)
+        settings = scenario.get_settings()
+        step_based = hasattr(settings, "raw_steps")
+
+        if step is not None:
+            if not step_based:
+                exit_with_error(
+                    f"Scenario '{scenario_id}' is script-based (custom_python) — "
+                    "it has no steps.",
+                    details=[
+                        f"Drop --step: dku scenario set-code {scenario_id} "
+                        f"--code @file.py -P {project_key}",
+                    ],
+                )
+            steps = settings.raw_steps
+            idx, target = _find_step(steps, step, scenario_id, project_key)
+            if target.get("type") != "custom_python":
+                exit_with_error(
+                    f"Step {idx} ('{target.get('name', '')}') is type "
+                    f"'{target.get('type', '')}' — only custom_python steps "
+                    "hold a script.",
+                    details=[
+                        f"List steps: dku scenario list-steps {scenario_id} "
+                        f"-P {project_key}",
+                        f"Or add one: dku scenario add-step-python {scenario_id} "
+                        f"--name NAME --code @file.py -P {project_key}",
+                    ],
+                )
+            target.setdefault("params", {})["script"] = script
+            settings.save()
+            success(
+                f"Updated script of custom_python step {idx} "
+                f"('{target.get('name', '')}') in scenario '{scenario_id}'"
+            )
+            return
+
+        if step_based:
+            exit_with_error(
+                f"Scenario '{scenario_id}' is step-based — a scenario-level "
+                "script would be saved but never executed.",
+                details=[
+                    "Target a custom_python step instead: dku scenario set-code "
+                    f"{scenario_id} --step <index-or-name> --code @file.py "
+                    f"-P {project_key}",
+                    f"List steps: dku scenario list-steps {scenario_id} "
+                    f"-P {project_key}",
+                ],
+            )
+
         scenario.set_payload(script)
         success(f"Updated code for scenario '{scenario_id}'")
+    except typer.Exit:
+        raise
     except Exception as e:
         handle_api_error(e)
 
@@ -1432,6 +1526,22 @@ def add_step(
             --params '{"variables":{"day":"$(date +%F)"}}' -P PROJ
     """
     if type_ not in KNOWN_STEP_TYPES:
+        if type_.startswith("pystep_"):
+            exit_with_error(
+                f"Step type '{type_}' looks plugin-provided and is not a "
+                "built-in step type — DSS will reject it with 'Unknown step "
+                "type' unless the plugin is installed and its components "
+                "reloaded.",
+                details=[
+                    "Check the plugin exposes it: dku plugin components <plugin-id> "
+                    "(kind: scenario-step).",
+                    "After installing/updating the plugin, reload it from the "
+                    "plugin's page (Actions > Reload) so DSS registers the step type.",
+                    "Meanwhile, an inline Python step works everywhere: "
+                    f"dku scenario add-step-python {scenario_id} --name {name!r} "
+                    f"--code @file.py -P <PROJ>",
+                ],
+            )
         warn(
             f"Step type '{type_}' is not in the known catalog "
             f"({', '.join(sorted(KNOWN_STEP_TYPES))[:120]}...) — proceeding anyway."

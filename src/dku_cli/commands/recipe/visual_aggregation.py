@@ -417,10 +417,12 @@ def create_stack(
         None,
         "--columns",
         help=(
-            "Project the output to these columns (comma-separated). For "
-            "REMAP mode this defines the output schema and is required. "
-            "For UNION/INTERSECT it acts as a downstream column projection — "
-            "avoids a Prepare add-delete-columns recipe."
+            "Project the output to exactly these columns (comma-separated). "
+            "For REMAP mode this defines the output schema and is required. "
+            "With the default UNION mode it switches the recipe to CUSTOM "
+            "column-selection mode (DSS ignores selectedColumns in UNION) — "
+            "avoids a Prepare add-delete-columns recipe. Not combinable with "
+            "--mode INTERSECT/FROM_DATASET/FROM_INDEX."
         ),
     ),
     columns_match: list[str] | None = typer.Option(
@@ -609,6 +611,19 @@ def create_stack(
     columns_list: list[str] = []
     if columns:
         columns_list = [c.strip() for c in columns.split(",") if c.strip()]
+    if columns_list and mode_upper not in ("UNION", "REMAP"):
+        # DSS only honors selectedColumns in CUSTOM/REMAP column-selection
+        # modes; combining --columns with INTERSECT/FROM_* would silently lose
+        # one of the two instructions.
+        exit_with_error(
+            f"--columns cannot be combined with --mode {mode_upper}.",
+            details=[
+                "--columns projects the output via CUSTOM column-selection mode, "
+                "which replaces the schema mode.",
+                "Drop --mode (CUSTOM projection) or drop --columns (keep the "
+                f"{mode_upper} schema).",
+            ],
+        )
 
     columns_match_map: dict[int, list[str]] = {}
     if columns_match:
@@ -727,7 +742,10 @@ def create_stack(
                     if idx < len(virtual_inputs):
                         virtual_inputs[idx]["columnsMatch"] = list(src_cols)
             elif columns_list:
-                # UNION/INTERSECT/FROM_DATASET column projection (avoids downstream Prepare).
+                # Column projection (avoids a downstream Prepare). DSS ignores
+                # selectedColumns in UNION mode — the projection only takes
+                # effect in CUSTOM column-selection mode (#232).
+                settings.obj_payload["mode"] = "CUSTOM"
                 settings.obj_payload["selectedColumns"] = list(columns_list)
             if input_filter_map:
                 virtual_inputs = settings.obj_payload.get("virtualInputs", [])

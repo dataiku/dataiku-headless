@@ -1935,3 +1935,223 @@ def test_scenario_add_reporter_bare_word_typo_still_errors(patch_client):
     assert "Unknown condition" in result.output
     assert "raw run-condition expression" in result.output
     settings.save.assert_not_called()
+
+
+# ── set-code on step-based scenarios (#266) ─────────────────────────────
+
+
+def _steps_scenario(patch_client, steps):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_scenario("scen1").get_settings.return_value
+    type(settings).raw_steps = property(lambda self: steps)
+    return settings
+
+
+def _script_scenario(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    scenario = proj.get_scenario("scen1")
+    del scenario.get_settings.return_value.raw_steps
+    return scenario
+
+
+def test_set_code_bare_on_step_based_errors(patch_client):
+    settings = _steps_scenario(
+        patch_client, [{"type": "custom_python", "name": "s0", "params": {}}]
+    )
+    result = runner.invoke(
+        app,
+        ["scenario", "set-code", "scen1", "--code", "print(1)", "--project", "PROJ1"],
+    )
+    assert result.exit_code != 0
+    assert "step-based" in result.output
+    assert "--step" in result.output
+    settings.save.assert_not_called()
+
+
+def test_set_code_step_by_index_writes_script(patch_client):
+    steps = [{"type": "custom_python", "name": "s0", "params": {"script": "old"}}]
+    settings = _steps_scenario(patch_client, steps)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-code",
+            "scen1",
+            "--step",
+            "0",
+            "--code",
+            "print(2)",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert steps[0]["params"]["script"] == "print(2)"
+    settings.save.assert_called_once()
+
+
+def test_set_code_step_by_name_writes_script(patch_client):
+    steps = [
+        {"type": "build_flowitem", "name": "build", "params": {}},
+        {"type": "custom_python", "name": "notify", "params": {}},
+    ]
+    _steps_scenario(patch_client, steps)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-code",
+            "scen1",
+            "--step",
+            "notify",
+            "--code",
+            "print(3)",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert steps[1]["params"]["script"] == "print(3)"
+
+
+def test_set_code_step_wrong_type_errors(patch_client):
+    steps = [{"type": "build_flowitem", "name": "build", "params": {}}]
+    settings = _steps_scenario(patch_client, steps)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-code",
+            "scen1",
+            "--step",
+            "build",
+            "--code",
+            "x",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "custom_python" in result.output
+    settings.save.assert_not_called()
+
+
+def test_set_code_step_index_out_of_range(patch_client):
+    _steps_scenario(patch_client, [])
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-code",
+            "scen1",
+            "--step",
+            "3",
+            "--code",
+            "x",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "out of range" in result.output
+
+
+def test_set_code_step_unknown_name(patch_client):
+    _steps_scenario(
+        patch_client, [{"type": "custom_python", "name": "s0", "params": {}}]
+    )
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-code",
+            "scen1",
+            "--step",
+            "nope",
+            "--code",
+            "x",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "No step named 'nope'" in result.output
+    assert "list-steps" in result.output
+
+
+def test_set_code_step_on_script_scenario_errors(patch_client):
+    scenario = _script_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "set-code",
+            "scen1",
+            "--step",
+            "0",
+            "--code",
+            "x",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "script-based" in result.output
+    scenario.set_payload.assert_not_called()
+
+
+def test_set_code_bare_on_script_scenario_ok(patch_client):
+    scenario = _script_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        ["scenario", "set-code", "scen1", "--code", "print(9)", "--project", "PROJ1"],
+    )
+    assert result.exit_code == 0, result.output
+    scenario.set_payload.assert_called_once_with("print(9)")
+
+
+# ── add-step fail-fast on plugin step types (#267) ──────────────────────
+
+
+def test_add_step_plugin_type_fails_fast(patch_client):
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step",
+            "scen1",
+            "--type",
+            "pystep_myplugin_dostuff",
+            "--name",
+            "Plug",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "plugin-provided" in result.output
+    assert "dku plugin components" in result.output
+    assert "add-step-python" in result.output
+    assert steps == []
+
+
+def test_add_step_unknown_nonplugin_type_still_warns_and_proceeds(patch_client):
+    steps = _patch_step_scenario(patch_client)
+    result = runner.invoke(
+        app,
+        [
+            "scenario",
+            "add-step",
+            "scen1",
+            "--type",
+            "mystery_step",
+            "--name",
+            "Odd",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "proceeding anyway" in result.output
+    assert steps[0]["type"] == "mystery_step"

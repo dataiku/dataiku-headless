@@ -468,7 +468,7 @@ def test_recipe_create_stack_columns_match_rejected_outside_remap(patch_client):
 
 
 def test_recipe_create_stack_columns_projection_in_union(patch_client):
-    """--columns alone (no REMAP) sets selectedColumns for downstream projection."""
+    """--columns alone (no REMAP) switches to CUSTOM mode + selectedColumns (#232)."""
     proj = patch_client.get_project("PROJ1")
     recipe_mock = proj.get_recipe.return_value
     settings = recipe_mock.get_settings.return_value
@@ -496,6 +496,9 @@ def test_recipe_create_stack_columns_projection_in_union(patch_client):
         ],
     )
     assert result.exit_code == 0, result.output
+    # DSS ignores selectedColumns in UNION mode; the projection only takes
+    # effect in CUSTOM column-selection mode.
+    assert settings.obj_payload["mode"] == "CUSTOM"
     assert settings.obj_payload["selectedColumns"] == ["id", "amount"]
 
 

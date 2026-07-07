@@ -730,6 +730,9 @@ _COMPONENT_DIRS = {
     "custom-recipes": ("recipe", "CustomCode_{id}"),
     "python-agent-tools": ("agent-tool", "Custom_agent_tool_{plugin}_{id}"),
     "python-connectors": ("dataset", "{plugin}_{id}"),
+    "python-steps": ("scenario-step", "pystep_{plugin}_{id}"),
+    "python-triggers": ("trigger", "pytrigger_{plugin}_{id}"),
+    "python-runnables": ("runnable", "pyrunnable_{plugin}_{id}"),
 }
 
 
@@ -740,12 +743,16 @@ def components(
         None, help="Plugin ID (optional — lists components from all plugins if omitted)"
     ),
 ) -> None:
-    """List a plugin's usable components (recipes, agent-tools, datasets).
+    """List a plugin's usable components (recipes, agent-tools, datasets,
+    scenario-steps, triggers, runnables).
 
     Surfaces the full type string each component needs:
-      recipe     → dku recipe create ... -t CustomCode_<id>
-      agent-tool → dku agent-tool create ... -t Custom_agent_tool_<plugin>_<id>
-      dataset    → custom connector type <plugin>_<id>
+      recipe        → dku recipe create ... -t CustomCode_<id>
+      agent-tool    → dku agent-tool create ... -t Custom_agent_tool_<plugin>_<id>
+      dataset       → custom connector type <plugin>_<id>
+      scenario-step → dku scenario add-step ... --type pystep_<plugin>_<id>
+      trigger       → trigger type pytrigger_<plugin>_<id>
+      runnable      → dku macro run pyrunnable_<plugin>_<id>
 
     Only DEV plugins can be enumerated via the public API (they expose
     list_files()); installed (non-dev) plugins are reported as an honest footer.
@@ -826,7 +833,8 @@ def components(
             info(
                 "Inspect their source to find component ids: dku plugin download "
                 "<plugin-id> (component dirs: custom-recipes/, python-agent-tools/, "
-                "python-connectors/)."
+                "python-connectors/, python-steps/, python-triggers/, "
+                "python-runnables/)."
             )
     except (SystemExit, typer.Exit):
         raise

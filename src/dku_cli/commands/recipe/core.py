@@ -113,6 +113,39 @@ def _resolve_plugin_role(
     return effective
 
 
+def _parse_role_entries(
+    entries: list[str], kind: str
+) -> tuple[str | None, list[tuple[str, str]]]:
+    """Split repeatable --input-role/--output-role entries.
+
+    Returns (default_role, pairs) where a bare ROLE entry sets the default
+    role for unpaired inputs/outputs (at most one bare entry) and each
+    ROLE=DATASET entry wires one dataset into a named role.
+    """
+    default: str | None = None
+    pairs: list[tuple[str, str]] = []
+    for entry in entries:
+        if "=" in entry:
+            role, _, ds = entry.partition("=")
+            role, ds = role.strip(), ds.strip()
+            if not role or not ds:
+                exit_with_error(
+                    f"Invalid --{kind}-role '{entry}'. Expected ROLE or ROLE=DATASET.",
+                )
+            pairs.append((role, ds))
+        elif default is not None:
+            exit_with_error(
+                f"Multiple bare --{kind}-role values ('{default}', '{entry.strip()}') are ambiguous.",
+                details=[
+                    "Wire each dataset explicitly with ROLE=DATASET pairs, e.g. "
+                    f"--{kind}-role {entry.strip()}=<DATASET>.",
+                ],
+            )
+        else:
+            default = entry.strip()
+    return default, pairs
+
+
 @app.command("list")
 def list_recipes(
     ctx: typer.Context,
@@ -451,11 +484,16 @@ def create(
         "--input-dataset",
         help="Input dataset name (must exist). Repeatable: `-i A -i B` wires both. Optional for code recipes: python, r, shell, pyspark, cpython, sparkr (data generation).",
     ),
-    output_ds: str | None = typer.Option(
-        None,
+    output_ds: list[str] = typer.Option(
+        [],
         "--output-ds",
         "--output-dataset",
-        help="Output dataset name (auto-created for code recipes, must exist for plugin recipes). Mutually exclusive with --output-folder.",
+        help=(
+            "Output dataset name (auto-created for code recipes, must exist for "
+            "plugin recipes). Mutually exclusive with --output-folder. Repeatable "
+            "for plugin (CustomCode_*) recipes — pair extra outputs with "
+            "--output-role ROLE=DATASET."
+        ),
     ),
     output_folder: str | None = typer.Option(
         None,
@@ -473,15 +511,28 @@ def create(
         "-c",
         help="Connection for the auto-created output dataset. Works for code recipes (python, r, shell, sql, sql_query) and for sync recipes. Run 'dku connection list' to see available connections.",
     ),
-    input_role: str | None = typer.Option(
-        None,
+    input_role: list[str] = typer.Option(
+        [],
         "--input-role",
-        help="Input role name for plugin recipes. Omit to auto-resolve when the plugin declares exactly one input role; validated against the plugin's declared roles for dev plugins.",
+        help=(
+            "Input role for plugin recipes: either a bare ROLE (applies to all "
+            "-i/--input-folder inputs) or ROLE=DATASET to wire one dataset into a "
+            "named role (repeatable — enables multi-role plugin recipes). Omit to "
+            "auto-resolve when the plugin declares exactly one input role; "
+            "validated against the plugin's declared roles for dev plugins."
+        ),
     ),
-    output_role: str | None = typer.Option(
-        None,
+    output_role: list[str] = typer.Option(
+        [],
         "--output-role",
-        help="Output role name for plugin recipes. Omit to auto-resolve when the plugin declares exactly one output role; validated against the plugin's declared roles for dev plugins.",
+        help=(
+            "Output role for plugin recipes: either a bare ROLE (applies to all "
+            "--output-ds/--output-folder outputs) or ROLE=DATASET to wire one "
+            "existing dataset into a named role (repeatable — enables multi-output "
+            "plugin recipes). Omit to auto-resolve when the plugin declares "
+            "exactly one output role; validated against the plugin's declared "
+            "roles for dev plugins."
+        ),
     ),
     params: str | None = typer.Option(
         None,
@@ -556,6 +607,14 @@ def create(
       dku recipe create my_step -t CustomCode_my-recipe \\
         -i input_ds --output-folder my_folder --params '{...}' -P PROJ
 
+    Multi-role / multi-output plugin recipes: wire each dataset into its role
+    with repeatable ROLE=DATASET pairs (outputs must already exist):
+
+      dku recipe create my_step -t CustomCode_my-recipe \\
+        --input-role main=input_ds \\
+        --output-role decisions=ds_a --output-role diagnostics=ds_b \\
+        --params '{...}' -P PROJ
+
     Discover available plugin recipes: dku plugin recipes [PLUGIN_ID]
     """
     project_key = resolve_project(project)
@@ -567,6 +626,23 @@ def create(
                 f"Correct syntax: dku recipe create <NAME> --type {recipe_name} --input <DS> --output-ds <DS> -P <PROJ>",
             ],
         )
+    is_plugin_type = _is_plugin_recipe_type(type_name)
+    input_role_default, input_role_pairs = _parse_role_entries(input_role, "input")
+    output_role_default, output_role_pairs = _parse_role_entries(output_role, "output")
+    if not is_plugin_type and (
+        input_role_pairs or output_role_pairs or len(output_ds) > 1
+    ):
+        exit_with_error(
+            "ROLE=DATASET role pairs and multiple --output-ds are only supported "
+            "for plugin (CustomCode_*) recipes.",
+            details=[
+                "Built-in recipe types take a single output: --output-ds <DATASET>.",
+                "Add more outputs to an existing recipe: dku recipe add-output "
+                f"{recipe_name} <DATASET> -P {project_key}",
+            ],
+        )
+    output_ds_list = list(output_ds)
+    output_ds = output_ds_list[0] if output_ds_list else None
     # Resolve the output target: exactly one of --output-ds / --output-folder.
     if output_ds and output_folder:
         exit_with_error(
@@ -576,7 +652,7 @@ def create(
                 "--output-folder wires an existing managed folder output.",
             ],
         )
-    if not output_ds and not output_folder:
+    if not output_ds and not output_folder and not output_role_pairs:
         exit_with_error(
             "No output specified. Provide --output-ds <DATASET> or --output-folder <FOLDER>.",
             details=[
@@ -621,6 +697,7 @@ def create(
         if (
             not inputs
             and not input_folders
+            and not input_role_pairs
             and type_name.lower() not in _INPUT_OPTIONAL_TYPES
         ):
             exit_with_error(
@@ -640,9 +717,7 @@ def create(
         input_folder_ids: list[str] = [
             resolve_folder(proj, f).id for f in input_folders
         ]
-        # The ref to wire as the recipe output (dataset name or folder ID).
-        output_ref = output_folder_id or output_ds
-        if _is_plugin_recipe_type(type_name):
+        if is_plugin_type:
             # Plugin recipes: project.new_recipe() returns None for unknown types.
             # Use DSSRecipeCreator directly in raw mode.
             from dataikuapi.dss.recipe import DSSRecipeCreator
@@ -658,39 +733,76 @@ def create(
             declared_out = (
                 _declared_role_names(manifest.get("outputRoles")) if manifest else []
             )
-            if not manifest_readable and (input_role is None or output_role is None):
+            paired_input_ds = {ds for _, ds in input_role_pairs}
+            unpaired_inputs = [i for i in inputs if i not in paired_input_ds]
+            paired_output_ds = {ds for _, ds in output_role_pairs}
+            unpaired_outputs = [o for o in output_ds_list if o not in paired_output_ds]
+            if output_folder_id:
+                unpaired_outputs = [output_folder_id, *unpaired_outputs]
+            need_default_in = bool(unpaired_inputs or input_folder_ids)
+            need_default_out = bool(unpaired_outputs)
+            if not manifest_readable and (
+                (need_default_in and input_role_default is None)
+                or (need_default_out and output_role_default is None)
+            ):
                 warn(
                     f"Could not read plugin recipe '{type_name}' manifest (installed/non-dev "
                     "plugin). Defaulting unset role(s) to 'main', which may not match the "
                     "plugin's declared roles — if the build fails, set --input-role/--output-role "
-                    "explicitly (see: dku plugin recipes)."
+                    "explicitly (bare ROLE or ROLE=DATASET; see: dku plugin recipes)."
                 )
-            resolved_input_role = _resolve_plugin_role(
-                input_role,
-                declared_in,
-                "input",
-                manifest_readable,
-                recipe_name,
-                type_name,
-            )
-            resolved_output_role = _resolve_plugin_role(
-                output_role,
-                declared_out,
-                "output",
-                manifest_readable,
-                recipe_name,
-                type_name,
-            )
 
             builder = DSSRecipeCreator(type_name, recipe_name, proj)
             builder.set_raw_mode()
-            for _input in inputs:
-                builder.with_input(_input, role=resolved_input_role)
-            for _fid in input_folder_ids:
-                builder.with_input(_fid, role=resolved_input_role)
-            # output_ref resolves folder-or-dataset outputs (upstream fix);
-            # plugin recipes can target a managed folder, not just a dataset.
-            builder.with_output(output_ref, role=resolved_output_role)
+            if need_default_in:
+                resolved_input_role = _resolve_plugin_role(
+                    input_role_default,
+                    declared_in,
+                    "input",
+                    manifest_readable,
+                    recipe_name,
+                    type_name,
+                )
+                for _input in unpaired_inputs:
+                    builder.with_input(_input, role=resolved_input_role)
+                for _fid in input_folder_ids:
+                    builder.with_input(_fid, role=resolved_input_role)
+            for role, ds in input_role_pairs:
+                builder.with_input(
+                    ds,
+                    role=_resolve_plugin_role(
+                        role,
+                        declared_in,
+                        "input",
+                        manifest_readable,
+                        recipe_name,
+                        type_name,
+                    ),
+                )
+            # Outputs can target a managed folder (by ID), not just datasets.
+            if need_default_out:
+                resolved_output_role = _resolve_plugin_role(
+                    output_role_default,
+                    declared_out,
+                    "output",
+                    manifest_readable,
+                    recipe_name,
+                    type_name,
+                )
+                for _out in unpaired_outputs:
+                    builder.with_output(_out, role=resolved_output_role)
+            for role, ds in output_role_pairs:
+                builder.with_output(
+                    ds,
+                    role=_resolve_plugin_role(
+                        role,
+                        declared_out,
+                        "output",
+                        manifest_readable,
+                        recipe_name,
+                        type_name,
+                    ),
+                )
             # Plugin (CustomCode_*) recipes read their configuration from
             # recipe.params.customConfig — NOT from the payload. Writing --params
             # to creation_settings["rawPayload"] (the old behavior) left the
@@ -988,12 +1100,12 @@ def create_python(
         recipe_name=recipe_name,
         type_name="python",
         inputs=inputs,
-        output_ds=output_ds,
+        output_ds=[output_ds],
         output_folder=None,
         input_folders=[],
         connection=connection,
-        input_role="main",
-        output_role="main",
+        input_role=[],
+        output_role=[],
         params=None,
         model=None,
         container_mode=None,

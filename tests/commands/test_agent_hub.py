@@ -109,6 +109,47 @@ def test_start(patch_client):
     assert result.exit_code == 0
     hub = patch_client.get_project("PROJ1").get_webapp("hub1")
     hub.start_or_restart_backend.assert_called()
+    # Fixture hub has storage_type=LOCAL — start must warn about containerized
+    # instances requiring REMOTE storage.
+    assert "REMOTE" in result.output
+
+
+def test_start_waits_for_boot(patch_client):
+    """start must wait on the backend future, not fire-and-forget."""
+    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
+    result = runner.invoke(app, ["agent-hub", "start", "--project", "PROJ1"])
+    assert result.exit_code == 0
+    hub.start_or_restart_backend.return_value.wait_for_result.assert_called()
+
+
+def test_start_boot_failure_remote_db(patch_client):
+    """Boot exception mentioning the remote-db requirement gets the fix."""
+    from dataikuapi.utils import DataikuException
+
+    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
+    hub.start_or_restart_backend.return_value.wait_for_result.side_effect = (
+        DataikuException("running backend in a docker container requires a remote db")
+    )
+    result = runner.invoke(app, ["agent-hub", "start", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "storage_type" in result.output
+    assert "REMOTE" in result.output
+
+
+def test_start_crash_loop_detected(patch_client):
+    """Backend 'starts' but crash-loops — the crash tail is surfaced."""
+    hub = patch_client.get_project("PROJ1").get_webapp("hub1")
+    hub.get_state.return_value.state = {
+        "lastCrashLogTail": {
+            "lines": [
+                "ERROR Running backend in a Docker container requires a remote db",
+            ]
+        }
+    }
+    result = runner.invoke(app, ["agent-hub", "start", "--project", "PROJ1"])
+    assert result.exit_code != 0
+    assert "crash-looping" in result.output
+    assert "REMOTE" in result.output
 
 
 def test_stop(patch_client):

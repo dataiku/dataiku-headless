@@ -164,6 +164,8 @@ Every group and command with its one-line description — read this once per ses
 - `list` — List data quality rules defined on a dataset.
 - `project-status` — Show data quality status across all datasets in a project.
 - `results` — Show latest data quality rule results for a dataset.
+- `rule-schema` — Emit a config template JSON for a data quality rule type.
+- `rule-types` — List native DSS data quality rule type ids with scope and description.
 - `status` — Show data quality status for a dataset.
 
 ### `sql` — Run SQL queries on DSS connections.
@@ -257,6 +259,7 @@ Every group and command with its one-line description — read this once per ses
 ### `macro` — Manage DSS macros.
 
 - `list` — List available macros in a project.
+- `result` — Print the rendered result of a finished macro run.
 - `run` — Run a macro.
 
 ### `bundle` — Manage DSS project bundles.
@@ -303,12 +306,12 @@ Every group and command with its one-line description — read this once per ses
 - `set-mode` — Switch agent mode between SIMPLE and BLOCKS_GRAPH.
 - `set-start` — Set the starting block of the agent's block graph.
 
-### `agent-hub` — Manage DSS Agent Hub instances (limited surface — see notes).
+### `agent-hub` — Manage DSS Agent Hub instances (limited surface — see notes). Agent enrollment (add/remove) lives in the plugin's private store and is UI-only.
 
 - `config` — Show the Agent Hub webapp's plugin-runtime config.
 - `list` — List Agent Hub instances in a project.
 - `set-config` — Update the Agent Hub webapp's plugin-runtime config (shallow merge).
-- `start` — Start or restart the Agent Hub backend.
+- `start` — Start or restart the Agent Hub backend and verify it actually boots.
 - `stop` — Stop the Agent Hub backend.
 
 ### `agent-review` — Manage agent reviews — evaluate agent quality with traits, tests, and runs.
@@ -391,6 +394,7 @@ Every group and command with its one-line description — read this once per ses
 - `export` — Export project as ZIP.
 - `find-column-refs` — Find every reference to a column name across the project.
 - `get` — Get project details.
+- `get-settings` — Get project settings (code envs, flow build, exposed objects, ...).
 - `get-variables` — Show project variables (pairs with set-variables).
 - `import` — Import a project from a ZIP archive (design node only).
 - `inspect` — One-shot project summary: datasets, recipes, flow, scenarios, jobs, wiki, variables.
@@ -401,6 +405,16 @@ Every group and command with its one-line description — read this once per ses
 - `set-variables` — Set project variables. Use --set for individual standard vars or --definition to replace all.
 - `tags` — Show project tags.
 - `timeline` — Show project timeline: creation, contributors, recent modifications.
+
+### `project-standards` — Manage Project Standards checks, scopes, and compliance runs (DSS 14.1+).
+
+- `create-checks` — Create checks from check specs.
+- `create-scope` — Create a scope binding checks to projects (by key, folder, or tag).
+- `last-report` — Show the latest saved Project Standards report for a project.
+- `list-check-specs` — List check specs available on the instance (plugin components).
+- `list-checks` — List checks configured on the instance.
+- `list-scopes` — List scopes (which checks run on which projects).
+- `run` — Run Project Standards checks on a project.
 
 ### `project-folder` — Manage DSS project folders.
 
@@ -458,7 +472,7 @@ Every group and command with its one-line description — read this once per ses
 - `run-log` — Get logs from a specific scenario run.
 - `runs` — List recent runs of a scenario.
 - `set-active` — Enable or disable a scenario AND every trigger in one call.
-- `set-code` — Set the script/code of a scenario.
+- `set-code` — Set the script/code of a scenario, or of one custom_python step.
 - `set-definition` — Update a scenario's definition from JSON.
 - `set-metadata` — Update scenario description, short description, and/or tags.
 - `status` — Show last run status of a scenario.
@@ -628,6 +642,7 @@ Every group and command with its one-line description — read this once per ses
 - `delete` — Delete an ML task.
 - `deploy` — Deploy a trained model from the lab to the flow.
 - `details` — Show performance metrics for a trained model.
+- `ensemble` — Create and train an ensemble from already-trained models.
 - `list` — List all ML tasks in a project.
 - `models` — List trained models in an ML task with their headline metric.
 - `redeploy` — Redeploy a trained model to an existing saved model in the flow.
@@ -720,7 +735,7 @@ Every group and command with its one-line description — read this once per ses
 
 ### `plugin` — Manage DSS plugins.
 
-- `components` — List a plugin's usable components (recipes, agent-tools, datasets).
+- `components` — List a plugin's usable components (recipes, agent-tools, datasets,
 - `create-code-env` — Create the managed code environment for a plugin.
 - `delete` — Delete a plugin.
 - `download` — Download a plugin as a ZIP archive.

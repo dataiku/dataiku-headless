@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import typer
 
-from dku_cli.charts import chart_column_type, columns_referenced, lint_chart_def
+from dku_cli.charts import (
+    chart_column_type,
+    columns_referenced,
+    known_type,
+    lint_chart_def,
+)
 from dku_cli.enums import ChartType, DimensionDateMode, MeasureAgg, MeasureDisplayAs
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
@@ -296,13 +301,21 @@ def set_definition(
         help="JSON definition (string, @file.json, or - for stdin)",
     ),
 ) -> None:
-    """Update an insight's definition from JSON."""
+    """Update an insight's definition from JSON.
+
+    For chart insights, prefer the helper verbs (set-chart-type,
+    add-dimension, add-measure) over a hand-built params.def — they emit the
+    full GUI shape DSS expects. A hand-built params.def is accepted, but its
+    type is checked first: DSS silently nulls unknown chart types on save,
+    leaving a blank chart.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
         new_def = read_json_input(definition)
+        submitted_chart_type = None
         if isinstance(new_def, dict) and new_def.get("type") == "chart":
             params = new_def.setdefault("params", {})
             if not (params.get("refreshableSelection") or {}).get("selection"):
@@ -312,6 +325,9 @@ def set_definition(
                     "— chart insights without one fail to render in dashboards "
                     '(HTTP 500, "spec.sampleSettings is null")'
                 )
+            if params.get("def") is not None:
+                _check_submitted_chart_def(params["def"], insight_id, project_key)
+                submitted_chart_type = params["def"].get("type")
         settings = insight.get_settings()
         raw = settings.get_raw()
         prior = dict(raw)
@@ -323,9 +339,71 @@ def set_definition(
             if field not in raw and field in prior:
                 raw[field] = prior[field]
         settings.save()
+        if submitted_chart_type is not None:
+            _verify_chart_def_survived(
+                proj, insight_id, submitted_chart_type, project_key
+            )
         success(f"Updated definition for insight '{insight_id}'")
     except Exception as e:
         handle_api_error(e)
+
+
+def _check_submitted_chart_def(
+    chart_def: object, insight_id: str, project_key: str
+) -> None:
+    """Refuse a hand-built params.def that DSS would silently normalize away."""
+    from dku_cli.charts import CHART_SPEC, NULLED_TYPES
+
+    helper_verbs = [
+        "Prefer the chart helper verbs — they emit the full shape DSS expects:",
+        f"  dku insight set-chart-type {insight_id} <type> -P {project_key}",
+        f"  dku insight add-dimension {insight_id} -c COLUMN -P {project_key}",
+        f"  dku insight add-measure {insight_id} -c COLUMN --agg count "
+        f"-P {project_key}",
+    ]
+    if not isinstance(chart_def, dict):
+        exit_with_error(
+            "params.def must be a JSON object (the chart definition)",
+            details=helper_verbs,
+        )
+    ctype = chart_def.get("type")
+    if known_type(ctype):
+        return
+    details = []
+    if ctype in NULLED_TYPES:
+        details.append(NULLED_TYPES[ctype])
+    details.append(f"Valid types: {', '.join(sorted(CHART_SPEC))}")
+    details.extend(helper_verbs)
+    exit_with_error(
+        f"params.def.type {ctype!r} is not a chart type this DSS build keeps — "
+        "DSS silently nulls it on save (the call exits 0 but the chart is blank "
+        "and validate reports no column references)",
+        details=details,
+    )
+
+
+def _verify_chart_def_survived(
+    proj, insight_id: str, submitted_type: str, project_key: str
+) -> None:
+    """Round-trip check: DSS drops a params.def it can't normalize, exit 0."""
+    persisted = (
+        proj.get_insight(insight_id).get_settings().get_raw().get("params") or {}
+    ).get("def") or {}
+    if persisted.get("type") == submitted_type:
+        return
+    exit_with_error(
+        f"DSS accepted the save but dropped the submitted params.def "
+        f"(persisted def.type is {persisted.get('type')!r}, expected "
+        f"{submitted_type!r}) — the chart would render blank",
+        details=[
+            "Rebuild the chart with the helper verbs instead of a hand-built def:",
+            f"  dku insight set-chart-type {insight_id} {submitted_type} "
+            f"-P {project_key}",
+            f"  dku insight add-dimension {insight_id} -c COLUMN -P {project_key}",
+            f"  dku insight add-measure {insight_id} -c COLUMN --agg count "
+            f"-P {project_key}",
+        ],
+    )
 
 
 def _require_sampling_block(params: dict, insight_id: str, project_key: str) -> None:
