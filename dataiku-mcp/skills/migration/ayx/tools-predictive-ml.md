@@ -107,7 +107,9 @@ No first-class visual auto-ARIMA — Python. Two libraries:
 
 **Numerical fidelity — shape-based validation only.** Alteryx R-ARIMA vs pmdarima/statsmodels diverge 5–15% on points, 10–20% on CI widths even with identical hyperparameters (different optimizer/tolerances/heuristics); exact-string match needs `rpy2`. Validate: row count, schema, sub-period range, trajectory direction, points in the same magnitude band, CIs widening (low_95 < low_80 < forecast < high_80 < high_95).
 
-**Code-env.** Not in any default env — `dku code-env set-packages <env> --packages 'pandas>=2,<3\nnumpy>=1.22,<3\nstatsmodels>=0.14\npmdarima'` (pin numpy `<3`; pmdarima compiled against numpy<2 in some wheels). Bind: `dku recipe set-env R --env-mode EXPLICIT_ENV --env-name <env> --container-mode NONE -P PROJ` — do NOT hand-edit `envSelection` via `set-settings`.
+### ARIMA code-env
+
+Not in any default env — `dku code-env set-packages <env> --packages 'pandas>=2,<3\nnumpy>=1.22,<3\nstatsmodels>=0.14\npmdarima'` (pin numpy `<3`; pmdarima compiled against numpy<2 in some wheels). Bind: `dku recipe set-env R --env-mode EXPLICIT_ENV --env-name <env> --container-mode NONE -P PROJ` — do NOT hand-edit `envSelection` via `set-settings`.
 
 **`TS Model Factory` + `TS Forecast Factory` (multi-series).** Grouped generalization: builds **one model per group, auto-selecting ETS-vs-ARIMA per series** by information criterion. Check `@Macro` (empty `Plugin`). **DSS port:** one Python recipe looping over the group key, running both `pm.auto_arima(...)` AND a `statsmodels ExponentialSmoothing` ETS fit per series, picking the lower-AICc, concatenating. The per-series bake-off IS the Factory's job — don't hardcode ARIMA. Same shape-validation + code-env caveats.
 

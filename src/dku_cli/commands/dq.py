@@ -1,6 +1,9 @@
-"""dku dq — list, create, compute, status, results, delete, project-status."""
+"""dku dq — list, create, compute, status, results, delete, project-status,
+rule-types, rule-schema."""
 
 from __future__ import annotations
+
+import contextlib
 
 import typer
 
@@ -12,6 +15,7 @@ from dku_cli.output import (
     render_raw,
     resolve_output_format,
     success,
+    warn,
 )
 
 app = typer.Typer(
@@ -22,12 +26,12 @@ app = typer.Typer(
 
 
 def _get_ruleset(ctx: typer.Context, dataset_name: str, project: str | None):
-    """Return (client, project_key, ruleset) tuple."""
+    """Return (client, project_key, dataset, ruleset) tuple."""
     project_key = resolve_project(project)
     client = get_client_from_ctx(ctx)
     proj = client.get_project(project_key)
     ds = proj.get_dataset(dataset_name)
-    return client, project_key, ds.get_data_quality_rules()
+    return client, project_key, ds, ds.get_data_quality_rules()
 
 
 # Discovered DSS rule type names (DSS 14.5.0-beta2).
@@ -53,6 +57,276 @@ TYPE_MAP = {
     "column-avg": "ColumnAvgInRangeRule",
     "column-sum": "ColumnSumInRangeRule",
 }
+
+
+def _bounds(**overrides) -> dict:
+    """Hard + soft range bounds shared by every *InRangeRule. Hard bounds fail
+    (ERROR), soft bounds warn (WARNING); each side is inert until its
+    *Enabled flag is true."""
+    base = {
+        "minimum": 0,
+        "minimumEnabled": False,
+        "maximum": 0,
+        "maximumEnabled": False,
+        "softMinimum": 0,
+        "softMinimumEnabled": False,
+        "softMaximum": 0,
+        "softMaximumEnabled": False,
+    }
+    base.update(overrides)
+    return base
+
+
+_DRIFT_PARAMS = {
+    "iqrFactor": 1.5,
+    "iqrFactorEnabled": True,
+    "softIqrFactor": 1.5,
+    "softIqrFactorEnabled": False,
+    "lookbackPeriod": 7,
+    "periodUnit": "DAY",
+    "learningPeriod": 5,
+}
+
+
+def _column_agg_template(dss_type: str, label: str) -> tuple[dict, str]:
+    return (
+        {
+            "type": dss_type,
+            "displayName": f"{label} of COLUMN_NAME in range",
+            "columns": ["COLUMN_NAME"],
+            **_bounds(minimumEnabled=True, maximumEnabled=True),
+        },
+        f"{label} of a numeric column within bounds",
+    )
+
+
+def _drift_column_template(dss_type: str, label: str) -> tuple[dict, str]:
+    return (
+        {
+            "type": dss_type,
+            "displayName": f"Drift on {label} of COLUMN_NAME",
+            "columns": ["COLUMN_NAME"],
+            "driftParams": dict(_DRIFT_PARAMS),
+        },
+        f"Flag when column {label} drifts vs. its recent history (IQR test)",
+    )
+
+
+# Curated config templates for the native DSS rule types. (template, description).
+# Placeholders are UPPER_SNAKE — replace before `dq create --config`.
+RULE_TEMPLATES: dict[str, tuple[dict, str]] = {
+    "RecordCountInRangeRule": (
+        {
+            "type": "RecordCountInRangeRule",
+            "displayName": "Record count in range",
+            **_bounds(minimum=1, minimumEnabled=True),
+        },
+        "Total row count within bounds (dataset-level)",
+    ),
+    "ColumnCountInRangeRule": (
+        {
+            "type": "ColumnCountInRangeRule",
+            "displayName": "Column count in range",
+            **_bounds(minimumEnabled=True, maximumEnabled=True),
+        },
+        "Number of columns within bounds; exact = same min and max (dataset-level)",
+    ),
+    "ColumnNotEmptyRule": (
+        {
+            "type": "ColumnNotEmptyRule",
+            "displayName": "COLUMN_NAME has no empty values",
+            "columns": ["COLUMN_NAME"],
+            "thresholdType": "ENTIRE_COLUMN_NOT_EMPTY",
+        },
+        "Column has no nulls/blanks (thresholdType is REQUIRED or compute fails)",
+    ),
+    "ColumnEmptyRule": (
+        {
+            "type": "ColumnEmptyRule",
+            "displayName": "COLUMN_NAME is fully empty",
+            "columns": ["COLUMN_NAME"],
+        },
+        "Column contains only nulls/blanks",
+    ),
+    "ColumnUniqueValuesRule": (
+        {
+            "type": "ColumnUniqueValuesRule",
+            "displayName": "COLUMN_NAME values are unique",
+            "columns": ["COLUMN_NAME"],
+            "thresholdType": "ENTIRE_COLUMN",
+        },
+        "No duplicate values in the column (thresholdType ENTIRE_COLUMN)",
+    ),
+    "ValuesInSetRule": (
+        {
+            "type": "ValuesInSetRule",
+            "displayName": "COLUMN_NAME values in allowed set",
+            "columns": ["COLUMN_NAME"],
+            "valueSet": ["VALUE_1", "VALUE_2"],
+        },
+        "Every value belongs to the enumerated valueSet",
+    ),
+    "ValuesInRangeRule": (
+        {
+            "type": "ValuesInRangeRule",
+            "displayName": "COLUMN_NAME values in range",
+            "columns": ["COLUMN_NAME"],
+            **_bounds(minimumEnabled=True, maximumEnabled=True),
+        },
+        "Every value within bounds (per-row check, not an aggregate)",
+    ),
+    "DatasetSchemaContainsRule": (
+        {
+            "type": "DatasetSchemaContainsRule",
+            "displayName": "Schema contains expected columns",
+            "expectedSchema": {"columns": [{"name": "COLUMN_NAME", "type": "string"}]},
+        },
+        "Schema contains at least these columns (name + storage type)",
+    ),
+    "DatasetSchemaEqualsRule": (
+        {
+            "type": "DatasetSchemaEqualsRule",
+            "displayName": "Schema equals expected schema",
+            "expectedSchema": {"columns": [{"name": "COLUMN_NAME", "type": "string"}]},
+        },
+        "Schema exactly matches these columns (name + storage type, in order)",
+    ),
+    "ColumnMinInRangeRule": _column_agg_template("ColumnMinInRangeRule", "Min"),
+    "ColumnMaxInRangeRule": _column_agg_template("ColumnMaxInRangeRule", "Max"),
+    "ColumnAvgInRangeRule": _column_agg_template("ColumnAvgInRangeRule", "Avg"),
+    "ColumnSumInRangeRule": _column_agg_template("ColumnSumInRangeRule", "Sum"),
+    "ColumnMedianInRangeRule": _column_agg_template(
+        "ColumnMedianInRangeRule", "Median"
+    ),
+    "ColumnStdDevInRangeRule": _column_agg_template(
+        "ColumnStdDevInRangeRule", "StdDev"
+    ),
+    "DriftRecordCountRule": (
+        {
+            "type": "DriftRecordCountRule",
+            "displayName": "Drift on record count",
+            "driftParams": dict(_DRIFT_PARAMS),
+        },
+        "Flag when row count drifts vs. its recent history (IQR test, dataset-level)",
+    ),
+    "DriftColumnAvgRule": _drift_column_template("DriftColumnAvgRule", "avg"),
+    "DriftColumnMinRule": _drift_column_template("DriftColumnMinRule", "min"),
+    "DriftColumnMaxRule": _drift_column_template("DriftColumnMaxRule", "max"),
+    "DriftColumnMedianRule": _drift_column_template("DriftColumnMedianRule", "median"),
+    "DriftColumnSumRule": _drift_column_template("DriftColumnSumRule", "sum"),
+    "DriftColumnStdDevRule": _drift_column_template("DriftColumnStdDevRule", "stddev"),
+    "DriftColumnEmptyValueCountRule": _drift_column_template(
+        "DriftColumnEmptyValueCountRule", "empty-value count"
+    ),
+    "DriftColumnUniqueValueCountRule": _drift_column_template(
+        "DriftColumnUniqueValueCountRule", "unique-value count"
+    ),
+    "DriftMetricRule": (
+        {
+            "type": "DriftMetricRule",
+            "displayName": "Drift on metric METRIC_ID",
+            "metricId": "METRIC_ID",
+            "driftParams": dict(_DRIFT_PARAMS),
+        },
+        "Flag when any computed metric drifts vs. its recent history (IQR test)",
+    ),
+}
+
+
+def _rule_scope(dss_type: str) -> str:
+    template = RULE_TEMPLATES[dss_type][0]
+    return "column" if "columns" in template else "dataset"
+
+
+# Rules whose evaluation reads a col_stats aggregate. Some engines/dataset
+# types refuse to compute them ("Some required metrics can't be computed:
+# col_stats:MIN:<col>") unless the dataset carries a col_stats probe with
+# computeOnBuildMode WHOLE_DATASET — provisioned automatically before compute.
+_COL_STATS_AGG_BY_RULE = {
+    "ColumnMinInRangeRule": "MIN",
+    "ColumnMaxInRangeRule": "MAX",
+    "ColumnAvgInRangeRule": "AVG",
+    "ColumnSumInRangeRule": "SUM",
+    "ColumnMedianInRangeRule": "MEDIAN",
+    "ColumnStdDevInRangeRule": "STDDEV",
+}
+
+_NUMERIC_STORAGE_TYPES = {
+    "tinyint",
+    "smallint",
+    "int",
+    "bigint",
+    "float",
+    "double",
+}
+
+
+def _required_col_stats(rules: list[dict]) -> list[tuple[str, str]]:
+    """(column, aggregate) pairs the enabled rules need from col_stats."""
+    required: list[tuple[str, str]] = []
+    for rule in rules:
+        agg = _COL_STATS_AGG_BY_RULE.get(rule.get("type", ""))
+        if not agg or not rule.get("enabled", True):
+            continue
+        for col in rule.get("columns") or []:
+            if (col, agg) not in required:
+                required.append((col, agg))
+    return required
+
+
+def _ensure_col_stats_probe(ds, rules: list[dict]) -> None:
+    """Provision/merge the col_stats probe the metric-backed rules require.
+
+    Numeric aggregates targeting non-numeric columns are skipped with a
+    warning instead of aborting the whole probe (one bad aggregate makes
+    DSS refuse to compute all of them).
+    """
+    required = _required_col_stats(rules)
+    if not required:
+        return
+
+    col_types = {
+        c.get("name"): c.get("type", "") for c in ds.get_schema().get("columns", [])
+    }
+    keep: list[tuple[str, str]] = []
+    for col, agg in required:
+        ctype = col_types.get(col)
+        if ctype is not None and ctype not in _NUMERIC_STORAGE_TYPES:
+            warn(
+                f"Skipping col_stats {agg} on '{col}': storage type '{ctype}' "
+                "is not numeric — the rule will report it cannot be checked."
+            )
+            continue
+        keep.append((col, agg))
+    if not keep:
+        return
+
+    settings = ds.get_settings()
+    metrics = settings.get_raw().setdefault("metrics", {})
+    probes = metrics.setdefault("probes", [])
+    probe = next((p for p in probes if p.get("type") == "col_stats"), None)
+    if probe is None:
+        probe = {
+            "type": "col_stats",
+            "enabled": True,
+            "computeOnBuildMode": "WHOLE_DATASET",
+            "meta": {"name": "Columns statistics", "level": 2},
+            "configuration": {"aggregates": []},
+        }
+        probes.append(probe)
+    aggregates = probe.setdefault("configuration", {}).setdefault("aggregates", [])
+    existing = {(a.get("column"), a.get("aggregated")) for a in aggregates}
+    changed = probe.get("enabled") is not True or (
+        probe.get("computeOnBuildMode") != "WHOLE_DATASET"
+    )
+    probe["enabled"] = True
+    probe["computeOnBuildMode"] = "WHOLE_DATASET"
+    for col, agg in keep:
+        if (col, agg) not in existing:
+            aggregates.append({"column": col, "aggregated": agg})
+            changed = True
+    if changed:
+        settings.save()
 
 
 def _build_rule_config(
@@ -191,7 +465,7 @@ def list_rules(
     """List data quality rules defined on a dataset."""
     output = resolve_output_format()
     try:
-        _, _project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, _project_key, _ds, ruleset = _get_ruleset(ctx, dataset_name, project)
         rules = ruleset.list_rules(as_type="dict")
 
         if output == "json":
@@ -291,7 +565,7 @@ def create_rule(
         )
 
     try:
-        _, _project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, _project_key, _ds, ruleset = _get_ruleset(ctx, dataset_name, project)
 
         if config:
             rule_configs = [read_json_input(config)]
@@ -321,20 +595,34 @@ def compute_rules(
         True, "--wait/--no-wait", help="Wait for computation to finish"
     ),
 ) -> None:
-    """Compute data quality rules on a dataset."""
-    try:
-        _, project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
+    """Compute data quality rules on a dataset.
 
+    Metric-backed rules (Column{Min,Max,Avg,Sum,Median,StdDev}InRangeRule)
+    need a col_stats probe on the dataset; it is provisioned automatically
+    before computing (aggregates on non-numeric columns are skipped with a
+    warning instead of aborting the probe).
+    """
+    try:
+        _, project_key, ds, ruleset = _get_ruleset(ctx, dataset_name, project)
+
+        rule_dicts = ruleset.list_rules(as_type="dict")
         if rule_id:
-            rules = ruleset.list_rules(as_type="objects")
-            match = [r for r in rules if r.id == rule_id]
-            if not match:
+            rule_dicts = [r for r in rule_dicts if r.get("id") == rule_id]
+            if not rule_dicts:
                 exit_with_error(
                     f"Rule '{rule_id}' not found on {dataset_name}.",
                     details=[
                         f"List rules: dku dq list {dataset_name} -P {project_key}"
                     ],
                 )
+        # Best-effort: a failed provisioning must not block compute — some
+        # engines evaluate these rules without the probe.
+        with contextlib.suppress(Exception):
+            _ensure_col_stats_probe(ds, rule_dicts)
+
+        if rule_id:
+            rules = ruleset.list_rules(as_type="objects")
+            match = [r for r in rules if r.id == rule_id]
             future = match[0].compute(partition=partition)
         else:
             future = ruleset.compute_rules(partition=partition)
@@ -357,7 +645,7 @@ def get_status(
     """Show data quality status for a dataset."""
     output = resolve_output_format()
     try:
-        _, _, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, _, _ds, ruleset = _get_ruleset(ctx, dataset_name, project)
         status = ruleset.get_status()
         render_raw(status, output_format=output)
     except Exception as e:
@@ -374,7 +662,7 @@ def get_results(
     """Show latest data quality rule results for a dataset."""
     output = resolve_output_format()
     try:
-        _, _, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, _, _ds, ruleset = _get_ruleset(ctx, dataset_name, project)
         results = ruleset.get_last_rules_results(partition=partition)
 
         if output == "json":
@@ -419,7 +707,7 @@ def delete_rule(
 ) -> None:
     """Delete a data quality rule from a dataset."""
     try:
-        _, project_key, ruleset = _get_ruleset(ctx, dataset_name, project)
+        _, project_key, _ds, ruleset = _get_ruleset(ctx, dataset_name, project)
         rules = ruleset.list_rules(as_type="objects")
         match = [r for r in rules if r.id == rule_id]
         if not match:
@@ -446,6 +734,57 @@ def delete_rule(
         raise
     except Exception as e:
         handle_api_error(e)
+
+
+@app.command("rule-types")
+def rule_types(
+    ctx: typer.Context,
+) -> None:
+    """List native DSS data quality rule type ids with scope and description.
+
+    Get a ready-to-edit config template for any listed type with
+    `dku dq rule-schema <TYPE>`, then create it with `dku dq create DS --config @file`.
+    """
+    output = resolve_output_format()
+    rows = [
+        {"type": t, "scope": _rule_scope(t), "description": desc}
+        for t, (_tpl, desc) in sorted(RULE_TEMPLATES.items())
+    ]
+    render(
+        rows,
+        ["type", "scope", "description"],
+        output_format=output,
+        title="Data Quality Rule Types",
+        headers={"type": "TYPE", "scope": "SCOPE", "description": "DESCRIPTION"},
+    )
+
+
+@app.command("rule-schema")
+def rule_schema(
+    ctx: typer.Context,
+    rule_type: str = typer.Argument(
+        help="Rule type id (see `dku dq rule-types`), case-insensitive"
+    ),
+) -> None:
+    """Emit a config template JSON for a data quality rule type.
+
+    Replace the UPPER_SNAKE placeholders (COLUMN_NAME, VALUE_1, METRIC_ID)
+    and the threshold values, then create the rule:
+
+        dku dq rule-schema ValuesInSetRule > rule.json
+        dku dq create my_dataset --config @rule.json -P PROJ
+    """
+    by_lower = {t.lower(): t for t in RULE_TEMPLATES}
+    canonical = by_lower.get(rule_type.lower())
+    if canonical is None:
+        exit_with_error(
+            f"Unknown rule type '{rule_type}'.",
+            details=[
+                "List valid types: dku dq rule-types",
+                "Valid: " + ", ".join(sorted(RULE_TEMPLATES)),
+            ],
+        )
+    render_raw(RULE_TEMPLATES[canonical][0], output_format="json")
 
 
 @app.command("project-status")

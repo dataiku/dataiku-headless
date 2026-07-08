@@ -22,7 +22,8 @@ coverage.xml
 # Internal development files (not shipped)
 .claude/memory/
 .claude/plans/
-.claude/skills/
+.claude/skills/*
+!.claude/skills/skill-optimization/
 .claude/scheduled_tasks.lock
 # .agents/ is local agent scratch. Exception: the Codex plugin marketplace
 # catalog (.agents/plugins/marketplace.json) is force-tracked (git add -f) so

@@ -204,4 +204,4 @@ Work in days only (`asDateOnly` inputs or trimmed datetimes).
 | Leading zeros | `format('%05d', id)` |
 | Default if empty | `coalesce(field, "Unknown")` |
 | Safe divide | `if(b == 0, 0, a / b)` |
-| Date overlap (days) | `if(end1 > start2 && end2 > start1, diff(min(end1, end2), max(start1, start2), "days") + 1, 0)` |
+| Date overlap (days) | `if(end1 >= start2 && end2 >= start1, diff(min(end1, end2), max(start1, start2), "days") + 1, 0)` |

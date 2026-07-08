@@ -136,7 +136,7 @@ def test_webapp_stop(patch_client):
 def test_webapp_status(patch_client):
     result = runner.invoke(app, ["webapp", "status", "webapp1", "--project", "PROJ1"])
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
+    parsed = json.loads(result.output[result.output.index("{") :])
     assert parsed["running"] is True
 
 
@@ -145,7 +145,7 @@ def test_webapp_status_json(patch_client):
         app, ["--format", "json", "webapp", "status", "webapp1", "--project", "PROJ1"]
     )
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
+    parsed = json.loads(result.output[result.output.index("{") :])
     assert parsed["running"] is True
 
 

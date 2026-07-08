@@ -22,12 +22,11 @@ instance-specific.
   Read the exact param names from `dku connection get <existing>`; enabled
   models then appear in `llm list` as `snowflakecortex:<connection>:<model>`.
 
-**Expose Mesh LLMs to external tools (DSS 14+):** every project has an OpenAI-compatible
-endpoint — `dku llm endpoint -P PROJ` prints the base URL, the model-name form, and the
-auth rules (Bearer ONLY; adding `x-dku-apiticket` alongside makes DSS reject the key).
-Point any OpenAI-API tool at it to route completions through DSS with governance /
-guardrails / cost controls applied. DSS can also be exposed as an **A2A server**
-(JSON-RPC / HTTP-SSE) so external agent frameworks call DSS agents as remote agents.
+**Expose Mesh LLMs to external tools:** `dku llm endpoint -P PROJ` prints each
+project's OpenAI-compatible endpoint — base URL, model-name form, auth (Bearer ONLY;
+adding `x-dku-apiticket` alongside makes DSS reject the key). Any OpenAI-API tool pointed
+at it routes through DSS governance/guardrails/cost controls. External agent frameworks
+can also call DSS agents as remote agents via the A2A server (JSON-RPC / HTTP-SSE).
 
 ## Canonical commands
 
@@ -107,11 +106,10 @@ inside a literal string stays literal.
 **Batch an agent over rows:** set the prompt recipe's `payload.llmId =
 "agent:AGENT_ID"` (agent exposed via LLM Mesh). No `run_conversation()` API exists.
 
-**Enterprise Asset Library (governed prompts):** the `dku eal` group manages
-instance-scoped, reusable governed prompts (no `-P`). `dku --format json eal get-prompt` returns
-`content` — reuse a governed prompt instead of re-writing it inline. Prompt Studios are
-UI-only (no CLI/`dataikuapi` surface); for programmatic prompt work use `dku llm
-completion` (ad-hoc), `dku recipe create-prompt` (in-flow), and `dku eal` (governed).
+**Governed prompts:** `dku eal` manages instance-scoped reusable prompts (no `-P`);
+`dku --format json eal get-prompt` returns `content` — reuse instead of re-writing
+inline. Prompt Studios are UI-only; the CLI surfaces are `llm completion` (ad-hoc),
+`recipe create-prompt` (in-flow), `eal` (governed).
 
 ---
 
@@ -125,7 +123,7 @@ completion` (ad-hoc), `dku recipe create-prompt` (in-flow), and `dku eal` (gover
 3. `dku recipe run NAME -P PROJ --wait` — **the KB is empty until this runs.**
 4. Verify: `dku knowledge search KB --query "test" -P PROJ`.
 
-**Document folder → KB (DSS 14.5+, canonical):** use `create-embed-docs --input-folder
+**Document folder → KB (canonical):** use `create-embed-docs --input-folder
 FOLDER_ID` (wires `embed_documents.inputs.main` straight to the managed folder; pass
 `--vlm` for scanned PDFs). Get the ID with
 `dku --format json folder list -P PROJ | jq -r '.[]|select(.name=="x").id'`.
@@ -159,17 +157,15 @@ left to you):
   (besides Chroma); similarity metric (cosine / dot product / Euclidean) is chosen up front
   and unchangeable after.
 
-**Mesh capability facts (DSS 14):**
-- **Reranking** (`llm.new_reranking()`, e.g. Cohere) improves RAG *precision* — reach for it
-  when retrieval recall is fine but the top-K is noisy, not when recall is the problem.
-- **Image generation** via `llm.new_images_generation()` routes through the Mesh like any
-  completion.
-- `create-embed-docs` recipe-settings knobs (patch via `set-settings`): vector-store sync
-  is `payload.vectorStoreUpdateMethod` on **14.5+** (`syncMode` is a silent no-op now);
-  `documentSplittingMode ∈ {NONE,RECURSIVE,PARAGRAPH,SENTENCE}`, `chunkSizeCharacters`,
-  `chunkOverlapCharacters`; per-pattern VLM overrides in `params.rules[]` (each with its
-  own `extractionMode`/`vlmId`/`prompt`), global defaults `params.extractionMode`/
-  `params.defaultVlmId`/`params.allOtherRule`.
+**Reranking** (`llm.new_reranking()`, e.g. Cohere) improves RAG *precision* — reach for
+it when retrieval recall is fine but the top-K is noisy, not when recall is the problem.
+
+**`create-embed-docs` settings knobs** (patch via `set-settings`): vector-store sync is
+`payload.vectorStoreUpdateMethod` (`syncMode` is a silent no-op);
+`documentSplittingMode ∈ {NONE,RECURSIVE,PARAGRAPH,SENTENCE}`, `chunkSizeCharacters`,
+`chunkOverlapCharacters`; per-pattern VLM overrides in `params.rules[]` (each with its
+own `extractionMode`/`vlmId`/`prompt`), global defaults `params.extractionMode`/
+`params.defaultVlmId`/`params.allOtherRule`.
 
 ---
 
@@ -179,14 +175,9 @@ left to you):
 to call tools. `TOOLS_USING_AGENT` is the simple, reliable default — the right choice for
 a basic "LLM + tools" agent.
 
-- **`agent add-tool` only works on `TOOLS_USING_AGENT`** — it errors on
-  `STRUCTURED_AGENT` ("add-tool only supports TOOLS_USING_AGENT").
-- **Structured agents wire tools *inside* blocks** — a `CORE_LOOP` with
-  `tools:[{type:"EXPLICIT_TOOL","toolRef":ID}]` + `passConversationHistory:true`.
-- **A lone `CORE_LOOP` with no emit path silently returns `response:null`**
-  (fix in `references/agent-blocks.md`) — `create-react` does this for you.
-
-See section 4 and `references/agent-blocks.md`.
+**`agent add-tool` only works on `TOOLS_USING_AGENT`** — it errors on
+`STRUCTURED_AGENT`, which wires tools *inside* blocks instead (section 4; block and
+tool JSON in `references/agent-blocks.md`).
 
 **Need a tool-calling loop?** `dku agent create-react` builds the full
 `CORE_LOOP` + `EMIT_OUTPUT` graph in one call — no block JSON, no round-trip:
@@ -196,11 +187,10 @@ dku agent create-react NAME --llm LLM_ID --tool TOOL_ID [--tool …] \
   [--system-prompt @sys.txt] [--max-iterations N] -P PROJ
 ```
 
-Each `--tool` is resolved name→ID before the agent is created; the graph is
-validated against the same rules as `agent-block add`. Later, `dku agent set-prompt`
-and `dku agent set-llm` (use `--new-version --activate` to iterate) write *into the
-loop block* — `systemPromptAfterHistory` and `llmId` respectively, where the runtime
-reads them, not the top-level structured-agent fields it ignores.
+To iterate afterwards, `dku agent set-prompt` and `set-llm` (with `--new-version
+--activate`) write *into the loop block* — `systemPromptAfterHistory` and `llmId`
+respectively, where the runtime reads them, not the top-level structured-agent
+fields it ignores.
 
 **Don't reach for `agent create` + `set-llm retrieval-augmented-llm:…`** — that path
 produces a RAG-completion agent with no loop block, and the prompt field gets written
@@ -293,6 +283,11 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
    traits need `--no-needs-reference`; expectation-scored traits need
    `--needs-expectations`. Mismatch = traits silently skip tests.
 3. Results: `dku agent-review results REV --run RUN_ID --by-trait`.
+4. **Refine the suite in place** (don't rebuild it): `update-trait` / `remove-trait`
+   edit or drop a criterion (resolve by trait id OR name — an ambiguous name fails
+   and asks for the id; edits are full-replace so untouched traits survive);
+   `update-test` / `delete-test` edit or drop a single test by its id. `remove-trait`
+   and `delete-test` are DELETE-tier (`--yes`).
 
 **Gotchas:**
 - `agent-review run` **re-executes the agent fresh per test** (does not re-score a
@@ -301,14 +296,14 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
 - `nlp_agent_evaluation` pins `outputColumnName=llm_raw_response`, a JSON envelope
   `{"ok":true,"text":"..."}` — custom regex metrics MUST unwrap `text` first or match
   nothing (symptom: pass-rate stuck ~10–20%). You cannot change `outputColumnName`
-  (DSS reverts it). In metric Python avoid `"""docstrings"""` (JSON-escape breaks them)
-  — use `'''` or `#`.
+  (DSS reverts it). In metric Python use `'''` or `#` comments — `"""docstrings"""`
+  break JSON escaping.
 
-**Eval-store gotchas (verified live, DSS 14.6):**
+**Eval-store gotchas:**
 - **`llmTaskType` is required** — set it with `--task-type` on `recipe create-llm-eval`
   (NOT on `evaluation-store create`); omit it and the build fails late "You need to
   select a Task".
-- **`groundTruthColumnName` must be ABSENT, never `""`** — an empty string triggers a
+- **Omit `groundTruthColumnName` entirely when unset** — an empty string triggers a
   column lookup and fails. The CLI omits it when `--ground-truth-col` is unset; patching
   JSON, delete the key rather than blanking it.
 - **Plain-text logs → `nlp_llm_evaluation` with `inputFormat: "CUSTOM"`** —
@@ -334,9 +329,22 @@ must already exist. Create store with `dku evaluation-store create NAME --flavor
 
 **When:** business users need to chat with your finished agents in one branded place, the
 hub LLM routing across them. This is the *delivery* surface — build/eval agents above, then
-enroll them in a hub. **Auth boundary:** a hub's full config is read/written via
-`/web-apps-backends/<proj>/<hub>/api/admin/config`, but that endpoint authenticates by DSS
-**browser session** — a personal API key (what `dku` uses) gets **401**. So `dku agent-hub`
-covers only `list`, runtime knobs (`config`/`set-config`), and `start`/`stop`; the API-key
-window is **read-only** (the plugin's export recipe / table connector surface hub tables as
-datasets). Full model + the 401 mechanism → `references/agent-hub.md`.
+enroll them in a hub. Hub config is browser-session-only (a personal API key gets 401), so
+`dku agent-hub` covers `list`, runtime knobs (`config`/`set-config`), and `start`/`stop`; the
+API-key window is **read-only** export of hub tables as datasets. Full model →
+`references/agent-hub.md`.
+
+---
+
+## Done when
+
+- The prompt/embed/agent build commands complete with `job run --wait` exit 0, and
+  `dku dataset head OUT` or `dku knowledge search KB` shows real content.
+- A conversational or structured agent answers sample queries via `dku agent-tool run`
+  or a test conversation, with `dku --format json agent-block get-graph` (structured) or
+  `agent get` (visual) confirming tools actually fired — not a `response:null`.
+- `dku evaluation-store build` / `agent-review run` completes and `agent-review results
+  --by-trait` or the scored dataset shows non-empty, non-zero scores (not every trait
+  skipped, not every row erroring).
+- Any agent handed off for delivery is enrolled and reachable in Agent Hub (verified via
+  the UI or the hub's export path), not just present as a DSS agent object.

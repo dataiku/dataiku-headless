@@ -177,7 +177,7 @@ Pyramid: unit (fast, mock at DSS boundary) → integration (live DSS via
 - **Debug in DSS:** log to `sys.stderr` (DSS captures it); write intermediate results to a
   debug dataset/folder. Reload (code) vs rebuild code-env (deps) vs reinstall (structure).
 
-## Review checklist (canonical — used by the `plugin-reviewer` agent)
+## Review checklist (canonical)
 
 Apply the relevant block per component. Most items map to an anti-pattern above.
 

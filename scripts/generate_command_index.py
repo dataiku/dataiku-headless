@@ -64,6 +64,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
         "Project Ops",
         [
             "project",
+            "project-standards",
             "project-folder",
             "project-deployer",
             "scenario",

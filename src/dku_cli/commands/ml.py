@@ -6,7 +6,12 @@ import copy
 
 import typer
 
-from dku_cli.enums import FeatureMissingHandling, FeatureRescaling, FeatureRole
+from dku_cli.enums import (
+    EnsembleMethod,
+    FeatureMissingHandling,
+    FeatureRescaling,
+    FeatureRole,
+)
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
@@ -383,6 +388,114 @@ def train(
 
 
 # ---------------------------------------------------------------------------
+# Ensemble
+# ---------------------------------------------------------------------------
+
+# The DSS server enforces method/problem-type compatibility only at train time
+# (java IllegalArgumentException: Illegal ensembling method), and dataikuapi's
+# client-side check wrongly lists AVERAGE as universally valid. Catch the
+# mismatch here, before a training round is spent.
+_CLASSIFICATION_ONLY_METHODS = {
+    EnsembleMethod.PROBA_AVERAGE,
+    EnsembleMethod.VOTE,
+    EnsembleMethod.LOGISTIC_MODEL,
+}
+_REGRESSION_ONLY_METHODS = {EnsembleMethod.AVERAGE}
+_CLASSIFICATION_TYPES = {"BINARY_CLASSIFICATION", "MULTICLASS"}
+
+
+def _check_ensemble_method(method: EnsembleMethod, prediction_type: str) -> None:
+    is_classification = prediction_type in _CLASSIFICATION_TYPES
+    if is_classification and method in _REGRESSION_ONLY_METHODS:
+        exit_with_error(
+            f"Ensembling method {method.value} is regression-only, but this "
+            f"ML task is {prediction_type}.",
+            details=[
+                "For classification use --method PROBA_AVERAGE (or VOTE, "
+                "LOGISTIC_MODEL, MEDIAN)."
+            ],
+        )
+    if prediction_type == "REGRESSION" and method in _CLASSIFICATION_ONLY_METHODS:
+        exit_with_error(
+            f"Ensembling method {method.value} is classification-only, but "
+            "this ML task is REGRESSION.",
+            details=["For regression use --method AVERAGE (or MEDIAN, LINEAR_MODEL)."],
+        )
+
+
+@app.command()
+def ensemble(
+    ctx: typer.Context,
+    analysis_id: str = typer.Argument(help="Analysis ID"),
+    mltask_id: str = typer.Argument(help="ML task ID"),
+    models: list[str] = typer.Option(
+        ...,
+        "--model",
+        "-m",
+        help="Trained model ID to include (repeatable, at least two)",
+    ),
+    method: EnsembleMethod = typer.Option(
+        ...,
+        "--method",
+        case_sensitive=False,
+        help="Ensembling method. AVERAGE is regression-only; "
+        "PROBA_AVERAGE, VOTE and LOGISTIC_MODEL are classification-only.",
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+) -> None:
+    """Create and train an ensemble from already-trained models.
+
+    Blends the given trained models (from 'dku ml models') and waits for the
+    ensemble training to complete. Returns the ensemble model id, usable by
+    'dku ml deploy'.
+
+    Example:
+      dku ml ensemble A M --model MID1 --model MID2 --method PROBA_AVERAGE -P PROJ
+    """
+    project_key = resolve_project(project)
+    output = resolve_output_format()
+    if len(models) < 2:
+        exit_with_error(
+            "Ensembling needs at least two --model ids.",
+            details=[
+                f"List trained models: dku ml models {analysis_id} {mltask_id} "
+                f"-P {project_key} (look for STATE=DONE)"
+            ],
+        )
+    try:
+        client = get_client_from_ctx(ctx)
+        proj = client.get_project(project_key)
+        mltask = proj.get_ml_task(analysis_id, mltask_id)
+        prediction_type = mltask.get_settings().get_raw().get("predictionType", "")
+        _check_ensemble_method(method, prediction_type)
+
+        ensemble_id = mltask.ensemble(models, method.value)
+        snippet = mltask.get_trained_model_snippet(id=ensemble_id)
+        train_info = snippet.get("trainInfo", {}) or {}
+        state = train_info.get("state", "")
+        render_raw({"model_id": ensemble_id, "state": state}, output)
+        if state not in _SUCCESS_TRAIN_STATES:
+            error(
+                f"Ensemble model {ensemble_id} finished in state "
+                f"{state or '?'}: {_failure_summary(train_info) or 'no reason given'}"
+            )
+            info(
+                f"Inspect: dku ml details {analysis_id} {mltask_id} "
+                f"{ensemble_id} -P {project_key}"
+            )
+            raise typer.Exit(1)
+        success(
+            f"Ensemble trained ({method.value}). Deploy: dku ml deploy "
+            f"{analysis_id} {mltask_id} {ensemble_id} --name NAME "
+            f"--train-dataset DS -P {project_key}"
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        handle_api_error(e)
+
+
+# ---------------------------------------------------------------------------
 # Models / details
 # ---------------------------------------------------------------------------
 
@@ -445,6 +558,39 @@ def _rank_score(score: object, direction: str) -> float | str:
     return round(ranked, 4)
 
 
+def _failure_summary(train_info: dict, limit: int = 120) -> str:
+    """One-line failure reason from trainInfo, truncated for table rows."""
+    failure = train_info.get("failure") or {}
+    text = (
+        (failure.get("message") or failure.get("detailedMessage") or "")
+        .strip()
+        .split("\n", 1)[0]
+    )
+    if not text and failure.get("stackTraceStr"):
+        py = _python_stack(failure["stackTraceStr"])
+        text = py.strip().splitlines()[-1] if py.strip() else ""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _python_stack(stack: str) -> str:
+    """Extract the python portion of trainInfo.failure.stackTraceStr.
+
+    DSS embeds the python kernel traceback after the java frames; the last
+    'Traceback (most recent call last)' block is the actual training error.
+    Some builds emit bare python frames ('File ..., line N, in ...') without
+    the Traceback header — fall back to the first such frame.
+    """
+    idx = stack.rfind("Traceback (most recent call last)")
+    if idx != -1:
+        return stack[idx:]
+    lines = stack.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("File ") and ", line " in stripped:
+            return "\n".join(lines[i:])
+    return stack
+
+
 @app.command()
 def models(
     ctx: typer.Context,
@@ -479,11 +625,17 @@ def models(
             score_field = _EVAL_METRIC_FIELDS.get(eval_metric, "")
             score = snippet.get(score_field) if score_field else None
             direction = _score_direction(eval_metric)
+            train_info = snippet.get("trainInfo", {}) or {}
             row = {
                 "id": mid,
                 "algorithm": snippet.get("algorithm", ""),
                 "session": snippet.get("sessionId", ""),
-                "state": snippet.get("trainInfo", {}).get("state", ""),
+                "state": train_info.get("state", ""),
+                "failure": (
+                    _failure_summary(train_info)
+                    if train_info.get("state") == "FAILED"
+                    else ""
+                ),
                 "metric": eval_metric,
                 "score": (
                     round(score, 4)
@@ -499,6 +651,8 @@ def models(
             data.append(row)
 
         columns = ["id", "algorithm", "session", "state", "metric", "score"]
+        if any(r["failure"] for r in data):
+            columns.append("failure")
         if output == "json":
             columns += ["score_direction", "rank_score"]
             columns += [f for f in _SNIPPET_METRICS if any(f in r for r in data)]
@@ -529,6 +683,13 @@ def details(
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
         model_details = mltask.get_trained_model_details(model_id)
+        details_raw = model_details.get_raw()
+        train_info = (
+            details_raw.get("trainInfo") or {} if isinstance(details_raw, dict) else {}
+        )
+        if train_info.get("state") == "FAILED":
+            _render_failed_model(train_info, model_id, output)
+            return
         perf = model_details.get_performance_metrics()
 
         if output == "json":
@@ -547,6 +708,42 @@ def details(
             )
     except Exception as e:
         handle_api_error(e)
+
+
+def _render_failed_model(train_info: dict, model_id: str, output: str) -> None:
+    """Surface why a model FAILED instead of printing metric boilerplate.
+
+    trainInfo.failure carries message/detailedMessage and (often only)
+    stackTraceStr with the python kernel traceback embedded after the java
+    frames — for e.g. GluonTS failures that is the sole place the real cause
+    (`No module named 'gluonts'`) lives.
+    """
+    failure = train_info.get("failure") or {}
+    py_stack = _python_stack(failure.get("stackTraceStr", ""))
+    payload = {
+        "state": "FAILED",
+        "message": failure.get("message", ""),
+        "detailed_message": failure.get("detailedMessage", ""),
+        "python_traceback": py_stack,
+    }
+    if output == "json":
+        render_raw(payload, output_format="json")
+        return
+    data = [
+        {"field": "state", "value": "FAILED"},
+        {"field": "message", "value": payload["message"]},
+        {"field": "detailed_message", "value": payload["detailed_message"]},
+    ]
+    render(
+        data,
+        ["field", "value"],
+        output_format=output,
+        title=f"Model FAILED: {model_id}",
+    )
+    if py_stack.strip():
+        error("Python traceback (from trainInfo.failure.stackTraceStr):")
+        for line in py_stack.strip().splitlines():
+            error(f"  {line}")
 
 
 # ---------------------------------------------------------------------------
@@ -972,11 +1169,44 @@ def _validate_split_flags(
     seed: int | None,
     kfold: int | None,
     no_kfold: bool,
+    order_by: str | None = None,
+    descending: bool = False,
+    no_order: bool = False,
 ) -> None:
-    if train_ratio is None and seed is None and kfold is None and not no_kfold:
+    if (
+        train_ratio is None
+        and seed is None
+        and kfold is None
+        and not no_kfold
+        and order_by is None
+        and not no_order
+    ):
         exit_with_error(
-            "Nothing to change. Provide --train-ratio, --seed, --kfold or --no-kfold.",
+            "Nothing to change. Provide --train-ratio, --seed, --kfold, "
+            "--no-kfold, --order-by or --no-order.",
             details=["Example: dku ml set-split A M --train-ratio 0.7 -P PROJ"],
+        )
+    if order_by is not None and kfold is not None:
+        exit_with_error(
+            "--order-by cannot be combined with --kfold: DSS rejects it at "
+            "train time ('Training with k-fold cross-test is not compatible "
+            "with time ordering of data').",
+            details=[
+                "Use a time-ordered simple split (--order-by COL, optionally "
+                "--train-ratio), or k-fold without ordering."
+            ],
+        )
+    if order_by is not None and no_order:
+        exit_with_error(
+            "--order-by and --no-order are mutually exclusive.",
+            details=[
+                "Pass --order-by COL to enable time ordering, or --no-order "
+                "to disable it."
+            ],
+        )
+    if descending and order_by is None:
+        exit_with_error(
+            "--descending only applies with --order-by COLUMN.",
         )
     if train_ratio is not None and not 0.0 < train_ratio < 1.0:
         exit_with_error(
@@ -1017,6 +1247,58 @@ def _apply_split_changes(
     return changes
 
 
+def _apply_time_ordering(
+    task_settings,
+    split: dict,
+    order_by: str | None,
+    descending: bool,
+    no_order: bool,
+    analysis_id: str,
+    mltask_id: str,
+    project_key: str,
+) -> list[str]:
+    """Enable/disable time ordering, preserving splitParams.ssdSelection.
+
+    dataikuapi's set_time_ordering helper can reset ssdSelection (the sampling
+    of the split source) to HEAD_SEQUENTIAL/100k — deep-copy it before the
+    call and restore it after, so a previously configured random/full sampling
+    survives.
+    """
+    if order_by is None and not no_order:
+        return []
+    if not hasattr(task_settings, "get_split_params"):
+        exit_with_error(
+            f"ML task {mltask_id} does not support time-ordered splits.",
+            details=[
+                f"Inspect: dku ml settings {analysis_id} {mltask_id} -P {project_key}"
+            ],
+        )
+    split_params = task_settings.get_split_params()
+    saved_selection = copy.deepcopy(split.get("ssdSelection"))
+    if no_order:
+        split_params.unset_time_ordering()
+        change = "time ordering: disabled"
+    else:
+        try:
+            split_params.set_time_ordering(order_by, ascending=not descending)
+        except ValueError:
+            exit_with_error(
+                f"Column '{order_by}' does not exist in ML task {mltask_id}, "
+                "can't use it for time ordering.",
+                details=[
+                    f"List features: dku ml settings {analysis_id} {mltask_id} "
+                    f"-P {project_key} | jq '.preprocessing.per_feature | keys'"
+                ],
+                status=3,
+            )
+        change = (
+            f"time ordering: {order_by} ({'descending' if descending else 'ascending'})"
+        )
+    if saved_selection is not None:
+        split["ssdSelection"] = saved_selection
+    return [change]
+
+
 @app.command("set-split")
 def set_split(
     ctx: typer.Context,
@@ -1034,18 +1316,36 @@ def set_split(
     no_kfold: bool = typer.Option(
         False, "--no-kfold", help="Disable k-fold (back to simple split)"
     ),
+    order_by: str | None = typer.Option(
+        None,
+        "--order-by",
+        help="Column to time-order the split by (train on older rows, test on "
+        "newer — out-of-time validation). Incompatible with k-fold.",
+    ),
+    descending: bool = typer.Option(
+        False,
+        "--descending",
+        help="With --order-by: test set gets the SMALLER time values",
+    ),
+    no_order: bool = typer.Option(
+        False, "--no-order", help="Disable time ordering (back to random split)"
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Set the train/test split policy of a prediction ML task.
 
-    Patches splitParams on the task (ssdTrainingRatio / ssdSeed / kfold).
+    Patches splitParams on the task (ssdTrainingRatio / ssdSeed / kfold) and,
+    with --order-by, enables a time-ordered split (out-of-time validation).
     Clustering tasks have no split — this errors on them.
 
     Example:
       dku ml set-split A M --train-ratio 0.7 -P PROJ
+      dku ml set-split A M --order-by order_date --train-ratio 0.8 -P PROJ
     """
     project_key = resolve_project(project)
-    _validate_split_flags(train_ratio, seed, kfold, no_kfold)
+    _validate_split_flags(
+        train_ratio, seed, kfold, no_kfold, order_by, descending, no_order
+    )
 
     try:
         client = get_client_from_ctx(ctx)
@@ -1063,8 +1363,32 @@ def set_split(
                     f"{analysis_id} {mltask_id} -P {project_key}"
                 ],
             )
+        if (
+            order_by is not None
+            and split.get("kfold")
+            and kfold is None
+            and not no_kfold
+        ):
+            exit_with_error(
+                f"ML task {mltask_id} currently uses k-fold, which DSS rejects "
+                "with time ordering at train time.",
+                details=[
+                    f"Disable it in the same call: dku ml set-split {analysis_id} "
+                    f"{mltask_id} --order-by {order_by} --no-kfold -P {project_key}"
+                ],
+            )
 
         changes = _apply_split_changes(split, train_ratio, seed, kfold, no_kfold)
+        changes += _apply_time_ordering(
+            task_settings,
+            split,
+            order_by,
+            descending,
+            no_order,
+            analysis_id,
+            mltask_id,
+            project_key,
+        )
         task_settings.save()
         success(f"Updated split policy on ML task {mltask_id}: " + "; ".join(changes))
     except typer.Exit:

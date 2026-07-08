@@ -358,6 +358,59 @@ def _apply_excel_sheet_targeting(
         )
 
 
+def _excel_sheet_names(path: Path) -> list[str]:
+    """Sheet names of an .xlsx/.xlsm workbook, in workbook order.
+
+    Parses xl/workbook.xml from the zip with stdlib (openpyxl is not a CLI
+    dependency). Returns [] for non-OOXML files (.xls) or anything unparsable.
+    """
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(path) as zf, zf.open("xl/workbook.xml") as f:
+            root = ET.parse(f).getroot()
+    except Exception:
+        return []
+    ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    return [
+        sheet.get("name", "")
+        for sheet in root.iter(f"{ns}sheet")
+        if sheet.get("state", "visible") == "visible"
+    ]
+
+
+def _warn_multi_sheet_excel(
+    local_path: Path,
+    dataset_name: str,
+    project_key: str,
+    *,
+    sheet: str | None = None,
+    sheet_indices: str | None = None,
+    all_sheets: bool = False,
+) -> None:
+    """Warn when a multi-sheet workbook is uploaded without sheet targeting —
+    DSS silently binds only the first sheet. No-op when a sheet selector flag
+    already targets the workbook."""
+    if sheet or sheet_indices or all_sheets:
+        return
+    if local_path.suffix.lower() not in (".xlsx", ".xlsm", ".xls"):
+        return
+    sheets = _excel_sheet_names(local_path)
+    if len(sheets) <= 1:
+        return
+    upload_cmd = (
+        f"dku dataset upload {dataset_name} {local_path} "
+        f"--sheet '<NAME>' -P {project_key}"
+    )
+    warn(
+        f"Workbook has {len(sheets)} sheets; only '{sheets[0]}' is bound — "
+        f"ignored: {', '.join(sheets[1:])}. Target sheets explicitly:\n"
+        f"  {upload_cmd}\n"
+        f"  (or --sheet-indices '0,2' / --all-sheets to concatenate)"
+    )
+
+
 def _dataset_exists(proj, name: str) -> bool:
     """True if the dataset exists; re-raises non-404 errors for the caller."""
     try:
@@ -1679,6 +1732,14 @@ def upload(
                     all_sheets=all_sheets,
                     sheets_to_column=sheets_to_column,
                 )
+        _warn_multi_sheet_excel(
+            local_path,
+            dataset_name,
+            project_key,
+            sheet=sheet,
+            sheet_indices=sheet_indices,
+            all_sheets=all_sheets,
+        )
         hint(f"dku dataset schema {dataset_name} -P {project_key}")
         success(f"Uploaded {local_path.name} → {dataset_name}")
     except typer.Exit:
@@ -1819,6 +1880,14 @@ def create_from_file(
                     all_sheets=all_sheets,
                     sheets_to_column=sheets_to_column,
                 )
+        _warn_multi_sheet_excel(
+            local_path,
+            dataset_name,
+            project_key,
+            sheet=sheet,
+            sheet_indices=sheet_indices,
+            all_sheets=all_sheets,
+        )
         hint(f"dku dataset schema {dataset_name} -P {project_key}")
         success(
             f"{'Replaced' if exists else 'Created'} dataset '{dataset_name}' "
@@ -3226,7 +3295,42 @@ def unshare(
         handle_api_error(e)
 
 
-def _resolve_sql_table(ds_def: dict, project_key: str) -> tuple[str, str] | None:
+_VARIABLE_TOKEN = re.compile(r"\$\{([^}]+)\}")
+
+
+def _expand_dss_variables(value: str, variables: dict) -> str:
+    """Expand ``${var}`` tokens from a variables dict, leaving unknown tokens as-is."""
+
+    def _repl(match: re.Match) -> str:
+        key = match.group(1)
+        if key in variables:
+            return str(variables[key])
+        return match.group(0)
+
+    return _VARIABLE_TOKEN.sub(_repl, value)
+
+
+def _collect_dss_variables(client, project_key: str) -> dict:
+    """Variables usable in physical table templates, in DSS precedence order.
+
+    Instance (global) variables — where ${NODE_*}-style names typically live —
+    then project standard, then project local. Each source is best-effort:
+    global variables need admin rights and are skipped without them.
+    """
+    variables: dict = {}
+    with contextlib.suppress(Exception):
+        variables.update(dict(client.get_global_variables()))
+    with contextlib.suppress(Exception):
+        project_vars = client.get_project(project_key).get_variables()
+        variables.update(project_vars.get("standard") or {})
+        variables.update(project_vars.get("local") or {})
+    variables["projectKey"] = project_key
+    return variables
+
+
+def _resolve_sql_table(
+    ds_def: dict, project_key: str, variables: dict | None = None
+) -> tuple[str, str] | None:
     """Resolve an in-database table-mode dataset to (connection, physical_table).
 
     DSS stores the physical table as a template like '${projectKey}_ORDERS'; the
@@ -3251,12 +3355,15 @@ def _resolve_sql_table(ds_def: dict, project_key: str) -> tuple[str, str] | None
     if mode is not None and mode != "table":
         return None
 
+    # Physical names may be templated on more than ${projectKey} — e.g.
+    # ${NODE_ENV}_ORDERS via instance variables. Pass `variables` (see
+    # _table_template_variables) so those expand instead of reaching the
+    # database as literal '${NODE_ENV}' text.
+    subst = dict(variables) if variables else {}
+    subst.setdefault("projectKey", project_key)
+
     def _sub(value):
-        return (
-            value.replace("${projectKey}", project_key)
-            if isinstance(value, str)
-            else value
-        )
+        return _expand_dss_variables(value, subst) if isinstance(value, str) else value
 
     qualified = ".".join(
         p
@@ -3264,6 +3371,20 @@ def _resolve_sql_table(ds_def: dict, project_key: str) -> tuple[str, str] | None
         if p
     )
     return connection, qualified
+
+
+def _table_template_variables(client, project_key: str, ds_def: dict) -> dict | None:
+    """Fetch DSS variables only when the physical name is templated beyond
+    ${projectKey} — skips two API round-trips in the common case."""
+    params = ds_def.get("params", {})
+    tokens: set[str] = set()
+    for key in ("catalog", "schema", "table"):
+        value = params.get(key)
+        if isinstance(value, str):
+            tokens.update(_VARIABLE_TOKEN.findall(value))
+    if tokens - {"projectKey"}:
+        return _collect_dss_variables(client, project_key)
+    return None
 
 
 def _row_count_via_metrics(ds) -> int | None:
@@ -3307,7 +3428,9 @@ def count(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         ds_def = ds.get_definition()
-        resolved = _resolve_sql_table(ds_def, project_key)
+        resolved = _resolve_sql_table(
+            ds_def, project_key, _table_template_variables(client, project_key, ds_def)
+        )
 
         if resolved is not None:
             connection, table = resolved
@@ -3383,7 +3506,9 @@ def query(
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
         ds_def = ds.get_definition()
-        resolved = _resolve_sql_table(ds_def, project_key)
+        resolved = _resolve_sql_table(
+            ds_def, project_key, _table_template_variables(client, project_key, ds_def)
+        )
         if resolved is None:
             head_cmd = f"dku dataset head {dataset_name} -P {project_key}"
             exit_with_error(

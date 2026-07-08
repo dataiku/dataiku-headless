@@ -145,7 +145,14 @@ def set_definition(
         None,
         "--definition",
         "-d",
-        help="Recipe definition JSON — updates raw_definition (connection, I/O, description). String, @file.json, or '-' for stdin. Shallow merge: top-level keys overwrite, siblings preserved (use 'dku recipe set-description' for the common description-only case).",
+        help=(
+            "Recipe definition JSON — updates raw_definition (connection, I/O, "
+            "description). String, @file.json, or '-' for stdin. Shallow merge: "
+            "top-level keys overwrite, siblings preserved; a partial 'params' "
+            "object preserves its sibling params keys. Add --deep-merge to "
+            "recurse into all nested objects (use 'dku recipe set-description' "
+            "for the common description-only case)."
+        ),
     ),
     payload_json: str | None = typer.Option(
         None,
@@ -155,7 +162,11 @@ def set_definition(
     deep_merge: bool = typer.Option(
         False,
         "--deep-merge",
-        help="Recursively merge nested payload objects instead of replacing top-level keys. Use with --payload to patch deep config without losing sibling fields.",
+        help=(
+            "Recursively merge nested objects instead of replacing top-level "
+            "keys. Works with --payload and --definition — patch one deep field "
+            "without losing sibling fields."
+        ),
     ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
@@ -165,12 +176,14 @@ def set_definition(
     Use --payload to update the visual recipe configuration (aggregations, window
     computations, join keys, filter conditions, etc.). These are mutually exclusive.
 
-    Default --payload merge is shallow (top-level keys replaced). Use --deep-merge
-    for recursive merge of nested objects — patch one field without losing siblings.
+    Default merge is shallow (top-level keys replaced; a partial 'params' object
+    in --definition preserves sibling params keys). Use --deep-merge for a
+    recursive merge of nested objects — patch one field without losing siblings.
 
     Examples:
       dku recipe set-definition my_topn --payload '{"topN": 5}' -P PROJ
       dku recipe set-definition my_join --payload '{"postFilter": {"enabled": true}}' --deep-merge -P PROJ
+      dku recipe set-definition my_recipe -d '{"params":{"containerSelection":{"containerMode":"NONE"}}}' --deep-merge -P PROJ
       dku recipe set-definition my_recipe -d @recipe_def.json -P PROJ
     """
     if not definition and not payload_json:
@@ -185,10 +198,6 @@ def set_definition(
         exit_with_error(
             "Cannot use both --definition and --payload. Provide one.",
         )
-    if deep_merge and not payload_json:
-        exit_with_error(
-            "--deep-merge can only be used with --payload.",
-        )
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -199,7 +208,7 @@ def set_definition(
         if definition:
             new_def = _unwrap_recipe_definition_payload(read_json_input(definition))
             raw = settings.get_recipe_raw_definition()
-            merge_params_preserving_siblings(raw, new_def)
+            merge_params_preserving_siblings(raw, new_def, deep=deep_merge)
             target = "definition"
         else:
             # A code recipe's payload IS its source code (stored as a string),
@@ -606,6 +615,79 @@ def _normalize_visual_payload(settings) -> dict:
     return {}
 
 
+def _apply_settings_payload(settings, raw: dict, new_payload) -> None:
+    """Apply the `payload` key of a set-settings JSON to the recipe.
+
+    Code recipes carry their source as a STRING payload (the shape
+    get-settings returns), so a get → edit → set round-trip works (#213).
+    Visual recipes take a JSON object, shallow-merged at top level.
+    """
+    if _is_text_payload_recipe(settings):
+        if isinstance(new_payload, str):
+            settings.set_payload(new_payload)
+            return
+        exit_with_error(
+            "This is a code recipe — its `payload` is the source "
+            "code (a string), not a JSON object.",
+            details=[
+                "Send `payload` as a string (as returned by "
+                "get-settings), or use the dedicated verbs:",
+                "  • change the code   → dku recipe set-code R -c @file -P PROJ",
+                "  • change env/container → dku recipe set-env R "
+                "--env-mode … --container-mode NONE -P PROJ",
+                "",
+                "To edit non-payload definition keys (inputs, tags, "
+                "params), drop `payload` from your JSON and re-send.",
+            ],
+            status=2,
+        )
+    if not isinstance(new_payload, dict):
+        exit_with_error(
+            "Recipe payload must be a JSON object, not a "
+            f"{type(new_payload).__name__}.",
+            details=[
+                "`get-settings` JSON output already returns `payload` as a "
+                "parsed object — do NOT re-stringify it with "
+                "`json.dumps(payload)` before sending to `set-settings`.",
+                "",
+                "Fix: keep `payload` as a nested dict in your input "
+                "JSON. Example with jq:",
+                "  dku --format json recipe get-settings R -P PROJ  \\",
+                "    | jq '.payload.engineType = \"SQL\"' \\",
+                "    | dku recipe set-settings R -P PROJ -s -",
+            ],
+            status=2,
+        )
+    # Some recipe types hard-pin fields server-side (the value silently
+    # reverts after save with no error). Detect the common case
+    # (`nlp_agent_evaluation.outputColumnName`) up-front so the user
+    # doesn't waste 30 min wondering why their custom metric still
+    # sees `llm_raw_response` after `set-settings`.
+    recipe_type = (raw.get("type") or "").lower()
+    _reject_unsafe_expected_format(recipe_type, new_payload)
+    if recipe_type == "nlp_agent_evaluation" and "outputColumnName" in new_payload:
+        exit_with_error(
+            "Cannot change `outputColumnName` on a `nlp_agent_evaluation` recipe.",
+            details=[
+                "DSS hard-pins this field to `llm_raw_response` and silently",
+                "reverts edits at save time — your update would appear to",
+                "succeed but the value would not persist.",
+                "",
+                "Heads up: the column it produces is a JSON envelope —",
+                '  `{"ok": true, "text": "..."}` — not plain text. Custom',
+                "metrics that regex the output must first unwrap the `text`",
+                'field via `json.loads(raw).get("text")`.',
+                "",
+                "If you really need a different column name, use",
+                "`nlp_llm_evaluation` instead and configure `outputColumnName`",
+                "via `dku recipe create-llm-eval ... --output-col`.",
+            ],
+            status=2,
+        )
+    payload = _get_recipe_payload(settings)
+    payload.update(new_payload)
+
+
 @app.command("set-settings")
 def set_settings_cmd(
     ctx: typer.Context,
@@ -633,6 +715,10 @@ def set_settings_cmd(
     Payload update is a SHALLOW merge: top-level payload keys are replaced,
     not deep-merged. Use 'get-settings' first to read, modify, then 'set-settings'
     to preserve existing nested configuration.
+
+    For code recipes (python, sql, r, shell, ...) `payload` is the source code
+    string — the same shape get-settings returns — so a get → edit → set
+    round-trip works for both code and visual recipes.
     """
     project_key = resolve_project(project)
     if settings_json is None:
@@ -662,82 +748,10 @@ def set_settings_cmd(
             if k != "payload":
                 raw[k] = v
 
-        # Update payload (visual recipe config) — shallow merge at top level
+        # Update payload — code recipes carry the source as a STRING payload,
+        # visual recipes a JSON object (shallow-merged at top level).
         if "payload" in new_settings:
-            new_payload = new_settings["payload"]
-            if not isinstance(new_payload, dict):
-                # Code recipes (python/sql/r/shell) have a STRING payload (the
-                # source). For these, set-settings is the wrong tool — the string
-                # payload is correct, not a json.dumps mistake. Point to the
-                # dedicated verbs instead.
-                if _is_text_payload_recipe(settings):
-                    exit_with_error(
-                        "This is a code recipe — its `payload` is the source "
-                        "code (a string), so `set-settings` cannot edit it.",
-                        details=[
-                            "Use the dedicated verbs instead:",
-                            "  • change the code   → dku recipe set-code R -c @file -P PROJ",
-                            "  • change env/container → dku recipe set-env R "
-                            "--env-mode … --container-mode NONE -P PROJ",
-                            "",
-                            "On a docker-less DSS, an INHERIT container mode can "
-                            "resolve to a container and the job dies with a "
-                            "misleading 'python process failed (exit code: 1)' — "
-                            "set --container-mode NONE to run on the DSS process.",
-                            "",
-                            "To edit non-payload definition keys (inputs, tags, "
-                            "params), drop `payload` from your JSON and re-send.",
-                        ],
-                        status=2,
-                    )
-                exit_with_error(
-                    "Recipe payload must be a JSON object, not a "
-                    f"{type(new_payload).__name__}.",
-                    details=[
-                        "`get-settings` JSON output already returns `payload` as a "
-                        "parsed object — do NOT re-stringify it with "
-                        "`json.dumps(payload)` before sending to `set-settings`.",
-                        "",
-                        "Fix: keep `payload` as a nested dict in your input "
-                        "JSON. Example with jq:",
-                        "  dku --format json recipe get-settings R -P PROJ  \\\\",
-                        "    | jq '.payload.engineType = \"SQL\"' \\\\",
-                        "    | dku recipe set-settings R -P PROJ -s -",
-                    ],
-                    status=2,
-                )
-            # Some recipe types hard-pin fields server-side (the value silently
-            # reverts after save with no error). Detect the common case
-            # (`nlp_agent_evaluation.outputColumnName`) up-front so the user
-            # doesn't waste 30 min wondering why their custom metric still
-            # sees `llm_raw_response` after `set-settings`.
-            recipe_type = (raw.get("type") or "").lower()
-            _reject_unsafe_expected_format(recipe_type, new_payload)
-            if (
-                recipe_type == "nlp_agent_evaluation"
-                and "outputColumnName" in new_payload
-            ):
-                exit_with_error(
-                    "Cannot change `outputColumnName` on a `nlp_agent_evaluation` recipe.",
-                    details=[
-                        "DSS hard-pins this field to `llm_raw_response` and silently",
-                        "reverts edits at save time — your update would appear to",
-                        "succeed but the value would not persist.",
-                        "",
-                        "Heads up: the column it produces is a JSON envelope —",
-                        '  `{"ok": true, "text": "..."}` — not plain text. Custom',
-                        "metrics that regex the output must first unwrap the `text`",
-                        'field via `json.loads(raw).get("text")`.',
-                        "",
-                        "If you really need a different column name, use",
-                        "`nlp_llm_evaluation` instead and configure `outputColumnName`",
-                        "via `dku recipe create-llm-eval ... --output-col`.",
-                    ],
-                    status=2,
-                )
-
-            payload = _get_recipe_payload(settings)
-            payload.update(new_payload)
+            _apply_settings_payload(settings, raw, new_settings["payload"])
 
         settings.save()
         success(f"Updated settings for recipe '{recipe_name}'")

@@ -1051,3 +1051,34 @@ def test_plugin_download_default_name(patch_client, tmp_path, monkeypatch):
     patch_client.download_plugin_to_file.assert_called_once_with(
         "geocoder", "geocoder.zip"
     )
+
+
+def test_plugin_components_lists_steps_triggers_runnables(patch_client):
+    """Dev plugin trees expose python-steps/-triggers/-runnables components
+    with the full type string needed to use them (#267)."""
+    patch_client.list_plugins.return_value = [
+        {"id": "my-plugin", "version": "1.0.0", "dev": "True"},
+    ]
+    plugin_mock = MagicMock()
+    plugin_mock.list_files.return_value = [
+        {
+            "name": "python-steps",
+            "children": [{"name": "my-step", "children": [{"name": "step.py"}]}],
+        },
+        {
+            "name": "python-triggers",
+            "children": [{"name": "my-trig", "children": [{"name": "trigger.py"}]}],
+        },
+        {
+            "name": "python-runnables",
+            "children": [{"name": "my-run", "children": [{"name": "runnable.py"}]}],
+        },
+    ]
+    patch_client.get_plugin.return_value = plugin_mock
+    result = runner.invoke(app, ["--format", "json", "plugin", "components"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    by_kind = {r["kind"]: r["type"] for r in parsed}
+    assert by_kind["scenario-step"] == "pystep_my-plugin_my-step"
+    assert by_kind["trigger"] == "pytrigger_my-plugin_my-trig"
+    assert by_kind["runnable"] == "pyrunnable_my-plugin_my-run"

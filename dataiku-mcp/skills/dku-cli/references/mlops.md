@@ -15,21 +15,18 @@ call shapes for what the CLI does not cover (drift gates, MLflow import, API nod
 edit raw settings via `dataikuapi`, the shapes (verified DSS 14.6):
 
 - **Prediction hyperparameters are grid dicts** `{"values": [...], "limit": {...},
-  "range": {...}, "gridMode": ...}`. Replace ONLY `values`; rebuilding the dict
-  drops `limit` and training fails later with `dimension.limit is null` (save
-  succeeds — the error surfaces at TRAIN time).
+  "range": {...}, "gridMode": ...}`. Replace ONLY `values` — see
+  `../playbooks/analytics-apps.md` for the failure mode if you rebuild the dict.
 - **Clustering hyperparameters are plain JSON arrays** (`kmeans_clustering.k:
   [3, 4]`) — a different shape from prediction; writing a string or grid dict
   fails the save with `Expected BEGIN_ARRAY`.
-- **Tree-depth grids require values ≥ 1** — DSS visual RF/GBT has NO "unlimited";
-  use a high cap (30) to mirror sklearn `None` / KNIME `maxLevels: -1`.
 - **`per_feature[col].rescaling` is a string enum** (`"NONE" | "AVGSTD" |
   "MINMAX"`), not an object — `{"method": "NONE"}` fails the save.
 - **`splitParams.ssdTrainingRatio`** is the train fraction (default 0.8);
   clustering tasks have no `splitParams` at all.
-- **DSS auto-optimizes the binary classification threshold at deploy** (metric-
-  optimal, often ≈0.1 — NOT 0.5). `userMeta.activeClassifierThreshold` on the
-  version details is the live cut-off; set via `dku model set-threshold`.
+- **`userMeta.activeClassifierThreshold`** on the version details is the live
+  binary-classification cut-off; DSS sets it automatically at deploy — CLI-facing
+  detail and fix in `../playbooks/analytics-apps.md`.
 
 ### Time-series forecasting tasks
 
@@ -62,7 +59,9 @@ The settings API accepts these silently; they fail at TRAIN time (verified DSS 1
 freshly-scored data, gate on a threshold:
 ```python
 sm = project.get_saved_model("MODEL_ID")
-training_auc = sm.get_active_version().get_details().get_performance_metrics()["auc"]
+ver = sm.get_active_version()                # dict, not an object
+details = sm.get_version_details(ver["id"])
+training_auc = details.get_performance_metrics()["auc"]
 if abs(training_auc - current_auc) > 0.05:   # retrain trigger
     ...
 ```
@@ -106,13 +105,16 @@ or edit in the UI. ML-task envs are UI/`dataikuapi`-only.
 problem (missing package, import error, bad Python version). List envs, filter
 by language, ask the user for the exact name, then set `EXPLICIT_ENV`.
 
-### Python version policy (DSS 14)
+CLI workflow (create/set/update a plugin code env) and its gotchas:
+`../playbooks/extensions-admin.md`.
+
+### Python version policy
 
 - 3.6–3.7 removed; 3.8 deprecated; **3.9–3.13 fully supported**; 3.14 limited.
 - Use `PYTHON312`/`PYTHON311` for new plugins; include `PYTHON310` unless you
   need 3.11+ features.
 
-### CRITICAL: never `installCorePackages: true` on Python 3.11+
+### Never `installCorePackages: true` on Python 3.11+
 
 `LEGACY_PANDAS023` installs `pandas==0.23.4` which fails to build; `PANDAS1`
 also fails. Set `installCorePackages: false` and pin explicit deps instead:
@@ -124,15 +126,12 @@ also fails. Set `installCorePackages: false` and pin explicit deps instead:
  "pipPackages":[{"name":"pandas","version":">=2.0,<3"},{"name":"numpy","version":">=1.22,<3"}]}
 ```
 
-The `dataiku` runtime imports numpy/pandas/dateutil at module load — include
-them even if your plugin doesn't use them directly. Other `desc.json` keys:
-`forceConda`, `corePackagesSet` (`AUTO`/`LEGACY_PANDAS023`/`PANDAS1`/`PANDAS10`),
-`installJupyterSupport`, `condaPackages`, `jarFiles`, `envVars`.
+Other `desc.json` keys: `forceConda`, `corePackagesSet`
+(`AUTO`/`LEGACY_PANDAS023`/`PANDAS1`/`PANDAS10`), `installJupyterSupport`,
+`condaPackages`, `jarFiles`, `envVars`.
 
 - **Pip name ≠ import name:** pip-install `dataiku-api-client`, `import dataikuapi`.
 - MXNet doesn't support NumPy 2 → pin `numpy<2` if using both.
-- **Recovery:** a failed `create_code_env()` leaves a broken env — `ce.delete()`
-  before retrying. Build log: `$DATA_DIR/code-envs/plugins/<plugin>/build.log`.
 - Prefer lazy imports for heavy libs; use `python_version` markers for
   version-specific deps.
 
@@ -168,59 +167,10 @@ raise to block with a user-readable message; read LLM IDs from `config`, never
 hardcode; fail **safe** (block on unexpected error). For an LLM-judge pattern,
 append the judge's trace: `span.append_trace(resp.trace)`.
 
-## Semantic models (DSS 14.4+)
+## Semantic models
 
-Map business context onto datasets so the **Semantic Model Query** agent tool
-does NL→SQL.
-
-**Critical prerequisite: entities MUST point at SQL-backed datasets** (Snowflake,
-Postgres, Redshift, BigQuery, …). Filesystem/UploadedFiles datasets fail at query
-time with a polite English refusal ("not accessible via SQL"). If source is on
-Filesystem, **sync to a SQL connection first**, then point `datasetRef` at the
-SQL dataset. Symptom of getting this wrong looks like a prompt issue but the fix
-is the sync.
-
-**Workflow (prefer splice verbs over raw JSON):** `create` (does NOT auto-create
-a version) → `create-version v1` → `set-active-version v1` (text-to-SQL reads the
-ACTIVE version ONLY — #1 cause of "model not used") → `add-entity --from-dataset
-… --pk … --index-values …` → `add-relationship --from … --to … --on|--expression`
-→ `add-glossary-term` / `add-metric` / `add-filter` / `add-golden-query` /
-`set-manual-values` → `update-index --wait` (re-run after any entity or
-`manualValues` change). Verify with the `list-*` commands.
-
-Raw-JSON fallback (`get-version | edit | set-version`) **shallow-merges at the
-top level**: passing `{"relationships":[...]}` alone **replaces the whole array**
-— always read current state, append, save back.
-
-```json
-// version top-level
-{"id":"v1","entities":[…],"relationships":[…],"goldenQueries":[…],
- "glossaryTerms":[…],"indexingSettings":{"maxScannedRowsForSQLDatasets":-1}}
-// entity (-1 = no row cap; metrics/filters are named pseudo-SQL, not GREL)
-{"name":"customer","type":"DATASET","datasetRef":"PROJECT.DATASET",
- "primaryKey":{"attributes":["CustomerID"]},"foreignKeys":[],
- "metrics":[{"name":"Total","pseudoSQLExpression":"COUNT(CustomerID)"}],
- "filters":[{"name":"Sub","pseudoSQLExpression":"Subscribed = 'true'"}],
- "attributes":[{"name":"RiskTolerance","type":"COLUMN","column":"RiskTolerance",
-   "dssType":"string","distinctValuesHandlingMode":"MANUAL",
-   "manualValues":["Low","Medium","High"],"indexDistinctValues":true,
-   "resolveInUserRequests":true}]}
-// relationship — THREE fields. left = firstEntity, right = secondEntity.
-{"firstEntity":"customer","secondEntity":"order",
- "pseudoSQLExpression":"left.CustomerID = right.CustomerID"}
-// golden query — NL→SQL few-shot, biggest quality driver
-{"name":"…","question":"…","generatedSql":"SELECT …"}
-```
-
-- **Don't guess relationship field names** — it's `firstEntity`/`secondEntity`
-  (NOT `leftEntity`/`fromEntity`); export a UI-built example to confirm shapes.
-- `datasetRef` must be fully qualified `PROJECT.DATASET`. Entity needs a
-  `primaryKey` for cardinality inference. No `id`/cardinality on relationships.
-- `manualValues` + `update-index` drives value resolution ("high risk" →
-  `RiskTolerance='High'`); stale index → agent returns no rows.
-- Unknown shapes (export from UI to confirm): `foreignKeys[]`, `glossaryBindings[]`,
-  `sqlGenerationConfig`, `attribute.type` beyond `COLUMN`, `entity.type` beyond
-  `DATASET`.
+Semantic model payload shapes and workflow → `semantic-models.md` and
+`../playbooks/semantic-layer.md`.
 
 ## Macros (runnables)
 
@@ -263,7 +213,7 @@ class MyMacro(Runnable):
 ```
 
 Run from a scenario via a "Run DSS plugin" step, or programmatically:
-`project.get_runnable("plugin_macro").run(params={...})`. Troubleshooting:
+`project.get_macro("plugin_macro").run(params={...})`. Troubleshooting:
 macro absent → check `macroRoles` type + reload plugin; progress stuck →
 `get_progress_target()` values; timeout → use progress callbacks for long ops.
 

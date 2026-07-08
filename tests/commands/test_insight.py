@@ -242,6 +242,92 @@ def test_insight_set_definition_from_file(tmp_path, patch_client):
     insight.get_settings().save.assert_called_once()
 
 
+def _set_definition(defn: dict):
+    return runner.invoke(
+        app,
+        [
+            "insight",
+            "set-definition",
+            "insight1",
+            "--project",
+            "PROJ1",
+            "--definition",
+            json.dumps(defn),
+        ],
+    )
+
+
+def test_insight_set_definition_rejects_unknown_chart_type(patch_client):
+    result = _set_definition(
+        {
+            "type": "chart",
+            "params": {
+                "datasetSmartName": "sales",
+                "def": {"type": "bar", "genericMeasures": []},
+            },
+        }
+    )
+    assert result.exit_code == 1
+    out = strip_ansi(result.output)
+    assert "silently nulls" in out
+    assert "set-chart-type" in out
+    proj = patch_client.get_project("PROJ1")
+    proj.get_insight("insight1").get_settings().save.assert_not_called()
+
+
+def test_insight_set_definition_rejects_nulled_type_with_alternative(patch_client):
+    result = _set_definition({"type": "chart", "params": {"def": {"type": "bubble"}}})
+    assert result.exit_code == 1
+    out = strip_ansi(result.output)
+    assert "scatter" in out  # NULLED_TYPES points at the working alternative
+
+
+def test_insight_set_definition_rejects_non_dict_def(patch_client):
+    result = _set_definition({"type": "chart", "params": {"def": "grouped_columns"}})
+    assert result.exit_code == 1
+    assert "must be a JSON object" in strip_ansi(result.output)
+
+
+def test_insight_set_definition_accepts_valid_chart_def(patch_client):
+    result = _set_definition(
+        {
+            "type": "chart",
+            "params": {
+                "datasetSmartName": "sales",
+                "def": {
+                    "type": "grouped_columns",
+                    "genericDimension0": [{"column": "status", "type": "ALPHANUM"}],
+                    "genericMeasures": [
+                        {"column": "id", "function": "COUNT", "type": "NUMERICAL"}
+                    ],
+                },
+            },
+        }
+    )
+    assert result.exit_code == 0
+    assert "Updated definition" in result.output
+    proj = patch_client.get_project("PROJ1")
+    proj.get_insight("insight1").get_settings().save.assert_called_once()
+
+
+def test_insight_set_definition_detects_server_side_def_drop(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_insight("insight1").get_settings()
+    raw = settings.get_raw()
+
+    def drop_def():
+        raw.get("params", {}).pop("def", None)
+
+    settings.save.side_effect = drop_def
+    result = _set_definition(
+        {"type": "chart", "params": {"def": {"type": "grouped_columns"}}}
+    )
+    assert result.exit_code == 1
+    out = strip_ansi(result.output)
+    assert "dropped the submitted params.def" in out
+    assert "set-chart-type" in out
+
+
 # --- validate command tests ---
 
 

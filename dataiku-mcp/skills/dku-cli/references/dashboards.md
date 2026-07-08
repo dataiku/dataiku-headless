@@ -1,5 +1,11 @@
 # Reference: Dashboards & Charts
 
+- [Chart insight payload](#chart-insight-payload)
+- [Chart types (`def.type`)](#chart-types-deftype)
+- [Chart definition (`params.def`)](#chart-definition-paramsdef)
+- [Dashboard payload](#dashboard-payload)
+- [Dashboard authorizations (tiles BLANK for dashboard-only users)](#dashboard-authorizations-tiles-blank-for-dashboard-only-users)
+
 Durable JSON payload shapes for chart insights and dashboards. Get exact CLI flags
 from `--help`; run `dku insight validate` before trusting a render — it checks column
 references, dimension/measure type coherence against the dataset schema, and the
@@ -98,7 +104,7 @@ Pick the chart by what it shows, then fill **exactly** its required slots:
 | `gauge` | one measure vs a range | `genericMeasures` — **omit `gaugeOptions:{min,max}`** (rejected; let DSS auto-scale) |
 | `pivot_table` | tabular rows × cols × measure | `genericMeasures` + (`genericDimension0` or `genericDimension1`) |
 | `radar` | several measures across one category | `genericDimension0`, `genericMeasures` |
-| `sankey` | flow between stages | **does NOT render on this build** — AIOOBE for every dim layout (dim0-only and dim0/dim1 split both fail; 0 examples in 328 projects). Use `stacked_bars` (source split by target). |
+| `sankey` | flow between stages | **does not render** — AIOOBE for every dim layout (dim0-only and dim0/dim1 split both fail, DSS 14.6). Use `stacked_bars` (source split by target). |
 | `scatter` | correlation of two numerics (unaggregated) | `uaXDimension`, `uaYDimension` (NOT genericMeasures) |
 | `bubble` *(see note)* | scatter + a size dimension | build as `scatter` + `uaSize` |
 | `boxplots` | distribution of a numeric, by category | `boxplotValue` (+ `boxplotBreakdownDim`) |

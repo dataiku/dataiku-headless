@@ -347,6 +347,14 @@ def set_definition(
             'as create --params), e.g. \'{"smRef":"model_id"}\''
         ),
     ),
+    deep_merge: bool = typer.Option(
+        False,
+        "--deep-merge",
+        help=(
+            "Recursively merge --definition params into the existing params "
+            "instead of replacing the params object wholesale"
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
     """Update agent tool settings (params, config, etc.).
@@ -390,7 +398,7 @@ def set_definition(
             updates = read_json_input(definition)
             if isinstance(updates, dict) and isinstance(updates.get("params"), dict):
                 _warn_unknown_param_keys(raw.get("type", ""), updates["params"].keys())
-            merge_params_preserving_siblings(raw, updates)
+            merge_params_preserving_siblings(raw, updates, deep=deep_merge)
         if parsed_params:
             raw.setdefault("params", {}).update(parsed_params)
         settings.save()

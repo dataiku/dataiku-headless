@@ -116,6 +116,41 @@ def test_blueprint_get_version_json(patch_client):
     assert data["name"] == "Default"
 
 
+def test_blueprint_get_version_uses_designer_path(patch_client):
+    govern = patch_client.get_govern_client()
+    runtime_bp = govern.get_blueprint.return_value
+    runtime_defn = runtime_bp.get_version.return_value.get_definition.return_value
+    runtime_defn.get_raw.return_value = {
+        "name": "runtime",
+        "uiDefinition": {"views": {}},
+    }
+    designer = govern.get_blueprint_designer.return_value
+    designer_bp = designer.get_blueprint.return_value
+    designer_defn = designer_bp.get_version.return_value.get_definition.return_value
+    designer_defn.get_raw.return_value = {
+        "name": "designer",
+        "uiDefinition": {"views": {"main": {}}},
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "--format",
+            "json",
+            "govern",
+            "blueprint",
+            "get-version",
+            "bp.system.govern_project",
+            "bv.system.default",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["name"] == "designer"
+    runtime_bp.get_version.assert_not_called()
+
+
 def test_blueprint_fields(patch_client):
     """Test fields command shows field schema."""
     result = runner.invoke(

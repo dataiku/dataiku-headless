@@ -506,6 +506,9 @@ def test_recipe_set_settings_updates_definition(patch_client):
 
 def test_recipe_set_settings_updates_payload(patch_client):
     """set-settings with payload key updates visual recipe config."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe("recipe1").get_settings()
+    settings.get_recipe_raw_definition.return_value = {"type": "sort"}
     settings_json = json.dumps(
         {"payload": {"orders": [{"column": "price", "desc": True}]}}
     )
@@ -526,6 +529,9 @@ def test_recipe_set_settings_updates_payload(patch_client):
 
 def test_recipe_set_settings_reads_piped_stdin_without_flag(patch_client):
     """set-settings defaults to stdin when JSON is piped and -s is omitted."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe("recipe1").get_settings()
+    settings.get_recipe_raw_definition.return_value = {"type": "sort"}
     settings_json = json.dumps({"payload": {"orders": [{"column": "price"}]}})
     result = runner.invoke(
         app,
@@ -1148,13 +1154,11 @@ def test_recipe_set_metadata_no_args(patch_client):
     assert "--short-desc" in flat
 
 
-def test_recipe_set_settings_code_recipe_points_to_set_env(patch_client):
-    """set-settings on a code recipe (string payload) redirects to set-env/set-code."""
+def test_recipe_set_settings_code_recipe_accepts_string_payload(patch_client):
+    """set-settings on a code recipe accepts the round-tripped string payload (#213)."""
     proj = patch_client.get_project("PROJ1")
     settings = proj.get_recipe("recipe1").get_settings()
     settings.get_recipe_raw_definition.return_value = {"type": "python"}
-    # User tried to tweak the python recipe's container mode via set-settings,
-    # so the round-tripped payload is the code string.
     settings_json = json.dumps({"payload": "import dataiku\n"})
     result = runner.invoke(
         app,
@@ -1168,12 +1172,33 @@ def test_recipe_set_settings_code_recipe_points_to_set_env(patch_client):
             "PROJ1",
         ],
     )
+    assert result.exit_code == 0, result.output
+    settings.set_payload.assert_called_once_with("import dataiku\n")
+
+
+def test_recipe_set_settings_code_recipe_rejects_object_payload(patch_client):
+    """A JSON-object payload on a code recipe would wipe the source — redirect
+    to set-code/set-env instead."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe("recipe1").get_settings()
+    settings.get_recipe_raw_definition.return_value = {"type": "python"}
+    settings_json = json.dumps({"payload": {"engineType": "DSS"}})
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "set-settings",
+            "recipe1",
+            "--settings",
+            settings_json,
+            "--project",
+            "PROJ1",
+        ],
+    )
     assert result.exit_code != 0
-    # Must point at the right verbs, not the json.dumps red herring.
     assert "code recipe" in result.output
-    assert "set-env" in result.output
     assert "set-code" in result.output
-    assert "container-mode NONE" in result.output
+    assert "set-env" in result.output
 
 
 def test_recipe_create_plugin_recipe_params_go_to_custom_config(patch_client):

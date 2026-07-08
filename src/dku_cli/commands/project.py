@@ -127,6 +127,72 @@ def get(
         handle_api_error(e, project_key=project_key)
 
 
+def _project_settings_path(settings: dict, path: str) -> tuple[bool, object]:
+    """Walk a dotted path into the settings dict.
+
+    Returns (found, value). Stops at the first missing segment so the caller
+    can name the keys that DO exist at that level.
+    """
+    node: object = settings
+    for segment in path.split("."):
+        if not isinstance(node, dict) or segment not in node:
+            return False, node
+        node = node[segment]
+    return True, node
+
+
+@app.command("get-settings")
+def get_settings(
+    ctx: typer.Context,
+    project_key: str = typer.Argument(
+        None, help="Project key (defaults to -P / DKU_PROJECT)"
+    ),
+    project: str = typer.Option(None, "--project", "-P", help="Project key"),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated dotted paths to project "
+        "(e.g. codeEnvs.python.envName,flowBuildSettings)",
+    ),
+) -> None:
+    """Get project settings (code envs, flow build, exposed objects, ...).
+
+    This is the DSSProject settings object — not metadata (`dku project get`)
+    and not permissions (`dku project permissions`). Output is the raw
+    settings dict; use --fields with dotted paths to extract specific values.
+    """
+    key = project_key or resolve_project(project)
+    output = resolve_output_format()
+    try:
+        client = get_client_from_ctx(ctx)
+        settings = client.get_project(key).get_settings().get_raw()["settings"]
+
+        if fields:
+            payload = {}
+            for path in (f.strip() for f in fields.split(",") if f.strip()):
+                found, node = _project_settings_path(settings, path)
+                if not found:
+                    available = (
+                        ", ".join(sorted(node.keys()))
+                        if isinstance(node, dict)
+                        else "(not a dict at this level)"
+                    )
+                    exit_with_error(
+                        f"No settings path '{path}' in project {key}.",
+                        details=[
+                            f"Available keys at that level: {available}",
+                            f"Inspect the full object: dku project get-settings {key}",
+                        ],
+                    )
+                payload[path] = node
+            render_raw(payload, output_format=output)
+            return
+
+        render_raw(settings, output_format=output)
+    except Exception as e:
+        handle_api_error(e, project_key=key)
+
+
 @app.command()
 def inspect(
     ctx: typer.Context,

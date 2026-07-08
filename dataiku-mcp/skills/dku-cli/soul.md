@@ -120,12 +120,11 @@ Done is not "the job ran". Done is: an SME who has never seen the project opens 
 cold, follows the story stage by stage, watches the checks pass, and can judge the
 result.
 
-- Final sweep — start with `dku project audit -P PROJ`: one read-only verdict over
-  structure, documentation, evidence, and maintainability that names what's wrong and
-  the exact `dku ...` command to fix it. A clean audit is the floor, not the ceiling —
-  then run the flow-review pass (tabular-flow playbook, "Flow review") with your own
-  eyes: every object zoned (numbered stages, no zone left "Default" — rename it),
-  verb-first recipe names, descriptions set, no orphan scaffolding.
+- Final sweep — run the finish gate (permanent rule 6 in `SKILL.md`). A clean audit is
+  the floor, not the ceiling — then run the flow-review pass
+  (`playbooks/tabular-flow.md`, "Flow review") with your own eyes: every object zoned
+  (numbered stages, no zone left "Default" — rename it), verb-first recipe names,
+  descriptions set, no orphan scaffolding.
 - The artifacts the SME touches — dashboard, app, agent answers — verified with your
   own eyes on real data, never assumed from exit 0.
 - The project is described and wiki'd; a run-sheet exists.

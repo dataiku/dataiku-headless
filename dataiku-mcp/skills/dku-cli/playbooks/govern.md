@@ -7,7 +7,7 @@ profile every non-govern command exits **4**; use `dku govern …`. Needs an adm
 Get exact flags from `dku govern <group> <cmd> --help`. Payload shapes, field-type rules,
 hooks, audit, custom-html embedding: `references/govern.md`.
 
-## Run a governed workflow (the common case)
+## Canonical commands
 
 ```bash
 # discover → inspect schema → create record → advance sign-off
@@ -23,11 +23,14 @@ dku --format json govern artifact get AR
 
 # advance a sign-off  (update-status STATUS is POSITIONAL + uppercase; add-* take --status)
 dku govern signoff list AR
+dku govern signoff create AR STEP        # required before any update-status; STEP must be the artifact's current step
 dku govern signoff update-status AR STEP WAITING_FOR_FEEDBACK
 dku govern signoff add-feedback  AR STEP -g GROUP_ID --status APPROVED -c "looks good"
 dku govern signoff update-status AR STEP WAITING_FOR_APPROVAL
 dku govern signoff add-approval  AR STEP --status APPROVED -c "ship it"
 ```
+
+## Run a governed workflow (the common case)
 
 States (uppercase, case-sensitive): `NOT_STARTED → WAITING_FOR_FEEDBACK →
 WAITING_FOR_APPROVAL → APPROVED|REJECTED|ABANDONED`; reset only via `ABANDONED`. Feedback:
@@ -90,3 +93,10 @@ dku govern time-series push-values TS --datapoints '[{"timestamp":1700000000000,
   `print()` is dropped (use `logging`). **Audit is OFF by default** — an empty `audit.log`
   isn't proof hooks aren't firing. Both in `references/govern.md`.
 - Global flags go **before** the noun: `dku --format json govern artifact get AR`.
+
+## Done when
+
+- `dku govern signoff list AR` shows the target step at `APPROVED` (or the terminal state you drove it to).
+- `dku --format json govern artifact get AR` reflects the field values you set (`set-field` / `create -f`).
+- A new/edited blueprint version is `ACTIVE`: `dku govern blueprint get-version BP bv.vX` shows `status: ACTIVE`, not `DRAFT`.
+- A custom-html page round-trips: `dku --format json govern custom-page get cp.x` returns the `htmlContent` you set.

@@ -15,6 +15,12 @@ from dku_cli.output import render, render_raw, resolve_output_format, success
 
 app = typer.Typer(help="Manage Govern artifact sign-offs.")
 
+USERS_CONTAINER_HELP = (
+    "Users container JSON (string, @file.json, or - for stdin). "
+    'Examples: {"type":"user","login":"alice"} or '
+    '{"type":"globalApiKey","globalAPIKeyId":"gk_123"}.'
+)
+
 
 def _current_step_id(artifact) -> str | None:
     """Read the artifact's current workflow step id, if any.
@@ -32,6 +38,11 @@ def _current_step_id(artifact) -> str | None:
         if isinstance(sid, str) and sid:
             return sid
     return None
+
+
+def _get_signoff(ctx: typer.Context, artifact_id: str, step_id: str):
+    govern = get_govern_client_from_ctx(ctx)
+    return govern.get_artifact(artifact_id).get_signoff(step_id)
 
 
 @app.command()
@@ -132,9 +143,7 @@ def get(
     """Get sign-off details for an artifact workflow step."""
     output = resolve_output_format()
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         details = signoff.get_details()
         render_raw(details.get_raw(), output_format=output)
     except SystemExit:
@@ -152,13 +161,16 @@ def update_status(
         case_sensitive=False,
         help="New status: NOT_STARTED, WAITING_FOR_FEEDBACK, WAITING_FOR_APPROVAL, APPROVED, REJECTED, ABANDONED",
     ),
+    reload: bool = typer.Option(
+        False,
+        "--reload",
+        help="Reload the sign-off configuration when resetting to NOT_STARTED.",
+    ),
 ) -> None:
     """Update the status of a sign-off."""
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
-        signoff.update_status(status)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
+        signoff.update_status(status, reload_conf_for_reset=reload)
         success(
             f"Updated sign-off status to '{status}' for step '{step_id}' on artifact '{artifact_id}'"
         )
@@ -187,9 +199,7 @@ def add_feedback(
 ) -> None:
     """Add feedback to a sign-off."""
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         signoff.add_feedback(group_id, status, comment=comment)
         success(
             f"Added feedback '{status}' for step '{step_id}' on artifact '{artifact_id}'"
@@ -218,9 +228,7 @@ def add_approval(
 ) -> None:
     """Add approval to a sign-off."""
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         signoff.add_approval(status, comment=comment)
         success(
             f"Added approval '{status}' for step '{step_id}' on artifact '{artifact_id}'"
@@ -242,14 +250,12 @@ def delegate_feedback(
     users_container: str = typer.Option(
         ...,
         "--users-container",
-        help="Users container JSON (string, @file.json, or - for stdin)",
+        help=USERS_CONTAINER_HELP,
     ),
 ) -> None:
     """Delegate feedback to specific users for a sign-off group."""
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         container = read_json_input(users_container)
         signoff.delegate_feedback(group_id, container)
         success(
@@ -269,14 +275,12 @@ def delegate_approval(
     users_container: str = typer.Option(
         ...,
         "--users-container",
-        help="Users container JSON (string, @file.json, or - for stdin)",
+        help=USERS_CONTAINER_HELP,
     ),
 ) -> None:
     """Delegate approval to specific users for a sign-off."""
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         container = read_json_input(users_container)
         signoff.delegate_approval(container)
         success(f"Delegated approval for step '{step_id}' on artifact '{artifact_id}'")
@@ -295,9 +299,7 @@ def list_feedbacks(
     """List all feedbacks for a sign-off step."""
     output = resolve_output_format()
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         feedbacks = signoff.list_feedbacks()
         data = []
         for item in feedbacks:
@@ -332,9 +334,7 @@ def get_feedback(
     """Get a specific feedback review from a sign-off."""
     output = resolve_output_format()
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         feedback = signoff.get_feedback(feedback_id)
         defn = feedback.get_definition()
         render_raw(defn.get_raw(), output_format=output)
@@ -353,9 +353,7 @@ def get_approval(
     """Get the current approval for a sign-off step."""
     output = resolve_output_format()
     try:
-        govern = get_govern_client_from_ctx(ctx)
-        art = govern.get_artifact(artifact_id)
-        signoff = art.get_signoff(step_id)
+        signoff = _get_signoff(ctx, artifact_id, step_id)
         approval = signoff.get_approval()
         defn = approval.get_definition()
         render_raw(defn.get_raw(), output_format=output)

@@ -137,8 +137,18 @@ def test_recipe_set_definition_deep_merge_replaces_non_dict(patch_client):
     assert payload["keys"] == ["new_key"]
 
 
-def test_recipe_set_definition_deep_merge_without_payload(patch_client):
-    """--deep-merge without --payload is an error."""
+def test_recipe_set_definition_deep_merge_with_definition(patch_client):
+    """--deep-merge with --definition recursively patches nested params (#212)."""
+    proj = patch_client.get_project("PROJ1")
+    settings = proj.get_recipe("recipe1").get_settings()
+    raw = {
+        "type": "python",
+        "params": {
+            "envSelection": {"envMode": "USE_BUILTIN_MODE"},
+            "containerSelection": {"containerMode": "NONE", "containerConf": "c1"},
+        },
+    }
+    settings.get_recipe_raw_definition.return_value = raw
     result = runner.invoke(
         app,
         [
@@ -146,14 +156,18 @@ def test_recipe_set_definition_deep_merge_without_payload(patch_client):
             "set-definition",
             "recipe1",
             "--definition",
-            '{"type": "python"}',
+            '{"params": {"containerSelection": {"containerMode": "INHERIT"}}}',
             "--deep-merge",
             "--project",
             "PROJ1",
         ],
     )
-    assert result.exit_code == 1
-    assert "--deep-merge can only be used with --payload" in result.output
+    assert result.exit_code == 0, result.output
+    assert raw["params"]["containerSelection"] == {
+        "containerMode": "INHERIT",
+        "containerConf": "c1",
+    }
+    assert raw["params"]["envSelection"] == {"envMode": "USE_BUILTIN_MODE"}
 
 
 # ── Prepare step: add-fold ─────────────────────────────────────────────

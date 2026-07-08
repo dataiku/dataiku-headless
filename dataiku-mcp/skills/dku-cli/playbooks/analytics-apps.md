@@ -92,7 +92,7 @@ Full tile/field reference: `references/dashboards.md`.
 Turns a project into a self-service app: a homepage of **tiles** grouped in **sections**.
 
 ```bash
-dku app-designer enable -P KEY --label "My App" --description "..."   # --mode setup (default) vs template
+dku app-designer enable -P KEY --label "My App" --description "..."   # APP_TEMPLATE (--mode template, the default)
 dku app-designer set-section -P KEY -s 0 --title "Step 1) Upload" --text "Upload your CSV."
 dku app-designer add-tile -P KEY -s 0 --type UPLOAD_DATASET_SET_FILE --dataset raw_input \
   --behavior INLINE_UPLOAD_REDETECT_AND_INFER --prompt "Upload Data"
@@ -109,8 +109,8 @@ Design: number sections as linear steps (upload → configure → run → result
 
 ### Gotchas
 
-- **`--mode` matters.** `setup` (default) keeps the project `REGULAR` with `useAppHomepage` (Project Setup page). `template` flips it to `APP_TEMPLATE` (instantiable Dataiku App). Picking the wrong mode turns a reference project into an App or vice versa; reverting `template`→`setup` has no CLI verb (manual `projectAppType='REGULAR'` save).
-- **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but **`PUT` accepts writes** — a probe `PUT {}` silently wipes `homepageSections` (200 OK). The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
+- **`--mode`:** `template` (default) flips the project to `APP_TEMPLATE` (instantiable Dataiku App). `setup` is **rejected** — Project Setup mode is gated on an internal endpoint the public API can't reach; enable it manually (project's App Designer page → *Show advanced options → Add a setup section to this project*). Reverting `template` has no CLI verb (manual `projectAppType='REGULAR'` save).
+- **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but `PUT` accepts writes. A partial payload silently wipes `homepageSections` (returns 200 OK) — always GET the full definition, modify only the fields you need, and PUT the full definition back. The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
 - **`datasetName` required on every dataset tile** — without it DSS opens a blank "New dataset" page instead of erroring.
 - **Folder tiles fail in instances** unless the folder is in `projectExportManifest.includedManagedFolders`.
 - Create/test instances with `dku app create-instance PROJECT_KEY --key INST1 --name "..."`; test `INLINE_PYTHON_RUN` tiles in an **instance**, not the template (frontend scope bug).
@@ -118,6 +118,9 @@ Design: number sections as linear steps (upload → configure → run → result
 ---
 
 ## Visual ML / AutoML
+
+Raw `dataikuapi` shapes for what the CLI doesn't cover (drift gates, MLflow import,
+API-node serving): `../references/mlops.md`.
 
 Lifecycle: **create ML task → audit features → train → pick best model → deploy to flow → score a dataset.**
 `create-*` returns the `ANALYSIS_ID` + `MLTASK_ID` that every later verb needs; `train` produces `MODEL_ID`s (one per algorithm). Carry all three through `deploy`.
@@ -176,3 +179,9 @@ Scoring-recipe naming reconcile rationale (DSS auto-names `score_<input>`): see 
 - **DSS auto-optimizes the binary threshold at deploy** (often lands at ~0.1, not 0.5). Scoring output silently shifts vs. a tool that assumed 0.5 — set it explicitly with `dku model set-threshold` when the source workflow hard-codes a cut-off.
 - **`set-feature --rescaling NONE`** mirrors tools that train on raw values (e.g. KNIME k-Means without a Normalizer); DSS defaults numerics to AVGSTD, which changes clusters/coefficients.
 - **Time-series forecasting tasks** have kernel-side constraints the settings API accepts silently (testSize × horizon rule, stale auto-shifts on horizon change, backtest intervals, quantile scoring) → `references/mlops.md` § Time-series forecasting tasks.
+
+## Done when
+
+- `dku insight validate INSIGHT_ID -P KEY` passes and the dashboard's `get-definition` shows tiles under `pages[i].grid.tiles`.
+- `dku --format json app-designer get -P KEY | jq '.homepageSections | length'` matches the section count you intended.
+- `dku ml details ANALYSIS MLTASK MODEL_ID -P KEY` shows the deployed model's metric, and `dku dataset head scored -P KEY` shows real prediction columns after scoring.

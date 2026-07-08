@@ -16,7 +16,8 @@ STANDARD for fine HTML control. Also BOKEH, STREAMLIT, SHINY. DASH needs a code 
 `dash`; STANDARD+backend needs `Flask`; STANDARD without backend needs none. Set the code
 env explicitly — `envMode: INHERIT` (the 4-tab default) can resolve to a project-default env
 without flask; `USE_BUILTIN_MODE` is the zero-build fix for plain Flask backends.
-**No public API creates a webapp** — create in the UI, then manage via CLI.
+Create with `dku webapp create` (types above; `--from-plugin PLUGIN --component ID` for a
+plugin-webapp instance); no API delete (405) — delete in the UI.
 
 ## Backend
 

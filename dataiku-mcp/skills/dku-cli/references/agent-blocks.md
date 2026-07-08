@@ -4,6 +4,13 @@ Durable JSON shapes for structured-agent blocks, the block graph, visual-agent
 configuration, and LLM tool definitions. Workflow lives in
 `playbooks/genai-agents.md`; exact CLI flags come from `--help`.
 
+- [Structured-agent graph shape](#structured-agent-graph-shape)
+- [Block types (19 in DSS 14.5+)](#block-types-19-in-dss-145)
+- [Visual agent (TOOLS_USING_AGENT)](#visual-agent-tools_using_agent)
+- [Agent-tool built-in types](#agent-tool-built-in-types)
+- [LLM tool definitions](#llm-tool-definitions)
+- [Component-type chooser](#component-type-chooser)
+
 **Version paths** (CLI auto-detects): DSS 14.5+ blocks live in
 `versions[0].structuredAgentSettings`; DSS 13.x in `toolsUsingAgentSettings`.
 Aliases: `CORE_LOOP`=`STANDARD_REACT`, `GENERATE_OUTPUT`=`EMIT_OUTPUT`. Always
@@ -45,10 +52,10 @@ block) returns `response:null` with `success:true` — no error. Always set
 `dku --format json agent-block get-graph AGENT_ID | jq '.blocks[]|{id,nextBlock,defaultNextBlock}'`
 after every `set-graph`.
 
-> **Don't chain a tool-calling CORE_LOOP *after* a PARALLEL gather** (verified
-> live DSS 14.6): the agent returns `response:null` with `success:true` (silent
-> failure). Put each tool-loop **inside** a PARALLEL branch; the block after
-> PARALLEL should only merge/format the gathered state.
+**Don't chain a tool-calling CORE_LOOP *after* a PARALLEL gather** (DSS 14.6): the
+agent returns `response:null` with `success:true` (silent failure). Put each
+tool-loop **inside** a PARALLEL branch; the block after PARALLEL should only
+merge/format the gathered state.
 
 ---
 
@@ -80,10 +87,9 @@ after every `set-graph`.
 `ADD_TO_MESSAGES`. `streamOutput: true` only with `ADD_TO_MESSAGES`.
 `responseFormat: {"type":"json","strict":true}` forces schema.
 
-> **Canonical — Anthropic rejects `responseFormat: json` through the Mesh**
-> (verified live): the block silently SKIPs or errors. Use an OpenAI (or other
-> JSON-mode-capable) model for any JSON-output or judge/eval block; keep
-> Anthropic for free-text blocks.
+**Anthropic rejects `responseFormat: json` through the Mesh**: the block silently
+SKIPs or errors. Use an OpenAI (or other JSON-mode-capable) model for any
+JSON-output or judge/eval block; keep Anthropic for free-text blocks.
 
 **Runtime gotchas not caught at save.** `agent-block add`/`set-graph` validate
 structure and print prescriptive fixes — empty CEL, missing `outputKey`, duplicate
@@ -217,7 +223,7 @@ refresh `versionTag`/`creationTag`, append to `raw["versions"]`, `save()`, then
 ## Agent-tool built-in types
 
 `dku agent-tool types` lists the catalog (no `-P`). No server endpoint
-enumerates these — the CLI catalog is the source of truth. Live-verified DSS 14.6:
+enumerates these — the CLI catalog is the source of truth (DSS 14.6):
 
 | Type | Key params | Dedicated flag |
 |---|---|---|

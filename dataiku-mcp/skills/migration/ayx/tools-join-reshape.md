@@ -38,7 +38,7 @@ Window `rowNumber` output column is **hardcoded to `rownumber`** (lowercase); th
 
 ## JoinMultiple
 
-N-way join on a single key. Chain 2-way Join recipes (one per additional input) for all-in-memory; use a SQL recipe with multiple `JOIN` clauses for 3+ inputs on a SQL connection.
+N-way join on a single key → **one multi-input Join recipe**: `dku recipe create-join JN -i spine -i a -i b -k key -k 1:akey …` (each `-k` after the first targets pair N; per-pair keys via `joins[i].table1` — `../../dku-cli/references/visual-recipe-payloads.md` § Join). Never chain one 2-way Join per input — that is the sequential join chain Phase 3.5 collapses (`../references/flow-collapse.md` rule 5).
 
 ---
 
@@ -53,7 +53,7 @@ dku recipe add-formula PREP --column Date --expr 'if(startsWith(F1, "Ranks as of
 dku recipe add-step PREP --type UpDownFiller -p '{"columns":["Date"],"up":false}'
 ```
 
-Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** — return `null`, not `""`. Collapses 3 tools → 2 Prepare steps, net zero recipes. See `ayx/overview.md` § Collapse triggers (messy-spreadsheet row).
+Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** — return `null`, not `""`. Collapses 3 tools → 2 Prepare steps, net zero recipes. See `overview.md` § Collapse triggers (messy-spreadsheet row).
 
 ---
 
@@ -199,7 +199,7 @@ dku recipe add-fold prep1 --columns "q1,q2" --key-column Name --value-column Val
 
 **DO NOT use `FoldColumnsByName`** — that's a plugin processor (params `keyColumn`/`valueColumn`) that errors `UnavailableTypeException` where the plugin isn't installed. `add-fold` emits stock `MultiColumnFold`, no plugin needed. `pd.melt` is never needed for this, even on the rarest DSS instance.
 
-**The job-not-the-tool reflex.** Most Transposes exist to feed a downstream `Summarize` over the long form. The cleaner DSS shape: compute the aggregate **per-input, before any reshape** — one `add-formula` per output key inside each upstream Prepare; the long form is never materialized (saves unpivot + lookup join + per-key Group). The round-trip `Transpose → MultiRowFormula → CrossTab → JoinMultiple → AlteryxSelect → Transpose` (long→window→wide→join→wide→long) reduces to: compute everything in long form, emit final long output via Stack-of-projections. The CrossTab/JoinMultiple round-trip exists because Alteryx MultiRowFormula operates on a single column; DSS Window carries both Value and lagged columns through the long form, so the round-trip is wasted shape change. See `ayx/overview.md` § Collapse triggers (the `Union → Transpose → Summarize` and `Transpose → MultiRowFormula → CrossTab → Transpose` rows).
+**The job-not-the-tool reflex.** Most Transposes exist to feed a downstream `Summarize` over the long form. The cleaner DSS shape: compute the aggregate **per-input, before any reshape** — one `add-formula` per output key inside each upstream Prepare; the long form is never materialized (saves unpivot + lookup join + per-key Group). The round-trip `Transpose → MultiRowFormula → CrossTab → JoinMultiple → AlteryxSelect → Transpose` (long→window→wide→join→wide→long) reduces to: compute everything in long form, emit final long output via Stack-of-projections. The CrossTab/JoinMultiple round-trip exists because Alteryx MultiRowFormula operates on a single column; DSS Window carries both Value and lagged columns through the long form, so the round-trip is wasted shape change. See `overview.md` § Collapse triggers (the `Union → Transpose → Summarize` and `Transpose → MultiRowFormula → CrossTab → Transpose` rows).
 
 ---
 

@@ -6,6 +6,7 @@ import time
 
 import typer
 
+from dku_cli.definition_merge import deep_merge_dicts
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
 from dku_cli.output import (
@@ -72,14 +73,54 @@ def create(
         "-t",
         help=f"Web app type: {', '.join(WEBAPP_TYPES)}",
     ),
+    from_plugin: str = typer.Option(
+        None,
+        "--from-plugin",
+        help="Plugin id — create an instance of a plugin webapp component "
+        "(requires --component)",
+    ),
+    component: str = typer.Option(
+        None,
+        "--component",
+        help="Webapp component id inside the plugin (see the plugin's webapps/ folder)",
+    ),
+    config: str = typer.Option(
+        None,
+        "--config",
+        help="Plugin webapp config as JSON (string, @file.json, or - for "
+        "stdin). Only with --from-plugin.",
+    ),
 ) -> None:
     """Create a new web application.
 
     Supported types: STANDARD (HTML/CSS/JS + Python backend),
     BOKEH, DASH, STREAMLIT, SHINY.
+
+    With --from-plugin/--component, creates an instance of a plugin webapp
+    component instead (the public API has no direct plugin-webapp create, so
+    a STANDARD webapp is created then retyped to
+    webapp_<pluginId>_<componentId> with the backend enabled).
     """
     project_key = resolve_project(project)
+    if (from_plugin is None) != (component is None):
+        exit_with_error(
+            "--from-plugin and --component must be used together.",
+            details=[
+                "Example: dku webapp create MyApp -P PROJ "
+                "--from-plugin traces-explorer --component traces-explorer"
+            ],
+        )
+    if config is not None and from_plugin is None:
+        exit_with_error(
+            "--config only applies to plugin webapps.",
+            details=["Add --from-plugin PLUGIN --component COMP."],
+        )
     upper_type = webapp_type.upper()
+    if from_plugin is not None and upper_type != "STANDARD":
+        exit_with_error(
+            "--type cannot be combined with --from-plugin.",
+            details=["The plugin component determines the webapp type."],
+        )
     if upper_type not in WEBAPP_TYPES:
         exit_with_error(
             f"Unsupported web app type: '{webapp_type}'",
@@ -92,7 +133,19 @@ def create(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         webapp = proj.create_webapp(name, webapp_type=upper_type)
-        success(f"Created {upper_type} web app '{name}' (id={webapp.webapp_id})")
+        if from_plugin is not None:
+            settings = webapp.get_settings()
+            raw = settings.get_raw()
+            raw["type"] = f"webapp_{from_plugin}_{component}"
+            raw["config"] = read_json_input(config) or {}
+            raw.setdefault("params", {})["backendEnabled"] = True
+            settings.save()
+            success(
+                f"Created plugin web app '{name}' (id={webapp.webapp_id}, "
+                f"type={raw['type']})"
+            )
+        else:
+            success(f"Created {upper_type} web app '{name}' (id={webapp.webapp_id})")
         hint(f"dku webapp start {webapp.webapp_id} -P {project_key}")
     except Exception as e:
         handle_api_error(e)
@@ -138,6 +191,37 @@ def _print_crash_tail(webapp, webapp_id: str) -> None:
         pass
 
 
+def _start_or_restart_backend(webapp):
+    """Start/restart the backend, tolerating an HTTP 204 empty body.
+
+    Some DSS versions answer the restart endpoint with 204 No Content; the
+    dataikuapi client then fails to JSON-decode the empty body and raises
+    "Expecting value: line 1 column 1". That IS a successful start — return
+    None (no future to wait on) instead of propagating the parse error.
+    """
+    try:
+        return webapp.start_or_restart_backend()
+    except ValueError as e:
+        if "Expecting value" in str(e):
+            return None
+        raise
+
+
+def _wait_backend_boot(webapp, webapp_id: str, future) -> None:
+    """Block on the start future (when there is one) and diagnose a crash."""
+    from dataikuapi.utils import DataikuException
+
+    if future is None:
+        return
+    try:
+        future.wait_for_result()
+    except DataikuException as boot_err:
+        error(f"Web app '{webapp_id}' backend failed to start.")
+        print(str(boot_err))
+        _print_crash_tail(webapp, webapp_id)
+        raise typer.Exit(1) from boot_err
+
+
 @app.command()
 def start(
     ctx: typer.Context,
@@ -151,20 +235,12 @@ def start(
     non-zero — so deploy scripts and CI pipelines get actionable output without
     needing to poll `dku webapp logs` separately.
     """
-    from dataikuapi.utils import DataikuException
-
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         webapp = client.get_project(project_key).get_webapp(webapp_id)
-        future = webapp.start_or_restart_backend()
-        try:
-            future.wait_for_result()
-        except DataikuException as boot_err:
-            error(f"Web app '{webapp_id}' backend failed to start.")
-            print(str(boot_err))
-            _print_crash_tail(webapp, webapp_id)
-            raise typer.Exit(1) from boot_err
+        future = _start_or_restart_backend(webapp)
+        _wait_backend_boot(webapp, webapp_id, future)
         success(f"Started web app '{webapp_id}'")
         hint(f"dku webapp logs {webapp_id} -P {project_key}")
     except typer.Exit:
@@ -184,20 +260,12 @@ def restart(
     Same wait-and-diagnose behaviour as `start`: blocks until the backend is up
     or has crashed, then surfaces the crash reason and last log tail on failure.
     """
-    from dataikuapi.utils import DataikuException
-
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
         webapp = client.get_project(project_key).get_webapp(webapp_id)
-        future = webapp.start_or_restart_backend()
-        try:
-            future.wait_for_result()
-        except DataikuException as boot_err:
-            error(f"Web app '{webapp_id}' backend failed to start.")
-            print(str(boot_err))
-            _print_crash_tail(webapp, webapp_id)
-            raise typer.Exit(1) from boot_err
+        future = _start_or_restart_backend(webapp)
+        _wait_backend_boot(webapp, webapp_id, future)
         success(f"Restarted web app '{webapp_id}'")
     except typer.Exit:
         raise
@@ -229,7 +297,13 @@ def status(
     webapp_id: str = typer.Argument(help="Web app ID"),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Show web app backend status."""
+    """Show web app backend status.
+
+    Running reflects the DSS webapp backend object (the start future is
+    alive), NOT container scheduling — on containerized infra a backend can
+    report Running=True while its Kubernetes pod never scheduled. Cross-check
+    with `dku webapp logs` and the Exposed endpoint field when in doubt.
+    """
     project_key = resolve_project(project)
     output = resolve_output_format()
     try:
@@ -237,9 +311,27 @@ def status(
         proj = client.get_project(project_key)
         webapp = proj.get_webapp(webapp_id)
         backend_state = webapp.get_state()
+        raw = backend_state.state if isinstance(backend_state.state, dict) else {}
 
         result = {"id": webapp_id, "running": backend_state.running}
+        extras = (raw.get("futureInfo") or {}).get("payload", {}).get("extras", {})
+        if "crashCount" in extras:
+            result["crashCount"] = extras["crashCount"]
+        if "hasExposedEndpoint" in raw:
+            result["hasExposedEndpoint"] = raw["hasExposedEndpoint"]
+        exposed = raw.get("exposed")
+        if isinstance(exposed, dict) and exposed.get("host"):
+            result["exposedAt"] = (
+                f"{exposed.get('expositionType', '')} "
+                f"{exposed.get('scheme', 'http')}://{exposed['host']}"
+                f":{exposed.get('port', '')}"
+            ).strip()
         render_raw(result, output_format=output)
+        if backend_state.running:
+            info(
+                "Running = DSS backend object state, not container scheduling "
+                "(a K8s pod may not have scheduled)."
+            )
     except Exception as e:
         handle_api_error(e)
 
@@ -274,8 +366,20 @@ def set_definition(
         "-d",
         help="JSON definition (string, @file.json, or - for stdin)",
     ),
+    deep_merge: bool = typer.Option(
+        False,
+        "--deep-merge",
+        help=(
+            "Recursively merge the JSON into the existing definition instead "
+            "of replacing it wholesale"
+        ),
+    ),
 ) -> None:
-    """Update a web app's definition from JSON (use get-definition to read current state first)."""
+    """Update a web app's definition from JSON (use get-definition to read current state first).
+
+    Without --deep-merge the stored definition is replaced wholesale — any
+    key (including params/config siblings) not restated is dropped.
+    """
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
@@ -284,8 +388,13 @@ def set_definition(
         new_def = read_json_input(definition)
         settings = webapp.get_settings()
         raw = settings.get_raw()
-        raw.clear()
-        raw.update(new_def)
+        if deep_merge:
+            merged = deep_merge_dicts(raw, new_def)
+            raw.clear()
+            raw.update(merged)
+        else:
+            raw.clear()
+            raw.update(new_def)
         settings.save()
         success(f"Updated definition for web app '{webapp_id}'")
     except Exception as e:

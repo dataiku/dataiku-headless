@@ -360,6 +360,21 @@ class FeatureMissingHandling(_StrEnum):
     NONE = "NONE"
 
 
+class ScopeSelectionMethod(_StrEnum):
+    BY_PROJECT = "BY_PROJECT"
+    BY_FOLDER = "BY_FOLDER"
+    BY_TAG = "BY_TAG"
+
+
+class EnsembleMethod(_StrEnum):
+    AVERAGE = "AVERAGE"
+    PROBA_AVERAGE = "PROBA_AVERAGE"
+    MEDIAN = "MEDIAN"
+    VOTE = "VOTE"
+    LINEAR_MODEL = "LINEAR_MODEL"
+    LOGISTIC_MODEL = "LOGISTIC_MODEL"
+
+
 class RebuildBehavior(_StrEnum):
     NORMAL = "NORMAL"
     WRITE_PROTECT = "WRITE_PROTECT"

@@ -54,6 +54,10 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("recipe", "create"): [
         "dku recipe create clean_orders --type prepare -i orders"
         " --output-ds orders_clean -P PROJ",
+        # Plugin recipe with multiple roles: repeatable ROLE=DATASET pairs
+        "dku recipe create score_all -t CustomCode_myplugin_score"
+        " --input-role main=orders --output-role decisions=out_a"
+        " --output-role diagnostics=out_b --params '{\"threshold\": 0.5}' -P PROJ",
     ],
     # Repeatable -i; --join-key 'left=right' and 'INDEX:key' prefix for 3+ inputs;
     # inequality operators make range self-joins flags-only (no payload surgery).
@@ -109,6 +113,10 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("recipe", "set-definition"): [
         "dku recipe set-definition join_orders --payload"
         ' \'{"postFilter": {"enabled": true}}\' --deep-merge -P PROJ',
+        "dku recipe set-definition py_recipe -d"
+        ' \'{"params":{"containerSelection":{"containerMode":"NONE"}}}\''
+        " --deep-merge -P PROJ"
+        "  # omitting the merge flag drops sibling params keys",
     ],
     ("job", "run"): [
         "dku job run --target joined -P PROJ --type RECURSIVE_BUILD --wait",
@@ -149,9 +157,38 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
     ("model", "delete-version"): [
         "dku model delete-version MODEL_ID -v v1 -v v2 --yes -P PROJ",
     ],
-    # Params payload shape
+    # Params payload shape; --print-result fetches the rendered output (implies --wait)
     ("macro", "run"): [
         'dku macro run MACRO_ID --params \'{"param1": "value"}\' --wait -P PROJ',
+        'dku macro run MACRO_ID --params \'{"param1": "value"}\' --print-result -P PROJ',
+    ],
+    # --step targets one custom_python step's script on a step-based scenario
+    ("scenario", "set-code"): [
+        "dku scenario set-code SCEN_ID --step 2 --code @step.py -P PROJ",
+    ],
+    # rule-schema emits a template consumed via --config @file
+    ("dq", "create"): [
+        "dku dq create customers --config @rule.json -P PROJ"
+        "  # rule.json from: dku dq rule-schema ValuesInSetRule",
+    ],
+    # Plugin webapp instantiation: --from-plugin/--component pair, JSON --config
+    ("webapp", "create"): [
+        "dku webapp create MyApp --from-plugin traces-explorer"
+        ' --component traces-explorer --config \'{"k":"v"}\' -P PROJ',
+    ],
+    # Dotted-path projection over the raw settings blob
+    ("project", "get-settings"): [
+        "dku project get-settings PROJ --fields codeEnvs.python.mode,containerSelection",
+    ],
+    # Repeatable --spec / --check / --item
+    ("project-standards", "create-checks"): [
+        "dku project-standards create-checks --spec projectmusthaveadescription"
+        " --spec projectmusthavetags",
+    ],
+    ("project-standards", "create-scope"): [
+        "dku project-standards create-scope --name ml-scope"
+        " --check Projectmusthaveadescription --selection-method BY_PROJECT"
+        " --item PROJ1 --item PROJ2",
     ],
     # Repeatable KEY=VALUE
     ("config", "set-variables"): [
@@ -178,10 +215,32 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
         "dku govern artifact list -b bp.system.govern_project"
         " --field sensitive_data=Yes --all",
     ],
+    ("govern", "signoff", "update-status"): [
+        "dku govern signoff update-status ar.5 exploration NOT_STARTED --reload",
+    ],
+    ("govern", "signoff", "delegate-feedback"): [
+        "dku govern signoff delegate-feedback ar.5 exploration --group-id reviewers"
+        ' --users-container \'{"type":"user","login":"alice"}\'',
+        "dku govern signoff delegate-feedback ar.5 exploration --group-id reviewers"
+        ' --users-container \'{"type":"globalApiKey","globalAPIKeyId":"gk_123"}\'',
+    ],
+    ("govern", "signoff", "delegate-approval"): [
+        "dku govern signoff delegate-approval ar.5 exploration"
+        ' --users-container \'{"type":"user","login":"alice"}\'',
+        "dku govern signoff delegate-approval ar.5 exploration"
+        ' --users-container \'{"type":"globalApiKey","globalAPIKeyId":"gk_123"}\'',
+    ],
     # Datapoint payload shape: epoch-ms timestamps
     ("govern", "time-series", "push-values"): [
         "dku govern time-series push-values TS_ID --datapoints"
         ' \'[{"timestamp": 1718000000000, "value": 42}]\'',
+    ],
+    # Repeatable --model flag; method must match the problem type
+    ("ml", "ensemble"): [
+        "dku ml ensemble a1 t1 --model MID1 --model MID2"
+        " --method PROBA_AVERAGE -P PROJ  # classification",
+        "dku ml ensemble a1 t1 --model MID1 --model MID2"
+        " --method AVERAGE -P PROJ  # regression",
     ],
 }
 

@@ -44,7 +44,7 @@ Real projects often have the same transformation implemented several ways (DATA 
 
 Map each migratable step to a Dataiku recipe. Pick types using `../../dku-cli/playbooks/tabular-flow.md` (decision rationale, exact CLI command, Python anti-pattern per recipe) and `<source>/overview.md` (priority: **Visual → SQL → Python**).
 
-**Apply the collapse triggers as you draft, not after.** The full per-source list lives in `<source>/overview.md` § Collapse triggers. As you map each step, ask:
+**Apply the collapse triggers as you draft, not after.** The full per-source list lives in `<source>/overview.md` § Collapse triggers (xlsx keeps its triggers in `analysis-workbooks.md` and `model-workbooks.md` § Collapse triggers). As you map each step, ask:
 
 1. **Consecutive single-row transforms (Formula, Select, TextToColumns, DateTime, Filter)?** → fold into one Prepare recipe with N steps.
 2. **Filter immediately upstream/downstream of a Group/Join/Window/Sort?** → fold into the visual recipe's `preFilter` / `postFilter` slot (see `../../dku-cli/playbooks/tabular-flow.md` § Collapse N recipes into 1).
@@ -138,7 +138,7 @@ If the source upload lands on a different connection from the rest of the flow (
 
 ## Phase 3.5 — Flow collapse & sanity check
 
-Tier-1 collapse (Phase 2) reasons on the draft plan branch-by-branch — it never sees the whole emitted graph, so a correctly-translated flow still ships graph-shape redundancy. This pass is the backstop, on the **built** graph, source-agnostic. Open `references/flow-collapse.md` and work it end to end: inspection commands, the seven named rewrites (hoist below union · grouping fan-out · broadcast aggregate · dead nodes · join chain · consecutive Prepares · empty Prepares), the first-principles pass beyond them, the required Verdict table, and build-and-diff verification before deleting anything.
+Tier-1 collapse (Phase 2) reasons on the draft plan branch-by-branch — it never sees the whole emitted graph, so a correctly-translated flow still ships graph-shape redundancy. This pass is the backstop, on the **built** graph, source-agnostic. Open `flow-collapse.md` and work it end to end: inspection commands, the seven named rewrites (hoist below union · grouping fan-out · broadcast aggregate · dead nodes · join chain · consecutive Prepares · empty Prepares), the first-principles pass beyond them, the required Verdict table, and build-and-diff verification before deleting anything.
 
 ---
 
