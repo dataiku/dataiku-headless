@@ -23,6 +23,7 @@ dku --format json govern artifact get AR
 
 # advance a sign-off  (update-status STATUS is POSITIONAL + uppercase; add-* take --status)
 dku govern signoff list AR
+dku govern signoff create AR STEP        # required before any update-status; STEP must be the artifact's current step
 dku govern signoff update-status AR STEP WAITING_FOR_FEEDBACK
 dku govern signoff add-feedback  AR STEP -g GROUP_ID --status APPROVED -c "looks good"
 dku govern signoff update-status AR STEP WAITING_FOR_APPROVAL

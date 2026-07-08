@@ -188,10 +188,9 @@ column confirms a step.
 - **Cause:** Prepare auto-detects output schema but defaults parsed-in-place
   results to `string`. The visual value looks right; the storage type is wrong.
 - **Fix:** after the build, set the storage type explicitly
-  (`set-dataset-column-storage-types`, or the equivalent CLI verb) to one of
-  `tinyint smallint int bigint float double boolean string date dateonly
-  datetimenotz geopoint geometry array map object`. Values that don't conform to
-  the new type become **null** — parse/format first, then retype.
+  (`set-dataset-column-storage-types`, or the equivalent CLI verb) — full type
+  list in `datasets-and-types.md` § Schema. Values that don't conform to the new
+  type become **null** — parse/format first, then retype.
 
 ### 4b. connection type rejects a storage type
 

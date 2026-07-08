@@ -92,7 +92,7 @@ Full tile/field reference: `references/dashboards.md`.
 Turns a project into a self-service app: a homepage of **tiles** grouped in **sections**.
 
 ```bash
-dku app-designer enable -P KEY --label "My App" --description "..."   # --mode setup (default) vs template
+dku app-designer enable -P KEY --label "My App" --description "..."   # APP_TEMPLATE (--mode template, the default)
 dku app-designer set-section -P KEY -s 0 --title "Step 1) Upload" --text "Upload your CSV."
 dku app-designer add-tile -P KEY -s 0 --type UPLOAD_DATASET_SET_FILE --dataset raw_input \
   --behavior INLINE_UPLOAD_REDETECT_AND_INFER --prompt "Upload Data"
@@ -109,7 +109,7 @@ Design: number sections as linear steps (upload → configure → run → result
 
 ### Gotchas
 
-- **`--mode` matters.** `setup` (default) keeps the project `REGULAR` with `useAppHomepage` (Project Setup page). `template` flips it to `APP_TEMPLATE` (instantiable Dataiku App). Picking the wrong mode turns a reference project into an App or vice versa; reverting `template`→`setup` has no CLI verb (manual `projectAppType='REGULAR'` save).
+- **`--mode`:** `template` (default) flips the project to `APP_TEMPLATE` (instantiable Dataiku App). `setup` is **rejected** — Project Setup mode is gated on an internal endpoint the public API can't reach; enable it manually (project's App Designer page → *Show advanced options → Add a setup section to this project*). Reverting `template` has no CLI verb (manual `projectAppType='REGULAR'` save).
 - **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but `PUT` accepts writes. A partial payload silently wipes `homepageSections` (returns 200 OK) — always GET the full definition, modify only the fields you need, and PUT the full definition back. The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
 - **`datasetName` required on every dataset tile** — without it DSS opens a blank "New dataset" page instead of erroring.
 - **Folder tiles fail in instances** unless the folder is in `projectExportManifest.includedManagedFolders`.

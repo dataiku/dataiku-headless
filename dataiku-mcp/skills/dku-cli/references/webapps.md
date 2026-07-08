@@ -14,7 +14,8 @@ Framework: **DASH** (Python, data/chart-driven, components+callbacks) vs **STAND
 (handcrafted HTML/CSS/JS, optional Flask backend). Prefer DASH for charts/exploration;
 STANDARD for fine HTML control. Also BOKEH, STREAMLIT, SHINY. DASH needs a code env with
 `dash`; STANDARD+backend needs `Flask`; STANDARD without backend needs none. Set the code
-env explicitly. **No public API creates a webapp** — create in the UI, then manage via CLI.
+env explicitly. Create with `dku webapp create` (types above; `--from-plugin PLUGIN
+--component ID` for a plugin-webapp instance); no API delete (405) — delete in the UI.
 
 ## Backend
 

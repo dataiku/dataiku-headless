@@ -27,8 +27,9 @@ external agents authenticate with) carries no such headers, so the route returns
 even though the *same* key returns 200 on `/public/api/...`. Only a browser session can
 write hub config; the endpoint is not drivable by API key.
 
-- **Creating the hub webapp is UI-only** — plugin-webapp creation isn't in the public SDK.
-  Create it in the DSS UI: *Project > Web Apps > New Web App > Agent Hub*.
+- **Create the hub webapp with `dku webapp create NAME --from-plugin <plugin-id>
+  --component <webapp-component>`** (the CLI's create-then-retype path for plugin
+  webapps), or in the DSS UI: *Project > Web Apps > New Web App > Agent Hub*.
 - **`dku`'s surface is read/export, not config writes** — config authoring stays a
   browser-session (UI) task.
 

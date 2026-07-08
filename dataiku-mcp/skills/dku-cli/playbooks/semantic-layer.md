@@ -2,6 +2,8 @@
 
 Maps datasets to business entities, relationships, and metrics for NL→SQL. One model per domain, multiple versions per model (only active version queried).
 
+Entities must point at **SQL-backed datasets** — Filesystem/UploadedFiles sources fail at query time with a polite refusal ("not accessible via SQL"); sync to a SQL connection first and point the entity at the synced dataset (`references/mlops.md` § Semantic models).
+
 ## Canonical commands
 
 ```bash

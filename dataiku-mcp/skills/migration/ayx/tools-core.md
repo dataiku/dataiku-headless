@@ -108,7 +108,7 @@ dku recipe add-step prep_formula -P PROJ --step '{
 | `Right([s], n)` | `substring(s, length(s)-n)` |
 | `Substring([s], start, n)` | `substring(s, start, start+n)` — both 0-indexed ✓ |
 
-> **Slicing a zero-padded STRING column? Use `strval("s")`, not bareword `s`.** When the column is digit-only with significant leading zeros (zero-padded IDs, `YYMMDD`/`HHMMSS`, ZIP-like keys), the bareword forms (`substring(s,…)`, `Left/Right` translations) coerce `s` to a number and drop leading zeros *before* slicing — `Left([date],1)` on `"0990930"` reads `990930`, wrong char. Write `substring(strval("date"), 0, 1)` on every slice. (Common in "string→date" where the leading digit is a century/era flag.) Platform-wide — see `../../dku-cli/references/formulas.md` § Quick gotchas.
+> **Slicing a zero-padded STRING column? Use `strval("s")`, not bareword `s`.** When the column is digit-only with significant leading zeros (zero-padded IDs, `YYMMDD`/`HHMMSS`, ZIP-like keys), the bareword forms (`substring(s,…)`, `Left/Right` translations) coerce `s` to a number and drop leading zeros *before* slicing — `Left([date],1)` on `"0990930"` reads `990930`, wrong char. Write `substring(strval("date"), 0, 1)` on every slice. (Common in "string→date" where the leading digit is a century/era flag.) Platform-wide — see `../../dku-cli/references/formulas.md` § Gotchas.
 
 | Alteryx | GREL |
 |---|---|
@@ -134,7 +134,7 @@ dku recipe add-step prep_formula -P PROJ --step '{
 | `DateTimeAdd([d], n, "days")` | `inc(d, n, "days")` — NOT `computeDate()`. Unit plural. **`inc()` needs a DATE-typed input** — `inc(strval("Month"), 1, "months")` on STRING returns the string unchanged (silent). (a) **inline one-shot**: `toString(inc(asDateOnly(strval("Month"), "yyyy-MM-dd"), 1, "months"))`; (b) **three steps**: `DateParser(Month→Month_dt)` → `add-formula 'inc(val("Month_dt"), 1, "months")'→month_plus_1` → `DateFormatter(month_plus_1→…_iso)`. (a) for one-offs, (b) when the parsed date is reused. Use `val("col")` (not `numval`/`strval`) passing a date to `inc()`. |
 | `DateTimeDiff([a], [b], "days")` | `diff(a, b, "days")` — NOT `diffDate()`. Order preserved (`d1 - d2`, as Alteryx). Unit plural. |
 
-**Date RENDERING parity — when the Alteryx output field is a `Date` (not DateTime), finish with `DateFormatter` → string `yyyy-MM-dd`.** A DSS date-typed column (DateParser output) renders `2005-04-16 00:00:00` (+TZ) in `head`/JSON reads, so exact-match/diff verification against the Alteryx output fails on EVERY row even though the parse is correct. SAS sibling of the same quirk: `../sas/functions-formats.md` § verification.
+**Date RENDERING parity — when the Alteryx output field is a `Date` (not DateTime), finish with `DateFormatter` → string `yyyy-MM-dd`.** A DSS date-typed column (DateParser output) renders `2005-04-16 00:00:00` (+TZ) in `head`/JSON reads, so exact-match/diff verification against the Alteryx output fails on EVERY row even though the parse is correct. SAS sibling of the same quirk: `../sas/functions-formats.md` § SAS dates in Dataiku.
 
 > **Military / variable-width time string (`HHMM` or `HMM`) → `HH:MM` + elapsed minutes** — the Alteryx `PadLeft([t],4,"0") → Left(...,2)/Right(...,2) → DateTimeDiff` idiom. **Split by LENGTH, do NOT left-pad-then-slice.** The `"0000"+[t]`-then-slice approach is off-by-one (3-char `"815"` → `"815"`, not `"0815"`). Robust pattern, all 3-arg `substring`:
 > ```
