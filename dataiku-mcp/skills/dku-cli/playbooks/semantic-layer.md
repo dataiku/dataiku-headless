@@ -65,7 +65,7 @@ dku --format json semantic-model get-version SM_REF -P PROJ > sm.json
 dku semantic-model set-version SM_REF -d @sm.json -P PROJ
 ```
 
-Use this for fields `add-*` doesn't cover: `sqlGenerationConfig`, `foreignKeys`, attribute descriptions.
+Payload shapes for fields `add-*` doesn't cover: `../references/semantic-models.md`.
 
 ## Gotchas
 
@@ -80,13 +80,19 @@ Use this for fields `add-*` doesn't cover: `sqlGenerationConfig`, `foreignKeys`,
   `shortDesc` does not — so run `ai-describe` on the SQL dataset the entity
   points at (not just the upstream upload), or entity descriptions stay empty.
 - `create-version` materializes the settings doc so `get-version` should work
-  immediately. If an older DSS build still returns a lazy-materialization 404,
-  run `set-version -d '{}'` once and retry.
+  immediately. `set-version` returns a lazy-materialization 404 → run
+  `dku semantic-model set-version -d '{}'` once and retry.
 - `set-version` is shallow merge, NOT full replace. Clear a list explicitly: `"entities": []`
-- `distinctValuesHandlingMode`: `NONE` (IDs/measures), `AUTO_INDEX` (filterable dims), `MANUAL` (curated via `set-manual-values`)
+- `distinctValuesHandlingMode` semantics: `../references/semantic-models.md`.
 - `datasetRef` in JSON payload uses `PROJECT_KEY.DATASET_NAME`; `--from-dataset` takes just the dataset name
 - `--from-dataset` requires a dataset with a defined schema. Build first, or use `set-version` JSON to define entities manually
 - Removing an entity cascades to its relationships
 - `delete` model is tier-2 (`--yes`); remove-* commands are unguarded
 - Indexing is per-version — `set-active-version` then `update-index`
 - Only `indexDistinctValues=true` attributes are indexed
+
+## Done when
+
+- `dku semantic-model list-entities SM_REF -P PROJ` shows `described` coverage at `N/N`, not `0/N`.
+- `dku semantic-model versions SM_REF -P PROJ` shows the intended version as active.
+- Golden queries return the expected rows when run through the Semantic Model Query agent tool (or `dku semantic-model list-golden-queries SM_REF -P PROJ` matches what you added).

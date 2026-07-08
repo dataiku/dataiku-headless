@@ -1,6 +1,7 @@
 ---
 name: dku-cli
-description: Operate Dataiku DSS end to end with the `dku` CLI. Use when deciding which DSS-native capability to use and when executing project, dataset, recipe, job, scenario, dashboard, agent, plugin, webapp, Govern, or admin workflows.
+description: Operate Dataiku DSS end to end with the `dku` CLI. Use whenever the task touches Dataiku or DSS in any form — building or reviewing flows, datasets, visual or code recipes, jobs, scenarios, dashboards, visual ML, LLM/GenAI agents, knowledge banks, semantic models, plugins, webapps, Govern, or instance admin — even if the user doesn't name the CLI. Also use when deciding which DSS-native capability fits before writing custom code. NOT for migrating legacy SAS/Alteryx/KNIME/Excel workflows into DSS (use the migration skill).
+license: Apache-2.0 (see repository LICENSE)
 metadata:
   author: dataiku
   tags: dataiku, dss, cli
@@ -149,7 +150,7 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 | Plugin structure, components, testing | `references/plugins.md` |
 | Webapp backends, frontend, deploy | `references/webapps.md` |
 | Govern blueprints, fields, workflow, sign-offs, hooks/actions, audit, custom-html embeds | `references/govern.md` |
-| Model lifecycle (drift/retrain/MLflow/API serving), code envs, guardrails, semantic models, macros | `references/mlops.md` |
+| Model lifecycle (drift/retrain/MLflow/API serving), code envs, guardrails, macros | `references/mlops.md` |
 | Semantic model entity/attribute/metric/relationship/golden-query/glossary payload schemas + distinctValuesHandlingMode | `references/semantic-models.md` |
 | Agent Hub (deliver agents to end users): the `/api/admin/config` endpoint vs the API-key 401, what `dku agent-hub` can/can't do, the read-only export path | `references/agent-hub.md` |
 | Safety tiers, exit 77, admin lockout | `references/safety.md` |

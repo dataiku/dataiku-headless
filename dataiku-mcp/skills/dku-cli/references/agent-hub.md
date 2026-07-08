@@ -1,7 +1,6 @@
 # Reference: Agent Hub
 
-Agent Hub is a **Dataiku plugin webapp** (`agent-hub`, current 1.5.x, requires DSS
-14.2+). You **build** agents with `playbooks/genai-agents.md`; you **surface** a
+Agent Hub is a **Dataiku plugin webapp** (`agent-hub`, current 1.5.x). You **build** agents with `playbooks/genai-agents.md`; you **surface** a
 curated set of them to business users through Agent Hub — one branded chat UI with
 LLM-orchestrated routing across enrolled agents, plus no-code end-user "Quick Agents."
 
@@ -22,20 +21,16 @@ The body is the `admin_settings` JSON (schema below). This is a **complete** con
 from a logged-in DSS **browser session** you can script an entire hub setup against it (GET
 the blob → mutate → PUT it back). No additional plugin API is needed for what it exposes.
 
-**The catch for headless tools (verified live, DSS 14.6 + plugin):** the backend resolves
-the *caller* identity ONLY from DSS browser-ticket headers — `before_request` calls
-`get_auth_info_from_browser_headers(request.headers)`
-(`python-lib/backend/utils/ws_utils.py`, verified on DSS 14.6). A DSS **personal
-API key** (what `dku` / `dataikuapi` / external agents authenticate with) carries no such headers, so
-`authIdentifier` resolves to `None` and the route returns **401** — even though the *same*
-key returns 200 on `/public/api/...`. So the endpoint is **scriptable from a browser
-session but not yet drivable by a personal API key**.
+**The catch for headless tools:** the backend resolves the *caller* identity exclusively
+from DSS browser-session headers. A DSS **personal API key** (what `dku` / `dataikuapi` /
+external agents authenticate with) carries no such headers, so the route returns **401** —
+even though the *same* key returns 200 on `/public/api/...`. Only a browser session can
+write hub config; the endpoint is not drivable by API key.
 
 - **Creating the hub webapp is UI-only** — plugin-webapp creation isn't in the public SDK.
   Create it in the DSS UI: *Project > Web Apps > New Web App > Agent Hub*.
-- **To unblock `dku`/CI/agents**, the plugin's `before_request` would need to accept the
-  API-key identity as a fallback when browser headers are absent — a small change in
-  `dss-plugin-agent-hub`, not a new API. Until then, don't ship API-key write verbs.
+- **`dku`'s surface is read/export, not config writes** — config authoring stays a
+  browser-session (UI) task.
 
 ## What `dku` / the public SDK CAN do
 
@@ -142,7 +137,7 @@ start` triggers `start_or_restart_backend()`, which re-runs them.
   anything else is a silent no-op. (Distinct from `/api/admin/config`, which is the real
   hub config — but that one needs a browser session, not the `dku` API key; see top.)
 - Don't read the webapp `config` field expecting hub settings — the real config is the
-  `admin_settings` row / `/api/admin/config` blob (PR #417). Read it via `/api/admin/config`
-  from a browser session, or export the `admin_settings` table with an API key.
+  `admin_settings` row / `/api/admin/config` blob. Read it via `/api/admin/config` from a
+  browser session, or export the `admin_settings` table with an API key.
 - A personal API key gets **401** on `/api/admin/config` (identity comes from browser-ticket
   headers); it gets 200 on `/public/api/...`. Don't mistake the 401 for "wrong URL."

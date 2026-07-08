@@ -2,7 +2,7 @@
 
 Complete schema for the `payload` object of a DSS Prompt Recipe, captured from working UI-created recipes.
 
-**Use this doc when**: you're about to call `dku recipe set-settings RECIPE -s @prompt_settings.json` on a recipe created with `dku recipe create -t prompt ...`. The public DSS docs don't cover this schema, so it has to be captured from a working UI-created recipe and documented here.
+**Use this doc when**: you're about to call `dku recipe set-settings RECIPE -s @prompt_settings.json` on a recipe created with `dku recipe create -t prompt ...`.
 
 > **Workflow**: create the recipe shell → `set-settings` with this payload → `dku job run`. Schema auto-update (on by default) is required on first build — don't pass `--no-auto-update-schema`; `recipe run` alone returns an empty schema. Full sequence: `playbooks/genai-agents.md`.
 
@@ -78,8 +78,8 @@ dku recipe set-settings my_recipe -P PROJ -s @prompt_settings.json
 | `completionSettings` | no | `{"stopSequences": [], "temperature": 0.7, "maxTokens": 1024}`. Omit for provider defaults. |
 | `filter` | no | Pre-LLM row filter. `{"enabled": false, "distinct": false, "uiData": {"mode": "&&", "conditions": []}}` is the inert default. |
 | `performFiltering` | no | `false` unless `filter.enabled` is true. |
-| `rawQueryOutputMode` | no | Confirmed: `"RAW_WITHOUT_FULL_IMAGES"`. Other values unresearched. |
-| `rawResponseOutputMode` | no | Confirmed: `"RAW_WITHOUT_TRACES"`. Other values unresearched. |
+| `rawQueryOutputMode` | no | Use `"RAW_WITHOUT_FULL_IMAGES"`. |
+| `rawResponseOutputMode` | no | Use `"RAW_WITHOUT_TRACES"`. |
 
 ### `payload.prompt` keys
 
@@ -89,7 +89,7 @@ dku recipe set-settings my_recipe -P PROJ -s @prompt_settings.json
 | `textPromptSystemTemplate` | yes (TEXT mode) | System message string. Plain text, no placeholders needed. |
 | `textPromptTemplate` | yes (TEXT mode) | User message string with `{{variable}}` placeholders. Each placeholder must have a matching entry in `textPromptTemplateInputs`. |
 | `textPromptTemplateInputs` | yes (TEXT mode) | List of `{"name": "var", "datasetColumnName": "col", "type": "TEXT"}`. `name` matches the `{{var}}` placeholder. Use `type: "TEXT"` for all text columns. |
-| `promptTemplateQueriesSource` | yes | `"DATASET"` — read one row per input dataset row. (Other values unresearched.) |
+| `promptTemplateQueriesSource` | yes | `"DATASET"` — read one row per input dataset row. |
 | `chatMessages` | no | `{}` unless using `PROMPT_TEMPLATE_STRUCTURED` (not exposed by `create-prompt`; reachable only via raw `set-settings`). |
 | `structuredPromptExamples` | no | `[]` unless using few-shot examples in STRUCTURED mode (not exposed by `create-prompt`). |
 | `structuredPromptPrefix` | no | Ignored in TEXT mode — may appear on legacy recipes. |
@@ -101,7 +101,7 @@ dku recipe set-settings my_recipe -P PROJ -s @prompt_settings.json
 
 | Key | Value |
 |---|---|
-| `expectedFormat` | **Confirmed valid: `"NONE"`.** `"JSON"` silently deserializes to null and crashes at build time with `NullPointerException: Cannot invoke "...ExpectedFormat.ordinal()" because "resultValidation.expectedFormat" is null`. Other valid enum members not yet researched. Until they are, use `"NONE"` and parse LLM output downstream with a Prepare recipe + JSONFlattener. |
+| `expectedFormat` | Use `"NONE"`. `"JSON"` silently deserializes to null and crashes at build time with `NullPointerException: Cannot invoke "...ExpectedFormat.ordinal()" because "resultValidation.expectedFormat" is null`. Parse LLM output downstream with a Prepare recipe + JSONFlattener instead. |
 | `requiredJSONObjectKeys` | `[]` — ignored when `expectedFormat` is `"NONE"`. |
 | `forbiddenTerms` | `[]` — ignored when unused. |
 
@@ -159,13 +159,11 @@ dku dataset head extraction_parsed -P PROJ -n 5
 
 ## Capturing a payload from a UI-created recipe
 
-If you need fields not documented here (STRUCTURED mode, guardrails, custom completion settings), the fastest way to discover the schema is to create a working recipe in the DSS UI and dump it:
+For fields not documented here (STRUCTURED mode, guardrails, custom completion settings), dump a working UI-created recipe as the template source:
 
 ```bash
 dku --format json recipe get-settings my_ui_recipe -P PROJ | jq '.payload' > payload_template.json
 ```
-
-Then diff against the minimal payload above to see what changed, and copy the new fields into your programmatic builder.
 
 ## Gotchas
 

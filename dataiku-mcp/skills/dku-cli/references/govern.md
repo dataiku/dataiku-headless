@@ -198,7 +198,7 @@ view contains a matching `action` component.
 
 ## Embedding external content (custom-html page)
 
-A custom page's `type` value is the short form — verified live: `standard-page`,
+A custom page's `type` value is the short form — `standard-page`,
 `artifact-table`, `custom-html` (the `custom-page-*` strings are Angular component
 names, NOT the `type` field). A `custom-html` page (`cp.*`) is the **only** way to
 surface external content — a DSS dashboard/webapp, chat assistant, BI view — inside

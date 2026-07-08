@@ -110,7 +110,7 @@ Design: number sections as linear steps (upload → configure → run → result
 ### Gotchas
 
 - **`--mode` matters.** `setup` (default) keeps the project `REGULAR` with `useAppHomepage` (Project Setup page). `template` flips it to `APP_TEMPLATE` (instantiable Dataiku App). Picking the wrong mode turns a reference project into an App or vice versa; reverting `template`→`setup` has no CLI verb (manual `projectAppType='REGULAR'` save).
-- **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but **`PUT` accepts writes** — a probe `PUT {}` silently wipes `homepageSections` (200 OK). The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
+- **GET/PUT asymmetry on REGULAR projects.** Reading the manifest via API raises "neither app template nor app instance", but `PUT` accepts writes. A partial payload silently wipes `homepageSections` (returns 200 OK) — always GET the full definition, modify only the fields you need, and PUT the full definition back. The CLI `get` falls back to the export ZIP and `set-definition` gates section-wipes behind CASCADE. Verify section count: `dku --format json app-designer get -P KEY | jq '.homepageSections | length'`.
 - **`datasetName` required on every dataset tile** — without it DSS opens a blank "New dataset" page instead of erroring.
 - **Folder tiles fail in instances** unless the folder is in `projectExportManifest.includedManagedFolders`.
 - Create/test instances with `dku app create-instance PROJECT_KEY --key INST1 --name "..."`; test `INLINE_PYTHON_RUN` tiles in an **instance**, not the template (frontend scope bug).
@@ -118,6 +118,9 @@ Design: number sections as linear steps (upload → configure → run → result
 ---
 
 ## Visual ML / AutoML
+
+Raw `dataikuapi` shapes for what the CLI doesn't cover (drift gates, MLflow import,
+API-node serving): `../references/mlops.md`.
 
 Lifecycle: **create ML task → audit features → train → pick best model → deploy to flow → score a dataset.**
 `create-*` returns the `ANALYSIS_ID` + `MLTASK_ID` that every later verb needs; `train` produces `MODEL_ID`s (one per algorithm). Carry all three through `deploy`.
@@ -175,3 +178,9 @@ Scoring-recipe naming reconcile rationale (DSS auto-names `score_<input>`): see 
 - **`set-params` knows the three DSS hyperparameter shapes** (prediction grid dicts, clustering plain arrays, scalars) and replaces only values — never hand-rebuild a grid dict via the API; dropping its `limit` key fails at TRAIN time with `dimension.limit is null`. Tree-depth grids require ≥ 1: DSS has no "unlimited", use a high cap like 30.
 - **DSS auto-optimizes the binary threshold at deploy** (often lands at ~0.1, not 0.5). Scoring output silently shifts vs. a tool that assumed 0.5 — set it explicitly with `dku model set-threshold` when the source workflow hard-codes a cut-off.
 - **`set-feature --rescaling NONE`** mirrors tools that train on raw values (e.g. KNIME k-Means without a Normalizer); DSS defaults numerics to AVGSTD, which changes clusters/coefficients.
+
+## Done when
+
+- `dku insight validate INSIGHT_ID -P KEY` passes and the dashboard's `get-definition` shows tiles under `pages[i].grid.tiles`.
+- `dku --format json app-designer get -P KEY | jq '.homepageSections | length'` matches the section count you intended.
+- `dku ml details ANALYSIS MLTASK MODEL_ID -P KEY` shows the deployed model's metric, and `dku dataset head scored -P KEY` shows real prediction columns after scoring.
