@@ -56,6 +56,14 @@ def test_signoff_delegate_approval(patch_client):
     )
 
 
+def test_signoff_delegate_approval_help_mentions_global_api_key_shape(patch_client):
+    result = runner.invoke(app, ["govern", "signoff", "delegate-approval", "--help"])
+
+    assert result.exit_code == 0
+    assert "globalAPIKeyId" in result.output
+    assert '\\"type\\":\\"user\\"' in result.output
+
+
 def test_signoff_list_feedbacks(patch_client):
     result = runner.invoke(
         app, ["govern", "signoff", "list-feedbacks", "ar.5", "exploration"]

@@ -56,7 +56,30 @@ def test_signoff_update_status(patch_client):
     assert result.exit_code == 0
     gov = patch_client.get_govern_client()
     signoff = gov.get_artifact.return_value.get_signoff.return_value
-    signoff.update_status.assert_called_once_with("WAITING_FOR_FEEDBACK")
+    signoff.update_status.assert_called_once_with(
+        "WAITING_FOR_FEEDBACK", reload_conf_for_reset=False
+    )
+
+
+def test_signoff_update_status_with_reload(patch_client):
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "signoff",
+            "update-status",
+            "ar.5",
+            "exploration",
+            "NOT_STARTED",
+            "--reload",
+        ],
+    )
+    assert result.exit_code == 0
+    gov = patch_client.get_govern_client()
+    signoff = gov.get_artifact.return_value.get_signoff.return_value
+    signoff.update_status.assert_called_once_with(
+        "NOT_STARTED", reload_conf_for_reset=True
+    )
 
 
 def test_signoff_update_status_invalid(patch_client):
