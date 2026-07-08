@@ -28,6 +28,33 @@ edit raw settings via `dataikuapi`, the shapes (verified DSS 14.6):
   binary-classification cut-off; DSS sets it automatically at deploy — CLI-facing
   detail and fix in `../playbooks/analytics-apps.md`.
 
+### Time-series forecasting tasks
+
+The settings API accepts these silently; they fail at TRAIN time (verified DSS 14.7):
+
+- **`evaluationParams.testSize` must be a whole multiple of the horizon**
+  (`predictionLength`) — else training FAILs with an *empty* `AssertionError`.
+  Think in validation horizons (`testSize = N × horizon`), which is what
+  `set_forecast_horizon(validation_horizons=)` enforces client-side.
+- **Raising the horizon leaves guessed lag features stale** —
+  `preprocessing.feature_generation.shifts[*].from_horizon` and
+  `auto_shifts_params.max_horizon_shift_past_only` stay anchored at the guessed
+  horizon even with `reguess=True, update_algorithm_settings=True`; training fails
+  with `Auto-shifts params ... must be smaller or equal to -<horizon>`. Re-anchor
+  both after any horizon change (`min/max_horizon_shift_past_only` is the
+  feature-derivation lookback-window knob).
+- **Walk-forward backtests:** `customTrainTestSplit: true` +
+  `customTrainTestIntervals` = N rolling `{train, test}` windows → DSS trains once,
+  averages evaluation metrics across the intervals, and populates the
+  `<metric>std` snippet fields. DSS pre-fills one interval spanning the data range —
+  a good base for generating the windows; each test span must respect the
+  multiple-of-horizon rule.
+- **Scoring quantiles:** the TS scoring recipe emits `quantile_01…quantile_09` from
+  the model's `quantilesToForecast` only for quantile-capable algorithms
+  (statistical / GluonTS / neural); ML-based TS algos (ridge/RF/XGB) emit none.
+  `outputProbaPercentiles` in the TS scoring payload is the *classification*
+  percentile option — a silent no-op here.
+
 **Performance-drift check** — compare the active version's training metric against
 freshly-scored data, gate on a threshold:
 ```python

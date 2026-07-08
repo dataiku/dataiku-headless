@@ -132,7 +132,9 @@ Use these instead of writing raw SQL against a hand-resolved physical table:
 **quote** them or Snowflake folds unquoted identifiers to upper. SQL recipes likewise
 UPPER-case unquoted output aliases (`AS reason` → `REASON`); quote the alias
 (`AS "reason"`) to preserve case. Never hand-resolve `${projectKey}` — `dataset
-count`/`query` resolve table + connection for you.
+count`/`query` resolve table + connection for you. Landing data into a managed
+Snowflake dataset fails with "session does not have a current database" until the
+connection has a default catalog/schema or the user a `DEFAULT_NAMESPACE`.
 
 ## Visual recipe decision — what to use, never Python
 
@@ -305,6 +307,15 @@ pipelines, or a customer mandate to execute entirely in-engine.
   flags tune the parser — see `--help`.
 - **Cross-connection landing:** `create -t sync --connection TARGET` auto-creates
   the managed output on the target connection — never a Python passthrough.
+- **Reserved words → misleading parse errors:** DSS wraps the query for schema
+  validation, so an unquoted reserved identifier (column `WEEK`, alias `rows`)
+  surfaces as `unexpected ')'` / `unexpected 'rows'` pointing at the wrapper, not
+  the token. Quote the identifier (`"WEEK"`) or rename the alias. When a
+  validation parse error points at nothing obviously wrong, run the bare
+  statement through `dku sql query` first — it localizes the real error.
+- Tables created **outside DSS** store unquoted identifiers UPPERCASE — a
+  lowercase *quoted* identifier then matches nothing and returns an empty result
+  set (no SQL error; downstream consumers crash on the empty payload instead).
 
 **Force push-down with `--engine SQL`** on Snowflake/Postgres/Redshift; the
 top-level `payload.engineType` defaults to DSS otherwise. GREL→SQL push-down

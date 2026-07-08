@@ -178,6 +178,7 @@ Scoring-recipe naming reconcile rationale (DSS auto-names `score_<input>`): see 
 - **`set-params` knows the three DSS hyperparameter shapes** (prediction grid dicts, clustering plain arrays, scalars) and replaces only values — never hand-rebuild a grid dict via the API; dropping its `limit` key fails at TRAIN time with `dimension.limit is null`. Tree-depth grids require ≥ 1: DSS has no "unlimited", use a high cap like 30.
 - **DSS auto-optimizes the binary threshold at deploy** (often lands at ~0.1, not 0.5). Scoring output silently shifts vs. a tool that assumed 0.5 — set it explicitly with `dku model set-threshold` when the source workflow hard-codes a cut-off.
 - **`set-feature --rescaling NONE`** mirrors tools that train on raw values (e.g. KNIME k-Means without a Normalizer); DSS defaults numerics to AVGSTD, which changes clusters/coefficients.
+- **Time-series forecasting tasks** have kernel-side constraints the settings API accepts silently (testSize × horizon rule, stale auto-shifts on horizon change, backtest intervals, quantile scoring) → `references/mlops.md` § Time-series forecasting tasks.
 
 ## Done when
 

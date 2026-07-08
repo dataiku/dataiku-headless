@@ -240,6 +240,13 @@ Doc-listed tools NOT above (SQL Q&A, Google Search, Jira, Salesforce,
 ServiceNow, MCP, Snowflake Cortex, Databricks Genie, …) are **plugin tools** —
 install the plugin, then use `Custom_agent_tool_<plugin>_<tool>`.
 
+`DatasetRowLookup` defaults to `retrievalMode: SINGLE_RECORD` — one row back, so
+aggregation/ranking questions ("which category is biggest?") get answered from a
+single arbitrary row. `MULTIPLE_RECORDS` requires an `inputSchema` whose shape is
+unconfirmed — build one in the UI and round-trip it. For overview questions the
+reliable pattern is a precomputed **facts dataset** (one row per topic, totals/
+rankings computed in a recipe) exposed via its own `SINGLE_RECORD` lookup.
+
 `set-definition --params` is a **shallow merge**, and DSS does **not** validate
 params keys against the tool type — typos / unknown keys are silently accepted
 ("it saved" ≠ "it works"). Confirm keys against the table above, then verify

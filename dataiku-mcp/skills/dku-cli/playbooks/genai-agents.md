@@ -16,6 +16,11 @@ instance-specific.
 - Embedding (REQUIRED for embed/KB/eval — hidden by default):
   `dku llm list --purpose TEXT_EMBEDDING_EXTRACTION -P PROJ`
 - Agent-as-LLM: `agent:AGENT_ID`. RAG-as-LLM: `retrieval-augmented-llm:RAG_ID`.
+- Snowflake Cortex joins the Mesh via a connection of type `SnowflakeCortex`;
+  models are enabled per-connection through boolean `allow<Model>` params
+  (`allowClaude46Sonnet`, …) — no list-style field, names not in `--help`.
+  Read the exact param names from `dku connection get <existing>`; enabled
+  models then appear in `llm list` as `snowflakecortex:<connection>:<model>`.
 
 **Expose Mesh LLMs to external tools:** `dku llm endpoint -P PROJ` prints each
 project's OpenAI-compatible endpoint — base URL, model-name form, auth (Bearer ONLY;
