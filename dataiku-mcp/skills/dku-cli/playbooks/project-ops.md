@@ -178,3 +178,10 @@ dku project duplicate KEY NEWKEY --name "Copy"                 # clone an entire
 
 - `dataset copy` lands a copy; `--name` overrides the target name (default same). For sharing across flow **zones** within a project use `dataset share --zone` (visibility only) vs `flow move` (relocate).
 - Exposing a dataset to another project for reads (not a copy) is configured in project settings / the DSS UI; verify the consuming project can resolve it before building downstream.
+
+## Done when
+
+- `dku scenario last-run SCEN -P KEY` reports outcome `SUCCESS` (or `dku scenario run SCEN -P KEY --wait` exits 0).
+- `dku dataset info OUT --recompute -P KEY` shows the expected fresh row/size counts after a build.
+- `dku bundle activate -P TARGET --bundle-id v1` succeeds and the target project runs on that bundle version.
+- `dku project inspect -P KEY` reflects the expected datasets/recipes/scenarios/variables after setup.

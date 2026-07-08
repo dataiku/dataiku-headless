@@ -3,7 +3,9 @@
 Build and transform datasets in a DSS flow. References for JSON shapes the CLI
 flags don't cover: `references/visual-recipe-payloads.md`,
 `references/prepare-processors.md` (processor params), `references/formulas.md`
-(GREL).
+(GREL). For payloads that save clean and pass validation but still fail silently
+at build or render time, check `../references/visual-recipe-traps.md` — the trap
+catalog for exactly this class of bug.
 
 ## Capability ladder (take the first rung that fits)
 
@@ -122,7 +124,7 @@ Use these instead of writing raw SQL against a hand-resolved physical table:
 - **`dku dataset download NAME [OUT]`** — omit the output arg (or pass `-`) to stream
   CSV to stdout; pipe straight into `python`/`jq`.
 - **`dku dataset analyze-column NAME COL`** — distribution + top values for one
-  column (null rate is numeric-only on DSS 14.x; for strings read the `""` top value).
+  column (null rate is numeric-only; for strings read the `""` top value).
 
 **Managed Snowflake physical-table rule.** The physical table is
 `${projectKey}_<DATASET>` **UPPER-cased** (`orders_sf` in `GTN_DEMO` →
@@ -179,31 +181,36 @@ dku recipe create-group agg -i raw --output-ds grp -k region --agg amount:sum --
 
 **Scoring shortcut.** DSS auto-names scoring recipes `score_<input>` (ignoring the
 name you pass); the CLI renames it back so `recipe run <your-name>` works, and the
-output schema is auto-applied so the first build succeeds — without that the scored
-output stays at 0 columns and the build dies (`Schema incompatibility ... 0 columns
-in target`, often surfaced as a raw `IndexOutOfBoundsException`).
+output schema is auto-applied so the first build succeeds. Symptom if it isn't:
+scored output stays at 0 columns and the build dies with `Schema incompatibility
+... 0 columns in target`, sometimes surfaced only as a raw `IndexOutOfBoundsException`.
+Fix: re-run `apply-schema` on the scoring recipe before rebuilding.
 
-**Rolling / trailing-N windows: the DSS engine ignores frame bounds** (mechanism
-and verified evidence: `references/visual-recipe-payloads.md`). On the DSS
-engine, pick by window size:
+**Rolling / trailing-N windows.** Cause: the DSS engine ignores frame bounds —
+see `references/visual-recipe-payloads.md` for the mechanism, and
+`references/visual-recipe-traps.md` for the full trap writeup. Frame bounds only
+take effect on a SQL engine. Pick a fix by window size:
 
-- **Small fixed N (≈≤3) → Window `--lag-offsets` + null-aware GREL.** One
-  Window (`create-window mw -i d --output-ds out -k category --order-key seq
-  --lag-offsets 'price:1,2'`) then one Prepare formula averaging value + lags
-  with `isNonBlank` guards — partition-head rows (fewer than N values) come
-  out right by construction. Two recipes, no payload surgery.
-- **Large or variable N → range self-join + Group.** ① give the anchor input
-  a computed window-end AND the detail input an aliased value column
-  (`create-join self_roll -i seq_ds -i seq_ds
-  --computed-col '0:win_end=month_seq + 11:bigint'
-  --computed-col '1:w_price=price:double' …`) — the alias is load-bearing: a
-  self-join's same-named detail columns are silently DROPPED (anchor side
-  wins), so without it step ③ aggregates each anchor's OWN value, not the
-  window's; ② express the range with inequality join keys — `--join-key`
-  accepts operators (`-k 'seq<=seq' -k 'win_end>=seq'` → LTE/GTE conditions;
-  left side = first input's column), ③ Group by the anchor key aggregating
-  the alias (`--agg w_price:sum`). Sanity-check the fan-out: joined rows ≈
-  Σ min(N, rows remaining per partition).
+**Small fixed N (≈≤3): Window `--lag-offsets` + null-aware GREL.** Two recipes, no payload surgery.
+
+1. One Window recipe with lag offsets:
+   `create-window mw -i d --output-ds out -k category --order-key seq --lag-offsets 'price:1,2'`
+2. One Prepare formula averaging value + lags with `isNonBlank` guards.
+   Partition-head rows (fewer than N values) come out right by construction.
+
+**Large or variable N: range self-join + Group.**
+
+1. Self-join the input to itself, giving the anchor side a computed window-end
+   and the detail side an aliased value column:
+   `create-join self_roll -i seq_ds -i seq_ds --computed-col '0:win_end=month_seq + 11:bigint' --computed-col '1:w_price=price:double' …`
+   **Rule: alias the detail column.** A self-join silently drops same-named
+   detail columns (anchor side wins) — without the alias, step 3 aggregates
+   each anchor's own value instead of the window's.
+2. Express the range with inequality join keys — `--join-key` accepts operators:
+   `-k 'seq<=seq' -k 'win_end>=seq'` → LTE/GTE conditions (left side = first
+   input's column).
+3. Group by the anchor key, aggregating the alias: `--agg w_price:sum`.
+4. Sanity-check the fan-out: joined rows ≈ Σ min(N, rows remaining per partition).
 
 ## Collapse N recipes into 1 — the pipeline stages
 
@@ -466,3 +473,14 @@ before LLM-heavy runs (sample 100 rows first to validate output format).
 | Flow topology unclear | `dku --format json flow graph -P PROJ` |
 | `output dataset does not exist` | pre-create it (`dataset create ... -c CONN`) |
 | Recipe run fails | `apply-schema` first, then check connection/schema/formula |
+
+## Done when
+
+- `dku job run --target OUT -P PROJ --type RECURSIVE_BUILD --wait` succeeds and
+  prints a non-zero `Built <ds>: N rows, M cols` for every dataset in the chain.
+- `dku dataset head OUT -P PROJ -n 5` and `dku dataset info OUT -P PROJ --recompute`
+  show real rows and a current row count, not stale metadata.
+- Group/Window/Join/TopN/Distinct filters gate clean:
+  `dku --format json recipe get-settings R -P PROJ | jq '.payload | {pre: .preFilter."$status".ok, post: .postFilter."$status".ok}'`
+  returns `true`/`true`.
+- `dku project audit -P PROJ` passes with no `fail`-severity checks.

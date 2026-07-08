@@ -173,7 +173,7 @@ def get_version(
     output = resolve_output_format()
     try:
         govern = get_govern_client_from_ctx(ctx)
-        bp = govern.get_blueprint(blueprint_id)
+        bp = govern.get_blueprint_designer().get_blueprint(blueprint_id)
         ver = bp.get_version(version_id)
         defn = ver.get_definition()
         render_raw(defn.get_raw(), output_format=output)
@@ -933,8 +933,8 @@ def create_signoff_config(
       {
         "title": "Review",
         "mandatory": true,
-        "feedbackUsersGroups": [{"id": "g1", "title": "Reviewers", "users": [{"usersContainer": {"type": "USER", "login": "admin"}}]}],
-        "approvers": [{"usersContainer": {"type": "USER", "login": "admin"}}],
+        "feedbackUsersGroups": [{"id": "g1", "title": "Reviewers", "users": [{"usersContainer": {"type": "user", "login": "admin"}}]}],
+        "approvers": [{"usersContainer": {"type": "user", "login": "admin"}}],
         "recurrenceConfiguration": {"activated": false, "days": 0, "weeks": 0, "months": 0, "years": 0, "reloadConf": false}
       }
 

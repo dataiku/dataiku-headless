@@ -1,5 +1,23 @@
 # Reference: Visual Recipe Payloads
 
+- [Read → edit → write](#read--edit--write)
+- [The 4-stage pipeline](#the-4-stage-pipeline)
+- [Visual conditions (shared filter schema)](#visual-conditions-shared-filter-schema)
+- [Join (`join`)](#join-join)
+- [Group (`grouping`)](#group-grouping)
+- [Window (`window`)](#window-window)
+- [Filter (`sampling` Prepare form via `create-filter`)](#filter-sampling-prepare-form-via-create-filter)
+- [TopN (`topn`)](#topn-topn)
+- [Stack (`vstack`)](#stack-vstack)
+- [Sort (`sort`) & Distinct (`distinct`)](#sort-sort--distinct-distinct)
+- [Split (`split`)](#split-split)
+- [Update / UPSERT (`update`)](#update--upsert-update--config-in-recipeparams-not-payload)
+- [Pivot (`pivot`)](#pivot-pivot)
+- [Geo Join (`geojoin`)](#geo-join-geojoin)
+- [Fuzzy Join (`fuzzyjoin`)](#fuzzy-join-fuzzyjoin)
+- [Extract Failed Rows (`extract_failed_rows`)](#extract-failed-rows-extract_failed_rows)
+- [List Folder Contents / Merge Folder](#list-folder-contents--merge-folder--recipeparams-not-payload)
+
 Durable JSON shapes for configuring visual recipes beyond the `create-*` flags.
 Get flags from `--help`; open this only for payload shapes.
 
@@ -123,8 +141,8 @@ return False when created via API — use GREL in a `FilterOnCustomFormula` step
 - **Any payload round-trip ⇒ go MANUAL.** A get-settings → patch →
   set-settings/set-definition cycle can lose the column projection
   (`--cols`) and re-resolve under `AUTO_NON_CONFLICTING`, silently dropping a
-  real column (benchmark: the surviving join lost `rate` → products of 0, no
-  error). After patching any join payload, set
+  real column: the surviving join drops the same-named column and downstream
+  computations use wrong values with no error. After patching any join payload, set
   `outputColumnsSelectionMode: "MANUAL"` + explicit `selectedColumns` on every
   virtualInput, then re-read and diff.
 - `virtualInputs[i].preFilter`: same canonical CUSTOM shape as the 4-stage
@@ -183,8 +201,8 @@ return False when created via API — use GREL in a `FilterOnCustomFormula` step
 - **The DSS engine silently ignores frame bounds** — ROWS
   (`enableLimits`+`precedingRows`/`followingRows`) and RANGE bounds save into
   the payload but execute as current-row-only or cumulative/whole-partition;
-  only the two extremes work (verified live: `precedingRows:2, followingRows:0`
-  → cumulative sum). Frame bounds only take effect on a SQL engine. Rolling-N
+  only the two extremes work (e.g. `precedingRows:2, followingRows:0` executes
+  as a cumulative sum). Frame bounds only take effect on a SQL engine. Rolling-N
   on the DSS engine → range self-join + Group (pattern in
   `playbooks/tabular-flow.md` § Visual recipe decision).
 - `lag`/`lead`: set `lagValues`/`leadValues` (comma string `"1,2"`) + `orderColumn`.

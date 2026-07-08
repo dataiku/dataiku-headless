@@ -2,6 +2,14 @@
 
 For `set-version` bulk edits. Use `add-*` commands for most ops; drop to JSON for `sqlGenerationConfig`, `foreignKeys`, attribute descriptions.
 
+## Prerequisite: entities must point at SQL-backed datasets
+
+Entities must reference Snowflake/Postgres/Redshift/BigQuery (or another SQL
+connection) datasets. Filesystem/UploadedFiles datasets fail at query time with
+a polite English refusal ("not accessible via SQL") — looks like a prompt issue
+but the fix is a sync: land the dataset on a SQL connection first, then point
+`datasetRef` at the SQL dataset, not the upstream file source.
+
 ## Version
 
 ```json
@@ -50,7 +58,10 @@ For `set-version` bulk edits. Use `add-*` commands for most ops; drop to JSON fo
 }
 ```
 
-Uses `left.*` / `right.*` aliases for entity tables.
+Field names are `firstEntity`/`secondEntity` (not `leftEntity`/`fromEntity`) —
+`firstEntity` aliases to `left.*`, `secondEntity` to `right.*` in the
+expression. No `id`/cardinality field on relationships; cardinality is
+inferred from each entity's `primaryKey`.
 
 ## Metric / Filter
 

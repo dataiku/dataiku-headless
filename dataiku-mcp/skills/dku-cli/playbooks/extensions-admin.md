@@ -79,6 +79,9 @@ dku plugin usages <plugin>                # check before delete
 - **`plugin push` accepts a directory or a `.zip`**; it auto-detects install vs update.
 - `dku plugin delete --force` deletes even when in use; requires `--yes`.
 
+`desc.json`/Python-version policy and the `installCorePackages` trap on Python
+3.11+: `../references/mlops.md`.
+
 ### Review
 Read all source, apply the checklist in `references/plugins.md`, run `ruff check` +
 `ruff format --check`.
@@ -174,3 +177,10 @@ Env vars `DKU_URL` / `DKU_API_KEY` / `DKU_PROJECT` override saved profiles (CI).
 showing `[?]` node type predates node-type tracking — re-run `auth login --profile <name>`.
 Don't merge stderr into stdout before `jq`: data lands on stdout; errors and hints are
 prescriptive text on stderr. Parse stdout on success, read stderr on failure.
+
+## Done when
+
+- `dku --format json plugin get <plugin>` shows the installed version and its code env attached.
+- `dku plugin recipes <plugin>` lists the expected recipe types (or `dku webapp status <id> -P <proj>` reports the backend up, for a webapp).
+- A representative recipe/webapp/tool run in the target project succeeds against real data, not just against `--dry-run`/validate.
+- For admin/deploy changes: `dku whoami` and the relevant `get`/`status` command (`dku api-deployer deployment-status`, `dku bundle` state) confirm the target environment matches intent.

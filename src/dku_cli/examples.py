@@ -215,6 +215,21 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
         "dku govern artifact list -b bp.system.govern_project"
         " --field sensitive_data=Yes --all",
     ],
+    ("govern", "signoff", "update-status"): [
+        "dku govern signoff update-status ar.5 exploration NOT_STARTED --reload",
+    ],
+    ("govern", "signoff", "delegate-feedback"): [
+        "dku govern signoff delegate-feedback ar.5 exploration --group-id reviewers"
+        ' --users-container \'{"type":"user","login":"alice"}\'',
+        "dku govern signoff delegate-feedback ar.5 exploration --group-id reviewers"
+        ' --users-container \'{"type":"globalApiKey","globalAPIKeyId":"gk_123"}\'',
+    ],
+    ("govern", "signoff", "delegate-approval"): [
+        "dku govern signoff delegate-approval ar.5 exploration"
+        ' --users-container \'{"type":"user","login":"alice"}\'',
+        "dku govern signoff delegate-approval ar.5 exploration"
+        ' --users-container \'{"type":"globalApiKey","globalAPIKeyId":"gk_123"}\'',
+    ],
     # Datapoint payload shape: epoch-ms timestamps
     ("govern", "time-series", "push-values"): [
         "dku govern time-series push-values TS_ID --datapoints"

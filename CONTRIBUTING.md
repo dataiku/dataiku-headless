@@ -20,6 +20,7 @@ Run before pushing (the pre-commit hooks cover most of this):
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
 uv run python scripts/check_quality_ratchet.py     # blocks new lint and structural debt
+uv run python scripts/check_skill_links.py          # skill-tree routing + dead-link check
 make audit                                          # dependency CVE + secret scan
 make test-plugin                                    # only if MCP packaging changed
 ```
