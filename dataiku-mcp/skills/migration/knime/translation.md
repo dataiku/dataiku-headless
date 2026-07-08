@@ -21,7 +21,7 @@ Factory classes below are abbreviated to their last segment minus `NodeFactory`.
 | `Rename` (Column Rename) | Prepare `ColumnRenamer` | |
 | `StringManipulation`, `Formulas` (Column Expressions) | Prepare Formula (GREL) | KNIME `join()`, `substr()`, `regexReplace()` → GREL equivalents; see `../../dku-cli/references/formulas.md` |
 | `JEP` (Math Formula) | Prepare Formula (GREL) | `$col$` → GREL `numval("col")` when spaced |
-| `RuleEngine` | Prepare `VisualIfRule`/Formula — **but check the consumer first** | After a Predictor = classification threshold, NOT a recipe (see below). Rules are ordered first-match: `$P (Class=1)$>0.3=> "1"` |
+| `RuleEngine` | Prepare `VisualIfRule`/Formula — **but check the consumer first** | After a Predictor = classification threshold, NOT a recipe (see below). Rules are ordered first-match (`$P (Class=1)$>0.3=> "1"`); `TRUE => x` is the default arm |
 | `NumberToString2` / `StringToNumber2` | Usually DROP | Type ceremony for KNIME learners/widgets; DSS handles numeric targets and typed variables natively. Keep only when a real string format change is intended |
 | `Normalizer3` + `NormalizerApply` | ML task per-feature rescaling | NOT a recipe pair. If normalized data is needed outside ML, one Prepare with explicit formulas |
 | `Sorter` | Sort | |
@@ -39,24 +39,24 @@ CSV Reader → Number To String → Partitioning → Learner → Predictor → S
                                                   ↓
                                              Model Writer
 ```
-→ `dku ml create-prediction DS target -t BINARY_CLASSIFICATION` → `set-algorithm` →
+→ `dku ml create-prediction DS target --type BINARY_CLASSIFICATION` → `set-algorithm` →
 `set-params` + `set-split` (algorithm params, split ratio) → `train` → `deploy`. The
 Scorer's metrics = `dku ml details`. Model Writer = the saved model.
 **6 KNIME nodes → 1 ML task.**
 
 | KNIME learner (factory) | DSS algorithm |
 |---|---|
-| `RandomForestClassificationLearner2` | `RANDOM_FOREST_CLASSIFICATION` — `dku ml set-params A M -a RANDOM_FOREST_CLASSIFICATION --set n_estimators=100 --set max_tree_depth=30 --set selection_mode=sqrt` (`maxLevels:-1` → 30: DSS has NO unlimited depth, ≥1 required) |
+| `RandomForestClassificationLearner2` | `RANDOM_FOREST_CLASSIFICATION` — per-setting param mapping + traps (`maxLevels:-1` → depth 30): `semantics.md` § Random Forest |
 | `GradientBoostedTrees*` | `GBT_CLASSIFICATION` / `XGBOOST` |
 | `LogisticRegression*` | `LOGISTIC_REGRESSION` |
-| `Cluster2` (k-Means) | Clustering task, `KMEANS` — `dku ml set-params A M -a KMEANS --set k=3,4,5,6` |
+| `Cluster2` (k-Means) | Clustering task, `KMEANS` — k list + rescaling parity: `semantics.md` § k-Means |
 | `H2OIsolationForestLearner` | Clustering task, `ISOLATION_FOREST` (or `create-clustering --guess-policy ANOMALY_DETECTION`) — drop ALL `Table to H2O`/`H2O Local Context` plumbing |
 | `DLKeras*` (layer nodes + Learner/Executor) | NO visual equivalent — Python recipe with Keras code env; flag for redesign |
 
 Deployment workflows (`Model Reader` + `Predictor` on new data) → ONE
-`create-prediction-scoring` / `create-clustering-scoring` recipe against the saved model.
-KNIME splits train/deploy into two workflow files because it lacks a shared model store —
-in DSS both are zones of one project (or Deployer across projects).
+`create-prediction-scoring` / `create-clustering-scoring` recipe against the saved model —
+in DSS, train and deploy are zones of one project (or Deployer across projects), not two
+workflow files.
 
 ## Loops → grids, scenarios, or restructures
 
@@ -80,5 +80,5 @@ in DSS both are zones of one project (or Deployer across projects).
 | `Python2Script2` (Python Script) | Python recipe — `input_table_1`→`dataiku.Dataset(...).get_dataframe()`, `output_table_1`→`write_with_schema` |
 | `Scorer` (JavaScript) standalone (not post-Predictor) | Group/window + formulas for confusion counts, or model evaluation store |
 
-Collapse triggers for the Phase-2 collapse pass live in `overview.md` § Collapse
-triggers (the location `../references/workflow.md` points every source at).
+Collapse triggers for the Phase-2 collapse pass live in `overview.md` § Collapse triggers
+& non-migratable patterns (the location `../references/workflow.md` points every source at).

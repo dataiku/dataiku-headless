@@ -2,9 +2,9 @@
 
 DSS has more visual geospatial capability than is obvious — try the visual path before Python. Covers CreatePoints / SpatialMatch / Distance / FindNearest / Buffer / PolyBuild / TradeArea, the three geometry-input readers (shapefile, `.yxdb` SpatialObj, embedded GeoJSON), and the Python escape hatches (coverage %, focal smoothing, hole-filling, route length, point-to-line distance, DMS parsing).
 
-**Contents:** Spatial tool→recipe table · Shapefile length/area · Make Grid focal smoothing · County/trade-area coverage · Fill polygon holes · PolyBuild + SpatialInfo · PolyBuild → exact GeoJSON · Point-to-polyline nearest distance · Fixed-width DMS parsing.
+**Contents:** Spatial tool→recipe table · Extend a line (bearing projection) · Shapefile length/area · Make Grid focal smoothing · County/trade-area coverage · Fill polygon holes · PolyBuild + SpatialInfo · PolyBuild → exact GeoJSON · Point-to-polyline nearest distance · Fixed-width DMS parsing.
 
-DSS has more visual geospatial capability than is obvious — try the visual path before Python. **GeoPoint columns need `set-schema` to type `geopoint`/`geometry`** or downstream GeoJoin warns "no geospatial columns" → 0 matches. **Syncing geopoint columns to PostgreSQL maps them to `geography`** — fails on a non-PostGIS instance (`type "geography" does not exist`); drop the geopoints before the sync and keep lon/lat/distance numerics.
+**GeoPoint columns need `set-schema` to type `geopoint`/`geometry`** or downstream GeoJoin warns "no geospatial columns" → 0 matches. **Syncing geopoint columns to PostgreSQL maps them to `geography`** — fails on a non-PostGIS instance (`type "geography" does not exist`); drop the geopoints before the sync and keep lon/lat/distance numerics.
 
 | Alteryx tool | Dataiku answer |
 |---|---|
@@ -21,7 +21,7 @@ DSS has more visual geospatial capability than is obvious — try the visual pat
 | `Generalize`/`Smooth` | `geoSimplify` GREL |
 | `SpatialInfo` (area/length/centroid/bbox) | `geoEnvelope` (bbox); Prepare geo-extract. **To match `ST_Area(geom,"SqMi")` use geodesic area** — `pyproj.Geod(ellps="WGS84").geometry_area_perimeter(geom)` (m², `abs`), NOT shapely `.area` (degrees² — meaningless). 1 sq mi = 2589988.110336 m² |
 | `ST_Length(geom,"Miles")` on an **existing** Polyline | **Geodesic** — `Geod(ellps="WGS84").geometry_length(geom)` (m), `/1609.344`. NOT shapely `.length`. Point-sequence with no geometry yet → prefer visual `geoDistance(lag)`-sum (§ PolyBuild + SpatialInfo) |
-| **Extend a line by N units at both ends** (`SpatialInfo(EndPoints)→TradeArea→Smooth→PolySplit→Distance→Sort DESC→Sample 1→ST_CreateLine`) | = **project the endpoint N units outward along the line's bearing.** One Python recipe, **pure stdlib**: WGS84 Vincenty inverse for bearing S→E, Vincenty direct from S on `bearing+180` for `N·1609.344` m. **Recognition cue:** a `Buffer`/`TradeArea` circle immediately `PolySplit`-to-points + `Distance` + `Sort DESC` + `Sample 1` is never a real buffer — it's arg-max "farthest circle vertex" = bearing projection. **BUT block if the key ships 6-decimal extended coords** — the macro's endpoint is a vertex of a discretized buffer circle, not the true great-circle continuation (lat matches ~4-5dp, lon/length diverge; a near-horizontal line off ~800 ft). If only approximate length is consumed, `Geod.fwd` is within ~0.16% |
+| **Extend a line by N units at both ends** (`SpatialInfo(EndPoints)→TradeArea→Smooth→PolySplit→Distance→Sort DESC→Sample 1→ST_CreateLine`) | = **bearing projection.** Recognition cue: a `Buffer`/`TradeArea` circle immediately `PolySplit`-to-points + `Distance` + `Sort DESC` + `Sample 1` is never a real buffer — it's arg-max "farthest circle vertex". One pure-stdlib Python recipe; block condition + mechanics: § Extend a line below |
 | `Summarize(SpatialObjCombine)` dissolving **Polylines** by group | `shapely.ops.unary_union` then `Geod.geometry_length`; `linemerge` for one connected line. **BUT if the only consumer is a total `ST_Length`/`ST_Area` → skip shapely:** combine+measure is additive = `Group sum` of the precomputed `Shape_len`/`Shape_area` `.dbf` attribute (§ Shapefile length/area). `unary_union` only for dedup-on-overlap or the merged geometry itself |
 | `SpatialMatch` (contains/intersects/touches) | `geoWithin`/`geoContains` GREL (simple); GeoJoin (one recipe per relation) |
 | `HeatMap`/`Binned Geo` | DSS Charts native |
@@ -39,6 +39,10 @@ DSS has more visual geospatial capability than is obvious — try the visual pat
 - **Embedded GeoJSON in a `TextInput` `<c>` cell** → `shapely.geometry.shape(json.loads(cell))` (text content; `value=` attr empty). See § County coverage.
 
 **Block decision for all-spatial flows.** 1–2 genuine-Python spatial tools (PolyBuild/SpatialProcess/MakeGrid) → collapse that segment into one Python recipe (`shapely`/`geopandas`); everything else has a visual path. All-geometry "coverage" flows (`CreatePoints→TradeArea→SpatialMatch→Intersection→ST_Area→pct` + a dissolve branch) → **one** `shapely`+`pyproj` recipe (§ County/trade-area coverage).
+
+### Extend a line by N units (bearing projection)
+
+One Python recipe, **pure stdlib**: WGS84 Vincenty inverse S→E for the bearing, then Vincenty direct from S on `bearing+180` for `N·1609.344` m. **Block if the answer key ships 6-decimal extended coords** — the macro's endpoint is a vertex of a discretized buffer circle, not the true great-circle continuation (lat matches ~4-5dp, lon/length diverge; a near-horizontal line lands ~800 ft off). If only an approximate length is consumed, `Geod.fwd` is within ~0.16%.
 
 ### Shapefile length/area Summarize → Group sum (NO geopandas)
 
@@ -69,7 +73,7 @@ Two exact-match traps: (1) **edge cells get fewer neighbours** — `Unique(Direc
 
 All-geometry "coverage" archetype (trade-area vs polygons; territory/telco coverage %). No visual path → one `shapely` + `pyproj.Geod(ellps="WGS84")` recipe. Mapping: `CreatePoints`→`Point(lon,lat)`; `TradeArea(Radii,Miles)`→geodesic circle `Polygon([geod.fwd(lon,lat,360*i/n,R)[:2] for i in range(n)])` (`R=mi*1609.344`, `n≈720`); `SpatialMatch(Intersects)`→`.intersects` filter; `SpatialProcess(Intersection)`→`a.intersection(b)`; `SpatialObjCombine`→`unary_union`; `ST_Area([g],"SqMi")`→`abs(geod.geometry_area_perimeter(g)[0])/2589988.110336`.
 
-Gotchas (each a real failure):
+Gotchas:
 - **Geodesic, not planar, everywhere** — buffer via `geod.fwd`, area via `geometry_area_perimeter`. `shapely.buffer`/`.area` (lon/lat degrees) wrong by large factors; geodesic lands <0.01% off.
 - **Invalid input polygons throw** `GEOSException: side location conflict` — wrap every input in `make_valid()` (or `.buffer(0)`) before any boolean op.
 - **Embedded `.yxmd` spatial data is GeoJSON text** in `<c>` content (`value=` empty) — `shapely.geometry.shape(json.loads(cell))`.
@@ -103,7 +107,7 @@ def fill_holes(geojson_str):
 `PolyBuild(SequencePolyline) → SpatialInfo(LengthMi)` (total route length per group) — DSS resolves it WITHOUT building the LineString: per-leg `geoDistance` + sum (5 visual recipes, all push down: Prepare `point_wkt` → Window `lag` → Prepare filter-first + `add-geodistance` → Group sum → Sort). Non-obvious bits:
 - **Use WKT, not GeoJSON** — `geoDistance`/`add-geodistance` accept WKT `POINT(lon lat)`; GeoJSON Point strings return empty with no warning. Column need not be re-typed.
 - DSS strips embedded `"` from CSV uploads, so regex-extract on de-quoted text: `match(Centroid, /.*\[\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\s*\].*/)[0|1]`.
-- Window's 3rd `--compute` segment (custom name) is **silently ignored** — output is always `{column}_lag`.
+- Window output is always `{column}_lag` regardless of the 3rd `--compute` segment (`../../dku-cli/references/visual-recipe-payloads.md` § Window).
 - **GREL `geoDistance()` rounds to 2dp; `add-geodistance` is full-precision, DIFFERENT spheroid math.** On a multi-leg trip GREL runs ~+0.06% high, `add-geodistance` ~−0.15% low. **Use `add-geodistance` for trip/route distance** (per-leg errors accumulate); GREL is fine for ad-hoc per-row compares. Both differ from Alteryx (different ellipsoid) — document the offset, treat as match.
 
 ### PolyBuild → exact GeoJSON LineString via SQL `string_agg` (no shapely, no geo env)

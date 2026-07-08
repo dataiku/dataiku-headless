@@ -141,7 +141,8 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 | Visual recipe silent-failure traps (spurious unsaved-changes prompt, no-op steps, wrong-shape config, schema/type drift, grouping traps) | `references/visual-recipe-traps.md` |
 | Prepare processors: which one + params payload | `references/prepare-processors.md` |
 | GREL formula syntax | `references/formulas.md` |
-| Dataset connectors, schema, partitioning, plugin parameter types | `references/datasets-and-types.md` |
+| Dataset connectors, schema, partitioning | `references/datasets-and-types.md` |
+| Plugin / recipe / webapp parameter types | `references/plugin-params.md` |
 | Move local files ↔ DSS (local MCP file bridge) | `references/file-bridge.md` |
 | Structured + visual agent block schema, graph, LLM tools | `references/agent-blocks.md` |
 | Prompt (LLM) recipe payload schema | `references/prompt-recipe-payload.md` |

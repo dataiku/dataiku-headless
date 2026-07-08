@@ -2,6 +2,9 @@
 
 Visual ML and DSS scenario equivalents for SAS analytical and operational workflows.
 
+- [Visual ML](#visual-ml) — canonical `dku ml` chain, frictions, Viya/EM algorithm table
+- [Scheduling, checks, reporting → DSS scenarios](#scheduling-checks-reporting--dss-scenarios)
+
 ## Visual ML
 
 The Flow representation of an ML model in DSS is **always** the chain *training recipe → Saved Model → Predict recipe* — never a Python recipe configuring a model in the Lab. Use the `dku ml` namespace for setup and `dku recipe create-prediction-scoring` for the in-Flow scorer.
@@ -25,22 +28,15 @@ dku ml create-prediction joined_applicants loan_status \
     -t BINARY_CLASSIFICATION -P PROJ
 # → returns analysis_id and mltask_id (e.g. bdZayVvy / WQ26griH)
 
-# 2. Lock to the SAS-equivalent algorithm. After create-prediction the default
-#    leaves both LOGISTIC_REGRESSION and RANDOM_FOREST enabled — without
-#    --disable-all you ship two algorithms when SAS specified one.
+# 2. Lock to the SAS-equivalent algorithm (frictions table: --disable-all is
+#    required or Random Forest ships alongside).
 dku ml set-algorithm <ANALYSIS> <MLTASK> \
     --disable-all --enable LOGISTIC_REGRESSION -P PROJ
-# Algorithm names — match the SAS PROC:
+# Algorithm names — regression family:
 #   PROC LOGISTIC, PROC HPLOGISTIC, binomial PROC GENMOD → LOGISTIC_REGRESSION
-#   PROC REG, gaussian PROC GLM/GENMOD                    → LEASTSQUARE_REGRESSION
-#                                                          (or RIDGE_REGRESSION
-#                                                          for `lasso`/`ridge`
-#                                                          options)
-#   PROC GRADBOOST, PROC TREEBOOST                        → GBT_CLASSIFICATION
-#                                                          / GBT_REGRESSION
-#   PROC HPFOREST, PROC FOREST                            → RANDOM_FOREST_*
-#   PROC HPSPLIT                                          → DECISION_TREE_*
-#   PROC HPSVM                                            → SVM_CLASSIFICATION
+#   PROC REG, gaussian PROC GLM/GENMOD → LEASTSQUARE_REGRESSION
+#     (RIDGE_REGRESSION for `ridge`/`lasso` options)
+# Tree / ensemble / neural / SVM PROCs: § SAS Viya table below.
 # `dku ml algorithms <ANALYSIS> <MLTASK> -P PROJ` lists everything available.
 
 # 3. Reject features outside the SAS MODEL spec. Repeat per non-spec column.
@@ -136,7 +132,7 @@ SAS programs often include ad-hoc checks: `if nobs = 0 then abort;`, `proc compa
 |---|---|
 | `proc sql; select count(*) from ds; …if 0 then abort;` | Dataset metric `Record count` + check `Record count > 0` + scenario `check_dataset` step |
 | `proc freq data=ds; tables status / missing;` used for null audits | Metric `Column values count (not empty)` per column + check |
-| `proc compare base=expected compare=actual;` | Two datasets + a Prepare recipe producing a diff, plus a `check_dataset` on `count == 0` |
+| `proc compare base=expected compare=actual;` (scheduled QA form) | Two datasets + a Prepare recipe producing a diff, plus a `check_dataset` on `count == 0`. A one-off Phase-4 parity compare is NOT migrated — `procs.md` § PROCs that are NOT recipes |
 | Custom threshold (e.g. `avg(revenue) > 1000`) | Metric `Column statistics` (avg) + check `value > 1000` |
 | Schema drift (SAS `var_exist` macro) | Metric + check on `Record count` per column type, or a Python-coded check |
 
@@ -159,6 +155,6 @@ Not every `.sas` file is a scenario step. Inventory SAS jobs into three piles be
 2. **Orchestration** (master driver calling transformation files) → scenario with `build_flowitem` steps
 3. **Checks / reports** (no new dataset, just audits or emails) → scenario check/reporter, not a recipe
 
-Misclassifying reports as Python recipes is the most common scheduling-migration error. A Python recipe writes a dataset; if there's no dataset to produce, it's a reporter.
+A Python recipe writes a dataset; if there's no dataset to produce, it's a reporter.
 
 ---

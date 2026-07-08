@@ -2,9 +2,13 @@
 
 Function and format mapping from SAS to GREL, SQL, and DSS processors.
 
+- [Function mapping](#function-mapping-sas--grel--sql--processor) — core, string, geography, dates, formats → processors, CLI pairings
+- [Rounding parity](#rounding-parity)
+- [SAS dates in Dataiku](#sas-dates-in-dataiku)
+
 ## Function mapping (SAS → GREL / SQL / processor)
 
-GREL function names are **case-sensitive**. See `../../dku-cli/references/formulas.md` for the full GREL reference and `../../dku-cli/references/prepare-processors.md` for the processor catalog. On a SQL target, verify each function keeps push-down — one non-translatable GREL fn/processor in a Prepare step demotes the whole recipe to `Engine: DSS` (one engine per flow): `../../dku-cli/references/formulas.md` § GREL → SQL push-down.
+GREL function names are **case-sensitive**. Full GREL reference: `../../dku-cli/references/formulas.md`; processor catalog: `../../dku-cli/references/prepare-processors.md`. On a SQL target, one non-translatable function/processor demotes the whole recipe to `Engine: DSS` — `../../dku-cli/references/formulas.md` § GREL → SQL push-down.
 
 ### Core
 
@@ -69,7 +73,7 @@ Prompt the user for the reference CSV during Phase 1 inventory — don't silentl
 
 ### Dates (SQL recipe equivalents — engine-specific)
 
-SAS date functions don't have a single portable SQL equivalent. The column below shows the most common shape, but **check your target engine** — the exact function name varies (`DATEDIFF` / `MONTHS_BETWEEN` / `DATE_DIFF`), and so does the argument order. See the Postgres-specific forms in `procs.md` § SAS → SQL recipe translations.
+SAS date functions don't have a single portable SQL equivalent. The column below shows the most common shape, but **check your target engine** — the exact function name varies (`DATEDIFF` / `MONTHS_BETWEEN` / `DATE_DIFF`), and so does the argument order. See the Postgres-specific forms in `sql-translations.md`.
 
 | SAS | Shape (varies per engine) | Note |
 |---|---|---|
@@ -102,60 +106,27 @@ SAS date functions don't have a single portable SQL equivalent. The column below
 | Missing fill (numeric) | `ImputeWithValue` (method: `MEAN`/`MEDIAN`) |
 | Missing fill (string) | `FillEmptyWithValue` |
 | `RENAME old=new` | `ColumnRenamer` |
-| `LOWCASE` / `UPCASE` | `LowerCaseTransformer` / `UpperCaseTransformer` |
+| `LOWCASE` / `UPCASE` | `StringTransformer` (`mode: TO_LOWER` / `TO_UPPER`) |
 
-### Prepare-step CLI examples
+### SAS → Prepare-step pairings
 
-```bash
-# Filter by value (SAS: WHERE status = 'A')
-dku recipe add-filter-rows RECIPE --column status --values "A" --action KEEP_ROW -P PROJ
+Payload shapes for every `add-step -t` processor: `../../dku-cli/references/prepare-processors.md`.
 
-# Filter by formula (SAS: WHERE amount > 0)
-dku recipe add-filter-rows RECIPE --formula "amount > 0" --action KEEP_ROW -P PROJ
-
-# Remove empty rows (SAS: IF col=. THEN DELETE)
-dku recipe add-step RECIPE -t RemoveRowsOnEmpty --params '{"columns":["col"], "keep":false, "appliesTo":"SINGLE_COLUMN"}' -P PROJ
-
-# Formula column (SAS: LTV = MORTDUE / VALUE)
-dku recipe add-formula RECIPE -c LTV -e 'MORTDUE / VALUE' -P PROJ
-
-# Impute missing (SAS: IF var=. THEN var=mean)
-dku recipe add-step RECIPE -t ImputeWithValue --params '{"appliesTo":"SINGLE_COLUMN", "columns":["MORTDUE"], "method":"MEAN"}' -P PROJ
-
-# Fill empty string
-dku recipe add-fill-empty RECIPE --column JOB --value Unknown -P PROJ
-
-# Copy + recode (SAS: IF BAD=0 THEN OUTCOME='Paid')
-dku recipe add-step RECIPE -t ColumnCopier --params '{"inputColumn":"BAD", "outputColumn":"OUTCOME"}' -P PROJ
-dku recipe add-find-replace RECIPE -c OUTCOME --find "0" --replace "Paid" -P PROJ
-
-# Rename
-dku recipe add-rename RECIPE --from MORTDUE --to mortgage_due -P PROJ
-
-# Bin numeric (SAS: PUT(x, spend_tier.) with VALUE format ranges) — shape: prepare-processors.md § table, BinnerProcessor row
-dku recipe add-step RECIPE -t BinnerProcessor --params '{"input":"total_spend", "output":"spend_tier", "mode":"CUSTOM", "bins":[{"inf":0,"sup":500},{"inf":500,"sup":5000}]}' -P PROJ
-
-# Date parsing — always set outCol (in-place parse silently yields all nulls)
-dku recipe add-step RECIPE -t DateParser --params '{"appliesTo":"SINGLE_COLUMN", "columns":["date_col"], "formats":["M/d/yy"], "lang":"auto", "timezone_id":"UTC", "outCol":"date_parsed", "outType":{"name":"out", "type":"date"}}' -P PROJ
-
-# Date difference (input2 - input1)
-dku recipe add-step RECIPE -t DateDifference --params '{"input1":"start", "compareTo":"COLUMN", "input2":"end", "output":"days_diff", "outputUnit":"DAYS", "timezone_id":"UTC"}' -P PROJ
-```
-
-### VisualIfRule operators
-
-| Operator | Value field |
+| SAS | Prepare step |
 |---|---|
-| `== [string]` | `string` |
-| `!= [string]` | `string` |
-| `>  [number]` (2 spaces) | `num` |
-| `<  [number]` (2 spaces) | `num` |
-| `>= [number]` | `num` |
-| `<= [number]` | `num` |
-| `contains` | `string` |
-| `is empty` / `not empty` | — |
+| `WHERE status = 'A'` | `add-filter-rows --column status --values "A" --action KEEP_ROW` |
+| `WHERE amount > 0` | `add-filter-rows --formula "amount > 0" --action KEEP_ROW` |
+| `IF col=. THEN DELETE` | `add-step -t RemoveRowsOnEmpty` |
+| `LTV = MORTDUE / VALUE` | `add-formula -c LTV -e 'MORTDUE / VALUE'` |
+| `IF var=. THEN var=mean` | `add-step -t ImputeWithValue` (`method: MEAN`) |
+| Fill empty string | `add-fill-empty --column JOB --value Unknown` |
+| `IF BAD=0 THEN OUTCOME='Paid'` | `add-step -t ColumnCopier` + `add-find-replace -c OUTCOME --find 0 --replace Paid` |
+| `RENAME old=new` | `add-rename --from old --to new` |
+| `PUT(x, spend_tier.)` (VALUE ranges) | `add-step -t BinnerProcessor` (`mode: CUSTOM`) |
+| Parse a date string | `add-step -t DateParser` (catalog row has the `outCol` trap) |
+| Date difference | `add-step -t DateDifference` |
 
-**Broken via API** (DSS bug): `regex`, `in [string]`, date/geo operators. Use GREL `match()` for regex, `switch()` for is-any-of.
+VisualIfRule operator syntax (two-space `>  [number]` quirk, API-broken `regex`/`in [string]`/date/geo operators): `../../dku-cli/references/prepare-processors.md` § VisualIfRule.
 
 ---
 
@@ -182,11 +153,9 @@ Sample mismatches on `round(x, 1)`:
 | `-1.25` | `-1.3` | `-1.2` | **`-1.2`** |
 | `-8.25` | `-8.3` | `-8.2` | **`-8.2`** |
 
-**Key point**: the common advice "use GREL `round(x * 10) / 10` for 0.1 rounding" matches SAS only for non-negative inputs. Negative inputs diverge on every `.5` boundary. If the column can take negative values, pick one of the workarounds below.
-
 **SQL recipe rule**: most engines match SAS for any sign — just write `ROUND(col, 1)`. On PostgreSQL with `DOUBLE PRECISION` columns, cast to `NUMERIC` first: `ROUND(val::numeric, 1)`.
 
-**GREL workaround for any sign** (works on both in-memory and SQL push-down, verified on DSS 14.4 + PG):
+**GREL workaround for any sign** (works on both in-memory and SQL push-down):
 ```
 if(x >= 0, floor(x * 10 + 0.5) / 10, 0 - floor(0 - x * 10 + 0.5) / 10)
 ```
@@ -212,7 +181,7 @@ Symptom of a rounding-mode mismatch in a parity check: off-by-step mismatches in
 
 ## SAS dates in Dataiku
 
-1. **Ingest as STRING** (ISO `YYYY-MM-DD`). Setting `{"type":"date"}` on an uploaded CSV with string dates causes all values to become null without error.
+1. **Ingest as STRING** (ISO `YYYY-MM-DD`) — typing dates at upload silently nulls every row (migration `SKILL.md` gotcha table).
 2. **String-based ISO date filtering works** — lexicographic matches chronological:
    ```
    startsWith(txn_date, "2026-02")                     # "month of Feb 2026"

@@ -1,6 +1,6 @@
 # Alteryx Join & Reshape Tools → Dataiku
 
-Join, JoinMultiple, AppendFields, Union/Stack, Summarize, CrossTab, Transpose, and collapse patterns.
+[Join](#join) (7-join table, FULL-engine gotcha, positional join), [JoinMultiple](#joinmultiple), [AppendFields](#appendfields-cartesian), [Union/Stack](#union--stack), [Summarize](#summarize) (aggregation map, median/percentile, TopN), [CrossTab](#crosstab), [Transpose](#transpose), [component-stat chains](#component-stat-workflows-transpose--summarize--crosstab-macro-chains).
 
 ## Join
 
@@ -20,7 +20,7 @@ The 7 SQL joins (Alteryx outputs unioned):
 
 DSS LEFT_ANTI keeps only the surviving (left) side, so anti-join output columns match Alteryx — no downstream column-drop needed.
 
-**FULL outer join engine gotcha (OWNER).** On filesystem/uploaded inputs, `-j FULL` at the default engine may auto-pick an unavailable engine (Spark → `DSS integration to version 1.X is no longer supported`); forcing `--engine DSS` throws H2 `Syntax error in SQL statement "EXPLAIN SELECT …"` when a join/output column name contains a space. INNER/LEFT/RIGHT/LEFT_ANTI are unaffected — only FULL hits it. **Engine-free workaround: build FULL as `Stack(LEFT, RIGHT_ANTI)`** — LEFT holds inner+left-only rows, right-anti adds right-only rows; one Stack, no FULL engine. FULL-anti = `Stack(LEFT_ANTI, RIGHT_ANTI)`. Alternatively sync to a SQL connection and run FULL there.
+**FULL outer join engine gotcha.** On filesystem/uploaded inputs, `-j FULL` at the default engine may auto-pick an unavailable engine (Spark → `DSS integration to version 1.X is no longer supported`); forcing `--engine DSS` throws H2 `Syntax error in SQL statement "EXPLAIN SELECT …"` when a join/output column name contains a space. INNER/LEFT/RIGHT/LEFT_ANTI are unaffected — only FULL hits it. **Engine-free workaround: build FULL as `Stack(LEFT, RIGHT_ANTI)`** — LEFT holds inner+left-only rows, right-anti adds right-only rows; one Stack, no FULL engine. FULL-anti = `Stack(LEFT_ANTI, RIGHT_ANTI)`. Alternatively sync to a SQL connection and run FULL there.
 
 **Caveats:**
 - Column collision: both sides with `name` → right comes through as `name_1`. Rename upstream.
@@ -32,13 +32,13 @@ DSS LEFT_ANTI keeps only the surviving (left) side, so anti-join output columns 
 2. **No derivable key, but each input has a stable order column:** Window with `--compute rowNumber::idx` on each side (no partition; order by an existing positional col) → Join on the row-number columns.
 3. **No stable order column** (raw CSV): pre-bake a `row_id` at upload — DSS Prepare has NO row-counter. `add-step --type Enumerator` accepts at add-time but fails at run with `UnavailableTypeException: Type Enumerator was available in a plugin that is not installed`. Bake the index in the Python extraction (`csv.writer` + `enumerate(rows)`, schema-set `row_id` to `bigint`). If the source is already a managed dataset, materialize one Window-with-rowNumber over the full input first.
 
-Window `rowNumber` output column is **hardcoded to `rownumber`** (lowercase); the `--compute 'rowNumber::idx'` third segment is advisory and silently ignored — reference `rownumber` in the join key, or `--rename 'rownumber:idx'` to force it. When pre-baking a position key, mind the post-filter ordering trap: a Window `lead`/`lag` followed by a row filter must order on the position column before the filter, or the offset reads the wrong neighbor.
+Window `rowNumber` output is hardcoded `rownumber` (lowercase; naming rules + `--rename`: `../../dku-cli/references/visual-recipe-payloads.md` § Window) — reference `rownumber` in the join key, or `--rename 'rownumber:idx'` to force it. When pre-baking a position key, mind the post-filter ordering trap: a Window `lead`/`lag` followed by a row filter must order on the position column before the filter, or the offset reads the wrong neighbor.
 
 ---
 
 ## JoinMultiple
 
-N-way join on a single key → **one multi-input Join recipe**: `dku recipe create-join JN -i spine -i a -i b -k key -k 1:akey …` (each `-k` after the first targets pair N; per-pair keys via `joins[i].table1` — `../../dku-cli/references/visual-recipe-payloads.md` § Join). Never chain one 2-way Join per input — that is the sequential join chain Phase 3.5 collapses (`../references/flow-collapse.md` rule 5).
+N-way join on a single key → **one multi-input Join recipe**: `dku recipe create-join JN -i spine -i a -i b -k key -k 1:akey …` (each `-k` after the first targets pair N; per-pair keys via `joins[i].table1` — `../../dku-cli/references/visual-recipe-payloads.md` § Join). Never chain one 2-way Join per input — that is the sequential join chain Phase 3.5 collapses (`../references/flow-collapse.md` § Fuse a sequential join chain).
 
 ---
 
@@ -53,7 +53,7 @@ dku recipe add-formula PREP --column Date --expr 'if(startsWith(F1, "Ranks as of
 dku recipe add-step PREP --type UpDownFiller -p '{"columns":["Date"],"up":false}'
 ```
 
-Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** — return `null`, not `""`. Collapses 3 tools → 2 Prepare steps, net zero recipes. See `overview.md` § Collapse triggers (messy-spreadsheet row).
+Row 0 sets `Date`, others get `null`, `UpDownFiller(up:false)` fills nulls with the previous non-null — broadcasting row-0 to all rows. **Only NULL triggers fill; `""` does not** — return `null`, not `""`. Collapses 3 tools → 2 Prepare steps, net zero recipes. See `collapse-triggers.md` (messy-spreadsheet row).
 
 ---
 
@@ -96,7 +96,7 @@ dku recipe create-group grp -P PROJ -i in --output-ds agg \
 | `SumNo0` / `AvgNo0` / `MinNo0` / `MaxNo0` / `CountNo0` | **No direct DSS aggregation** — `*No0` variants ignore zeros (plus nulls), which DSS aggregations don't. Lift zero-exclusion to a `--computed-col` on the same Group, then aggregate it: `--computed-col 'col_no0=if(val("col")==0\|\|isBlank(val("col")), null, val("col")):double' --agg col_no0:avg`. The `if … null` converts zeros to nulls; `avg` already ignores nulls. **GREL `==` not `=`** — single `=` errors `Unexpected '='. Did you mean '=='?`; if it slips through, the job log shows a misleading `EOFException: Unexpected end of ZLIB input stream` (the GREL syntax error is the real cause). See `ayx/semantics.md` § Aggregation null-handling. |
 
 **Caveats:**
-- Group auto-names outputs `{col}_{func}` (`Sales_sum`). `--rename SRC:DST` fixes names inline (Group's `outputColumnNameOverrides` IS honored — unlike Pivot's, see `../../dku-cli/playbooks/tabular-flow.md`), or a downstream `ColumnRenamer`.
+- Group auto-names outputs `{col}_{func}` (`Sales_sum`). `--rename SRC:DST` fixes names inline, or a downstream `ColumnRenamer` (which recipes honor `outputColumnNameOverrides`: `../../dku-cli/references/visual-recipe-payloads.md` § Window).
 - `Concat` on Snowflake → LISTAGG, capped per-group. For large text, aggregate in Python.
 
 ### Median / percentile → visual Window-rank (default); SQL only for engine-mandate
@@ -169,7 +169,7 @@ dku recipe create-pivot pv -P PROJ -i in --output-ds wide \
 
 - Output columns are `<header_value>_<agg>`. For text aggregation ("Concatenate") use `concat` agg, mind SQL LISTAGG limits.
 
-**Modality scan build failure (OWNER) — fix with `--value-limit`, don't avoid the pivot.** A fresh `create-pivot` at the default `TOP_N` builds and errors `RecipeSchemaComputer$DontWantToCompute: Modality lists stored in output schema are not up-to-date` (`dku` can't trigger the UI's distinct-value scan).
+**Modality scan build failure — fix with `--value-limit`, don't avoid the pivot.** A fresh `create-pivot` at the default `TOP_N` builds and errors `RecipeSchemaComputer$DontWantToCompute: Modality lists stored in output schema are not up-to-date` (`dku` can't trigger the UI's distinct-value scan).
 - Low cardinality (≤ a few dozen distinct headers): `--value-limit NO_LIMIT` — DSS resolves modalities at build time.
 - Deterministic whitelist: `--value-limit EXPLICIT --explicit-values v1 --explicit-values v2`.
 - Frequency floor: `--value-limit AT_LEAST_N_OCC --min-occ-limit N`.
@@ -179,7 +179,7 @@ dku recipe create-pivot pv -P PROJ -i in --output-ds wide \
 
 **CrossTab → DynamicRename.** Pivot, then a **trailing static Prepare** `ColumnRenamer` for the renames. A DynamicRename that maps output column names **from values in an input table** (data-driven rename) has no visual equivalent — needs **Python** (read the rename map, apply to the wide-form column headers).
 
-**The job-not-the-tool reflex.** Many CrossTabs are mid-flow shape changes the downstream consumer doesn't need. Before reaching for Pivot, ask *what does the next recipe do with the wide form?* If it's "join then aggregate again", fold the aggregation into the upstream Group's `computedColumns` (`../../dku-cli/playbooks/tabular-flow.md` § Collapse N recipes into 1) or compute the per-category values per-component before any reshape.
+**The job-not-the-tool reflex.** If the wide form is only joined-then-re-aggregated downstream, fold the aggregation into the upstream Group's `computedColumns` and skip the pivot (`../../dku-cli/playbooks/tabular-flow.md` § Collapse N recipes into 1; § Transpose *job-not-the-tool* below).
 
 ---
 
@@ -199,7 +199,7 @@ dku recipe add-fold prep1 --columns "q1,q2" --key-column Name --value-column Val
 
 **DO NOT use `FoldColumnsByName`** — that's a plugin processor (params `keyColumn`/`valueColumn`) that errors `UnavailableTypeException` where the plugin isn't installed. `add-fold` emits stock `MultiColumnFold`, no plugin needed. `pd.melt` is never needed for this, even on the rarest DSS instance.
 
-**The job-not-the-tool reflex.** Most Transposes exist to feed a downstream `Summarize` over the long form. The cleaner DSS shape: compute the aggregate **per-input, before any reshape** — one `add-formula` per output key inside each upstream Prepare; the long form is never materialized (saves unpivot + lookup join + per-key Group). The round-trip `Transpose → MultiRowFormula → CrossTab → JoinMultiple → AlteryxSelect → Transpose` (long→window→wide→join→wide→long) reduces to: compute everything in long form, emit final long output via Stack-of-projections. The CrossTab/JoinMultiple round-trip exists because Alteryx MultiRowFormula operates on a single column; DSS Window carries both Value and lagged columns through the long form, so the round-trip is wasted shape change. See `overview.md` § Collapse triggers (the `Union → Transpose → Summarize` and `Transpose → MultiRowFormula → CrossTab → Transpose` rows).
+**The job-not-the-tool reflex.** Most Transposes exist to feed a downstream `Summarize` over the long form. The cleaner DSS shape: compute the aggregate **per-input, before any reshape** — one `add-formula` per output key inside each upstream Prepare; the long form is never materialized (saves unpivot + lookup join + per-key Group). The round-trip `Transpose → MultiRowFormula → CrossTab → JoinMultiple → AlteryxSelect → Transpose` (long→window→wide→join→wide→long) reduces to: compute everything in long form, emit final long output via Stack-of-projections. The CrossTab/JoinMultiple round-trip exists because Alteryx MultiRowFormula operates on a single column; DSS Window carries both Value and lagged columns through the long form, so the round-trip is wasted shape change. See `collapse-triggers.md` (the `Union → Transpose → Summarize` and `Transpose → MultiRowFormula → CrossTab → Transpose` rows).
 
 ---
 
@@ -226,13 +226,8 @@ done
 dku recipe create-join join_combos -P PROJ \
     -i DRIVERS_SCORED -i BODIES_SCORED -i TIRES_SCORED -i GLIDERS_SCORED \
     --output-ds COMBOS --join-type CROSS
-
-# Final score + sort.
-dku recipe create-prepare score_combos -P PROJ -i COMBOS --output-ds COMBOS_SCORED
-dku recipe add-formula score_combos -P PROJ --column total_score \
-    --expr 'speed_score * 0.4 + handling_score * 0.6'
-dku recipe create-sort sort_combos -P PROJ -i COMBOS_SCORED \
-    --output-ds COMBOS_RANKED --sort-col total_score:desc
 ```
+
+Then a Prepare for the combined score and a Sort to rank.
 
 If a draft DSS plan contains `Transpose → Summarize → CrossTab` (or its macro equivalent), stop and audit: the per-category formulas usually already live in the upstream component dataset, and the reshape was just an Alteryx-flavored loop.

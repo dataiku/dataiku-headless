@@ -170,7 +170,7 @@ Every group and command with its one-line description — read this once per ses
 
 ### `sql` — Run SQL queries on DSS connections.
 
-- `query` — Execute a SQL query on a DSS connection. `--format json` returns a bare JSON array of row objects.
+- `query` — Execute a SQL query on a DSS connection.
 
 ### `connection` — Manage DSS connections.
 

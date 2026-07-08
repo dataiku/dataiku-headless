@@ -2,6 +2,8 @@
 
 The phase-by-phase migration playbook, in detail. Source-agnostic. Source-specific Phase 1 parsing lives in each `<source>/overview.md`.
 
+**Contents:** Phase 0 Preflight · Phase 1 Extract & inventory (parity reference · dedup) · Phase 2 Plan (collapse triggers · sanity ratio · honesty gate) · Phase 3 Build & verify · Phase 3.5 Flow collapse · Phase 4 Integration test (output contract · entity grain · wiki)
+
 ---
 
 ## Phase 0 — Preflight
@@ -18,7 +20,7 @@ Store the connection name and project key — every subsequent command uses them
 
 ## Phase 1 — Extract & inventory
 
-Produce a complete inventory of every source step / tool, its inputs, outputs, and what it does. **No Dataiku planning yet** — just understand the source. For complex sources (>20 tools) surface the inventory for a sanity check before drafting the plan; for small sources roll straight into Phase 2. The single consequential confirmation gate is between Phase 2 (plan) and Phase 3 (build) — unattended runs skip it (see SKILL.md: print the plan, proceed).
+Produce a complete inventory of every source step / tool, its inputs, outputs, and what it does. **No Dataiku planning yet** — just understand the source. For complex sources (>20 tools) surface the inventory for a sanity check before drafting the plan; for small sources roll straight into Phase 2.
 
 Generic inventory template:
 
@@ -32,7 +34,7 @@ For source-specific column meanings (`Source ID` vs `Tool ID` vs `SAS step name`
 
 ### Parity reference — load it in Phase 1, not Phase 4
 
-If the source ships its own expected outputs — cached values of a workbook's output sheets, Alteryx `BrowseV2` caches or bundled ground-truth CSVs, SAS output tables / log row counts — inventory them now and load them as a **parity-reference dataset** before building anything. It arbitrates every interpretation ambiguity in Phase 3: diff a candidate reading against the expected values *before* building it (a wrong reading of one ambiguous construct can cost a whole zone built-then-deleted). And it upgrades Phase 4 from row-count checks to a **value sweep** — compare every row × column of the final outputs against the reference. Quirks you're tempted to "fix" (sign conventions, mislabeled rows) are usually intentional: reproduce them, document them, and let the sweep arbitrate.
+If the source ships its own expected outputs — cached values of a workbook's output sheets, Alteryx `BrowseV2` caches or bundled ground-truth CSVs, SAS output tables / log row counts — inventory them now and load them as a **parity-reference dataset** before building anything. It arbitrates every interpretation ambiguity in Phase 3: diff a candidate reading against the expected values *before* building it (a wrong reading of one ambiguous construct can cost a whole zone built-then-deleted). And it upgrades Phase 4 from row-count checks to a **value sweep** — compare every row × column of the final outputs against the reference. Quirks you're tempted to "fix" (sign conventions, mislabeled rows) are usually intentional: reproduce them, document them, and let the sweep arbitrate. The same authority extends to config: when a transformation's config *contradicts* the shipped expected output, reproduce the ground truth and note the divergence — don't transliterate the config. Verify on a row whose value depends on the contested step: fill-with-0 vs forward-fill (LOCF) disagree on any row with an interior gap, and the reference tells you which the author used (for event-driven series — seat-share, event-only prices — LOCF is usually intended).
 
 ### Deduplicating multi-implementation projects
 
@@ -44,7 +46,7 @@ Real projects often have the same transformation implemented several ways (DATA 
 
 Map each migratable step to a Dataiku recipe. Pick types using `../../dku-cli/playbooks/tabular-flow.md` (decision rationale, exact CLI command, Python anti-pattern per recipe) and `<source>/overview.md` (priority: **Visual → SQL → Python**).
 
-**Apply the collapse triggers as you draft, not after.** The full per-source list lives in `<source>/overview.md` § Collapse triggers (xlsx keeps its triggers in `analysis-workbooks.md` and `model-workbooks.md` § Collapse triggers). As you map each step, ask:
+**Apply the collapse triggers as you draft, not after.** The full per-source list lives in `<source>/overview.md` § Collapse triggers (ayx keeps its table in `ayx/collapse-triggers.md`; xlsx in `analysis-workbooks.md` and `model-workbooks.md` § Collapse triggers). As you map each step, ask:
 
 1. **Consecutive single-row transforms (Formula, Select, TextToColumns, DateTime, Filter)?** → fold into one Prepare recipe with N steps.
 2. **Filter immediately upstream/downstream of a Group/Join/Window/Sort?** → fold into the visual recipe's `preFilter` / `postFilter` slot (see `../../dku-cli/playbooks/tabular-flow.md` § Collapse N recipes into 1).
@@ -66,17 +68,13 @@ Plan shape:
 
 ### Sanity check before presenting
 
-Print a one-line ratio at the top of the plan: *"Source: N tools → Plan: M recipes (N/M ≈ X×)."* Expected **3–5×** for typical workflows. If you're at <2×, either re-walk the triggers (you've probably missed fold-ins or per-input Prepare-before-Stack patterns) or state explicitly why this workflow doesn't compress (small input, fully parallel branches, output-only chain). Then get user confirmation before Phase 3 (unattended run: print the plan and proceed immediately — never end the turn on a question).
+Print a one-line ratio at the top of the plan: *"Source: N tools → Plan: M recipes (N/M ≈ X×)."* If you're at <2×, either re-walk the triggers (you've probably missed fold-ins or per-input Prepare-before-Stack patterns) or state explicitly why this workflow doesn't compress (small input, fully parallel branches, output-only chain). Then present for confirmation — the Phase 2→3 gate and its unattended-run behavior live in SKILL.md Phase 2.
 
-### The honesty gate — classify, then ask (SKILL.md rule 8)
+### The honesty gate — classify, then ask
 
-The plan is only half the gate; the other half is *what you can't know*. Before presenting, walk the inventory once more and tag every non-obvious construct **derivable / hand-authored / needs-human-input**:
+The plan is only half the gate; the other half is *what you can't know*. Before presenting, walk the inventory once more and tag every non-obvious construct **derivable / hand-authored / needs-human-input** (definitions and the preserve-vs-rebuild rule: SKILL.md, "Surface what you can't derive"). Needs-human-input questions are the ones only the customer can answer: where do the actuals come from, can we connect upstream? Is this negative value (or this odd wiring) real, or a redaction/extract artifact? Is this config a typo? Should this line be modelled at component grain?
 
-- **Derivable** — a function of inputs. Migrate it (rebuild from inputs, not from the source's cached outputs — that is transcription, SKILL.md rule 7).
-- **Hand-authored** — manual overrides, hand-keyed reference data (accrual days, FX), analyst-typed assumptions, lines *pasted in from upstream* that the source does not itself compute. These are **inputs to preserve**, not logic to rebuild — carry the source values forward and note them.
-- **Needs-human-input** — questions only the customer can answer: where do the actuals come from, can we connect upstream? Is this negative value (or this odd wiring) real, or a redaction/extract artifact? Is this config a typo? Should this line be modelled at component grain?
-
-The deliverable of this phase is the plan **plus an explicit open-questions list** presented *with* it. Migrating confidently around an unknown is how a whole zone gets built then deleted — naming the unknowns is the judgement the engagement needs from you. (Unattended run: still print the classification and questions, then proceed on the most-faithful reading.)
+The deliverable of this phase is the plan **plus an explicit open-questions list** presented *with* it.
 
 ---
 
@@ -114,9 +112,9 @@ dku dataset schema active -P PROJ
 dku dataset head active -P PROJ -n 5
 ```
 
-Compare row count against the source's expected count (SAS: NOTE in the log `NOTE: Table WORK.X created, with N rows`. Alteryx: cached `BrowseV2` data or a ground-truth CSV. Excel: row count of the source range.). If counts differ, investigate before continuing.
+Run multi-command build blocks under `set -e` (or chain each command with `&&`): a failed create otherwise lets the follow-up mutations run against a missing or wrong object.
 
-**The shipped ground truth is the contract — not the solution's literal tool config.** When a transformation's config *contradicts* the shipped expected output, reproduce the ground truth and note the divergence; don't blindly transliterate the config. Verify against the answer key on a row whose value depends on the contested step — e.g. a gap-fill: fill-with-0 vs forward-fill (LOCF) disagree on any row with an interior gap, and the GT tells you which the author used (for event-driven series — seat-share, event-only prices — LOCF is usually intended).
+Compare row count against the source's expected count (SAS: NOTE in the log `NOTE: Table WORK.X created, with N rows`. Alteryx: cached `BrowseV2` data or a ground-truth CSV. Excel: row count of the source range.). If counts differ, investigate before continuing.
 
 **A recorded verification must be the LAST touch.** Never add probe/diagnostic steps or scratch columns to a delivered recipe after recording "exact match" — the live project then diverges from its verification. Probe GREL semantics in a scratch recipe (or scratch project), or remove the probes and re-verify before reporting success.
 
@@ -128,7 +126,7 @@ Per recipe, a one-liner is enough: `recipe_name: input → output, N rows OK`. A
 
 ### Independent branches can run concurrently
 
-If two recipes share no upstream dependency (parallel branches in the source DAG), configure both, validate `$status.ok` on both, then run them in parallel — verify each terminus as it lands. The anti-pattern is *cascading 10+ unverified recipes*, not parallel builds.
+If two recipes share no upstream dependency (parallel branches in the source DAG), configure both, validate `$status.ok` on both, then run them in parallel — verify each terminus as it lands.
 
 ### Cross-connection landing
 
@@ -138,13 +136,13 @@ If the source upload lands on a different connection from the rest of the flow (
 
 ## Phase 3.5 — Flow collapse & sanity check
 
-Tier-1 collapse (Phase 2) reasons on the draft plan branch-by-branch — it never sees the whole emitted graph, so a correctly-translated flow still ships graph-shape redundancy. This pass is the backstop, on the **built** graph, source-agnostic. Open `flow-collapse.md` and work it end to end: inspection commands, the seven named rewrites (hoist below union · grouping fan-out · broadcast aggregate · dead nodes · join chain · consecutive Prepares · empty Prepares), the first-principles pass beyond them, the required Verdict table, and build-and-diff verification before deleting anything.
+Tier-1 collapse (Phase 2) reasons branch-by-branch on the draft plan; this pass is the backstop, on the **built** graph, source-agnostic (why one is needed after the other: `flow-collapse.md` intro). Open `flow-collapse.md` and work it end to end: inspection commands, the named rewrites, the first-principles pass beyond them, the required Verdict table, and build-and-diff verification before deleting anything.
 
 ---
 
 ## Phase 4 — Integration test
 
-Run the finish gate first — it turns "is this reviewable?" into one pass/fail verdict and prints the exact `dku ...` fix for anything that fails (orphan datasets, missing/templated descriptions, no wiki, unbuilt outputs, blank/type smells):
+Run the finish gate first — it turns "is this reviewable?" into one pass/fail verdict (what it checks: SKILL.md Phase 4) and prints the exact `dku ...` fix for anything that fails:
 
 ```bash
 dku project audit -P PROJ                            # reviewability gate (read-only)
@@ -154,18 +152,16 @@ dku --format json dataset head FINAL_OUTPUT -P PROJ -n 5
 
 `--contract` is how the Phase-1 parity reference becomes a check: per output, assert expected `columns`, `types`, `min_rows`, and `not_blank` keys (literal JSON, `@file.json`, or `-`). Treat it as a guardrail, not the whole sweep — still diff every row × column of the final outputs against the reference for exact parity; the contract just stops you declaring done while a column is missing or a count is wrong.
 
-### Always close the loop on output — depth depends on what the source ships
+### Where the output contract comes from
 
-The migrated output is verified against the source's output, every time. **Real output data** → 1:1 parity: every row × column of the final outputs matches the reference. **No output data (synthetic or sampled inputs)** → values can't be checked, but schema parity still must — column count, names, and order match the source's output. Right shape on synthetic data is the floor; right values against real output is the bar.
-
-**The `columns` half of the contract is always derivable — even when no expected *values* ship.** "No ground-truth CSV / no cached output rows" rules out a *value* parity check, never a *column* one: the source pins the terminal output schema (column set, names, order) in its own metadata — Alteryx caches it per output anchor (`ayx/overview.md` § Source-specific verification; `dump_workflow.py` prints it as OUTPUT CONTRACT), SAS in the terminal `PROC CONTENTS`/`KEEP=`, Excel in the output sheet's header row. Extract that ordered column list in Phase 1 and assert it with `--contract` regardless of value coverage. A migration *accretes* working columns; the default failure is shipping the union of everything you computed instead of the terminal tool's pruned schema.
+The parity doctrine — real output data → row × column sweep, synthetic inputs → schema parity, a wider output is a defect — lives in SKILL.md Phase 4. What it needs from Phase 1: the source pins the terminal output schema (column set, names, order) in its own metadata even when no expected *values* ship — Alteryx caches it per output anchor (`ayx/overview.md` § Source-specific verification; `dump_workflow.py` prints it as OUTPUT CONTRACT), SAS in the terminal `PROC CONTENTS`/`KEEP=`, Excel in the output sheet's header row. Extract that ordered column list in Phase 1 and assert it with `--contract` regardless of value coverage.
 
 ### Validate at entity grain, and prove the parity is earned
 
 A total that matches can still be wrong two ways:
 
-- **Offsetting per-entity errors.** Aggregate parity hides per-entity errors that cancel. Sweep per **(entity × period)**, not just the rollup, and rank by *signed* error. A near-zero total sitting on large offsetting per-entity errors is a red flag, not a pass — one live sweep caught a small line **sign-flipped** (+£34k where the source had −£580k), invisible at the £1.8bn total. Watch small-base lines especially: a 100%+ per-line error there barely moves the total.
-- **Fit-to-target.** You usually build *knowing* the answer key, so prove the parity is earned, not reverse-engineered: confirm your recipes read *inputs*, not the source's cached *outputs* (SKILL.md rule 7). Any join back to a cached-output value is transcription for that line — exact by construction, and **not** evidence the logic is right. An honest report distinguishes "re-derived and matches" from "read the answer and echoed it."
+- **Offsetting per-entity errors.** Aggregate parity hides per-entity errors that cancel. Sweep per **(entity × period)**, not just the rollup, and rank by *signed* error. A near-zero total sitting on large offsetting per-entity errors is a red flag, not a pass — one sweep caught a sign-flipped line invisible at the total. Watch small-base lines especially: a 100%+ per-line error there barely moves the total.
+- **Fit-to-target.** You usually build *knowing* the answer key, so prove the parity is earned, not reverse-engineered: confirm your recipes read *inputs*, not the source's cached *outputs* (SKILL.md, "Migrate the logic, not the cells"). Any join back to a cached-output value is transcription for that line — exact by construction, and **not** evidence the logic is right. An honest report distinguishes "re-derived and matches" from "read the answer and echoed it."
 
 Present a migration summary: source step → recipe → output dataset → row count → status. Note anything skipped (non-migratable patterns; alternative implementations).
 

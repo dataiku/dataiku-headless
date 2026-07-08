@@ -14,7 +14,7 @@ dku recipe create-sql pearson -P PROJ -i input_db --output-ds pearson_result --c
     --sql 'SELECT CORR(COALESCE("col_a", 0), COALESCE("col_b", 0)) AS "Result" FROM ${projectKey}_input_db'
 ```
 
-**Critical: `COALESCE(col, 0)` for null-handling parity.** Alteryx PearsonCorrelation **treats null as 0**, NOT pairwise-complete (the SQL `CORR()`/pandas/numpy convention). On sparse-null data the coefficient can differ by 2×+; `COALESCE(.,0)` reproduces Alteryx exactly. See `semantics.md` § Aggregation null-handling. Multi-column matrix → one row per pair via `UNION ALL` or Python (DSS Statistics cards are UI-only, not scenario-runnable).
+**Critical: `COALESCE(col, 0)` for null-handling parity** — Alteryx substitutes 0 for nulls; on sparse-null data the coefficient differs 2×+ from pairwise-complete `CORR()` (why: `semantics.md` § Aggregation null-handling). `COALESCE(.,0)` reproduces Alteryx exactly; document it as a deliberate parity choice. Multi-column matrix → one row per pair via `UNION ALL` or Python (DSS Statistics cards are UI-only, not scenario-runnable).
 
 ---
 
@@ -24,7 +24,7 @@ dku recipe create-sql pearson -P PROJ -i input_db --output-ds pearson_result --c
 
 | Greedy shape | Path |
 |---|---|
-| **Monotonic fill-until-empty** — allocate capacity `C` to demand rows in priority order, each gets what's left, partial-fill the boundary, zero after. No accept/reject branching; allocation depends only on cumulative demand *above*. | **One Window + one Prepare, NO Python.** Window `--partition-key <grp> --order-key Priority:desc --compute 'sum:Demand' --frame-preceding 1000 --frame-following 0` (cumulative-INCLUSIVE; `:output` rename ignored → DSS auto-names `Demand_sum`); Prepare `cum_before=Demand_sum-Demand`; `fulfilled=max(0,min(Demand,Capacity-cum_before))`; `unmet=Demand-fulfilled`. The standard waterfall shape (inventory fill, budget waterfall, seniority). |
+| **Monotonic fill-until-empty** — allocate capacity `C` to demand rows in priority order, each gets what's left, partial-fill the boundary, zero after. No accept/reject branching; allocation depends only on cumulative demand *above*. | **One Window + one Prepare, NO Python.** Window `--partition-key <grp> --order-key Priority:desc --compute 'sum:Demand' --frame-preceding 1000 --frame-following 0` (cumulative-INCLUSIVE; auto-named `Demand_sum` — naming: `../../dku-cli/references/visual-recipe-payloads.md` § Window); Prepare `cum_before=Demand_sum-Demand`; `fulfilled=max(0,min(Demand,Capacity-cum_before))`; `unmet=Demand-fulfilled`. The standard waterfall shape (inventory fill, budget waterfall, seniority). |
 | **Conditional-carry / skip-if-over** (knapsack: skip an item that would breach the cap, keep filling with later smaller ones) — running total branches on prior accept/reject | **CANNOT be a Window** → Python (or SQL recursive CTE — `tools-state-parsing.md` § MultiRowFormula). See knapsack below |
 
 The real **Optimization** tool (LP/MILP), the location optimizer, and home-grown knapsack/allocation `.yxmc` macros have **no DSS visual recipe** → a single Python recipe (EXCEPT the monotonic case). Pick the library:

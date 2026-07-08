@@ -8,8 +8,7 @@ KNIME `k-Means` defaults: `centroid_initialization: FIRST_ROWS` (deterministic �
 rows are the seeds) and `maxNrIterations: 10` (often stops BEFORE convergence). DSS uses
 sklearn k-means++ with full convergence. On the same data both produce valid but different
 local optima: cluster sizes and centroids will differ, usually with one or two segments
-clearly recognizable across both (verified on the churn sample: the "low day usage"
-segment matched 1197 vs 1206 rows; the other two split differently).
+clearly recognizable across both.
 
 Verify segment-level interpretation (count of clusters, ordering of centroid means,
 business meaning), NOT row-level assignments. If the user needs exact KNIME assignments,
@@ -37,8 +36,7 @@ settings through `dataikuapi`).
 | `missingValueHandling: XGBoost` | DSS imputes per feature | Different mechanism; immaterial on complete data |
 
 Expect metric-level parity (AUC/precision/recall within a point), not per-row identical
-predictions. Fraud sample: DSS RF reached AUC 0.977, P 0.94 / R 0.93 on the 30 % holdout —
-in family with the KNIME original.
+predictions.
 
 ## Partitioning
 
@@ -51,22 +49,19 @@ policy.
 
 ## Rule Engine
 
-- Rules are ORDERED, first match wins; `TRUE => x` is the default arm.
-- `$P (Class=1)$ > 0.3 => "1"` after a Predictor is a classification cut-off →
-  `dku model set-threshold SAVED_MODEL 0.3 -P PROJ` (note: DSS auto-optimizes the
-  threshold on deploy — e.g. to 0.1 on the fraud sample — so an unset threshold does
-  NOT mean 0.5).
+Rule syntax and ordering: `translation.md` `RuleEngine` row.
+
+- A `$P (Class=1)$ > 0.3`-style rule after a Predictor is a classification cut-off →
+  `dku model set-threshold SAVED_MODEL 0.3 -P PROJ` (DSS auto-optimizes the threshold on
+  deploy, so an unset threshold does NOT mean 0.5).
 - Rule Engine OUTPUTS STRINGS (hence the `String To Number` that often follows). In DSS
   the formula/threshold produces typed output; drop the cast.
 
 ## Flow variables & Configuration nodes
 
-- `settings.xml` `config[flow_stack]` holds the values variables HAD at save time; the
-  `model` block holds dialog defaults. The executed run's effective parameter = flow_stack
-  (or the workflow-configuration in `.artifacts/`). The churn sample's Interval Loop dialog
-  said 3→6 but Integer Configurations defaulted min=max=3 — the shipped ground truth
-  contains only k=3. **When dialog and output disagree, trust the output** (same authority
-  rule as Alteryx cached BrowseV2).
+- The executed run's effective parameter = `flow_stack` (or the workflow-configuration in
+  `.artifacts/`), never the `model` dialog defaults — the authority rule and where
+  `flow_stack` lives: `overview.md` § settings.xml.
 - Configuration node `parameterName` ≠ `flowVariableName` necessarily — use
   `flowVariableName` when mapping to project variable names.
 
@@ -74,9 +69,6 @@ policy.
 
 - KNIME column types in reader specs are Java classes (`java.lang.Double`, `…IntCell`).
   Excel/CSV upload to DSS infers all-STRING — always `set-schema` from the KNIME spec.
-- KNIME row keys (`Row0`, `Row83937`) are 0-based source row indices for un-shuffled
-  reads — usable to locate ground-truth rows in the original file.
-- `state=EXECUTED` in workflow.knime means `data/` outputs are real run artifacts.
 - Send Email nodes frequently ship with empty `smtpHost` (instance-level concern in KNIME
   too) — wire the DSS scenario reporter and note that SMTP channel config is an admin step,
   not a migration step.

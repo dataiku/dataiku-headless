@@ -10,7 +10,6 @@ paths (`~/Downloads/x.parquet`).
 One step — create an UploadedFiles dataset, upload the file, auto-detect schema:
 
     dku dataset create-from-file <name> <local.csv> -P <PROJECT>
-    dku dataset create-from-file sales ./data/sales.csv -P MYPROJ
     dku dataset create-from-file sales ./data/sales.csv -P MYPROJ --overwrite -y
 
 - Auto-detects format + schema. A CSV often detects **every column as STRING** —
@@ -27,17 +26,9 @@ One step — create an UploadedFiles dataset, upload the file, auto-detect schem
 
 - Streams rows to a CSV file, or to **stdout** if no path is given (pipe into
   `jq`/`python3`/`head`).
-- `--limit N` grabs a sample of a large dataset.
 
 ## Local files ↔ managed folder (any file type)
 
     dku folder upload <folder> <local-file> [--path /remote/path]
     dku folder upload-dir <folder> <local-dir>
     dku folder download <folder> <remote-path> [local]
-
-## Typical local loop
-
-1. `dku dataset create-from-file raw ./input.csv -P P` — load a CSV.
-2. Build on it (`dku recipe create …`, `dku job run --target …`, verify).
-3. `dku dataset download result ./out.csv -P P` — pull the result back to
-   inspect or chart locally.

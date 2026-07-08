@@ -3,6 +3,13 @@
 Durable plugin detail: component structure, parameter wiring, production patterns, testing.
 Sequencing and CLI deploy commands live in `playbooks/extensions-admin.md`.
 
+- [Anatomy](#anatomy) / [Tiers](#tiers-pick-before-coding)
+- [In-DSS runtime API](#in-dss-runtime-api-recipeswebappstools)
+- [Component templates](#component-templates-essentials)
+- [Parameter wiring](#parameter-wiring)
+- [Production patterns](#production-patterns) / [Anti-patterns](#anti-patterns-fix)
+- [Testing](#testing) / [Review checklist](#review-checklist-canonical)
+
 ## Anatomy
 
 A plugin is a directory (or ZIP with `plugin.json` **at root**) of self-contained components.
@@ -10,10 +17,11 @@ A plugin is a directory (or ZIP with `plugin.json` **at root**) of self-containe
 ```
 my-plugin/
 ├── plugin.json                 # manifest (required)
-├── python-lib/my_plugin/       # shared code — keep dataiku imports OUT (testable)
+├── python-lib/my_plugin/       # shared code (zero-DSS core — see Production patterns)
 ├── code-env/python/
 │   ├── desc.json               # acceptedPythonInterpreters, forceConda, installCorePackages
 │   └── spec/requirements.txt   # MUST list pandas, numpy, python-dateutil, requests
+│                               # (the dataiku runtime imports them at load even if you don't)
 └── resource/                   # dynamic SELECT choice scripts + {dist,icons}/ (built webapp assets, icons)
 ```
 
@@ -81,8 +89,7 @@ Call families with unguessable names (the `dataiku` package, inside DSS only):
 
 ## Component templates (essentials)
 
-**Agent tool** — args are nested under `"input"`, NOT at root; return `{"output": ...}`;
-trace via `trace.attributes[k]=v` (NOT `trace.set_attribute()`).
+**Agent tool** (arg nesting and trace API: see Anti-patterns):
 ```python
 class MyTool(BaseAgentTool):
     def get_descriptor(self, tool):
@@ -90,7 +97,7 @@ class MyTool(BaseAgentTool):
     def set_config(self, config, plugin_config):
         self.config, self.plugin_config = config, plugin_config
     def invoke(self, input, trace):
-        args = input.get("input", {})       # NOT input.get("query")
+        args = input.get("input", {})
         return {"output": "..."}
 ```
 
@@ -112,14 +119,11 @@ and/or `input["completionResponse"]["text"]`; raise to block, mutate to rewrite,
 
 ## Parameter wiring
 
-Static params live in `recipe.json`/`tool.json`/`webapp.json` `params[]` (`name`, `type`,
-`label`, `mandatory`, `defaultValue`). Param types include STRING, INT, DOUBLE, PASSWORD
-(plugin-level secrets), DATASET, COLUMN (`columnRole`), SELECT, LLM.
-
-**Dynamic SELECTs** — set `"getChoicesFromPython": true` and reference a script
-(`paramsPythonSetup` for recipes, `resource/params_helper.py` for webapps). The `do(payload,
-config, plugin_config, inputs)` function returns `{"choices": [{"value","label"}]}`.
-`triggerParameters: ["other_param"]` re-fetches when a dependency changes (cascading).
+Static params live in `recipe.json`/`tool.json`/`webapp.json` `params[]`. Full type
+catalog, per-type extra fields, and the dynamic-SELECT contract (`do()` signature,
+choices shape, `triggerParameters` cascade): `references/plugin-params.md`.
+The dynamic-SELECT script location differs
+by component: `paramsPythonSetup` for recipes, `resource/params_helper.py` for webapps.
 
 Read plugin/tool config at runtime: recipes `get_plugin_config()`; connectors via
 `__init__(config, plugin_config)`; webapps `get_webapp_config()`.
@@ -155,10 +159,11 @@ Read plugin/tool config at runtime: recipes `get_plugin_config()`; connectors vi
 | `subprocess.run(...)` no guards | add `stdin=DEVNULL`, `timeout=`, `env CI/TERM=dumb/NO_COLOR` |
 | `custom-webapps/` | `webapps/` (DSS won't discover otherwise) |
 | Vite default code-splitting | single-bundle output (predictable filenames) |
-| `plugin.delete()` blind | check `list_usages()` first |
 
-Deprecated → use: `get_definition/set_definition` → `get_settings/save`;
-`get_payload/set_payload` → `get_code/set_code`.
+Deprecated python-client calls → use: `DSSDataset`/`DSSScenario` `get_definition`/
+`set_definition` (and `DSSRecipe.get_definition_and_payload`) → `get_settings()` +
+`.save()`; code-recipe script access via raw `get_payload`/`set_payload` →
+`CodeRecipeSettings.get_code`/`set_code`.
 
 ## Testing
 
@@ -179,27 +184,20 @@ Pyramid: unit (fast, mock at DSS boundary) → integration (live DSS via
 
 ## Review checklist (canonical)
 
-Apply the relevant block per component. Most items map to an anti-pattern above.
+Check every anti-pattern row above against each component, plus:
 
-- **Structure:** `plugin.json` valid (id/version/meta); component dirs kebab-case;
-  each component has BOTH its `*.json` and `*.py`; `python-lib/` for shared code;
-  tests in `tests/unit/` and/or `tests/integration/`.
-- **Agent tools:** extends `BaseAgentTool`; `get_descriptor()` returns
-  `description`+`inputSchema`; `invoke()` reads `input.get("input",{})` (NOT root),
-  validates, returns `{"output": …}`; `tool.json` schema matches `get_descriptor()`;
-  description is LLM-clear; SQL-executing tools carry `enduser_sql_execution` for
-  identity delegation. *Agentic (internal-loop) tools:* `@tool` (NOT `BaseAgentTool`),
-  configurable `recursion_limit`, state in a dataclass not globals,
-  `LangchainToDKUTracer` bridges callbacks→trace, `langgraph`+`langchain-core` pinned.
-- **Recipes:** `get_recipe_config()`/role helpers; `recipe.json` roles match `recipe.py`;
-  empty-dataset safe; `write_with_schema()`.
-- **Guardrails:** extends `BaseGuardrail`; `trace.subspan()`; `trace.attributes[k]=v`
-  (NOT `set_attribute()`); checks query AND response; fails safe (block on error).
-- **Webapps:** uses DSS-injected `app` (no `Flask(__name__)`); imports
-  `dataiku.customwebapp`; `webapp.json` `hasBackend`+`noJSSecurity` if backend; folder
-  is `webapps/`; frontend calls `getWebAppBackendUrl()`.
-- **Code env:** `desc.json` sane; `requirements.txt` includes pandas/numpy/
-  python-dateutil/requests; interpreter matches target DSS.
+- **Structure:** component dirs kebab-case; each component has BOTH its `*.json` and
+  `*.py`; tests in `tests/unit/` and/or `tests/integration/`.
+- **Agent tools:** `tool.json` schema matches `get_descriptor()`; description is
+  LLM-clear; SQL-executing tools carry `enduser_sql_execution` for identity delegation.
+  *Agentic (internal-loop) tools:* `@tool` (NOT `BaseAgentTool`), configurable
+  `recursion_limit`, state in a dataclass not globals, `LangchainToDKUTracer` bridges
+  callbacks→trace, `langgraph`+`langchain-core` pinned.
+- **Recipes:** `recipe.json` roles match `recipe.py`; empty-dataset safe.
+- **Guardrails:** `trace.subspan()` per check; checks query AND response.
+- **Webapps:** review against `references/webapps.md` (backend rule, `webapp.json`
+  keys, pitfalls table).
+- **Code env:** `desc.json` interpreter matches target DSS.
 - **Code quality:** `[Component]` log prefix; no hardcoded creds/URLs/ids; clean
   imports; consistent error handling; tests cover key paths.
 

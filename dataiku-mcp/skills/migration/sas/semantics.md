@@ -1,6 +1,13 @@
 # SAS Semantics
 
-How SAS actually works. The rules below are the source of most silent migration errors — what a SAS program computes is often different from what the code appears to say. Read the relevant section before migrating any DATA step, MERGE, RETAIN pattern, or macro.
+How SAS actually works — what a program computes is often different from what the code appears to say. Read the relevant section before migrating any DATA step, MERGE, RETAIN pattern, or macro.
+
+- [Data types](#data-types) / [Missing value semantics](#missing-value-semantics) / [Character comparison](#character-comparison) / [Numeric precision](#numeric-precision)
+- [DATA step execution model (PDV)](#data-step-execution-model-pdv)
+- [MERGE semantics](#merge-semantics) — incl. many-to-many, common-variable overwrite, FIRST./LAST., visual-join caveat
+- [LAG function trap](#lag-function-trap) / [PROC UNIVARIATE defaults](#proc-univariate-defaults)
+- [PROC SQL SAS-specific extensions](#proc-sql-sas-specific-extensions) / [`<>` operator trap](#the--operator-context-trap) / [WHERE-only operators](#where-only-operators) / [PROC SORT deduplication](#proc-sort-deduplication)
+- [Macro patterns](#macro-patterns)
 
 ## Data types
 
@@ -103,7 +110,7 @@ SQL `PARTITION BY z` alone won't replicate the cascade. Partition by the full BY
 
 ### Visual-join caveat: `AUTO_NON_CONFLICTING` is first-wins
 
-Dataiku's visual Join recipe default (`outputColumnsSelectionMode: AUTO_NON_CONFLICTING`) keeps the column from the **lowest-index** `virtualInputs` entry when two inputs share a column name — the opposite of SAS `merge a b;` which gives `b` the win. Fix: rename upstream, or insert a thin Prepare that drops the conflicting column from the driver side.
+Dataiku's visual Join recipe default (`outputColumnsSelectionMode: AUTO_NON_CONFLICTING`) keeps the column from the **lowest-index** `virtualInputs` entry when two inputs share a column name — the opposite of SAS `merge a b;` which gives `b` the win. Fix: rename upstream, or insert a thin Prepare that drops the conflicting column from the driver side. This bites the merge+compute+bin pattern — `procs.md` § Merge + compute + bin.
 
 ## LAG function trap
 
@@ -146,7 +153,7 @@ std    = np.std(x, ddof=1)
 | Feature | Behavior | Standard SQL? |
 |---|---|---|
 | `calculated col_alias` | Reference a computed column in the same SELECT | No — use subquery or repeat expression |
-| `GROUP BY` with detail columns | SAS "remerges" group totals back to each row | No — this is a window function. Use `SUM() OVER()` |
+| `GROUP BY` with detail columns | SAS "remerges" group totals back to each row | No — `SUM() OVER()` in SQL; in visual recipes this is Group(no key) + CROSS Join, NOT Window — `procs.md` § PROC SQL auto-remerge |
 | `SELECT DISTINCT INTO :macro_var SEPARATED BY` | Populates macro variable from query | No equivalent — use project variables |
 | `HAVING col = max(col)` without GROUP BY | Filters to max-value rows | Differs in standard SQL — use `QUALIFY` or subquery |
 | `NULLIF()` | Does NOT exist in SAS PROC SQL | Standard has it; SAS uses `CASE WHEN` |
@@ -174,18 +181,7 @@ In DATA step code, `<>` means MAX, not inequality. Use `GREATEST(a, b)` in SQL, 
 
 ## PROC SORT deduplication
 
-| Option | Behavior | Dataiku |
-|---|---|---|
-| `NODUPKEY` | Dedups on BY keys, keeps first row per combo | Sort + Prepare (RemoveDuplicates by key columns) |
-| `NODUP` | Removes exact duplicate rows (all columns match) | Prepare (RemoveDuplicates, all columns) |
-| (none) | Sort only | Sort recipe |
-
-## DO WHILE vs DO UNTIL
-
-- `DO WHILE (cond)` — checks at the **top**. May never execute.
-- `DO UNTIL (cond)` — checks at the **bottom**. Always runs at least once.
-
-Preserve the check-order when translating loops.
+`NODUPKEY` dedups on the BY keys, keeping the first row per combo; `NODUP` removes exact whole-row duplicates; no option = sort only. Recipe mapping: `procs.md` § PROC → recipe.
 
 ---
 

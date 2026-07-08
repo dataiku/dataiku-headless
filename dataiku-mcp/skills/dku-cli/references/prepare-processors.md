@@ -5,20 +5,22 @@ Pick a purpose-built processor over `CreateColumnWithGREL` (GREL is last resort)
 index). Sugar commands exist (`add-rename`, `add-delete-columns`, `add-reorder`, `add-fill-empty`,
 `add-find-replace`, `add-filter-rows`, `add-formula`, `add-fold`, `add-geopoint`) — get their flags
 from `--help`. Step JSON shape: `{"type":"Processor","params":{…}}`. Prepare does **not** auto-create
-its output dataset — create it first.
+its output dataset (`create-prepare` does, and generic `create -t prepare` does with `-c CONNECTION`) —
+otherwise create the output first.
 
 **Build the whole pipeline at once with `dku recipe apply-spec RECIPE @steps.json -P PROJ`** — a JSON
 array where each entry is either an `op` mirroring a sugar command
 (`{"op":"formula","column":"total","expr":"price*qty"}`; ops: formula, rename, filter-rows,
 fill-empty, delete-columns, reorder, find-replace, fold, geopoint, geodistance) or a raw
 `{"type":"Processor","params":{…}}` for the processors below. Entries take optional `"name"` and
-`"disabled":true`. Appends by default; `--replace` rebuilds. The batch is validated before any save.
-This is the preferred path; use the single `add-*` commands only to iterate one step or `--at`-insert.
+`"disabled":true`. Appends by default; `--replace` rebuilds. Why it beats chained `add-*` calls:
+`playbooks/tabular-flow.md` § Prepare recipe.
 
 ## Shared params
 
 - `appliesTo` — `SINGLE_COLUMN` | `COLUMNS` | `ALL` | `PATTERN`. **Required** on scoped processors;
-  omitting it silently no-ops several of them (notably `ColumnReorder`).
+  omitting it silently no-ops several of them (notably `ColumnReorder`). With `PATTERN`, also set
+  `appliesToPattern`.
 - `columns` — array of column names. Use this (not GREL refs) for **column names with spaces**.
 - `booleanMode` — `AND` | `OR` when multiple columns are scoped.
 - DSS **silently ignores unknown param keys** → a wrong field name produces an accepted-but-no-op step.
@@ -69,7 +71,7 @@ patterns; use `Z`/`z` for ISO-8601 timezone, NOT `XXX`.
 
 Timezone-only date: DateParser converts to UTC first; use `timezone_id:"use_preferred_timezone"` to
 keep the source-tz calendar date. Timestamp→date-only = `DateParser` with `outType:dateonly` (one step).
-GREL `formatDate()`/`toDate()` don't exist; `toString(date,"fmt")` is a no-op — use processors.
+GREL can't format or parse dates (wrong-name table in `formulas.md`) — use the processors above.
 
 ## Filters / flags
 
@@ -86,7 +88,7 @@ GREL `formatDate()`/`toDate()` don't exist; `toString(date,"fmt")` is a no-op �
 | `FlagOnDate` | flag in date range | `{"appliesTo":"SINGLE_COLUMN","columns":["d"],"filterType":"RANGE","min":"2024-01-01T00:00:00.000","max":"2024-12-31T00:00:00.000","action":"FLAG","flagColumn":"in_2024","timezone_id":"UTC","booleanMode":"AND","includeEmptyValues":false}` |
 | `FlagOnBadType` / `FlagOnCustomFormula` | flag by type / formula | type: like FilterOnBadType + `action:"FLAG"`. formula: `{"expression":"val(\"amount\") > 100","action":"FLAG","flagColumn":"high"}` (quote col in `val`/`numval`/`strval`) |
 | `VisualIfRule` | if/then/else branches | see below |
-| `UpDownFiller` | LOCF/NOCB impute | `{"appliesTo":"SINGLE_COLUMN","columns":["v"],"direction":"DOWN"}` (`UP`) |
+| `UpDownFiller` | LOCF/NOCB impute | `{"appliesTo":"SINGLE_COLUMN","columns":["v"],"direction":"DOWN"}` (`UP`) — only NULL cells trigger the fill; `""` empty strings do NOT (convert them to null first) |
 
 ### VisualIfRule
 
@@ -101,7 +103,7 @@ GREL `formatDate()`/`toDate()` don't exist; `toString(date,"fmt")` is a no-op �
 
 | Processor | When | Params payload |
 |---|---|---|
-| `MultiColumnFold` | wide→long (melt) | `{"columns":["jan","feb"],"foldNameColumn":"month","foldValueColumn":"sales","foldRemoveFoldedColumns":true}` |
+| `MultiColumnFold` | wide→long (melt) | `{"columns":["jan","feb"],"foldNameColumn":"month","foldValueColumn":"sales","foldRemoveFoldedColumns":true}` — rows whose value is null are silently DROPPED; `add-fill-empty` each folded column first |
 | `MultiColumnByPrefixFold` | fold by name regex | `{"columnNamePattern":"score_.*","columnNameColumn":"metric","columnContentColumn":"value","foldRemoveFoldedColumns":true}` |
 | `Unfold` | long→wide spread | `{"column":"trucks","prefix":"truck_","limit":10,"overflowAction":"ERROR"}` (`TRUNCATE` drops overflow) |
 | `JSONFlattener` | flatten JSON col | `{"inCol":"meta","flattenArrays":false,"maxDepth":10,"nullAsEmpty":true,"prefixOutputs":true,"separator":"_"}` |
@@ -124,13 +126,13 @@ GREL `formatDate()`/`toDate()` don't exist; `toString(date,"fmt")` is a no-op �
 
 **In-place cast doesn't retype.** A GREL formula overwriting an EXISTING column (e.g. `price = price * 1.0`) keeps the column's declared storage type (stays `string`) — DSS only re-infers types for **new** output columns. A manual `dku dataset set-schema` fix is reverted by the next rebuild (schema auto-update is on by default). The only clean route is writing to a **new** output column (which infers the type).
 
-**Writing back under an original input-column name silently NULLs it.** Inside one Prepare, deleting/renaming a temp column TO a name the INPUT schema already owns — or overwriting an input column via a GREL step — produces an all-null column, no error (the engine binds the name to the input column, which the earlier step removed). Emit computed values under NEW names; rename to the final names in a tiny downstream Prepare. (`DateParser` without `outCol` is the same trap, called out in its row.)
+**Writing back under an original input-column name silently NULLs it.** Inside one Prepare, deleting/renaming a temp column TO a name the INPUT schema already owns — or overwriting an input column via a GREL step — produces an all-null column, no error (the engine binds the name to the input column, which the earlier step removed). Emit computed values under NEW names; rename to the final names in a tiny downstream Prepare.
 
 ## Engine-bound processors — succeed but do nothing on the DSS engine
 
 These need an in-database (SQL) or Spark engine. On the default DSS streaming
 engine (any Filesystem/Upload-backed flow) the build **exits 0 with wrong
-output** — no warning anywhere. Always `head` the output.
+output** — no warning anywhere.
 
 | Processor | Params payload | On DSS engine |
 |---|---|---|
@@ -144,9 +146,5 @@ Processors taking column names in `columns[]`/`inCol` work with spaces (`DatePar
 processors (`CreateColumnWithGREL`, `ColumnCopier`, `VisualIfRule`, `FilterOnCustomFormula`) silently
 return null on spaced names — rename to remove spaces first, or use a Python recipe.
 
-## Gotchas (when a formula is unavoidable)
-
-- `round(x,2)` → silent empty (1-arg only); use `round(x*100)/100`.
-- `log()` is base-10; natural log = `ln()`.
-- `numval(col)` bareword → empty; use `numval("col")` or bare `col` arithmetic.
-- `asDateOnly()` on a STRING col silently fails — parse with `DateParser` first.
+When a formula is unavoidable, the GREL traps (1-arg `round`, base-10 `log`,
+quoted `numval`, `asDateOnly` on strings) live in `formulas.md`.

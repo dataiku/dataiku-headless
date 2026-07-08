@@ -2,6 +2,8 @@
 
 Open when a migration produces the wrong result and you need to understand what Alteryx actually does. For *which* recipe to use, see overview.md's reference map.
 
+**Contents:** [Data types](#data-types) · [Null semantics](#null-semantics) · [Aggregation null-handling](#aggregation-null-handling--alteryx-vs-dss-divergence) (`*No0`, Pearson) · [Join semantics](#join-semantics) · [MultiRowFormula / RunningTotal](#multirowformula--runningtotal-semantics) · [Formula evaluation order](#formula-evaluation-order) · [Truthy, comparison, typing](#truthy-comparison-and-typing) · [`[_CurrentField_]`](#_currentfield_-multi-field-formula) · [Date/time](#datetime-semantics) · [`.yxmd` parsing notes](#parsing-notes-for-yxmd-xml) · [Row order](#sampling-and-deterministic-row-order) · [Value-mismatch causes](#common-value-mismatch-causes)
+
 ---
 
 ## Data types
@@ -55,12 +57,12 @@ Alteryx aggregation tools (`Summarize`, `PearsonCorrelation`, sometimes `Running
 
 - **Alteryx:** ignore both NULL **and** zero. `AvgNo0` over 9 rows of `0` + `(40,42,43)` → `(40+42+43)/3 = 41.67`, not `10.42`. The `0` is Alteryx's sentinel for "no value for this stat".
 - **DSS/SQL:** `avg/sum/min/max/count` ignore NULL but **include 0**. Diverges whenever source uses 0 as a null-sentinel (common in exported `.yxdb`/`.yxmd` TextInput data).
-- **Migration:** coerce sentinel-zero to NULL via a `--computed-col` on the same Group recipe (`col_no0=if(val("col")==0||isBlank(val("col")), null, val("col")):double` then `--agg col_no0:avg`); `avg` already ignores NULL → Alteryx-equivalent answer. Exact flags + the `==`-not-`=` CLI gotcha: `tools-join-reshape.md` § Summarize.
+- **Migration:** coerce sentinel-zero to NULL on the same Group recipe; `avg` already ignores NULL → Alteryx-equivalent answer. Formula + exact flags + the `==`-not-`=` gotcha: `tools-join-reshape.md` § Summarize.
 
 ### 2. `PearsonCorrelation` treats null as zero (NOT pairwise-complete)
 
 - **Alteryx:** substitutes `0` for null cells before computing correlation. Statistically wrong (correct = pairwise-complete, what SQL `CORR()`/pandas/numpy do), but it's what every solution `.yxmd` ground truth was built against — reproduce it.
-- **DSS:** SQL `CORR(x,y)` ignores rows where either arg is NULL. To match Alteryx, wrap nullable columns in `COALESCE(col, 0)` — divergence can be large (different magnitude AND decay, not just rounding); document the COALESCE. Recipe mechanics: `tools-predictive-ml.md` § PearsonCorrelation.
+- **DSS:** SQL `CORR(x,y)` is pairwise-complete (ignores rows where either arg is NULL) — divergence from Alteryx can be large (different magnitude AND decay, not just rounding). Fix + recipe mechanics: `tools-predictive-ml.md` § PearsonCorrelation.
 
 ### 3. General principle (always verify aggregation parity)
 
@@ -92,7 +94,6 @@ DSS Join recipe parity:
 - `left` → Left + Join (matched rows have right columns populated).
 - `right` → Right + Join.
 - `outer` → Left + Join + Right (unmatched have nulls on the other side).
-- **To reproduce Alteryx's 3-output fan-out:** outer join → one output → three downstream Filter recipes (one per side).
 
 ---
 
@@ -103,23 +104,12 @@ Evaluated **after** sort (`GroupByFields` + input row order). The formula refere
 - `[Row+N:Col]` — N rows forward.
 - `[Row-1:<this formula's output>]` — the previously computed value of this formula (enables running totals).
 
-**Boundary init** (`<OtherRows>` XML, `Values for Rows that Don't Exist`) — choice changes results:
-
-| Setting | Resolves missing ref to |
-|---|---|
-| `NULL` | null |
-| `Empty` | type's empty value — for a **numeric** field this is **`0`, not null** → a first-row `[Row-1:numCol]` reads `0` and DOES contribute to a downstream SUM |
-| `Closest valid value` | nearest non-boundary value |
-
-Read the `<OtherRows>` tag: an `Empty` on a numeric column means the boundary row participates (first delta measured from `0`, not skipped). DSS Window/lag port: `Empty` numeric → `coalesce(lag(col,1), 0)` (boundary measured from `0`); `NULL` → plain `lag(col,1)`.
+**Boundary init** (`<OtherRows>` XML, UI "Values for Rows that Don't Exist") — the choice changes results; always read the tag. Value → DSS translation (incl. numeric `Empty` = **`0`, not null** — the boundary row participates): `tools-state-parsing.md` § `<OtherRows>` boundary semantics.
 
 DSS Window recipe parity:
 - Partition = `GroupByFields`. Order = input row order (bake `row_idx` at extraction if no sort field — no AddId processor, see tools-state-parsing.md § RecordID).
 - `lag(col,1)` (SQL) / `col.shift(1)` (pandas) = `[Row-1:col]`.
-- Self-referential running total (`[Row-1:RunTotal] + [Sales]`): Window cumulative-sum mode (`agg-mode: cumulative`, `Sales:sum`). Arbitrary self-referential recurrences → Python only:
-  ```python
-  df["RunTotal"] = df.groupby("Region")["Sales"].cumsum()
-  ```
+- Self-referential running total (`[Row-1:RunTotal] + [Sales]`) = Window cumulative sum: `tools-state-parsing.md` § RunningTotal. Recurrences that carry state conditionally (resets, caps) → SQL recursive CTE or Python: § Conditional-carry running total there.
 
 ---
 
@@ -146,7 +136,7 @@ Expression: Replace([_CurrentField_], ",", "")
 Fields:     Price, Qty, Discount
 ```
 
-DSS options: one Prepare step per column (verbose, explicit); a Prepare `FindReplace` step with `columnNames: [Price, Qty, Discount]`; or Python `df[cols].apply(lambda c: c.str.replace(",", ""))`.
+DSS translations: `tools-core.md` § Formula (Multi-Field Formula).
 
 ---
 
@@ -158,17 +148,7 @@ DSS options: one Prepare step per column (verbose, explicit); a Prepare `FindRep
 - `DateTimeNow()` = local server time; `DateTimeToday()` = `yyyy-MM-dd`.
 - `DateTimeParse([s], "format")` uses Java tokens (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`).
 
-### DSS date types
-
-Pick the narrowest type that fits:
-
-| DSS type | Example | Use for |
-|---|---|---|
-| Datetime with tz | `2025-12-31T23:05:43.123Z` | ISO-8601 sources, explicit offset/Z |
-| Datetime no tz | `2025-12-31 23:05:43` | Wall-clock times, no-tz source systems |
-| Date only | `2025-12-31` | Calendar days, Excel export targets |
-
-Alteryx `Date` → DSS **Date only**. Alteryx `DateTime` → DSS **Datetime no tz** (unless source carries Z/offset). Use Parse date / Format date with "Output type" set; if overwriting in place, also change the column's DSS type manually.
+DSS date-type choice (Datetime with/without tz vs Date only) + the Alteryx `Date`/`DateTime` mapping: `tools-state-parsing.md` § DSS date types.
 
 ### DSS Prepare parity
 
@@ -201,10 +181,10 @@ When migrated output disagrees with Alteryx ground truth, check in this order:
 
 1. **Type coercion at ingest** — DSS stored a numeric as STRING; comparisons silently fail. Fix: `set-schema` with correct types.
 2. **Null on a join key** — Alteryx excluded those rows from Join; DSS did too, but downstream queries assuming those rows exist get different counts. Fix: inspect Left/Right output of Join.
-3. **Implicit numeric → string cast** — Alteryx `[id] + "_label"` auto-casts; GREL doesn't. Use `concat("", id, "_label")`.
+3. **Implicit numeric → string cast** — Alteryx `[id] + "_label"` auto-casts; GREL doesn't: `concat("", …)` (`tools-core.md` GREL cheatsheet).
 4. **Decimal precision** — Alteryx FixedDecimal vs DSS double. Fix: push arithmetic to SQL, or cast upstream.
 5. **Formula evaluation order** — Alteryx Formula tool: later fields see earlier output. DSS Prepare: steps run in order — verify step order if a reference is null.
 6. **DateParser produced all nulls** — missing `outCol` param, or format mismatch. Re-check format tokens (Java, not C strftime).
-7. **Group added a `count` column you didn't ask for** — pass `--no-global-count`.
+7. **Group added a `count` column you didn't ask for** — `--no-global-count` (`tools-join-reshape.md` § Summarize).
 8. **Stack produced nulls / dropped columns** — column names disagree, or stack set to `INTERSECT`/`FROM_DATASET`. Use `dku recipe create-stack --mode UNION` to keep the union; add a ColumnRenamer upstream when differently named columns are semantically the same.
 9. **Rounding** — Alteryx `Round(1.5)` is half-away-from-zero; GREL `round(1.5)` is half-up; pandas/Python default is banker's. See `../sas/functions-formats.md`.

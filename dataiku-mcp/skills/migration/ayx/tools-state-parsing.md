@@ -15,7 +15,7 @@ What `[Row-N:Col]` returns when offset N runs off the partition start/end:
 | `<OtherRows>` | Alteryx at boundary | DSS translation |
 |---|---|---|
 | `NULL` (default) | null | DSS Window `Lag(col,k)` also nulls at boundary — semantics match. Use Window directly. |
-| `Empty` | `""` string, `0` numeric | NOT the same as NULL on numeric cols — the boundary row participates (first delta measured from `0`, and it contributes to a downstream SUM). Port as `coalesce(lag(col,1), 0)`; string cols → `""`. See `semantics.md` § Boundary init. |
+| `Empty` | `""` string, `0` numeric | NOT the same as NULL on numeric cols — the boundary row participates (first delta measured from `0`, and it contributes to a downstream SUM). Port as `coalesce(lag(col,1), 0)`; string cols → `""`. |
 | `Nearest` | first/last value of partition (edge value) | DSS `Lag` nulls at boundary — does NOT match. Add `FirstValue(col)` over partition + a Prepare `if(isBlank(lag_k), first_v, lag_k)` per offset before averaging. |
 
 `Nearest` is the trap: common in moving-average flows (makes leading-edge averages well-defined). DSS Window's *natural partial-window* gives a THIRD answer (avg over available rows). 3-row MA at row 2, input `(218,200,…)`:
@@ -46,7 +46,7 @@ A vanilla `--compute 'avg:Value:r3mo' --window-frame -2,0` yields 209, not 212.
        --rename 'raw_month_lead:next_month'
    # Prepare: if(month=='J' && next_month=='F','Jan', if(month=='J' && next_month=='J','Jun',…))
    ```
-   The `--compute 'TYPE:COL:OUTPUT'` third segment is silently ignored — always `--rename SRC:DST`.
+   The `--compute` third segment is ignored — always `--rename SRC:DST` (naming rules: `../../dku-cli/references/visual-recipe-payloads.md` § Window).
 
    **Trap folding the post-MRF Filter into `--post-filter`:** canonical "MRF flags row, Filter keeps flagged" (`Flag = if [Row+1:col] matches /^[(]/` → `Filter(Flag)`) → ONE Window `--compute 'lead:col:'` + `--post-filter`. But `--post-filter` runs on the **pre-rename** schema — `--post-filter 'startsWith(strval("next_month"),"(")'` after `--rename 'raw_month_lead:next_month'` filters a not-yet-existing column → ZERO rows silently. Use the pre-rename name: `--post-filter 'startsWith(strval("raw_month_lead"),"(")'`. Output still has renamed `next_month`.
 
@@ -72,7 +72,7 @@ A vanilla `--compute 'avg:Value:r3mo' --window-frame -2,0` yields 209, not 212.
    dku recipe add-delete-columns ma_calc -P PROJ --columns 'Value_lag1,Value_lag2,Value_first'
    dku recipe apply-schema ma_calc -P PROJ && dku recipe run ma_calc -P PROJ --wait
    ```
-   For window size W: `lagValues="1,2,…,W-1"`. **Two Window recipes needed when one source has TWO MAs with DIFFERENT partition keys** (`r3mo` by `(Region,Metric)`, `r6mo` by `Metric`) — partitioning is per-recipe. Chain them and rename the first's outputs (Window names are `<col>_lag<k>`/`<col>_first`, NOT customizable) so the second's defaults don't collide.
+   For window size W: `lagValues="1,2,…,W-1"`. **Two Window recipes needed when one source has TWO MAs with DIFFERENT partition keys** (`r3mo` by `(Region,Metric)`, `r6mo` by `Metric`) — partitioning is per-recipe. Chain them and `--rename` the first's outputs (default names `<col>_lag` for one offset, `<col>_lag<k>` when several, `<col>_first`) so the second's defaults don't collide.
 
 6. **Custom multi-row logic** → Window + lag column + trailing Prepare. When the recurrence references the as-yet-computed prior-row value of the SAME column (conditional-carry running balance), it's NOT a Window — see Conditional-carry below.
 
@@ -82,7 +82,7 @@ MRF marks "first in group" → Filter to first-only → Summarize. DSS: **Window
 ### Caveats / edge-fill rule (`../../dku-cli/playbooks/tabular-flow.md` links this)
 - DSS `Lag(col,k)` returns null at the partition boundary. To match `<OtherRows>Nearest`, ALWAYS add a `FirstValue(col)` aggregation and null-coalesce lags against it in a Prepare (option 5).
 - `--compute lag:col:` accepts ONE default offset (1); multi-offset needs a `set-settings` patch on `payload.values[].lagValues` (comma string `"1,2,3"`).
-- Window output names are fixed `<col>_lag<k>` / `<col>_first`; two Window recipes on the same source column collide — insert a Prepare `add-rename` between.
+- Window output names default to `<col>_lag` (one offset) / `<col>_lag<k>` (several) / `<col>_first`; two Window recipes on the same source column collide — `--rename` the first's outputs (`../../dku-cli/references/visual-recipe-payloads.md` § Window), or insert a Prepare `add-rename` between.
 - Window engine matters — SQL/DSS/Spark differ on tie row-numbers; add an explicit Sort upstream for determinism.
 
 ### Conditional-carry running total → SQL recursive CTE (NOT Window)
@@ -116,9 +116,9 @@ dku recipe create-window runtot -P PROJ -i in --output-ds out \
 ```
 
 **Caveats:**
-- Output is hardcoded `<src_col>_sum`. If downstream references the Alteryx name (`RunTot_Sales`), chain a Prepare `add-rename`, or just reference `Sales_sum`.
+- Output is hardcoded `<src_col>_sum` (naming rules: `../../dku-cli/references/visual-recipe-payloads.md` § Window). Downstream references the Alteryx name (`RunTot_Sales`) → `--rename 'Sales_sum:RunTot_Sales'`, or just reference `Sales_sum`.
 - Alteryx orders by **input row order** (= upstream Sort tool). DSS needs an explicit `--order-key`. No natural order column → add a row id upstream (`create-window … --compute 'rowNumber::rn'` no partition) or fold the Sort tool's keys into `--order-key`.
-- **Collapse hint:** `RunningTotal` followed by `MultiRowFormula` referencing `[Row-1:RunTot_X]` with `NumRows=1` (greedy fill / allocate-by-priority) → do NOT add a Lag column; algebra `[Row-1:RunTot_X] == RunTot_X - X`. One Window + one `add-formula` instead of Window+Lag+Prepare. See `overview.md` § Collapse triggers (`Sort → RunningTotal → MultiRowFormula`).
+- **Collapse hint:** `RunningTotal` followed by `MultiRowFormula` referencing `[Row-1:RunTot_X]` with `NumRows=1` (greedy fill / allocate-by-priority) → do NOT add a Lag column; algebra `[Row-1:RunTot_X] == RunTot_X - X`, so reference `RunTot_X - X` directly. One Window + one `add-formula` instead of Window+Lag+Prepare.
 
 ---
 
@@ -129,7 +129,7 @@ dku recipe create-window runtot -P PROJ -i in --output-ds out \
 **Dataiku: there is NO Prepare row-counter processor.** `AddId` is NOT a valid step type — `apply-schema` fails at run with `UnavailableTypeException: Type AddId was available in a plugin that is not installed` (same trap as `Enumerator`). Never add `{"type":"AddId",…}`. Three options by preference:
 
 1. **Pre-bake the id at extraction** (cleanest when input is an uploaded file and RecordID just numbers rows 1..N): write the id in the Python `csv.writer` with `enumerate(rows, 1)`, then `set-schema` to `int`/`bigint`. Downstream Prepare needs no counter.
-2. **Window `rowNumber`** (input already a managed dataset): `create-window … --compute 'rowNumber::rn'` no partition. ⚠ needs explicit `--order-key`; output is hardcoded lowercase `rownumber` (the `::rn` is advisory/ignored — `--rename 'rownumber:RecordID'`). See `tools-join-reshape.md`.
+2. **Window `rowNumber`** (input already a managed dataset): `create-window … --compute 'rowNumber::rn'` no partition. ⚠ needs explicit `--order-key`; output is hardcoded lowercase `rownumber` — `--rename 'rownumber:RecordID'` (naming rules: `../../dku-cli/references/visual-recipe-payloads.md` § Window).
 3. 1-based id from a 0-based source: add `--step '{"type":"CreateColumnWithGREL","params":{"expression":"RecordID + 1","column":"RecordID"}}'`.
 
 **Caveat:** on SQL/Spark a row id has no stable meaning without an explicit Sort/`--order-key` upstream.
@@ -175,6 +175,11 @@ dku recipe create-window runtot -P PROJ -i in --output-ds out \
 3. `add-filter-rows --formula 'hashtag != ""' --action KEEP_ROW` — replicates the downstream `Filter(IsNotNull)`.
 
 **ParseComplex — match Alteryx "first decimal in segment".** `ParseComplex` with `(\d+\.?\d*)` returns the FIRST match anywhere, no anchor. Migrating `TextToColumns(split-to-rows) → RegEx(ParseComplex (\d+\.?\d*))` to `SplitFold + RegexpExtractor`: do NOT add a context anchor (`^([\d.]+)\]`) "to be safe" — it silently drops rows where the value isn't followed by that context (truncated data, alternate layouts). Use `^([\d.]+)` (leading-decimal-only). Rows truncated mid-string by an upstream `Formula(size=N)` can have a trailing delimiter cut, so a context anchor matches neither layout and silently drops them.
+
+### Structured-text parse patterns (`collapse-triggers.md` routes here)
+
+- **HTML table in a cell** — split on the **row-level** tag, not the cell-level: `SplitFold` `separator:"<tr"`, then per-field extraction `<td>(.*?)</td>\s*<td>(.*?)</td>`; self-closing tags vary, match `<br\s*\/>`. Python only for rowspan/colspan or non-whole-row `<tr>`.
+- **Free-text US address → City/State/Zip** (the general *FindReplace-from-small-static-dict → regex alternation* collapse): `City = match(addr, /(?i).*\b(?:avenue|ave|rd|road|drive|dr|street|st)\b\s*(.+?)\s+[A-Z]{2}(?:\s+\d{5})?\s*/)[0]` — greedy `.*` grabs the *last* street suffix so city starts after it, lazy `(.+?)` runs to the state token, optional `(?:\s+\d{5})?` lets zip-less rows still match.
 
 ### XML-in-cell with N attributes per row (fixed-schema "raw XML field")
 
@@ -335,10 +340,10 @@ dku recipe add-step prep --type ColumnsSelector --params '{"appliesTo":"SINGLE_C
    dku recipe add-formula pack -P PROJ --column boxEnd   --expr 'min(StartingBottleID + (numval("box_idx")+1) * ${box_size} - 1, EndingBottleID)'
    dku recipe add-formula pack -P PROJ --column BottlesInThisBatch --expr 'numval("boxEnd") - numval("boxStart") + 1'
    ```
-   The batch-size param (macro's `NumericUpDown`) → a **project variable** `${box_size}`; re-running with a different value reproduces each expected output. **Two gotchas:** (a) `forRange(from, to, step, v, expr)` — `to` is EXCLUSIVE, so `forRange(0, num_boxes, …)` emits exactly `num_boxes`. (b) **Reusing an original input-column name inside a Prepare nulls it** — you cannot write box ranges back into `StartingBottleID`/`EndingBottleID` in this recipe; emit new names (`boxStart`/`boxEnd`), rename in a tiny DOWNSTREAM Prepare.
+   The batch-size param (macro's `NumericUpDown`) → a **project variable** `${box_size}`; re-running with a different value reproduces each expected output. **Two gotchas:** (a) `forRange(from, to, step, v, expr)` — `to` is EXCLUSIVE, so `forRange(0, num_boxes, …)` emits exactly `num_boxes`. (b) Writing box ranges back into `StartingBottleID`/`EndingBottleID` nulls them — emit `boxStart`/`boxEnd` and rename downstream (`../../dku-cli/references/prepare-processors.md` § writing back under an input-column name).
 
 6. **The sequence IS the deliverable (date spine / calendar / number series) — no input, no join, no count** → one small Python recipe (legitimate — pure generation, no visual row-generator exists). Two faithful mappings:
-   - **Macro has no input → the recipe needs no input either.** `dku recipe create gen -t python --output-ds OUT --connection filesystem_managed -P PROJ` works with zero `-i` (live-verified: creates, runs, builds). Do NOT wire a 1-row seed dataset — that pattern only generates upload/guard friction.
+   - **Macro has no input → the recipe needs no input either.** `dku recipe create gen -t python --output-ds OUT --connection filesystem_managed -P PROJ` works with zero `-i` — it creates, runs, and builds. Do NOT wire a 1-row seed dataset — that pattern only generates upload/guard friction.
    - **Macro interface questions → project variables**, read via `dataiku.get_custom_variables()` (e.g. `${start_date}`, `${include_weekends}`). Re-run with different values to reproduce outputs. See `tools-io-apps-ml.md` § Macros.
    - Date spine body: `d = date.fromisoformat(v["start_date"]); while d <= date.today(): … d += timedelta(days=1)`. Day-of-week = `d.strftime("%A")`; weekday-only = `d.weekday() < 5` (Mon=0). **`date.today()`-relative output has no fixed ground truth** — validate by shape: row count = days in range, first = start, last = today, DOW correct, toggle drops Sat/Sun.
 

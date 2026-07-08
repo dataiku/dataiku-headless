@@ -1,6 +1,6 @@
 # Alteryx Core Tools to Dataiku
 
-Row-local + source/input tools: TextInput, DbFileInput/Output, Formula (+ GREL cheatsheet), AlteryxSelect, Filter, Sort, Sample, Unique.
+Row-local + source/input tools: [TextInput](#textinput), [DbFileInput/Output](#dbfileinput--dbfileoutput), [Formula](#formula) (+ GREL cheatsheet, Multi-Field Formula), [AlteryxSelect](#alteryxselect), [Filter](#filter), [Sort](#sort), [Sample](#sample), [Unique](#unique).
 
 ## TextInput
 
@@ -68,7 +68,7 @@ No one-shot CLI verb for "read every `*.xls` in a folder, concat, add `FileName`
 | Path | When | How |
 |---|---|---|
 | **Native multi-file dataset** | files share schema, live in DSS-managed storage | files in a managed folder → Filesystem dataset, format `excel`/`csv`; capture filename via `partitioning.filePathPattern` else project per-file path with `dataikuapi iter_dataframes`. CLI partial: `dku dataset create --type Filesystem` + `set-definition` JSON for `params.filesSelectionRules` and `formatType:excel`. |
-| **Pre-bake offline** | migration loop, small fixed file list | `pandas.read_excel` each → prepend `FileName` literal + optional `row_idx` 1..N → concat → `dku dataset create --type UploadedFiles` + `upload`. Collapses a downstream `MultiRowFormula(Row=row_within_file)` step (see `tools-state-parsing.md` § MultiRowFormula + `overview.md` § Collapse triggers). |
+| **Pre-bake offline** | migration loop, small fixed file list | `pandas.read_excel` each → prepend `FileName` literal + optional `row_idx` 1..N → concat → `dku dataset create --type UploadedFiles` + `upload`. Collapses a downstream `MultiRowFormula(Row=row_within_file)` step (see `tools-state-parsing.md` § MultiRowFormula + `collapse-triggers.md`). |
 
 - `<FirstRowData>True</FirstRowData>`: literal header is in the data stream. Want names from the header → set CSV upload header-aware and skip the auto-`F1..F4` naming. Want to mimic Alteryx exactly → keep all rows AND name columns `F1..F4` at conversion.
 - `OutputFileName` returns the FULL path. If downstream only uses the basename, strip it at conversion — saves a Prepare step.
@@ -94,7 +94,7 @@ dku recipe add-step prep_formula -P PROJ --step '{
 
 > **Numeric formulas on hyphenated/spaced columns — use `numval`, not `val`.** Bareword `Anti-Gravity Speed` parses as subtraction; `val("Anti-Gravity Speed")` returns a string that breaks arithmetic. Use `numval("col")` (or `strval(...)` for string casts) on every non-identifier column reference.
 
-> **On a SQL target, keep every Formula step SQL-translatable.** A single non-translatable GREL function (`split`/`hash`/`strval`/`arrayContains`/regex) demotes the *whole* Prepare recipe to `Engine: DSS` and kills push-down (one engine per flow). Check which GREL functions/processors keep push-down: `../../dku-cli/references/prepare-processors.md`.
+> **On a SQL target, keep every Formula step SQL-translatable.** A single non-translatable GREL function (`split`/`hash`/`strval`/`arrayContains`/regex) demotes the *whole* Prepare recipe to `Engine: DSS` and kills push-down (one engine per flow). Which GREL translates (and the safe cast idioms): `../../dku-cli/references/formulas.md` § GREL → SQL push-down.
 
 ### Alteryx formula → GREL cheatsheet
 
@@ -136,21 +136,12 @@ dku recipe add-step prep_formula -P PROJ --step '{
 
 **Date RENDERING parity — when the Alteryx output field is a `Date` (not DateTime), finish with `DateFormatter` → string `yyyy-MM-dd`.** A DSS date-typed column (DateParser output) renders `2005-04-16 00:00:00` (+TZ) in `head`/JSON reads, so exact-match/diff verification against the Alteryx output fails on EVERY row even though the parse is correct. SAS sibling of the same quirk: `../sas/functions-formats.md` § SAS dates in Dataiku.
 
-> **Military / variable-width time string (`HHMM` or `HMM`) → `HH:MM` + elapsed minutes** — the Alteryx `PadLeft([t],4,"0") → Left(...,2)/Right(...,2) → DateTimeDiff` idiom. **Split by LENGTH, do NOT left-pad-then-slice.** The `"0000"+[t]`-then-slice approach is off-by-one (3-char `"815"` → `"815"`, not `"0815"`). Robust pattern, all 3-arg `substring`:
-> ```
-> // hour (1-2 digit), minute (always last 2) — works for "815" and "1045"
-> hour   = substring(strval("t"), 0, length(strval("t"))-2)
-> minute = substring(strval("t"), length(strval("t"))-2, length(strval("t")))
-> // 12-hour clock (no AM/PM): if(h>12, h-12, h), zero-padded
-> h12 = replace(toString(if(toNumber(hour)>12, toNumber(hour)-12, toNumber(hour))), /\.0$/, "")
-> "Begin Time" = if(isNonBlank(strval("t")) && strval("t")!="TBA", (if(length(h12)==1,"0"+h12,h12)) + ":" + minute, "")
-> ```
-> **Elapsed minutes without a date:** `DateTimeDiff` needs date-typed args; skip it — compute `(toNumber(h2)*60+toNumber(m2)) - (toNumber(h1)*60+toNumber(m1))`. Guard `if(both valid, …, "")` so `"TBA"`/empty rows stay blank. **Pin the elapsed column to `string` (`set-schema` + re-run WITHOUT `apply-schema`)** or digit-only values infer `bigint` and blank `""` rows come back null (renders `None`) — see `../../dku-cli/references/formulas.md` § Output-type inference.
+> **Military / variable-width time (`HHMM`/`HMM`) → `HH:MM` + elapsed minutes** — the Alteryx `PadLeft → Left/Right → DateTimeDiff` idiom. **Split by LENGTH, do NOT left-pad-then-slice** — `"0000"+[t]` then slice is off-by-one on 3-char values (`"815"` → `"815"`, not `"0815"`). `hour = substring(strval("t"), 0, length(strval("t"))-2)`; `minute` = the last 2 chars; zero-pad the rendered hour. Elapsed minutes: `DateTimeDiff` needs date-typed args — skip it, compute `(toNumber(h2)*60+toNumber(m2)) - (toNumber(h1)*60+toNumber(m1))` with a both-valid guard so `"TBA"`/empty rows stay blank. Pin the elapsed column to `string` (`set-schema` + re-run WITHOUT `apply-schema`) or digit-only values infer `bigint` and blank rows come back null — `../../dku-cli/references/formulas.md` § Output-type inference.
 
 **Gotchas:**
 - GREL date functions (`diff`, `inc`, `formatDate`-equivalents) only operate on date-typed values. CSV columns are strings — wrap with `asDatetimeNoTz(col, "yyyy-MM-dd HH:mm:ss")` (or `asDateOnly` for date-only) inside the formula. There is NO `parseDate()` or `toEpoch()` in GREL — agents reach for these and get `Unknown function`.
 - Alteryx truthiness: non-zero/non-empty is true. GREL needs explicit booleans — `IF [Count] THEN …` → `if(Count > 0, …)`.
-- Alteryx `[_CurrentField_]` (Multi-Field Formula tool) → DSS Prepare step with multiple-column selection, or loop in Python.
+- Alteryx `[_CurrentField_]` (Multi-Field Formula tool — one expression over N selected columns; definition + example: `semantics.md` § `[_CurrentField_]`). DSS translations: one Prepare step per column (explicit); a single step for processors that take a column array (e.g. `FindReplace` with `columnNames: ["Price","Qty","Discount"]`); or Python `df[cols].apply(...)`.
 
 ---
 
@@ -187,7 +178,7 @@ One condition; True output → `True` connection, False → `False`.
 
 - Alteryx `=`→`==`, `AND`→`&&`, `OR`→`||`, `NOT`→`!`.
 - "Basic" mode shows pickers; the compiled `<Expression>` is what ships — read that, not UI hints.
-- Prepare recipes sample input at edit time — filter runs on the full dataset at build, preview is sampled. Warn the user if their sample doesn't match expectation.
+- Prepare previews are sampled at edit time; the filter runs on the full dataset at build.
 
 ---
 

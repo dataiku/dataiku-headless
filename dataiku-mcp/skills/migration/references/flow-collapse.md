@@ -11,7 +11,7 @@ diff <(dku --format json recipe get-settings A -P PROJ | jq .payload) \
      <(dku --format json recipe get-settings B -P PROJ | jq .payload)   # byte-identical siblings?
 ```
 
-An identical `.payload` diff proves rule 1. For the rest, read each recipe's `keys`, `values`, `preFilter`, join `type`.
+An identical `.payload` diff proves "Hoist below union" applies. For the rest, read each recipe's `keys`, `values`, `preFilter`, join `type`.
 
 ## Verdict table (required — emit before Phase 4)
 
@@ -63,18 +63,8 @@ Record what you find as extra Verdict rows. Every first-principles collapse earn
 Never delete the old nodes until the replacement is proven equivalent on real data.
 
 1. Build the new recipe into a **fresh** output (don't overwrite yet).
-2. `dku dataset info OLD/NEW -P PROJ --recompute` — row counts must match; `dku --format json dataset head OLD/NEW -n 20` — spot-check per-key values. A row-count *increase* after rule 2 = the missing postFilter; fix before proceeding.
+2. `dku dataset info OLD/NEW -P PROJ --recompute` — row counts must match; `dku --format json dataset head OLD/NEW -n 20` — spot-check per-key values. A row-count *increase* after a grouping-fan-out merge = the missing postFilter; fix before proceeding.
 3. Only when counts and values match: repoint consumers to the new output, delete the old nodes.
 4. After **each** rewrite, restate three lines so a regression is traceable to its cause: `recipes: N → M`, `rows: <old final> → <new final>` (must match), `<rule>: <which nodes>`.
 
-## What silently breaks equivalence
-
-| Rule | Trap |
-|---|---|
-| Hoist below union | a Window/Distinct/TopN that depends on the per-branch population |
-| Merge grouping fan-out | divergent pre-filters (→ indicator-sum) and join type (INNER → postFilter; LEFT → null-vs-0) |
-| Broadcast aggregate | Window is cumulative by default — needs `--frame-unbounded` |
-| Drop dead nodes | a consumer that actually depends on the ordering/sampling |
-| Fuse join chain | join types that don't compose, or a key on an input not yet joined |
-| Merge consecutive Prepares | another consumer of the intermediate; an SQL→DSS engine split the merge would erase |
-| Delete empty Prepares | a zero-step Prepare that still retypes (output schema) or lands on another connection (implicit Sync) |
+What silently breaks equivalence per rule is the italicized precondition in each catalog entry above — re-read it before the rewrite, not after the diff fails.

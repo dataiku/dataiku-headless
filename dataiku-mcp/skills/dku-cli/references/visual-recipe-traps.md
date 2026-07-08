@@ -7,6 +7,13 @@ or as a silent no-op. Each entry: **symptom → cause → correct payload**.
 Read `visual-recipe-payloads.md` for the full payload shapes; this file is the
 trap catalog only. Flags come from `dku <cmd> --help`.
 
+**Contents:**
+Class 1 spurious save prompts — 1a column order · 1b missing `computedColumns: []` · 1c `$`-fields ·
+Class 2 silent no-ops — 2a unknown keys · 2b `appliesTo` · 2c enum NPE ·
+Class 3 plausible-but-wrong shapes — 3a Sampling-as-filter · 3b `uiData.mode` · 3c unmatched roles · 3d dropped duplicate columns ·
+Class 4 type drift — 4a Prepare output types · 4b connection rejects type ·
+Class 5 aggregation — 5a flagless metric · 5b `orderColumn`
+
 ---
 
 ## Class 1 — spurious "you have unsaved changes" prompt
@@ -57,16 +64,17 @@ DSS's normalized form.
 }
 ```
 
-### 1c. writing DSS-managed `$`-cache fields
+### 1c. writing (or dropping) DSS-managed `$`-fields
 
-- **Symptom:** intermittent save prompts, or a payload that "won't stay clean."
-- **Cause:** `postFilter.$status` (and other `$`-prefixed cache fields) are
-  populated by DSS after a UI save with a cached schema snapshot. Hand-writing a
-  stale or empty value fights DSS's own regeneration.
-- **Fix:** never write `$status`. Preserve `$`-prefixed metadata on round-trip
-  when it already exists (`$idx`, `$latestOperator`, `$filterOptions`,
-  `$showList`), but do not author it from scratch. Its presence or absence does
-  not itself trigger a prompt — only a *wrong* value does.
+- **Symptom:** intermittent save prompts, a payload that "won't stay clean," or
+  a UI that re-derives keys / loses selections.
+- **Cause:** `$`-prefixed fields (`$status`, `$idx`, `$selected`,
+  `$latestOperator`, `$filterOptions`, `$showList`) are DSS-managed caches and
+  selection metadata. Hand-writing a stale value fights DSS's regeneration;
+  rebuilding `keys[]`/`values[]` from scratch drops them.
+- **Fix:** never author `$`-fields; read first, mutate in place, preserve the
+  ones already there. Their presence or absence does not itself trigger a
+  prompt — only a *wrong* value does.
 
 ---
 
@@ -93,27 +101,18 @@ column confirms a step.
 
 - **Symptom:** `ColumnReorder`, `ColumnsSelector`, date processors etc. do
   nothing; no error.
-- **Cause:** scoped processors require `appliesTo`
-  (`SINGLE_COLUMN` | `COLUMNS` | `ALL` | `PATTERN`). Omitting it short-circuits the
-  step to a no-op rather than defaulting.
-- **Fix:** always set `appliesTo`, and set `appliesToPattern` when
-  `appliesTo: "PATTERN"`.
-
-```json
-{"type": "ColumnReorder",
- "params": {"appliesTo": "COLUMNS", "columns": ["id"],
-            "reorderAction": "AT_THE_BEGINNING", "referenceColumn": ""}}
-```
+- **Fix:** `appliesTo` is required on scoped processors — omitting it
+  short-circuits the step to a no-op rather than defaulting. Values and
+  per-processor params: `prepare-processors.md` § Shared params.
 
 ### 2c. invalid enum value → NPE at build, not at write
 
 - **Symptom:** `set-definition` succeeds; the *build* fails with a Java
   NullPointerException.
 - **Cause:** some processors accept a free-string mode at write time but only
-  resolve valid tokens at build. `StringTransformer` with `UPPERCASE`/`TITLECASE`
-  (valid tokens are `TO_UPPER`/`TO_LOWER`/`TRIM`/`NORMALIZE`/`TRUNCATE`) NPEs.
-- **Fix:** use only the documented enum tokens. For title-case, there is no token
-  — use a GREL `toTitlecase(...)` via `CreateColumnWithGREL`.
+  resolve valid tokens at build (e.g. `StringTransformer` — valid tokens and
+  the title-case workaround in its `prepare-processors.md` row).
+- **Fix:** use only the documented enum tokens.
 
 ---
 
@@ -131,20 +130,11 @@ column confirms a step.
 
 ### 3b. filter `uiData.mode` mismatched to the field DSS evaluates
 
-- **Symptom:** filter "runs" but ignores your condition entirely.
-- **Cause:** `uiData.mode` selects *which field* DSS reads. `"&&"`/`"||"` evaluate
-  `uiData.conditions[]`; `"CUSTOM"` and `"SQL"` evaluate the top-level
-  `expression` (GREL or raw SQL respectively). A GREL `expression` under
-  `mode:"&&"` is never read; a `conditions[]` array under `mode:"CUSTOM"` is never
-  read.
-- **Fix:** match the mode to where the logic actually lives.
-
-```json
-{"enabled": true, "distinct": false,
- "uiData": {"mode": "&&", "conditions": [
-   {"input": "status", "operator": "== [string]", "string": "active"},
-   {"input": "age",    "operator": ">= [number]", "num": 18}]}}
-```
+- **Symptom:** filter "runs" but ignores your condition entirely — a GREL
+  `expression` under `mode:"&&"` is never read, and a `conditions[]` array
+  under `mode:"CUSTOM"` is never read.
+- **Fix:** `uiData.mode` selects *which field* DSS evaluates — mode table and
+  canonical shapes in `visual-recipe-payloads.md` § Visual conditions.
 
 ### 3c. unmatched-output role incompatible with join type
 
@@ -172,10 +162,9 @@ column confirms a step.
 ### 3d. duplicate column names silently dropped on join
 
 - **Symptom:** an expected column is missing from join output; no error.
-- **Cause:** `AUTO_NON_CONFLICTING` projection silently drops one side of a
-  name collision (e.g. both inputs have `STATUS`).
-- **Fix:** set `outputColumnsSelectionMode: "MANUAL"` on the colliding inputs and
-  list every desired column in `selectedColumns[]` with its `table` index.
+- **Fix:** `AUTO_NON_CONFLICTING` drops one side of a name collision — go
+  `MANUAL` with explicit `selectedColumns[]` on both inputs
+  (`visual-recipe-payloads.md` § Join, incl. the round-trip rule).
 
 ---
 
@@ -202,9 +191,10 @@ column confirms a step.
 
 - **Symptom:** `add-step` / `set-definition` succeeds but build fails — no output
   dataset.
-- **Cause:** unlike Group/Join/Window, the Prepare recipe does not auto-create its
-  output dataset.
-- **Fix:** create the output dataset first, then attach the recipe.
+- **Cause:** unlike Group/Join/Window, generic Prepare creation does not always
+  auto-create its output dataset.
+- **Fix:** use `dku recipe create-prepare`, or create the output dataset first
+  and then attach the recipe.
 
 ---
 
@@ -222,30 +212,13 @@ column confirms a step.
 ### 5b. `first`/`last` without `orderColumn`
 
 - **Symptom:** `first`/`last`/`firstLastNotNull` results are non-deterministic
-  across rebuilds.
-- **Cause:** without an explicit `orderColumn` the picked row is arbitrary.
-- **Fix:** set `orderColumn` whenever using order-dependent aggregations.
-
-### 5c. dropping DSS grouping metadata keys
-
-- **Symptom:** payload "works" but the UI re-derives keys or loses selections.
-- **Cause:** rebuilding `keys[]`/`values[]` from scratch can drop DSS metadata
-  keys (`$idx`, `$selected`).
-- **Fix:** read first, mutate in place, preserve unknown keys.
+  across rebuilds — `orderColumn` requirement in `visual-recipe-payloads.md`
+  § Group.
 
 ---
 
-## Permanent rules
+## Permanent rule
 
-1. `--deep-merge` merges dicts but **replaces arrays entirely**. For any array
-   field (`selectedColumns[]`, `joins[]`, `values[]`, `keys[]`, `steps[]`,
-   `orders[]`) do a full read-edit-write — never a partial deep-merge.
-2. Keep table indices consistent across `joins[]`, `selectedColumns[]`, and
-   `virtualInputs[]`. The left/right side is fixed by input order, not by dataset
-   name or importance.
-3. `engineType` is a top-level field (`DSS|SQL|SPARK_SQL|IMPALA|HIVE`) and wins
-   over `engineParams.<engine>.executionEngine`. Preserve engine settings unless
-   the user explicitly asks to change them — join-type and processor support vary
-   by engine.
-4. Never trust `get-settings` as proof a step worked. Build the output and sample
-   the affected column.
+Preserve engine settings unless the user explicitly asks to change them —
+join-type and processor support vary by engine (`engineType` semantics:
+`visual-recipe-payloads.md` § 4-stage pipeline).

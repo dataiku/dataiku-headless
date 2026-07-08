@@ -33,7 +33,7 @@ Two complementary dumps — run anatomy first, cells only where formulas live:
 |---|---|---|
 | `scripts/dump_anatomy.py book.xlsx` | Structure inventory: per-sheet dims, tables + refs, **pivot definitions** (rows/cols/filters/aggs + source), charts + series, distinct formula shapes with counts, merged ranges, defined names, connections, **embedded Power Query M source**. `--schema "Sheet"` emits a ready DSS schema JSON (typed from stored cells, clamped to header extent) | Always — the inventory skeleton; sufficient alone for analysis workbooks |
 | `scripts/dump_workbook.py book.xlsx /tmp/dump [SHEET …]` | Per-cell dump `COORD F\|A\|V formula [=> cached]` (array formulas with spilled ranges) | Engine/formula sheets — block anatomy, formula sampling, array extents |
-| `scripts/diff_series.py dump.tsv --row N --dataset DS --series ID` | Month-by-month parity diff: a workbook engine row (located via its date row) vs a flow series via `dku dataset download`, with a divergence-signature hint (constant offset → wrong window; sign mirror → block sign; seam-exact drift → path dependence) | Phase 3/4 verification — one series per forecast method (see `model-workbooks.md` § Verification) |
+| `scripts/diff_series.py dump.tsv --row N --dataset DS --series ID` | Month-by-month parity diff: a workbook engine row (located via its date row) vs a flow series via `dku dataset download`, with a divergence-signature hint (signature table: `model-workbooks.md` § Verification) | Phase 3/4 verification — one series per forecast method (see `model-workbooks.md` § Verification) |
 
 Anatomy facts the scripts already handle (don't re-derive): `.xlsx` is a ZIP; M code lives in `customXml/item*.xml` → `<DataMashup>` base64 → MS-QDEFF container `[version:4][len:4][package ZIP]` → `Formulas/Section1.m` — the customXml part is usually **UTF-16** and the package ZIP must be sliced by declared length. `xl/connections.xml` lists external sources. Pivot definitions come from `openpyxl` `ws._pivots`.
 
@@ -47,7 +47,7 @@ dku dataset head book -P PROJ -n 3                 # verify by DATA, not by info
 
 Autodetect reads the FIRST sheet — in analysis workbooks usually a doc/dashboard sheet (garbage `col_0…` schema). `--sheet` (exact name) / `--sheet-indices` (0-based) / `--all-sheets`, plus `--sheets-to-column` (sheet-name tag column), exist on both `upload` and `create-from-file` — they retarget `formatParams.sheets`, re-assert `parseHeaderRow`, and re-infer a typed schema for the *selected* sheet(s). After hand-editing format params yourself, re-infer columns with `dku dataset detect --keep-format --infer-types --save` (plain `detect --save` re-detects the format and snaps back to the first sheet).
 
-Two cases still want the manual path (`set-definition --deep-merge` + an explicit schema from `dump_anatomy.py --schema`): clamping used-range junk columns (detection returns ALL used-range columns — 200+ on polluted sheets), and any sheet where inferred types disagree with stored cell types.
+Two cases still want the manual path (`set-definition --deep-merge` + an explicit schema from `dump_anatomy.py --schema`): clamping used-range junk columns (detection returns ALL used-range columns), and any sheet where inferred types disagree with stored cell types.
 
 Format params that matter (`formatType: excel`):
 
@@ -57,7 +57,7 @@ Format params that matter (`formatType: excel`):
 | `sheetsToColumn: true` | Multi-sheet append prepends the sheet name as the **first** column — native replacement for per-sheet-query + append + tag-column |
 | `parseHeaderRow`, `skipRowsBeforeHeader`, `skipRowsAfterHeader` | Title rows above headers → `skipRowsBeforeHeader: N`; M `Table.Skip(n)` + `PromoteHeaders` maps here, not to a Prepare |
 | `preserveNumberFormatting` | **Keep `false`.** `true` renders numerics with display formatting (thousands separators) — a `bigint`/`double` schema then reads every cell null |
-| Cell range | The UI supports `Sheet!A1:D10` range clamping; not probed via API — use a blank-row guard instead (rule 3) |
+| Cell range | The UI supports `Sheet!A1:D10` range clamping; not probed via API — use a blank-row guard instead (shared rule "the used range lies") |
 
 Multi-sheet caveat: sheets are unioned **positionally** against the single schema — a different-layout sheet silently lands values in wrong columns. Only union same-layout sheets. Multi-file: N same-format files uploaded into one UploadedFiles dataset append automatically (no filename column); when the filename IS data (Power Query `Source.Name`), use per-file datasets + `create-stack --origin-column`.
 

@@ -2,17 +2,22 @@
 
 Translation details for DATA step constructs and file IO.
 
+- [DATA step → recipe](#data-step--recipe)
+- [RETAIN is usually not Python](#retain-is-usually-not-python)
+- [ARRAY + `do over`](#array--do-over)
+- [DO loops & SELECT/WHEN](#do-loops--selectwhen-in-the-data-step)
+- [Log, debug & control-flow statements](#log-debug--control-flow-statements-drop-these)
+- [External-file I/O](#external-file-io-infile--input-statement-file--put-statement)
+
 ## DATA step → recipe
 
 | SAS construct | Recipe | Type | Notes |
 |---|---|---|---|
 | DATA step (filter/rename/compute) | Prepare | Visual | Processors: filter rows, rename, formula |
-| DATA step (merge by key) | Join | Visual | `MERGE ... BY` |
-| `merge A(in=a) B(in=b); by k; if a;` | Join (LEFT) | Visual | Keeps all A rows |
-| `merge A(in=a) B(in=b); by k; if a and b;` | Join (INNER) | Visual | |
+| DATA step (merge by key) | Join | Visual | `MERGE ... BY` — the `in=` filter → join-type mapping (LEFT / INNER / FULL / positional): `semantics.md` § MERGE semantics |
 | `merge A(keep=c1 c2)` | Join + post-Prepare `add-delete-columns` | Visual | No `--keep-columns` flag — drop in a post-join Prepare |
 | `SET ds1 ds2` (append) | Stack | Visual | |
-| Sort + `if first.key` dedup | Sort + Prepare (RemoveDuplicates) | Visual | Keep first per group |
+| Sort + `if first.key` dedup | Window (`rowNumber == 1`) | Visual | Dedup mapping: `procs.md` § PROC → recipe |
 | Sort + count per group | Group | Visual | Not RETAIN — just aggregation |
 | RETAIN with row comparison | SQL recipe | Code | `LAG()`/`LEAD()` window |
 | Running total / cumulative | SQL recipe | Code | `SUM() OVER (ORDER BY ...)` |
@@ -37,8 +42,8 @@ Most RETAIN patterns are group aggregations or window functions. Classify before
 | SAS pattern | Actually is | Recipe |
 |---|---|---|
 | Sort + `if last.key then output` with count | Group count | Group |
-| Sort + `if first.key then output` | Keep first per group | Sort (desc) + RemoveDuplicates |
-| Sort + `if last.key then output` | Keep last per group | Sort + RemoveDuplicates |
+| Sort + `if first.key then output` | Keep first per group | Window `rowNumber == 1` (`procs.md` dedup mapping) |
+| Sort + `if last.key then output` | Keep last per group | Window `rowNumber == 1`, order DESC |
 | `retain counter; if first.key then counter=0; counter+1;` | Group count | Group |
 | `retain max_val; if val > max_val then max_val=val;` | Group max | Group |
 | `retain sum_val; sum_val + val; if last.key then output` | Group sum | Group |
@@ -47,13 +52,13 @@ Most RETAIN patterns are group aggregations or window functions. Classify before
 | `cumsum + x;` (SUM statement) | Running sum (missing-safe, treats `.` as 0) | SQL recipe |
 | `retain prev; diff = val - prev; prev = val;` | Lag difference | SQL recipe (`val - LAG(val) OVER (...)`) |
 
-No SQL connection available → the row-comparison/running-sum rows above still map to all-visual recipes (composite-marker pipeline): `procs.md` § Visual-only fallback.
+No SQL connection available → the row-comparison/running-sum rows above still map to all-visual recipes (composite-marker pipeline): `sql-translations.md` § Visual-only fallback.
 
 **SUM statement vs explicit RETAIN+add:**
 - `total + x;` (SUM statement) — auto-retains, treats missing `x` as 0. Safe.
 - `retain total 0; total = total + x;` — when `x` is missing, `total` becomes `.` permanently. Dangerous.
 
-Migration must check which pattern the SAS code uses. If SUM statement → `COALESCE(val, 0)` in SQL.
+If SUM statement → `COALESCE(val, 0)` in SQL.
 
 ---
 
@@ -119,26 +124,19 @@ The value-less form `select; when (cond) ...; otherwise ...;` is a chain of cond
 
 ## Log, debug & control-flow statements (drop these)
 
-A cluster of DATA-step statements exist only to write to the SAS log, mutate internal state flags, or do intra-step `GOTO`. None of them have a recipe equivalent and most shouldn't be preserved — they're implementation detail of how a SAS program reports itself, not business logic.
+These statements encode how a SAS program reports or steers itself, not business logic — their presence does not make the surrounding logic non-migratable; read through them to the computation and migrate that.
 
-| SAS statement | Purpose | What to do |
-|---|---|---|
-| `ABORT` | End DATA step, job, or session with a return code | Drop. Pre-run data validation moves to scenario checks (`ml-scenarios.md` § Scheduling trigger) |
-| `ERROR 'msg';` | Sets `_ERROR_=1` and writes to log | Drop. A recipe that encounters bad data should either fail (raise in Python) or filter the bad rows (Prepare) |
-| `PUTLOG 'msg' var=;` | Write to SAS log | Drop. For a Python recipe, `print()` goes to DSS job logs. For visual recipes, there's no log writer — that's not a failure, just not a thing |
-| `LIST;` | Dump the current input record to the log | Drop. Debugging aid only |
-| `LOSTCARD;` | Resynchronize multi-line input when a record is missing | Drop. Upload the file, Prepare/Python to reshape if layout is irregular |
-| `REDIRECT;` | Reassign input/output datasets at runtime for stored programs | Drop. Stored DATA step programs don't migrate as-is |
-| `DESCRIBE;` | Extract source code from a stored compiled program | Drop. Metadata utility |
-| `EXECUTE;` (DATA-step) | Run a stored compiled program | Drop. Migrate the underlying program as its own recipe |
-| `REMOVE;` / `REPLACE;` (with MODIFY) | Delete / replace in-place in a SAS data set | See § DATA step → recipe row for `MODIFY` — migrate as a Python recipe writing a new dataset |
-| `DISPLAY windowname;` / `WINDOW name ...;` | Pop up interactive character-mode windows (legacy SAS/AF) | Drop. Not a batch-pipeline concept |
-| `LABEL var='...';` (statement) | Assign a descriptive label | Drop during migration — or, if the label matters for reporting, set `--long-desc` on the output dataset. The column-level label isn't exposed via `dku dataset set-schema` today |
-| `Label:` (colon, line label) + `GOTO Label;` / `LINK Label;` | Intra-step jumps | Drop. Refactor the logic into `if/else` + `return` when translating. A `LINK … RETURN` pair is a reusable subroutine → extract into a Python helper |
-| `LEAVE;` / `CONTINUE;` | Break out of / skip a DO loop iteration | Drop. When unrolling a `do` loop into Prepare steps, the control flow disappears; when translating to Python, the native `break` / `continue` works directly |
-| `DATA _NULL_;` with only `file log`/`put` | Log-only DATA step | Drop the entire step |
+| SAS statement group | What to do |
+|---|---|
+| Log/debug: `ERROR 'msg';`, `PUTLOG`, `LIST;`, `LOSTCARD;`, `DATA _NULL_;` with only `file log`/`put` | Drop. In a Python recipe `print()` goes to DSS job logs; visual recipes have no log writer — not a failure, just not a thing |
+| Stored-program: `REDIRECT;`, `DESCRIBE;`, `EXECUTE;` (DATA-step) | Drop. Migrate the underlying stored program as its own recipe |
+| Interactive (legacy SAS/AF): `DISPLAY windowname;`, `WINDOW name ...;` | Drop. Not a batch-pipeline concept |
+| Control flow: `LEAVE;`/`CONTINUE;`, `Label:` + `GOTO`/`LINK` | Drop — unrolled Prepare steps lose the control flow; Python `break`/`continue` works directly. A `LINK … RETURN` pair is a reusable subroutine → extract into a Python helper |
+| `ABORT` | Pre-run data validation moves to scenario checks (`ml-scenarios.md` § Checks) |
+| `LABEL var='...';` (statement) | Drop — or if the label matters for reporting, set `--long-desc` on the output dataset (column-level labels aren't exposed via `dku dataset set-schema`) |
+| `REMOVE;` / `REPLACE;` (with MODIFY) | Python recipe writing a new dataset (see the `MODIFY` row above) |
 
-Why drop instead of translate: these statements encode how the SAS program debugs or steers itself. Their presence does not imply the surrounding logic is non-migratable — read through them to the actual computation and migrate that. Flag in Phase 1 inventory as *"step N contains log/debug statements only — no output"* so the user confirms before you drop.
+Flag in Phase 1 inventory as *"step N contains log/debug statements only — no output"* so the user confirms before you drop.
 
 ## External-file I/O (INFILE / INPUT statement, FILE / PUT statement)
 
@@ -148,7 +146,7 @@ The `INPUT()` and `PUT()` *functions* (covered in `functions-formats.md` § Func
 |---|---|---|
 | `infile '/path/file.csv' dsd firstobs=2;` + `input a $ b c;` | Read delimited external file | Upload → `--type UploadedFiles`, then `sync` to the target connection. Set schema after upload (defaults to all STRING) |
 | `infile 'file.dat' column=@c1-c9 @10 d 8.;` | Read fixed-width | Upload as raw, then Prepare with `SplitColumn` / `substring()` per field, or a Python recipe if the layout is dense |
-| `infile datalines; input ...; datalines; ...;` | Inline test data | Not migrated — treat as test fixture; write the inline rows to a CSV and upload only if the pipeline actually needs them |
+| `infile datalines; input ...; datalines; ...;` | Inline test data (`overview.md` § `.sas`) | Not migrated; write the inline rows to a CSV and upload only if the pipeline actually needs them |
 | `infile 'file' missover / truncover / stopover` | Missing-field behavior | Upload then Prepare — pad with `fill-empty` for MISSOVER / TRUNCOVER; raise via schema validation for STOPOVER |
 | `infile '&path' filevar=f end=eof;` | Loop over many files | Dataset with file pattern (`path/*.csv`) or a Python recipe iterating a managed folder |
 | `file '/path/out.dat';` + `put a $ b c;` | Write formatted external file | Dataset download, or Sync recipe to a Filesystem / cloud connection. For fixed-width output, a Python recipe building the line and writing to a managed folder |

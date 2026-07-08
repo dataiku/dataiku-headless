@@ -3,8 +3,16 @@
 Durable JSON payload shapes for the app manifest, homepage sections, and the full
 tile-type catalog. Get exact CLI flags from `--help`.
 
-App template = project with `useAppHomepage: true`. App instance = a copy users work in.
-Manifest = JSON defining the homepage (sections + tiles).
+- [Manifest structure](#manifest-structure) — sections, instance features, export manifest
+- [Common tile fields](#common-tile-fields)
+- [Tile-type catalog](#tile-type-catalog) — data input / action / output / navigation & display
+- [Parameter types for `PROJECT_VARIABLES_EDIT`](#parameter-types-for-project_variables_edit)
+- [UX behaviors](#ux-behaviors)
+
+App template = project with `projectAppType: "APP_TEMPLATE"` AND `useAppHomepage: true`
+(a REGULAR project can carry `useAppHomepage` alone; `dku app list` is the reliable
+detector). App instance = a copy users work in. Manifest = JSON defining the homepage
+(sections + tiles).
 
 ---
 
@@ -43,28 +51,30 @@ Set via `dku app-designer set-definition -P PROJ -d @manifest.json` (full replac
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sectionTitle` | string | Heading above the section |
-| `sectionText` | string | Description; supports HTML and wiki links (`[text](article:ID)`) |
+| `sectionTitle` | string | Heading above the section (plain text) |
+| `sectionText` | string | Description; markdown + wiki links (see below) |
 | `visibilityCondition` | string | GREL expression controlling section visibility |
 | `tiles` | array | Tile objects |
 
-`sectionTitle` is a plain text header — do **not** also bake the title into
-`sectionText` as `<h3>`. `sectionText` is markdown; the only safe HTML escape
-hatches are `<i class="icon-warning-sign|icon-info-sign|icon-ok-sign">`, `<br>`,
-`<b>` — custom `<div>`/inline styles/color spans are brittle and break on theme
-change/clone, so split sections or move rich content to a wiki article instead.
-Wiki-link cross-refs need exact, case-sensitive IDs (`Build_All` ≠ `BUILDALL`):
-`[label](article:ID)`, `(scenario:ID)`, `(dataset:NAME)`, `(dashboard:ID)`,
-`(folder:ID)`, `(recipe:NAME)` — get the id from `dku --format json <noun> list`,
-don't guess by uppercasing. `visibilityCondition` gates a param or whole section
-against `model.<paramName>`; always pair a toggle param with a `defaultValue` so
-new instances render deterministically. Tile prompts: plain imperative voice, no
-trailing punctuation (`Upload data`, not `Click to upload!`).
+- `sectionTitle` is a plain text header — do **not** also bake the title into
+  `sectionText` as `<h3>`.
+- `sectionText` is markdown; the only safe HTML escape hatches are
+  `<i class="icon-warning-sign|icon-info-sign|icon-ok-sign">`, `<br>`, `<b>` —
+  custom `<div>`/inline styles/color spans are brittle and break on theme
+  change/clone; split sections or move rich content to a wiki article instead.
+- Wiki-link cross-refs need exact, case-sensitive IDs (`Build_All` ≠ `BUILDALL`):
+  `[label](article:ID)`, `(scenario:ID)`, `(dataset:NAME)`, `(dashboard:ID)`,
+  `(folder:ID)`, `(recipe:NAME)` — get the id from `dku --format json <noun> list`,
+  don't guess by uppercasing.
+- `visibilityCondition` gates a param or whole section against `model.<paramName>`;
+  always pair a toggle param with a `defaultValue` so new instances render
+  deterministically.
+- Tile prompts: plain imperative voice, no trailing punctuation (`Upload data`,
+  not `Click to upload!`).
 
 ### Instance features (all default `true`)
 
-`showFlowNavLink`, `showGenAiNavLink`, `showLabNavLink`, `showCodeNavLink`,
-`showSwitchToProjectViewButton`, `showVersionControlFeatures` (Git controls).
+Keys as in the manifest example above (`showVersionControlFeatures` = Git controls).
 For end-user apps disable all except `showFlowNavLink` and `showSwitchToProjectViewButton`.
 
 ### Export manifest (for instances)
@@ -196,26 +206,21 @@ opens a blank "New dataset" page instead of erroring.
 
 ## Parameter types for `PROJECT_VARIABLES_EDIT`
 
-Each entry in `params[]` maps to a project variable by `name`.
+Each entry in `params[]` maps to a project variable by `name`. This is the plugin
+parameter system — shared fields, per-type extra fields (`minI`, `selectChoices`,
+`datasetParamName`, …), dynamic SELECTs, `visibilityCondition` syntax:
+`references/plugin-params.md`.
 
-Common fields: `name` (req), `type` (req), `label`, `description`, `defaultValue`,
-`mandatory`, `visibilityCondition` (JS, e.g. `"model.use_advanced"`),
-`selectChoices` (`[{value, label}]` for SELECT/MULTISELECT), `datasetParamName`
-(source DATASET param for DATASET_COLUMN).
-
-- **Basic:** `STRING` (`regexpFilter`), `STRINGS`, `INT` (`minI`/`maxI`), `DOUBLE`
-  (`minD`/`maxD`), `DOUBLES`, `BOOLEAN`, `PASSWORD`, `TEXTAREA`, `DATE`.
-- **Selection:** `SELECT`/`MULTISELECT` (`selectChoices`, `getChoicesFromPython`), `MAP`,
-  `KEY_VALUE_LIST`, `ARRAY`, `OBJECT_LIST` (`subParams`, recursive).
-- **Resource pickers:** `DATASET`, `DATASETS`, `DATASET_COLUMN`/`DATASET_COLUMNS`
-  (`datasetParamName`, `allowedColumnTypes`), `COLUMN`/`COLUMNS` (`columnRole`),
-  `CONNECTION` (`allowedConnectionTypes`)/`CONNECTIONS`, `MANAGED_FOLDER`/`FOLDER`,
-  `PROJECT`, `SCENARIO`, `SAVED_MODEL`/`ML_SAVED_MODEL`/`MODEL`, `LLM` (`llmUsagePurpose`),
-  `KNOWLEDGE_BANK`, `CODE_ENV`, `CLUSTER` (`clusterPermissions`), `PLUGIN`,
-  `PRESET`/`PRESETS` (`parameterSetId`), `API_SERVICE`, `API_SERVICE_VERSION`
-  (`apiServiceParamName`), `BUNDLE`, `VISUAL_ANALYSIS`, `ML_TASK`
-  (`visualAnalysisParamName`), `MODEL_EVALUATION_STORE`, `CREDENTIAL_REQUEST`
-  (`credentialRequestSettings`).
+- **Basic:** `STRING`, `STRINGS`, `INT`, `DOUBLE`, `DOUBLES`, `BOOLEAN`, `PASSWORD`,
+  `TEXTAREA`, `DATE`.
+- **Selection:** `SELECT`/`MULTISELECT`, `MAP`, `KEY_VALUE_LIST`, `ARRAY`,
+  `OBJECT_LIST` (recursive `subParams`).
+- **Resource pickers:** `DATASET`/`DATASETS`, `DATASET_COLUMN`/`DATASET_COLUMNS`,
+  `COLUMN`/`COLUMNS`, `CONNECTION`/`CONNECTIONS`, `MANAGED_FOLDER`/`FOLDER`,
+  `PROJECT`, `SCENARIO`, `SAVED_MODEL`/`ML_SAVED_MODEL`/`MODEL`, `LLM`,
+  `KNOWLEDGE_BANK`, `CODE_ENV`, `CLUSTER`, `PLUGIN`, `PRESET`/`PRESETS`,
+  `API_SERVICE`, `API_SERVICE_VERSION`, `BUNDLE`, `VISUAL_ANALYSIS`, `ML_TASK`,
+  `MODEL_EVALUATION_STORE`, `CREDENTIAL_REQUEST`.
 - **Layout:** `SEPARATOR` (label-only divider, no value).
 
 ### Patterns
@@ -248,10 +253,6 @@ Progressive disclosure — gate fields with `visibilityCondition` on a BOOLEAN:
 
 ## UX behaviors
 
-- Number sections as linear steps: upload → configure → run → results.
-- Bind every dataset/folder tile to a specific resource (`datasetName`, `folderId`, `dashboardId`).
-- Give every tile a `prompt` and `help`.
-- Upload tiles: `INLINE_UPLOAD_REDETECT_AND_INFER`. Variable forms: `INLINE_AUTO_SAVE`.
-- `SEPARATOR` params to group fields; `visibilityCondition` for progressive disclosure on tiles and sections.
-- `VARIABLE_DISPLAY` to surface current config state; `buttonText` on scenario tiles ("Build" beats the scenario ID).
-- Hide infra tabs via `instanceFeatures`.
+- `SEPARATOR` params to group form fields.
+- `VARIABLE_DISPLAY` to surface current config state.
+- `buttonText` on scenario tiles ("Build" beats the scenario ID).

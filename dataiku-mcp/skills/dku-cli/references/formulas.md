@@ -3,6 +3,10 @@
 Expression language for Prepare recipes, computed columns, formula processors,
 and CUSTOM-mode filters. Return formulas as plain text, no fences.
 
+**Contents:** wrong-name table · column access · conditionals/null · strings ·
+numbers · dates · arrays/JSON · SQL push-down · output-type inference ·
+gotchas · date-overlap · examples
+
 ## Function names are case-sensitive — one wrong letter = `Unknown function`
 
 | Correct | WRONG |
@@ -11,7 +15,8 @@ and CUSTOM-mode filters. Return formulas as plain text, no fences.
 | `toUppercase(s)` | `upper`, `toUpperCase` |
 | `toTitlecase(s)` | `toTitleCase` (capital C fails) |
 | `toString(o)` | `str`, `string` |
-| `toNumber(o)` | `int`, `float` |
+| `toNumber(o)` | `int`, `float`, `toDouble` |
+| `DateParser`/`DateFormatter` processors | `toDate`, `formatDate` (don't exist); `toString(date,"fmt")` (silent no-op) |
 | `isNonBlank()` | `isNotBlank` |
 | `isNotNull()` | `isNonNull` |
 | `diff(d1,d2,unit)` | `dateDiff`, `daysBetween`, `monthsBetween` (none exist) |
@@ -89,14 +94,10 @@ join(arraySort(split(replace(toLowercase(word), /(.)/, "$1|"), "|")), "")
 (The trailing empty element sorts to the front and joins to nothing — harmless.)
 
 **Count occurrences of a substring — `length(s) - length(replace(s, "x", ""))`.**
-GREL has no count function; the length-delta is the canonical form, and the
-building block for **multiset / "bag of letters" containment** (is word W's
-letter-multiset a subset of a fixed rack + weighted score): one count column
-per rack letter (`n_a = length(w) - length(replace(w, "a", ""))`), a
-foreign-letter count (`bad = length(w) - (n_a + n_c + …)`), a weighted-sum
-score column, then keep rows where `bad == 0 && n_a <= 1 && n_c <= 2 && …`
-(bounds = the rack's per-letter multiplicities). Stays fully visual over a
-170k-row dictionary.
+GREL has no count function; the length-delta is the canonical form. It scales
+to multiset ("bag of letters") containment: one count column per allowed
+letter, a foreign-letter count, then a filter on the per-letter bounds — fully
+visual even over a 100k+-row dictionary.
 
 ## Numbers
 
@@ -124,6 +125,10 @@ asDateOnly(s, fmt)   asDatetimeNoTz(s, fmt)   asDatetimeTz(s, fmt)
 ```
 
 Parts: `years months days weeks hours minutes seconds dayOfWeek weekDay weekOfYear`.
+
+Unit strings are PLURAL — `inc(d, 1, "day")` doesn't error, it silently returns
+empty (a filter built on it matches 0 rows); write `"days"`. `asDateOnly()` on
+a STRING column silently fails — parse with a `DateParser` step first.
 
 **Date columns carry `00:00:00` time suffix** — `asDateOnly()` vs a date column
 crashes (`malformed at "T00:00:00.000Z"`). Cast both to `yyyy-MM-dd` strings:
@@ -156,6 +161,10 @@ Broken/missing: `select(el, sel)` → `StackOverflowError` (use `htmlText()`);
 
 Rule: for int→string casts that must push down, always `concat("", col)`.
 
+`split`, `hash`, `strval`, `arrayContains` never translate to SQL — the step
+falls back to the in-memory engine (check `$status.fullyTranslated` after
+saving; breaks SQL-only flows).
+
 ## Output-type inference (computedColumns / formula steps)
 
 `apply-schema` infers the column type from the expression. **Formula columns
@@ -168,16 +177,16 @@ expression); (2) editing the formula after the output schema is already locked
 Reverse trap: a string expression auto-cast to bigint because all sampled values
 are digit-only — wrap with `concat("", ...)` or set-schema to STRING.
 
-Always run `apply-schema` after adding formula steps (and again after adding
-rename/select steps to an existing Prepare recipe).
+Run `apply-schema` before the recipe's FIRST build (else computed columns are
+silently missing from the output), and again after adding formula/rename/select
+steps to an existing recipe. Downstream symptom of a missed retype: Group/Window
+fails `Cannot sum non-numeric column`.
 
 ## Gotchas
 
 - **No leading unary minus**: `-v_amount` fails with `Bad negative number
   (Parsing error at offset 1)`. Write `0 - v_amount` (negative *literals* like
   `-7` are fine; it's negating an expression/column that breaks).
-- `round()` 1-arg only; `log()` base-10, `ln()` natural, `exp()` base-e.
-- `substring(s,from,to)` — `to` exclusive index, NOT length.
 - `count()` doesn't exist in formulas (only Group aggregation); use `arrayLen()`.
 - Leading zeros: wrap in `strval(column)` to preserve.
 - `forEach` returns an array — `join()` for a string.
@@ -194,14 +203,6 @@ Work in days only (`asDateOnly` inputs or trimmed datetimes).
 
 | Want | Formula |
 |---|---|
-| First + last name | `concat(first_name, " ", last_name)` |
 | Flag active | `if(status == "active", 1, 0)` |
 | Map codes | `switch(cat, "A", "Premium", "B", "Standard", "Unknown")` |
-| Year from date | `datePart(date_column, "years")` |
-| First 3 chars | `substring(text, 0, 3)` |
-| Round 2dp | `round(value * 100) / 100` |
-| Days between | `diff(start, end, "days")` |
-| Leading zeros | `format('%05d', id)` |
-| Default if empty | `coalesce(field, "Unknown")` |
 | Safe divide | `if(b == 0, 0, a / b)` |
-| Date overlap (days) | `if(end1 >= start2 && end2 >= start1, diff(min(end1, end2), max(start1, start2), "days") + 1, 0)` |

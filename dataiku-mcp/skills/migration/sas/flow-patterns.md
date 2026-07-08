@@ -13,36 +13,14 @@ sources on SQL conn → 7 SQL recipes (extracts) → many visual/SQL recipes (ap
                       └──────── all datasets on the same SQL connection ────────┘
 ```
 
-**Anti-pattern:** bundle all downstream DATA steps into one Python recipe. Breaks push-down, hides logic, makes step-by-step verification impossible. On real workloads (10M+ rows) the Python route is 10-100× slower than leaving the work on the database.
+**Recipe choice** follows the standard rules (recipe altitude + one engine per flow: migration `SKILL.md`; recipe selection: `../../dku-cli/playbooks/tabular-flow.md`). SAS deltas:
+- `merge … by k;` with `if a;` / `if a and b;` / no filter → LEFT / INNER / FULL Join (`semantics.md` § MERGE semantics).
+- Medians / percentiles → visual Window-rank pattern (`../ayx/tools-join-reshape.md` § Median / percentile); SQL `PERCENTILE_CONT` only when the input is already SQL-backed.
+- Python only for a SAS feature with no SQL equivalent (special missing `.A`–`.Z`, hash with non-equality keys, complex `DO WHILE` state) — and only for that step.
 
-**Recipe-type decision tree for each DATA step:**
+### Step 1 — Land sources on the SQL connection
 
-1. Row-wise transform (filter, rename, formula, recode, fill-empty)? → **Prepare**
-2. Join with `if a;` / `if a and b;` / no-filter semantics? → **Join**
-3. Group aggregation with `sum/avg/min/max/count/stddev`? → **Group**
-4. Stack/append (`SET ds1 ds2`)? → **Stack**
-5. Pivot (`PROC TRANSPOSE`)? → **Pivot**
-6. `PROC SORT NODUPKEY` / "keep first per group"? → **Sort + Distinct** or **Window** (row_number)
-7. Needs `LAG`, `ROW_NUMBER`, cumulative sums, state-machine-like patterns? → **SQL recipe**
-8. Needs medians / quartiles / percentiles? → **visual Window-rank pattern** (`../ayx/tools-join-reshape.md` § Median / percentile); SQL `PERCENTILE_CONT` only when the input is already SQL-backed
-9. Needs a SAS-specific feature with no SQL equivalent (special missing `.A`–`.Z`, hash with non-equality keys, complex `DO WHILE` state)? → **Python recipe** — only for that step
-
-Reach step 9 only after 1-8 are exhausted.
-
-### Step 1 — Upload source + reference tables to the SQL connection
-
-```bash
-dku dataset create SRC_raw --type UploadedFiles -P PROJ
-dku dataset upload SRC_raw /path/to/SRC.csv -P PROJ
-dku dataset set-schema SRC_raw -P PROJ --definition '[...]'
-
-# Sync to the SQL connection via -t sync --connection (no Python passthrough)
-dku recipe create sync_SRC -t sync -i SRC_raw --output-ds SRC \
-    --connection <sql_connection> -P PROJ
-dku recipe run sync_SRC -P PROJ --wait
-```
-
-Loop for every source **and every reference CSV** the DATA step code consumes. A filesystem lookup joined to a SQL-backed dataset will force that join off the engine.
+Upload + `create-sync --connection` per source (`../../dku-cli/playbooks/tabular-flow.md` § SQL recipe, cross-connection landing) — **including every reference CSV the DATA steps consume**: a filesystem lookup joined to a SQL-backed dataset forces that join off the engine.
 
 ### Step 2 — One SQL recipe per passthrough
 
@@ -71,23 +49,7 @@ Translate the passthrough body character-for-character. Adaptations:
 
 ### Step 3 — Downstream flow, one recipe at a time
 
-Use the Phase 3 protocol from `../references/workflow.md` § Phase 3. For visual recipes:
-```bash
-dku recipe create-<type> RECIPE -i INPUT --output-ds OUTPUT [opts] -P PROJ
-dku recipe apply-schema RECIPE -P PROJ
-dku recipe run RECIPE -P PROJ --wait
-dku dataset info OUTPUT -P PROJ --recompute
-```
-
-For SQL recipes (window functions, LAG, percentiles, CTE logic):
-```bash
-dku dataset create OUTPUT -P PROJ --type <SQLType> -c <sql_connection> \
-    --definition '{"params":{"connection":"<sql_connection>","mode":"table","table":"${projectKey}_OUTPUT"}}'
-dku recipe create RECIPE -t sql_query -i INPUT --output-ds OUTPUT -P PROJ
-dku recipe set-code RECIPE -P PROJ --code @sql/RECIPE.sql
-dku recipe apply-schema RECIPE -P PROJ
-dku recipe run RECIPE -P PROJ --wait
-```
+Phase 3 protocol (create → apply-schema → run → verify): `../references/workflow.md` § Phase 3. Every SQL recipe follows the Step-2 shape: TABLE-mode output dataset first, then `create -t sql_query` + `set-code`.
 
 ### Step 4 — Fan-in + split
 
@@ -129,7 +91,7 @@ These still migrate to SQL recipes — the passthrough is data + a query, both w
 ### When the user has no SQL connection
 
 1. **Use `duckdb_local`** — any modern DSS install has a local DuckDB connection. DuckDB speaks close-to-Postgres SQL, supports window functions and `PERCENTILE_CONT`, and is fine for verification migrations.
-2. **Visual recipes on filesystem** — for simple extracts and multi-join extracts, Join/Group/Pivot/Window. Loses push-down but stays declarative.
+2. **Visual recipes on filesystem** — for simple extracts and multi-join extracts, Join/Group/Pivot/Window. Loses push-down but stays declarative. State machines stay visual too: `sql-translations.md` § Visual-only fallback.
 
 Do NOT translate passthrough SQL or downstream DATA steps to Python recipes just to avoid setting up a SQL connection.
 
