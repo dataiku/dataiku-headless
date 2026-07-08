@@ -975,6 +975,41 @@ def test_add_entity_if_not_exists(patch_client):
     assert "skipping" in result.output.lower()
 
 
+def test_add_entity_errors_when_write_does_not_persist(patch_client):
+    """Silent no-op guard: DSS can accept a write to a version with no
+    materialised settings doc and return success without persisting anything.
+    add-entity must read back and fail loudly rather than exit 0."""
+    _configure_dataset_schema(patch_client, [{"name": "id", "type": "string"}])
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+
+    # Every read of the version settings hands back a fresh, empty doc, so the
+    # entity appended during the write is gone on read-back — the no-op case.
+    def _empty_settings(*_args, **_kwargs):
+        s = MagicMock()
+        s.get_raw.return_value = {"entities": []}
+        return s
+
+    sm.get_version.return_value.get_settings.side_effect = _empty_settings
+
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "--from-dataset",
+            "Customers",
+            "--name",
+            "customer",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "did not persist" in result.output.lower()
+    assert "create-version" in result.output
+
+
 def test_remove_entity(patch_client):
     """remove-entity splices the entity and cleans up referring relationships."""
     sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")

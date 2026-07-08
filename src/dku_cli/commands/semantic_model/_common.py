@@ -121,6 +121,35 @@ def _load_version_settings(sm, version_id: str):
     return settings, settings.get_raw()
 
 
+def _verify_entity_persisted(
+    sm, version_id: str, entity_name: str, sm_ref: str, project_key: str
+) -> None:
+    """Re-read the version and exit loudly if the entity did not land.
+
+    DSS accepts a write to a version whose settings doc isn't materialised and
+    returns success without persisting anything — a silent no-op that leaves
+    add-entity exiting 0 with nothing written. Read back so that failure is
+    loud and prescriptive instead of a false success.
+    """
+    try:
+        fresh = sm.get_version(version_id).get_settings().get_raw()
+    except Exception:
+        fresh = {}
+    names = {e.get("name") for e in fresh.get("entities", [])}
+    if entity_name in names:
+        return
+    exit_with_error(
+        f"Entity '{entity_name}' did not persist to version '{version_id}' — "
+        "the write reported success but the entity is absent on re-read.",
+        details=[
+            f"Version '{version_id}' has no materialised settings doc to hold it.",
+            f"Create it first: dku semantic-model create-version {sm_ref} {version_id} -P {project_key}",
+            f"Then re-run the same add-entity with --version {version_id}.",
+            f"Inspect versions: dku semantic-model versions {sm_ref} -P {project_key}",
+        ],
+    )
+
+
 def _find_entity(raw: dict, entity_name: str) -> dict:
     """Find an entity dict by name, or exit with prescriptive error."""
     entities = raw.get("entities", [])
