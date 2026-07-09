@@ -64,6 +64,7 @@ Follow these steps in order for any user request:
 | User intent | Skill to load | Coverage | Notes |
 | --- | --- | --- | --- |
 | Inspect a project, its flow, recipes, or saved models; edit project metadata (name, description, tags, checklists) or project variables; create, delete, or populate flow zones | `./dataiku-skills/projects/SKILL.md` | Full | Metadata writes require project admin privileges. |
+| Create or modify project assets through Dataiku Cobuild; continue a Cobuild conversation; or let Cobuild inspect a project before building or refactoring assets | `./dataiku-skills/cobuild/SKILL.md` | Partial | Default route for project-level asset creation. Current MCP coverage supports starting, continuing, confirming, and listing Cobuild conversations. |
 | Share a flow item from a source project to another project as a read-only input | `./dataiku-skills/cross-project-sharing/SKILL.md` | Full | Requires `Read project conf` + `Write project conf` on the source. |
 | Find a dataset across the instance via DSS Data Collections (cross-project curated catalogs) | `./dataiku-skills/data-collections/SKILL.md` | Partial | List data collections and list data collection objects only (and only datasets within data collections). |
 | Inspect available DSS connections, choose a valid connection name for datasets/folders/recipes, or diagnose connection access/test failures | `./dataiku-skills/connections/SKILL.md` | Partial | List connections, get connection info (requires read connection details permission), and test connection only. |
