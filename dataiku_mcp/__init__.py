@@ -75,6 +75,10 @@ elif transport == "streamable-http":
     mcp.local_provider.remove_tool("switch_instance")
     mcp.local_provider.remove_tool("list_instances")
 
+if config_mcp.DKU_MCP_COBUILD_MODE == "FULL":
+    for tool_name in sorted(config_mcp.FULL_COBUILD_DISABLED_TOOLS):
+        mcp.local_provider.remove_tool(tool_name)
+
 # Configure MCP search mode
 if config_mcp.DKU_MCP_TOOL_EXPOSURE == "search":
     mcp.add_transform(
