@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataiku-headless"
+version = "0.2.0"
+description = "Headless Dataiku DSS agent kit: a FastMCP server plus the full agent skill library for operating Dataiku DSS from an AI agent harness."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+authors = [{ name = "Dataiku" }]
+keywords = ["dataiku", "dss", "mcp", "fastmcp", "agent", "llm"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastmcp",
+    "dataiku-api-client",
+    "python-dotenv",
+    "typer>=0.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/dataiku/dataiku-agent-dev-kit"
+Repository = "https://github.com/dataiku/dataiku-agent-dev-kit"
+
+[project.scripts]
+dataiku-mcp = "dataiku_mcp:run_server"
+dataiku-headless = "cli.cli:app"
+dataiku-headless-skills = "dataiku_mcp.skills:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dataiku_mcp", "cli"]
+
+# Bundle the prompt-based skill library (top-level ``dataiku-skills``) and the
+# agent operating docs (``AGENTS.md``, ``CLAUDE.md``) into the wheel under
+# ``dataiku_mcp`` so they ship alongside the server code.
+[tool.hatch.build.targets.wheel.force-include]
+"dataiku-skills" = "dataiku_mcp/skills"
+"AGENTS.md" = "dataiku_mcp/AGENTS.md"
+"CLAUDE.md" = "dataiku_mcp/CLAUDE.md"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "dataiku_mcp",
+    "cli",
+    "dataiku-skills",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "pyproject.toml",
+]
+
+[tool.ruff.lint]
+# Pin to Ruff's default rule set (pyflakes + a subset of pycodestyle) so the
+# lint gate stays stable across Ruff upgrades. Import sorting is configured
+# below but not yet enforced — add "I" to this list to opt in.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+    "dataiku-skills/migrations/gate/tests",
+]
+addopts = "-ra"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.16.3",
+    "ruff>=0.15",
+    "pytest>=8",
+]

@@ -1,0 +1,278 @@
+"""DSS connection discovery and inspection tools."""
+
+from typing import Any
+
+from fastmcp import Context
+
+from .. import mcp
+from .utils.async_executor import run_blocking
+from .utils.serialization import columnar, compact_json, omit_empty
+from .utils.auth import get_dss_client
+from .utils.validation import (
+    require_allowed_value as _require_allowed_value,
+    require_non_empty_string as _require_non_empty_string,
+)
+
+_CONNECTION_SECRET_REDACTION = "__DATAIKU_REDACTED__"
+_SENSITIVE_EXACT_KEYS = {
+    "apikey",
+    "accesskey",
+    "credentials",
+    "password",
+    "privatekey",
+    "secret",
+    "secretkey",
+    "sessiontoken",
+    "token",
+    "resolvedawscredential",
+    "resolvedbasiccredential",
+    "resolvedoauth2credential",
+}
+_SENSITIVE_SUFFIXES = (
+    "password",
+    "privatekey",
+    "secretkey",
+    "sessiontoken",
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = key.replace("_", "").replace("-", "").lower()
+    if normalized in _SENSITIVE_EXACT_KEYS:
+        return True
+
+    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES):
+        return True
+
+    if normalized.endswith("credential"):
+        return True
+
+    if normalized.endswith("token"):
+        return True
+
+    return False
+
+
+def _redact_sensitive_data(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            if _is_sensitive_key(str(key)):
+                redacted[key] = _CONNECTION_SECRET_REDACTION
+            else:
+                redacted[key] = _redact_sensitive_data(item)
+        return redacted
+
+    if isinstance(value, list):
+        return [_redact_sensitive_data(item) for item in value]
+
+    return value
+
+
+
+_CONNECTION_TYPES_BY_CATEGORY = {
+    "object_storage": ["EC2", "GCS", "Azure", "HDFS"],
+    "local_server": ["Filesystem", "FTP", "SSH"],
+    "sql_dbs": [
+        "Snowflake",
+        "BigQuery",
+        "Redshift",
+        "Synapse",
+        "Athena",
+        "Databricks",
+        "FabricWarehouse",
+        "PostgreSQL",
+        "MySQL",
+        "SQLServer",
+        "Oracle",
+        "Teradata",
+        "Vertica",
+        "Greenplum",
+        "Trino",
+        "JDBC",
+        "AlloyDB",
+        "SAPHANA",
+        "Netezza",
+        "Denodo",
+    ],
+    "nosql_search": ["MongoDB", "ElasticSearch", "Cassandra"],
+    "vector_stores": ["AzureAISearch", "Pinecone", "MilvusRemote"],
+    "llm_providers": [
+        "OpenAI",
+        "AzureOpenAI",
+        "AzureLLM",
+        "Bedrock",
+        "VertexAILLM",
+        "SnowflakeCortex",
+        "MistralAI",
+        "Anthropic",
+        "Cohere",
+        "SageMaker-GenericLLM",
+        "CustomLLM",
+        "AzureAIFoundry",
+        "HuggingFaceLocal",
+        "NVIDIA-NIM",
+        "StabilityAI",
+        "DatabricksLLM",
+    ],
+    "external_ml_model_providers": [
+        "SageMaker",
+        "VertexAIModelDeployment",
+        "DatabricksModelDeployment",
+        "AzureML",
+    ],
+    "other": ["RemoteMCP", "iceberg", "SharePointOnline", "TreasureData"],
+}
+_KNOWN_CONNECTION_TYPES = [
+    connection_type
+    for connection_types in _CONNECTION_TYPES_BY_CATEGORY.values()
+    for connection_type in connection_types
+]
+_KNOWN_CONNECTION_CATEGORIES = set(_CONNECTION_TYPES_BY_CATEGORY)
+_KNOWN_CONNECTION_TYPES_SET = set(_KNOWN_CONNECTION_TYPES)
+
+
+def _get_connection_category(connection_type: str) -> str | None:
+    for category, connection_types in _CONNECTION_TYPES_BY_CATEGORY.items():
+        if connection_type in connection_types:
+            return category
+    return None
+
+
+@mcp.tool()
+async def list_connections(
+    ctx: Context,
+    connection_type: str = "all",
+    connection_category: str = "all",
+) -> str:
+    """List the DSS connections available on the instance, each with its type. Uses the non-admin API, so no admin rights are required. Provide either connection_type or connection_category, but not both.
+
+    Args:
+        connection_type: Returns only connections with this type. Use "all" for every known type.
+        connection_category: Returns only connections in this category. Use "all" for every known category.
+    """
+    connection_type = _require_non_empty_string(connection_type, "connection_type")
+    connection_category = _require_non_empty_string(
+        connection_category, "connection_category"
+    )
+    if connection_category != "all":
+        connection_category = _require_allowed_value(
+            connection_category,
+            "connection_category",
+            _KNOWN_CONNECTION_CATEGORIES,
+        )
+    if connection_type != "all" and connection_category != "all":
+        raise ValueError(
+            "Provide only one of 'connection_type' or 'connection_category', not both"
+        )
+
+    category_connection_types = (
+        _CONNECTION_TYPES_BY_CATEGORY[connection_category]
+        if connection_category != "all"
+        else _KNOWN_CONNECTION_TYPES
+    )
+
+    await ctx.info(
+        "Listing DSS connections "
+        f"(type={connection_type}, category={connection_category})..."
+    )
+
+    def _run():
+        client = get_dss_client()
+        types_to_query = (
+            [connection_type]
+            if connection_type != "all"
+            else category_connection_types
+        )
+        seen: set[str] = set()
+        connections = []
+        for t in types_to_query:
+            for name in client.list_connections_names(t):
+                if name not in seen:
+                    seen.add(name)
+                    connections.append(
+                        {
+                            "name": name,
+                            "type": t,
+                            "category": _get_connection_category(t),
+                        }
+                    )
+        return connections
+
+    connections = await run_blocking(_run)
+
+    result: dict = {
+        "connections": columnar(connections, ["name", "type", "category"]),
+    }
+    if (
+        connection_type != "all"
+        and not connections
+        and connection_type not in _KNOWN_CONNECTION_TYPES_SET
+    ):
+        result["warning"] = (
+            f"No connections found for type '{connection_type}', and it is not a known "
+            f"DSS connection type. Known types: {sorted(_KNOWN_CONNECTION_TYPES_SET)}"
+        )
+
+    return compact_json(result)
+
+
+@mcp.tool()
+async def get_connection_info(
+    connection_name: str,
+    ctx: Context,
+    contextual_project_key: str | None = None,
+) -> str:
+    """Get information about a DSS connection. Requires permissions to read connection details.
+
+    Args:
+        contextual_project_key: Optional project key used to resolve project variables
+    """
+    connection_name = _require_non_empty_string(connection_name, "connection_name")
+    if contextual_project_key is not None:
+        contextual_project_key = _require_non_empty_string(
+            contextual_project_key, "contextual_project_key"
+        )
+
+    await ctx.info(f"Loading info for DSS connection '{connection_name}'...")
+
+    raw_info = await run_blocking(
+        lambda: dict(
+            get_dss_client()
+            .get_connection(connection_name)
+            .get_info(contextual_project_key=contextual_project_key)
+        )
+    )
+
+    result = {
+        "info": _redact_sensitive_data(raw_info),
+    }
+
+    # Lever 4: omit top-level fields whose value carries no information
+    # (None / "" / [] / {}). Keeps False and 0. Does not recurse into the
+    # raw `info` blob — only drops it when the whole object is empty.
+    result = omit_empty(result)
+
+    return compact_json(result)
+
+
+@mcp.tool()
+async def test_connection(connection_name: str, ctx: Context) -> str:
+    """Test if a DSS connection is available. Returns an error if testing is not supported for the connection type, or if the caller lacks required permissions."""
+    connection_name = _require_non_empty_string(connection_name, "connection_name")
+    await ctx.info(f"Testing DSS connection '{connection_name}'...")
+
+    raw_result = await run_blocking(
+        lambda: get_dss_client().get_connection(connection_name).test()
+    )
+
+    result = {
+        "test": _redact_sensitive_data(raw_result),
+    }
+
+    # Lever 4: omit top-level fields whose value carries no information
+    # (None / "" / [] / {}). Keeps False and 0. Does not recurse into the
+    # raw `test` blob — only drops it when the whole object is empty.
+    result = omit_empty(result)
+
+    return compact_json(result)

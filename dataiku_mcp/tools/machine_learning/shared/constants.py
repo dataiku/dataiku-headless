@@ -1,0 +1,41 @@
+"""Constants for machine learning tool validation."""
+
+PREDICTION_TYPES = {
+    "BINARY_CLASSIFICATION",
+    "REGRESSION",
+    "MULTICLASS",
+}
+
+WEIGHTING_METHODS = {
+    "NO_WEIGHTING",
+    "SAMPLE_WEIGHT",
+    "CLASS_WEIGHT",
+    "CLASS_AND_SAMPLE_WEIGHT",
+}
+
+PREDICTION_SPLIT_METHODS = {
+    "RANDOM",
+    "KFOLD",
+}
+
+HYPERPARAMETER_SEARCH_STRATEGIES = {
+    "GRID",
+    "RANDOM",
+    "BAYESIAN",
+}
+
+HYPERPARAMETER_SEARCH_VALIDATION_MODES = {
+    "KFOLD",
+    "SINGLE_SPLIT",
+    "CUSTOM",
+}
+
+FEATURE_REDUCTION_METHODS = {
+    "NONE",
+    "CORRELATION",
+    "RANDOM_FOREST",
+    "PCA",
+    "ICA",
+    "LASSO",
+}
+

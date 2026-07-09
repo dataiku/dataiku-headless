@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "dataiku": {
+      "type": "local",
+      "command": [".venv/bin/python", "-m", "dataiku_mcp"],
+      "enabled": true,
+      "env": {
+        "DKU_MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
