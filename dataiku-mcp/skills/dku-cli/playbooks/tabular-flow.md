@@ -159,6 +159,8 @@ connection has a default catalog/schema or the user a `DEFAULT_NAMESPACE`.
 | Fuzzy / approx string match | `create-fuzzy-join` (`--method`: LEVENSHTEIN default; COSINE/JACCARD for token text, HAMMING for codes, EUCLIDEAN for numerics) | custom Levenshtein |
 | Per-row transform (rename, cast, parse, derive) | Prepare (`add-*` steps) | — |
 | Apply saved model | `create-prediction-scoring` / `create-clustering-scoring` (needs `--model`; see scoring note below) | — |
+| Univariate stats (means / quantiles / frequencies) | `create-eda-univariate` (scenario-runnable, no code) | — |
+| Correlation / covariance (Pearson) | no dedicated recipe — visual: `create-group` no key (`--computed-col` products/squares, sums) → Prepare r-formula; or `create -t sql_query` (`CORR()`, **code**). Spearman: Window rank first | a "statistics recipe" — bivariate/correlation cards are UI-only, not scenario-runnable; Group `sum2` agg (no-op) |
 | None of the above | `create -t sql_query` → then `-t python` | — |
 
 **Join design: multi-input beats cascading.** One `create-join -i A -i B -i C`

@@ -447,7 +447,7 @@
     "src/dku_cli/commands/recipe/visual_joins.py": 943,
     "src/dku_cli/commands/recipe/visual_pivot_sampling.py": 562,
     "src/dku_cli/commands/recipe/visual_split_topn.py": 493,
-    "src/dku_cli/commands/recipe/visual_window.py": 573,
+    "src/dku_cli/commands/recipe/visual_window.py": 623,
     "src/dku_cli/commands/scenario.py": 2293,
     "src/dku_cli/commands/scenario_payloads.py": 342,
     "src/dku_cli/commands/semantic_model/_common.py": 294,

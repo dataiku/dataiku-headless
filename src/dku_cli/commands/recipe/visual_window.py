@@ -32,6 +32,23 @@ _VALID_WINDOW_TYPES = frozenset(
 )
 # These are top-level booleans in the DSS payload, not per-column
 _TOP_LEVEL_WINDOW_TYPES = frozenset({"rank", "denseRank", "rowNumber"})
+# Computations whose result is non-deterministic without an ORDER BY. DSS only
+# emits a WARNING and runs anyway, silently producing non-reproducible output,
+# so we refuse at parse time instead.
+_ORDER_REQUIRED_WINDOW_TYPES = frozenset(
+    {
+        "rowNumber",
+        "rank",
+        "denseRank",
+        "lag",
+        "lead",
+        "lagDiff",
+        "leadDiff",
+        "first",
+        "last",
+        "firstLastNotNull",
+    }
+)
 # These are per-column boolean flags in the values[] array
 _COLUMN_WINDOW_TYPES = frozenset(
     {
@@ -489,6 +506,44 @@ def create_window(
     ) and frame_mode_upper != "RANGE":
         exit_with_error(
             "--range-lower/--range-upper require --frame-mode RANGE.",
+        )
+    # Order-dependent computations without an ORDER BY are non-deterministic:
+    # DSS only warns, then produces non-reproducible output. Refuse at parse time.
+    order_dependent = sorted(
+        {
+            c["type"]
+            for c in parsed_computations
+            if c["type"] in _ORDER_REQUIRED_WINDOW_TYPES
+        }
+    )
+    if parsed_lag_offsets:
+        order_dependent.append("lag (--lag-offsets)")
+    if parsed_lead_offsets:
+        order_dependent.append("lead (--lead-offsets)")
+    if enable_cume_dist:
+        order_dependent.append("cumeDist (--enable-cume-dist)")
+    if enable_ntile is not None:
+        order_dependent.append("ntile (--enable-ntile)")
+    # Bounded frames pick rows relative to the current row, so they need an
+    # ordering; an unbounded frame spans the whole partition and does not.
+    frame_requires_order = (
+        frame_preceding is not None
+        or frame_following is not None
+        or frame_mode_upper == "RANGE"
+    )
+    if (order_dependent or frame_requires_order) and not order_key:
+        reason = (
+            ", ".join(order_dependent) if order_dependent else "a bounded window frame"
+        )
+        exit_with_error(
+            f"Window computation requires ordering but no --order-key was "
+            f"given: {reason}.",
+            details=[
+                "Ranking / offset / frame functions are non-deterministic without an "
+                "ORDER BY — DSS would only warn, then produce non-reproducible output.",
+                "Add --order-key COLUMN (append ':desc' for descending). "
+                "Example: --compute 'rowNumber::rn' --order-key event_date",
+            ],
         )
     try:
         client = get_client_from_ctx(ctx)
