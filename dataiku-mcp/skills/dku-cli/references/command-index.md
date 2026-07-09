@@ -88,7 +88,7 @@ Every group and command with its one-line description — read this once per ses
 - `create-extract` — Create an Extract Content recipe (extracts structured content from documents using a VLM).
 - `create-extract-failed-rows` — Create an Extract-Failed-Rows recipe (built-in DSS recipe type).
 - `create-filter` — Create a filter recipe (rows matching the formula).
-- `create-fuzzy-join` — Create a Fuzzy Join recipe for approximate string matching.
+- `create-fuzzy-join` — Create a Fuzzy Join recipe for approximate string matching. NEVER use Python for fuzzy matching — use this instead.
 - `create-generate-features` — Create a Generate Features recipe (auto feature engineering).
 - `create-geojoin` — Create a Geo Join recipe. NEVER use Python haversine — use this instead.
 - `create-group` — Create a Group (aggregate) recipe. NEVER use Python for aggregations — use this instead.

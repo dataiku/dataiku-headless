@@ -610,7 +610,7 @@ def test_recipe_create_fuzzy_join(patch_client):
             ],
         )
         assert result.exit_code == 0
-        assert "Created fuzzy join recipe" in result.output
+        assert "Created LEFT fuzzy join recipe" in result.output
         mock_cls.assert_called_once_with("my_fuzzy", proj)
         assert builder.with_input.call_count == 2
         builder.with_existing_output.assert_called_once_with("matched")
@@ -654,6 +654,7 @@ def test_recipe_create_fuzzy_join_condition_shape(patch_client):
         assert "fuzzyJoinMethod" not in join
         assert "fuzzyJoinMaxDistance" not in join
         assert join["conditionsMode"] == "AND"
+        assert join["type"] == "LEFT"
         fuzzy_cond, exact_cond = join["on"]
         assert fuzzy_cond == {
             "column1": {"name": "name", "table": 0},
@@ -666,6 +667,37 @@ def test_recipe_create_fuzzy_join_condition_shape(patch_client):
             "threshold": 0,
         }
         assert exact_cond["column1"]["name"] == "country"
+    finally:
+        patcher.stop()
+
+
+def test_recipe_create_fuzzy_join_join_type_inner(patch_client):
+    """--join-type INNER sets the join pair type (matched pairs only)."""
+    _proj, _builder, settings, _mock_cls, patcher = _setup_fuzzyjoin_mock(patch_client)
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "recipe",
+                "create-fuzzy-join",
+                "my_fuzzy",
+                "-i",
+                "ds1",
+                "-i",
+                "ds2",
+                "--output-ds",
+                "matched",
+                "--fuzzy-key",
+                "name",
+                "--join-type",
+                "inner",
+                "--project",
+                "PROJ1",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Created INNER fuzzy join recipe" in result.output
+        assert settings.obj_payload["joins"][0]["type"] == "INNER"
     finally:
         patcher.stop()
 

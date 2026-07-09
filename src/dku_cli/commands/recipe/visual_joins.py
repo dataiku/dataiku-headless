@@ -1049,7 +1049,11 @@ def create_fuzzy_join(
     max_distance: int = typer.Option(
         1,
         "--max-distance",
-        help="Maximum edit distance for fuzzy matching (default: 1)",
+        help=(
+            "Maximum edit distance for fuzzy conditions. Default 1 matches "
+            "single-edit pairs only — close pairs two or more edits apart "
+            "silently fail to match."
+        ),
     ),
     method: FuzzyMethod = typer.Option(
         FuzzyMethod.LEVENSHTEIN,
@@ -1058,18 +1062,33 @@ def create_fuzzy_join(
         case_sensitive=False,
         help="Distance type for fuzzy conditions",
     ),
+    join_type: JoinType = typer.Option(
+        JoinType.LEFT,
+        "--join-type",
+        "-j",
+        case_sensitive=False,
+        help=(
+            "LEFT (default) keeps unmatched left rows with empty right "
+            "columns; INNER keeps matched pairs only — the shape of a "
+            "'keep rows where distance(a, b) <= N' threshold predicate."
+        ),
+    ),
     project: str = typer.Option(None, "--project", "-P", help="Project key"),
 ) -> None:
-    """Create a Fuzzy Join recipe for approximate string matching.
+    """Create a Fuzzy Join recipe for approximate string matching. NEVER use Python for fuzzy matching — use this instead.
 
-    Joins two datasets using approximate (fuzzy) matching on text columns.
-    Use for name deduplication, address matching, or linking messy text data.
+    Joins two datasets on approximate (fuzzy) text matches — name
+    deduplication, address matching, linking messy text. A distance
+    threshold almost always reproduces the intended matches; exact custom
+    distance weights are rarely needed.
 
-    Example: dku recipe create-fuzzy-join fuzzy_step -i ds1 -i ds2 \\
-      --output-ds matched --fuzzy-key name --max-distance 2 -P PROJ
+    When both inputs share the match column name, the output keeps only
+    one side's copy. To keep both values, rename one side first (a Prepare
+    add-rename) and match with --fuzzy-key left=right.
     """
     project_key = resolve_project(project)
     m = method.value
+    jt = join_type.value
     if len(inputs) != 2:
         exit_with_error(
             f"Fuzzy join requires exactly 2 input datasets, got {len(inputs)}.",
@@ -1117,6 +1136,7 @@ def create_fuzzy_join(
         # (the recipe silently degrades to exact matching), and a condition
         # without type=FUZZY is dropped entirely (silent cross join).
         fj["conditionsMode"] = "AND"
+        fj["type"] = jt
 
         def _fuzzy_condition(key_spec: str, distance_type: str, threshold) -> dict:
             if "=" in key_spec:
@@ -1141,7 +1161,9 @@ def create_fuzzy_join(
 
         settings.save()
         _auto_apply_schema(proj, recipe_name)
-        success(f"Created fuzzy join recipe '{recipe_name}' ({m}) in {project_key}")
+        success(
+            f"Created {jt} fuzzy join recipe '{recipe_name}' ({m}) in {project_key}"
+        )
         recipe_created_hint(recipe_name, project_key)
     except typer.Exit:
         raise

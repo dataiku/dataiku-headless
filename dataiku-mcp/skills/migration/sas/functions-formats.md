@@ -59,6 +59,13 @@ GREL function names are **case-sensitive**. Full GREL reference: `../../dku-cli/
 
 `COMPRESS` modifiers: `k` = keep (instead of remove), `d` = digits, `a` = alpha, `s` = spaces, `p` = punct. `compress(s, , 'kd')` = keep only digits.
 
+### Fuzzy / approximate string matching
+
+| SAS | Dataiku | Notes |
+|---|---|---|
+| `SPEDIS(a, b)` / `COMPGED(a, b)` / `COMPLEV(a, b)` | `dku recipe create-fuzzy-join` (visual, recipe type `fuzzyjoin`) | **Never Python.** A threshold on any string distance reproduces the intended matches — exact SAS distance weights are rarely needed. Pattern + traps (LEFT default, name collision): `procs.md` § PROC SQL fuzzy match |
+| `SOUNDEX(x)` | Prepare formula / normalized key, then Join | Phonetic key; only if a fuzzy distance won't separate the classes |
+
 ### Geography / reference-data lookups
 
 SAS ships reference tables (`SASHELP.ZIPCODE`, `SASHELP.US_DATA`) and functions (`STFIPS`, `STNAME`, `ZIPSTATE`) that don't exist in Dataiku. The `overview.md` § Non-migratable patterns table flags this; at the function level:

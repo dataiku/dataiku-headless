@@ -73,6 +73,15 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
         " --computed-col '1:w_price=price:double'"
         " --join-key 'seq<=seq' --join-key 'win_end>=seq' --output-ds rolled -P PROJ",
     ],
+    # A distance-threshold predicate is INNER, and same-named columns collide
+    # (one copy kept) — rename one side and match left=right to keep both.
+    ("recipe", "create-fuzzy-join"): [
+        "dku recipe create-fuzzy-join fuzzy_names -i left -i right"
+        " --fuzzy-key name --output-ds matched --max-distance 2 -P PROJ",
+        "dku recipe create-fuzzy-join fuzzy_names -i left -i right_renamed"
+        " --fuzzy-key name=name_r --max-distance 2 --join-type INNER"
+        " --output-ds matched -P PROJ",
+    ],
     # Required flag combination: input + output + connection + sql
     ("recipe", "create-sql"): [
         "dku recipe create-sql sql_orders -i orders --output-ds joined"

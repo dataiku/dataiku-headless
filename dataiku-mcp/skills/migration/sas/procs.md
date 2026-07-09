@@ -14,6 +14,7 @@ Translation details for SAS PROCs and canonical visual patterns. SQL-recipe tran
 | `PROC SORT NODUP` | Distinct | Visual | Exact whole-row duplicates → `create-distinct` (no `--on`) |
 | `PROC SQL` (simple filter/aggregation) | Prepare + Group | Visual | Decompose |
 | `PROC SQL` (joins) | Join | Visual | Break into visual steps |
+| `PROC SQL` (`where spedis/compged/complev(a,b) le N`) | Fuzzy Join | Visual | Never Python — § PROC SQL fuzzy match |
 | `PROC SQL` (window / CTE / complex) | SQL recipe | Code | |
 | `PROC SQL` (ODBC passthrough) | SQL recipe on a Dataiku SQL connection | Code | See `flow-patterns.md` § Recognizing enterprise driver scripts |
 | `PROC MEANS` / `PROC SUMMARY` | Group | Visual | Only `n/mean/std/min/max/sum/count` — percentile/median → visual Window-rank pattern (`../ayx/tools-join-reshape.md` § Median / percentile); SQL `PERCENTILE_CONT` only when the input is already SQL-backed |
@@ -145,6 +146,33 @@ dku recipe run rename_for_parity -P PROJ --wait
 ```
 
 SAS `order by` produces an ordered output; Dataiku Group output is unordered. If downstream relies on order, add a Sort recipe.
+
+### PROC SQL fuzzy match (`from A, B where spedis(a,b) le N`) → Fuzzy Join (NOT Python)
+
+A cross join filtered by a spelling-distance threshold is a **Fuzzy Join** (`create-fuzzy-join`) — never a Python recipe. A Levenshtein threshold reproduces the keep/reject split without the exact SAS metric (`functions-formats.md` § Fuzzy / approximate string matching).
+
+```sas
+proc sql;
+    create table fuzzy_match as
+    select a.id, a.name as name_a, b.name as name_b
+    from left_tbl a, right_tbl b
+    where spedis(a.name, b.name) le 25;
+quit;
+```
+→
+```bash
+# Both sides name the match column 'name' — pre-rename so both survive the join
+dku recipe create prep_right -t prepare -i right_tbl --output-ds right_r -P PROJ
+dku recipe add-rename prep_right --from name --to name_b -P PROJ
+dku recipe apply-schema prep_right -P PROJ && dku recipe run prep_right -P PROJ --wait
+
+dku recipe create-fuzzy-join fuzzy_match_names -i left_tbl -i right_r \
+    --output-ds fuzzy_match --fuzzy-key name=name_b --max-distance 2 \
+    --join-type INNER -P PROJ
+dku recipe run fuzzy_match_names -P PROJ --wait
+```
+
+Traps: a SAS threshold `where` is INNER, but `--join-type` defaults to LEFT — unmatched left rows leak through with empty right columns. Same-named columns don't get `create-join`'s `_1`/`_2` suffixes — only one copy survives, so pre-rename one side. `--max-distance` defaults to 1 — single-edit pairs only.
 
 ### Merge + compute + bin → Join + Prepare (NOT SQL)
 
