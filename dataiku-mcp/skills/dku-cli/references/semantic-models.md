@@ -2,13 +2,17 @@
 
 For `set-version` bulk edits. Use `add-*` commands for most ops; drop to JSON for `sqlGenerationConfig`, `foreignKeys`, attribute descriptions.
 
-## Prerequisite: entities must point at SQL-backed datasets
+## Query-time caveat: only NL-to-SQL execution needs SQL-backed datasets
 
-Entities must reference Snowflake/Postgres/Redshift/BigQuery (or another SQL
-connection) datasets. Filesystem/UploadedFiles datasets fail at query time with
-a polite English refusal ("not accessible via SQL") — looks like a prompt issue
-but the fix is a sync: land the dataset on a SQL connection first, then point
-`datasetRef` at the SQL dataset, not the upstream file source.
+Semantic-model creation works on any dataset type. `create`, `add-entity`,
+relationships, metrics, filters, glossary terms, and golden queries all build
+fine against Filesystem/UploadedFiles datasets.
+
+The SQL-backed requirement only appears at query time: the Semantic Model Query
+tool refuses sources that are "not accessible via SQL". If that happens, sync
+the dataset to a SQL connection and repoint `datasetRef` at the SQL dataset
+instead of the upstream file source. Do not block or restructure the model
+build over this.
 
 ## Version
 

@@ -2,7 +2,11 @@
 
 Maps datasets to business entities, relationships, and metrics for NL→SQL. One model per domain, multiple versions per model (only active version queried).
 
-Entities must point at **SQL-backed datasets** — Filesystem/UploadedFiles sources fail at query time with a polite refusal ("not accessible via SQL"); sync to a SQL connection first and point the entity at the synced dataset (`references/mlops.md` § Semantic models).
+Model creation works on any dataset type. Only query execution requires
+**SQL-backed datasets**: if the Semantic Model Query tool refuses a source as
+"not accessible via SQL", sync the dataset to a SQL connection and repoint the
+entity at the synced dataset. Do not block or restructure the model build over
+this (`../references/semantic-models.md`).
 
 ## Canonical commands
 
