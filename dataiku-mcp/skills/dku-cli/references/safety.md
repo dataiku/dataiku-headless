@@ -18,15 +18,20 @@ from `--help`.
 ## Exit code 77 — the agent instruction
 
 Exit code `77` is reserved for safety blocks (do not reuse it). When a command
-exits 77 it prints an `AGENT INSTRUCTION:` block on stderr with a verbatim
-confirmation question and an exact rerun command.
+exits 77 it prints a refusal block on stderr ending in a `# safety_blocked`
+sentinel line — `# safety_blocked tier=<n> action=<action> rerun=<json-string>`.
+That sentinel line is present verbatim in every mode (including under a
+human's terminal with `DKU_HUMAN_MODE` set) — parse it, not the prose above
+it, which may read as a numbered `AGENT INSTRUCTION:` block or as
+human-addressed wording depending on presentation.
 
 **Agent procedure on exit 77:**
 
-1. Read the `AGENT INSTRUCTION:` block on stderr.
-2. Ask the user the verbatim confirmation question from that block.
-3. If the user confirms, copy the provided rerun command **exactly**.
-4. Do not guess `--confirm-name`; do not re-run without asking.
+1. Read the trailing `# safety_blocked ...` sentinel line on stderr.
+2. JSON-decode the sentinel's `rerun=<json-string>` value.
+3. Ask the user the confirmation question from the block above the sentinel.
+4. If the user confirms, copy the decoded rerun command **exactly**.
+5. Do not guess `--confirm-name`; do not re-run without asking.
 
 ## Dangerous mode
 
@@ -63,8 +68,9 @@ before any `dku admin` write** (anything that isn't `logs`, `get-log`, `usage`,
 Hard rules:
 
 1. **Admin writes are blocked, not dry-run, until fully authorized.** Missing a
-   required flag exits `77` with an `AGENT INSTRUCTION:` block and an exact rerun
-   command — it does NOT preview-and-continue. `license upload`, `settings set`,
+   required flag exits `77` with a refusal block ending in a `# safety_blocked`
+   sentinel with an exact rerun command — it does NOT preview-and-continue.
+   `license upload`, `settings set`,
    and the IAM `set` verbs are tier-4 ADMIN (`--yes` + `--confirm-name <id>` +
    `--i-know-what-im-doing`) and are NOT bypassable by `--dangerous`.
 2. **IAM writes (`sso`/`ldap`/`azure-ad` `set`) require a lockout ack on top of

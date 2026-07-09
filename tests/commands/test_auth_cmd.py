@@ -230,6 +230,56 @@ def test_auth_list_text_keeps_legacy_layout():
     assert "key stored" in result.output
 
 
+def test_auth_list_human_mode_renders_table(monkeypatch):
+    """Under DKU_HUMAN_MODE, the same rows render as an aligned table instead
+    of the legacy inline layout — dense default output is untouched."""
+    profiles = {
+        "default": {"url": "https://dss.example.com", "node_type": "DESIGN"},
+    }
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    monkeypatch.setattr(
+        "dku_cli.commands.auth_cmd.is_human_mode", lambda stream=None: True
+    )
+    with (
+        patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value=profiles),
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_api_key_with_status",
+            return_value=_key_result("secret"),
+        ),
+    ):
+        result = runner.invoke(app, ["auth", "list"])
+
+    assert result.exit_code == 0
+    assert "Profile" in result.output
+    assert "default *" in result.output
+    assert "DESIGN" in result.output
+    assert "key stored" in result.output
+
+
+def test_auth_list_human_mode_defers_to_explicit_format(monkeypatch):
+    """An explicit --format bypasses the human-mode table entirely."""
+    profiles = {
+        "default": {"url": "https://dss.example.com", "node_type": "DESIGN"},
+    }
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    monkeypatch.setattr(
+        "dku_cli.commands.auth_cmd.is_human_mode", lambda stream=None: True
+    )
+    with (
+        patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value=profiles),
+        patch("dku_cli.commands.auth_cmd.get_active_profile", return_value="default"),
+        patch(
+            "dku_cli.commands.auth_cmd.get_api_key_with_status",
+            return_value=_key_result("secret"),
+        ),
+    ):
+        result = runner.invoke(app, ["--format", "ids", "auth", "list"])
+
+    assert result.exit_code == 0
+    assert result.output == "default\n"
+
+
 def test_auth_list_json_empty_profiles():
     """No profiles → empty JSON array (not an info message in JSON mode)."""
     with patch("dku_cli.commands.auth_cmd.get_all_profiles", return_value={}):

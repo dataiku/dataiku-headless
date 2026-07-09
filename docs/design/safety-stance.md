@@ -49,14 +49,20 @@ principle critiques:
    boolean, and an autonomous agent can set it as freely as it sets any other
    flag. On its own, `--yes` is exactly the theatre named above. What makes it
    more than theatre in our model is the **exit-77 handshake**: the guard does
-   not silently proceed on a missing flag — it exits 77 and prints an
-   `AGENT INSTRUCTION:` block with a verbatim confirmation question and an exact
-   rerun command. The *protocol* (stop, surface the question to the human, rerun
-   only the provided command) is what carries the authorization, not the boolean.
+   not silently proceed on a missing flag — it exits 77 and prints a refusal
+   block with a confirmation question and an exact rerun command. The rerun
+   command is always recoverable from a trailing `# safety_blocked
+   tier=<n> action=<action> rerun=<json-string>` sentinel line, which is identical
+   whether the surrounding prose is agent-addressed or rendered for a human
+   at a terminal (`DKU_HUMAN_MODE`) — a TTY is not proof a human is reading
+   (agent harnesses allocate PTYs too), so the machine-parseable contract
+   must never live only in mode-dependent prose. The *protocol* (stop,
+   surface the question to the human, rerun only the provided command) is
+   what carries the authorization, not the boolean.
 
 So the honest framing: **`--confirm-name` is good semantic intent-encoding;
 `--yes` is a weak authorization signal that only becomes meaningful because of
-the exit-77 / `AGENT INSTRUCTION:` contract with the harness.** The boolean alone
+the exit-77 / `# safety_blocked` sentinel contract with the harness.** The boolean alone
 authorizes nothing.
 
 ## Where harness-level confirmation is the right boundary

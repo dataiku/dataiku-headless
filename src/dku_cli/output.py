@@ -15,10 +15,15 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
+import sys
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TextIO
 
+from rich import box
 from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 from rich.tree import Tree
 
 from dku_cli.brand import ICON
@@ -35,6 +40,21 @@ _output_format = "dense"
 
 # "dense" is the implicit default, never a flag value.
 OUTPUT_FORMATS = ("json", "csv", "ids", "quiet")
+
+_TRUTHY = ("1", "true", "yes", "on")
+
+
+def is_human_mode(stream: TextIO | None = None) -> bool:
+    """DKU_HUMAN_MODE opt-in AND the target stream is a terminal.
+
+    Presentation only, never a security signal: a PTY does not prove a human
+    is reading (agent harnesses allocate PTYs), so this changes rendering and
+    wording exclusively — safety tiers, exit codes, piped output, and output
+    under an explicit ``--format`` are identical either way.
+    """
+    if os.environ.get("DKU_HUMAN_MODE", "").strip().lower() not in _TRUTHY:
+        return False
+    return (stream if stream is not None else sys.stdout).isatty()
 
 
 def set_output_format(value: str | None) -> None:
@@ -120,7 +140,8 @@ def render(
         columns: Keys to include, in order.
         output_format: Explicit override; defaults to the invocation format.
         title: Context line (counts, scope) — printed to stderr, never stdout.
-        headers: Display name mapping {key: "Display Name"}, used by csv only.
+        headers: Display name mapping {key: "Display Name"}, used by csv and
+            the human-mode table.
     """
     fmt = output_format or _output_format
     if fmt == "json":
@@ -134,18 +155,42 @@ def render(
     else:
         if title:
             info(title)
-        _render_delimited(data, columns, headers=None, delimiter="\t")
+        if fmt == "dense" and is_human_mode():
+            _render_table(data, columns, headers=headers)
+        else:
+            _render_delimited(data, columns, headers=None, delimiter="\t")
 
 
 def render_raw(data: Any, output_format: str | None = None) -> None:
-    """Render a single object: compact JSON by default, indented under --format json."""
+    """Render a single object: compact JSON by default, indented under --format json
+    (and in human mode at a terminal, where compact JSON is unreadable)."""
     fmt = output_format or _output_format
     if fmt == "json":
         print(json.dumps(data, indent=2, default=str))
     elif isinstance(data, (dict, list)):
-        print(json.dumps(data, default=str, separators=(",", ":")))
+        if fmt == "dense" and is_human_mode():
+            print(json.dumps(data, indent=2, default=str))
+        else:
+            print(json.dumps(data, default=str, separators=(",", ":")))
     else:
         print(str(data))
+
+
+def _render_table(
+    data: Sequence[dict[str, Any]],
+    columns: list[str],
+    *,
+    headers: dict[str, str] | None = None,
+) -> None:
+    headers = headers or {}
+    table = Table(box=box.SIMPLE_HEAD, header_style="bold", pad_edge=False)
+    for column in columns:
+        table.add_column(headers.get(column, column), overflow="fold")
+    for row in data:
+        # Text() keeps bracketed values (e.g. "[design]") literal instead of
+        # letting the console parse them as rich markup.
+        table.add_row(*[Text(str(row.get(c, ""))) for c in columns])
+    console.print(table)
 
 
 def _render_delimited(

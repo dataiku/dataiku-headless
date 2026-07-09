@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from unittest.mock import patch
 
@@ -428,3 +429,118 @@ def test_reconstruct_rerun_normalizes_non_dku_head(monkeypatch):
 def test_reconstruct_rerun_empty_argv(monkeypatch):
     monkeypatch.setattr(sys, "argv", [])
     assert _reconstruct_rerun(["--yes"]) == "dku --yes"
+
+
+# ----- human mode: same mechanics, human-addressed wording -----
+
+
+def _force_human_mode(monkeypatch):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+
+
+def test_guard_delete_block_human_wording(monkeypatch, capsys):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    _force_human_mode(monkeypatch)
+    with patch("dku_cli.config.get_dangerous_mode", return_value=False):
+        with pytest.raises(typer.Exit) as excinfo:
+            guard(
+                _FakeCtx(),
+                tier=Tier.DELETE,
+                action="dataset.delete",
+                subject="dataset 'ds1' in PROJ1",
+                yes=False,
+            )
+    assert excinfo.value.exit_code == SAFETY_BLOCKED_EXIT
+    err = capsys.readouterr().err
+    assert "AGENT INSTRUCTION" not in err
+    assert "To proceed, re-run:" in err
+    assert "--yes" in err
+    assert '# safety_blocked tier=2 action=dataset.delete rerun="' in err
+
+
+def test_guard_cascade_mismatch_human_wording(monkeypatch, capsys):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    _force_human_mode(monkeypatch)
+    with patch("dku_cli.config.get_dangerous_mode", return_value=False):
+        with pytest.raises(typer.Exit) as excinfo:
+            guard(
+                _FakeCtx(),
+                tier=Tier.CASCADE,
+                action="project.delete",
+                subject="project PROJ1",
+                yes=True,
+                target_id="PROJ1",
+                confirm_name="WRONG_NAME",
+            )
+    assert excinfo.value.exit_code == SAFETY_BLOCKED_EXIT
+    err = capsys.readouterr().err
+    assert "AGENT INSTRUCTION" not in err
+    assert "Expected: --confirm-name 'PROJ1'" in err
+    assert "WRONG_NAME" in err
+    assert '# safety_blocked tier=3 action=project.delete rerun="' in err
+
+
+def test_guard_admin_refusal_human_wording(monkeypatch, capsys):
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+    _force_human_mode(monkeypatch)
+    with pytest.raises(typer.Exit) as excinfo:
+        guard(
+            _FakeCtx(),
+            tier=Tier.ADMIN,
+            action="admin.settings.set",
+            subject="instance settings",
+            yes=False,
+            target_id="settings",
+        )
+    assert excinfo.value.exit_code == SAFETY_BLOCKED_EXIT
+    err = capsys.readouterr().err
+    assert "AGENT INSTRUCTION" not in err
+    assert "If you are fully authorised, re-run:" in err
+    assert "--i-know-what-im-doing" in err
+    assert '# safety_blocked tier=4 action=admin.settings.set rerun="' in err
+
+
+def test_guard_sentinel_rerun_is_json_string_when_command_contains_quotes(capsys):
+    rerun = 'dku admin settings set --payload \'{"secret":"x"}\' --yes'
+
+    from dku_cli.safety import _emit_sentinel
+
+    _emit_sentinel(Tier.ADMIN, "admin.settings.set", rerun)
+    line = capsys.readouterr().err.strip()
+    encoded = line.split(" rerun=", 1)[1]
+
+    assert json.loads(encoded) == rerun
+
+
+def test_guard_sentinel_rerun_identical_across_modes(monkeypatch, capsys):
+    """The machine contract must not depend on presentation mode.
+
+    A TTY is not proof a human is reading (agent harnesses allocate PTYs
+    too), so the sentinel line an agent parses for the rerun command must be
+    byte-identical whether the surrounding prose is agent- or human-addressed.
+    """
+    monkeypatch.delenv("DKU_DANGEROUS", raising=False)
+
+    def _run():
+        with patch("dku_cli.config.get_dangerous_mode", return_value=False):
+            with pytest.raises(typer.Exit):
+                guard(
+                    _FakeCtx(),
+                    tier=Tier.DELETE,
+                    action="dataset.delete",
+                    subject="dataset 'ds1' in PROJ1",
+                    yes=False,
+                )
+        return capsys.readouterr().err
+
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: False)
+    agent_sentinel = next(
+        line for line in _run().splitlines() if line.startswith("# safety_blocked")
+    )
+
+    _force_human_mode(monkeypatch)
+    human_sentinel = next(
+        line for line in _run().splitlines() if line.startswith("# safety_blocked")
+    )
+
+    assert agent_sentinel == human_sentinel

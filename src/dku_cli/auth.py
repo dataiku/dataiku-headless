@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import NamedTuple
+from typing import Final, Literal, NamedTuple
 
 from dku_cli.config import (
     CONFIG_DIR,
@@ -24,21 +24,23 @@ SERVICE_NAME = "dku-cli"
 
 __all__ = ["CONFIG_DIR", "CREDENTIALS_FILE"]
 
+KeyStatusName = Literal["ok", "missing", "denied", "backend_error"]
+
 
 class KeyStatus:
     """Status codes returned by get_api_key_with_status."""
 
-    OK = "ok"  # Key found.
-    MISSING = "missing"  # No key stored for this profile (not an error).
-    DENIED = "denied"  # OS denied keychain access — the entry may still exist.
-    BACKEND_ERROR = "backend_error"  # Other keyring backend failure.
+    OK: Final[KeyStatusName] = "ok"
+    MISSING: Final[KeyStatusName] = "missing"
+    DENIED: Final[KeyStatusName] = "denied"
+    BACKEND_ERROR: Final[KeyStatusName] = "backend_error"
 
 
 class KeyResult(NamedTuple):
     """Result of a keychain lookup. `key` is None unless status == OK."""
 
     key: str | None
-    status: str
+    status: KeyStatusName
     detail: str | None = None  # Human-readable error detail when status != OK.
 
 

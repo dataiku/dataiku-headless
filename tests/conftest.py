@@ -59,6 +59,7 @@ def _isolate_config_files(tmp_path, monkeypatch):
         "DKU_API_KEY",
         "DKU_PROJECT",
         "DKU_FORMAT",
+        "DKU_HUMAN_MODE",
     ):
         monkeypatch.delenv(var, raising=False)
 

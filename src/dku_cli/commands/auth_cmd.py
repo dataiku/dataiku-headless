@@ -6,6 +6,7 @@ import os
 
 import typer
 
+from dku_cli import auth_display
 from dku_cli.auth import (
     KeyStatus,
     delete_api_key,
@@ -27,6 +28,7 @@ from dku_cli.output import (
     console,
     error,
     info,
+    is_human_mode,
     render,
     render_raw,
     resolve_output_format,
@@ -353,7 +355,7 @@ def list_profiles() -> None:
             info("No profiles configured. Run 'dku auth login' to get started.")
         return
 
-    rows = []
+    rows: list[auth_display.ProfileListRow] = []
     key_results = {}  # name -> KeyResult, for the rich text-output labels
     for name, cfg in profiles.items():
         auth_mode = cfg.get("auth_mode") or "api_key"
@@ -391,31 +393,30 @@ def list_profiles() -> None:
         )
         return
 
+    if output_fmt == "ids":
+        render(rows, ["name"], output_format="ids")
+        return
+
+    if output_fmt == "quiet":
+        return
+
+    if output_fmt == "dense" and is_human_mode():
+        render(
+            [
+                auth_display.profile_display_row(row, key_results[row["name"]])
+                for row in rows
+            ],
+            auth_display.PROFILE_DISPLAY_COLUMNS,
+            headers=auth_display.PROFILE_DISPLAY_HEADERS,
+        )
+        return
+
     # Default: human-friendly text matching the historical layout
     for row in rows:
-        marker = " *" if row["active"] else ""
-        key_result = key_results[row["name"]]
-        if row["auth_mode"] == AUTH_MODE_IN_POD_TICKET:
-            auth_label = "in-pod ticket"
-        elif key_result.status == KeyStatus.OK:
-            auth_label = "key stored"
-        elif key_result.status == KeyStatus.DENIED:
-            # Don't say "no key" — the entry is likely still there. Tell the
-            # user the truth so they don't waste time re-running `auth login`.
-            auth_label = (
-                "keychain access denied (entry may exist; re-prompt may be required)"
-            )
-        elif key_result.status == KeyStatus.BACKEND_ERROR:
-            auth_label = f"keychain error ({key_result.detail or ''})"
-        else:
-            auth_label = "no key"
-        url = row["url"] or (
-            "in-pod backend"
-            if row["auth_mode"] == AUTH_MODE_IN_POD_TICKET
-            else "no url"
-        )
+        display = auth_display.profile_display_row(row, key_results[row["name"]])
         console.print(
-            f"  {row['name']}{marker}  [{row['node_type']}]  {url}  ({auth_label})"
+            f"  {display['name']}  [{display['node_type']}]  {display['url']}  "
+            f"({display['status']})"
         )
 
 

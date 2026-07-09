@@ -2,8 +2,14 @@
 
 Every destructive command calls `guard()`, which enforces the active safety
 mode (guarded by default, dangerous opt-in). When a guard blocks a command,
-it emits a machine-parseable AGENT INSTRUCTION block so an LLM agent driving
-the CLI can stop, ask the user, and re-run with the exact confirmation flags.
+it emits a `# safety_blocked ...` sentinel line so an LLM agent driving the
+CLI can recover the rerun command by parsing that one line — see
+dataiku-mcp/skills/dku-cli/references/safety.md. The surrounding prose above
+the sentinel is agent-addressed by default and human-addressed under
+DKU_HUMAN_MODE at a terminal; the sentinel itself, the tiers, the required
+flags, and the exit code never depend on the mode. A TTY is not proof a human
+is reading (agent harnesses allocate PTYs too), so the machine contract must
+never live only in mode-dependent prose.
 
 Exit code 77 is reserved for safety_blocked.
 
@@ -12,7 +18,9 @@ See docs/design/safety-stance.md for the design rationale and call-site conventi
 
 from __future__ import annotations
 
+import json
 import os
+import shlex
 import sys
 from enum import IntEnum
 
@@ -111,35 +119,71 @@ def _reconstruct_rerun(extra_flags: list[str]) -> str:
             continue
         cleaned.append(arg)
 
-    return " ".join([head, *cleaned, *extra_flags])
+    return " ".join(shlex.quote(x) for x in [head, *cleaned, *extra_flags])
+
+
+def _emit_sentinel(tier: Tier, action: str, rerun: str) -> None:
+    """Print the always-present, mode-independent agent contract line.
+
+    Agents recover the rerun command by parsing this exact line, never the
+    surrounding prose, which is free to vary with DKU_HUMAN_MODE.
+    """
+    from dku_cli.output import err_console
+
+    encoded_rerun = json.dumps(rerun)
+    err_console.print(
+        f"# safety_blocked tier={int(tier)} action={action} rerun={encoded_rerun}",
+        markup=False,
+        highlight=False,
+    )
 
 
 def _emit_block(
     tier: Tier,
+    action: str,
     prompt_to_user: str,
     rerun_with_confirmation: str,
     session_bypass: str,
 ) -> None:
-    """Emit the AGENT INSTRUCTION block to stderr."""
-    from dku_cli.output import err_console
+    """Emit the refusal block to stderr.
+
+    Agent-addressed by default; human-addressed under DKU_HUMAN_MODE. Same
+    tiers, flags, and exit code either way — only the prose changes. The
+    sentinel line is identical in both modes.
+    """
+    from dku_cli.output import err_console, is_human_mode
 
     err_console.print(
         f"[red]◆[/red] BLOCKED by guarded mode — tier-{int(tier)} "
         f"({_tier_label(tier)}) blast radius."
     )
     err_console.print("")
-    err_console.print("[bold]AGENT INSTRUCTION:[/bold]")
-    err_console.print("  1. Stop. Do not retry automatically.")
-    err_console.print("  2. Ask the user verbatim:", highlight=False)
-    err_console.print(f"       {prompt_to_user!r}", highlight=False, markup=False)
-    err_console.print("  3. If they say yes, run this exact command:")
-    err_console.print(
-        f"       {rerun_with_confirmation}", highlight=False, markup=False
-    )
-    err_console.print("  4. To authorise everything for this session, ask the user:")
-    err_console.print(f"       export {session_bypass}", highlight=False, markup=False)
+    if is_human_mode(sys.stderr):
+        err_console.print(f"  {prompt_to_user}", highlight=False, markup=False)
+        err_console.print("  To proceed, re-run:")
+        err_console.print(
+            f"    {rerun_with_confirmation}", highlight=False, markup=False
+        )
+        err_console.print("  To authorise everything for this session:")
+        err_console.print(f"    export {session_bypass}", highlight=False, markup=False)
+    else:
+        err_console.print("[bold]AGENT INSTRUCTION:[/bold]")
+        err_console.print("  1. Stop. Do not retry automatically.")
+        err_console.print("  2. Ask the user verbatim:", highlight=False)
+        err_console.print(f"       {prompt_to_user!r}", highlight=False, markup=False)
+        err_console.print("  3. If they say yes, run this exact command:")
+        err_console.print(
+            f"       {rerun_with_confirmation}", highlight=False, markup=False
+        )
+        err_console.print(
+            "  4. To authorise everything for this session, ask the user:"
+        )
+        err_console.print(
+            f"       export {session_bypass}", highlight=False, markup=False
+        )
     err_console.print("")
     err_console.print(f"[dim]Exit code: {SAFETY_BLOCKED_EXIT}  (safety_blocked)[/dim]")
+    _emit_sentinel(tier, action, rerun_with_confirmation)
 
 
 def _warn_dangerous_once(ctx: typer.Context | None, reason: str) -> None:
@@ -206,7 +250,7 @@ def guard(
 
     if dangerous and tier <= Tier.CASCADE:
         if tier == Tier.CASCADE and target_id and confirm_name != target_id:
-            _emit_cascade_name_mismatch(target_id, confirm_name)
+            _emit_cascade_name_mismatch(action, target_id, confirm_name)
             raise typer.Exit(SAFETY_BLOCKED_EXIT)
         _warn_dangerous_once(ctx, reason)
         return
@@ -218,7 +262,7 @@ def guard(
             )
             raise typer.Exit(SAFETY_BLOCKED_EXIT)
         if not confirm_name or confirm_name != target_id:
-            _emit_cascade_name_mismatch(target_id, confirm_name)
+            _emit_cascade_name_mismatch(action, target_id, confirm_name)
             raise typer.Exit(SAFETY_BLOCKED_EXIT)
         return
 
@@ -244,6 +288,7 @@ def _emit_generic_block(
     rerun = _reconstruct_rerun(extra_flags)
     _emit_block(
         tier=tier,
+        action=action,
         prompt_to_user=prompt_to_user,
         rerun_with_confirmation=rerun,
         session_bypass="DKU_DANGEROUS=1",
@@ -251,24 +296,37 @@ def _emit_generic_block(
 
 
 def _emit_cascade_name_mismatch(
+    action: str,
     target_id: str,
     confirm_name: str | None,
 ) -> None:
     rerun = _reconstruct_rerun(["--yes", "--confirm-name", target_id])
 
-    from dku_cli.output import err_console
+    from dku_cli.output import err_console, is_human_mode
 
     err_console.print(
-        "[red]◆[/red] BLOCKED — tier-3 cascade requires --confirm-name to match the target."
+        "[red]◆[/red] BLOCKED — tier-3 cascade requires --confirm-name "
+        "to match the target."
     )
     err_console.print("")
-    err_console.print("[bold]AGENT INSTRUCTION:[/bold]")
-    err_console.print(f"  Expected: --confirm-name {target_id!r}")
-    err_console.print(f"  Got:      --confirm-name {confirm_name!r}")
-    err_console.print(
-        "  Verify the target identifier with the user and re-run with the matching --confirm-name."
-    )
-    err_console.print(f"  Re-run: {rerun}", markup=False, highlight=False)
+    if is_human_mode(sys.stderr):
+        err_console.print(f"  Expected: --confirm-name {target_id!r}")
+        err_console.print(f"  Got:      --confirm-name {confirm_name!r}")
+        err_console.print(
+            "  Verify the target identifier, then re-run with the matching"
+            " --confirm-name:"
+        )
+        err_console.print(f"    {rerun}", markup=False, highlight=False)
+    else:
+        err_console.print("[bold]AGENT INSTRUCTION:[/bold]")
+        err_console.print(f"  Expected: --confirm-name {target_id!r}")
+        err_console.print(f"  Got:      --confirm-name {confirm_name!r}")
+        err_console.print(
+            "  Verify the target identifier with the user and re-run with "
+            "the matching --confirm-name."
+        )
+        err_console.print(f"  Re-run: {rerun}", markup=False, highlight=False)
+    _emit_sentinel(Tier.CASCADE, action, rerun)
 
 
 def _emit_admin_refusal(
@@ -291,16 +349,23 @@ def _emit_admin_refusal(
         ["--yes", "--confirm-name", target_id or "<TARGET>", "--i-know-what-im-doing"]
     )
 
-    from dku_cli.output import err_console
+    from dku_cli.output import err_console, is_human_mode
 
     err_console.print(
         "[red]◆[/red] BLOCKED — tier-4 admin op requires explicit full authorization."
     )
     err_console.print("  Even --dangerous / DKU_DANGEROUS=1 do not bypass tier-4.")
     err_console.print("")
-    err_console.print("[bold]AGENT INSTRUCTION:[/bold]")
-    err_console.print(f"  1. Stop. Ask the user to confirm: {action} on {subject}.")
-    err_console.print(f"  2. Missing authorization flags: {' '.join(missing)}")
-    err_console.print(
-        f"  3. If fully authorised, re-run: {rerun}", markup=False, highlight=False
-    )
+    if is_human_mode(sys.stderr):
+        err_console.print(f"  About to run: {action} on {subject}.")
+        err_console.print(f"  Missing authorization flags: {' '.join(missing)}")
+        err_console.print("  If you are fully authorised, re-run:")
+        err_console.print(f"    {rerun}", markup=False, highlight=False)
+    else:
+        err_console.print("[bold]AGENT INSTRUCTION:[/bold]")
+        err_console.print(f"  1. Stop. Ask the user to confirm: {action} on {subject}.")
+        err_console.print(f"  2. Missing authorization flags: {' '.join(missing)}")
+        err_console.print(
+            f"  3. If fully authorised, re-run: {rerun}", markup=False, highlight=False
+        )
+    _emit_sentinel(Tier.ADMIN, action, rerun)

@@ -1,21 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import sys
 import textwrap
 from collections.abc import Mapping
 
-from dku_cli.output import get_output_format
+from dku_cli.output import get_output_format, is_human_mode
 
 
 def render_help(node: dict, command_path: str) -> str:
-    if (
-        os.environ.get("DKU_TEXT_HELP") == "1"
-        and sys.stdout.isatty()
-        and get_output_format() != "json"
-    ):
+    if is_human_mode() and get_output_format() != "json":
         return render_text_help(node, command_path)
     return json.dumps(node, default=str, separators=(",", ":")) + "\n"
 

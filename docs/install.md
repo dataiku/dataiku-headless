@@ -66,14 +66,14 @@ Use [`.env.example`](../.env.example) as the template.
 - `DKU_PROFILE`: select a saved profile.
 - `DKU_PROJECT`: default project key for project-scoped commands.
 - `DKU_FORMAT`: default output mode (`tsv`, `json`, `csv`, `ids`, `quiet`).
-- `DKU_TEXT_HELP=1`: show readable help text in a terminal instead of compact JSON.
+- `DKU_HUMAN_MODE=1`: human presentation at a terminal — readable help text, aligned tables, indented JSON.
 - `DKU_DANGEROUS=1`: bypass tier-2 and tier-3 confirmation guards for the current session.
 
 Notes:
 
 - `DKU_PROJECT` overrides the profile's saved `default_project`.
 - `DKU_API_KEY` / `DKU_URL` override stored profile credentials for the current session.
-- `DKU_TEXT_HELP` affects help rendering only. Non-interactive help remains compact JSON.
+- `DKU_HUMAN_MODE` is presentation only, and only at a TTY. Piped output, explicit `--format`, and safety guard behavior are identical with or without it.
 - Tier-4 admin safety guards are never bypassed by `DKU_DANGEROUS`.
 
 ### MCP runtime overrides

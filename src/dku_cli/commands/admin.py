@@ -3,7 +3,8 @@
 **Safety rules for destructive ops:**
 
 All destructive admin ops go through ``safety.guard()`` — a refusal exits with
-``77`` (safety_blocked) and an AGENT INSTRUCTION block, never a silent exit 0.
+``77`` (safety_blocked) and a refusal block ending in a ``# safety_blocked``
+sentinel line, never a silent exit 0.
 
 - Tier-4 ADMIN (``license upload``, ``settings set``, ``sso/ldap/azure-ad set``):
   require ``--yes`` + ``--confirm-name <id>`` + ``--i-know-what-im-doing``, and are

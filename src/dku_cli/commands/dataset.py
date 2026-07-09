@@ -1992,7 +1992,8 @@ def delete(
     from dku_cli.safety import Tier, guard
 
     # Pre-query dependents BEFORE the safety guard so the cascade preview
-    # makes it into the AGENT INSTRUCTION block (when --yes is missing).
+    # makes it into the refusal block above the trailing safety sentinel
+    # (when --yes is missing).
     # Without this, the agent only sees a generic "Permanently delete X"
     # prompt and the user never learns recipes will be cascaded.
     # ds.get_usages() returns a list of dicts; field names vary slightly

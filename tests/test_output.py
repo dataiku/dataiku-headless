@@ -11,6 +11,7 @@ from dku_cli.output import (
     error,
     get_output_format,
     info,
+    is_human_mode,
     is_quiet,
     render,
     render_raw,
@@ -194,3 +195,84 @@ def test_resolve_output_format_defaults_to_dense():
 def test_resolve_output_format_returns_active_format():
     set_output_format("json")
     assert resolve_output_format() == "json"
+
+
+# ----- human mode (DKU_HUMAN_MODE): presentation only, TTY-gated -----
+
+
+class _FakeTTY:
+    def isatty(self):
+        return True
+
+
+def test_is_human_mode_off_by_default(monkeypatch):
+    monkeypatch.delenv("DKU_HUMAN_MODE", raising=False)
+    assert is_human_mode(_FakeTTY()) is False
+
+
+def test_is_human_mode_requires_a_tty(monkeypatch):
+    monkeypatch.setenv("DKU_HUMAN_MODE", "1")
+    assert is_human_mode() is False  # pytest's captured stdout is not a tty
+
+
+def test_is_human_mode_env_plus_tty(monkeypatch):
+    monkeypatch.setenv("DKU_HUMAN_MODE", "true")
+    assert is_human_mode(_FakeTTY()) is True
+
+
+def test_human_mode_renders_aligned_table_not_tsv(monkeypatch, capsys):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    render([{"name": "test", "value": "123"}], ["name", "value"])
+    out = capsys.readouterr().out
+    assert "test" in out
+    assert "123" in out
+    assert "\t" not in out
+
+
+def test_human_mode_table_uses_display_headers(monkeypatch, capsys):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    render([{"name": "test"}], ["name"], headers={"name": "Display Name"})
+    assert "Display Name" in capsys.readouterr().out
+
+
+def test_human_mode_table_keeps_bracketed_values_literal(monkeypatch, capsys):
+    """Cell values that look like rich markup must render verbatim, not be
+    parsed as style tags (which silently swallows them)."""
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    render([{"name": "[design]", "v": "[red]x[/red]"}], ["name", "v"])
+    out = capsys.readouterr().out
+    assert "[design]" in out
+    assert "[red]x[/red]" in out
+
+
+def test_human_mode_keeps_explicit_quiet_list_output(monkeypatch, capsys):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    set_output_format("quiet")
+    render([{"name": "test", "value": "123"}], ["name", "value"])
+    assert capsys.readouterr().out == "name\tvalue\ntest\t123\n"
+
+
+def test_human_mode_never_touches_explicit_formats(monkeypatch, capsys):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    render([{"name": "test"}], ["name"], output_format="csv")
+    assert capsys.readouterr().out == "name\ntest\n"
+
+
+def test_human_mode_indents_raw_objects(monkeypatch, capsys):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    render_raw({"id": "x"})
+    assert capsys.readouterr().out == '{\n  "id": "x"\n}\n'
+
+
+def test_human_mode_keeps_quiet_output_compact(monkeypatch, capsys):
+    monkeypatch.setattr("dku_cli.output.is_human_mode", lambda stream=None: True)
+    set_output_format("quiet")
+    render_raw({"id": "x"})
+    assert capsys.readouterr().out == '{"id":"x"}\n'
+
+
+def test_human_mode_env_without_tty_keeps_piped_output_identical(monkeypatch, capsys):
+    monkeypatch.setenv("DKU_HUMAN_MODE", "1")
+    render([{"name": "test", "value": "123"}], ["name", "value"])
+    render_raw({"id": "x"})
+    assert capsys.readouterr().out == 'name\tvalue\ntest\t123\n{"id":"x"}\n'

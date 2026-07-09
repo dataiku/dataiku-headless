@@ -138,6 +138,33 @@ def test_non_tty_help_is_spec_json():
     assert "create-join" in json.loads(result.stdout)["commands"]
 
 
+def test_human_mode_env_without_tty_help_stays_json(monkeypatch):
+    monkeypatch.setenv("DKU_HUMAN_MODE", "1")
+    result = runner.invoke(app, ["recipe", "--help"])
+    assert result.exit_code == 0
+    assert "create-join" in json.loads(result.stdout)["commands"]
+
+
+def test_human_mode_help_renders_text(monkeypatch):
+    from dku_cli import spec_text
+
+    monkeypatch.setattr(spec_text, "is_human_mode", lambda stream=None: True)
+    node = {"help": "Recipes", "commands": {"create-join": {"help": "Join."}}}
+    text = spec_text.render_help(node, "dku recipe")
+    assert text.startswith("Usage: dku recipe")
+    assert "create-join" in text
+
+
+def test_human_mode_help_defers_to_format_json(monkeypatch):
+    from dku_cli import spec_text
+    from dku_cli.output import set_output_format
+
+    monkeypatch.setattr(spec_text, "is_human_mode", lambda stream=None: True)
+    set_output_format("json")
+    node = {"help": "Recipes"}
+    assert json.loads(spec_text.render_help(node, "dku recipe")) == node
+
+
 def test_text_help_renderer_uses_readable_sections():
     result = runner.invoke(app, ["recipe", "--help"])
     node = json.loads(result.stdout)

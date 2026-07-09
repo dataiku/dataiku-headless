@@ -73,7 +73,7 @@ Common environment variables:
 - `DKU_PROFILE`: select a saved auth profile created with `dku auth login`.
 - `DKU_PROJECT`: default project key for project-scoped commands.
 - `DKU_FORMAT`: default output mode (`tsv`, `json`, `csv`, `ids`, `quiet`).
-- `DKU_TEXT_HELP=1`: show readable help text in a terminal instead of compact JSON.
+- `DKU_HUMAN_MODE=1`: human presentation at a terminal — readable help text, aligned tables, indented JSON. Presentation only: never changes safety behavior, piped output, or output under an explicit `--format`.
 - `DKU_DANGEROUS=1`: bypass tier-2 and tier-3 confirmation guards for the current session. Tier-4 admin guards still block.
 - `DKU_MCP_STATE_ROOT`: override the MCP server session-state directory.
 - `DKU_MCP_WORKDIR`: override the MCP server working directory for local path resolution.
@@ -86,7 +86,7 @@ Examples:
 export DKU_URL=https://dss.example.com
 export DKU_API_KEY=dkuaps-...
 export DKU_PROJECT=MY_PROJECT
-export DKU_TEXT_HELP=1
+export DKU_HUMAN_MODE=1
 dku --help
 ```
 
