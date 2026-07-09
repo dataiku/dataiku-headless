@@ -27,6 +27,7 @@ from .tools import (  # noqa: F401,E402
     agent_reviews,
     agents,
     code_environments,
+    cobuild,
     connections,
     cross_project_sharing,
     dashboards,
