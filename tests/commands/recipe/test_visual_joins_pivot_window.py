@@ -1486,6 +1486,8 @@ def test_recipe_create_window_multiple_computes(patch_client):
             "transactions",
             "--output-ds",
             "windowed",
+            "--order-key",
+            "ts",
             "--compute",
             "rowNumber::rn",
             "--compute",

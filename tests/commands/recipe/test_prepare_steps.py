@@ -1496,6 +1496,8 @@ def test_recipe_create_window_lead_offsets(patch_client):
             "data",
             "--output-ds",
             "out",
+            "--order-key",
+            "date",
             "--lead-offsets",
             "y:1,2",
             "--project",
@@ -1537,6 +1539,53 @@ def test_recipe_create_window_rename(patch_client):
         "Value_lag1": "lag1_3",
         "Value_lag2": "lag2_3",
     }
+
+
+def test_recipe_create_window_rownumber_requires_order_key(patch_client):
+    """Order-dependent computes without --order-key are refused at parse time."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--compute",
+            "rowNumber::rn",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert "--order-key" in result.output
+    assert "rowNumber" in result.output
+
+
+def test_recipe_create_window_bounded_frame_requires_order_key(patch_client):
+    """A bounded frame without --order-key is refused; unbounded is allowed."""
+    result = runner.invoke(
+        app,
+        [
+            "recipe",
+            "create-window",
+            "w",
+            "-i",
+            "data",
+            "--output-ds",
+            "out",
+            "--compute",
+            "sum:amount:",
+            "--frame-preceding",
+            "2",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert "--order-key" in result.output
 
 
 def test_recipe_create_window_frame(patch_client):
@@ -1626,6 +1675,8 @@ def test_recipe_create_window_cume_dist_and_ntile(patch_client):
             "data",
             "--output-ds",
             "out",
+            "--order-key",
+            "date",
             "--enable-cume-dist",
             "--enable-ntile",
             "10",
