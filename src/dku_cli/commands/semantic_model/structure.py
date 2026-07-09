@@ -155,6 +155,7 @@ def add_entity(
 
         raw.setdefault("entities", []).append(entity)
         settings.save()
+        _verify_entity_persisted(sm, version_id, entity_name, sm_ref, project_key)
         described, total = _described_ratio(attrs)
         success(
             f"Added entity '{entity_name}' ({total} attributes, {described} "
