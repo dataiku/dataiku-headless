@@ -11,7 +11,7 @@ from zipfile import ZipFile
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx
+from dku_cli.helpers import get_client_from_ctx, locked_settings
 from dku_cli.output import (
     error,
     info,
@@ -274,22 +274,25 @@ def settings(
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
-        plugin_settings = plugin.get_settings()
-        raw = plugin_settings.get_raw()
 
         if set_param:
-            config = raw.get("config", {})
-            for param in set_param:
-                if "=" not in param:
-                    error(f"Invalid format: {param} (expected key=value)")
-                    raise typer.Exit(1)
-                key, value = param.split("=", 1)
-                config[key] = value
-                info(f"Set {key} = {value}")
-            raw["config"] = config
-            plugin_settings.save()
+            with locked_settings(
+                client, "-", "plugin", plugin_id, plugin.get_settings
+            ) as plugin_settings:
+                raw = plugin_settings.get_raw()
+                config = raw.get("config", {})
+                for param in set_param:
+                    if "=" not in param:
+                        error(f"Invalid format: {param} (expected key=value)")
+                        raise typer.Exit(1)
+                    key, value = param.split("=", 1)
+                    config[key] = value
+                    info(f"Set {key} = {value}")
+                raw["config"] = config
             success(f"Plugin '{plugin_id}' settings updated")
         else:
+            plugin_settings = plugin.get_settings()
+            raw = plugin_settings.get_raw()
             config = raw.get("config", {})
             code_env = raw.get("codeEnvName", "")
 
@@ -530,9 +533,10 @@ def set_code_env(
     try:
         client = get_client_from_ctx(ctx)
         plugin = client.get_plugin(plugin_id)
-        plugin_settings = plugin.get_settings()
-        plugin_settings.set_code_env(env_name)
-        plugin_settings.save()
+        with locked_settings(
+            client, "-", "plugin", plugin_id, plugin.get_settings
+        ) as plugin_settings:
+            plugin_settings.set_code_env(env_name)
         success(f"Assigned code environment '{env_name}' to plugin '{plugin_id}'")
     except Exception as e:
         handle_api_error(e)

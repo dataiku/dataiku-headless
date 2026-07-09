@@ -30,7 +30,12 @@ from pathlib import Path
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
+from dku_cli.helpers import (
+    ALL_NODE_TYPES,
+    get_client_from_ctx,
+    locked_settings,
+    read_json_input,
+)
 from dku_cli.output import (
     hint,
     info,
@@ -1125,30 +1130,32 @@ def cst_set_dockerfile(
     new_content = read_text_input(dockerfile)
     try:
         client = get_client_from_ctx(ctx)
-        settings = client.get_code_studio_template(template_id).get_settings()
-        raw = settings.get_raw()
-        blocks = raw.get("params", {}).get("blocks", []) or []
-        replaced = 0
-        for b in blocks:
-            if b.get("type") == "append_dockerfile":
-                params = b.setdefault("params", {})
-                params["dockerfile"] = new_content
-                replaced += 1
-        if replaced == 0:
-            from dku_cli.errors import exit_with_error
+        tpl = client.get_code_studio_template(template_id)
+        with locked_settings(
+            client, "-", "code-studio-template", template_id, tpl.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            blocks = raw.get("params", {}).get("blocks", []) or []
+            replaced = 0
+            for b in blocks:
+                if b.get("type") == "append_dockerfile":
+                    params = b.setdefault("params", {})
+                    params["dockerfile"] = new_content
+                    replaced += 1
+            if replaced == 0:
+                from dku_cli.errors import exit_with_error
 
-            exit_with_error(
-                f"Template '{template_id}' has no append_dockerfile block.",
-                details=[
-                    "Add one first via the DSS UI, or via "
-                    "`dku admin code-studio-template add-block`:",
-                    "",
-                    f"  dku admin code-studio-template add-block {template_id} \\\\",
-                    "    --type append_dockerfile --params '{}'",
-                ],
-                status=2,
-            )
-        settings.save()
+                exit_with_error(
+                    f"Template '{template_id}' has no append_dockerfile block.",
+                    details=[
+                        "Add one first via the DSS UI, or via "
+                        "`dku admin code-studio-template add-block`:",
+                        "",
+                        f"  dku admin code-studio-template add-block {template_id} \\\\",
+                        "    --type append_dockerfile --params '{}'",
+                    ],
+                    status=2,
+                )
         success(
             f"Replaced append_dockerfile block ({replaced} found) on '{template_id}' "
             f"({len(new_content)} bytes). Run 'build' to rebuild the image."
@@ -1188,16 +1195,18 @@ def cst_add_block(
     block = {"type": block_type, "params": params}
     try:
         client = get_client_from_ctx(ctx)
-        settings = client.get_code_studio_template(template_id).get_settings()
-        raw = settings.get_raw()
-        blocks = raw.setdefault("params", {}).setdefault("blocks", [])
-        if at < 0 or at >= len(blocks):
-            blocks.append(block)
-            position = len(blocks) - 1
-        else:
-            blocks.insert(at, block)
-            position = at
-        settings.save()
+        tpl = client.get_code_studio_template(template_id)
+        with locked_settings(
+            client, "-", "code-studio-template", template_id, tpl.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            blocks = raw.setdefault("params", {}).setdefault("blocks", [])
+            if at < 0 or at >= len(blocks):
+                blocks.append(block)
+                position = len(blocks) - 1
+            else:
+                blocks.insert(at, block)
+                position = at
         success(
             f"Added block type='{block_type}' at index {position} on '{template_id}'. "
             "Run 'build' to rebuild the image."
@@ -1228,21 +1237,23 @@ def cst_remove_block(
     )
     try:
         client = get_client_from_ctx(ctx)
-        settings = client.get_code_studio_template(template_id).get_settings()
-        raw = settings.get_raw()
-        blocks = raw.get("params", {}).get("blocks", []) or []
-        if index < 0 or index >= len(blocks):
-            from dku_cli.errors import exit_with_error
+        tpl = client.get_code_studio_template(template_id)
+        with locked_settings(
+            client, "-", "code-studio-template", template_id, tpl.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            blocks = raw.get("params", {}).get("blocks", []) or []
+            if index < 0 or index >= len(blocks):
+                from dku_cli.errors import exit_with_error
 
-            exit_with_error(
-                f"Block index {index} out of range (template has {len(blocks)} block(s)).",
-                details=[
-                    f"List blocks: dku admin code-studio-template list-blocks {template_id}"
-                ],
-                status=2,
-            )
-        removed = blocks.pop(index)
-        settings.save()
+                exit_with_error(
+                    f"Block index {index} out of range (template has {len(blocks)} block(s)).",
+                    details=[
+                        f"List blocks: dku admin code-studio-template list-blocks {template_id}"
+                    ],
+                    status=2,
+                )
+            removed = blocks.pop(index)
         success(
             f"Removed block index={index} type={removed.get('type', '?')!r} "
             f"from '{template_id}'."
@@ -1291,25 +1302,27 @@ def cst_set_block_params(
         )
     try:
         client = get_client_from_ctx(ctx)
-        settings = client.get_code_studio_template(template_id).get_settings()
-        raw = settings.get_raw()
-        blocks = raw.get("params", {}).get("blocks", []) or []
-        if index < 0 or index >= len(blocks):
-            exit_with_error(
-                f"Block index {index} out of range "
-                f"(template has {len(blocks)} block(s)).",
-                details=[
-                    f"List blocks: dku admin code-studio-template "
-                    f"list-blocks {template_id}"
-                ],
-                status=2,
-            )
-        block = blocks[index]
-        if replace:
-            block["params"] = new_params
-        else:
-            block.setdefault("params", {}).update(new_params)
-        settings.save()
+        tpl = client.get_code_studio_template(template_id)
+        with locked_settings(
+            client, "-", "code-studio-template", template_id, tpl.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            blocks = raw.get("params", {}).get("blocks", []) or []
+            if index < 0 or index >= len(blocks):
+                exit_with_error(
+                    f"Block index {index} out of range "
+                    f"(template has {len(blocks)} block(s)).",
+                    details=[
+                        f"List blocks: dku admin code-studio-template "
+                        f"list-blocks {template_id}"
+                    ],
+                    status=2,
+                )
+            block = blocks[index]
+            if replace:
+                block["params"] = new_params
+            else:
+                block.setdefault("params", {}).update(new_params)
         success(
             f"Updated params on block index={index} "
             f"type={block.get('type', '?')!r} of '{template_id}' "

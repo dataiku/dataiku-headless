@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -245,3 +246,303 @@ def test_resolve_build_output_types_skips_kb_mes_for_plain_datasets():
     # expensive KB/eval-store lookups must NOT be issued.
     project.list_knowledge_banks.assert_not_called()
     project._fetch_evaluation_stores.assert_not_called()
+
+
+# ── mutate_settings / object_write_lock (lost-update protection) ────────
+
+
+class _FakeSettings:
+    """Stand-in for a DSS *Settings object: raw dict + save recorder."""
+
+    def __init__(self, version: int | None = None):
+        self.data: dict = {"items": []}
+        if version is not None:
+            self.data["versionTag"] = {"versionNumber": version}
+        self.saved = False
+
+    def get_raw(self):
+        return self.data
+
+    def save(self):
+        self.saved = True
+
+
+def _client():
+    client = MagicMock()
+    client.host = "http://dss.example:11200"
+    return client
+
+
+def test_mutate_settings_saves_once_without_version_tag():
+    from dku_cli.helpers import mutate_settings
+
+    settings = _FakeSettings()
+    fetch = MagicMock(return_value=settings)
+
+    result = mutate_settings(
+        _client(),
+        "PROJ",
+        "scenario",
+        "scen1",
+        fetch=fetch,
+        mutate=lambda s: s.data["items"].append("a") or "ok",
+    )
+
+    assert result == "ok"
+    assert settings.saved
+    assert settings.data["items"] == ["a"]
+    # No versionTag → no conflict probe, a single fetch.
+    fetch.assert_called_once()
+
+
+def test_mutate_settings_saves_when_version_unchanged():
+    from dku_cli.helpers import mutate_settings
+
+    settings = _FakeSettings(version=7)
+    probe = _FakeSettings(version=7)
+    fetch = MagicMock(side_effect=[settings, probe])
+
+    mutate_settings(
+        _client(),
+        "PROJ",
+        "scenario",
+        "scen1",
+        fetch=fetch,
+        mutate=lambda s: s.data["items"].append("a"),
+    )
+
+    assert settings.saved
+    assert not probe.saved
+    assert fetch.call_count == 2
+
+
+def test_mutate_settings_reapplies_mutation_on_concurrent_write():
+    from dku_cli.helpers import mutate_settings
+
+    stale = _FakeSettings(version=1)
+    conflict_probe = _FakeSettings(version=2)  # someone else wrote meanwhile
+    fresh = _FakeSettings(version=2)
+    clean_probe = _FakeSettings(version=2)
+    fetch = MagicMock(side_effect=[stale, conflict_probe, fresh, clean_probe])
+
+    result = mutate_settings(
+        _client(),
+        "PROJ",
+        "scenario",
+        "scen1",
+        fetch=fetch,
+        mutate=lambda s: s.data["items"].append("a") or len(s.data["items"]),
+    )
+
+    # The stale document is never PUT over the concurrent write; the mutation
+    # is re-applied to the freshly fetched one.
+    assert not stale.saved
+    assert fresh.saved
+    assert fresh.data["items"] == ["a"]
+    assert result == 1
+
+
+def test_mutate_settings_exits_loudly_when_conflict_persists(capsys):
+    from dku_cli.helpers import mutate_settings
+
+    versions = iter(range(100))
+    fetch = MagicMock(side_effect=lambda: _FakeSettings(version=next(versions)))
+
+    with pytest.raises(SystemExit) as exc:
+        mutate_settings(
+            _client(),
+            "PROJ",
+            "scenario",
+            "scen1",
+            fetch=fetch,
+            mutate=lambda s: None,
+        )
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "scenario 'scen1'" in err
+    assert "sequentially" in err
+
+
+def test_object_write_lock_blocks_second_holder(monkeypatch, capsys):
+    from dku_cli.helpers import object_write_lock
+
+    monkeypatch.setattr("dku_cli.helpers._LOCK_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("dku_cli.helpers._LOCK_POLL_S", 0.01)
+
+    client = _client()
+    with object_write_lock(client, "PROJ", "scenario", "scen1"):
+        with pytest.raises(SystemExit) as exc:
+            with object_write_lock(client, "PROJ", "scenario", "scen1"):
+                pass
+
+    assert exc.value.code == 1
+    assert "write lock" in capsys.readouterr().err
+
+
+def test_object_write_lock_allows_per_call_timeout_override(monkeypatch, capsys):
+    from dku_cli.helpers import object_write_lock
+
+    monkeypatch.setattr("dku_cli.helpers._LOCK_TIMEOUT_S", 5.0)
+    monkeypatch.setattr("dku_cli.helpers._LOCK_POLL_S", 0.01)
+
+    client = _client()
+    with object_write_lock(client, "PROJ", "scenario", "scen1"):
+        with pytest.raises(SystemExit) as exc:
+            with object_write_lock(client, "PROJ", "scenario", "scen1", timeout_s=0.05):
+                pass
+
+    assert exc.value.code == 1
+    assert "Timed out after 0.05s" in capsys.readouterr().err
+
+
+def test_object_write_lock_is_per_object(monkeypatch):
+    from dku_cli.helpers import object_write_lock
+
+    monkeypatch.setattr("dku_cli.helpers._LOCK_TIMEOUT_S", 0.05)
+
+    client = _client()
+    # A different object on the same host/project must not contend.
+    with object_write_lock(client, "PROJ", "scenario", "scen1"):
+        with object_write_lock(client, "PROJ", "scenario", "scen2"):
+            pass
+
+
+def test_object_write_lock_uses_backing_document_key_for_agents(monkeypatch, capsys):
+    from dku_cli.helpers import object_write_lock
+
+    monkeypatch.setattr("dku_cli.helpers._LOCK_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("dku_cli.helpers._LOCK_POLL_S", 0.01)
+
+    client = _client()
+    with object_write_lock(client, "PROJ", "agent", "sm1"):
+        with pytest.raises(SystemExit) as exc:
+            with object_write_lock(client, "PROJ", "saved-model", "sm1"):
+                pass
+
+    assert exc.value.code == 1
+    assert "write lock" in capsys.readouterr().err
+
+
+def test_object_write_lock_released_after_exit():
+    from dku_cli.helpers import object_write_lock
+
+    client = _client()
+    with object_write_lock(client, "PROJ", "scenario", "scen1"):
+        pass
+    # Re-acquiring immediately must succeed — the lock was released.
+    with object_write_lock(client, "PROJ", "scenario", "scen1"):
+        pass
+
+
+def test_locked_settings_saves_on_exit():
+    from dku_cli.helpers import locked_settings
+
+    settings = _FakeSettings(version=3)
+    probe = _FakeSettings(version=3)
+    fetch = MagicMock(side_effect=[settings, probe])
+
+    with locked_settings(_client(), "PROJ", "recipe", "r1", fetch) as s:
+        s.data["items"].append("a")
+
+    assert settings.saved
+    assert settings.data["items"] == ["a"]
+
+
+def test_locked_settings_skips_save_when_body_raises():
+    from dku_cli.helpers import locked_settings
+
+    settings = _FakeSettings()
+    with pytest.raises(SystemExit):
+        with locked_settings(_client(), "PROJ", "recipe", "r1", lambda: settings):
+            raise SystemExit(1)
+
+    assert not settings.saved
+
+
+def test_locked_settings_exits_loudly_on_concurrent_write(capsys):
+    from dku_cli.helpers import locked_settings
+
+    stale = _FakeSettings(version=1)
+    probe = _FakeSettings(version=2)
+    fetch = MagicMock(side_effect=[stale, probe])
+
+    with pytest.raises(SystemExit):
+        with locked_settings(_client(), "PROJ", "recipe", "r1", fetch) as s:
+            s.data["items"].append("a")
+
+    assert not stale.saved
+    assert "another process" in capsys.readouterr().err
+
+
+def test_locked_settings_forwards_timeout_override():
+    from dku_cli.helpers import locked_settings
+
+    client = _client()
+    settings = _FakeSettings()
+
+    @contextmanager
+    def _stub_lock(*_args, **_kwargs):
+        yield
+
+    with patch(
+        "dku_cli.helpers.object_write_lock", side_effect=_stub_lock
+    ) as mock_lock:
+        with locked_settings(
+            client,
+            "PROJ",
+            "recipe",
+            "r1",
+            lambda: settings,
+            timeout_s=90.0,
+        ):
+            pass
+
+    assert settings.saved
+    mock_lock.assert_called_once_with(client, "PROJ", "recipe", "r1", timeout_s=90.0)
+
+
+def test_locked_settings_handles_settings_without_get_raw():
+    from dku_cli.helpers import locked_settings
+
+    class _NoRawSettings:
+        # e.g. dataikuapi PrepareRecipeSettings — no get_raw(), no versionTag
+        def __init__(self):
+            self.saved = False
+
+        def save(self):
+            self.saved = True
+
+    settings = _NoRawSettings()
+    with locked_settings(_client(), "PROJ", "recipe", "r1", lambda: settings):
+        pass
+
+    assert settings.saved
+
+
+def test_mutate_settings_forwards_timeout_override():
+    from dku_cli.helpers import mutate_settings
+
+    client = _client()
+    settings = _FakeSettings()
+
+    @contextmanager
+    def _stub_lock(*_args, **_kwargs):
+        yield
+
+    with patch(
+        "dku_cli.helpers.object_write_lock", side_effect=_stub_lock
+    ) as mock_lock:
+        mutate_settings(
+            client,
+            "PROJ",
+            "scenario",
+            "scen1",
+            fetch=lambda: settings,
+            mutate=lambda _: None,
+            timeout_s=120.0,
+        )
+
+    mock_lock.assert_called_once_with(
+        client, "PROJ", "scenario", "scen1", timeout_s=120.0
+    )

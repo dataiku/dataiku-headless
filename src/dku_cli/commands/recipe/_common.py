@@ -18,6 +18,8 @@ from dku_cli.errors import (
 )
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     read_json_input,
     read_text_input,
     resolve_build_output_types,
@@ -441,12 +443,14 @@ def _parse_order_specs(specs: list[str]) -> list[dict]:
     return orders
 
 
-def _get_prepare_settings(proj, recipe_name: str, project_key: str):
-    """Get settings for a prepare recipe, validating type. Returns (recipe, settings)."""
+def _get_prepare_recipe(proj, recipe_name: str, project_key: str):
+    """Validate a recipe exists and is prepare/shaker type. Returns the recipe handle.
+
+    Callers wrap ``recipe.get_settings`` in ``locked_settings`` themselves —
+    this only validates, it does not hold the write lock.
+    """
     recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
-    settings = recipe.get_settings()
-    raw_def = settings.get_recipe_raw_definition()
-    rtype = raw_def.get("type", "")
+    rtype = recipe.get_settings().get_recipe_raw_definition().get("type", "")
     if rtype not in ("prepare", "shaker"):
         exit_with_error(
             f"Recipe '{recipe_name}' is type '{rtype}', not 'prepare'. "
@@ -455,7 +459,7 @@ def _get_prepare_settings(proj, recipe_name: str, project_key: str):
                 f"Create a prepare recipe first: dku recipe create <NAME> -t prepare -i <INPUT> --output-ds <OUTPUT> -P {project_key}",
             ],
         )
-    return recipe, settings
+    return recipe
 
 
 def _ensure_steps_array(settings) -> list:
@@ -740,7 +744,7 @@ __all__ = [
     "_ensure_steps_array",
     "_enum_value",
     "_get_or_create_recipe_params",
-    "_get_prepare_settings",
+    "_get_prepare_recipe",
     "_get_recipe_or_exit",
     "_get_recipe_payload",
     "_get_text_payload",
@@ -767,6 +771,8 @@ __all__ = [
     "is_connection_required_error",
     "is_not_found_error",
     "json",
+    "locked_settings",
+    "object_write_lock",
     "read_json_input",
     "read_text_input",
     "recipe_created_hint",

@@ -8,7 +8,12 @@ import typer
 
 from dku_cli.definition_merge import deep_merge_dicts
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    locked_settings,
+    read_json_input,
+    resolve_project,
+)
 from dku_cli.output import (
     error,
     hint,
@@ -386,16 +391,17 @@ def set_definition(
         proj = client.get_project(project_key)
         webapp = proj.get_webapp(webapp_id)
         new_def = read_json_input(definition)
-        settings = webapp.get_settings()
-        raw = settings.get_raw()
-        if deep_merge:
-            merged = deep_merge_dicts(raw, new_def)
-            raw.clear()
-            raw.update(merged)
-        else:
-            raw.clear()
-            raw.update(new_def)
-        settings.save()
+        with locked_settings(
+            client, project_key, "webapp", webapp_id, webapp.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if deep_merge:
+                merged = deep_merge_dicts(raw, new_def)
+                raw.clear()
+                raw.update(merged)
+            else:
+                raw.clear()
+                raw.update(new_def)
         success(f"Updated definition for web app '{webapp_id}'")
     except Exception as e:
         handle_api_error(e)

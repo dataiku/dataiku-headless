@@ -11,6 +11,8 @@ import typer
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     read_json_input,
     resolve_project,
     resolve_semantic_model,
@@ -199,6 +201,88 @@ def _load_command_version(
     return version_id, settings, raw
 
 
+def _version_lock_key(sm, version_id: str) -> tuple[str, str]:
+    """obj_type/obj_id pair identifying one semantic model version for locking.
+
+    Different versions of the same model must not block each other, so the
+    lock key includes both the model's own id and the version id.
+    """
+    return "semantic-model-version", f"{sm.semantic_model_id}/{version_id}"
+
+
+def _version_settings_lock(
+    client,
+    project_key: str,
+    sm,
+    version_id: str,
+    *,
+    timeout_s: float = 60.0,
+):
+    """locked_settings(...) pre-filled with the semantic-model-version lock key.
+
+    Saves unconditionally on a normal (non-exception) exit — use
+    ``_version_write_lock`` instead when a mutation can legitimately decide
+    not to save (e.g. an --if-not-exists skip).
+    """
+    obj_type, obj_id = _version_lock_key(sm, version_id)
+    return locked_settings(
+        client,
+        project_key,
+        obj_type,
+        obj_id,
+        sm.get_version(version_id).get_settings,
+        timeout_s=timeout_s,
+    )
+
+
+def _version_write_lock(
+    client,
+    project_key: str,
+    sm,
+    version_id: str,
+    *,
+    timeout_s: float = 60.0,
+):
+    """object_write_lock(...) pre-filled with the semantic-model-version lock key.
+
+    Bare lock — caller fetches, mutates, and calls settings.save() itself,
+    for flows that may skip the save (e.g. an --if-not-exists no-op).
+    """
+    obj_type, obj_id = _version_lock_key(sm, version_id)
+    return object_write_lock(client, project_key, obj_type, obj_id, timeout_s=timeout_s)
+
+
+def _resolve_locked_version(
+    ctx: typer.Context,
+    project_key: str,
+    sm_ref: str,
+    version: str | None,
+):
+    """Resolve client/project/model/version — ingredients for a locked r-m-w."""
+    client = get_client_from_ctx(ctx)
+    proj = client.get_project(project_key)
+    sm = resolve_semantic_model(proj, sm_ref)
+    version_id = _resolve_version_id(sm, version)
+    return client, proj, sm, version_id
+
+
+def _locked_command_version(
+    ctx: typer.Context,
+    project_key: str,
+    sm_ref: str,
+    version: str | None,
+):
+    """Resolve client/project/model/version and return (version_id, lock).
+
+    ``lock`` is a locked_settings context manager: entering it fetches fresh
+    settings under the per-version write lock and saves on exit.
+    """
+    client, _proj, sm, version_id = _resolve_locked_version(
+        ctx, project_key, sm_ref, version
+    )
+    return version_id, _version_settings_lock(client, project_key, sm, version_id)
+
+
 def _append_named_item(
     items: list[dict],
     payload: dict,
@@ -290,25 +374,29 @@ def _add_entity_expression_item(
     label: str,
     remove_command: str,
 ) -> None:
-    version_id, settings, raw = _load_command_version(ctx, project_key, sm_ref, version)
-    ent = _find_entity(raw, entity)
-    items = ent.setdefault(collection_key, [])
-    added = _append_named_item(
-        items,
-        _expression_payload(name, expression, description),
-        name_key="name",
-        name=name,
-        label=label,
-        duplicate_scope=f" on entity '{entity}'",
-        if_not_exists=if_not_exists,
-        remove_hint=(
-            f"Remove first: dku semantic-model {remove_command} {sm_ref} "
-            f"--entity {entity} --name '{name}' -P {project_key}"
-        ),
+    client, _proj, sm, version_id = _resolve_locked_version(
+        ctx, project_key, sm_ref, version
     )
-    if not added:
-        return
-    settings.save()
+    with _version_write_lock(client, project_key, sm, version_id):
+        settings, raw = _load_version_settings(sm, version_id)
+        ent = _find_entity(raw, entity)
+        items = ent.setdefault(collection_key, [])
+        added = _append_named_item(
+            items,
+            _expression_payload(name, expression, description),
+            name_key="name",
+            name=name,
+            label=label,
+            duplicate_scope=f" on entity '{entity}'",
+            if_not_exists=if_not_exists,
+            remove_hint=(
+                f"Remove first: dku semantic-model {remove_command} {sm_ref} "
+                f"--entity {entity} --name '{name}' -P {project_key}"
+            ),
+        )
+        if not added:
+            return
+        settings.save()
     success(
         f"Added {label.lower()} '{name}' to entity '{entity}' on version '{version_id}'"
     )
@@ -326,23 +414,22 @@ def _remove_entity_expression_item(
     label: str,
     list_command: str,
 ) -> None:
-    _version_id, settings, raw = _load_command_version(
-        ctx, project_key, sm_ref, version
-    )
-    ent = _find_entity(raw, entity)
-    _remove_named_item(
-        ent,
-        collection_key,
-        name_key="name",
-        name=name,
-        label=label,
-        missing_scope=f" on entity '{entity}'",
-        list_hint=(
-            f"List {label.lower()}s: dku semantic-model {list_command} {sm_ref} "
-            f"--entity {entity} -P {project_key}"
-        ),
-    )
-    settings.save()
+    _version_id, lock = _locked_command_version(ctx, project_key, sm_ref, version)
+    with lock as settings:
+        raw = settings.get_raw()
+        ent = _find_entity(raw, entity)
+        _remove_named_item(
+            ent,
+            collection_key,
+            name_key="name",
+            name=name,
+            label=label,
+            missing_scope=f" on entity '{entity}'",
+            list_hint=(
+                f"List {label.lower()}s: dku semantic-model {list_command} {sm_ref} "
+                f"--entity {entity} -P {project_key}"
+            ),
+        )
     success(f"Removed {label.lower()} '{name}' from entity '{entity}'")
 
 

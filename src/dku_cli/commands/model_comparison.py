@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import get_client_from_ctx, locked_settings, resolve_project
 from dku_cli.output import (
     hint,
     info,
@@ -139,9 +139,10 @@ def add_model(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mc = proj.get_model_comparison(comparison_id)
-        settings = mc.get_settings()
-        settings.add_compared_item(full_id)
-        settings.save()
+        with locked_settings(
+            client, project_key, "model-comparison", comparison_id, mc.get_settings
+        ) as settings:
+            settings.add_compared_item(full_id)
         success(f"Added model '{full_id}' to comparison '{comparison_id}'")
     except typer.Exit:
         raise
@@ -177,9 +178,10 @@ def remove_model(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mc = proj.get_model_comparison(comparison_id)
-        settings = mc.get_settings()
-        settings.remove_compared_item(full_id)
-        settings.save()
+        with locked_settings(
+            client, project_key, "model-comparison", comparison_id, mc.get_settings
+        ) as settings:
+            settings.remove_compared_item(full_id)
         success(f"Removed model '{full_id}' from comparison '{comparison_id}'")
     except typer.Exit:
         raise

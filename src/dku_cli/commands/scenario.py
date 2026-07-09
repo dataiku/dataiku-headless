@@ -23,6 +23,8 @@ from dku_cli.enums import EnvMode
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    mutate_settings,
+    object_write_lock,
     read_json_input,
     read_text_input,
     resolve_project,
@@ -339,11 +341,19 @@ def set_definition(
             len(expected_steps) if expected_steps is not None else None
         )
 
-        settings = scenario.get_settings()
-        raw = settings.get_raw()
-        for k, v in new_def.items():
-            raw[k] = v
-        settings.save()
+        def merge(settings):
+            raw = settings.get_raw()
+            for k, v in new_def.items():
+                raw[k] = v
+
+        mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=scenario.get_settings,
+            mutate=merge,
+        )
 
         if expected_step_count is not None:
             saved_steps = (
@@ -400,33 +410,40 @@ def set_active(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        settings = scenario.get_settings()
-        raw = settings.get_raw()
 
-        before_scen = bool(raw.get("active", False))
-        triggers = raw.get("triggers") or []
-        before_trig_active = sum(1 for t in triggers if t.get("active"))
+        def flip(settings):
+            raw = settings.get_raw()
+            before_scen = bool(raw.get("active", False))
+            triggers = raw.get("triggers") or []
+            before_trig_active = sum(1 for t in triggers if t.get("active"))
+            raw["active"] = enable
+            if not skip_triggers:
+                for trigger in triggers:
+                    trigger["active"] = enable
+            return before_scen, before_trig_active, len(triggers)
 
-        raw["active"] = enable
-        if not skip_triggers:
-            for trigger in triggers:
-                trigger["active"] = enable
-
-        settings.save()
+        before_scen, before_trig_active, n_triggers = mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=scenario.get_settings,
+            mutate=flip,
+        )
 
         verb = "enabled" if enable else "disabled"
         if skip_triggers:
             success(
                 f"{verb.capitalize()} scenario '{scenario_id}' "
-                f"(triggers untouched: {before_trig_active}/{len(triggers)} active)"
+                f"(triggers untouched: {before_trig_active}/{n_triggers} active)"
             )
         else:
-            after = len(triggers) if enable else 0
+            after = n_triggers if enable else 0
             success(
                 f"{verb.capitalize()} scenario '{scenario_id}' "
                 f"(scenario.active: {before_scen} → {enable}; "
-                f"triggers active: {before_trig_active}/{len(triggers)} → "
-                f"{after}/{len(triggers)})"
+                f"triggers active: {before_trig_active}/{n_triggers} → "
+                f"{after}/{n_triggers})"
             )
     except Exception as e:
         handle_api_error(e)
@@ -862,18 +879,19 @@ def set_metadata(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        defn = scenario.get_definition()
-        if hasattr(defn, "get_raw"):
-            defn = defn.get_raw()
+        with object_write_lock(client, project_key, "scenario", scenario_id):
+            defn = scenario.get_definition()
+            if hasattr(defn, "get_raw"):
+                defn = defn.get_raw()
 
-        if description is not None:
-            defn["description"] = description
-        if short_desc is not None:
-            defn["shortDesc"] = short_desc
-        if tags is not None:
-            defn["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+            if description is not None:
+                defn["description"] = description
+            if short_desc is not None:
+                defn["shortDesc"] = short_desc
+            if tags is not None:
+                defn["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
 
-        scenario.set_definition(defn)
+            scenario.set_definition(defn)
         success(f"Updated metadata for scenario '{scenario_id}'")
     except typer.Exit:
         raise
@@ -933,10 +951,19 @@ def _add_trigger(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        settings = scenario.get_settings()
-        settings.raw_triggers.append(trigger_dict)
-        idx = len(settings.raw_triggers) - 1
-        settings.save()
+
+        def append(settings):
+            settings.raw_triggers.append(trigger_dict)
+            return len(settings.raw_triggers) - 1
+
+        idx = mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=scenario.get_settings,
+            mutate=append,
+        )
         ttype = trigger_dict.get("type", "unknown")
         success(f"Added {ttype} trigger to scenario '{scenario_id}' at index {idx}")
     except typer.Exit:
@@ -1280,19 +1307,26 @@ def remove_trigger(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        settings = scenario.get_settings()
-        triggers = settings.raw_triggers
 
-        if index < 0 or index >= len(triggers):
-            exit_with_error(
-                f"Index {index} out of range (0–{len(triggers) - 1}).",
-                details=[
-                    f"Use: dku scenario list-triggers {scenario_id} -P {project_key}",
-                ],
-            )
+        def pop_trigger(settings):
+            triggers = settings.raw_triggers
+            if index < 0 or index >= len(triggers):
+                exit_with_error(
+                    f"Index {index} out of range (0–{len(triggers) - 1}).",
+                    details=[
+                        f"Use: dku scenario list-triggers {scenario_id} -P {project_key}",
+                    ],
+                )
+            return triggers.pop(index)
 
-        removed = triggers.pop(index)
-        settings.save()
+        removed = mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=scenario.get_settings,
+            mutate=pop_trigger,
+        )
         success(
             f"Removed {removed.get('type', 'unknown')} trigger "
             f"at index {index} from scenario '{scenario_id}'"
@@ -1337,15 +1371,23 @@ def _add_step(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        settings = _resolve_step_settings(scenario)
-        steps = settings.raw_steps
-        if at is None or at >= len(steps):
-            steps.append(step)
-            idx = len(steps) - 1
-        else:
+
+        def insert_step(settings):
+            steps = settings.raw_steps
+            if at is None or at >= len(steps):
+                steps.append(step)
+                return len(steps) - 1
             steps.insert(max(at, 0), step)
-            idx = max(at, 0)
-        settings.save()
+            return max(at, 0)
+
+        idx = mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=lambda: _resolve_step_settings(scenario),
+            mutate=insert_step,
+        )
         _warn_dropped_step_params(scenario, idx, step)
         success(
             f"Added {step.get('type', 'unknown')} step "
@@ -1464,17 +1506,26 @@ def remove_step(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        settings = _resolve_step_settings(scenario)
-        steps = settings.raw_steps
-        if index < 0 or index >= len(steps):
-            exit_with_error(
-                f"Index {index} out of range (0–{len(steps) - 1}).",
-                details=[
-                    f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
-                ],
-            )
-        removed = steps.pop(index)
-        settings.save()
+
+        def pop_step(settings):
+            steps = settings.raw_steps
+            if index < 0 or index >= len(steps):
+                exit_with_error(
+                    f"Index {index} out of range (0–{len(steps) - 1}).",
+                    details=[
+                        f"Use: dku scenario list-steps {scenario_id} -P {project_key}",
+                    ],
+                )
+            return steps.pop(index)
+
+        removed = mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=lambda: _resolve_step_settings(scenario),
+            mutate=pop_step,
+        )
         success(
             f"Removed {removed.get('type', 'unknown')} step "
             f"at index {index} from scenario '{scenario_id}'"
@@ -2773,10 +2824,19 @@ def add_reporter(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         scenario = proj.get_scenario(scenario_id)
-        settings = scenario.get_settings()
-        settings.raw_reporters.append(reporter)
-        idx = len(settings.raw_reporters) - 1
-        settings.save()
+
+        def append(settings):
+            settings.raw_reporters.append(reporter)
+            return len(settings.raw_reporters) - 1
+
+        idx = mutate_settings(
+            client,
+            project_key,
+            "scenario",
+            scenario_id,
+            fetch=scenario.get_settings,
+            mutate=append,
+        )
         success(
             f"Added '{condition_label}' email reporter to '{recipient}' on scenario "
             f"'{scenario_id}' at index {idx}"

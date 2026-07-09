@@ -25,7 +25,12 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, read_json_input, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    locked_settings,
+    read_json_input,
+    resolve_project,
+)
 from dku_cli.output import (
     error,
     hint,
@@ -106,12 +111,14 @@ def _resolve_hub(ctx: typer.Context, project_key: str, hub_id: str | None):
     return webapp, raw.get("config", {})
 
 
-def _save_config(webapp, config: dict) -> None:
-    """Write the config dict back to the webapp definition."""
-    settings = webapp.get_settings()
-    raw = settings.get_raw()
-    raw["config"] = config
-    settings.save()
+def _merge_config(client, project_key: str, webapp, updates: dict) -> None:
+    """Merge updates into the webapp's config under the object write lock."""
+    with locked_settings(
+        client, project_key, "webapp", webapp.id, webapp.get_settings
+    ) as settings:
+        raw = settings.get_raw()
+        cfg = raw.setdefault("config", {})
+        cfg.update(updates)
 
 
 @app.command("list")
@@ -200,10 +207,10 @@ def set_config(
     """
     project_key = resolve_project(project)
     try:
-        webapp, cfg = _resolve_hub(ctx, project_key, hub)
+        client = get_client_from_ctx(ctx)
+        webapp, _cfg = _resolve_hub(ctx, project_key, hub)
         updates = read_json_input(definition)
-        cfg.update(updates)
-        _save_config(webapp, cfg)
+        _merge_config(client, project_key, webapp, updates)
         success("Updated Agent Hub configuration")
     except SystemExit:
         raise

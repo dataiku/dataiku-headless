@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 
 from dku_cli.errors import handle_api_error, is_already_exists_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import get_client_from_ctx, object_write_lock, resolve_project
 from dku_cli.output import (
     hint,
     render,
@@ -166,15 +166,16 @@ def update(
         proj = client.get_project(project_key)
         wiki = proj.get_wiki()
         article = wiki.get_article(article_id)
-        data = article.get_data()
+        with object_write_lock(client, project_key, "article", article_id):
+            data = article.get_data()
 
-        if title is not None:
-            data.set_name(title)
-        if body is not None:
-            body_content = _read_body(body)
-            data.set_body(body_content)
+            if title is not None:
+                data.set_name(title)
+            if body is not None:
+                body_content = _read_body(body)
+                data.set_body(body_content)
 
-        data.save()
+            data.save()
         success(f"Updated wiki article '{article_id}' in {project_key}")
     except Exception as e:
         handle_api_error(e)

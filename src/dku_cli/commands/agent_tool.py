@@ -11,6 +11,7 @@ from dku_cli.definition_merge import merge_params_preserving_siblings
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
     read_json_input,
     resolve_knowledge_bank,
     resolve_project,
@@ -390,18 +391,23 @@ def set_definition(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         tool = proj.get_agent_tool(tool_id)
-        settings = tool.get_settings()
-        raw = settings.get_raw()
-        if parsed_params:
-            _warn_unknown_param_keys(raw.get("type", ""), parsed_params.keys())
-        if definition is not None:
-            updates = read_json_input(definition)
-            if isinstance(updates, dict) and isinstance(updates.get("params"), dict):
-                _warn_unknown_param_keys(raw.get("type", ""), updates["params"].keys())
-            merge_params_preserving_siblings(raw, updates, deep=deep_merge)
-        if parsed_params:
-            raw.setdefault("params", {}).update(parsed_params)
-        settings.save()
+        with locked_settings(
+            client, project_key, "agent-tool", tool_id, tool.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if parsed_params:
+                _warn_unknown_param_keys(raw.get("type", ""), parsed_params.keys())
+            if definition is not None:
+                updates = read_json_input(definition)
+                if isinstance(updates, dict) and isinstance(
+                    updates.get("params"), dict
+                ):
+                    _warn_unknown_param_keys(
+                        raw.get("type", ""), updates["params"].keys()
+                    )
+                merge_params_preserving_siblings(raw, updates, deep=deep_merge)
+            if parsed_params:
+                raw.setdefault("params", {}).update(parsed_params)
         success(f"Updated agent tool '{tool_id}'")
     except typer.Exit:
         raise

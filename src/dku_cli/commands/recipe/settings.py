@@ -88,9 +88,10 @@ def set_code(
         else:
             code_text = code
 
-        settings = recipe.get_settings()
-        settings.set_payload(code_text)
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            settings.set_payload(code_text)
         success(f"Updated code for recipe '{recipe_name}'")
     except Exception as e:
         handle_api_error(e)
@@ -204,39 +205,40 @@ def set_definition(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
-        settings = recipe.get_settings()
-        if definition:
-            new_def = _unwrap_recipe_definition_payload(read_json_input(definition))
-            raw = settings.get_recipe_raw_definition()
-            merge_params_preserving_siblings(raw, new_def, deep=deep_merge)
-            target = "definition"
-        else:
-            # A code recipe's payload IS its source code (stored as a string),
-            # not a JSON config dict. _get_recipe_payload seeds str_payload="{}"
-            # to obtain a mutable dict — which silently WIPES the source. Refuse
-            # before that happens and point at the right verbs.
-            if _is_text_payload_recipe(settings):
-                rtype = settings.get_recipe_raw_definition().get("type", "")
-                exit_with_error(
-                    f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
-                    "its payload is source code, not JSON config. --payload would "
-                    "OVERWRITE the code.",
-                    status=2,
-                    details=[
-                        f"Change the code:      dku recipe set-code {recipe_name} --file CODE -P {project_key}",
-                        f"Change container/env: dku recipe set-env {recipe_name} --container-mode NONE --env-mode USE_BUILTIN_MODE -P {project_key}",
-                    ],
-                )
-            new_payload = read_json_input(payload_json)
-            current = _get_recipe_payload(settings)
-            if deep_merge:
-                merged = _deep_merge_dict(current, new_payload)
-                current.clear()
-                current.update(merged)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            if definition:
+                new_def = _unwrap_recipe_definition_payload(read_json_input(definition))
+                raw = settings.get_recipe_raw_definition()
+                merge_params_preserving_siblings(raw, new_def, deep=deep_merge)
+                target = "definition"
             else:
-                current.update(new_payload)
-            target = "payload"
-        settings.save()
+                # A code recipe's payload IS its source code (stored as a string),
+                # not a JSON config dict. _get_recipe_payload seeds str_payload="{}"
+                # to obtain a mutable dict — which silently WIPES the source. Refuse
+                # before that happens and point at the right verbs.
+                if _is_text_payload_recipe(settings):
+                    rtype = settings.get_recipe_raw_definition().get("type", "")
+                    exit_with_error(
+                        f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
+                        "its payload is source code, not JSON config. --payload would "
+                        "OVERWRITE the code.",
+                        status=2,
+                        details=[
+                            f"Change the code:      dku recipe set-code {recipe_name} --file CODE -P {project_key}",
+                            f"Change container/env: dku recipe set-env {recipe_name} --container-mode NONE --env-mode USE_BUILTIN_MODE -P {project_key}",
+                        ],
+                    )
+                new_payload = read_json_input(payload_json)
+                current = _get_recipe_payload(settings)
+                if deep_merge:
+                    merged = _deep_merge_dict(current, new_payload)
+                    current.clear()
+                    current.update(merged)
+                else:
+                    current.update(new_payload)
+                target = "payload"
         success(
             f"Updated {target} for recipe '{recipe_name}'"
             + (" (deep-merged)" if deep_merge else "")
@@ -279,21 +281,22 @@ def set_engine(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
-        settings = recipe.get_settings()
-        if _is_text_payload_recipe(settings):
-            rtype = settings.get_recipe_raw_definition().get("type", "")
-            exit_with_error(
-                f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
-                "engineType applies to visual recipes only.",
-                details=[
-                    "Code recipes run where their container/env selection says:",
-                    f"  dku recipe set-env {recipe_name} --container-mode NONE -P {project_key}",
-                ],
-            )
-        payload = _get_recipe_payload(settings)
-        previous = payload.get("engineType")
-        payload["engineType"] = engine.value
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            if _is_text_payload_recipe(settings):
+                rtype = settings.get_recipe_raw_definition().get("type", "")
+                exit_with_error(
+                    f"Recipe '{recipe_name}' is a code recipe (type '{rtype}') — "
+                    "engineType applies to visual recipes only.",
+                    details=[
+                        "Code recipes run where their container/env selection says:",
+                        f"  dku recipe set-env {recipe_name} --container-mode NONE -P {project_key}",
+                    ],
+                )
+            payload = _get_recipe_payload(settings)
+            previous = payload.get("engineType")
+            payload["engineType"] = engine.value
         success(f"Engine for '{recipe_name}': {previous or '(auto)'} -> {engine.value}")
         from dku_cli.output import hint
 
@@ -329,10 +332,11 @@ def set_description(
             client.get_project(project_key), recipe_name, project_key
         )
         text = read_text_input(description)
-        settings = recipe.get_settings()
-        raw = settings.get_recipe_raw_definition()
-        raw["description"] = text
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            raw = settings.get_recipe_raw_definition()
+            raw["description"] = text
         success(f"Updated description for recipe '{recipe_name}'")
     except typer.Exit:
         raise
@@ -374,18 +378,19 @@ def set_metadata(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
-        if description is not None or short_desc is not None:
-            settings = recipe.get_settings()
-            raw = settings.get_recipe_raw_definition()
-            if description is not None:
-                raw["description"] = read_text_input(description)
-            if short_desc is not None:
-                raw["shortDesc"] = short_desc
-            settings.save()
-        if tags is not None:
-            meta = recipe.get_metadata()
-            meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
-            recipe.set_metadata(meta)
+        with object_write_lock(client, project_key, "recipe", recipe_name):
+            if description is not None or short_desc is not None:
+                settings = recipe.get_settings()
+                raw = settings.get_recipe_raw_definition()
+                if description is not None:
+                    raw["description"] = read_text_input(description)
+                if short_desc is not None:
+                    raw["shortDesc"] = short_desc
+                settings.save()
+            if tags is not None:
+                meta = recipe.get_metadata()
+                meta["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+                recipe.set_metadata(meta)
         success(f"Updated metadata for recipe '{recipe_name}'")
     except typer.Exit:
         raise
@@ -472,24 +477,27 @@ def set_env(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
-        settings = recipe.get_settings()
-        rp = _get_or_create_recipe_params(settings)
-        if container_mode:
-            cs = rp.setdefault("containerSelection", {})
-            cs["containerMode"] = container_mode.upper()
-            if container_conf:
-                cs["containerConf"] = container_conf
-            info(
-                f"Container: {container_mode.upper()}"
-                + (f" ({container_conf})" if container_conf else "")
-            )
-        if env_mode:
-            es = rp.setdefault("envSelection", {})
-            es["envMode"] = env_mode.upper()
-            if env_name:
-                es["envName"] = env_name
-            info(f"Env: {env_mode.upper()}" + (f" ({env_name})" if env_name else ""))
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            rp = _get_or_create_recipe_params(settings)
+            if container_mode:
+                cs = rp.setdefault("containerSelection", {})
+                cs["containerMode"] = container_mode.upper()
+                if container_conf:
+                    cs["containerConf"] = container_conf
+                info(
+                    f"Container: {container_mode.upper()}"
+                    + (f" ({container_conf})" if container_conf else "")
+                )
+            if env_mode:
+                es = rp.setdefault("envSelection", {})
+                es["envMode"] = env_mode.upper()
+                if env_name:
+                    es["envName"] = env_name
+                info(
+                    f"Env: {env_mode.upper()}" + (f" ({env_name})" if env_name else "")
+                )
         success(f"Updated env/container for recipe '{recipe_name}'")
     except typer.Exit:
         raise
@@ -739,21 +747,20 @@ def set_settings_cmd(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
-        settings = recipe.get_settings()
         new_settings = read_json_input(settings_json)
 
-        # Update definition (everything except payload)
-        raw = settings.get_recipe_raw_definition()
-        for k, v in new_settings.items():
-            if k != "payload":
-                raw[k] = v
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            # Update definition (everything except payload)
+            raw = settings.get_recipe_raw_definition()
+            for k, v in new_settings.items():
+                if k != "payload":
+                    raw[k] = v
 
-        # Update payload — code recipes carry the source as a STRING payload,
-        # visual recipes a JSON object (shallow-merged at top level).
-        if "payload" in new_settings:
-            _apply_settings_payload(settings, raw, new_settings["payload"])
+            if "payload" in new_settings:
+                _apply_settings_payload(settings, raw, new_settings["payload"])
 
-        settings.save()
         success(f"Updated settings for recipe '{recipe_name}'")
     except Exception as e:
         handle_api_error(e)
@@ -801,32 +808,33 @@ def add_input(
         if role is None:
             role = "model" if kind == "SAVED_MODEL" else "main"
         recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
-        settings = recipe.get_settings()
-        settings.add_input(role, resolved_ref)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            settings.add_input(role, resolved_ref)
 
-        # Visual recipes store a parallel view of inputs in payload.virtualInputs.
-        # settings.add_input() only touches the top-level inputs dict, so we
-        # need to patch the payload explicitly when the recipe is visual.
-        if role == "main" and kind == "DATASET":
-            try:
-                payload = settings.obj_payload
-            except (AttributeError, TypeError, ValueError):
-                payload = None
-            if isinstance(payload, dict) and "virtualInputs" in payload:
-                vi = payload.setdefault("virtualInputs", [])
-                existing_indices = {v.get("index") for v in vi}
-                # Compute new index = len(inputs.main.items) - 1 after add_input
-                main_items = (
-                    settings.get_recipe_raw_definition()
-                    .get("inputs", {})
-                    .get("main", {})
-                    .get("items", [])
-                )
-                new_index = len(main_items) - 1
-                if new_index not in existing_indices:
-                    vi.append({"index": new_index})
+            # Visual recipes store a parallel view of inputs in payload.virtualInputs.
+            # settings.add_input() only touches the top-level inputs dict, so we
+            # need to patch the payload explicitly when the recipe is visual.
+            if role == "main" and kind == "DATASET":
+                try:
+                    payload = settings.obj_payload
+                except (AttributeError, TypeError, ValueError):
+                    payload = None
+                if isinstance(payload, dict) and "virtualInputs" in payload:
+                    vi = payload.setdefault("virtualInputs", [])
+                    existing_indices = {v.get("index") for v in vi}
+                    # Compute new index = len(inputs.main.items) - 1 after add_input
+                    main_items = (
+                        settings.get_recipe_raw_definition()
+                        .get("inputs", {})
+                        .get("main", {})
+                        .get("items", [])
+                    )
+                    new_index = len(main_items) - 1
+                    if new_index not in existing_indices:
+                        vi.append({"index": new_index})
 
-        settings.save()
         label = {
             "DATASET": "dataset",
             "MANAGED_FOLDER": "folder",
@@ -854,9 +862,10 @@ def add_output(
         recipe = _get_recipe_or_exit(
             client.get_project(project_key), recipe_name, project_key
         )
-        settings = recipe.get_settings()
-        settings.add_output(role, ref)
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            settings.add_output(role, ref)
         success(f"Added output '{ref}' to recipe '{recipe_name}'")
     except Exception as e:
         handle_api_error(e)
@@ -892,51 +901,52 @@ def replace_input(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         recipe = _get_recipe_or_exit(proj, recipe_name, project_key)
-        settings = recipe.get_settings()
-        raw = settings.get_recipe_raw_definition()
-        inputs = raw.get("inputs") or {}
-        role_obj = inputs.get(role)
-        if not role_obj:
-            exit_with_error(
-                f"Recipe '{recipe_name}' has no input role '{role}'.",
-                details=[
-                    f"Available roles: {', '.join(sorted(inputs.keys())) or '(none)'}.",
-                    f"List inputs: dku recipe get-definition {recipe_name} -P {project_key} | jq .inputs",
-                ],
-            )
-        items = role_obj.get("items") or []
-        replaced = False
-        for item in items:
-            if item.get("ref") == old_ref:
-                item["ref"] = new_ref
-                replaced = True
-        if not replaced:
-            existing = ", ".join(it.get("ref", "?") for it in items) or "(empty)"
-            exit_with_error(
-                f"Recipe '{recipe_name}' role '{role}' has no input '{old_ref}'.",
-                details=[f"Existing refs in role '{role}': {existing}"],
-            )
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            raw = settings.get_recipe_raw_definition()
+            inputs = raw.get("inputs") or {}
+            role_obj = inputs.get(role)
+            if not role_obj:
+                exit_with_error(
+                    f"Recipe '{recipe_name}' has no input role '{role}'.",
+                    details=[
+                        f"Available roles: {', '.join(sorted(inputs.keys())) or '(none)'}.",
+                        f"List inputs: dku recipe get-definition {recipe_name} -P {project_key} | jq .inputs",
+                    ],
+                )
+            items = role_obj.get("items") or []
+            replaced = False
+            for item in items:
+                if item.get("ref") == old_ref:
+                    item["ref"] = new_ref
+                    replaced = True
+            if not replaced:
+                existing = ", ".join(it.get("ref", "?") for it in items) or "(empty)"
+                exit_with_error(
+                    f"Recipe '{recipe_name}' role '{role}' has no input '{old_ref}'.",
+                    details=[f"Existing refs in role '{role}': {existing}"],
+                )
 
-        # Visual recipes mirror the inputs in payload.virtualInputs[].dataset.
-        # When the dataset reference is stored there too, keep them in sync —
-        # including originLabel (the human-readable source tag emitted by Stack
-        # recipes' addOriginColumn). Leaving originLabel pointing at the old
-        # ref makes get-settings output misleading and breaks any downstream
-        # consumer of the origin column.
-        try:
-            payload = settings.obj_payload
-        except (AttributeError, TypeError, ValueError):
-            payload = None
-        if isinstance(payload, dict):
-            for vi in payload.get("virtualInputs") or []:
-                if isinstance(vi, dict) and vi.get("dataset") == old_ref:
-                    vi["dataset"] = new_ref
-                    # Only rewrite originLabel when it matches the old ref —
-                    # preserve user-customized labels.
-                    if vi.get("originLabel") == old_ref:
-                        vi["originLabel"] = new_ref
+            # Visual recipes mirror the inputs in payload.virtualInputs[].dataset.
+            # When the dataset reference is stored there too, keep them in sync —
+            # including originLabel (the human-readable source tag emitted by Stack
+            # recipes' addOriginColumn). Leaving originLabel pointing at the old
+            # ref makes get-settings output misleading and breaks any downstream
+            # consumer of the origin column.
+            try:
+                payload = settings.obj_payload
+            except (AttributeError, TypeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                for vi in payload.get("virtualInputs") or []:
+                    if isinstance(vi, dict) and vi.get("dataset") == old_ref:
+                        vi["dataset"] = new_ref
+                        # Only rewrite originLabel when it matches the old ref —
+                        # preserve user-customized labels.
+                        if vi.get("originLabel") == old_ref:
+                            vi["originLabel"] = new_ref
 
-        settings.save()
         success(
             f"Replaced input '{old_ref}' → '{new_ref}' on recipe '{recipe_name}' (role={role})"
         )

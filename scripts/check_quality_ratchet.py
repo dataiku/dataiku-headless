@@ -152,6 +152,19 @@ def _count_inline_enum_validation(filepath: Path) -> int:
     return len(_INLINE_ENUM_RE.findall(content))
 
 
+# DSS settings saves are unconditional full-document PUTs, so a bare
+# get_settings() → mutate → save() in a command is a lost-update race under
+# concurrent invocations. Mutations must go through helpers.locked_settings /
+# helpers.mutate_settings (which hold a per-object write lock and call save
+# themselves). Remaining bare .save() calls in commands/ are accepted debt
+# (create-flows on fresh objects); new ones are blocked.
+_RAW_SAVE_RE = re.compile(r"\.save\(\)")
+
+
+def _count_raw_settings_saves(filepath: Path) -> int:
+    return len(_RAW_SAVE_RE.findall(filepath.read_text()))
+
+
 def _current_baseline() -> dict[str, Any]:
     diagnostics = _run_ruff()
     complexity = sorted(
@@ -173,6 +186,7 @@ def _current_baseline() -> dict[str, Any]:
     oversized: dict[str, int] = {}
     broad_exceptions: dict[str, int] = {}
     inline_enum: dict[str, int] = {}
+    raw_saves: dict[str, int] = {}
 
     for pyfile in sorted(src.rglob("*.py")):
         rel = pyfile.relative_to(ROOT).as_posix()
@@ -185,6 +199,10 @@ def _current_baseline() -> dict[str, Any]:
         ie = _count_inline_enum_validation(pyfile)
         if ie > 0:
             inline_enum[rel] = ie
+        if rel.startswith("src/dku_cli/commands/"):
+            rs = _count_raw_settings_saves(pyfile)
+            if rs > 0:
+                raw_saves[rel] = rs
 
     return {
         "ruff_select": RUFF_SELECT,
@@ -194,6 +212,7 @@ def _current_baseline() -> dict[str, Any]:
         "oversized_files": dict(sorted(oversized.items())),
         "broad_exceptions": dict(sorted(broad_exceptions.items())),
         "inline_enum_validation": dict(sorted(inline_enum.items())),
+        "raw_settings_saves": dict(sorted(raw_saves.items())),
     }
 
 
@@ -206,7 +225,8 @@ def _write_baseline() -> None:
         f"{sum(baseline['line_length'].values())} E501 entries, "
         f"{len(baseline['oversized_files'])} oversized files, "
         f"{sum(baseline['broad_exceptions'].values())} broad exceptions, "
-        f"{sum(baseline['inline_enum_validation'].values())} inline enum validations"
+        f"{sum(baseline['inline_enum_validation'].values())} inline enum validations, "
+        f"{sum(baseline['raw_settings_saves'].values())} raw settings saves"
     )
 
 
@@ -231,6 +251,11 @@ def _baseline_widenings(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
             "Baseline inline-enum-validation debt widened",
             "inline_enum_validation",
             "inline_enum_validation",
+        ),
+        (
+            "Baseline raw-settings-save debt widened",
+            "raw_settings_saves",
+            "raw_settings_saves",
         ),
     ):
         widened = _dict_widenings(old.get(old_key, {}), new.get(new_key, {}))
@@ -324,6 +349,10 @@ def _check() -> None:
     current_ie = current.get("inline_enum_validation", {})
     new_ie = _dict_widenings(baseline_ie, current_ie)
 
+    baseline_rs = baseline.get("raw_settings_saves", {})
+    current_rs = current.get("raw_settings_saves", {})
+    new_rs = _dict_widenings(baseline_rs, current_rs)
+
     # A ratchet only tightens: REGRESSIONS fail the build, improvements never do.
     failures: list[str] = []
     if new_complexity:
@@ -368,6 +397,17 @@ def _check() -> None:
                 for path, count in sorted(new_ie.items())
             )
         )
+    if new_rs:
+        failures.append(
+            "New or worsened bare settings.save() calls (lost-update race under "
+            "concurrent invocations):\n"
+            + "\n".join(
+                f"{path}: {baseline_rs.get(path, '-')} -> {count}"
+                for path, count in sorted(new_rs.items())
+            )
+            + "\nRoute the mutation through helpers.locked_settings or "
+            "helpers.mutate_settings instead."
+        )
 
     if failures:
         print("\n\n".join(failures), file=sys.stderr)
@@ -402,7 +442,8 @@ def _check() -> None:
         f"{sum(current['line_length'].values())} E501, "
         f"{len(current['oversized_files'])} oversized, "
         f"{sum(current['broad_exceptions'].values())} broad-except, "
-        f"{sum(current['inline_enum_validation'].values())} inline-enum"
+        f"{sum(current['inline_enum_validation'].values())} inline-enum, "
+        f"{sum(current['raw_settings_saves'].values())} raw-save"
     )
 
 

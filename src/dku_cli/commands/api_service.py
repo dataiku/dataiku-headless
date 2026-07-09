@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_client_from_ctx, resolve_project
+from dku_cli.helpers import get_client_from_ctx, locked_settings, resolve_project
 from dku_cli.output import (
     hint,
     info,
@@ -205,18 +205,18 @@ def add_endpoint(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         service = proj.get_api_service(service_id)
-        settings = service.get_settings()
+        with locked_settings(
+            client, project_key, "api-service", service_id, service.get_settings
+        ) as settings:
+            if ep_type_lower == "prediction":
+                settings.add_prediction_endpoint(endpoint_id, model_id)
+            elif ep_type_lower == "clustering":
+                settings.add_clustering_endpoint(endpoint_id, model_id)
+            elif ep_type_lower == "forecasting":
+                settings.add_forecasting_endpoint(endpoint_id, model_id)
+            elif ep_type_lower == "causal":
+                settings.add_causal_prediction_endpoint(endpoint_id, model_id)
 
-        if ep_type_lower == "prediction":
-            settings.add_prediction_endpoint(endpoint_id, model_id)
-        elif ep_type_lower == "clustering":
-            settings.add_clustering_endpoint(endpoint_id, model_id)
-        elif ep_type_lower == "forecasting":
-            settings.add_forecasting_endpoint(endpoint_id, model_id)
-        elif ep_type_lower == "causal":
-            settings.add_causal_prediction_endpoint(endpoint_id, model_id)
-
-        settings.save()
         success(
             f"Added {endpoint_type} endpoint '{endpoint_id}' "
             f"(model: {model_id}) to API service '{service_id}'"

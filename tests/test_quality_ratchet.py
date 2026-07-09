@@ -27,6 +27,7 @@ def _state(
     oversized_files=None,
     broad_exceptions=None,
     inline_enum_validation=None,
+    raw_settings_saves=None,
 ):
     return {
         "ruff_select": ruff_select,
@@ -36,6 +37,7 @@ def _state(
         "oversized_files": dict(oversized_files or {}),
         "broad_exceptions": dict(broad_exceptions or {}),
         "inline_enum_validation": dict(inline_enum_validation or {}),
+        "raw_settings_saves": dict(raw_settings_saves or {}),
     }
 
 
@@ -97,6 +99,17 @@ def test_check_fails_on_increased_count(monkeypatch):
     )
     with pytest.raises(SystemExit):
         ratchet._check()
+
+
+def test_check_fails_on_new_raw_settings_save(monkeypatch, capsys):
+    _patch(
+        monkeypatch,
+        _state(raw_settings_saves={"src/dku_cli/commands/a.py": 1}),
+        _state(raw_settings_saves={"src/dku_cli/commands/a.py": 2}),
+    )
+    with pytest.raises(SystemExit):
+        ratchet._check()
+    assert "locked_settings" in capsys.readouterr().err
 
 
 def test_check_fails_on_increased_max_even_if_count_unchanged(monkeypatch):

@@ -47,6 +47,9 @@ def _isolate_config_files(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "dku_cli.auth.CREDENTIALS_FILE", tmp_path / "credentials.toml", raising=False
     )
+    # Settings-mutation commands take a per-object write lock — keep the lock
+    # files out of the developer's real cache dir.
+    monkeypatch.setattr("dku_cli.helpers.LOCK_DIR", tmp_path / "locks", raising=False)
     # Unit tests must never see ambient DSS auth: developers export
     # DKU_URL/DKU_API_KEY in their shell, and with those set the node-type
     # guard (helpers._has_auth_overrides) probes the LIVE instance and every

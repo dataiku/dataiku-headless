@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -180,6 +180,34 @@ def test_set_agent_fails_when_dss_drops_binding(patch_client):
     assert "create-version" in result.output
 
 
+def test_set_agent_refetches_review_inside_write_lock(patch_client):
+    proj = patch_client.get_project("PROJ1")
+    stale = MagicMock()
+    stale.id = "review1"
+    stale.name = "Quality Check"
+    stale.get_raw.return_value = {"id": "review1", "traits": [{"id": "old"}]}
+    stale.save.return_value = stale
+    fresh = MagicMock()
+    fresh.id = "review1"
+    fresh.name = "Quality Check"
+    fresh.get_raw.return_value = {
+        "id": "review1",
+        "agentSmartId": "agent1",
+        "traits": [{"id": "new"}],
+    }
+    fresh.save.return_value = fresh
+    proj.get_agent_review.side_effect = [stale, fresh]
+
+    result = runner.invoke(
+        app,
+        ["agent-review", "set-agent", "review1", "--agent", "agent1", "-P", "PROJ1"],
+    )
+
+    assert result.exit_code == 0
+    assert not stale.save.called
+    fresh.save.assert_called_once()
+
+
 def test_run_no_bound_agent_fails_cleanly(patch_client):
     # Backstop: a review with no agent must not reach perform_run (which dies
     # with the opaque "Invalid loc: empty name").
@@ -190,6 +218,37 @@ def test_run_no_bound_agent_fails_cleanly(patch_client):
     assert result.exit_code == 3
     assert "no agent bound" in result.output.lower()
     assert "set-agent" in result.output
+
+
+def test_ensure_review_agent_version_does_not_save_when_already_pinned():
+    from dku_cli.commands.agent_review import _ensure_review_agent_version
+
+    client = MagicMock()
+    client.host = "http://dss.example:11200"
+    settings = MagicMock()
+    settings.get_raw.return_value = {
+        "versions": [{"versionId": "v1"}],
+        "activeVersion": "v1",
+        "versionTag": {"versionNumber": 3},
+    }
+    agent = MagicMock()
+    agent.id = "agent1"
+    agent.get_settings.return_value = settings
+    proj = MagicMock()
+    proj.project_key = "PROJ1"
+    review = MagicMock()
+    review.id = "review1"
+    review.get_raw.return_value = {
+        "agentSmartId": "agent1",
+        "agentVersion": "v1",
+    }
+
+    with patch("dku_cli.commands.agent_review.resolve_agent", return_value=agent):
+        version, published = _ensure_review_agent_version(client, proj, review)
+
+    assert version == "v1"
+    assert published is False
+    settings.save.assert_not_called()
 
 
 # --- set-llm ---

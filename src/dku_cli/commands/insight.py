@@ -15,6 +15,8 @@ from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_
 from dku_cli.helpers import (
     get_client_from_ctx,
     insight_url,
+    locked_settings,
+    object_write_lock,
     read_json_input,
     resolve_project,
     update_taggable_metadata,
@@ -328,17 +330,18 @@ def set_definition(
             if params.get("def") is not None:
                 _check_submitted_chart_def(params["def"], insight_id, project_key)
                 submitted_chart_type = params["def"].get("type")
-        settings = insight.get_settings()
-        raw = settings.get_raw()
-        prior = dict(raw)
-        raw.clear()
-        raw.update(new_def)
-        raw["id"] = insight_id
-        raw.setdefault("projectKey", project_key)
-        for field in ("name", "owner"):
-            if field not in raw and field in prior:
-                raw[field] = prior[field]
-        settings.save()
+        with locked_settings(
+            client, project_key, "insight", insight_id, insight.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            prior = dict(raw)
+            raw.clear()
+            raw.update(new_def)
+            raw["id"] = insight_id
+            raw.setdefault("projectKey", project_key)
+            for field in ("name", "owner"):
+                if field not in raw and field in prior:
+                    raw[field] = prior[field]
         if submitted_chart_type is not None:
             _verify_chart_def_survived(
                 proj, insight_id, submitted_chart_type, project_key
@@ -536,8 +539,9 @@ def set_metadata(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
-        settings = insight.get_settings()
-        update_taggable_metadata(settings, description, short_desc, tags)
+        with object_write_lock(client, project_key, "insight", insight_id):
+            settings = insight.get_settings()
+            update_taggable_metadata(settings, description, short_desc, tags)
         success(f"Updated metadata for insight '{insight_id}'")
     except typer.Exit:
         raise
@@ -627,14 +631,15 @@ def set_chart_type(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
-        settings = insight.get_settings()
-        raw = settings.get_raw()
-        if raw.get("type") != "chart":
-            exit_with_error(
-                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
-            )
-        raw.setdefault("params", {}).setdefault("def", {})["type"] = chart_type
-        settings.save()
+        with locked_settings(
+            client, project_key, "insight", insight_id, insight.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if raw.get("type") != "chart":
+                exit_with_error(
+                    f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+                )
+            raw.setdefault("params", {}).setdefault("def", {})["type"] = chart_type
         success(f"Chart type set to '{chart_type}' for insight '{insight_id}'")
         if chart_type in _HELPER_INCOMPLETE_TYPES:
             warn(
@@ -697,56 +702,60 @@ def add_dimension(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
-        settings = insight.get_settings()
-        raw = settings.get_raw()
-        if raw.get("type") != "chart":
-            exit_with_error(
-                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
-            )
-        chart_def = raw.setdefault("params", {}).setdefault("def", {})
-        key = f"genericDimension{slot}"
-        dims = chart_def.setdefault(key, [])
-        # Full GUI shape: a bare {column, type} dim crashes the chart editor
-        # (TypeError reading numParams.nbBins / sort.type) — the frontend only
-        # autocompletes objects it recognizes as complete.
-        dim: dict = {
-            "column": column,
-            "isA": "dimension",
-            "maxValues": 100,
-            "generateOthersCategory": False,
-            "filters": [],
-            "sort": {
-                "type": "NATURAL",
-                "sortAscending": True,
-                "label": "Natural ordering",
-            },
-            "numParams": {
-                "mode": "FIXED_NB",
-                "nbBins": 10,
-                "binSize": 100,
-                "emptyBinsMode": "ZEROS",
-            },
-        }
-        col_type = _chart_column_type(proj, raw, column, project_key)
-        if col_type:
-            dim["type"] = col_type
-        # Type is auto-resolved (the bug fix: dateonly/datetime now → DATE, not
-        # ALPHANUM). Binning is only applied when --date-mode is explicit, so a
-        # plain date dim keeps its prior shape; hint that binning is available.
-        if mode is not None:
-            if col_type == "DATE":
-                dim["dateParams"] = {"mode": mode, "maxBinNumberForAutomaticMode": 0}
-            else:
-                warn(
-                    f"--date-mode ignored: '{column}' is {col_type}, not a date column."
+        with locked_settings(
+            client, project_key, "insight", insight_id, insight.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if raw.get("type") != "chart":
+                exit_with_error(
+                    f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
                 )
-        elif col_type == "DATE":
-            info(
-                f"'{column}' is a date column — pass --date-mode "
-                "YEAR|QUARTER|MONTH|WEEK|DAY|HOUR to bin the time axis."
-            )
-        dims.append(dim)
-        settings.save()
+            chart_def = raw.setdefault("params", {}).setdefault("def", {})
+            key = f"genericDimension{slot}"
+            dims = chart_def.setdefault(key, [])
+            # Full GUI shape: a bare {column, type} dim crashes the chart editor
+            # (TypeError reading numParams.nbBins / sort.type) — the frontend only
+            # autocompletes objects it recognizes as complete.
+            dim: dict = {
+                "column": column,
+                "isA": "dimension",
+                "maxValues": 100,
+                "generateOthersCategory": False,
+                "filters": [],
+                "sort": {
+                    "type": "NATURAL",
+                    "sortAscending": True,
+                    "label": "Natural ordering",
+                },
+                "numParams": {
+                    "mode": "FIXED_NB",
+                    "nbBins": 10,
+                    "binSize": 100,
+                    "emptyBinsMode": "ZEROS",
+                },
+            }
+            col_type = _chart_column_type(proj, raw, column, project_key)
+            if col_type:
+                dim["type"] = col_type
+            # Type is auto-resolved (the bug fix: dateonly/datetime now → DATE, not
+            # ALPHANUM). Binning is only applied when --date-mode is explicit, so a
+            # plain date dim keeps its prior shape; hint that binning is available.
+            if mode is not None:
+                if col_type == "DATE":
+                    dim["dateParams"] = {
+                        "mode": mode,
+                        "maxBinNumberForAutomaticMode": 0,
+                    }
+                else:
+                    warn(
+                        f"--date-mode ignored: '{column}' is {col_type}, not a date column."
+                    )
+            elif col_type == "DATE":
+                info(
+                    f"'{column}' is a date column — pass --date-mode "
+                    "YEAR|QUARTER|MONTH|WEEK|DAY|HOUR to bin the time axis."
+                )
+            dims.append(dim)
         where = "breakdown (slot 1)" if slot == 1 else "X axis (slot 0)"
         suffix = (
             f", binned by {dim['dateParams']['mode']}" if "dateParams" in dim else ""
@@ -814,58 +823,59 @@ def add_measure(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
-        settings = insight.get_settings()
-        raw = settings.get_raw()
-        if raw.get("type") != "chart":
-            exit_with_error(
-                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
-            )
-        chart_def = raw.setdefault("params", {}).setdefault("def", {})
-        # isA/displayed mark the object as a complete measure — without them the
-        # chart editor treats it as a half-dropped palette column and either
-        # asserts ("no measure type") or rewrites the function on open.
-        if column is None:
-            # "Count of records": no column, pseudo-type COUNT — the one
-            # column-less measure shape the pivot engine accepts.
-            measure: dict = {
-                "function": "COUNT",
-                "type": "COUNT",
-                "isA": "measure",
-                "displayed": True,
-            }
-        else:
-            measure = {
-                "column": column,
-                "function": dss_aggs.get(agg, agg),
-                "isA": "measure",
-                "displayed": True,
-            }
-            col_type = _chart_column_type(proj, raw, column, project_key)
-            if col_type:
-                # Charts require the measure's `type` to match the column. An
-                # omitted type is treated as NUMERICAL and string/meaning columns
-                # fail at render time with "Column X was expected to be NUMERICAL
-                # but is not (found STRING_DICT)".
-                if agg in ("AVG", "SUM", "MIN", "MAX") and col_type != "NUMERICAL":
-                    exit_with_error(
-                        f"{agg}({column}) needs a numerical column, but "
-                        f"'{column}' is {col_type}.",
-                        details=[
-                            "Use --agg COUNT (row count) or --agg COUNT_DISTINCT "
-                            "for non-numeric columns,",
-                            "or fix the storage type first: dku dataset set-schema "
-                            f"... -P {project_key}",
-                        ],
-                    )
-                measure["type"] = col_type
-        # axis1 is the DSS default — only write displayAxis for the right axis,
-        # so a plain measure keeps its minimal shape.
-        if axis == 2:
-            measure["displayAxis"] = "axis2"
-        if display_type is not None:
-            measure["displayType"] = display_type
-        chart_def.setdefault("genericMeasures", []).append(measure)
-        settings.save()
+        with locked_settings(
+            client, project_key, "insight", insight_id, insight.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if raw.get("type") != "chart":
+                exit_with_error(
+                    f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+                )
+            chart_def = raw.setdefault("params", {}).setdefault("def", {})
+            # isA/displayed mark the object as a complete measure — without them the
+            # chart editor treats it as a half-dropped palette column and either
+            # asserts ("no measure type") or rewrites the function on open.
+            if column is None:
+                # "Count of records": no column, pseudo-type COUNT — the one
+                # column-less measure shape the pivot engine accepts.
+                measure: dict = {
+                    "function": "COUNT",
+                    "type": "COUNT",
+                    "isA": "measure",
+                    "displayed": True,
+                }
+            else:
+                measure = {
+                    "column": column,
+                    "function": dss_aggs.get(agg, agg),
+                    "isA": "measure",
+                    "displayed": True,
+                }
+                col_type = _chart_column_type(proj, raw, column, project_key)
+                if col_type:
+                    # Charts require the measure's `type` to match the column. An
+                    # omitted type is treated as NUMERICAL and string/meaning columns
+                    # fail at render time with "Column X was expected to be NUMERICAL
+                    # but is not (found STRING_DICT)".
+                    if agg in ("AVG", "SUM", "MIN", "MAX") and col_type != "NUMERICAL":
+                        exit_with_error(
+                            f"{agg}({column}) needs a numerical column, but "
+                            f"'{column}' is {col_type}.",
+                            details=[
+                                "Use --agg COUNT (row count) or --agg COUNT_DISTINCT "
+                                "for non-numeric columns,",
+                                "or fix the storage type first: dku dataset set-schema "
+                                f"... -P {project_key}",
+                            ],
+                        )
+                    measure["type"] = col_type
+            # axis1 is the DSS default — only write displayAxis for the right axis,
+            # so a plain measure keeps its minimal shape.
+            if axis == 2:
+                measure["displayAxis"] = "axis2"
+            if display_type is not None:
+                measure["displayType"] = display_type
+            chart_def.setdefault("genericMeasures", []).append(measure)
         extra = []
         if axis == 2:
             extra.append("right axis")
@@ -908,17 +918,18 @@ def clear_columns(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
-        settings = insight.get_settings()
-        raw = settings.get_raw()
-        if raw.get("type") != "chart":
-            exit_with_error(
-                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
-            )
-        chart_def = raw.setdefault("params", {}).setdefault("def", {})
-        chart_def["genericDimension0"] = []
-        chart_def["genericDimension1"] = []
-        chart_def["genericMeasures"] = []
-        settings.save()
+        with locked_settings(
+            client, project_key, "insight", insight_id, insight.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if raw.get("type") != "chart":
+                exit_with_error(
+                    f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+                )
+            chart_def = raw.setdefault("params", {}).setdefault("def", {})
+            chart_def["genericDimension0"] = []
+            chart_def["genericDimension1"] = []
+            chart_def["genericMeasures"] = []
         success(f"Cleared all column bindings for insight '{insight_id}'")
     except typer.Exit:
         raise
@@ -986,29 +997,30 @@ def set_colors(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         insight = proj.get_insight(insight_id)
-        settings = insight.get_settings()
-        raw = settings.get_raw()
-        if raw.get("type") != "chart":
-            exit_with_error(
-                f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
-            )
-        chart_def = raw.setdefault("params", {}).setdefault("def", {})
-        co = chart_def.setdefault("colorOptions", {})
-        applied = []
-        if single:
-            co["singleColor"] = single
-            applied.append(f"single={single}")
-        if palette:
-            co["colorPalette"] = palette
-            applied.append(f"palette={palette}")
-        if custom:
-            co["customColors"] = custom
-            co["paletteType"] = "CATEGORY"
-            applied.append(f"{len(custom)} custom colour(s)")
-        if transparency is not None:
-            co["transparency"] = transparency
-            applied.append(f"transparency={transparency}")
-        settings.save()
+        with locked_settings(
+            client, project_key, "insight", insight_id, insight.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            if raw.get("type") != "chart":
+                exit_with_error(
+                    f"Insight '{insight_id}' is type '{raw.get('type')}', not 'chart'"
+                )
+            chart_def = raw.setdefault("params", {}).setdefault("def", {})
+            co = chart_def.setdefault("colorOptions", {})
+            applied = []
+            if single:
+                co["singleColor"] = single
+                applied.append(f"single={single}")
+            if palette:
+                co["colorPalette"] = palette
+                applied.append(f"palette={palette}")
+            if custom:
+                co["customColors"] = custom
+                co["paletteType"] = "CATEGORY"
+                applied.append(f"{len(custom)} custom colour(s)")
+            if transparency is not None:
+                co["transparency"] = transparency
+                applied.append(f"transparency={transparency}")
         success(f"Set colors on '{insight_id}': {', '.join(applied)}")
     except typer.Exit:
         raise

@@ -9,6 +9,8 @@ from dku_cli.errors import handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     dashboard_url,
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     read_json_input,
     resolve_project,
     update_taggable_metadata,
@@ -197,11 +199,12 @@ def set_definition(
         proj = client.get_project(project_key)
         dashboard = proj.get_dashboard(dashboard_id)
         new_def = read_json_input(definition)
-        settings = dashboard.get_settings()
-        raw = settings.get_raw()
-        raw.clear()
-        raw.update(new_def)
-        settings.save()
+        with locked_settings(
+            client, project_key, "dashboard", dashboard_id, dashboard.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            raw.clear()
+            raw.update(new_def)
         success(f"Updated definition for dashboard '{dashboard_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -234,8 +237,9 @@ def set_metadata(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         dashboard = proj.get_dashboard(dashboard_id)
-        settings = dashboard.get_settings()
-        update_taggable_metadata(settings, description, short_desc, tags)
+        with object_write_lock(client, project_key, "dashboard", dashboard_id):
+            settings = dashboard.get_settings()
+            update_taggable_metadata(settings, description, short_desc, tags)
         success(f"Updated metadata for dashboard '{dashboard_id}'")
     except typer.Exit:
         raise
@@ -338,65 +342,66 @@ def add_tile(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         dashboard = proj.get_dashboard(dashboard_id)
-        settings = dashboard.get_settings()
-        raw = settings.get_raw()
-        pages = raw.get("pages", [])
-        if page >= len(pages):
-            exit_with_error(
-                f"Page index {page} out of range (dashboard has {len(pages)} page(s))",
-                details=[
-                    f"dku dashboard get {dashboard_id} -P {project_key}  # check page count"
-                ],
-            )
-        # DSS requires every INSIGHT tile to carry `tileType` AND `insightType`.
-        # Omitting them makes the dashboard fail to render with the cryptic
-        # `JsonParseException: Insight type null is unknown` — DSS does NOT infer
-        # the type from the linked insight. Look it up from the insight itself.
-        try:
-            insight_raw = proj.get_insight(insight_id).get_settings().get_raw()
-            insight_type = insight_raw.get("type")
-            insight_name = insight_raw.get("name") or insight_id
-        except Exception:
-            insight_type = None
-            insight_name = insight_id
-        if not insight_type:
-            exit_with_error(
-                f"Could not resolve the type of insight '{insight_id}' — cannot build the tile",
-                details=[
-                    f"dku insight list -P {project_key}  # confirm the insight ID exists",
-                    "A tile needs insightType (chart, dataset_table, ...); DSS does not infer it.",
-                ],
-            )
-        tiles = pages[page].setdefault("grid", {}).setdefault("tiles", [])
-        # DSS drops unknown tile fields on save (a top-level showTitle or
-        # resizeMode comes back null) — titles live in titleOptions, and a
-        # dataset_table tile without viewKind EXPLORE stays blank in view mode.
-        tile = {
-            "tileType": "INSIGHT",
-            "insightId": insight_id,
-            "insightType": insight_type,
-            "displayMode": "INSIGHT",
-            "box": _flow_box(tiles, width, height),
-            "clickAction": "DO_NOTHING",
-            "autoLoad": True,
-            "titleOptions": {
-                "showTitle": "YES",
-                "title": insight_name,
-                "displayedTitle": insight_name,
-            },
-            "tileParams": {},
-        }
-        if insight_type == "chart":
-            # dashboard tiles hide the chart's legend by default even though
-            # the insight's own page shows it — multi-series charts are
-            # unreadable without it
-            tile["tileParams"].update(
-                {"showLegend": True, "inheritLegendPlacement": True}
-            )
-        if insight_type == "dataset_table":
-            tile["tileParams"]["viewKind"] = "EXPLORE"
-        tiles.append(tile)
-        settings.save()
+        with locked_settings(
+            client, project_key, "dashboard", dashboard_id, dashboard.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            pages = raw.get("pages", [])
+            if page >= len(pages):
+                exit_with_error(
+                    f"Page index {page} out of range (dashboard has {len(pages)} page(s))",
+                    details=[
+                        f"dku dashboard get {dashboard_id} -P {project_key}  # check page count"
+                    ],
+                )
+            # DSS requires every INSIGHT tile to carry `tileType` AND `insightType`.
+            # Omitting them makes the dashboard fail to render with the cryptic
+            # `JsonParseException: Insight type null is unknown` — DSS does NOT infer
+            # the type from the linked insight. Look it up from the insight itself.
+            try:
+                insight_raw = proj.get_insight(insight_id).get_settings().get_raw()
+                insight_type = insight_raw.get("type")
+                insight_name = insight_raw.get("name") or insight_id
+            except Exception:
+                insight_type = None
+                insight_name = insight_id
+            if not insight_type:
+                exit_with_error(
+                    f"Could not resolve the type of insight '{insight_id}' — cannot build the tile",
+                    details=[
+                        f"dku insight list -P {project_key}  # confirm the insight ID exists",
+                        "A tile needs insightType (chart, dataset_table, ...); DSS does not infer it.",
+                    ],
+                )
+            tiles = pages[page].setdefault("grid", {}).setdefault("tiles", [])
+            # DSS drops unknown tile fields on save (a top-level showTitle or
+            # resizeMode comes back null) — titles live in titleOptions, and a
+            # dataset_table tile without viewKind EXPLORE stays blank in view mode.
+            tile = {
+                "tileType": "INSIGHT",
+                "insightId": insight_id,
+                "insightType": insight_type,
+                "displayMode": "INSIGHT",
+                "box": _flow_box(tiles, width, height),
+                "clickAction": "DO_NOTHING",
+                "autoLoad": True,
+                "titleOptions": {
+                    "showTitle": "YES",
+                    "title": insight_name,
+                    "displayedTitle": insight_name,
+                },
+                "tileParams": {},
+            }
+            if insight_type == "chart":
+                # dashboard tiles hide the chart's legend by default even though
+                # the insight's own page shows it — multi-series charts are
+                # unreadable without it
+                tile["tileParams"].update(
+                    {"showLegend": True, "inheritLegendPlacement": True}
+                )
+            if insight_type == "dataset_table":
+                tile["tileParams"]["viewKind"] = "EXPLORE"
+            tiles.append(tile)
         box = tile["box"]
         success(
             f"Added insight '{insight_id}' to page {page} of dashboard "
@@ -594,24 +599,27 @@ def remove_tile(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         dashboard = proj.get_dashboard(dashboard_id)
-        settings = dashboard.get_settings()
-        raw = settings.get_raw()
-        removed = 0
-        for page_idx, pg in enumerate(raw.get("pages", [])):
-            if page is not None and page_idx != page:
-                continue
-            tiles = pg.get("grid", {}).get("tiles", [])
-            before = len(tiles)
-            pg["grid"]["tiles"] = [t for t in tiles if t.get("insightId") != insight_id]
-            removed += before - len(pg["grid"]["tiles"])
-        if removed == 0:
-            exit_with_error(
-                f"Insight '{insight_id}' not found in dashboard '{dashboard_id}'",
-                details=[
-                    f"dku dashboard list-tiles {dashboard_id} -P {project_key}  # check tile insight IDs"
-                ],
-            )
-        settings.save()
+        with locked_settings(
+            client, project_key, "dashboard", dashboard_id, dashboard.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            removed = 0
+            for page_idx, pg in enumerate(raw.get("pages", [])):
+                if page is not None and page_idx != page:
+                    continue
+                tiles = pg.get("grid", {}).get("tiles", [])
+                before = len(tiles)
+                pg["grid"]["tiles"] = [
+                    t for t in tiles if t.get("insightId") != insight_id
+                ]
+                removed += before - len(pg["grid"]["tiles"])
+            if removed == 0:
+                exit_with_error(
+                    f"Insight '{insight_id}' not found in dashboard '{dashboard_id}'",
+                    details=[
+                        f"dku dashboard list-tiles {dashboard_id} -P {project_key}  # check tile insight IDs"
+                    ],
+                )
         success(
             f"Removed {removed} tile(s) referencing '{insight_id}' from dashboard '{dashboard_id}'"
         )

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import os
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
+from platformdirs import user_cache_dir
 
 if TYPE_CHECKING:
     import dataikuapi
@@ -26,6 +31,194 @@ from dku_cli.enums import EvalFlavor
 
 # Node types that support project-scoped commands (flow, datasets, recipes…).
 PROJECT_NODE_TYPES = {"DESIGN", "AUTOMATION"}
+
+# ---------------------------------------------------------------------------
+# Concurrent-write protection for settings mutations
+#
+# DSS settings saves are unconditional full-document PUTs — the server does
+# no version check, so two concurrent get→mutate→save commands on the same
+# object silently drop one side's changes (lost update). Agent tool-callers
+# fire mutations of one object in parallel routinely (e.g. add-step +
+# add-trigger + add-reporter on a fresh scenario in one turn), and each
+# command reports success because it only knows about its own write.
+# ---------------------------------------------------------------------------
+
+# Lazily created like CONFIG_DIR — importing must never crash on a read-only
+# cache dir. Tests monkeypatch this to a tmp_path.
+LOCK_DIR = Path(user_cache_dir("dku", ensure_exists=False)) / "locks"
+
+_LOCK_TIMEOUT_S = 60.0
+_LOCK_POLL_S = 0.2
+_LOCK_DOCUMENT_TYPES = {"agent": "saved-model"}
+
+if os.name == "nt":
+    import msvcrt
+
+    def _try_lock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+@contextmanager
+def object_write_lock(
+    client,
+    project_key: str,
+    obj_type: str,
+    obj_id: str,
+    *,
+    timeout_s: float | None = None,
+):
+    """Serialize read-modify-write sections on one DSS object across dku processes.
+
+    Advisory per-object file lock keyed by (host, project, type, id): concurrent
+    same-host writers queue instead of clobbering each other, and each later
+    writer re-reads the previous one's save. Released automatically if the
+    process dies. Waiting more than ``timeout_s`` exits loudly. Most commands
+    hold the lock only for one read-mutate-save window; longer-running call
+    sites must pass a larger timeout explicitly.
+    """
+    from dku_cli.errors import exit_with_error
+
+    resolved_timeout_s = _LOCK_TIMEOUT_S if timeout_s is None else timeout_s
+    document_type = _LOCK_DOCUMENT_TYPES.get(obj_type, obj_type)
+    key = f"{client.host}|{project_key}|{document_type}|{obj_id}"
+    LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    path = LOCK_DIR / f"{hashlib.sha256(key.encode()).hexdigest()[:24]}.lock"
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        deadline = time.monotonic() + resolved_timeout_s
+        while True:
+            try:
+                _try_lock(fd)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    exit_with_error(
+                        f"Timed out after {resolved_timeout_s:g}s waiting for another "
+                        f"dku process editing {obj_type} '{obj_id}'.",
+                        details=[
+                            "Another dku command holds the write lock on this object.",
+                            "Re-run this command once it finishes.",
+                        ],
+                    )
+                time.sleep(_LOCK_POLL_S)
+        yield
+    finally:
+        # Unlock can only fail if we never acquired (timeout exit path);
+        # flock/msvcrt locks are also dropped on close.
+        with contextlib.suppress(OSError):
+            _unlock(fd)
+        os.close(fd)
+
+
+def _version_number(settings) -> int | None:
+    """Server-side version of a settings document, when DSS exposes one.
+
+    dataikuapi settings classes are heterogeneous: not all have get_raw()
+    (e.g. PrepareRecipeSettings), and not all documents carry a versionTag.
+    Those objects get lock-only protection, no conflict probe.
+    """
+    get_raw = getattr(settings, "get_raw", None)
+    if get_raw is None:
+        return None
+    raw = get_raw()
+    if not isinstance(raw, dict):
+        return None
+    version = (raw.get("versionTag") or {}).get("versionNumber")
+    return version if isinstance(version, int) else None
+
+
+@contextmanager
+def locked_settings(
+    client,
+    project_key: str,
+    obj_type: str,
+    obj_id: str,
+    fetch,
+    *,
+    timeout_s: float | None = None,
+):
+    """Context-manager form of mutate_settings for inline mutations.
+
+    Yields freshly fetched settings with the per-object write lock held for
+    the whole read-modify-write section, and saves on exit. The versionTag
+    is re-checked just before the save as a best-effort stale-document probe:
+    if another writer saved after this command fetched the settings and before
+    the probe, this command exits loudly instead of knowingly PUT-ing that
+    stale snapshot. This is not a conditional save and does not guarantee full
+    cross-host serialization. Use mutate_settings when the mutation can be
+    re-applied to a fresh copy. An exception inside the block skips the save.
+    """
+    from dku_cli.errors import exit_with_error
+
+    with object_write_lock(client, project_key, obj_type, obj_id, timeout_s=timeout_s):
+        settings = fetch()
+        version = _version_number(settings)
+        yield settings
+        if version is not None and _version_number(fetch()) != version:
+            exit_with_error(
+                f"Not saving {obj_type} '{obj_id}': another process modified it "
+                "after this command fetched the settings.",
+                details=["Re-run this command."],
+            )
+        settings.save()
+
+
+def mutate_settings(
+    client,
+    project_key: str,
+    obj_type: str,
+    obj_id: str,
+    *,
+    fetch,
+    mutate,
+    max_attempts: int = 3,
+    timeout_s: float | None = None,
+):
+    """Run fetch() → mutate(settings) → settings.save() safely under concurrency.
+
+    Holds the per-object write lock for the whole read-modify-write section
+    (serializes same-host writers), and re-checks the document's versionTag
+    just before saving as a best-effort stale-document probe. The save itself
+    remains an unconditional PUT, so this is not full cross-host conflict
+    protection. On a detected stale fetch the mutation is re-applied to a
+    freshly fetched document instead of saving the stale one over it, so
+    ``mutate`` must be safe to re-run on a fresh copy. Returns whatever
+    ``mutate`` returns; exits loudly if the probe keeps finding intervening
+    writes.
+    """
+    from dku_cli.errors import exit_with_error
+
+    with object_write_lock(client, project_key, obj_type, obj_id, timeout_s=timeout_s):
+        for _ in range(max_attempts):
+            settings = fetch()
+            version = _version_number(settings)
+            result = mutate(settings)
+            if version is not None and _version_number(fetch()) != version:
+                continue
+            settings.save()
+            return result
+        exit_with_error(
+            f"Could not save {obj_type} '{obj_id}': another process kept "
+            f"modifying it concurrently ({max_attempts} attempts).",
+            details=[
+                "Re-run this command.",
+                "Run mutations of the same object sequentially, not in parallel.",
+            ],
+        )
 
 
 def _has_auth_overrides(opts: dict) -> bool:

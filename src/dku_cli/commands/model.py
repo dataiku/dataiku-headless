@@ -13,6 +13,8 @@ from dku_cli.enums import (
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     read_json_input,
     resolve_project,
     update_taggable_metadata,
@@ -290,18 +292,19 @@ def set_flow_options(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         model = proj.get_saved_model(model_id)
-        settings = model.get_settings()
-        raw = settings.get_raw()
-        flow = raw.setdefault("flowOptions", {})
-        if virtualizable is not None:
-            flow["virtualizable"] = bool(virtualizable)
-        if rebuild_behavior is not None:
-            flow["rebuildBehavior"] = rebuild_behavior.value
-        if cross_project_build_behavior is not None:
-            flow["crossProjectBuildBehavior"] = cross_project_build_behavior.value
-        if ignore_error_status_on_build is not None:
-            flow["ignoreErrorStatusOnBuild"] = bool(ignore_error_status_on_build)
-        settings.save()
+        with locked_settings(
+            client, project_key, "saved-model", model_id, model.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            flow = raw.setdefault("flowOptions", {})
+            if virtualizable is not None:
+                flow["virtualizable"] = bool(virtualizable)
+            if rebuild_behavior is not None:
+                flow["rebuildBehavior"] = rebuild_behavior.value
+            if cross_project_build_behavior is not None:
+                flow["crossProjectBuildBehavior"] = cross_project_build_behavior.value
+            if ignore_error_status_on_build is not None:
+                flow["ignoreErrorStatusOnBuild"] = bool(ignore_error_status_on_build)
         success(f"Updated flowOptions on saved model '{model_id}'")
     except Exception as e:
         if is_not_found_error(e):
@@ -336,10 +339,11 @@ def set_publish_policy(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         model = proj.get_saved_model(model_id)
-        settings = model.get_settings()
-        raw = settings.get_raw()
-        raw["publishPolicy"] = policy.value
-        settings.save()
+        with locked_settings(
+            client, project_key, "saved-model", model_id, model.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            raw["publishPolicy"] = policy.value
         success(f"Set publishPolicy={policy.value} on saved model '{model_id}'")
     except Exception as e:
         if is_not_found_error(e):
@@ -413,20 +417,26 @@ def diagnostics(
             return
 
         # Apply --enable / --disable mutations
-        diag_by_type = {d.get("type"): d for d in diags}
-        for t in enable or []:
-            if t in diag_by_type:
-                diag_by_type[t]["enabled"] = True
-            else:
-                diags.append({"type": t, "enabled": True})
-                diag_by_type[t] = diags[-1]
-        for t in disable or []:
-            if t in diag_by_type:
-                diag_by_type[t]["enabled"] = False
-            else:
-                diags.append({"type": t, "enabled": False})
-                diag_by_type[t] = diags[-1]
-        settings.save()
+        with locked_settings(
+            client, project_key, "saved-model", model_id, model.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            mini = raw.get("miniTask", {})
+            diag_settings = mini.setdefault("diagnosticsSettings", {})
+            diags = diag_settings.setdefault("diagnostics", [])
+            diag_by_type = {d.get("type"): d for d in diags}
+            for t in enable or []:
+                if t in diag_by_type:
+                    diag_by_type[t]["enabled"] = True
+                else:
+                    diags.append({"type": t, "enabled": True})
+                    diag_by_type[t] = diags[-1]
+            for t in disable or []:
+                if t in diag_by_type:
+                    diag_by_type[t]["enabled"] = False
+                else:
+                    diags.append({"type": t, "enabled": False})
+                    diag_by_type[t] = diags[-1]
         success(f"Updated diagnostics on saved model '{model_id}'")
     except Exception as e:
         if is_not_found_error(e):
@@ -581,25 +591,28 @@ def set_threshold(
                 )
             version_id = active["id"]
 
-        details = model.get_version_details(version_id)
-        raw = details.get_raw()
-        prediction_type = (raw.get("coreParams") or {}).get("prediction_type", "")
-        if prediction_type and prediction_type != "BINARY_CLASSIFICATION":
-            exit_with_error(
-                f"Threshold only applies to BINARY_CLASSIFICATION models; "
-                f"'{model_id}' version {version_id} is {prediction_type}.",
-            )
-        user_meta = raw.get("userMeta")
-        if user_meta is None:
-            exit_with_error(
-                f"Version {version_id} has no userMeta block — cannot set a threshold.",
-                details=[
-                    f"Inspect: dku model versions {model_id} -P {project_key}",
-                ],
-            )
-        old = user_meta.get("activeClassifierThreshold")
-        user_meta["activeClassifierThreshold"] = threshold
-        details.save_user_meta()
+        with object_write_lock(
+            client, project_key, "saved-model-version", f"{model_id}/{version_id}"
+        ):
+            details = model.get_version_details(version_id)
+            raw = details.get_raw()
+            prediction_type = (raw.get("coreParams") or {}).get("prediction_type", "")
+            if prediction_type and prediction_type != "BINARY_CLASSIFICATION":
+                exit_with_error(
+                    f"Threshold only applies to BINARY_CLASSIFICATION models; "
+                    f"'{model_id}' version {version_id} is {prediction_type}.",
+                )
+            user_meta = raw.get("userMeta")
+            if user_meta is None:
+                exit_with_error(
+                    f"Version {version_id} has no userMeta block — cannot set a threshold.",
+                    details=[
+                        f"Inspect: dku model versions {model_id} -P {project_key}",
+                    ],
+                )
+            old = user_meta.get("activeClassifierThreshold")
+            user_meta["activeClassifierThreshold"] = threshold
+            details.save_user_meta()
         success(
             f"Set threshold on {model_id} version {version_id}: {old} -> {threshold}"
         )
@@ -760,8 +773,9 @@ def set_metadata(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         model = proj.get_saved_model(model_id)
-        settings = model.get_settings()
-        update_taggable_metadata(settings, description, short_desc, tags)
+        with object_write_lock(client, project_key, "saved-model", model_id):
+            settings = model.get_settings()
+            update_taggable_metadata(settings, description, short_desc, tags)
         success(f"Updated metadata for model '{model_id}'")
     except typer.Exit:
         raise

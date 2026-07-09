@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import typer
 
 from dku_cli.enums import AgentBlockMode
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
     read_json_input,
     resolve_agent,
     resolve_project,
@@ -384,6 +387,28 @@ def _fetch_settings(
     return settings, raw, agent_cfg, version_id
 
 
+@contextmanager
+def _locked_fetch_settings(
+    ctx: typer.Context, agent_id: str, project: str | None, version: str | None
+):
+    """Locked read-modify-write variant of _fetch_settings.
+
+    Holds the agent's write lock for the whole block, re-fetching settings
+    inside it, and saves on exit.
+    """
+    project_key = resolve_project(project)
+    client = get_client_from_ctx(ctx)
+    proj = client.get_project(project_key)
+    agent = resolve_agent(proj, agent_id)
+    with locked_settings(
+        client, project_key, "agent", agent.id, agent.get_settings
+    ) as settings:
+        raw = settings.get_raw()
+        version_id = _resolve_version_id(settings, version)
+        agent_cfg = _get_agent_settings(raw, version_id)
+        yield settings, raw, agent_cfg, version_id
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -501,59 +526,60 @@ def add_block(
                 f"Unknown block type '{block_type}'. Known: {', '.join(sorted(_KNOWN_BLOCK_TYPES))}"
             )
 
-        settings, raw, agent_cfg, _version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
-
-        # Block addition to non-STRUCTURED agents — blocks silently vanish
-        agent_type = raw.get("type", "")
-        if agent_type != "STRUCTURED_AGENT":
-            exit_with_error(
-                f"Agent '{agent_id}' is type '{agent_type}', not STRUCTURED_AGENT. "
-                "Block graphs require STRUCTURED_AGENT — blocks silently vanish on other types.",
-                details=[
-                    "Fix: dku agent create NAME --type STRUCTURED_AGENT -P PROJ",
-                    "Then add blocks to the new agent instead.",
-                ],
-            )
-
-        # Ensure blocks list exists (on DSS 14.5+ mode is implicit, not a field)
-        if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:
-            agent_cfg["blocks"] = []
-
-        # Silent-failure fixes: inject functionName on PYTHON_CODE, rename
-        # outputScratchpadKey -> outputKey. Warn loudly so agents see the fix.
-        for w in _normalize_blocks([new_block]):
-            warn(w)
-
-        # Validate block — routing CEL, SET_STATE_ENTRIES CEL, SAVE_TO_STATE output key
-        block_errors = _validate_blocks([new_block])
-        if block_errors:
-            exit_with_error(
-                block_errors[0],
-                status=1,
-            )
-
-        # Non-fatal warnings (e.g. LLM blocks without llmId on DSS 14.5+)
-        for w in _collect_block_warnings([new_block]):
-            warn(w)
-
-        # Check duplicate ID
-        if _find_block(agent_cfg, block_id) is not None:
-            exit_with_error(
-                f"Block '{block_id}' already exists in agent '{agent_id}'.",
-                status=1,
-            )
-
-        agent_cfg["blocks"].append(new_block)
-
-        # Set as starting block if requested or if it's the first block
-        if set_start or (
-            len(agent_cfg["blocks"]) == 1 and not agent_cfg.get("startingBlockId")
+        with _locked_fetch_settings(ctx, agent_id, project, version) as (
+            _settings,
+            raw,
+            agent_cfg,
+            _version_id,
         ):
-            agent_cfg["startingBlockId"] = block_id
+            # Block addition to non-STRUCTURED agents — blocks silently vanish
+            agent_type = raw.get("type", "")
+            if agent_type != "STRUCTURED_AGENT":
+                exit_with_error(
+                    f"Agent '{agent_id}' is type '{agent_type}', not STRUCTURED_AGENT. "
+                    "Block graphs require STRUCTURED_AGENT — blocks silently vanish on other types.",
+                    details=[
+                        "Fix: dku agent create NAME --type STRUCTURED_AGENT -P PROJ",
+                        "Then add blocks to the new agent instead.",
+                    ],
+                )
 
-        settings.save()
+            # Ensure blocks list exists (on DSS 14.5+ mode is implicit, not a field)
+            if "blocks" not in agent_cfg or agent_cfg["blocks"] is None:
+                agent_cfg["blocks"] = []
+
+            # Silent-failure fixes: inject functionName on PYTHON_CODE, rename
+            # outputScratchpadKey -> outputKey. Warn loudly so agents see the fix.
+            for w in _normalize_blocks([new_block]):
+                warn(w)
+
+            # Validate block — routing CEL, SET_STATE_ENTRIES CEL, SAVE_TO_STATE output key
+            block_errors = _validate_blocks([new_block])
+            if block_errors:
+                exit_with_error(
+                    block_errors[0],
+                    status=1,
+                )
+
+            # Non-fatal warnings (e.g. LLM blocks without llmId on DSS 14.5+)
+            for w in _collect_block_warnings([new_block]):
+                warn(w)
+
+            # Check duplicate ID
+            if _find_block(agent_cfg, block_id) is not None:
+                exit_with_error(
+                    f"Block '{block_id}' already exists in agent '{agent_id}'.",
+                    status=1,
+                )
+
+            agent_cfg["blocks"].append(new_block)
+
+            # Set as starting block if requested or if it's the first block
+            if set_start or (
+                len(agent_cfg["blocks"]) == 1 and not agent_cfg.get("startingBlockId")
+            ):
+                agent_cfg["startingBlockId"] = block_id
+
         success(f"Added block '{block_id}' (type={block_type}) to agent '{agent_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -583,35 +609,36 @@ def remove_block(
         prompt=f"Remove block '{block_id}' from agent '{agent_id}'?",
     )
     try:
-        settings, _raw, agent_cfg, _version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        with _locked_fetch_settings(ctx, agent_id, project, version) as (
+            _settings,
+            _raw,
+            agent_cfg,
+            _version_id,
+        ):
+            blocks = agent_cfg.get("blocks", [])
+            original_len = len(blocks)
+            agent_cfg["blocks"] = [b for b in blocks if b.get("id") != block_id]
 
-        blocks = agent_cfg.get("blocks", [])
-        original_len = len(blocks)
-        agent_cfg["blocks"] = [b for b in blocks if b.get("id") != block_id]
+            if len(agent_cfg["blocks"]) == original_len:
+                exit_with_error(
+                    f"Block '{block_id}' not found in agent '{agent_id}'.",
+                    status=3,
+                )
 
-        if len(agent_cfg["blocks"]) == original_len:
-            exit_with_error(
-                f"Block '{block_id}' not found in agent '{agent_id}'.",
-                status=3,
-            )
+            # Warn if starting block was removed
+            if agent_cfg.get("startingBlockId") == block_id:
+                agent_cfg["startingBlockId"] = None
+                warn(
+                    f"Removed starting block '{block_id}'. Set a new one: dku agent-block set-start {agent_id} <BLOCK_ID>"
+                )
 
-        # Warn if starting block was removed
-        if agent_cfg.get("startingBlockId") == block_id:
-            agent_cfg["startingBlockId"] = None
-            warn(
-                f"Removed starting block '{block_id}'. Set a new one: dku agent-block set-start {agent_id} <BLOCK_ID>"
-            )
+            # Warn about dangling references
+            dangling = _find_dangling_refs(agent_cfg["blocks"], block_id)
+            for ref_bid, ref_field in dangling:
+                warn(
+                    f"Block '{ref_bid}' references removed block '{block_id}' via {ref_field}"
+                )
 
-        # Warn about dangling references
-        dangling = _find_dangling_refs(agent_cfg["blocks"], block_id)
-        for ref_bid, ref_field in dangling:
-            warn(
-                f"Block '{ref_bid}' references removed block '{block_id}' via {ref_field}"
-            )
-
-        settings.save()
         success(f"Removed block '{block_id}' from agent '{agent_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -630,33 +657,34 @@ def connect_blocks(
 ) -> None:
     """Connect two blocks (set nextBlock on source)."""
     try:
-        settings, _raw, agent_cfg, _version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        with _locked_fetch_settings(ctx, agent_id, project, version) as (
+            _settings,
+            _raw,
+            agent_cfg,
+            _version_id,
+        ):
+            source = _find_block(agent_cfg, from_id)
+            if source is None:
+                exit_with_error(f"Source block '{from_id}' not found.", status=3)
 
-        source = _find_block(agent_cfg, from_id)
-        if source is None:
-            exit_with_error(f"Source block '{from_id}' not found.", status=3)
+            target = _find_block(agent_cfg, to_id)
+            if target is None:
+                exit_with_error(f"Target block '{to_id}' not found.", status=3)
 
-        target = _find_block(agent_cfg, to_id)
-        if target is None:
-            exit_with_error(f"Target block '{to_id}' not found.", status=3)
+            block_type = source.get("type", "")
+            if block_type == "PYTHON_CODE":
+                exit_with_error(
+                    f"Cannot wire PYTHON_CODE blocks with 'connect' — nextBlock is ignored by DSS. "
+                    f'Declare \'validNextBlocksFromCode: ["{to_id}"]\' in the block JSON and yield NextBlock("{to_id}") '
+                    f"from process(). Use 'dku agent-block set-graph' to push the full graph.",
+                    status=1,
+                )
 
-        block_type = source.get("type", "")
-        if block_type == "PYTHON_CODE":
-            exit_with_error(
-                f"Cannot wire PYTHON_CODE blocks with 'connect' — nextBlock is ignored by DSS. "
-                f'Declare \'validNextBlocksFromCode: ["{to_id}"]\' in the block JSON and yield NextBlock("{to_id}") '
-                f"from process(). Use 'dku agent-block set-graph' to push the full graph.",
-                status=1,
-            )
+            if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
+                source["defaultNextBlock"] = to_id
+            else:
+                source["nextBlock"] = to_id
 
-        if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
-            source["defaultNextBlock"] = to_id
-        else:
-            source["nextBlock"] = to_id
-
-        settings.save()
         success(f"Connected '{from_id}' -> '{to_id}' in agent '{agent_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -674,27 +702,28 @@ def disconnect_block(
 ) -> None:
     """Disconnect a block (remove nextBlock, making it terminal)."""
     try:
-        settings, _raw, agent_cfg, _version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        with _locked_fetch_settings(ctx, agent_id, project, version) as (
+            _settings,
+            _raw,
+            agent_cfg,
+            _version_id,
+        ):
+            block = _find_block(agent_cfg, block_id)
+            if block is None:
+                exit_with_error(f"Block '{block_id}' not found.", status=3)
 
-        block = _find_block(agent_cfg, block_id)
-        if block is None:
-            exit_with_error(f"Block '{block_id}' not found.", status=3)
-
-        block_type = block.get("type", "")
-        if block_type == "PYTHON_CODE":
-            exit_with_error(
-                "Cannot disconnect PYTHON_CODE blocks with 'disconnect' — nextBlock is ignored by DSS. "
-                "Remove 'validNextBlocksFromCode' and the NextBlock() yield from process(). "
-                "Use 'dku agent-block set-graph' to push the full graph.",
-                status=1,
-            )
-        if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
-            block.pop("defaultNextBlock", None)
-        else:
-            block.pop("nextBlock", None)
-        settings.save()
+            block_type = block.get("type", "")
+            if block_type == "PYTHON_CODE":
+                exit_with_error(
+                    "Cannot disconnect PYTHON_CODE blocks with 'disconnect' — nextBlock is ignored by DSS. "
+                    "Remove 'validNextBlocksFromCode' and the NextBlock() yield from process(). "
+                    "Use 'dku agent-block set-graph' to push the full graph.",
+                    status=1,
+                )
+            if block_type in _DEFAULT_NEXT_BLOCK_TYPES:
+                block.pop("defaultNextBlock", None)
+            else:
+                block.pop("nextBlock", None)
         success(f"Disconnected block '{block_id}' (now terminal) in agent '{agent_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -712,18 +741,19 @@ def set_start(
 ) -> None:
     """Set the starting block of the agent's block graph."""
     try:
-        settings, _raw, agent_cfg, _version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        with _locked_fetch_settings(ctx, agent_id, project, version) as (
+            _settings,
+            _raw,
+            agent_cfg,
+            _version_id,
+        ):
+            if _find_block(agent_cfg, block_id) is None:
+                exit_with_error(
+                    f"Block '{block_id}' not found in agent '{agent_id}'.",
+                    status=3,
+                )
 
-        if _find_block(agent_cfg, block_id) is None:
-            exit_with_error(
-                f"Block '{block_id}' not found in agent '{agent_id}'.",
-                status=3,
-            )
-
-        agent_cfg["startingBlockId"] = block_id
-        settings.save()
+            agent_cfg["startingBlockId"] = block_id
         success(f"Set starting block to '{block_id}' in agent '{agent_id}'")
     except Exception as e:
         handle_api_error(e)
@@ -743,19 +773,20 @@ def set_mode(
 ) -> None:
     """Switch agent mode between SIMPLE and BLOCKS_GRAPH."""
     try:
-        settings, _raw, agent_cfg, _version_id = _fetch_settings(
-            ctx, agent_id, project, version
-        )
+        with _locked_fetch_settings(ctx, agent_id, project, version) as (
+            _settings,
+            _raw,
+            agent_cfg,
+            _version_id,
+        ):
+            agent_cfg["mode"] = mode.value
 
-        agent_cfg["mode"] = mode.value
+            if mode == AgentBlockMode.BLOCKS_GRAPH:
+                if not agent_cfg.get("blocks"):
+                    agent_cfg["blocks"] = []
+            elif mode == AgentBlockMode.SIMPLE and agent_cfg.get("blocks"):
+                warn("Existing blocks will be preserved but inactive in SIMPLE mode.")
 
-        if mode == AgentBlockMode.BLOCKS_GRAPH:
-            if not agent_cfg.get("blocks"):
-                agent_cfg["blocks"] = []
-        elif mode == AgentBlockMode.SIMPLE and agent_cfg.get("blocks"):
-            warn("Existing blocks will be preserved but inactive in SIMPLE mode.")
-
-        settings.save()
         warn(
             "On DSS ≥14.5 the mode is derived from block presence, not this field — "
             "this setting may have no effect."
@@ -827,16 +858,17 @@ def set_graph(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
-        settings = agent.get_settings()
-        raw = settings.get_raw()
-        version_id = _resolve_version_id(settings, version)
+        with locked_settings(
+            client, project_key, "agent", agent.id, agent.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            version_id = _resolve_version_id(settings, version)
 
-        # Write to the correct settings key for this agent type
-        version_data = _get_version_data(raw, version_id)
-        key = _get_settings_key(raw)
-        version_data[key] = new_agent_cfg
+            # Write to the correct settings key for this agent type
+            version_data = _get_version_data(raw, version_id)
+            key = _get_settings_key(raw)
+            version_data[key] = new_agent_cfg
 
-        settings.save()
         block_count = len(new_agent_cfg.get("blocks", []))
         mode = new_agent_cfg.get("mode", "unknown")
         success(

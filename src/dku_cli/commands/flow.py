@@ -11,6 +11,8 @@ from dku_cli.enums import MoveItemType
 from dku_cli.errors import exit_with_error, handle_api_error, is_not_found_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     read_text_input,
     resolve_folder,
     resolve_knowledge_bank,
@@ -219,19 +221,20 @@ def _zone_noun_alias(ctx: typer.Context) -> None:
     raise typer.Exit(2)
 
 
-def _ensure_zone_descriptions_visible(proj) -> None:
+def _ensure_zone_descriptions_visible(client, project_key: str, proj) -> None:
     """The flow UI renders zone shortDescs only when the project display
     setting showFlowZoneDescriptions is on — tick it when writing one."""
     try:
-        ps = proj.get_settings()
-        fds = ps.get_raw()["settings"].setdefault("flowDisplaySettings", {})
-        if not fds.get("showFlowZoneDescriptions", False):
-            fds["showFlowZoneDescriptions"] = True
-            ps.save()
-            info(
-                "Enabled 'Show flow zone descriptions' in the project's flow "
-                "display settings (it was off — the description would not render)."
-            )
+        with object_write_lock(client, project_key, "project", project_key):
+            ps = proj.get_settings()
+            fds = ps.get_raw()["settings"].setdefault("flowDisplaySettings", {})
+            if not fds.get("showFlowZoneDescriptions", False):
+                fds["showFlowZoneDescriptions"] = True
+                ps.save()
+                info(
+                    "Enabled 'Show flow zone descriptions' in the project's flow "
+                    "display settings (it was off — the description would not render)."
+                )
     except Exception:
         pass  # display preference only — never fail the zone update
 
@@ -280,7 +283,7 @@ def create_zone(
             settings.save()
         success(f"Created zone '{name}' (id: {zone.id})")
         if short_desc:
-            _ensure_zone_descriptions_visible(proj)
+            _ensure_zone_descriptions_visible(client, project_key, proj)
         hint(f"dku flow graph -P {project_key}")
     except Exception as e:
         handle_api_error(e)
@@ -323,20 +326,21 @@ def set_zone(
         proj = client.get_project(project_key)
         flow = proj.get_flow()
         zone = _resolve_zone(flow, zone_ref, project_key)
-        settings = zone.get_settings()
-        if name is not None:
-            settings.name = name
-        if color is not None:
-            settings.color = color
-        raw = settings.get_raw()
-        if short_desc is not None:
-            raw["shortDesc"] = short_desc
-        if description is not None:
-            raw["description"] = read_text_input(description)
-        settings.save()
+        with locked_settings(
+            client, project_key, "zone", zone.id, zone.get_settings
+        ) as settings:
+            if name is not None:
+                settings.name = name
+            if color is not None:
+                settings.color = color
+            raw = settings.get_raw()
+            if short_desc is not None:
+                raw["shortDesc"] = short_desc
+            if description is not None:
+                raw["description"] = read_text_input(description)
         success(f"Updated zone '{zone_ref}'")
         if short_desc:
-            _ensure_zone_descriptions_visible(proj)
+            _ensure_zone_descriptions_visible(client, project_key, proj)
     except typer.Exit:
         raise
     except Exception as e:

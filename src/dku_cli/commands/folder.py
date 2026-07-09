@@ -19,7 +19,12 @@ import typer
 
 from dku_cli.commands._folder_io import _ensure_safe_zip_paths, _put_file_with_retry
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
-from dku_cli.helpers import get_client_from_ctx, resolve_folder, resolve_project
+from dku_cli.helpers import (
+    get_client_from_ctx,
+    object_write_lock,
+    resolve_folder,
+    resolve_project,
+)
 from dku_cli.output import (
     error,
     info,
@@ -640,14 +645,15 @@ def set_metadata(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         folder = resolve_folder(proj, folder_ref)
-        defn = folder.get_definition()
+        with object_write_lock(client, project_key, "folder", folder.id):
+            defn = folder.get_definition()
 
-        if description is not None:
-            defn["description"] = description
-        if tags is not None:
-            defn["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+            if description is not None:
+                defn["description"] = description
+            if tags is not None:
+                defn["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
 
-        folder.set_definition(defn)
+            folder.set_definition(defn)
         success(f"Updated metadata for folder '{folder_ref}'")
     except typer.Exit:
         raise

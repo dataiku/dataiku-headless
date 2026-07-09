@@ -7,6 +7,7 @@ import typer
 from dku_cli.errors import exit_with_error, handle_api_error, is_already_exists_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
     probe_knowledge_bank,
     read_json_input,
     resolve_knowledge_bank,
@@ -215,9 +216,10 @@ def set_definition(
         proj = client.get_project(project_key)
         kb = resolve_knowledge_bank(proj, kb_ref)
         updates = read_json_input(definition)
-        settings = kb.get_settings()
-        settings.get_raw().update(updates)
-        settings.save()
+        with locked_settings(
+            client, project_key, "knowledge-bank", kb.id, kb.get_settings
+        ) as settings:
+            settings.get_raw().update(updates)
         success(f"Updated knowledge bank '{kb_ref}' definition")
     except Exception as e:
         handle_api_error(e)

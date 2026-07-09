@@ -173,14 +173,12 @@ def set_version(
     """
     project_key = resolve_project(project)
     try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        sm = resolve_semantic_model(proj, sm_ref)
-        version_id = _resolve_version_id(sm, version)
+        client, _proj, sm, version_id = _resolve_locked_version(
+            ctx, project_key, sm_ref, version
+        )
         updates = read_json_input(definition)
-        settings = sm.get_version(version_id).get_settings()
-        settings.get_raw().update(updates)
-        settings.save()
+        with _version_settings_lock(client, project_key, sm, version_id) as settings:
+            settings.get_raw().update(updates)
         success(f"Updated version '{version_id}' on semantic model '{sm_ref}'")
     except SystemExit:
         raise

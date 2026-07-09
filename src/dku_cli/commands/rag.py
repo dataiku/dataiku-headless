@@ -8,6 +8,7 @@ from dku_cli.errors import handle_api_error
 from dku_cli.helpers import (
     clean_llm_id,
     get_client_from_ctx,
+    locked_settings,
     read_json_input,
     resolve_knowledge_bank,
     resolve_project,
@@ -215,11 +216,12 @@ def set_definition(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         rag = proj.get_retrieval_augmented_llm(rag_id)
-        settings = rag.get_settings()
         new_def = read_json_input(definition)
-        # Merge into settings object
-        settings._settings.update(new_def)
-        settings.save()
+        with locked_settings(
+            client, project_key, "rag", rag_id, rag.get_settings
+        ) as settings:
+            # Merge into settings object
+            settings._settings.update(new_def)
         success(f"Updated RAG LLM '{rag_id}' definition")
     except Exception as e:
         handle_api_error(e)

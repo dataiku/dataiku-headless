@@ -12,7 +12,7 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import handle_api_error
-from dku_cli.helpers import get_govern_client_from_ctx
+from dku_cli.helpers import get_govern_client_from_ctx, object_write_lock
 from dku_cli.output import (
     error,
     info,
@@ -135,10 +135,11 @@ def set_assignment(
         }
 
         if blueprint_id in existing_ids:
-            defn = handler.get_role_assignments(blueprint_id).get_definition()
-            raw = defn.get_raw()
-            raw.setdefault("roleAssignmentsRules", {})[role] = rule
-            defn.save()
+            with object_write_lock(govern, "-", "govern-role-assignment", blueprint_id):
+                defn = handler.get_role_assignments(blueprint_id).get_definition()
+                raw = defn.get_raw()
+                raw.setdefault("roleAssignmentsRules", {})[role] = rule
+                defn.save()
         else:
             payload = {
                 "blueprintId": blueprint_id,

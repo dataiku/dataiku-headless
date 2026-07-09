@@ -13,6 +13,7 @@ from dku_cli.enums import AppEnableMode
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    object_write_lock,
     read_json_input,
     read_text_input,
     resolve_project,
@@ -248,34 +249,35 @@ def set_definition(
         exit_with_error("--definition must be a JSON object (the manifest dict).")
     try:
         client = get_client_from_ctx(ctx)
-        try:
-            current = _read_manifest(client, project_key)
-        except Exception:
-            # Couldn't read current state — be conservative, fall through
-            # to write anyway. The agent should know what it's doing.
-            current = {}
+        with object_write_lock(client, project_key, "project", project_key):
+            try:
+                current = _read_manifest(client, project_key)
+            except Exception:
+                # Couldn't read current state — be conservative, fall through
+                # to write anyway. The agent should know what it's doing.
+                current = {}
 
-        current_sections = current.get("homepageSections") or []
-        new_sections = new_def.get("homepageSections")
-        if current_sections and (new_sections is None or len(new_sections) == 0):
-            guard(
-                ctx,
-                tier=Tier.CASCADE,
-                action="app_designer.wipe_sections",
-                subject=(
-                    f"app manifest for project '{project_key}' "
-                    f"(replaces {len(current_sections)} homepageSection(s) with 0)"
-                ),
-                yes=yes,
-                target_id=project_key,
-                confirm_name=confirm_name,
-                prompt=(
-                    f"Replace project '{project_key}' app manifest? "
-                    f"This wipes all {len(current_sections)} homepage section(s)."
-                ),
-            )
+            current_sections = current.get("homepageSections") or []
+            new_sections = new_def.get("homepageSections")
+            if current_sections and (new_sections is None or len(new_sections) == 0):
+                guard(
+                    ctx,
+                    tier=Tier.CASCADE,
+                    action="app_designer.wipe_sections",
+                    subject=(
+                        f"app manifest for project '{project_key}' "
+                        f"(replaces {len(current_sections)} homepageSection(s) with 0)"
+                    ),
+                    yes=yes,
+                    target_id=project_key,
+                    confirm_name=confirm_name,
+                    prompt=(
+                        f"Replace project '{project_key}' app manifest? "
+                        f"This wipes all {len(current_sections)} homepage section(s)."
+                    ),
+                )
 
-        _write_manifest(client, project_key, new_def)
+            _write_manifest(client, project_key, new_def)
         success(f"Updated app manifest for project {project_key}")
     except typer.Exit:
         raise
@@ -414,16 +416,17 @@ def add_tile(
             )
 
         client = get_client_from_ctx(ctx)
-        raw = _read_manifest(client, project_key)
-        sections = raw.setdefault("homepageSections", [])
+        with object_write_lock(client, project_key, "project", project_key):
+            raw = _read_manifest(client, project_key)
+            sections = raw.setdefault("homepageSections", [])
 
-        # Ensure target section exists
-        while len(sections) <= section:
-            sections.append({"tiles": []})
+            # Ensure target section exists
+            while len(sections) <= section:
+                sections.append({"tiles": []})
 
-        sections[section].setdefault("tiles", []).append(tile)
-        _write_manifest(client, project_key, raw)
-        tile_idx = len(sections[section]["tiles"]) - 1
+            sections[section].setdefault("tiles", []).append(tile)
+            _write_manifest(client, project_key, raw)
+            tile_idx = len(sections[section]["tiles"]) - 1
         success(
             f"Added {tile.get('type', 'unknown')} tile at section {section}, index {tile_idx}"
         )
@@ -455,24 +458,25 @@ def remove_tile(
     )
     try:
         client = get_client_from_ctx(ctx)
-        raw = _read_manifest(client, project_key)
-        sections = raw.get("homepageSections", [])
+        with object_write_lock(client, project_key, "project", project_key):
+            raw = _read_manifest(client, project_key)
+            sections = raw.get("homepageSections", [])
 
-        if section < 0 or section >= len(sections):
-            exit_with_error(
-                f"Section {section} out of range (0-{len(sections) - 1})",
-                details=[f"Use: dku app-designer list-tiles -P {project_key}"],
-            )
+            if section < 0 or section >= len(sections):
+                exit_with_error(
+                    f"Section {section} out of range (0-{len(sections) - 1})",
+                    details=[f"Use: dku app-designer list-tiles -P {project_key}"],
+                )
 
-        tiles = sections[section].get("tiles", [])
-        if index < 0 or index >= len(tiles):
-            exit_with_error(
-                f"Tile index {index} out of range (0-{len(tiles) - 1})",
-                details=[f"Use: dku app-designer list-tiles -P {project_key}"],
-            )
+            tiles = sections[section].get("tiles", [])
+            if index < 0 or index >= len(tiles):
+                exit_with_error(
+                    f"Tile index {index} out of range (0-{len(tiles) - 1})",
+                    details=[f"Use: dku app-designer list-tiles -P {project_key}"],
+                )
 
-        removed = tiles.pop(index)
-        _write_manifest(client, project_key, raw)
+            removed = tiles.pop(index)
+            _write_manifest(client, project_key, raw)
         success(
             f"Removed {removed.get('type', 'unknown')} tile at section {section}, index {index}"
         )
@@ -555,23 +559,24 @@ def enable(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
 
-        settings = proj.get_settings()
-        raw_settings = settings.get_raw()
-        if raw_settings.get("projectAppType") != "APP_TEMPLATE":
-            raw_settings["projectAppType"] = "APP_TEMPLATE"
-            settings.save()
-            warn(
-                f"Project {project_key} converted to APP_TEMPLATE — "
-                "no longer a REGULAR project."
-            )
+        with object_write_lock(client, project_key, "project", project_key):
+            settings = proj.get_settings()
+            raw_settings = settings.get_raw()
+            if raw_settings.get("projectAppType") != "APP_TEMPLATE":
+                raw_settings["projectAppType"] = "APP_TEMPLATE"
+                settings.save()
+                warn(
+                    f"Project {project_key} converted to APP_TEMPLATE — "
+                    "no longer a REGULAR project."
+                )
 
-        raw = _read_manifest(client, project_key)
-        raw["useAppHomepage"] = True
-        if label:
-            raw["label"] = label
-        if description:
-            raw["shortDesc"] = description
-        _write_manifest(client, project_key, raw)
+            raw = _read_manifest(client, project_key)
+            raw["useAppHomepage"] = True
+            if label:
+                raw["label"] = label
+            if description:
+                raw["shortDesc"] = description
+            _write_manifest(client, project_key, raw)
 
         success(f"App template enabled for {project_key} (projectAppType=APP_TEMPLATE)")
     except Exception as e:
@@ -587,9 +592,10 @@ def disable(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        raw = _read_manifest(client, project_key)
-        raw["useAppHomepage"] = False
-        _write_manifest(client, project_key, raw)
+        with object_write_lock(client, project_key, "project", project_key):
+            raw = _read_manifest(client, project_key)
+            raw["useAppHomepage"] = False
+            _write_manifest(client, project_key, raw)
         success(f"App homepage disabled for project {project_key}")
     except Exception as e:
         _handle_app_error(e, project_key)
@@ -611,18 +617,19 @@ def set_section(
     project_key = resolve_project(project)
     try:
         client = get_client_from_ctx(ctx)
-        raw = _read_manifest(client, project_key)
-        sections = raw.setdefault("homepageSections", [])
+        with object_write_lock(client, project_key, "project", project_key):
+            raw = _read_manifest(client, project_key)
+            sections = raw.setdefault("homepageSections", [])
 
-        # Ensure target section exists
-        while len(sections) <= section:
-            sections.append({"tiles": []})
+            # Ensure target section exists
+            while len(sections) <= section:
+                sections.append({"tiles": []})
 
-        if title is not None:
-            sections[section]["sectionTitle"] = title
-        if text is not None:
-            sections[section]["sectionText"] = text
-        _write_manifest(client, project_key, raw)
+            if title is not None:
+                sections[section]["sectionTitle"] = title
+            if text is not None:
+                sections[section]["sectionText"] = text
+            _write_manifest(client, project_key, raw)
         success(f"Updated section {section} in project {project_key}")
     except Exception as e:
         _handle_app_error(e, project_key)

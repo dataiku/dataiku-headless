@@ -20,6 +20,8 @@ from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     clean_llm_id,
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     read_text_input,
     resolve_agent,
     resolve_project,
@@ -310,11 +312,12 @@ def rename(
         # PUT (/projects/K/savedmodels/ID, what DSSSavedModelSettings.save does)
         # persists the display name. Verified live on DSS 14.6.
         sm = proj.get_saved_model(agent.id)
-        settings = sm.get_settings()
-        raw = settings.get_raw()
-        old_name = raw.get("name")
-        raw["name"] = new_name
-        settings.save()
+        with locked_settings(
+            client, project_key, "agent", agent.id, sm.get_settings
+        ) as settings:
+            raw = settings.get_raw()
+            old_name = raw.get("name")
+            raw["name"] = new_name
 
         # Round-trip verify — re-GET and confirm the rename actually landed, so
         # a silently-dropped name fails loudly instead of reporting fake success.
@@ -493,9 +496,10 @@ def create_version(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
-        settings = agent.get_settings()
-        _, new_vid = _deep_copy_version(settings, source_vid=source)
-        settings.save()
+        with locked_settings(
+            client, project_key, "agent", agent.id, agent.get_settings
+        ) as settings:
+            _, new_vid = _deep_copy_version(settings, source_vid=source)
         if activate:
             _activate_version(proj, agent.id, new_vid)
         suffix = " (now active)" if activate else ""
@@ -600,64 +604,68 @@ def add_tool(
                 )
                 raise typer.Exit(3)
 
-        settings = agent.get_settings()
+        with object_write_lock(client, project_key, "agent", agent.id):
+            settings = agent.get_settings()
 
-        # Only TOOLS_USING_AGENT (Simple Visual Agent) reads a flat tool list from
-        # toolsUsingAgentSettings.tools. Structured/Python/plugin agents reference
-        # tools elsewhere (structured agents compose them inside blocks), so writing
-        # here would silently no-op. Fail loudly instead, matching the SDK's own
-        # ValueError("Only valid for Simple Visual Agents").
-        if settings.type != "TOOLS_USING_AGENT":
-            error(
-                f"Cannot add a tool to agent '{agent_id}': add-tool only supports "
-                f"TOOLS_USING_AGENT (Simple Visual Agent), but this agent is "
-                f"{settings.type}."
-            )
-            if settings.type == "STRUCTURED_AGENT":
-                info(
-                    "Structured agents attach tools inside blocks. Configure tools "
-                    "in the agent's blocks via the DSS UI."
+            # Only TOOLS_USING_AGENT (Simple Visual Agent) reads a flat tool list from
+            # toolsUsingAgentSettings.tools. Structured/Python/plugin agents reference
+            # tools elsewhere (structured agents compose them inside blocks), so writing
+            # here would silently no-op. Fail loudly instead, matching the SDK's own
+            # ValueError("Only valid for Simple Visual Agents").
+            if settings.type != "TOOLS_USING_AGENT":
+                error(
+                    f"Cannot add a tool to agent '{agent_id}': add-tool only supports "
+                    f"TOOLS_USING_AGENT (Simple Visual Agent), but this agent is "
+                    f"{settings.type}."
                 )
-            raise typer.Exit(1)
+                if settings.type == "STRUCTURED_AGENT":
+                    info(
+                        "Structured agents attach tools inside blocks. Configure tools "
+                        "in the agent's blocks via the DSS UI."
+                    )
+                raise typer.Exit(1)
+
+            if new_version:
+                ver_raw, new_vid = _deep_copy_version(settings)
+                ver_raw.setdefault("toolsUsingAgentSettings", {}).setdefault(
+                    "tools", []
+                ).append({"toolRef": tool_id})
+                settings.save()
+            else:
+                # Legacy in-place behavior
+                active_ver_id = settings.active_version
+                if active_ver_id is None:
+                    version_ids = settings.get_version_ids()
+                    if not version_ids:
+                        error("Agent has no versions.")
+                        raise typer.Exit(1)
+                    active_ver_id = version_ids[0]
+
+                # Idempotency check — bail early if the tool is already attached.
+                ver_settings = settings.get_version_settings(active_ver_id)
+                ver_raw = ver_settings.get_raw()
+                existing_tools = (
+                    ver_raw.get("toolsUsingAgentSettings", {}).get("tools", []) or []
+                )
+                if any(t.get("toolRef") == tool_id for t in existing_tools):
+                    info(
+                        f"Tool '{tool_id}' already attached to agent '{agent_id}' — no change."
+                    )
+                    return
+
+                ver_settings.add_tool(tool_id)
+                settings.save()
+                new_vid = None
 
         if new_version:
-            ver_raw, new_vid = _deep_copy_version(settings)
-            ver_raw.setdefault("toolsUsingAgentSettings", {}).setdefault(
-                "tools", []
-            ).append({"toolRef": tool_id})
-            settings.save()
             if activate:
                 _activate_version(proj, agent.id, new_vid)
             suffix = " (now active)" if activate else ""
             success(
                 f"Added tool '{tool_id}' to agent '{agent_id}' as version '{new_vid}'{suffix}"
             )
-            return
-
-        # Legacy in-place behavior
-        active_ver_id = settings.active_version
-        if active_ver_id is None:
-            version_ids = settings.get_version_ids()
-            if not version_ids:
-                error("Agent has no versions.")
-                raise typer.Exit(1)
-            active_ver_id = version_ids[0]
-
-        # Idempotency check — bail early if the tool is already attached.
-        ver_settings = settings.get_version_settings(active_ver_id)
-        ver_raw = ver_settings.get_raw()
-        existing_tools = (
-            ver_raw.get("toolsUsingAgentSettings", {}).get("tools", []) or []
-        )
-        if any(t.get("toolRef") == tool_id for t in existing_tools):
-            info(
-                f"Tool '{tool_id}' already attached to agent '{agent_id}' — no change."
-            )
-            return
-
-        ver_settings.add_tool(tool_id)
-        settings.save()
-        success(f"Added tool '{tool_id}' to agent '{agent_id}'")
+        else:
+            success(f"Added tool '{tool_id}' to agent '{agent_id}'")
         hint(f"dku agent test {agent_id} -P {project_key}")
     except typer.Exit:
         raise
@@ -719,48 +727,49 @@ def set_prompt(
         prompt_text = (
             Path(file).read_text() if file is not None else read_text_input(prompt)
         )
-        settings = agent.get_settings()
-        agent_raw = settings.get_raw()
+        with locked_settings(
+            client, project_key, "agent", agent.id, agent.get_settings
+        ) as settings:
+            agent_raw = settings.get_raw()
 
-        target_ver_raw, new_vid = _resolve_target_version_raw(
-            settings, new_version=new_version
-        )
-
-        # Detect agent settings key using agent type (not key presence —
-        # newly-created STRUCTURED_AGENT may lack the key).
-        # Both STRUCTURED_AGENT and TOOLS_USING_AGENT use `systemPromptAppend`
-        # on DSS 14.5+. Writing to `systemPrompt` on TOOLS_USING_AGENT silently
-        # fails — the agent runtime ignores it and runs with an empty prompt.
-        if agent_raw.get("type") == "STRUCTURED_AGENT":
-            cfg_key = "structuredAgentSettings"
-        else:
-            cfg_key = "toolsUsingAgentSettings"
-        cfg = target_ver_raw.setdefault(cfg_key, {})
-
-        # When a tool-calling loop exists, the runtime reads the prompt from the
-        # loop block's `systemPromptAfterHistory`, NOT `systemPromptAppend`.
-        # Retarget the loop block (start block if it's a loop, else first loop)
-        # so the documented command lands where DSS actually reads. Fall back to
-        # `systemPromptAppend` for simple/multi-stage agents with no loop block.
-        loop_block = _find_loop_block(cfg)
-        if loop_block is not None:
-            loop_block["systemPromptAfterHistory"] = prompt_text
-            field_desc = f"systemPromptAfterHistory (block={loop_block['id']})"
-        elif agent_raw.get("type") == "STRUCTURED_AGENT":
-            # A structured agent with no loop block has nowhere to hold a prompt;
-            # writing systemPromptAppend saves but DSS drops it at runtime.
-            exit_with_error(
-                f"Structured agent '{agent_id}' has no loop block to hold a prompt.",
-                details=[
-                    f"Build one with: dku agent create-react <name> --llm <id> -P {project_key} "
-                    "(creates a CORE_LOOP).",
-                ],
-                status=1,
+            target_ver_raw, new_vid = _resolve_target_version_raw(
+                settings, new_version=new_version
             )
-        else:
-            cfg["systemPromptAppend"] = prompt_text
-            field_desc = "systemPromptAppend"
-        settings.save()
+
+            # Detect agent settings key using agent type (not key presence —
+            # newly-created STRUCTURED_AGENT may lack the key).
+            # Both STRUCTURED_AGENT and TOOLS_USING_AGENT use `systemPromptAppend`
+            # on DSS 14.5+. Writing to `systemPrompt` on TOOLS_USING_AGENT silently
+            # fails — the agent runtime ignores it and runs with an empty prompt.
+            if agent_raw.get("type") == "STRUCTURED_AGENT":
+                cfg_key = "structuredAgentSettings"
+            else:
+                cfg_key = "toolsUsingAgentSettings"
+            cfg = target_ver_raw.setdefault(cfg_key, {})
+
+            # When a tool-calling loop exists, the runtime reads the prompt from the
+            # loop block's `systemPromptAfterHistory`, NOT `systemPromptAppend`.
+            # Retarget the loop block (start block if it's a loop, else first loop)
+            # so the documented command lands where DSS actually reads. Fall back to
+            # `systemPromptAppend` for simple/multi-stage agents with no loop block.
+            loop_block = _find_loop_block(cfg)
+            if loop_block is not None:
+                loop_block["systemPromptAfterHistory"] = prompt_text
+                field_desc = f"systemPromptAfterHistory (block={loop_block['id']})"
+            elif agent_raw.get("type") == "STRUCTURED_AGENT":
+                # A structured agent with no loop block has nowhere to hold a prompt;
+                # writing systemPromptAppend saves but DSS drops it at runtime.
+                exit_with_error(
+                    f"Structured agent '{agent_id}' has no loop block to hold a prompt.",
+                    details=[
+                        f"Build one with: dku agent create-react <name> --llm <id> -P {project_key} "
+                        "(creates a CORE_LOOP).",
+                    ],
+                    status=1,
+                )
+            else:
+                cfg["systemPromptAppend"] = prompt_text
+                field_desc = "systemPromptAppend"
         if new_version and activate:
             _activate_version(proj, agent.id, new_vid)
 
@@ -858,57 +867,57 @@ def set_code(
 
         # The agent id IS the backing saved-model id for PYTHON_AGENT.
         sm = proj.get_saved_model(agent.id)
-        st = sm.get_settings()
-        raw = st.get_raw()
-
-        # Reject non-code agents UP FRONT, before any save(). All agent types
-        # (TOOLS_USING/STRUCTURED/PLUGIN) are saved-model-backed and have inline
-        # versions, so the "no inline versions" check below is not enough to tell
-        # them apart — only PYTHON_AGENT has editable `code`. Key off the
-        # saved-model type (verified live: raw["savedModelType"]). Absent → fall
-        # through (older DSS / unexpected shape) to preserve prior behavior.
-        sm_type = raw.get("savedModelType")
-        if sm_type and sm_type != "PYTHON_AGENT":
-            exit_with_error(
-                f"Agent '{agent_id}' is a {sm_type}, not a PYTHON_AGENT (Code Agent) — "
-                "it has no editable Python code.",
-                details=[
-                    f"Inspect the agent with: dku agent get {agent_id} -P {project_key}",
-                    "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
-                    "agents use: dku agent set-prompt / set-llm / add-tool.",
-                ],
-                status=1,
-            )
-
-        inline_versions = _find_inline_versions(raw)
-        if not inline_versions:
-            exit_with_error(
-                f"Agent '{agent_id}' has no inline versions — it is not a Code Agent (PYTHON_AGENT), "
-                "so it has no editable Python code.",
-                details=[
-                    "Inspect the agent with: dku agent get "
-                    f"{agent_id} -P {project_key}",
-                    "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
-                    "agents use: dku agent set-prompt / set-llm / add-tool.",
-                ],
-                status=1,
-            )
-
         new_vid: str | None = None
-        if new_version:
-            source = _pick_inline_version(raw, inline_versions)
-            target = copy.deepcopy(source)
-            new_vid = _next_version_id(inline_versions)
-            target["versionId"] = new_vid
-            inline_versions.append(target)
-        else:
-            target = _pick_inline_version(raw, inline_versions)
+        with locked_settings(
+            client, project_key, "agent", agent.id, sm.get_settings
+        ) as st:
+            raw = st.get_raw()
 
-        # An API-created PYTHON_AGENT may have no "code" key on v1 — create it.
-        target["code"] = code
-        target_vid = target.get("versionId")
+            # Reject non-code agents UP FRONT, before any save(). All agent types
+            # (TOOLS_USING/STRUCTURED/PLUGIN) are saved-model-backed and have inline
+            # versions, so the "no inline versions" check below is not enough to tell
+            # them apart — only PYTHON_AGENT has editable `code`. Key off the
+            # saved-model type (verified live: raw["savedModelType"]). Absent → fall
+            # through (older DSS / unexpected shape) to preserve prior behavior.
+            sm_type = raw.get("savedModelType")
+            if sm_type and sm_type != "PYTHON_AGENT":
+                exit_with_error(
+                    f"Agent '{agent_id}' is a {sm_type}, not a PYTHON_AGENT (Code Agent) — "
+                    "it has no editable Python code.",
+                    details=[
+                        f"Inspect the agent with: dku agent get {agent_id} -P {project_key}",
+                        "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
+                        "agents use: dku agent set-prompt / set-llm / add-tool.",
+                    ],
+                    status=1,
+                )
 
-        st.save()
+            inline_versions = _find_inline_versions(raw)
+            if not inline_versions:
+                exit_with_error(
+                    f"Agent '{agent_id}' has no inline versions — it is not a Code Agent (PYTHON_AGENT), "
+                    "so it has no editable Python code.",
+                    details=[
+                        "Inspect the agent with: dku agent get "
+                        f"{agent_id} -P {project_key}",
+                        "set-code only applies to PYTHON_AGENT (Code Agents). For visual "
+                        "agents use: dku agent set-prompt / set-llm / add-tool.",
+                    ],
+                    status=1,
+                )
+
+            if new_version:
+                source = _pick_inline_version(raw, inline_versions)
+                target = copy.deepcopy(source)
+                new_vid = _next_version_id(inline_versions)
+                target["versionId"] = new_vid
+                inline_versions.append(target)
+            else:
+                target = _pick_inline_version(raw, inline_versions)
+
+            # An API-created PYTHON_AGENT may have no "code" key on v1 — create it.
+            target["code"] = code
+            target_vid = target.get("versionId")
 
         # Round-trip verify: re-GET and confirm the code landed on the target
         # version. PUTs to agents drop `code`; verify against the saved model.
@@ -997,70 +1006,75 @@ def set_llm(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_id)
-        settings = agent.get_settings()
-        agent_raw = settings.get_raw()
+        new_vid: str | None = None
+        with locked_settings(
+            client, project_key, "agent", agent.id, agent.get_settings
+        ) as settings:
+            agent_raw = settings.get_raw()
 
-        # A structured agent with no loop block has nowhere to hold an LLM;
-        # writing structuredAgentSettings.llmId saves but DSS drops it.
-        if agent_raw.get("type") == "STRUCTURED_AGENT":
-            active_ver_id = settings.active_version
-            if active_ver_id is None:
-                version_ids = settings.get_version_ids()
-                active_ver_id = version_ids[0] if version_ids else None
-            src_cfg = {}
-            if active_ver_id is not None:
-                src_cfg = (
-                    settings.get_version_settings(active_ver_id)
-                    .get_raw()
-                    .get("structuredAgentSettings", {})
-                )
-            if _find_loop_block(src_cfg) is None:
-                exit_with_error(
-                    f"Structured agent '{agent_id}' has no loop block to hold an LLM.",
-                    details=[
-                        f"Build one with: dku agent create-react <name> --llm <id> -P {project_key} "
-                        "(creates a CORE_LOOP).",
-                    ],
-                    status=1,
-                )
+            # A structured agent with no loop block has nowhere to hold an LLM;
+            # writing structuredAgentSettings.llmId saves but DSS drops it.
+            if agent_raw.get("type") == "STRUCTURED_AGENT":
+                active_ver_id = settings.active_version
+                if active_ver_id is None:
+                    version_ids = settings.get_version_ids()
+                    active_ver_id = version_ids[0] if version_ids else None
+                src_cfg = {}
+                if active_ver_id is not None:
+                    src_cfg = (
+                        settings.get_version_settings(active_ver_id)
+                        .get_raw()
+                        .get("structuredAgentSettings", {})
+                    )
+                if _find_loop_block(src_cfg) is None:
+                    exit_with_error(
+                        f"Structured agent '{agent_id}' has no loop block to hold an LLM.",
+                        details=[
+                            f"Build one with: dku agent create-react <name> --llm <id> -P {project_key} "
+                            "(creates a CORE_LOOP).",
+                        ],
+                        status=1,
+                    )
+
+            if new_version:
+                ver_raw, new_vid = _deep_copy_version(settings)
+                if agent_raw.get("type") == "STRUCTURED_AGENT":
+                    _set_structured_agent_llm(ver_raw, llm_id)
+                else:
+                    ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
+            else:
+                # Legacy in-place behavior
+                active_ver_id = settings.active_version
+                if active_ver_id is None:
+                    version_ids = settings.get_version_ids()
+                    if not version_ids:
+                        error("Agent has no versions.")
+                        raise typer.Exit(1)
+                    active_ver_id = version_ids[0]
+
+                # TOOLS_USING_AGENT stores a flat llmId (dataikuapi property setter);
+                # a structured agent holds it in the loop block, not a top-level field.
+                ver_settings = settings.get_version_settings(active_ver_id)
+                ver_raw = ver_settings.get_raw()
+                if agent_raw.get("type") == "STRUCTURED_AGENT":
+                    _set_structured_agent_llm(ver_raw, llm_id)
+                else:
+                    try:
+                        ver_settings.llm_id = llm_id
+                    except (ValueError, AttributeError):
+                        ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = (
+                            llm_id
+                        )
 
         if new_version:
-            ver_raw, new_vid = _deep_copy_version(settings)
-            if agent_raw.get("type") == "STRUCTURED_AGENT":
-                _set_structured_agent_llm(ver_raw, llm_id)
-            else:
-                ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
-            settings.save()
             if activate:
                 _activate_version(proj, agent.id, new_vid)
             suffix = " (now active)" if activate else ""
             success(
                 f"Set LLM '{llm_id}' on agent '{agent_id}' as version '{new_vid}'{suffix}"
             )
-            return
-
-        # Legacy in-place behavior
-        active_ver_id = settings.active_version
-        if active_ver_id is None:
-            version_ids = settings.get_version_ids()
-            if not version_ids:
-                error("Agent has no versions.")
-                raise typer.Exit(1)
-            active_ver_id = version_ids[0]
-
-        # TOOLS_USING_AGENT stores a flat llmId (dataikuapi property setter);
-        # a structured agent holds it in the loop block, not a top-level field.
-        ver_settings = settings.get_version_settings(active_ver_id)
-        ver_raw = ver_settings.get_raw()
-        if agent_raw.get("type") == "STRUCTURED_AGENT":
-            _set_structured_agent_llm(ver_raw, llm_id)
         else:
-            try:
-                ver_settings.llm_id = llm_id
-            except (ValueError, AttributeError):
-                ver_raw.setdefault("toolsUsingAgentSettings", {})["llmId"] = llm_id
-        settings.save()
-        success(f"Set LLM '{llm_id}' on agent '{agent_id}'")
+            success(f"Set LLM '{llm_id}' on agent '{agent_id}'")
     except typer.Exit:
         raise
     except Exception as e:
@@ -1168,8 +1182,9 @@ def set_metadata(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         agent = resolve_agent(proj, agent_ref)
-        settings = agent.get_settings()
-        update_taggable_metadata(settings, description, short_desc, tags)
+        with object_write_lock(client, project_key, "agent", agent.id):
+            settings = agent.get_settings()
+            update_taggable_metadata(settings, description, short_desc, tags)
         success(f"Updated metadata for agent '{agent_ref}'")
     except typer.Exit:
         raise

@@ -466,7 +466,8 @@ def list_steps(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        settings = recipe.get_settings()
         steps = _ensure_steps_array(settings)
 
         if output == "json":
@@ -532,8 +533,7 @@ def add_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        steps = _ensure_steps_array(settings)
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
 
         parsed_params = read_json_input(params)
         parsed_params = _normalize_raw_step(step_type, parsed_params)
@@ -546,21 +546,24 @@ def add_step(
         if name:
             step_dict["name"] = name
 
-        if at is not None:
-            if at < 0 or at > len(steps):
-                exit_with_error(
-                    f"--at {at} out of range. Valid: 0–{len(steps)}.",
-                )
-            steps.insert(at, step_dict)
-            idx = at
-        else:
-            steps.append(step_dict)
-            idx = len(steps) - 1
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            steps = _ensure_steps_array(settings)
+            if at is not None:
+                if at < 0 or at > len(steps):
+                    exit_with_error(
+                        f"--at {at} out of range. Valid: 0–{len(steps)}.",
+                    )
+                steps.insert(at, step_dict)
+                idx = at
+            else:
+                steps.append(step_dict)
+                idx = len(steps) - 1
 
-        settings.save()
         success(f"Added {step_type} step to '{recipe_name}' at index {idx}")
         if isinstance(parsed_params, dict) and "expression" in parsed_params:
-            _warn_expression_status_errors(_recipe, recipe_name, project_key)
+            _warn_expression_status_errors(recipe, recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -598,18 +601,20 @@ def remove_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        steps = _ensure_steps_array(settings)
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            steps = _ensure_steps_array(settings)
 
-        # Validate all indices before removing any
-        for idx in index:
-            _validate_step_index(steps, idx, recipe_name)
+            # Validate all indices before removing any
+            for idx in index:
+                _validate_step_index(steps, idx, recipe_name)
 
-        # Remove in descending order to avoid shifting
-        for idx in sorted(set(index), reverse=True):
-            steps.pop(idx)
+            # Remove in descending order to avoid shifting
+            for idx in sorted(set(index), reverse=True):
+                steps.pop(idx)
 
-        settings.save()
         removed = ", ".join(str(i) for i in sorted(index))
         success(f"Removed step(s) [{removed}] from '{recipe_name}'")
     except typer.Exit:
@@ -690,9 +695,7 @@ def replace_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        steps = _ensure_steps_array(settings)
-        _validate_step_index(steps, index, recipe_name)
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
 
         if definition:
             new_step = read_json_input(definition)
@@ -714,8 +717,12 @@ def replace_step(
                 new_step["name"] = name
             display_type = step_type
 
-        steps[index] = new_step
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            steps = _ensure_steps_array(settings)
+            _validate_step_index(steps, index, recipe_name)
+            steps[index] = new_step
         success(
             f"Replaced step at index {index} in '{recipe_name}' with {display_type}"
         )
@@ -741,7 +748,8 @@ def get_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        settings = recipe.get_settings()
         steps = _ensure_steps_array(settings)
         _validate_step_index(steps, index, recipe_name)
         render_raw(steps[index], output_format=output)
@@ -769,12 +777,14 @@ def disable_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        steps = _ensure_steps_array(settings)
-        for idx in index:
-            _validate_step_index(steps, idx, recipe_name)
-            steps[idx]["disabled"] = True
-        settings.save()
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            steps = _ensure_steps_array(settings)
+            for idx in index:
+                _validate_step_index(steps, idx, recipe_name)
+                steps[idx]["disabled"] = True
         indices = ", ".join(str(i) for i in index)
         success(f"Disabled step(s) [{indices}] in '{recipe_name}'")
     except typer.Exit:
@@ -797,12 +807,14 @@ def enable_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        steps = _ensure_steps_array(settings)
-        for idx in index:
-            _validate_step_index(steps, idx, recipe_name)
-            steps[idx]["disabled"] = False
-        settings.save()
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            steps = _ensure_steps_array(settings)
+            for idx in index:
+                _validate_step_index(steps, idx, recipe_name)
+                steps[idx]["disabled"] = False
         indices = ", ".join(str(i) for i in index)
         success(f"Enabled step(s) [{indices}] in '{recipe_name}'")
     except typer.Exit:
@@ -842,27 +854,31 @@ def _add_prepare_step(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        if validate_cols:
-            known = _prepare_known_columns(proj, settings)
-            for label, cols in validate_cols:
-                _warn_unknown_columns(cols, known, label=label, recipe_name=recipe_name)
-        steps = _ensure_steps_array(settings)
-        step_dict = {"metaType": "PROCESSOR", "type": step_type, "params": params}
-        if at is not None:
-            if at < 0 or at > len(steps):
-                exit_with_error(
-                    f"--at {at} out of range. Valid: 0–{len(steps)}.",
-                )
-            steps.insert(at, step_dict)
-            idx = at
-        else:
-            steps.append(step_dict)
-            idx = len(steps) - 1
-        settings.save()
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            if validate_cols:
+                known = _prepare_known_columns(proj, settings)
+                for label, cols in validate_cols:
+                    _warn_unknown_columns(
+                        cols, known, label=label, recipe_name=recipe_name
+                    )
+            steps = _ensure_steps_array(settings)
+            step_dict = {"metaType": "PROCESSOR", "type": step_type, "params": params}
+            if at is not None:
+                if at < 0 or at > len(steps):
+                    exit_with_error(
+                        f"--at {at} out of range. Valid: 0–{len(steps)}.",
+                    )
+                steps.insert(at, step_dict)
+                idx = at
+            else:
+                steps.append(step_dict)
+                idx = len(steps) - 1
         success(f"Added {step_type} step to '{recipe_name}' (index {idx})")
         if "expression" in params:
-            _warn_expression_status_errors(_recipe, recipe_name, project_key)
+            _warn_expression_status_errors(recipe, recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:
@@ -1813,30 +1829,33 @@ def apply_spec(
     try:
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
-        _recipe, settings = _get_prepare_settings(proj, recipe_name, project_key)
-        steps = _ensure_steps_array(settings)
-        if replace:
-            steps.clear()
-        # Column visibility for warnings; evolves across the batch so a step
-        # that references a column an earlier batch step created is not flagged.
-        known = _prepare_known_columns(proj, settings)
-        built = [
-            _spec_step_dict(i, entry, known, recipe_name)
-            for i, entry in enumerate(parsed)
-        ]
-        any_expression = any(
-            isinstance(s["params"], dict) and "expression" in s["params"] for s in built
-        )
-        start = len(steps)
-        steps.extend(built)
-        settings.save()
+        recipe = _get_prepare_recipe(proj, recipe_name, project_key)
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe.get_settings
+        ) as settings:
+            steps = _ensure_steps_array(settings)
+            if replace:
+                steps.clear()
+            # Column visibility for warnings; evolves across the batch so a step
+            # that references a column an earlier batch step created is not flagged.
+            known = _prepare_known_columns(proj, settings)
+            built = [
+                _spec_step_dict(i, entry, known, recipe_name)
+                for i, entry in enumerate(parsed)
+            ]
+            any_expression = any(
+                isinstance(s["params"], dict) and "expression" in s["params"]
+                for s in built
+            )
+            start = len(steps)
+            steps.extend(built)
         end = start + len(built) - 1
         success(
             f"Applied {len(built)} step(s) to '{recipe_name}' "
             f"({'replaced existing; ' if replace else ''}indices {start}–{end})"
         )
         if any_expression:
-            _warn_expression_status_errors(_recipe, recipe_name, project_key)
+            _warn_expression_status_errors(recipe, recipe_name, project_key)
     except typer.Exit:
         raise
     except Exception as e:

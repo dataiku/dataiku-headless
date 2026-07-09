@@ -5,7 +5,12 @@ from __future__ import annotations
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import ALL_NODE_TYPES, get_client_from_ctx, read_json_input
+from dku_cli.helpers import (
+    ALL_NODE_TYPES,
+    get_client_from_ctx,
+    locked_settings,
+    read_json_input,
+)
 from dku_cli.output import (
     hint,
     info,
@@ -183,9 +188,8 @@ def add_secret(
     try:
         client = get_client_from_ctx(ctx, allowed_node_types=ALL_NODE_TYPES)
         user = client.get_user(login)
-        settings = user.get_settings()
-        settings.add_secret(name, value)
-        settings.save()
+        with locked_settings(client, "-", "user", login, user.get_settings) as settings:
+            settings.add_secret(name, value)
         success(f"Added secret '{name}' for user '{login}'")
     except Exception as e:
         handle_api_error(e)

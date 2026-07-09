@@ -192,12 +192,13 @@ def set_sql(
         proj = client.get_project(project_key)
         body = read_text_input(sql)
         recipe_obj = proj.get_recipe(recipe_name)
-        settings = recipe_obj.get_settings()
-        if hasattr(settings, "set_payload"):
-            settings.set_payload(body)
-        else:
-            settings.obj_payload = body
-        settings.save()
+        with locked_settings(
+            client, project_key, "recipe", recipe_name, recipe_obj.get_settings
+        ) as settings:
+            if hasattr(settings, "set_payload"):
+                settings.set_payload(body)
+            else:
+                settings.obj_payload = body
         success(f"Updated SQL for '{recipe_name}' ({len(body)} bytes)")
     except Exception as e:
         handle_api_error(e)

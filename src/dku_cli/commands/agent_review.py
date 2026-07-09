@@ -10,6 +10,8 @@ from dku_cli.commands.agent import _activate_version, _deep_copy_version
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
+    object_write_lock,
     resolve_agent,
     resolve_agent_review,
     resolve_project,
@@ -30,7 +32,7 @@ app = typer.Typer(
 )
 
 
-def _ensure_review_agent_version(proj, review) -> tuple[str | None, bool]:
+def _ensure_review_agent_version(client, proj, review) -> tuple[str | None, bool]:
     """Ensure the review is pinned to a saved agent version before execution."""
     review_raw = review.get_raw() if hasattr(review, "get_raw") else {}
     agent_id = review_raw.get("agentSmartId") or getattr(review, "agent_id", None)
@@ -49,30 +51,41 @@ def _ensure_review_agent_version(proj, review) -> tuple[str | None, bool]:
         )
 
     agent = resolve_agent(proj, agent_id)
-    settings = agent.get_settings()
-    agent_raw = settings.get_raw()
-    versions = agent_raw.get("versions", [])
-    version_ids = {v.get("versionId") for v in versions if v.get("versionId")}
-    pinned_version = review_raw.get("agentVersion")
-    if pinned_version and pinned_version in version_ids:
+    new_vid: str | None = None
+    pinned_version: str | None = None
+    with object_write_lock(client, proj.project_key, "agent", agent.id):
+        settings = agent.get_settings()
+        agent_raw = settings.get_raw()
+        versions = agent_raw.get("versions", [])
+        version_ids = {v.get("versionId") for v in versions if v.get("versionId")}
+        pinned_version = review_raw.get("agentVersion")
+        if not (pinned_version and pinned_version in version_ids):
+            source_vid = agent_raw.get("activeVersion")
+            if source_vid is None and versions:
+                source_vid = versions[0].get("versionId")
+            if source_vid is None:
+                exit_with_error(
+                    f"Agent '{agent_id}' has no version to publish for review execution.",
+                    details=[
+                        f"Create one first: dku agent create-version {agent_id} --activate -P {proj.project_key}",
+                    ],
+                )
+
+            _, new_vid = _deep_copy_version(settings, source_vid=source_vid)
+            settings.save()
+
+    if pinned_version and new_vid is None:
         return pinned_version, False
 
-    source_vid = agent_raw.get("activeVersion")
-    if source_vid is None and versions:
-        source_vid = versions[0].get("versionId")
-    if source_vid is None:
-        exit_with_error(
-            f"Agent '{agent_id}' has no version to publish for review execution.",
-            details=[
-                f"Create one first: dku agent create-version {agent_id} --activate -P {proj.project_key}",
-            ],
-        )
-
-    _, new_vid = _deep_copy_version(settings, source_vid=source_vid)
-    settings.save()
     _activate_version(proj, agent.id, new_vid)
-    review_raw["agentVersion"] = new_vid
-    review.save()
+    with locked_settings(
+        client,
+        proj.project_key,
+        "agent-review",
+        review.id,
+        lambda: proj.get_agent_review(review.id),
+    ) as fresh_review:
+        fresh_review.get_raw()["agentVersion"] = new_vid
     return new_vid, True
 
 
@@ -198,8 +211,10 @@ def set_agent(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
-        review.agent_id = agent
-        saved = review.save()
+        with object_write_lock(client, project_key, "agent-review", review.id):
+            review = proj.get_agent_review(review.id)
+            review.agent_id = agent
+            saved = review.save()
         # DSS silently drops agentSmartId when the agent can't be bound for
         # review — most commonly because it has no published/active version, so
         # it isn't a reviewable saved model. Without this check the CLI reports
@@ -242,15 +257,17 @@ def set_llm(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
-        review.helper_llm_id = llm
-        # Backfill per-trait llmId so DSS 14.5.1+ runs don't NPE on null traits.
-        raw = review.get_raw()
-        patched = 0
-        for trait in raw.get("traits", []):
-            if not trait.get("llmId"):
-                trait["llmId"] = llm
-                patched += 1
-        review.save()
+        with object_write_lock(client, project_key, "agent-review", review.id):
+            review = proj.get_agent_review(review.id)
+            review.helper_llm_id = llm
+            # Backfill per-trait llmId so DSS 14.5.1+ runs don't NPE on null traits.
+            raw = review.get_raw()
+            patched = 0
+            for trait in raw.get("traits", []):
+                if not trait.get("llmId"):
+                    trait["llmId"] = llm
+                    patched += 1
+            review.save()
         if patched:
             success(
                 f"Set helper LLM '{llm}' on review '{review_id}' (auto-populated {patched} trait(s))"
@@ -333,15 +350,17 @@ def add_trait(
             "needsReference": needs_reference,
             "needsExpectations": needs_expectations,
         }
-        # Default trait llmId to the review's helper LLM so DSS 14.5.1+ doesn't
-        # NPE at run time. Explicit --llm takes precedence.
-        if llm:
-            trait["llmId"] = llm
-        elif review.helper_llm_id:
-            trait["llmId"] = review.helper_llm_id
+        with object_write_lock(client, project_key, "agent-review", review.id):
+            review = proj.get_agent_review(review.id)
+            # Default trait llmId to the review's helper LLM so DSS 14.5.1+ doesn't
+            # NPE at run time. Explicit --llm takes precedence.
+            if llm:
+                trait["llmId"] = llm
+            elif review.helper_llm_id:
+                trait["llmId"] = review.helper_llm_id
 
-        review.add_trait(trait)
-        review.save()
+            review.add_trait(trait)
+            review.save()
 
         wired = [
             field
@@ -502,19 +521,20 @@ def update_trait(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
-        traits = review.get_raw().get("traits") or []
-        t = _resolve_trait(traits, trait, project_key, review_id)
-
-        changed = _apply_trait_edits(
-            t,
-            name=name,
-            description=description,
-            criteria=criteria,
-            needsReference=needs_reference,
-            needsExpectations=needs_expectations,
-            llmId=llm,
-        )
-        review.save()
+        with object_write_lock(client, project_key, "agent-review", review.id):
+            review = proj.get_agent_review(review.id)
+            traits = review.get_raw().get("traits") or []
+            t = _resolve_trait(traits, trait, project_key, review_id)
+            changed = _apply_trait_edits(
+                t,
+                name=name,
+                description=description,
+                criteria=criteria,
+                needsReference=needs_reference,
+                needsExpectations=needs_expectations,
+                llmId=llm,
+            )
+            review.save()
         success(
             f"Updated trait '{t.get('name')}' (id={t.get('id')}) on review "
             f"'{review_id}': {', '.join(changed)}"
@@ -560,11 +580,13 @@ def remove_trait(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
-        raw = review.get_raw()
-        traits = raw.get("traits") or []
-        matched = _resolve_trait(traits, trait, project_key, review_id)
-        raw["traits"] = [t for t in traits if t is not matched]
-        review.save()
+        with object_write_lock(client, project_key, "agent-review", review.id):
+            review = proj.get_agent_review(review.id)
+            raw = review.get_raw()
+            traits = raw.get("traits") or []
+            matched = _resolve_trait(traits, trait, project_key, review_id)
+            raw["traits"] = [t for t in traits if t is not matched]
+            review.save()
         success(
             f"Removed trait '{matched.get('name')}' (id={matched.get('id')}) "
             f"from review '{review_id}'"
@@ -855,7 +877,9 @@ def run_review(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         review = resolve_agent_review(proj, review_id)
-        published_version, was_published = _ensure_review_agent_version(proj, review)
+        published_version, was_published = _ensure_review_agent_version(
+            client, proj, review
+        )
         if was_published:
             info(f"Published agent version '{published_version}' for review execution.")
         result = review.perform_run(wait=wait, run_name=run_name)

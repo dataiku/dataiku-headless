@@ -23,35 +23,37 @@ def add_glossary_term(
     project_key = resolve_project(project)
     term = _require_identifier(term, "Glossary term")
     try:
-        version_id, settings, raw = _load_command_version(
+        client, _proj, sm, version_id = _resolve_locked_version(
             ctx, project_key, sm_ref, version
         )
-        terms = raw.setdefault("glossaryTerms", [])
-        added = _append_named_item(
-            terms,
-            {
-                "id": str(uuid.uuid4()),
-                "term": term,
-                "description": description,
-                "source": "MANUAL",
-                "userModified": True,
-                "synonyms": _split_csv(synonyms),
-                "created": {},
-                "privateEditorData": {},
-            },
-            name_key="term",
-            name=term,
-            label="Glossary term",
-            duplicate_scope=f" on version '{version_id}'",
-            if_not_exists=if_not_exists,
-            remove_hint=(
-                f"Remove first: dku semantic-model remove-glossary-term {sm_ref} "
-                f"--term '{term}' -P {project_key}"
-            ),
-        )
-        if not added:
-            return
-        settings.save()
+        with _version_write_lock(client, project_key, sm, version_id):
+            settings, raw = _load_version_settings(sm, version_id)
+            terms = raw.setdefault("glossaryTerms", [])
+            added = _append_named_item(
+                terms,
+                {
+                    "id": str(uuid.uuid4()),
+                    "term": term,
+                    "description": description,
+                    "source": "MANUAL",
+                    "userModified": True,
+                    "synonyms": _split_csv(synonyms),
+                    "created": {},
+                    "privateEditorData": {},
+                },
+                name_key="term",
+                name=term,
+                label="Glossary term",
+                duplicate_scope=f" on version '{version_id}'",
+                if_not_exists=if_not_exists,
+                remove_hint=(
+                    f"Remove first: dku semantic-model remove-glossary-term {sm_ref} "
+                    f"--term '{term}' -P {project_key}"
+                ),
+            )
+            if not added:
+                return
+            settings.save()
         success(f"Added glossary term '{term}' to version '{version_id}' on '{sm_ref}'")
     except SystemExit:
         raise
@@ -83,19 +85,18 @@ def remove_glossary_term(
         prompt=f"Remove glossary term '{term}' from '{sm_ref}' in {project_key}?",
     )
     try:
-        version_id, settings, raw = _load_command_version(
-            ctx, project_key, sm_ref, version
-        )
-        _remove_named_item(
-            raw,
-            "glossaryTerms",
-            name_key="term",
-            name=term,
-            label="Glossary term",
-            missing_scope=f" on version '{version_id}'",
-            list_hint=f"List terms: dku semantic-model list-glossary {sm_ref} -P {project_key}",
-        )
-        settings.save()
+        version_id, lock = _locked_command_version(ctx, project_key, sm_ref, version)
+        with lock as settings:
+            raw = settings.get_raw()
+            _remove_named_item(
+                raw,
+                "glossaryTerms",
+                name_key="term",
+                name=term,
+                label="Glossary term",
+                missing_scope=f" on version '{version_id}'",
+                list_hint=f"List terms: dku semantic-model list-glossary {sm_ref} -P {project_key}",
+            )
         success(
             f"Removed glossary term '{term}' from version '{version_id}' on '{sm_ref}'"
         )
@@ -422,31 +423,33 @@ def add_golden_query(
     project_key = resolve_project(project)
     name = _require_identifier(name, "Golden query name")
     try:
-        version_id, settings, raw = _load_command_version(
+        client, _proj, sm, version_id = _resolve_locked_version(
             ctx, project_key, sm_ref, version
         )
-        queries = raw.setdefault("goldenQueries", [])
-        added = _append_named_item(
-            queries,
-            {
-                "name": name,
-                "question": question,
-                "generatedSql": sql,
-                "created": {},
-            },
-            name_key="name",
-            name=name,
-            label="Golden query",
-            duplicate_scope=f" on version '{version_id}'",
-            if_not_exists=if_not_exists,
-            remove_hint=(
-                f"Remove first: dku semantic-model remove-golden-query {sm_ref} "
-                f"--name '{name}' -P {project_key}"
-            ),
-        )
-        if not added:
-            return
-        settings.save()
+        with _version_write_lock(client, project_key, sm, version_id):
+            settings, raw = _load_version_settings(sm, version_id)
+            queries = raw.setdefault("goldenQueries", [])
+            added = _append_named_item(
+                queries,
+                {
+                    "name": name,
+                    "question": question,
+                    "generatedSql": sql,
+                    "created": {},
+                },
+                name_key="name",
+                name=name,
+                label="Golden query",
+                duplicate_scope=f" on version '{version_id}'",
+                if_not_exists=if_not_exists,
+                remove_hint=(
+                    f"Remove first: dku semantic-model remove-golden-query {sm_ref} "
+                    f"--name '{name}' -P {project_key}"
+                ),
+            )
+            if not added:
+                return
+            settings.save()
         success(f"Added golden query '{name}' to version '{version_id}'")
     except SystemExit:
         raise
@@ -478,22 +481,21 @@ def remove_golden_query(
         prompt=f"Remove golden query '{name}' from '{sm_ref}' in {project_key}?",
     )
     try:
-        version_id, settings, raw = _load_command_version(
-            ctx, project_key, sm_ref, version
-        )
-        _remove_named_item(
-            raw,
-            "goldenQueries",
-            name_key="name",
-            name=name,
-            label="Golden query",
-            missing_scope=f" on version '{version_id}'",
-            list_hint=(
-                f"List golden queries: dku semantic-model list-golden-queries {sm_ref} "
-                f"-P {project_key}"
-            ),
-        )
-        settings.save()
+        version_id, lock = _locked_command_version(ctx, project_key, sm_ref, version)
+        with lock as settings:
+            raw = settings.get_raw()
+            _remove_named_item(
+                raw,
+                "goldenQueries",
+                name_key="name",
+                name=name,
+                label="Golden query",
+                missing_scope=f" on version '{version_id}'",
+                list_hint=(
+                    f"List golden queries: dku semantic-model list-golden-queries {sm_ref} "
+                    f"-P {project_key}"
+                ),
+            )
         success(f"Removed golden query '{name}' from version '{version_id}'")
     except SystemExit:
         raise

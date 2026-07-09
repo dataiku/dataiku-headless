@@ -137,25 +137,26 @@ def add_entity(
             "attributes": attrs,
         }
 
-        settings, raw = _load_version_settings(sm, version_id)
-        existing = [e.get("name") for e in raw.get("entities", [])]
-        if entity_name in existing:
-            if if_not_exists:
-                warn(
-                    f"Entity '{entity_name}' already exists on version '{version_id}', skipping."
+        with _version_write_lock(client, project_key, sm, version_id):
+            settings, raw = _load_version_settings(sm, version_id)
+            existing = [e.get("name") for e in raw.get("entities", [])]
+            if entity_name in existing:
+                if if_not_exists:
+                    warn(
+                        f"Entity '{entity_name}' already exists on version '{version_id}', skipping."
+                    )
+                    return
+                exit_with_error(
+                    f"Entity '{entity_name}' already exists on version '{version_id}'.",
+                    details=[
+                        f"Remove first: dku semantic-model remove-entity {sm_ref} {entity_name} --version {version_id} -P {project_key}",
+                        "Or pass --if-not-exists to skip.",
+                    ],
                 )
-                return
-            exit_with_error(
-                f"Entity '{entity_name}' already exists on version '{version_id}'.",
-                details=[
-                    f"Remove first: dku semantic-model remove-entity {sm_ref} {entity_name} --version {version_id} -P {project_key}",
-                    "Or pass --if-not-exists to skip.",
-                ],
-            )
 
-        raw.setdefault("entities", []).append(entity)
-        settings.save()
-        _verify_entity_persisted(sm, version_id, entity_name, sm_ref, project_key)
+            raw.setdefault("entities", []).append(entity)
+            settings.save()
+            _verify_entity_persisted(sm, version_id, entity_name, sm_ref, project_key)
         described, total = _described_ratio(attrs)
         success(
             f"Added entity '{entity_name}' ({total} attributes, {described} "
@@ -315,37 +316,39 @@ def sync_descriptions(
         proj = client.get_project(project_key)
         sm = resolve_semantic_model(proj, sm_ref)
         version_id = _resolve_version_id(sm, version)
-        settings, raw = _load_version_settings(sm, version_id)
 
-        targets = [_find_entity(raw, entity)] if entity else raw.get("entities", [])
-        if not targets:
-            exit_with_error(
-                f"No entities on version '{version_id}' — nothing to sync.",
-                details=[
-                    "Add one: dku semantic-model add-entity "
-                    f"{sm_ref} --from-dataset DS -P {project_key}",
-                ],
-            )
+        with _version_write_lock(client, project_key, sm, version_id, timeout_s=300.0):
+            settings, raw = _load_version_settings(sm, version_id)
 
-        attrs_updated = 0
-        entities_updated = 0
-        available_total = 0
-        failures: list[str] = []
-        coverage: list[str] = []
-        for ent in targets:
-            a_upd, e_upd, avail, line, failure = _sync_entity_descriptions(
-                client, project_key, ent, overwrite
-            )
-            if failure:
-                failures.append(failure)
-                continue
-            attrs_updated += a_upd
-            entities_updated += e_upd
-            available_total += avail
-            coverage.append(line)
+            targets = [_find_entity(raw, entity)] if entity else raw.get("entities", [])
+            if not targets:
+                exit_with_error(
+                    f"No entities on version '{version_id}' — nothing to sync.",
+                    details=[
+                        "Add one: dku semantic-model add-entity "
+                        f"{sm_ref} --from-dataset DS -P {project_key}",
+                    ],
+                )
 
-        if attrs_updated or entities_updated:
-            settings.save()
+            attrs_updated = 0
+            entities_updated = 0
+            available_total = 0
+            failures: list[str] = []
+            coverage: list[str] = []
+            for ent in targets:
+                a_upd, e_upd, avail, line, failure = _sync_entity_descriptions(
+                    client, project_key, ent, overwrite
+                )
+                if failure:
+                    failures.append(failure)
+                    continue
+                attrs_updated += a_upd
+                entities_updated += e_upd
+                available_total += avail
+                coverage.append(line)
+
+            if attrs_updated or entities_updated:
+                settings.save()
         _report_sync_results(
             version_id=version_id,
             sm_ref=sm_ref,
@@ -393,37 +396,36 @@ def remove_entity(
         ),
     )
     try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        sm = resolve_semantic_model(proj, sm_ref)
-        version_id = _resolve_version_id(sm, version)
-        settings, raw = _load_version_settings(sm, version_id)
+        client, _proj, sm, version_id = _resolve_locked_version(
+            ctx, project_key, sm_ref, version
+        )
+        with _version_settings_lock(client, project_key, sm, version_id) as settings:
+            raw = settings.get_raw()
 
-        entities = raw.get("entities", [])
-        new_entities = [e for e in entities if e.get("name") != entity_name]
-        if len(new_entities) == len(entities):
-            exit_with_error(
-                f"Entity '{entity_name}' not found on version '{version_id}'.",
-                details=[
-                    "Available entities: "
-                    + ", ".join(e.get("name", "") for e in entities)
-                    if entities
-                    else "No entities defined on this version.",
-                ],
-            )
+            entities = raw.get("entities", [])
+            new_entities = [e for e in entities if e.get("name") != entity_name]
+            if len(new_entities) == len(entities):
+                exit_with_error(
+                    f"Entity '{entity_name}' not found on version '{version_id}'.",
+                    details=[
+                        "Available entities: "
+                        + ", ".join(e.get("name", "") for e in entities)
+                        if entities
+                        else "No entities defined on this version.",
+                    ],
+                )
 
-        relationships = raw.get("relationships", [])
-        new_rels = [
-            r
-            for r in relationships
-            if r.get("firstEntity") != entity_name
-            and r.get("secondEntity") != entity_name
-        ]
-        removed_rels = len(relationships) - len(new_rels)
+            relationships = raw.get("relationships", [])
+            new_rels = [
+                r
+                for r in relationships
+                if r.get("firstEntity") != entity_name
+                and r.get("secondEntity") != entity_name
+            ]
+            removed_rels = len(relationships) - len(new_rels)
 
-        raw["entities"] = new_entities
-        raw["relationships"] = new_rels
-        settings.save()
+            raw["entities"] = new_entities
+            raw["relationships"] = new_rels
         msg = (
             f"Removed entity '{entity_name}' from version '{version_id}' on '{sm_ref}'"
         )
@@ -489,76 +491,80 @@ def add_relationship(
 
     project_key = resolve_project(project)
     try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        sm = resolve_semantic_model(proj, sm_ref)
-        version_id = _resolve_version_id(sm, version)
-        settings, raw = _load_version_settings(sm, version_id)
-
-        entity_names = {e.get("name") for e in raw.get("entities", [])}
-        missing = [
-            ent for ent in (first_entity, second_entity) if ent not in entity_names
-        ]
-        if missing:
-            exit_with_error(
-                f"Entity not found on version '{version_id}': {', '.join(missing)}",
-                details=[
-                    "Available entities: "
-                    + (", ".join(sorted(entity_names)) if entity_names else "(none)"),
-                    "Add with: dku semantic-model add-entity SM --from-dataset DS -P PROJ",
-                ],
-            )
-
-        if on:
-            cols = _dedupe_preserve_order(_split_csv(on))
-            if not cols:
-                exit_with_error(
-                    "--on produced no valid join columns (empty or whitespace only).",
-                    details=[
-                        "Simple: --on CustomerID",
-                        "Composite: --on ACCOUNT_SK,MONTH",
-                    ],
-                )
-            pseudo_sql = " AND ".join(f"left.{c} = right.{c}" for c in cols)
-        else:
-            pseudo_sql = (expression or "").strip()
-            if not pseudo_sql:
-                exit_with_error(
-                    "--expression cannot be empty or whitespace.",
-                    details=[
-                        'Example: --expression "LOWER(left.email) = LOWER(right.email)"'
-                    ],
-                )
-
-        relationships = raw.setdefault("relationships", [])
-        for r in relationships:
-            pair = (r.get("firstEntity"), r.get("secondEntity"))
-            if pair == (first_entity, second_entity) or pair == (
-                second_entity,
-                first_entity,
-            ):
-                if if_not_exists:
-                    warn(
-                        f"Relationship {first_entity} <-> {second_entity} already exists, skipping."
-                    )
-                    return
-                exit_with_error(
-                    f"Relationship between '{first_entity}' and '{second_entity}' already exists on version '{version_id}'.",
-                    details=[
-                        f"Existing predicate: {r.get('pseudoSQLExpression')}",
-                        f"Remove first: dku semantic-model remove-relationship {sm_ref} --from {first_entity} --to {second_entity} -P {project_key}",
-                        "Or pass --if-not-exists to skip.",
-                    ],
-                )
-
-        relationships.append(
-            {
-                "firstEntity": first_entity,
-                "secondEntity": second_entity,
-                "pseudoSQLExpression": pseudo_sql,
-            }
+        client, _proj, sm, version_id = _resolve_locked_version(
+            ctx, project_key, sm_ref, version
         )
-        settings.save()
+        with _version_write_lock(client, project_key, sm, version_id):
+            settings, raw = _load_version_settings(sm, version_id)
+
+            entity_names = {e.get("name") for e in raw.get("entities", [])}
+            missing = [
+                ent for ent in (first_entity, second_entity) if ent not in entity_names
+            ]
+            if missing:
+                exit_with_error(
+                    f"Entity not found on version '{version_id}': {', '.join(missing)}",
+                    details=[
+                        "Available entities: "
+                        + (
+                            ", ".join(sorted(entity_names))
+                            if entity_names
+                            else "(none)"
+                        ),
+                        "Add with: dku semantic-model add-entity SM --from-dataset DS -P PROJ",
+                    ],
+                )
+
+            if on:
+                cols = _dedupe_preserve_order(_split_csv(on))
+                if not cols:
+                    exit_with_error(
+                        "--on produced no valid join columns (empty or whitespace only).",
+                        details=[
+                            "Simple: --on CustomerID",
+                            "Composite: --on ACCOUNT_SK,MONTH",
+                        ],
+                    )
+                pseudo_sql = " AND ".join(f"left.{c} = right.{c}" for c in cols)
+            else:
+                pseudo_sql = (expression or "").strip()
+                if not pseudo_sql:
+                    exit_with_error(
+                        "--expression cannot be empty or whitespace.",
+                        details=[
+                            'Example: --expression "LOWER(left.email) = LOWER(right.email)"'
+                        ],
+                    )
+
+            relationships = raw.setdefault("relationships", [])
+            for r in relationships:
+                pair = (r.get("firstEntity"), r.get("secondEntity"))
+                if pair == (first_entity, second_entity) or pair == (
+                    second_entity,
+                    first_entity,
+                ):
+                    if if_not_exists:
+                        warn(
+                            f"Relationship {first_entity} <-> {second_entity} already exists, skipping."
+                        )
+                        return
+                    exit_with_error(
+                        f"Relationship between '{first_entity}' and '{second_entity}' already exists on version '{version_id}'.",
+                        details=[
+                            f"Existing predicate: {r.get('pseudoSQLExpression')}",
+                            f"Remove first: dku semantic-model remove-relationship {sm_ref} --from {first_entity} --to {second_entity} -P {project_key}",
+                            "Or pass --if-not-exists to skip.",
+                        ],
+                    )
+
+            relationships.append(
+                {
+                    "firstEntity": first_entity,
+                    "secondEntity": second_entity,
+                    "pseudoSQLExpression": pseudo_sql,
+                }
+            )
+            settings.save()
         success(
             f"Added relationship {first_entity} <-> {second_entity} ({pseudo_sql}) to version '{version_id}' on '{sm_ref}'"
         )
@@ -599,34 +605,33 @@ def remove_relationship(
         ),
     )
     try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        sm = resolve_semantic_model(proj, sm_ref)
-        version_id = _resolve_version_id(sm, version)
-        settings, raw = _load_version_settings(sm, version_id)
+        client, _proj, sm, version_id = _resolve_locked_version(
+            ctx, project_key, sm_ref, version
+        )
+        with _version_settings_lock(client, project_key, sm, version_id) as settings:
+            raw = settings.get_raw()
 
-        relationships = raw.get("relationships", [])
+            relationships = raw.get("relationships", [])
 
-        def _matches(r: dict) -> bool:
-            pair = (r.get("firstEntity"), r.get("secondEntity"))
-            return pair == (first_entity, second_entity) or pair == (
-                second_entity,
-                first_entity,
-            )
+            def _matches(r: dict) -> bool:
+                pair = (r.get("firstEntity"), r.get("secondEntity"))
+                return pair == (first_entity, second_entity) or pair == (
+                    second_entity,
+                    first_entity,
+                )
 
-        kept = [r for r in relationships if not _matches(r)]
-        removed = len(relationships) - len(kept)
-        if removed == 0:
-            exit_with_error(
-                f"No relationship found between '{first_entity}' and '{second_entity}' on version '{version_id}'.",
-                details=[
-                    "List relationships: dku semantic-model list-relationships "
-                    f"{sm_ref} -P {project_key}",
-                ],
-            )
+            kept = [r for r in relationships if not _matches(r)]
+            removed = len(relationships) - len(kept)
+            if removed == 0:
+                exit_with_error(
+                    f"No relationship found between '{first_entity}' and '{second_entity}' on version '{version_id}'.",
+                    details=[
+                        "List relationships: dku semantic-model list-relationships "
+                        f"{sm_ref} -P {project_key}",
+                    ],
+                )
 
-        raw["relationships"] = kept
-        settings.save()
+            raw["relationships"] = kept
         success(
             f"Removed {removed} relationship(s) between '{first_entity}' and '{second_entity}' on version '{version_id}'"
         )
@@ -765,43 +770,43 @@ def set_manual_values(
 
     project_key = resolve_project(project)
     try:
-        client = get_client_from_ctx(ctx)
-        proj = client.get_project(project_key)
-        sm = resolve_semantic_model(proj, sm_ref)
-        version_id = _resolve_version_id(sm, version)
-        settings, raw = _load_version_settings(sm, version_id)
+        client, _proj, sm, version_id = _resolve_locked_version(
+            ctx, project_key, sm_ref, version
+        )
+        with _version_write_lock(client, project_key, sm, version_id):
+            settings, raw = _load_version_settings(sm, version_id)
 
-        ent = _find_entity(raw, entity)
-        attrs = ent.get("attributes", [])
-        target = next((a for a in attrs if a.get("name") == attribute), None)
-        if target is None:
-            exit_with_error(
-                f"Attribute '{attribute}' not found on entity '{entity}'.",
-                details=[
-                    "Available attributes: "
-                    + (", ".join(a.get("name", "") for a in attrs) or "(none)"),
-                ],
-            )
+            ent = _find_entity(raw, entity)
+            attrs = ent.get("attributes", [])
+            target = next((a for a in attrs if a.get("name") == attribute), None)
+            if target is None:
+                exit_with_error(
+                    f"Attribute '{attribute}' not found on entity '{entity}'.",
+                    details=[
+                        "Available attributes: "
+                        + (", ".join(a.get("name", "") for a in attrs) or "(none)"),
+                    ],
+                )
 
-        if clear:
-            target["distinctValuesHandlingMode"] = "NONE"
-            target["manualValues"] = []
+            if clear:
+                target["distinctValuesHandlingMode"] = "NONE"
+                target["manualValues"] = []
+                settings.save()
+                success(f"Cleared manual values on {entity}.{attribute} (mode=NONE)")
+                return
+
+            vals = _split_csv(values)
+            if not vals:
+                exit_with_error(
+                    "--values must be a non-empty comma-separated list.",
+                    details=['Example: --values "Low,Medium,High"'],
+                )
+            target["distinctValuesHandlingMode"] = "MANUAL"
+            target["manualValues"] = vals
+            target["indexDistinctValues"] = True
+            target["resolveInUserRequests"] = True
             settings.save()
-            success(f"Cleared manual values on {entity}.{attribute} (mode=NONE)")
-            return
-
-        vals = _split_csv(values)
-        if not vals:
-            exit_with_error(
-                "--values must be a non-empty comma-separated list.",
-                details=['Example: --values "Low,Medium,High"'],
-            )
-        target["distinctValuesHandlingMode"] = "MANUAL"
-        target["manualValues"] = vals
-        target["indexDistinctValues"] = True
-        target["resolveInUserRequests"] = True
-        settings.save()
-        success(f"Set {len(vals)} manual value(s) on {entity}.{attribute}: {vals}")
+            success(f"Set {len(vals)} manual value(s) on {entity}.{attribute}: {vals}")
     except SystemExit:
         raise
     except Exception as e:

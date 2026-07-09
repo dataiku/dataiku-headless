@@ -15,6 +15,7 @@ from dku_cli.enums import (
 from dku_cli.errors import exit_with_error, handle_api_error
 from dku_cli.helpers import (
     get_client_from_ctx,
+    locked_settings,
     resolve_project,
 )
 from dku_cli.output import (
@@ -996,7 +997,6 @@ def set_algorithm(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
-        task_settings = mltask.get_settings()
 
         # Multi-algo footgun: agents who pass `--enable LOGISTIC_REGRESSION`
         # to "lock to one algorithm" silently end up training Random Forest
@@ -1016,16 +1016,22 @@ def set_algorithm(
                 f"--disable-all {' '.join(f'--enable {a}' for a in enable)} -P {project_key}"
             )
 
-        if disable_all:
-            task_settings.disable_all_algorithms()
+        with locked_settings(
+            client,
+            project_key,
+            "mltask",
+            f"{analysis_id}/{mltask_id}",
+            mltask.get_settings,
+        ) as task_settings:
+            if disable_all:
+                task_settings.disable_all_algorithms()
 
-        for alg in disable or []:
-            task_settings.set_algorithm_enabled(alg, False)
+            for alg in disable or []:
+                task_settings.set_algorithm_enabled(alg, False)
 
-        for alg in enable or []:
-            task_settings.set_algorithm_enabled(alg, True)
+            for alg in enable or []:
+                task_settings.set_algorithm_enabled(alg, True)
 
-        task_settings.save()
         success("Algorithm settings updated.")
     except Exception as e:
         handle_api_error(e)
@@ -1125,36 +1131,41 @@ def set_params(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
-        task_settings = mltask.get_settings()
 
-        try:
-            algo = task_settings.get_algorithm_settings(algorithm.upper())
-        except ValueError:
-            available = sorted(task_settings.get_all_possible_algorithm_names())
-            exit_with_error(
-                f"Unknown algorithm '{algorithm}' for ML task {mltask_id}.",
-                details=[f"Available: {', '.join(available)}"],
-                status=3,
-            )
-
-        missing = [k for k, _ in assignments if k not in algo]
-        if missing:
-            valid = sorted(k for k in algo if not k.endswith("_Internals"))
-            exit_with_error(
-                f"Parameter(s) not found on {algorithm.upper()}: {', '.join(missing)}.",
-                details=[f"Valid parameters: {', '.join(valid)}"],
-                status=3,
-            )
-
-        changes = []
-        for key, value in assignments:
+        with locked_settings(
+            client,
+            project_key,
+            "mltask",
+            f"{analysis_id}/{mltask_id}",
+            mltask.get_settings,
+        ) as task_settings:
             try:
-                old, new = _apply_param(algo, key, value)
-            except ValueError as ve:
-                exit_with_error(str(ve))
-            changes.append(f"{key}: {old} -> {new}")
+                algo = task_settings.get_algorithm_settings(algorithm.upper())
+            except ValueError:
+                available = sorted(task_settings.get_all_possible_algorithm_names())
+                exit_with_error(
+                    f"Unknown algorithm '{algorithm}' for ML task {mltask_id}.",
+                    details=[f"Available: {', '.join(available)}"],
+                    status=3,
+                )
 
-        task_settings.save()
+            missing = [k for k, _ in assignments if k not in algo]
+            if missing:
+                valid = sorted(k for k in algo if not k.endswith("_Internals"))
+                exit_with_error(
+                    f"Parameter(s) not found on {algorithm.upper()}: {', '.join(missing)}.",
+                    details=[f"Valid parameters: {', '.join(valid)}"],
+                    status=3,
+                )
+
+            changes = []
+            for key, value in assignments:
+                try:
+                    old, new = _apply_param(algo, key, value)
+                except ValueError as ve:
+                    exit_with_error(str(ve))
+                changes.append(f"{key}: {old} -> {new}")
+
         success(
             f"Updated {algorithm.upper()} on ML task {mltask_id}: " + "; ".join(changes)
         )
@@ -1351,45 +1362,51 @@ def set_split(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
-        task_settings = mltask.get_settings()
-        raw = task_settings.get_raw()
-        split = raw.get("splitParams")
-        if split is None:
-            exit_with_error(
-                f"ML task {mltask_id} has no splitParams "
-                "(clustering tasks have no train/test split).",
-                details=[
-                    "Inspect: dku ml settings "
-                    f"{analysis_id} {mltask_id} -P {project_key}"
-                ],
-            )
-        if (
-            order_by is not None
-            and split.get("kfold")
-            and kfold is None
-            and not no_kfold
-        ):
-            exit_with_error(
-                f"ML task {mltask_id} currently uses k-fold, which DSS rejects "
-                "with time ordering at train time.",
-                details=[
-                    f"Disable it in the same call: dku ml set-split {analysis_id} "
-                    f"{mltask_id} --order-by {order_by} --no-kfold -P {project_key}"
-                ],
-            )
-
-        changes = _apply_split_changes(split, train_ratio, seed, kfold, no_kfold)
-        changes += _apply_time_ordering(
-            task_settings,
-            split,
-            order_by,
-            descending,
-            no_order,
-            analysis_id,
-            mltask_id,
+        with locked_settings(
+            client,
             project_key,
-        )
-        task_settings.save()
+            "mltask",
+            f"{analysis_id}/{mltask_id}",
+            mltask.get_settings,
+        ) as task_settings:
+            raw = task_settings.get_raw()
+            split = raw.get("splitParams")
+            if split is None:
+                exit_with_error(
+                    f"ML task {mltask_id} has no splitParams "
+                    "(clustering tasks have no train/test split).",
+                    details=[
+                        "Inspect: dku ml settings "
+                        f"{analysis_id} {mltask_id} -P {project_key}"
+                    ],
+                )
+
+            changes = _apply_split_changes(split, train_ratio, seed, kfold, no_kfold)
+            if (
+                order_by is not None
+                and split.get("kfold")
+                and kfold is None
+                and not no_kfold
+            ):
+                exit_with_error(
+                    f"ML task {mltask_id} currently uses k-fold, which DSS rejects "
+                    "with time ordering at train time.",
+                    details=[
+                        f"Disable it in the same call: dku ml set-split {analysis_id} "
+                        f"{mltask_id} --order-by {order_by} --no-kfold -P {project_key}"
+                    ],
+                )
+
+            changes += _apply_time_ordering(
+                task_settings,
+                split,
+                order_by,
+                descending,
+                no_order,
+                analysis_id,
+                mltask_id,
+                project_key,
+            )
         success(f"Updated split policy on ML task {mltask_id}: " + "; ".join(changes))
     except typer.Exit:
         raise
@@ -1513,31 +1530,36 @@ def set_feature(
         client = get_client_from_ctx(ctx)
         proj = client.get_project(project_key)
         mltask = proj.get_ml_task(analysis_id, mltask_id)
-        task_settings = mltask.get_settings()
-        try:
-            feat = task_settings.get_feature_preprocessing(feature)
-        except Exception:
-            exit_with_error(
-                f"Feature '{feature}' not found in ML task {mltask_id}.",
-                details=[
-                    f"Inspect features: dku ml settings {analysis_id} {mltask_id} "
-                    f"-P {project_key} | jq '.preprocessing.per_feature | keys'",
-                ],
-                status=3,
-            )
-        per_feature = task_settings.get_raw()["preprocessing"]["per_feature"]
-        applied = _apply_feature_changes(
-            per_feature,
-            feature,
-            feat,
-            role,
-            missing_handling,
-            rescaling,
-            analysis_id,
-            mltask_id,
+        with locked_settings(
+            client,
             project_key,
-        )
-        task_settings.save()
+            "mltask",
+            f"{analysis_id}/{mltask_id}",
+            mltask.get_settings,
+        ) as task_settings:
+            try:
+                feat = task_settings.get_feature_preprocessing(feature)
+            except Exception:
+                exit_with_error(
+                    f"Feature '{feature}' not found in ML task {mltask_id}.",
+                    details=[
+                        f"Inspect features: dku ml settings {analysis_id} {mltask_id} "
+                        f"-P {project_key} | jq '.preprocessing.per_feature | keys'",
+                    ],
+                    status=3,
+                )
+            per_feature = task_settings.get_raw()["preprocessing"]["per_feature"]
+            applied = _apply_feature_changes(
+                per_feature,
+                feature,
+                feat,
+                role,
+                missing_handling,
+                rescaling,
+                analysis_id,
+                mltask_id,
+                project_key,
+            )
         success(f"Set feature '{feature}' {', '.join(applied)} in ML task {mltask_id}.")
     except typer.Exit:
         raise
@@ -1666,29 +1688,36 @@ def set_features(
     try:
         client = get_client_from_ctx(ctx)
         mltask = client.get_project(project_key).get_ml_task(analysis_id, mltask_id)
-        task_settings = mltask.get_settings()
 
-        # Resolve every feature first; abort before saving if any is missing.
-        resolved: list[tuple[dict, str, str]] = []
-        missing: list[str] = []
-        for feat, role in assignments:
-            try:
-                resolved.append(
-                    (task_settings.get_feature_preprocessing(feat), role, feat)
+        with locked_settings(
+            client,
+            project_key,
+            "mltask",
+            f"{analysis_id}/{mltask_id}",
+            mltask.get_settings,
+        ) as task_settings:
+            # Resolve every feature first; abort before saving if any is missing.
+            resolved: list[tuple[dict, str, str]] = []
+            missing: list[str] = []
+            for feat, role in assignments:
+                try:
+                    resolved.append(
+                        (task_settings.get_feature_preprocessing(feat), role, feat)
+                    )
+                except Exception:
+                    missing.append(feat)
+            if missing:
+                settings_cmd = (
+                    f"dku ml settings {analysis_id} {mltask_id} -P {project_key}"
                 )
-            except Exception:
-                missing.append(feat)
-        if missing:
-            settings_cmd = f"dku ml settings {analysis_id} {mltask_id} -P {project_key}"
-            exit_with_error(
-                f"Feature(s) not found in ML task {mltask_id}: {', '.join(missing)}.",
-                details=[f"Inspect features: {settings_cmd}"],
-                status=3,
-            )
+                exit_with_error(
+                    f"Feature(s) not found in ML task {mltask_id}: {', '.join(missing)}.",
+                    details=[f"Inspect features: {settings_cmd}"],
+                    status=3,
+                )
 
-        for feat_settings, role, _feat in resolved:
-            feat_settings["role"] = role
-        task_settings.save()
+            for feat_settings, role, _feat in resolved:
+                feat_settings["role"] = role
         summary = ", ".join(f"{feat}={role}" for _, role, feat in resolved)
         success(
             f"Set {len(resolved)} feature role(s) in ML task {mltask_id}: {summary}"

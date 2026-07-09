@@ -41,6 +41,7 @@ from dku_cli.errors import (
 )
 from dku_cli.helpers import (
     get_client_from_ctx,
+    object_write_lock,
     read_json_input,
     resolve_project,
     unpersisted_key_paths,
@@ -74,44 +75,45 @@ def _autodetect_and_warn(
     follow-up re-detection supersedes them.
     """
     info("Auto-detecting format and schema...")
-    try:
-        detected = ds.autodetect_settings(infer_storage_types=True)
-        detected.save()
-    except Exception as exc:
-        exit_with_error(
-            f"Auto-detect failed for uploaded file in '{dataset_name}': {exc}",
-            details=[
-                "For small, odd, or headerless files, upload without detection "
-                "and set the format/schema explicitly:",
-                f"  dku dataset upload {dataset_name} <FILE> --no-autodetect "
-                f"-P {project_key}",
-                f"  dku dataset set-definition {dataset_name} -d "
-                '\'{"formatType":"csv","formatParams":{"separator":",",'
-                '"parseHeaderRow":true}}\' --deep-merge '
-                f"-P {project_key}",
-                f"  dku dataset set-schema {dataset_name} --columns "
-                f"'<col type, col type>' -P {project_key}",
-            ],
-        )
-    schema_cols = detected.get_raw().get("schema", {}).get("columns", [])
-    # autodetect_settings() reconciles against the OLD schema (silently keeping
-    # stale columns after an overwrite) and ignores inferStorageTypes (#222).
-    # Re-derive the full schema — added/removed columns AND storage types — via
-    # the detectPossibleFormats=false pass DSS actually honors, then persist it.
-    # Skip when sheet targeting follows: it re-detects against the chosen sheet
-    # right after, so this pass would be wasted work on the wrong (first) sheet.
-    if not quiet_warnings:
+    with object_write_lock(client, project_key, "dataset", dataset_name):
         try:
-            _settings, full_cols, _reasons = _redetect_schema_keeping_format(
-                client, project_key, dataset_name, infer_types=True
+            detected = ds.autodetect_settings(infer_storage_types=True)
+            detected.save()
+        except Exception as exc:
+            exit_with_error(
+                f"Auto-detect failed for uploaded file in '{dataset_name}': {exc}",
+                details=[
+                    "For small, odd, or headerless files, upload without detection "
+                    "and set the format/schema explicitly:",
+                    f"  dku dataset upload {dataset_name} <FILE> --no-autodetect "
+                    f"-P {project_key}",
+                    f"  dku dataset set-definition {dataset_name} -d "
+                    '\'{"formatType":"csv","formatParams":{"separator":",",'
+                    '"parseHeaderRow":true}}\' --deep-merge '
+                    f"-P {project_key}",
+                    f"  dku dataset set-schema {dataset_name} --columns "
+                    f"'<col type, col type>' -P {project_key}",
+                ],
             )
-        except Exception:
-            full_cols = []
-        if full_cols:
-            fresh = ds.get_settings()
-            fresh.get_raw()["schema"] = {"columns": full_cols, "userModified": True}
-            fresh.save()
-            schema_cols = full_cols
+        schema_cols = detected.get_raw().get("schema", {}).get("columns", [])
+        # autodetect_settings() reconciles against the OLD schema (silently keeping
+        # stale columns after an overwrite) and ignores inferStorageTypes (#222).
+        # Re-derive the full schema — added/removed columns AND storage types — via
+        # the detectPossibleFormats=false pass DSS actually honors, then persist it.
+        # Skip when sheet targeting follows: it re-detects against the chosen sheet
+        # right after, so this pass would be wasted work on the wrong (first) sheet.
+        if not quiet_warnings:
+            try:
+                _settings, full_cols, _reasons = _redetect_schema_keeping_format(
+                    client, project_key, dataset_name, infer_types=True
+                )
+            except Exception:
+                full_cols = []
+            if full_cols:
+                fresh = ds.get_settings()
+                fresh.get_raw()["schema"] = {"columns": full_cols, "userModified": True}
+                fresh.save()
+                schema_cols = full_cols
     success(
         f"Format detected: {detected.get_raw().get('formatType', 'unknown')} "
         f"({len(schema_cols)} columns)"
@@ -305,42 +307,43 @@ def _apply_excel_sheet_targeting(
     concluded there is no header.
     """
     ds = client.get_project(project_key).get_dataset(dataset_name)
-    settings = ds.get_settings()
-    raw = settings.get_raw()
-    format_type = raw.get("formatType")
-    if format_type != "excel":
-        exit_with_error(
-            f"--sheet/--sheet-indices/--all-sheets only apply to Excel files; "
-            f"detected format is '{format_type}'.",
-            details=[
-                "These flags retarget formatParams.sheets on an excel-format dataset.",
-                f"Inspect: dku dataset get-definition {dataset_name} -P {project_key}",
-            ],
-        )
-    params = raw.setdefault("formatParams", {})
-    if sheet is not None:
-        # The "*" prefix is mandatory serialization syntax in NAMES mode
-        # (the engine matches the exact name after it; no prefix → no match).
-        params["sheetSelectionMode"] = "NAMES"
-        params["sheets"] = f"*{sheet}"
-        target_desc = f"sheet '{sheet}'"
-    elif sheet_indices is not None:
-        params["sheetSelectionMode"] = "INDICES"
-        params["sheets"] = sheet_indices
-        target_desc = f"sheet indices {sheet_indices} (0-based)"
-    else:  # all_sheets
-        params["sheetSelectionMode"] = "ALL"
-        target_desc = "all sheets"
-    if sheets_to_column:
-        params["sheetsToColumn"] = True
-    params["parseHeaderRow"] = True
-    settings.save()
+    with object_write_lock(client, project_key, "dataset", dataset_name):
+        settings = ds.get_settings()
+        raw = settings.get_raw()
+        format_type = raw.get("formatType")
+        if format_type != "excel":
+            exit_with_error(
+                f"--sheet/--sheet-indices/--all-sheets only apply to Excel files; "
+                f"detected format is '{format_type}'.",
+                details=[
+                    "These flags retarget formatParams.sheets on an excel-format dataset.",
+                    f"Inspect: dku dataset get-definition {dataset_name} -P {project_key}",
+                ],
+            )
+        params = raw.setdefault("formatParams", {})
+        if sheet is not None:
+            # The "*" prefix is mandatory serialization syntax in NAMES mode
+            # (the engine matches the exact name after it; no prefix → no match).
+            params["sheetSelectionMode"] = "NAMES"
+            params["sheets"] = f"*{sheet}"
+            target_desc = f"sheet '{sheet}'"
+        elif sheet_indices is not None:
+            params["sheetSelectionMode"] = "INDICES"
+            params["sheets"] = sheet_indices
+            target_desc = f"sheet indices {sheet_indices} (0-based)"
+        else:  # all_sheets
+            params["sheetSelectionMode"] = "ALL"
+            target_desc = "all sheets"
+        if sheets_to_column:
+            params["sheetsToColumn"] = True
+        params["parseHeaderRow"] = True
+        settings.save()
 
-    settings, detected, _reasons = _redetect_schema_keeping_format(
-        client, project_key, dataset_name, infer_types=True
-    )
-    settings.get_raw()["schema"] = {"columns": detected, "userModified": True}
-    settings.save()
+        settings, detected, _reasons = _redetect_schema_keeping_format(
+            client, project_key, dataset_name, infer_types=True
+        )
+        settings.get_raw()["schema"] = {"columns": detected, "userModified": True}
+        settings.save()
 
     success(f"Targeted {target_desc}: {len(detected)} columns")
     if sheets_to_column:
@@ -2166,15 +2169,16 @@ def set_definition(
             exit_with_error(f"Definition must be a JSON object, not an array — {cmd}")
         new_def = _dataset_metadata.drop_non_persisted_keys(new_def)
         if merge or deep_merge:
-            current = ds.get_definition()
-            if deep_merge:
-                from dku_cli.commands.recipe._common import _deep_merge_dict
+            with object_write_lock(client, project_key, "dataset", dataset_name):
+                current = ds.get_definition()
+                if deep_merge:
+                    from dku_cli.commands.recipe._common import _deep_merge_dict
 
-                merged = _deep_merge_dict(current, new_def)
-            else:
-                merged = dict(current)
-                merged.update(new_def)
-            ds.set_definition(_dataset_metadata.drop_non_persisted_keys(merged))
+                    merged = _deep_merge_dict(current, new_def)
+                else:
+                    merged = dict(current)
+                    merged.update(new_def)
+                ds.set_definition(_dataset_metadata.drop_non_persisted_keys(merged))
         else:
             ds.set_definition(new_def)
         success(
@@ -2245,10 +2249,11 @@ def set_schema(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        current_def = ds.get_definition()
-        schema_input = _parse_schema_input(definition)
-        current_def["schema"] = schema_input
-        ds.set_definition(current_def)
+        with object_write_lock(client, project_key, "dataset", dataset_name):
+            current_def = ds.get_definition()
+            schema_input = _parse_schema_input(definition)
+            current_def["schema"] = schema_input
+            ds.set_definition(current_def)
         success(f"Updated schema for dataset '{dataset_name}'")
     except Exception as e:
         handle_api_error(e)
@@ -2402,10 +2407,13 @@ def infer_types(
             )
             return
 
-        for col in columns:
-            if col.get("name") in changes:
-                col["type"] = changes[col["name"]]
-        ds.set_definition(ds_def)
+        with object_write_lock(client, project_key, "dataset", dataset_name):
+            ds_def = ds.get_definition()
+            columns = ds_def.get("schema", {}).get("columns", [])
+            for col in columns:
+                if col.get("name") in changes:
+                    col["type"] = changes[col["name"]]
+            ds.set_definition(ds_def)
         success(
             f"Applied {len(changes)} type change(s) to '{dataset_name}': "
             + ", ".join(f"{k}→{v}" for k, v in changes.items())
@@ -2490,22 +2498,23 @@ def set_meaning(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        defn = ds.get_definition()
-        columns = defn.get("schema", {}).get("columns", [])
-        by_name = {c["name"]: c for c in columns}
-        for col, meaning in pairs:
-            if col not in by_name:
-                exit_with_error(
-                    f"Column '{col}' does not exist in dataset '{dataset_name}'.",
-                    details=[f"Available columns: {', '.join(sorted(by_name))}"],
-                )
-            if meaning not in _COMMON_MEANINGS:
-                warn(
-                    f"'{meaning}' is not a common built-in meaning — proceeding "
-                    "(it may be a custom meaning, or a typo)."
-                )
-            by_name[col]["meaning"] = meaning
-        ds.set_definition(defn)
+        with object_write_lock(client, project_key, "dataset", dataset_name):
+            defn = ds.get_definition()
+            columns = defn.get("schema", {}).get("columns", [])
+            by_name = {c["name"]: c for c in columns}
+            for col, meaning in pairs:
+                if col not in by_name:
+                    exit_with_error(
+                        f"Column '{col}' does not exist in dataset '{dataset_name}'.",
+                        details=[f"Available columns: {', '.join(sorted(by_name))}"],
+                    )
+                if meaning not in _COMMON_MEANINGS:
+                    warn(
+                        f"'{meaning}' is not a common built-in meaning — proceeding "
+                        "(it may be a custom meaning, or a typo)."
+                    )
+                by_name[col]["meaning"] = meaning
+            ds.set_definition(defn)
         # re-read and confirm — meaning normalizes silently if rejected
         try:
             after = {
@@ -2683,9 +2692,10 @@ def set_metadata(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        _dataset_metadata.update_dataset_metadata(
-            ds, dataset_name, project_key, description, short_desc, tags
-        )
+        with object_write_lock(client, project_key, "dataset", dataset_name):
+            _dataset_metadata.update_dataset_metadata(
+                ds, dataset_name, project_key, description, short_desc, tags
+            )
         success(f"Updated metadata for dataset '{dataset_name}'")
     except typer.Exit:
         raise
@@ -2722,22 +2732,23 @@ def set_column_description(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        ds_def = ds.get_definition()
-        schema_cols = ds_def.get("schema", {}).get("columns", [])
+        with object_write_lock(client, project_key, "dataset", dataset_name):
+            ds_def = ds.get_definition()
+            schema_cols = ds_def.get("schema", {}).get("columns", [])
 
-        updated = 0
-        for col in schema_cols:
-            if col["name"] in pairs:
-                col["comment"] = pairs[col["name"]]
-                updated += 1
+            updated = 0
+            for col in schema_cols:
+                if col["name"] in pairs:
+                    col["comment"] = pairs[col["name"]]
+                    updated += 1
 
-        # Warn on unknown columns
-        known_names = {c["name"] for c in schema_cols}
-        unknown = set(pairs.keys()) - known_names
-        if unknown:
-            warn(f"Column(s) not in schema (skipped): {', '.join(sorted(unknown))}")
+            # Warn on unknown columns
+            known_names = {c["name"] for c in schema_cols}
+            unknown = set(pairs.keys()) - known_names
+            if unknown:
+                warn(f"Column(s) not in schema (skipped): {', '.join(sorted(unknown))}")
 
-        ds.set_definition(ds_def)
+            ds.set_definition(ds_def)
         success(f"Updated descriptions for {updated} column(s) in '{dataset_name}'")
     except typer.Exit:
         raise
@@ -3131,11 +3142,22 @@ def detect(
     try:
         client = get_client_from_ctx(ctx)
         ds = client.get_project(project_key).get_dataset(dataset_name)
-        detected = _run_detection(
-            client, ds, project_key, dataset_name, infer_types, keep_format
-        )
         if save:
-            detected.save()
+            with object_write_lock(
+                client,
+                project_key,
+                "dataset",
+                dataset_name,
+                timeout_s=300.0,
+            ):
+                detected = _run_detection(
+                    client, ds, project_key, dataset_name, infer_types, keep_format
+                )
+                detected.save()
+        else:
+            detected = _run_detection(
+                client, ds, project_key, dataset_name, infer_types, keep_format
+            )
 
         raw = detected.get_raw()
         format_type = raw.get("formatType", "")

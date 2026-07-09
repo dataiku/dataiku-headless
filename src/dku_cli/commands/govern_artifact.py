@@ -7,7 +7,11 @@ import re
 import typer
 
 from dku_cli.errors import exit_with_error, handle_api_error
-from dku_cli.helpers import get_govern_client_from_ctx, read_json_input
+from dku_cli.helpers import (
+    get_govern_client_from_ctx,
+    object_write_lock,
+    read_json_input,
+)
 from dku_cli.output import hint, render, render_raw, resolve_output_format, success
 from dku_cli.safety import Tier, guard
 
@@ -430,8 +434,6 @@ def set_field(
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
-        defn = art.get_definition()
-        raw = defn.get_raw()
 
         # Parse value: try JSON first (for arrays, numbers, booleans)
         try:
@@ -439,17 +441,21 @@ def set_field(
         except (json_mod.JSONDecodeError, ValueError):
             parsed = value
 
-        # Prescriptive REFERENCE-field validation
-        bv = raw.get("blueprintVersionId") or {}
-        bp_id = bv.get("blueprintId")
-        ver_id = bv.get("versionId")
-        if bp_id and ver_id:
-            field_defs = _get_version_field_defs(govern, bp_id, ver_id)
-            _validate_reference_fields(field_defs, {field_id: parsed})
+        with object_write_lock(govern, "-", "govern-artifact", artifact_id):
+            defn = art.get_definition()
+            raw = defn.get_raw()
 
-        raw.setdefault("fields", {})[field_id] = parsed
-        defn.definition = raw
-        defn.save()
+            # Prescriptive REFERENCE-field validation
+            bv = raw.get("blueprintVersionId") or {}
+            bp_id = bv.get("blueprintId")
+            ver_id = bv.get("versionId")
+            if bp_id and ver_id:
+                field_defs = _get_version_field_defs(govern, bp_id, ver_id)
+                _validate_reference_fields(field_defs, {field_id: parsed})
+
+            raw.setdefault("fields", {})[field_id] = parsed
+            defn.definition = raw
+            defn.save()
         success(f"Set '{field_id}' on artifact '{artifact_id}'")
     except SystemExit:
         raise
@@ -513,21 +519,23 @@ def set_fields(
     try:
         govern = get_govern_client_from_ctx(ctx)
         art = govern.get_artifact(artifact_id)
-        defn = art.get_definition()
-        raw = defn.get_raw()
 
-        bv = raw.get("blueprintVersionId") or {}
-        bp_id = bv.get("blueprintId")
-        ver_id = bv.get("versionId")
-        if bp_id and ver_id:
-            field_defs = _get_version_field_defs(govern, bp_id, ver_id)
-            _validate_reference_fields(field_defs, parsed_updates)
+        with object_write_lock(govern, "-", "govern-artifact", artifact_id):
+            defn = art.get_definition()
+            raw = defn.get_raw()
 
-        fields = raw.setdefault("fields", {})
-        for field_id, parsed in parsed_updates.items():
-            fields[field_id] = parsed
-        defn.definition = raw
-        defn.save()
+            bv = raw.get("blueprintVersionId") or {}
+            bp_id = bv.get("blueprintId")
+            ver_id = bv.get("versionId")
+            if bp_id and ver_id:
+                field_defs = _get_version_field_defs(govern, bp_id, ver_id)
+                _validate_reference_fields(field_defs, parsed_updates)
+
+            fields = raw.setdefault("fields", {})
+            for field_id, parsed in parsed_updates.items():
+                fields[field_id] = parsed
+            defn.definition = raw
+            defn.save()
         success(
             f"Set {len(parsed_updates)} field(s) on artifact '{artifact_id}': "
             + ", ".join(parsed_updates.keys())
