@@ -1010,6 +1010,48 @@ def test_add_entity_errors_when_write_does_not_persist(patch_client):
     assert "create-version" in result.output
 
 
+def test_add_entity_persist_check_surfaces_real_read_error(patch_client):
+    """The persist read-back must not swallow genuine DSS/API failures. When
+    the re-read itself raises (permissions, transport, a truly missing
+    version), surface that error through the normal api-error path instead of
+    misreporting it as a silent 'did not persist' no-op."""
+    _configure_dataset_schema(patch_client, [{"name": "id", "type": "string"}])
+    sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")
+
+    # First get_settings() is the write's initial load (a writable empty doc);
+    # the second is the persist re-read, which fails for a real reason.
+    calls = {"n": 0}
+
+    def _write_then_read_fails(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            s = MagicMock()
+            s.get_raw.return_value = {"entities": []}
+            return s
+        raise DataikuException("APINotFoundException: version v1 vanished mid-write")
+
+    sm.get_version.return_value.get_settings.side_effect = _write_then_read_fails
+
+    result = runner.invoke(
+        app,
+        [
+            "semantic-model",
+            "add-entity",
+            "sm1",
+            "--from-dataset",
+            "Customers",
+            "--name",
+            "customer",
+            "--project",
+            "PROJ1",
+        ],
+    )
+    assert result.exit_code != 0
+    # The real error surfaces; the misleading persist message stays hidden.
+    assert "vanished mid-write" in result.output
+    assert "did not persist" not in result.output.lower()
+
+
 def test_remove_entity(patch_client):
     """remove-entity splices the entity and cleans up referring relationships."""
     sm = patch_client.get_project("PROJ1").get_semantic_model("sm1")

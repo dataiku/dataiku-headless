@@ -130,11 +130,14 @@ def _verify_entity_persisted(
     returns success without persisting anything — a silent no-op that leaves
     add-entity exiting 0 with nothing written. Read back so that failure is
     loud and prescriptive instead of a false success.
+
+    A re-read that raises is a real DSS/API error (permissions, transport, a
+    genuinely missing version), not evidence of a silent no-op — let it
+    propagate to the caller's ``handle_api_error`` path rather than masking
+    every failure as "did not persist". Only the case where the re-read
+    succeeds and the entity is still absent warrants the persist error.
     """
-    try:
-        fresh = sm.get_version(version_id).get_settings().get_raw()
-    except Exception:
-        fresh = {}
+    fresh = sm.get_version(version_id).get_settings().get_raw()
     names = {e.get("name") for e in fresh.get("entities", [])}
     if entity_name in names:
         return
