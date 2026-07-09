@@ -6,7 +6,30 @@ The analytical/modeling tail: correlation, mathematical optimization (LP / MILP 
 
 ## PearsonCorrelation
 
-Correlation matrix across numeric columns. **Preferred (visual-first, headless-safe):** Sync to SQL, then SQL recipe with `CORR()` (in every standard engine):
+**DSS has no dedicated correlation recipe.** The EDA recipe (`create-eda-univariate`) is univariate-only; the bivariate/correlation Statistics cards are UI worksheet cards, not flow objects. In the flow, Pearson is either sum-of-products algebra in visual recipes (below) or a SQL/Python recipe — and a SQL recipe counts as **code**, so never label the SQL path "visual" or "no-code" to an SME reviewer.
+
+**First ask whether the correlation is flow logic at all.** In shipped Alteryx workflows the Pearson branch is almost always *analysis-only* — it discovers/justifies the predictor set; nothing downstream consumes the coefficient (spelled out under Predictive Tools below). If nothing reads it, it is not a pipeline node: document it, or rebuild it as a Statistics worksheet card for the SME, and leave it out of the runnable flow. Migrating it as a recipe is the usual mistake.
+
+**When the coefficient IS a required output** (a downstream recipe or the ground-truth consumes it), the visual form is algebra over sums — `r = (n·Σxy − Σx·Σy) / (√(n·Σx² − (Σx)²) · √(n·Σy² − (Σy)²))` — two visual recipes, exact to floating point:
+
+```bash
+dku recipe create-group corr_sums -P PROJ -i input --output-ds corr_sums \
+    --computed-col 'x=coalesce(numval("col_a"),0):double' \
+    --computed-col 'y=coalesce(numval("col_b"),0):double' \
+    --computed-col 'xy=coalesce(numval("col_a"),0)*coalesce(numval("col_b"),0):double' \
+    --computed-col 'x2=pow(coalesce(numval("col_a"),0),2):double' \
+    --computed-col 'y2=pow(coalesce(numval("col_b"),0),2):double' \
+    --agg 'x:sum' --agg 'y:sum' --agg 'xy:sum' --agg 'x2:sum' --agg 'y2:sum'
+# no --group-key → one global row; DSS auto-adds `count`, aggregates land as x_sum, x2_sum, …
+# Square via computed col + sum, NOT the sum2 aggregate (silent no-op —
+# `../../dku-cli/references/visual-recipe-traps.md` § 5c)
+dku recipe create-prepare corr_result -P PROJ -i corr_sums --output-ds corr_result
+dku recipe add-formula corr_result --column Result -P PROJ --expr \
+    '(count*xy_sum - x_sum*y_sum) / (sqrt(count*x2_sum - pow(x_sum,2)) * sqrt(count*y2_sum - pow(y_sum,2)))'
+dku recipe add-delete-columns corr_result --columns 'count,x_sum,y_sum,xy_sum,x2_sum,y2_sum' -P PROJ
+```
+
+**When code recipes are acceptable**, SQL `CORR()` says the same thing in one statement (Sync to SQL first if the input isn't on a SQL connection):
 
 ```bash
 dku recipe create-sync sync_to_db -P PROJ -i input --output-ds input_db -c <sql_connection>
@@ -14,7 +37,7 @@ dku recipe create-sql pearson -P PROJ -i input_db --output-ds pearson_result --c
     --sql 'SELECT CORR(COALESCE("col_a", 0), COALESCE("col_b", 0)) AS "Result" FROM ${projectKey}_input_db'
 ```
 
-**Critical: `COALESCE(col, 0)` for null-handling parity** — Alteryx substitutes 0 for nulls; on sparse-null data the coefficient differs 2×+ from pairwise-complete `CORR()` (why: `semantics.md` § Aggregation null-handling). `COALESCE(.,0)` reproduces Alteryx exactly; document it as a deliberate parity choice. Multi-column matrix → one row per pair via `UNION ALL` or Python (DSS Statistics cards are UI-only, not scenario-runnable).
+**Critical for either path: 0-fill for null-handling parity** — Alteryx substitutes 0 for nulls; on sparse-null data the coefficient differs 2×+ from pairwise-complete `CORR()` (why: `semantics.md` § Aggregation null-handling). The `coalesce(.,0)` computed columns / SQL `COALESCE(.,0)` reproduce Alteryx exactly; document it as a deliberate parity choice. Multi-column matrix → one row per pair (repeat the pattern, or `UNION ALL` / Python on the code path).
 
 ---
 

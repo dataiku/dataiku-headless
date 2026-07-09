@@ -36,12 +36,12 @@ Translation details for SAS PROCs and canonical visual patterns. SQL-recipe tran
 
 ### Statistical PROCs
 
-Many SAS stats PROCs land in Python — but the regression / classification family (LOGISTIC / REG / GLM-as-regression / HPLOGISTIC / GENMOD-as-GLM) are **Visual ML**, not Python. See `ml-scenarios.md` § Visual ML for the canonical `dku ml` chain. The Statistics recipe handles basic univariate/bivariate descriptives (means / medians / correlations) without code — reach for it before Python.
+Many SAS stats PROCs land in Python — but the regression / classification family (LOGISTIC / REG / GLM-as-regression / HPLOGISTIC / GENMOD-as-GLM) are **Visual ML**, not Python. See `ml-scenarios.md` § Visual ML for the canonical `dku ml` chain. The EDA Univariate recipe (`create-eda-univariate`) covers univariate descriptives (means / quantiles / frequencies) without code — reach for it before Python. **Bivariate correlation has no dedicated recipe** (Statistics correlation cards are UI-only): compute it visually via sum-of-products algebra (Group no-key → Prepare) or as a SQL/Python code recipe — and, as in Alteryx, it's often analysis-only, not flow logic (`../ayx/tools-predictive-ml.md` § PearsonCorrelation).
 
 | PROC | Recipe | Python library (when needed) |
 |---|---|---|
-| `PROC TTEST` | Statistics recipe (paired / independent) | `scipy.stats.ttest_ind` / `ttest_rel` / `ttest_1samp` |
-| `PROC CORR` | Statistics recipe (correlation matrix) | `pandas.DataFrame.corr` (methods: pearson/spearman/kendall) |
+| `PROC TTEST` | Python — **code, no no-code recipe** (t-test cards are UI worksheet-only; often analysis-only, not flow logic) | `scipy.stats.ttest_ind` / `ttest_rel` / `ttest_1samp` |
+| `PROC CORR` | Visual sum-of-products algebra (Group no-key → Prepare), or SQL `CORR()` (**code**) — often analysis-only, not flow logic (`../ayx/tools-predictive-ml.md` § PearsonCorrelation) | `pandas.DataFrame.corr` (methods: pearson/spearman/kendall) |
 | `PROC LOGISTIC` / `PROC HPLOGISTIC` | **Visual ML** (classification) | — algorithm names: `ml-scenarios.md` § Visual ML |
 | `PROC REG` (linear regression with prediction) | **Visual ML** (regression) | — |
 | `PROC GLM` for regression (`MODEL y = x1 x2;` with `PREDICT`) | **Visual ML** (regression) | — |
@@ -59,7 +59,7 @@ Many SAS stats PROCs land in Python — but the regression / classification fami
 
 **Detector:** a draft Python recipe whose output is `{status: "ok"}` or any non-data row is ML setup leaking into the Flow — stop; ML configuration/training is `ml-scenarios.md` § Visual ML.
 
-Note: Statistics recipe results are a summary object on the dataset, not an output dataset — downstream recipes can't consume them. If the SAS program feeds p-values or coefficients into a later step, write the Python recipe and emit a results dataset.
+Note: Statistics worksheet cards live on the dataset in the Lab, not in the flow — downstream recipes can't consume them. If the SAS program feeds p-values or coefficients into a later step, write the Python recipe and emit a results dataset.
 
 ### PROCs that are NOT recipes
 

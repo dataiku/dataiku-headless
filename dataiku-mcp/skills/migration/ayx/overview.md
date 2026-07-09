@@ -181,7 +181,7 @@ This table is what to open first; it also routes to the leaf file documenting ea
 | `Download` | Python (live API), **or 0 recipes if rows ship as a `TextInput`** | `requests` only for a LIVE per-row fetch; bundled rows → just upload, dead URL is NOT a blocker. tools-io-apps-ml.md § Download |
 | `FindReplace` | Prepare (Find and Replace, "Read replacements from a dataset") | No Python — "Advanced" mode reads the remap table from an editable dataset. Whole-word-in-text replacement → Python |
 | Spatial.* (`CreatePoints`, `SpatialMatch`, `Distance`, `FindNearest`, `Buffer`, `PolyBuild`, `TradeArea`, `MapInput`, …) | **Mostly VISUAL** — `add-geopoint`/GeoJoin/`add-geodistance`/`geoBuffer` after decoding `SpatialObj` to WKT (`scripts/yxdb_read.py --spatial`) | Check `MaxDistanceUnits`/`Units` first (DriveTime = block without GeoRouter). Full tool→recipe table + Python escape hatches: tools-spatial.md |
-| `PearsonCorrelation` | SQL recipe `CORR(COALESCE(col,0), …)` (Sync first if not on SQL) | Null-as-0 parity + mechanics: tools-predictive-ml.md § PearsonCorrelation |
+| `PearsonCorrelation` | **Usually analysis-only → don't migrate as a recipe.** If genuinely a required output: visual sum-of-products algebra (Group no-key → Prepare), or SQL *code* recipe `CORR(COALESCE(col,0), …)` when code is acceptable | Analysis-only test + both paths + null-as-0 parity: tools-predictive-ml.md § PearsonCorrelation |
 
 ---
 

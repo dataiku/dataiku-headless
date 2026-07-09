@@ -12,7 +12,7 @@ Class 1 spurious save prompts — 1a column order · 1b missing `computedColumns
 Class 2 silent no-ops — 2a unknown keys · 2b `appliesTo` · 2c enum NPE ·
 Class 3 plausible-but-wrong shapes — 3a Sampling-as-filter · 3b `uiData.mode` · 3c unmatched roles · 3d dropped duplicate columns ·
 Class 4 type drift — 4a Prepare output types · 4b connection rejects type ·
-Class 5 aggregation — 5a flagless metric · 5b `orderColumn`
+Class 5 aggregation — 5a flagless metric · 5b `orderColumn` · 5c `sum2` no-op
 
 ---
 
@@ -214,6 +214,16 @@ column confirms a step.
 - **Symptom:** `first`/`last`/`firstLastNotNull` results are non-deterministic
   across rebuilds — `orderColumn` requirement in `visual-recipe-payloads.md`
   § Group.
+
+### 5c. `sum2` (sum of squares) is a silent no-op
+
+- **Symptom:** `values[].sum2: true` validates, saves, and rereads fine, but the
+  build emits no `<col>_sum2` column.
+- **Cause:** `sum2` is a vestigial payload flag — the Group UI has no
+  sum-of-squares aggregate, and every engine folds `sum2` into the plain
+  `<col>_sum` column (it never squares anything).
+- **Fix:** compute the square as a pre-group computed column
+  (`--computed-col 'x2=pow(…,2):double'`) and aggregate it with plain `sum`.
 
 ---
 
