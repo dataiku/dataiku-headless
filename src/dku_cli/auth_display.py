@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import TypedDict, assert_never
+from typing import TypedDict
+
+from typing_extensions import assert_never
 
 from dku_cli.auth import KeyResult, KeyStatus
 from dku_cli.client import AUTH_MODE_IN_POD_TICKET

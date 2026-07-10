@@ -199,6 +199,14 @@ EXAMPLES: dict[tuple[str, ...], list[str]] = {
         " --check Projectmusthaveadescription --selection-method BY_PROJECT"
         " --item PROJ1 --item PROJ2",
     ],
+    # Check-param schema and @file convention
+    ("project-standards", "update-check"): [
+        "dku project-standards update-check CHECK_ID --params @params.json",
+    ],
+    # Explicit runs are diagnostic and do not replace the saved scoped report
+    ("project-standards", "run"): [
+        "dku project-standards run --check CHECK_A --check CHECK_B -P PROJ",
+    ],
     # Repeatable KEY=VALUE
     ("config", "set-variables"): [
         "dku config set-variables --set env=prod --set region=eu-west-1",

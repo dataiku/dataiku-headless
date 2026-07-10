@@ -26,8 +26,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --locked
-      - run: uv run pytest -q -n auto
+      - run: uv sync --locked --python "${{ matrix.python-version }}"
+      - run: uv run --python "${{ matrix.python-version }}" dku --help >/dev/null
+      - run: uv run --python "${{ matrix.python-version }}" pytest -q -n auto
 
   coverage-build:
     runs-on: ubuntu-latest

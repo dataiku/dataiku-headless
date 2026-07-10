@@ -412,13 +412,22 @@ Every group and command with its one-line description — read this once per ses
 
 ### `project-standards` — Manage Project Standards checks, scopes, and compliance runs (DSS 14.1+).
 
-- `create-checks` — Create checks from check specs.
-- `create-scope` — Create a scope binding checks to projects (by key, folder, or tag).
-- `last-report` — Show the latest saved Project Standards report for a project.
-- `list-check-specs` — List check specs available on the instance (plugin components).
-- `list-checks` — List checks configured on the instance.
-- `list-scopes` — List scopes (which checks run on which projects).
-- `run` — Run Project Standards checks on a project.
+- `create-checks` — Import checks from plugin specs into the instance library (admin).
+- `create-scope` — Create a project-, folder-, or tag-selected scope (admin).
+- `delete-check` — Delete a check without leaving dangling scope references (admin).
+- `delete-scope` — Delete a custom scope (admin).
+- `get-check` — Get one check's full definition.
+- `get-default-scope` — Get the fallback scope used when no custom scope matches.
+- `get-scope` — Get one scope's full definition.
+- `last-report` — Show the latest saved scoped report for a project.
+- `list-check-specs` — List available check specs and their parameter schemas.
+- `list-checks` — List configured checks, parameters, and tags.
+- `list-scopes` — List scopes in evaluation priority order.
+- `project-scope` — Show which scope currently applies to a project.
+- `reorder-scope` — Move a custom scope in priority order; Default remains last (admin).
+- `run` — Run checks; optionally turn findings into a CI exit code.
+- `update-check` — Update a check's name, description, params, or tags (admin).
+- `update-scope` — Replace a scope's checks, description, or selector (admin).
 
 ### `project-folder` — Manage DSS project folders.
 

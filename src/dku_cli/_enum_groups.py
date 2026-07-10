@@ -3,7 +3,7 @@
 ``dku_cli.enums`` remains the single public home for CLI enums (per
 CLAUDE.md); always import from there (``from dku_cli.enums import ChartType``).
 This module only hosts the definitions of the chart/dashboard group and the
-newest config/agent enums so ``enums.py`` stays within the size ratchet.
+newest config/agent/policy enums so ``enums.py`` stays within the size ratchet.
 The ``_StrEnum`` base lives here (and is re-imported by ``enums.py``) to
 avoid a circular import.
 """
@@ -79,3 +79,18 @@ class MergeFolderConflict(_StrEnum):
     OVERWRITE = "OVERWRITE"
     SKIP = "SKIP"
     FAIL = "FAIL"
+
+
+# --- project standards -------------------------------------------------------
+class ScopeSelectionMethod(_StrEnum):
+    BY_PROJECT = "BY_PROJECT"
+    BY_FOLDER = "BY_FOLDER"
+    BY_TAG = "BY_TAG"
+
+
+class ProjectStandardsSeverity(_StrEnum):
+    LOWEST = "LOWEST"
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"

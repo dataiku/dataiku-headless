@@ -127,6 +127,7 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 | RAG over documents; LLM transform over rows; embed | Knowledge Bank / GenAI recipe | `playbooks/genai-agents.md` |
 | Conversational tool use; tool-calling loop (ReAct) → `dku agent create-react`; deterministic multi-step agent; agent eval; surface/deliver agents to end users (Agent Hub) | Visual / Structured agent | `playbooks/genai-agents.md` |
 | Project setup, variables, bundles, cross-project; scheduled/conditional rebuild | Project ops / Scenario | `playbooks/project-ops.md` |
+| Organization-wide project quality checks; select by project, folder, or tag; run compliance reports | Project Standards | `playbooks/project-standards.md` |
 | Dashboards, charts, insights; app designer; classification/regression/clustering | Dashboard / App / Visual ML | `playbooks/analytics-apps.md` |
 | Define business entities, metrics, relationships, and golden queries for NL-to-SQL | Semantic model | `playbooks/semantic-layer.md` |
 | Reusable packaged capability; webapp; admin/deploy/auth | Plugin / Webapp / Admin | `playbooks/extensions-admin.md` |
@@ -153,6 +154,7 @@ upstream failed (silent cascade; rule 5). Verify real rows before chaining the n
 | Govern blueprints, fields, workflow, sign-offs, hooks/actions, audit, custom-html embeds | `references/govern.md` |
 | Model lifecycle (drift/retrain/MLflow/API serving), code envs, guardrails, macros | `references/mlops.md` |
 | Semantic model entity/attribute/metric/relationship/golden-query/glossary payload schemas + distinctValuesHandlingMode | `references/semantic-models.md` |
+| Project Standards check/spec/scope/report payloads, severity semantics, and saved-report behavior | `references/project-standards.md` |
 | Agent Hub (deliver agents to end users): the `/api/admin/config` endpoint vs the API-key 401, what `dku agent-hub` can/can't do, the read-only export path | `references/agent-hub.md` |
 | Visual Graph plugin (Kuzu): editor webapp, publish, Cypher recipes, graph-search agent tool | `references/visual-graph.md` |
 | Snowflake ML (`ANOMALY_DETECTION`/`FORECAST`) from DSS SQL | `references/snowflake-ml.md` |

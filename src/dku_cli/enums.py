@@ -31,7 +31,9 @@ DimensionDateMode = _enum_groups.DimensionDateMode
 MeasureAgg = _enum_groups.MeasureAgg
 MeasureDisplayAs = _enum_groups.MeasureDisplayAs
 MergeFolderConflict = _enum_groups.MergeFolderConflict
+ProjectStandardsSeverity = _enum_groups.ProjectStandardsSeverity
 SafetyMode = _enum_groups.SafetyMode
+ScopeSelectionMethod = _enum_groups.ScopeSelectionMethod
 
 
 # --- recipes: engine & run config -------------------------------------------
@@ -358,12 +360,6 @@ class FeatureMissingHandling(_StrEnum):
     IMPUTE_MODE = "IMPUTE_MODE"
     DROP_ROWS = "DROP_ROWS"
     NONE = "NONE"
-
-
-class ScopeSelectionMethod(_StrEnum):
-    BY_PROJECT = "BY_PROJECT"
-    BY_FOLDER = "BY_FOLDER"
-    BY_TAG = "BY_TAG"
 
 
 class EnsembleMethod(_StrEnum):

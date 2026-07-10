@@ -32,6 +32,7 @@ dependencies = [
     "keyring>=25",
     "platformdirs>=4",
     "tomli>=2; python_version < '3.11'",
+    "typing-extensions>=4.1",
 ]
 
 [project.scripts]
