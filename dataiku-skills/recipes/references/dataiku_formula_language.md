@@ -1,11 +1,11 @@
 ---
 name: prepare-shared-formula-language
-description: "Shared formula language guidance for formula-based prepare/shaker processors."
+description: "Conceptual reference for Dataiku's formula language (GREL), for reading or describing formulas used by formula-based prepare/shaker processors."
 ---
 
 # Shared Formula Language
 
-Use this reference for prepare processors that evaluate formulas (for example `CreateColumnWithGREL`, `FlagOnCustomFormula` / docs label "Flag rows with formula", `FilterOnCustomFormula` / docs label "Filter rows/cells with formula", `FormulaToNumber`, `FormulaToString`, `FormulaToDate`, and related formula operators).
+Use this reference to understand the Dataiku formula language (GREL) as it appears in formula-based prepare processors (for example `CreateColumnWithGREL`, `FlagOnCustomFormula` / docs label "Flag rows with formula", `FilterOnCustomFormula` / docs label "Filter rows/cells with formula", `FormulaToNumber`, `FormulaToString`, `FormulaToDate`, and related formula operators). It supports two uses: reading an existing formula from `get_recipe_settings` output and accurately explaining what it does, and describing a desired formula precisely in a Cobuild prompt.
 
 ## Typing Notation
 

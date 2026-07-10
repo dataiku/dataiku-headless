@@ -20,6 +20,10 @@ Use this skill to inspect existing WebApps and their backend state.
 - `get_webapp_settings`
 - `get_webapp_state`
 
+## WebApp Types
+
+`type` in `get_webapp_settings` is one of: `STANDARD` (hand-written HTML/CSS/JS with an optional Python/Flask backend), `DASH`, `BOKEH`, `SHINY`, `STREAMLIT`.
+
 ## Safety Rules
 
 - Never invent WebApp ids.

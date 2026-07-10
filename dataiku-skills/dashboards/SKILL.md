@@ -18,6 +18,10 @@ Use this skill to inspect existing dashboards.
 - `list_dashboards`
 - `get_dashboard_settings`
 
+## Resource Model
+
+Dashboards are separate resources from insights. A dashboard owns pages, layout, page filters, and tiles. Tiles reference insights by `insightId` (tile types: `INSIGHT`, `TEXT`, `IMAGE`, `IFRAME`, `GROUP`, `TITLE`); a page can carry its own filters bound to a dataset.
+
 ## Safety Rules
 
 - Never invent dashboard ids.
