@@ -1,25 +1,20 @@
 ---
-name: dataiku-recipe-r
-description: "Write R recipes with DSS dataset and managed-folder flow I/O."
+name: r
+description: Inspect R recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing R recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# r Recipe Skill
+# R Recipe Context
 
-Use this skill with `recipes` for work focused on recipe type `r`.
+Use this skill to understand existing R recipes and to gather specifics for Cobuild prompts.
 
-## I/O Requirements
+## Workflow
 
-**Inputs:** any combination of datasets and managed folders (0 or more, all role `main`).
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant inputs, outputs, library files, or environment context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-**Outputs:** any combination of datasets and managed folders (1 or more, all role `main`).
+## Safety Rules
 
-## Type-Specific Update Notes
-
-Use parent rules from `dataiku-skills/recipes/SKILL.md` section `Settings And Payload Update Rules`.
-
-- Keep updates minimal and use the action that matches recipe family (`set_payload` for most visual recipes, `set_code` for code recipes).
-- Use `set_inputs` and `set_outputs` for input/output changes (not payload/params).
-
-## DSS Reference
-
-- Reference: `R recipes` (https://doc.dataiku.com/dss/latest/code_recipes/r.html)
+- Use code recipes only when the user explicitly requests code.
+- Do not document direct recipe mutation workflows here.

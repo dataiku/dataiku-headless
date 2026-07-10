@@ -1,27 +1,20 @@
 ---
-name: dataiku-recipe-pyspark
-description: "Write Spark recipes in Python using the PySpark API."
+name: pyspark
+description: Inspect PySpark recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing PySpark recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# pyspark Recipe Skill
+# PySpark Recipe Context
 
-Use this skill with `recipes` for work focused on recipe type `pyspark`.
+Use this skill to understand existing PySpark recipes and to gather specifics for Cobuild prompts.
 
-## I/O Requirements
+## Workflow
 
-**Inputs:** any combination of datasets and managed folders (0 or more, all role `main`).
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant inputs, outputs, or environment context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-**Outputs:** any combination of datasets and managed folders (1 or more, all role `main`).
+## Safety Rules
 
-All inputs and outputs must live on connections accessible to the configured Spark cluster (typically HDFS, S3, GCS, Azure Blob, or other object-storage/distributed-filesystem backends).
-
-## Type-Specific Update Notes
-
-Use parent rules from `dataiku-skills/recipes/SKILL.md` section `Settings And Payload Update Rules`.
-
-- Keep updates minimal and use the action that matches recipe family (`set_payload` for most visual recipes, `set_code` for code recipes).
-- Use `set_inputs` and `set_outputs` for input/output changes (not payload/params).
-
-## DSS Reference
-
-- Reference: `PySpark recipes` (https://doc.dataiku.com/dss/latest/code_recipes/pyspark.html)
+- Use code recipes only when the user explicitly requests code.
+- Do not document direct recipe mutation workflows here.

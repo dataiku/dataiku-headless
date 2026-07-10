@@ -1,44 +1,20 @@
 ---
-name: dataiku-recipe-nlp_llm_user_provided_classification
-description: "Classify dataset text into user-defined classes with an LLM."
+name: nlp-llm-user-provided-classification
+description: Inspect user-provided LLM classification recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing classification recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# User-Provided Classification Recipe Overview
+# User-Provided LLM Classification Recipe Context
 
-Use this skill with `recipes` for work focused on recipe type `nlp_llm_user_provided_classification`.
+Use this skill to understand existing user-provided LLM classification recipes and to gather specifics for Cobuild prompts.
 
-This recipe classifies a text column into a user-defined set of classes.
+## Workflow
 
-**I/O:** exactly 1 dataset in (role `main`) → exactly 1 dataset out (role `main`).
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant datasets or LLM context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-## Steps to Create or Update a User-Provided Classification Recipe
+## Safety Rules
 
-Use the parent `recipes` skill for shared lifecycle steps.
-
-Then apply classification-specific updates:
-
-1. Read current settings with `get_recipe_settings` and inspect `payload`.
-2. Update classes, input column, or model choice with `set_recipe_settings` action `set_payload`.
-
-## Required Reference Files
-
-Read these references before editing user-provided classification recipes:
-
-- [User-provided classification settings and payload](references/recipe_settings_and_payload.md) (always).
-
-## Recipe-Specific Guardrails
-
-1. Keep `possibleClasses[]` names stable unless the user explicitly wants to change the business taxonomy.
-2. Keep `inputColumn` aligned with the intended source text column.
-3. Preserve `llmId` unless the user explicitly asks to switch models.
-
-## Type-Specific Update Notes
-
-Use parent rules from `dataiku-skills/recipes/SKILL.md` section `Settings And Payload Update Rules`.
-
-- Classification recipes are payload-driven; prefer `set_payload`.
-- Use a full payload round-trip when changing `possibleClasses[]`.
-
-## DSS Documentation
-
-- Classification recipe docs: https://doc.dataiku.com/dss/latest/generative-ai/recipes/classification.html
+- Keep this skill focused on inspection and recipe-type understanding.
+- Do not document direct recipe mutation workflows here.

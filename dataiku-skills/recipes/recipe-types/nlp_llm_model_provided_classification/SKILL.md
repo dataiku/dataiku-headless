@@ -1,50 +1,20 @@
 ---
-name: dataiku-recipe-nlp_llm_model_provided_classification
-description: "Classify dataset text into built-in LLM classification tasks such as sentiment or emotion analysis."
+name: nlp-llm-model-provided-classification
+description: Inspect model-provided LLM classification recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing classification recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# Model-Provided Classification Recipe Overview
+# Model-Provided LLM Classification Recipe Context
 
-Use this skill with `recipes` for work focused on recipe type `nlp_llm_model_provided_classification`.
+Use this skill to understand existing model-provided LLM classification recipes and to gather specifics for Cobuild prompts.
 
-This recipe applies a built-in classification task provided by the model workflow, such as sentiment or emotion analysis.
+## Workflow
 
-**I/O:** exactly 1 dataset in (role `main`) → exactly 1 dataset out (role `main`).
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant datasets or LLM context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-## Steps to Create or Update a Model-Provided Classification Recipe
+## Safety Rules
 
-Use the parent `recipes` skill for shared lifecycle steps.
-
-Then apply classification-specific updates:
-
-1. Read current settings with `get_recipe_settings` and inspect `payload`.
-2. Update task selection, model choice, or input column with `set_recipe_settings` action `set_payload`.
-
-## Required Reference Files
-
-Read these references before editing model-provided classification recipes:
-
-- [Model-provided classification settings and payload](references/recipe_settings_and_payload.md) (always).
-
-## Recipe-Specific Guardrails
-
-1. Keep `task` to a DSS-supported built-in classification task.
-2. Keep `inputColumn` aligned with the intended source text column.
-3. Preserve `llmId` unless the user explicitly asks to switch models.
-4. Preserve `outputMode` unless the user explicitly wants alternate output behavior.
-
-## Type Notes
-
-- Keep payload/params aligned to DSS expectations for `nlp_llm_model_provided_classification`.
-- Preserve existing instance-specific values unless explicitly asked to change them.
-
-
-## Type-Specific Update Notes
-
-Use parent rules from `dataiku-skills/recipes/SKILL.md` section `Settings And Payload Update Rules`.
-
-- Classification recipes are payload-driven; prefer `set_payload`.
-
-## DSS Documentation
-
-- Classification recipe docs: https://doc.dataiku.com/dss/latest/generative-ai/recipes/classification.html
+- Keep this skill focused on inspection and recipe-type understanding.
+- Do not document direct recipe mutation workflows here.

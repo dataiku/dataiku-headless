@@ -1,20 +1,20 @@
 ---
-name: dataiku-recipe-spark_scala
-description: "Write Spark recipes in Scala with Spark-native dataset processing."
+name: spark-scala
+description: Inspect Spark Scala recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing Spark Scala recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# spark_scala Recipe Skill
+# Spark Scala Recipe Context
 
-**Not supported via MCP.** Stop and report this limitation to the user — do not attempt to create, configure, or run `spark_scala` recipes through MCP tools.
+Use this skill to understand existing Spark Scala recipes and to gather specifics for Cobuild prompts.
 
-## Why
+## Workflow
 
-Spark Scala recipes must be compiled before they can run. Compilation is only triggered by the DSS UI (save action in the recipe editor). Even if code is written with `set_code`, the recipe will fail at runtime with `ClassNotFoundException: CustomScalaRecipe` until the user opens it in the UI and saves it. There is no MCP path to trigger compilation.
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant inputs, outputs, or environment context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-## What to tell the user
+## Safety Rules
 
-Spark Scala recipes must be created and compiled through the DSS UI. After the user has created and saved the recipe in the UI (which triggers compilation), MCP tools can read settings with `get_recipe_settings` and run with `run_recipe`.
-
-## DSS Reference
-
-- Reference: `Spark-Scala recipes` (https://doc.dataiku.com/dss/latest/code_recipes/scala.html)
+- Use code recipes only when the user explicitly requests code.
+- Do not document direct recipe mutation workflows here.

@@ -1,0 +1,2 @@
+[mcp_servers.dataiku-mcp]
+command = "/Users/nedmartorell/Developer/dataiku-agent-tool-projects/dataiku-cobuild-adk/bin/run_mcp.sh"

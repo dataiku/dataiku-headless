@@ -6,7 +6,7 @@ description: Translate business logic from third-party tools (e.g. Alteryx, Tabl
 
 # Migrations
 
-Translate Source Bundle into runnable Dataiku flow, DSS-Optimized Logic form. Initial Pass autonomous, two modes chosen up front: **Express Pass** (single context, inspection-verified) and **Deep Pass** (role-isolated, enforced by deterministic completion gate).
+Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows.
 
 A migration consists of four phases: plan, build, validate, and document and cleanup. The "build" and "validate" phase may loop multiple times if the "validation" encounters issues with the assets created in the "build" phase.
 

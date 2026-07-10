@@ -53,8 +53,8 @@ Follow these steps in order for any user request:
 3. **Route to a skill and read required references.** Consult the Task Routing table below. Read the relevant SKILL.md in full. Before making any mutation call, also read any reference files, subskills, or companion docs that the skill explicitly tells you to load before constructing, editing, or validating payloads. Do not proceed to step 4 until that reading is complete.
 4. **Read before writing.** Inspect current state before any mutation — read settings/info/summary tools before write tools.
 5. **Announce the plan.** State the intended action in one sentence before executing mutations.
-6. **Execute.** Run the mutation(s) using MCP tools.
-7. **Validate.** Check the result. For recipe builds, always call `get_dataset_sample` on each output dataset to confirm data landed correctly. Check schema, build status, or model metrics as appropriate.
+6. **Execute.** For project-level writes, route the mutation through Cobuild unless the skill explicitly documents a direct-write exception.
+7. **Validate.** Check the result with the relevant read tools. For flow outputs, confirm schema, samples, build status, or model metrics as appropriate.
 8. **Report.** State what changed, what validation was run, and any warnings or residual risks.
 
 ---
@@ -63,30 +63,30 @@ Follow these steps in order for any user request:
 
 | User intent | Skill to load | Coverage | Notes |
 | --- | --- | --- | --- |
-| Inspect a project, its flow, recipes, or saved models; edit project metadata (name, description, tags, checklists) or project variables; create, delete, or populate flow zones | `./dataiku-skills/projects/SKILL.md` | Full | Metadata writes require project admin privileges. |
+| Inspect a project, its flow, recipes, or saved models; inspect project metadata or variables; or create a brand-new project | `./dataiku-skills/projects/SKILL.md` | Partial | `create_project` remains a direct exception. Existing project writes route through Cobuild. |
 | Create or modify project assets through Dataiku Cobuild; continue a Cobuild conversation; or let Cobuild inspect a project before building or refactoring assets | `./dataiku-skills/cobuild/SKILL.md` | Partial | Default route for project-level asset creation. Current MCP coverage supports starting, continuing, confirming, and listing Cobuild conversations. |
-| Share a flow item from a source project to another project as a read-only input | `./dataiku-skills/cross-project-sharing/SKILL.md` | Full | Requires `Read project conf` + `Write project conf` on the source. |
+| Inspect existing cross-project sharing relationships or gather context for a sharing change | `./dataiku-skills/cross-project-sharing/SKILL.md` | Partial | Use Cobuild for project-level sharing mutations. |
 | Find a dataset across the instance via DSS Data Collections (cross-project curated catalogs) | `./dataiku-skills/data-collections/SKILL.md` | Partial | List data collections and list data collection objects only (and only datasets within data collections). |
 | Inspect available DSS connections, choose a valid connection name for datasets/folders/recipes, or diagnose connection access/test failures | `./dataiku-skills/connections/SKILL.md` | Partial | List connections, get connection info (requires read connection details permission), and test connection only. |
-| List available code environments or set the code environment for a Python, R, or PySpark recipe or an ML analysis | `./dataiku-skills/code-environments/SKILL.md` | Full | |
-| Create, inspect, or delete a dataset (tabular output in DSS) | `./dataiku-skills/datasets/SKILL.md` | Full | |
-| List, inspect, create, update, compute, or delete Data Quality rules on datasets; inspect Data Quality status/results/history | `./dataiku-skills/data-quality/SKILL.md` | Full | Use dataset skill first for schema/context when creating column-based rules. |
-| Create, inspect, upload files to, or delete a managed folder (unstructured file storage in DSS) | `./dataiku-skills/managed_folders/SKILL.md` | Full | |
+| List available code environments or choose a valid environment name to feed into a Cobuild workflow | `./dataiku-skills/code-environments/SKILL.md` | Partial | Use Cobuild for recipe or ML environment changes. |
+| Inspect datasets and gather schema/content context before a Cobuild write | `./dataiku-skills/datasets/SKILL.md` | Partial | Dataset creation and mutation route through Cobuild. |
+| Inspect Data Quality rules, status, results, or history | `./dataiku-skills/data-quality/SKILL.md` | Partial | Use dataset skill first for schema/context; Data Quality writes route through Cobuild. |
+| Inspect managed folders or upload a local file into one | `./dataiku-skills/managed_folders/SKILL.md` | Partial | `upload_file_to_managed_folder` remains a direct exception; other folder writes route through Cobuild. |
 | Follow a long-running DSS job after a build, run, or training action has already started | `./dataiku-skills/jobs/SKILL.md` | Full | Use when you already have a `job_id` and need status, waiting, logs, or job rediscovery. |
-| Create, edit, or run a recipe (any transformation step: join, prepare, filter, groupby aggregation, SQL, Python, etc.) | `./dataiku-skills/recipes/SKILL.md` → then recipe-type subskill at `./dataiku-skills/recipes/recipe-types/<type>/SKILL.md` | Full | Use visual recipes by default. Do not use a code recipe unless the user explicitly asks for a particular code recipe type. Load parent skill first, then type-specific subskill once known. |
-| Create, tune, train, or deploy an ML analysis | `./dataiku-skills/machine-learning/SKILL.md` → then task-type subskill at `./dataiku-skills/machine-learning/task-types/<type>/SKILL.md` | Partial | Inspect live task before editing; prefer iterating on one analysis. Load parent skill first, then type-specific subskill once known. Prediction (classification, regression), time series forecasting, causal prediction, and clustering supported; image classification and object detection not supported. |
-| Create, configure, or debug agents (simple ReAct or visual BLOCKS_GRAPH) | `./dataiku-skills/agents/SKILL.md` → then block-type reference at `./dataiku-skills/agents/references/block-types/<type>.md` | Full | Load parent skill first, then read the block-type reference once the type is known. Block type cannot be changed via update — use `replace_agent_block`. |
-| Create, inspect, update, or delete agent reviews; manage review traits and tests; run evaluations and inspect per-test, per-trait results | `./dataiku-skills/agent-reviews/SKILL.md` | Full | Use the agents skill first to identify the agent ID when linking a review to an agent. |
-| Inspect available LLMs, inspect/build existing Knowledge Banks, or create/update/inspect Retrieval-Augmented LLMs | `./dataiku-skills/llms-and-knowledge-banks/SKILL.md` | Full | Use this for LLM/KB/RAG project objects around GenAI flows. Keep GenAI flow-step creation under the `recipes` skill tree. |
-| Create, inspect, update, or delete insights, especially chart insights, that dashboards reference | `./dataiku-skills/insights/SKILL.md` | Full | |
-| Create, inspect, update, or delete dashboards; pin existing insights as tiles; edit page filters and tile layouts | `./dataiku-skills/dashboards/SKILL.md` | Full | Create or update insights first, then reference them from dashboard tiles. |
-| List, inspect, create, edit, or delete semantic models and their versions; update version settings (entities, attributes, relationships, glossary terms, golden queries); set the active version; trigger distinct-values index updates | `./dataiku-skills/semantic-models/SKILL.md` | Full | |
-| Build GenAI/RAG flow steps | `./dataiku-skills/recipes/SKILL.md` → then recipe-type subskill at `./dataiku-skills/recipes/recipe-types/<type>/SKILL.md` | Full | This includes existing LLM-adjacent flow recipes such as prompt, summarization, embeddings, extraction, and GenAI evaluation. |
-| Automate a flow or pipeline — user says "schedule", "run daily/weekly", "trigger when data changes", "retrain automatically", "alert me when it fails", or asks how to operationalize something they just built | `./dataiku-skills/scenarios/SKILL.md` | Full | Proactively suggest scenarios when a user finishes building a flow or model and hasn't set up automation yet. Confirm expensive steps with the user. |
-| Create, inspect, update, or operate a WebApp backend | `./dataiku-skills/webapps/SKILL.md` | Full | |
-| Create, read, update, or delete wiki articles | `./dataiku-skills/wikis/SKILL.md` | Full | |
-| Read or edit project library files/folders, or manage external (git-imported) libraries linked to a project | `./dataiku-skills/project-libraries/SKILL.md` | Full | Treat overwrites and folder deletions as destructive. |
-| Migrate / rebuild work from another tool — user has a Source Bundle and asks to translate its business logic into a runnable Dataiku flow | `./dataiku-skills/migrations/SKILL.md` | Full | Initial Pass is fully autonomous. |
+| Inspect recipes and recipe types before asking Cobuild to create, modify, or execute a recipe workflow | `./dataiku-skills/recipes/SKILL.md` → then recipe-type subskill at `./dataiku-skills/recipes/recipe-types/<type>/SKILL.md` | Partial | Use visual recipes by default. Load parent skill first, then type-specific subskill as supporting context. |
+| Inspect ML analyses, trained models, or saved models before asking Cobuild to create or modify ML assets | `./dataiku-skills/machine-learning/SKILL.md` → then task-type subskill at `./dataiku-skills/machine-learning/task-types/<type>/SKILL.md` | Partial | Load parent skill first, then task-type subskill as supporting context. |
+| Inspect existing agents, versions, or agent tools before asking Cobuild to create or modify agents | `./dataiku-skills/agents/SKILL.md` → then block-type reference at `./dataiku-skills/agents/references/block-types/<type>.md` | Partial | Load parent skill first, then read the block-type reference once the type is known. Agent writes route through Cobuild. |
+| Inspect agent reviews, tests, runs, and results | `./dataiku-skills/agent-reviews/SKILL.md` | Partial | Use the agents skill first to identify the linked agent; Agent Review writes route through Cobuild. |
+| Inspect available LLMs, Knowledge Banks, or Retrieval-Augmented LLMs before a Cobuild write | `./dataiku-skills/llms-and-knowledge-banks/SKILL.md` | Partial | Keep GenAI flow-step creation under the recipes/Cobuild route. |
+| Inspect insights, especially the ones dashboards reference | `./dataiku-skills/insights/SKILL.md` | Partial | Insight writes route through Cobuild. |
+| Inspect dashboards and gather context for dashboard changes | `./dataiku-skills/dashboards/SKILL.md` | Partial | Dashboard writes route through Cobuild. |
+| Inspect semantic models and their versions before a Cobuild write | `./dataiku-skills/semantic-models/SKILL.md` | Partial | Semantic-model writes route through Cobuild. |
+| Build GenAI/RAG flow steps | `./dataiku-skills/recipes/SKILL.md` → then recipe-type subskill at `./dataiku-skills/recipes/recipe-types/<type>/SKILL.md` | Partial | Inspect the relevant recipe family first, then route the project-level write through Cobuild. |
+| Inspect automation context such as scenarios, triggers, reporters, and run history before a Cobuild write | `./dataiku-skills/scenarios/SKILL.md` | Partial | Proactively suggest scenarios when a user finishes building a flow or model and hasn't set up automation yet. Scenario writes route through Cobuild. |
+| Inspect WebApps and backend state before a Cobuild write or runtime action | `./dataiku-skills/webapps/SKILL.md` | Partial | WebApp writes and runtime operations route through Cobuild. |
+| Inspect wiki articles and hierarchy before a Cobuild write | `./dataiku-skills/wikis/SKILL.md` | Partial | Wiki writes route through Cobuild. |
+| Read project library files/folders, search library content, or write a local file into the project library | `./dataiku-skills/project-libraries/SKILL.md` | Partial | `write_project_library_file` remains a direct exception; broader library changes route through Cobuild. |
+| Migrate / rebuild work from another tool using source material as context for Cobuild | `./dataiku-skills/migrations/SKILL.md` | Partial | Use Cobuild for resulting project-asset creation. |
 
 **Coverage:** Full = CRUD complete via MCP. Partial = read-only or missing operations (see SKILL.md). None = unsupported by MCP.
 
@@ -101,7 +101,7 @@ Follow these steps in order for any user request:
 - A justification is required when a code recipe is created. The only allowable justification is that the user explicitly requested the code recipr. Vague claims such as "stateful", "complex", or "easier" are not valid justifications.
 
 **Skill compliance:**
-- Before any create, get, set, update, or other state-changing operation on a recipe, ML analysis, scenario, agent, or other flow object, you **MUST** read the full SKILL.md for that object type **and** any additional reference files it explicitly requires for that operation. Never guess field names, parameter formats, or payload structure from prior knowledge.
+- Before any create, get, set, update, or other state-changing operation on a recipe, ML analysis, scenario, agent, or other flow object, you **MUST** read the full SKILL.md for that object type **and** any additional reference files it explicitly requires for that operation. For project-level writes, that means using the object skill for inspection/context and then routing the mutation through Cobuild unless the skill documents a direct-write exception. Never guess field names, parameter formats, or payload structure from prior knowledge.
 
 **Grounding:**
 - Do not invent project keys, dataset names, recipe names, connection names, model IDs, scenario IDs, SMTP channel IDs, or env names — always discover them via tools.
@@ -113,10 +113,10 @@ Follow these steps in order for any user request:
 - Do not hardcode tenant-specific values into outputs or code.
 
 **Safety:**
-- For a sequence of dependent recipes, complete the full cycle — create, configure, run, sample the output dataset — for each recipe before starting the next. Never batch-create multiple dependent recipes and run them all afterwards. Independent (non-reliant) recipes may be built concurrently.
-- Do not start jobs (e.g. `run_recipe`, `build_datasets`) referencing flow objects that are being built in another running job.
+- For a sequence of dependent recipe changes, complete each Cobuild step and validate the resulting outputs before starting the next dependent change. Independent branches may proceed concurrently when they do not share in-flight flow objects.
+- Do not start build or run actions against flow objects that are already being modified or built by another running job.
 - If a build, run, training, or deployment call times out or is interrupted before returning a terminal state, treat those flow objects as still potentially in use until the job status is checked.
-- Never perform destructive actions without explicit user confirmation.
+- Never perform destructive actions without explicit user confirmation, except when answering a Cobuild delete confirmation that clearly matches the user's stated intent as described in the Cobuild skill.
 - Preserve existing instance-specific values unless the user explicitly requests changes.
 - Keep changes minimal and reversible; prefer targeted edits over rewrites.
 - Never expose API keys, tokens, or secrets in outputs; redact sensitive values in commands, logs, or errors.

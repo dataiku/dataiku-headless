@@ -1,25 +1,20 @@
 ---
-name: dataiku-recipe-shell
-description: "Run shell scripts in DSS for automation tasks."
+name: shell
+description: Inspect Shell recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing Shell recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# shell Recipe Skill
+# Shell Recipe Context
 
-Use this skill with `recipes` for work focused on recipe type `shell`.
+Use this skill to understand existing Shell recipes and to gather specifics for Cobuild prompts.
 
-## I/O Requirements
+## Workflow
 
-**Inputs:** any combination of datasets and managed folders (0 or more, all role `main`).
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant inputs, outputs, or environment context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-**Outputs:** any combination of datasets and managed folders (1 or more, all role `main`).
+## Safety Rules
 
-## Type-Specific Update Notes
-
-Use parent rules from `dataiku-skills/recipes/SKILL.md` section `Settings And Payload Update Rules`.
-
-- Keep updates minimal and use the action that matches recipe family (`set_payload` for most visual recipes, `set_code` for code recipes).
-- Use `set_inputs` and `set_outputs` for input/output changes (not payload/params).
-
-## DSS Reference
-
-- Reference: `Shell recipes` (https://doc.dataiku.com/dss/latest/code_recipes/shell.html)
+- Use code recipes only when the user explicitly requests code.
+- Do not document direct recipe mutation workflows here.

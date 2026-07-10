@@ -1,27 +1,20 @@
 ---
-name: dataiku-recipe-spark_sql_query
-description: "Populate outputs with SparkSQL queries over input datasets."
+name: spark-sql-query
+description: Inspect Spark SQL query recipes and use their current settings as context for Cobuild. Use when an agent must understand an existing Spark SQL query recipe before asking Cobuild to create or modify that recipe type.
 ---
 
-# spark_sql_query Recipe Skill
+# Spark SQL Query Recipe Context
 
-Use this skill with `recipes` for work focused on recipe type `spark_sql_query`.
+Use this skill to understand existing Spark SQL query recipes and to gather specifics for Cobuild prompts.
 
-## I/O Requirements
+## Workflow
 
-**Inputs (all role `main`):** 0 or more datasets — referenced in the SparkSQL query by their DSS names.
+1. Locate the recipe with flow context or `list_recipes`.
+2. Inspect it with `get_recipe_settings`.
+3. Inspect relevant inputs, outputs, or environment context with read tools when needed.
+4. Route recipe creation, edits, output wiring, and execution through `../../../cobuild/SKILL.md`.
 
-**Output:** exactly 1 dataset (role `main`) — populated by the query result.
+## Safety Rules
 
-All inputs and the output must live on connections accessible to the configured Spark cluster (typically HDFS, S3, GCS, Azure Blob, or other object-storage/distributed-filesystem backends).
-
-## Type-Specific Update Notes
-
-Use parent rules from `dataiku-skills/recipes/SKILL.md` section `Settings And Payload Update Rules`.
-
-- Keep updates minimal and use the action that matches recipe family (`set_payload` for most visual recipes, `set_code` for code recipes).
-- Use `set_inputs` and `set_outputs` for input/output changes (not payload/params).
-
-## DSS Reference
-
-- Reference: `SparkSQL recipes` (https://doc.dataiku.com/dss/latest/code_recipes/sparksql.html)
+- Use code recipes only when the user explicitly requests code.
+- Do not document direct recipe mutation workflows here.
