@@ -13,7 +13,7 @@ A code environment provides the language runtime and installed dependencies for 
 
 An asset can use an explicitly selected environment, inherit a configured default, or use its language's built-in environment. Choose an explicit environment only when the user requests it or the task/error context establishes that it is needed.
 
-`list_code_envs` provides valid environment names, languages, and deployment types. It can identify compatible candidates, but it does not prove that an environment contains a required package or runtime version. Use error details and known requirements when diagnosing failures; involve Cobuild or an administrator when the available metadata is insufficient.
+Matching a workload's language does not establish package or runtime compatibility. Diagnose failures using error details and known requirements, and involve Cobuild or an administrator when the available context is insufficient.
 
 ## Workflow
 
