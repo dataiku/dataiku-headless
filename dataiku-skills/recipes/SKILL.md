@@ -38,15 +38,15 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 
 | Family | Purpose | Reference |
 | --- | --- | --- |
-| Data prep | Clean, combine, filter, reshape, aggregate, and move data with visual transformations. | [Data prep recipes](references/data-prep-recipes.md) |
-| ML | Generate features, score records, and evaluate model outputs. | [ML recipes](references/ml-recipes.md) |
-| GenAI | Apply LLMs, process documents, populate Knowledge Banks, and evaluate GenAI outputs. | [GenAI recipes](references/genai-recipes.md) |
-| Code | Run explicitly requested Python, R, SQL, Spark, or shell transformations. | [Code recipes](references/code-recipes.md) |
+| Data prep | Clean, combine, filter, reshape, aggregate, and move data with visual transformations. | [Data prep recipes](references/recipe-types/data-prep-recipes.md) |
+| ML | Generate features, score records, and evaluate model outputs. | [ML recipes](references/recipe-types/ml-recipes.md) |
+| GenAI | Apply LLMs, process documents, populate Knowledge Banks, and evaluate GenAI outputs. | [GenAI recipes](references/recipe-types/genai-recipes.md) |
+| Code | Run explicitly requested Python, R, SQL, Spark, or shell transformations. | [Code recipes](references/recipe-types/code-recipes.md) |
 
 ## Shared References
 
-- Read the [Dataiku formula language reference](references/dataiku_formula_language.md) when a recipe uses or needs a formula expression.
-- Read the [prepare processor catalog](references/prepare_processors_overview.md) when inspecting or requesting a `prepare` recipe.
+- Read the [Dataiku formula language reference](references/shared/dataiku_formula_language.md) when a recipe uses or needs a formula expression.
+- Read the [prepare processor catalog](references/shared/prepare_processors_overview.md) when inspecting or requesting a `prepare` recipe.
 
 ## Supporting Context
 

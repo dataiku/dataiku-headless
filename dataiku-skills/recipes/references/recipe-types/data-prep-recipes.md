@@ -9,7 +9,7 @@ Read this reference when inspecting or describing a visual data-prep recipe. Use
 
 | Intent | Recipe types | Selection guidance |
 | --- | --- | --- |
-| Clean and enrich columns | `prepare` | Use visual processors for common parsing, cleanup, standardization, enrichment, and column changes. See the [prepare processor catalog](prepare_processors_overview.md). |
+| Clean and enrich columns | `prepare` | Use visual processors for common parsing, cleanup, standardization, enrichment, and column changes. See the [prepare processor catalog](../shared/prepare_processors_overview.md). |
 | Combine datasets | `join`, `fuzzyjoin`, `geojoin`, `vstack`, `upsert` | Use joins for keyed matching, `vstack` for appending compatible rows, and `upsert` for merging rows into a target. |
 | Aggregate and reshape | `grouping`, `window`, `pivot`, `split` | Use grouping to change data grain, window calculations for partitioned analytics, pivot for long-to-wide reshaping, and split for routing rows into multiple outputs. |
 | Filter and order | `sampling`, `sort`, `distinct`, `topn` | Distinguish sampling or filtering, ordering, deduplication, and selecting ranked rows. |
@@ -23,4 +23,4 @@ Read this reference when inspecting or describing a visual data-prep recipe. Use
 - `pivot` changes the schema based on values in the pivot column. `split` can create several output datasets; identify the required output behavior first.
 - `sync` changes storage location rather than transformation logic. Preserve the surrounding storage context unless the user requests a change.
 - `download` and `export` require managed-folder context, including the intended folder and file behavior.
-- Read the [formula language reference](dataiku_formula_language.md) for formula-driven preparation or filtering.
+- Read the [formula language reference](../shared/dataiku_formula_language.md) for formula-driven preparation or filtering.
