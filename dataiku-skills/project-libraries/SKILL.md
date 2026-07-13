@@ -1,18 +1,37 @@
 ---
 name: project-libraries
-description: Inspect a Dataiku project's library tree and, when explicitly needed, write a project library file from a local workspace path. Use this skill to discover, read, search, and validate project library content before asking Cobuild to make broader project changes.
+description: Understand and inspect a Dataiku project's library tree and, when explicitly needed, write a project library file from a local workspace path. Use when an agent must inspect project source, add a user-supplied local source file, or gather context before Cobuild makes broader library changes.
 ---
 
-# Project Library Operations
+# Project Libraries
 
-Use this skill to inspect the project library and to write a file only when the user explicitly wants to place local source content into the project library.
+Use this skill to understand and inspect the project library, and to handle the direct local-source-file write exception.
+
+## Project Library Concepts
+
+A project library is the per-project source tree available to project code, including recipes, notebooks, and WebApps. Use it for Python modules, R scripts, SQL templates, JSON fixtures, and other small code-supporting resources.
+
+Do not use the project library as a general file store. Use managed folders for binary files, large data files, exports, and job artifacts. Use datasets for tabular lookup or reference data.
+
+A project library can contain internal files and git-imported external libraries. External libraries contribute to the same tree but are configured from a remote repository; they should not be recreated through individual file uploads.
+
+## Modification Routes
+
+| Action | Route |
+| --- | --- |
+| Write one user-supplied local source file | Direct write exception |
+| Move, rename, delete, or restructure library content | Cobuild |
+| Configure, update, or remove a git-imported external library | Cobuild |
 
 ## Workflow
 
-1. Use `list_project_library` to discover the current tree.
-2. Use `read_project_library_file`, `search_project_library`, and `validate_project_library_file` to understand existing content before changing anything.
-3. If the user explicitly wants to upload or replace a project library file from the local workspace, use `write_project_library_file`.
-4. If the task requires broader project-library restructuring or other project-asset modifications, route that work through `./dataiku-skills/cobuild/SKILL.md`.
+1. Use `list_project_library` to discover the current tree and distinguish internal from external content when relevant.
+2. Use `read_project_library_file` and `search_project_library` to understand existing source before changing it.
+3. When the user explicitly wants to add or replace a local source file, use `write_project_library_file`.
+4. Read the existing target before replacement. Use overwrite only with explicit user intent.
+5. Validate or re-read a written Python file with `validate_project_library_file` and `read_project_library_file`.
+6. When the user mentions a git-hosted library, repository, branch, tag, or commit, route external-library configuration through `./dataiku-skills/cobuild/SKILL.md`.
+7. Route all other library restructuring and project-asset changes through Cobuild.
 
 ## Preferred Tools
 
@@ -24,6 +43,8 @@ Use this skill to inspect the project library and to write a file only when the 
 
 ## Safety Rules
 
-- Never invent library paths.
-- Read a file before overwriting it unless the user explicitly wants a blind replacement.
-- Keep direct write guidance here limited to `write_project_library_file`.
+- Discover library paths via tools; do not invent identifiers.
+- Keep this skill read-only except for an explicitly requested local-source-file write.
+- Never use overwrite without explicit user intent.
+- Never place credentials, tokens, or other secrets in project library source.
+- Route moves, renames, deletion, external-library configuration, and broader restructuring through `./dataiku-skills/cobuild/SKILL.md`.
