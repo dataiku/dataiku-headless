@@ -5,7 +5,7 @@ description: "Consolidated one-line reference for all prepare/shaker processor t
 
 # Prepare Processors Overview
 
-Consolidated reference for all prepare (Shaker) recipe processor `type` values. Use this to interpret an existing prepare recipe's `steps[]` list (from `get_recipe_settings`) or to describe a prepare step accurately in a natural-language prompt to Cobuild, which builds/edits prepare recipes conversationally.
+Consolidated reference for all prepare (Shaker) recipe processor `type` values. Use this to interpret an existing prepare recipe's `steps[]` list (from `get_recipe_settings`) or to describe a prepare step accurately in a natural-language Cobuild request.
 
 ## Column Management
 
@@ -51,7 +51,7 @@ Consolidated reference for all prepare (Shaker) recipe processor `type` values. 
 - **ObjectFoldProcessor** — Parse a JSON-object column and fold each key/value entry into its own row (key and value in two new columns); source column deleted afterward.
 - **RepeatableUnfold** — Group rows by a key column; each time a trigger value appears in the fold column, flush accumulated data into a new row with dynamically named fold columns. Buffers all per-key data in memory.
 - **Pivot** — Collapse rows sharing a sorted index into one row, turning each distinct label value into its own column. Requires input pre-sorted on the index column.
-- **compute_n_tile / ComputeNTile** — Assign each row to an n-tile (quantile) bucket for a numeric column. Requires a SQL/in-database or native Spark engine; the DSS streaming engine yields null.
+- **compute_n_tile / ComputeNTile** — Assign each row to an n-tile (quantile) bucket for a numeric column. Requires a SQL/in-database or native Spark engine; the Dataiku streaming engine yields null.
 
 ## Arrays
 
@@ -99,7 +99,7 @@ Consolidated reference for all prepare (Shaker) recipe processor `type` values. 
 - **FlagOnCustomFormula** — Flag rows matching a formula expression (writes `1` for matches, leaves others empty).
 - **RemoveRowsOnEmpty** — Delete rows with an empty/null value in selected column(s), or (with `keep`) keep only those rows.
 - **SplitInvalidCells** — Move cells invalid for a chosen meaning into a new column, leaving valid values in place.
-- **MergeLongTailValues** — Keep only the most frequent values in a categorical column; fold rarer values into a single replacement bucket. Requires a SQL/in-database or native Spark engine — the local DSS streaming engine is a no-op passthrough.
+- **MergeLongTailValues** — Keep only the most frequent values in a categorical column; fold rarer values into a single replacement bucket. Requires a SQL/in-database or native Spark engine; the local Dataiku streaming engine is a no-op passthrough.
 
 ## Geo
 
@@ -107,7 +107,7 @@ Consolidated reference for all prepare (Shaker) recipe processor `type` values. 
 - **GeoPointExtractor** — Extract latitude/longitude columns back out of a GeoPoint-format column.
 - **GeoDistanceProcessor** — Compute geographic distance between two geopoint columns, or between a geopoint column and a fixed reference point/geometry.
 - **GeoPointBufferProcessor** — Create a circle or rectangle area geometry around geopoint values.
-- **GeoIPResolver** — Resolve an IP address column into geographic attributes (country, city, lat/lng, timezone, etc.); requires a configured DSS GeoIP database.
+- **GeoIPResolver** — Resolve an IP address column into geographic attributes (country, city, lat/lng, timezone, etc.); requires a configured Dataiku GeoIP database.
 - **ChangeCRSProcessor** — Convert geometry values from one coordinate reference system (CRS) to another (EPSG code or WKT).
 - **GeometryInfoExtractor** — Extract centroid, length, and area columns from a WKT geometry column; length/area are in CRS units, so meaning differs between planar and spheroidal engines.
 - **EnrichFrenchDepartement** — Enrich a French department code column with INSEE demography/housing/fiscal/employment/companies data.
@@ -136,7 +136,6 @@ Consolidated reference for all prepare (Shaker) recipe processor `type` values. 
 
 ## Formula / Code / Conditional Logic
 
-- **CreateColumnWithGREL** — Compute a new column using a DSS formula (Math, string, date, boolean/conditional functions). Intended as a fallback for logic not covered by a more targeted processor — not the first choice for common cleaning/parsing/normalization.
-- **VisualIfRule** — Create if / else-if / else branching logic to assign values or formulas into output columns. Branch conditions are DSS "visual conditions": each is an input column + operator + value (operators match the column's type — e.g. string columns get `contains`, numeric columns get `<`/`>`), combinable into AND/OR groups.
+- **CreateColumnWithGREL** — Compute a new column using a Dataiku formula (Math, string, date, boolean/conditional functions). Intended as a fallback for logic not covered by a more targeted processor — not the first choice for common cleaning/parsing/normalization.
+- **VisualIfRule** — Create if / else-if / else branching logic to assign values or formulas into output columns. Branch conditions are Dataiku visual conditions: each is an input column + operator + value (operators match the column's type — e.g. string columns get `contains`, numeric columns get `<`/`>`), combinable into AND/OR groups.
 - **PythonUDF** — Run user-defined Python over each cell/row/row group via a `process` function; can run in-process (Jython, Python 2, stdlib-only) or via a real Python code environment kernel (`useKernel`).
-
