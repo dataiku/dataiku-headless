@@ -56,14 +56,14 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
 
 ## Phase 2: Build
 
-Create the Dataiku project. If no project key is specified in the user message, create the project using a sensible project key. 
-Read the Migration Plan from `<bundle_dir>/migration_v<n>/migration_plan.md` and build the Dataiku project.
+Create the Dataiku project. If no project key is specified in the user message, create the project using a sensible project key.
+Read the Migration Plan from `<bundle_dir>/migration_v<n>/migration_plan.md` and build the Dataiku project via Cobuild (`./dataiku-skills/cobuild/SKILL.md`).
 
 The Build phase must create the DSS flow that performs the transformation logic. A locally computed final result that is only uploaded into DSS does not satisfy this phase.
 
 ## Phase 3: Validate
 
-Read the Validation Plan from `<bundle_dir>/migration_v<n>/validation_plan.md`. Use the Validation Plan to check that the migration was successfull. 
+Read the Validation Plan from `<bundle_dir>/migration_v<n>/validation_plan.md`. Use the Validation Plan to check that the migration was successfull.
 If any part of the validation fails, repeat the Build and then re-validate. Loop as many times as necessary until the Validation Plan passes.
 
 Validation must confirm that the requested final output dataset is produced by a recipe chain rooted in the migrated source datasets.
@@ -72,7 +72,7 @@ Validation is not complete until the migration also satisfies the Documentation 
 
 ## Phase 4: Document and Cleanup
 
-Read the Documentation and Cleanup plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. Apply the Documentation and Cleanup Plan fully.
+Read the Documentation and Cleanup plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. Apply the Documentation and Cleanup Plan fully via Cobuild.
 
 The migration is not complete until all required documentation, Flow Zone, Wiki, and cleanup tasks from that plan have been completed.
 

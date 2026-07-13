@@ -3,7 +3,7 @@
 ## Scope
 These rules apply when Claude Code (or another coding agent) is **contributing to this repository** — adding or modifying MCP tools, skills, prompts, or supporting infrastructure.
 
-Always read @AGENTS.md for rules about operating Dataiku via the MCP server (building projects, recipes, running ML pipelines, etc.).
+Always read @AGENTS.md for rules about operating Dataiku via the MCP server — inspecting projects, recipes, and ML pipelines, and driving Cobuild for project-level building.
 
 ## Local Setup
 
@@ -27,7 +27,7 @@ export DKU_API_KEY="your-api-key"
 | Shared validation helpers | `dataiku_mcp/tools/utils/validation.py` |
 | Workflow prompts | `dataiku_mcp/prompts/workflows.py` |
 | Project/dataset/folder/recipe/ML skills | `dataiku-skills/**/SKILL.md` |
-| Recipe-type subskills | `dataiku-skills/recipes/recipe-types/*/SKILL.md` |
+| Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
 
 ## Error Handling
 - Prefer simple, readable tool handlers: keep top-level control flow short, avoid repeated DSS lookups, and use local helpers only when they improve clarity.
@@ -54,6 +54,12 @@ export DKU_API_KEY="your-api-key"
 - Treat user confirmation as a harness concern (for example user-confirmation mode vs yolo mode in the caller).
 - Do not add boolean confirmation flags (`confirm*`) to tool APIs; they are not reliable authorization boundaries for agent callers.
 - Represent destructive intent through semantic operation parameters (for example `overwrite=true`, `drop_data=true`, `mode="replace"`, `job_type="RECURSIVE_FORCED_BUILD"`).
+
+## Cobuild Write-Routing Convention
+- This server intentionally does not expose direct create/update/delete tools for in-project assets (recipes, datasets, ML analyses, dashboards, agents, scenarios, etc.). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead.
+- Do not add a new direct write tool for an in-project asset type. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
+- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists (see the existing exceptions: `create_project`, `upload_file_to_managed_folder`, `write_project_library_file`, `create_upload_dataset`, `create_upload_dataset_from_rows`).
+- If a tool module's write surface changes, update `config_mcp.py`'s `FULL_COBUILD_DISABLED_TOOLS` set to match (add newly-redundant read tools to it in `FULL` mode; do not add cross-project/instance tools to it — those stay enabled regardless of Cobuild mode).
 
 ## Guardrails
 - Do not hardcode instance-specific values (project keys, model IDs, LLM IDs, code env names, connection names) as defaults in tools or skills.

@@ -1,47 +1,52 @@
 # Dataiku Agent Dev Kit
 
-An MCP server and agent skill library for operating Dataiku DSS with an AI agent harness (Claude Code, Codex, or a custom agent). Connect your agent to a DSS instance and build project pipelines, prepare data, train models, and more — all driven by natural language.
+An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Cursor, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild, Dataiku's AI building agent to build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
+
+Cobuild is exposed here as a retained conversation, driven through MCP tools. This repo's own tool surface stays deliberately thin around it: read/list/get/inspect tools for every object type (for context-gathering inside or outside a Cobuild conversation), plus a handful of operations Cobuild cannot do because they are cross-project, instance-level, or precede a project/conversation existing (creating a project, uploading a local file into a dataset or managed folder or project library).
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, and job management.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
 - Tiered server-side authentication (env API key or HTTP bearer token)
 - Modular architecture by functional domain
+- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
+- `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
 - Optional search-based tool exposure mode for progressive disclosure
 
 Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or request headers.
 
 ## Agent Skills
 
-`dataiku-skills` contains prompt-based skill files that teach an agent *how* to use the MCP tools correctly — when to read before writing, how to route tasks by type, how to interpret results, and what the current limitations are.
-
+`dataiku-skills` contains prompt-based skill files that teach an agent *how* to use the MCP tools correctly — when a task should route through Cobuild vs. a direct read tool, how to interpret results, and what the current limitations are.
 
 | Skill | Covers |
 | --- | --- |
-| `projects` | Project discovery, flow navigation, metadata and variables editing |
+| `cobuild` | Default path for project-level asset creation/modification — start, continue, and confirm Cobuild conversations |
+| `projects` | Project discovery, flow navigation, metadata/variable inspection; `create_project` remains a direct write |
 | `connections` | DSS connection discovery, type/category filtering, capability inspection, health checks |
-| `code-environments` | List available code environments; set the code env for Python, R, and PySpark recipes or ML analyses |
-| `datasets` | Dataset inspection, profiling, schema |
+| `code-environments` | List available code environments to reference in a Cobuild prompt |
+| `datasets` | Dataset inspection, profiling, schema; local-file upload tools remain direct writes |
 | `jobs` | DSS job tracking, status, waiting, and log inspection |
-| `data-quality` | Dataset Data Quality rule CRUD, status, results, history, and computation |
-| `managed_folders` | Managed folder inspection and maintenance |
-| `recipes` | All visual and code recipe operations; recipe-type subskills |
-| `machine-learning` | ML analysis creation, tuning, training, deployment |
-| `insights` | Insight CRUD, especially chart insights and chart payload editing |
-| `dashboards` | Dashboard CRUD, page filters, and dashboard tile layouts |
-| `llms-and-knowledge-banks` | LLM, Knowledge Bank, and RAG object operations |
-| `agents` | DSS agent creation, configuration, and management (ReAct and BLOCKS_GRAPH) |
-| `agent-reviews` | Agent review CRUD, trait and test management, run execution, and per-test/per-trait result inspection |
-| `scenarios` | Scenario CRUD, step/trigger/reporter editing, execution, run history, and messaging channel discovery |
-| `semantic-models` | Semantic model and version CRUD — entities, attributes, relationships, glossary terms, golden queries, distinct-values index |
-| `webapps` | WebApp creation, inspection, full-settings updates, backend restart/stop |
-| `wikis` | Wiki article CRUD — create, read, update, delete, and hierarchy management |
-| `project-libraries` | Project library file tree (read/write/move/delete) and external git-imported libraries |
-| `cross-project-sharing` | Share and unshare DSS objects (datasets, managed folders, saved models) between projects |
+| `data-quality` | Dataset Data Quality rule inspection — status, results, history |
+| `managed_folders` | Managed folder inspection; local-file upload remains a direct write |
+| `recipes` | Recipe and recipe-type inspection to gather context before a Cobuild write |
+| `machine-learning` | ML analysis and saved-model inspection |
+| `insights` | Insight inspection, especially chart insights dashboards reference |
+| `dashboards` | Dashboard inspection and context-gathering |
+| `llms-and-knowledge-banks` | LLM, Knowledge Bank, and RAG object inspection |
+| `agents` | DSS agent, version, and agent-tool inspection |
+| `agent-reviews` | Agent review, test, run, and result inspection |
+| `scenarios` | Scenario, run-history, and messaging-channel inspection |
+| `semantic-models` | Semantic model and version inspection |
+| `webapps` | WebApp and backend-state inspection |
+| `wikis` | Wiki article and hierarchy inspection |
+| `project-libraries` | Project library file tree inspection/search; local-file write remains a direct write |
+| `cross-project-sharing` | Inspect existing cross-project sharing relationships |
 | `data-collections` | List and inspect Data Collections and their member objects |
+| `migrations` | Translate a third-party Source Bundle into a Dataiku migration plan, then hand the build off to Cobuild |
 
 Skills are loaded on demand by the agent — see `AGENTS.md` for routing rules and operating instructions.
 
@@ -99,6 +104,7 @@ DKU_DEFAULT_LLM=openai:<YOUR_CONNECTION_NAME>:gpt-5.4
 DKU_DEFAULT_EMBEDDING_LLM=openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small
 DKU_MCP_MAX_WORKERS=4
 DKU_MCP_TRANSPORT=stdio
+DKU_MCP_COBUILD_MODE=CREATE_ONLY
 DKU_MCP_TOOL_EXPOSURE=search
 DKU_MCP_SEARCH_MAX_RESULTS=5
 DKU_MCP_SEARCH_ALWAYS_VISIBLE=get_current_instance
@@ -130,6 +136,8 @@ Auth resolution order:
 3. Streamable HTTP request header for API key only: `Authorization: Bearer <DKU_API_KEY>`
 
 **Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
+
+**Cobuild modes:** `CREATE_ONLY` (default) keeps this server's full read-tool surface enabled alongside the Cobuild conversation tools, for context-gathering independent of any Cobuild conversation. `FULL` additionally disables the read tools that duplicate what Cobuild can already inspect within its own conversation, leaving only cross-project/instance tools, the direct-write exceptions, and the Cobuild conversation tools themselves.
 
 ### 4. Connect to your agent harness
 
@@ -169,53 +177,61 @@ command = "dataiku-headless"
 .
 ├── dataiku_mcp/
 │   ├── tools/
-│   │   ├── agents.py          # Agent creation and management tools
-│   │   ├── insights.py        # Insight tools, especially chart insights
+│   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
+│   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
+│   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
+│   │   ├── insights.py        # Insight inspection tools, especially chart insights
 │   │   ├── connections.py     # DSS connection discovery/test tools
-│   │   ├── data_quality.py    # Dataset Data Quality rule tools
-│   │   ├── dashboards.py      # Dashboard tools
-│   │   ├── datasets.py        # Dataset tools
-│   │   ├── evaluation_stores.py  # Evaluation Store tools
-│   │   ├── flow.py            # Flow tools
+│   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
+│   │   ├── data_collections.py  # Data Collection listing/inspection tools
+│   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
+│   │   ├── dashboards.py      # Dashboard inspection tools
+│   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
+│   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
+│   │   ├── flow.py            # Flow inspection tools
 │   │   ├── instances.py       # Multi-instance switching tools
-│   │   ├── jobs.py            # Build/recipe run + async job status tools
-│   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG tools
-│   │   ├── managed_folders.py # Managed folder tools
-│   │   ├── projects.py        # Project tools
-│   │   ├── scenarios.py       # Scenario tools
-│   │   ├── semantic_models.py # Semantic model tools
-│   │   ├── webapps.py         # WebApp tools
-│   │   ├── wikis.py           # Wiki article CRUD tools
-│   │   ├── project_libraries.py  # Project library file tree + external git-imported libraries
-│   │   ├── recipes.py         # Recipe tools
-│   │   ├── machine_learning/  # ML tools
+│   │   ├── jobs.py            # Async job status/log/wait tools
+│   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
+│   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
+│   │   ├── projects.py        # Project inspection tools + create_project write
+│   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
+│   │   ├── semantic_models.py # Semantic model inspection tools
+│   │   ├── webapps.py         # WebApp/backend-state inspection tools
+│   │   ├── wikis.py           # Wiki article inspection tools
+│   │   ├── project_libraries.py  # Project library inspection/search + local-file write
+│   │   ├── recipes.py         # Recipe inspection tools
+│   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Shared runtime utilities
 │   ├── config.py
+│   ├── config_mcp.py          # Tool exposure + Cobuild mode configuration
 │   ├── __init__.py
 │   └── __main__.py
 ├── dataiku-skills/
-│   ├── agents/               # Agent creation and management skill
-│   ├── insights/             # Insight skill, especially chart insights
-│   ├── code-environments/    # Code environment listing and assignment skill
-│   ├── connections/          # DSS connection discovery and inspection skill
-│   ├── cross-project-sharing/ # Object sharing between projects skill
-│   ├── dashboards/           # Dashboard skill
-│   ├── data-collections/     # Data Collection listing and inspection skill
-│   ├── data-quality/         # Dataset Data Quality rule skill and payload examples
-│   ├── datasets/             # Dataset inspection/profiling skill
-│   ├── jobs/                 # DSS job tracking and investigation skill
-│   ├── llms-and-knowledge-banks/ # LLM, Knowledge Bank, and RAG object inspection/build skill
-│   ├── machine-learning/     # ML analysis + training skill
-│   ├── managed_folders/      # Managed folder inspection/maintenance skill
-│   ├── project-libraries/    # Project library file tree + external git library skill
-│   ├── projects/             # Project discovery + flow navigation skill
-│   ├── scenarios/            # Scenario operations skill + step/trigger/reporter reference
-│   ├── semantic-models/      # Semantic model CRUD skill
-│   ├── webapps/              # WebApp creation/inspection/update/runtime skill
-│   ├── wikis/                # Wiki article CRUD skill
+│   ├── cobuild/               # Default path for project-level asset creation via Cobuild
+│   ├── agents/                # Agent/agent-version/agent-tool inspection skill
+│   ├── agent-reviews/         # Agent review/test/run inspection skill
+│   ├── insights/              # Insight inspection skill
+│   ├── code-environments/     # Code environment listing skill
+│   ├── connections/           # DSS connection discovery and inspection skill
+│   ├── cross-project-sharing/ # Cross-project sharing inspection skill
+│   ├── dashboards/            # Dashboard inspection skill
+│   ├── data-collections/      # Data Collection listing and inspection skill
+│   ├── data-quality/          # Dataset Data Quality rule inspection skill
+│   ├── datasets/              # Dataset inspection/profiling skill
+│   ├── jobs/                  # DSS job tracking and investigation skill
+│   ├── llms-and-knowledge-banks/ # LLM, Knowledge Bank, and RAG object inspection skill
+│   ├── machine-learning/      # ML analysis + saved-model inspection skill
+│   ├── managed_folders/       # Managed folder inspection skill
+│   ├── project-libraries/     # Project library inspection/search skill
+│   ├── projects/              # Project discovery + flow navigation skill
+│   ├── scenarios/             # Scenario/run-history inspection skill
+│   ├── semantic-models/       # Semantic model inspection skill
+│   ├── webapps/               # WebApp/backend-state inspection skill
+│   ├── wikis/                 # Wiki article inspection skill
+│   ├── migrations/            # Source Bundle -> migration plan -> Cobuild handoff skill
 │   └── recipes/
-│       ├── SKILL.md                # Parent recipe operations skill
-│       └── recipe-types/           # One child skill per recipe type
+│       ├── SKILL.md                # Recipe inspection skill, covers all recipe types
+│       └── references/             # prepare processor catalog + formula language (all other types need none)
 ├── AGENTS.md                  # Agent operating instructions
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml

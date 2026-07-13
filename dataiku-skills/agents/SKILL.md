@@ -1,19 +1,37 @@
 ---
 name: dataiku-agents
-description: Inspect Dataiku DSS agents and use the results as context for Cobuild. Use when an agent must list agents, inspect agent settings, versions, or tools before asking Cobuild to create or modify project assets.
+description: Understand and inspect Dataiku agents and agent tools, including agent types, versions, configuration, and execution design. Use when an agent needs existing-agent context or must prepare grounded requirements for Cobuild changes.
 ---
 
-# Agent Inspection
+# Dataiku Agents
 
-Use this skill to inspect existing agents and supporting agent-tool configuration.
+Use this skill to understand and inspect existing Dataiku agents and their project-level tools.
+
+## Agent Concepts
+
+| Type | `agent_type` | Use when |
+| --- | --- | --- |
+| **Simple agent** | `TOOLS_USING_AGENT` | A single LLM-driven tool loop is sufficient. |
+| **Structured agent** | `STRUCTURED_AGENT` | The workflow needs deterministic branching, parallel work, explicit memory, or guaranteed pre/post-processing. |
+| **Code agent** | `PYTHON_AGENT` | Simple and structured agents cannot provide the required custom behavior. |
+
+Agent tools are project-level objects that agents call during execution. Agent configurations reference them by ID.
+
+Read the appropriate type reference when inspecting an agent of that type or designing a new agent:
+
+- [Simple agent](references/simple-agent.md)
+- [Structured agent](references/structured-agent.md)
+- [Code agent](references/code-agent.md)
+
+Read [Agent Tools](references/agent-tools.md) when inspecting existing tools or choosing tools for an agent design.
 
 ## Workflow
 
 1. Use `list_agents` to discover agents in the project.
-2. Use `get_agent_settings` to inspect an agent before any Cobuild prompt about modifying it.
+2. Use `get_agent_settings` to inspect the selected agent's configuration and `agent_type`.
 3. Use `list_agent_versions` when version context matters.
-4. Use `list_agent_tools` and `get_agent_tool_settings` to inspect available tool objects.
-5. If the task requires creating, updating, deleting, or running agents, route that work through `./dataiku-skills/cobuild/SKILL.md`.
+4. Use `list_agent_tools` and `get_agent_tool_settings` when existing tools are relevant.
+5. If the task requires creating, updating, deleting, or running agents or agent tools, route that work through `./dataiku-skills/cobuild/SKILL.md` using the gathered context.
 
 ## Preferred Tools
 
@@ -25,5 +43,5 @@ Use this skill to inspect existing agents and supporting agent-tool configuratio
 
 ## Safety Rules
 
-- Never invent agent ids or agent tool names.
-- Keep this skill focused on inspection and Cobuild grounding.
+- Discover agent and agent-tool IDs via tools; do not invent identifiers.
+- Keep this skill read-only. Route agent and agent-tool creation, edits, deletion, and execution through `./dataiku-skills/cobuild/SKILL.md`.

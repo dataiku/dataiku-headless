@@ -70,7 +70,6 @@ FULL_COBUILD_DISABLED_TOOLS = frozenset(
         "list_saved_models",
         "list_scenarios",
         "list_semantic_models",
-        "list_shared_objects",
         "list_webapps",
         "list_wiki_articles",
         "read_project_library_file",

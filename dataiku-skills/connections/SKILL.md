@@ -1,23 +1,26 @@
 ---
 name: connections
-description: Discover and inspect Dataiku DSS connections through read-only MCP tools. Use when an agent must find exact connection names, inspect connection capabilities, or diagnose connection access/test failures.
+description: Understand and inspect Dataiku connections. Use to list configured connection names and types, select a suitable connection for a project asset, or diagnose connection access and test failures before a Cobuild change.
 ---
 
-# Connection Operations
+# Connections
 
-Use Dataiku MCP tools to inspect DSS connections safely before using connection names in datasets, managed folders, recipes, scenarios, or agent-tool payloads.
+Use this skill to inspect available Dataiku connections and gather grounded context for Cobuild.
 
-This skill is intentionally narrow:
-- it covers connection-name discovery, per-connection inspection, and cautious testing
-- it does **not** cover connection creation, editing, deletion, or ACL synchronization
+## Connection Concepts
 
-## Follow This Execution Pattern
+Connections are shared Dataiku configuration objects that provide access to storage systems, databases, LLM providers, remote services, and other external systems. A connection can be available on the instance but still be unsuitable or unavailable for a particular project or user.
 
-1. Call `list_connections` to discover the exact DSS connection names. Never invent a connection name from memory or defaults.
-2. Call `get_connection_info` on one or more candidate connections before recommending or using them.
-3. Pass `contextual_project_key` to `get_connection_info` when connection usability may depend on project-level variables or permissions.
-4. Use `test_connection` only when the user is diagnosing connectivity, permissions, or setup issues, or explicitly asks to validate a connection.
-6. When recommending a connection, explain why it fits the task — writeability, managed-dataset/folder support, connection type, and any remaining uncertainty.
+When selecting a connection, consider its type, whether it supports the intended operation, and its project-specific usability. For example, a connection used for a managed dataset or managed folder must support that storage mode and any required write access.
+
+## Workflow
+
+1. Use `list_connections` to discover exact connection names. Do not infer names from defaults or memory.
+2. When restricted discovery requires filtering, read [Connection Type Filters](references/connection-types.md) and use either `connection_type` or `connection_category`, never both.
+3. Use `get_connection_info` on candidate connections before recommending or using one. Pass `contextual_project_key` when project variables or permissions may affect usability.
+4. Use `test_connection` only when the user is diagnosing connectivity, permissions, or setup issues, or explicitly requests validation.
+5. Recommend a connection based on its type, writeability, managed-dataset or folder support, project-specific usability, and any remaining uncertainty.
+6. When a project asset must use the selected connection, route that asset change through `./dataiku-skills/cobuild/SKILL.md`.
 
 ## Preferred Tools
 
@@ -25,44 +28,10 @@ This skill is intentionally narrow:
 - Inspect: `get_connection_info`
 - Validate: `test_connection`
 
-## `list_connections` — Type and Category Filters
-
-When the API key has admin rights, `list_connections` returns `name`, `type`, and capability fields (`allow_write`, `allow_managed_datasets`, etc.) for each connection in one call.
-
-When the API key lacks admin rights, it falls back to name-only discovery. In that case, use the filters server-side:
-- `connection_type` when you know the exact DSS type you need
-- `connection_category` when you know the broader family but not the exact type yet
-- never provide both in the same call; choose one filtering mode
-
-```
-list_connections(connection_type="Snowflake")
-list_connections(connection_type="Filesystem")
-list_connections(connection_type="EC2")   # S3-backed
-list_connections(connection_category="sql_dbs")
-list_connections(connection_category="llm_providers")
-list_connections(connection_category="object_storage")
-```
-
-If you need a broad pass first and a narrow pass second, do two calls: first by `connection_category`, then by `connection_type` after you know the exact family you want.
-
-**Supported connection categories and types:**
-
-| Category | Types |
-|----------|-------|
-| `object_storage` | `EC2` (S3), `GCS`, `Azure` (Blob), `HDFS` |
-| `local_server` | `Filesystem`, `FTP`, `SSH` |
-| `sql_dbs` | `Snowflake`, `BigQuery`, `Redshift`, `Synapse`, `Athena`, `Databricks`, `FabricWarehouse`, `PostgreSQL`, `MySQL`, `SQLServer`, `Oracle`, `Teradata`, `Vertica`, `Greenplum`, `Trino`, `JDBC`, `AlloyDB`, `SAPHANA`, `Netezza`, `Denodo` |
-| `nosql_search` | `MongoDB`, `ElasticSearch`, `Cassandra` |
-| `llm_providers` | `OpenAI`, `AzureOpenAI`, `AzureLLM`, `Bedrock`, `VertexAILLM`, `DatabricksLLM`, `SnowflakeCortex`, `MistralAI`, `Anthropic`, `Cohere`, `SageMaker-GenericLLM`, `CustomLLM`, `AzureAIFoundry`, `HuggingFaceLocal`, `NVIDIA-NIM`, `StabilityAI` |
-| `external_ml_model_providers` | `SageMaker`, `VertexAIModelDeployment`, `DatabricksModelDeployment`, `AzureML` |
-| `vector_stores` | `AzureAISearch`, `Pinecone`, `MilvusRemote` |
-| `other` | `RemoteMCP`, `iceberg`, `SharePointOnline`, `TreasureData` |
-
 ## Safety Rules
 
-- Treat connections as a shared DSS configuration domain even when the task is project-specific.
-- Use `list_connections` first because name discovery is available without relying on the admin `/admin/connections/` API.
-- Be explicit that `get_connection_info` and especially `test_connection` may still be constrained by per-connection permissions or elevated privileges.
-- Do not expose or rely on secret-bearing fields; use the tool outputs as already-redacted inspection summaries.
-- Do not run repeated `test_connection` calls unless the user is actively debugging a connection problem.
-- Do not choose a connection solely because it is the configured default; discover and inspect the real candidate first.
+- Discover connection names via tools; do not invent identifiers.
+- Keep this skill read-only. Route project-asset changes that use a connection through `./dataiku-skills/cobuild/SKILL.md`.
+- Do not expose or rely on secret-bearing fields; use the already-redacted inspection summaries.
+- Do not repeat `test_connection` calls unless the user is actively debugging a connection issue.
+- Do not choose a connection solely because it is configured as a default; inspect real candidates first.
