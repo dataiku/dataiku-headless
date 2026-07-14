@@ -1,17 +1,35 @@
 ---
 name: wikis
-description: Inspect Dataiku wiki articles and use the results as context for Cobuild. Use when an agent must discover wiki structure or read article content before asking Cobuild to create or modify project assets.
+description: Understand and inspect Dataiku wiki articles, then use grounded context for Cobuild documentation work. Use when reviewing wiki structure, article content, or planning wiki changes.
 ---
 
-# Wiki Inspection
+# Wikis
 
-Use this skill to inspect existing wiki articles.
+Use this skill to understand existing project documentation and plan grounded wiki work through Cobuild.
+
+## Wiki Concepts
+
+Each Dataiku project has a wiki composed of Markdown articles organized in a parent/child hierarchy. An article has a title, body, and position in the tree; one article can serve as the home article.
+
+Wiki articles can document project assets through Dataiku object references and can link to other articles. Creation, edits, moves, and deletion route through Cobuild.
+
+Read [wiki content](references/wiki-content.md) when a request involves article links or Dataiku object references.
 
 ## Workflow
 
-1. Use `list_wiki_articles` to discover article ids, names, and hierarchy.
-2. Use `get_wiki_article` to read article content.
-3. Route wiki creation, editing, moving, or deletion through `./dataiku-skills/cobuild/SKILL.md`.
+1. Use `list_wiki_articles` to discover article identifiers, hierarchy, and the home article.
+2. Use `get_wiki_article` to read a selected article before interpreting or changing its content.
+3. For new or moved content, inspect the intended parent and nearby articles to ground placement and avoid duplication.
+4. Discover any referenced project objects through their object-specific skills.
+5. Route wiki creation, edits, moves, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
+6. Re-read the article or hierarchy after a Cobuild change when validation is needed.
+
+## Supporting Context
+
+- Datasets and recipes: `../datasets/SKILL.md` and `../recipes/SKILL.md`
+- Models and analyses: `../machine-learning/SKILL.md`
+- Agents and reviews: `../agents/SKILL.md` and `../agent-reviews/SKILL.md`
+- Scenarios and dashboards: `../scenarios/SKILL.md` and `../dashboards/SKILL.md`
 
 ## Preferred Tools
 
@@ -20,5 +38,9 @@ Use this skill to inspect existing wiki articles.
 
 ## Safety Rules
 
-- Never invent article ids.
-- Keep this skill focused on inspection and Cobuild grounding.
+- Discover article, parent, and referenced-object identifiers through tools; do not invent them.
+- Read an existing article before requesting a content change.
+- Preserve existing Markdown body content unless the user requests replacement.
+- Inspect hierarchy before moving or nesting an article.
+- Treat deletion as destructive, even though Cobuild manages confirmation.
+- Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct wiki mutation workflows here.

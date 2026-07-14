@@ -1,86 +1,64 @@
 ---
 name: recipes
-description: Inspect Dataiku recipes and use their current settings as grounding for Cobuild. Use when an agent must discover recipes, inspect recipe settings, or understand recipe types before asking Cobuild to create, edit, or build project assets.
+description: Understand and inspect Dataiku recipes, then use grounded context for Cobuild recipe work. Use when selecting a recipe type, inspecting an existing recipe, or planning a Flow transformation.
 ---
 
-# Recipe Inspection
+# Recipes
 
-Use this skill to inspect existing recipes and gather context for Cobuild.
+Use this skill to understand existing recipes and plan grounded Flow transformations through Cobuild.
+
+## Recipe Concepts
+
+A recipe is a Flow transformation that consumes one or more project objects and produces one or more outputs. Most recipes transform datasets; some consume or produce managed folders, saved models, Knowledge Banks, or evaluation outputs.
+
+Recipe configuration defines its inputs and outputs, transformation behavior, and dependencies in the Flow. Running a recipe creates a job whose outputs should be validated before dependent work continues.
+
+Choose the recipe family before asking Cobuild to create or change a recipe:
+
+- **Data prep** recipes clean, combine, reshape, filter, or move data.
+- **ML** recipes generate features, score data, or evaluate model outputs.
+- **GenAI** recipes apply LLMs, process documents, populate Knowledge Banks, or evaluate LLM and agent outputs.
+- **Code** recipes run custom code or SQL.
+
+Use visual recipe families by default. Use a Code recipe only when the user explicitly requests a code-based transformation.
+
+A recipe's outputs must fit the surrounding Flow. Inspect input schemas and existing storage context before requesting new datasets or managed folders. When a new managed output needs a connection, use the datasets, managed-folders, and, when needed, connections skills to ground the Cobuild request.
 
 ## Workflow
 
-1. Use `get_flow_items_in_traversal_order`, `list_recipes`, and `list_datasets` when you need flow context.
-2. Use `get_recipe_settings` to inspect a specific recipe before asking Cobuild to modify it.
-3. Use dataset inspection tools when input or output schema details matter; for recipe types noted below, also inspect the extra context they depend on.
-4. If the task requires creating, editing, wiring, or executing a recipe, route that work through `./dataiku-skills/cobuild/SKILL.md`.
+1. Use `list_recipes` to discover recipes, then use `get_recipe_settings` to inspect a selected recipe's type, inputs, outputs, and configuration.
+2. Use `get_flow_items_in_traversal_order` only when upstream/downstream context, dependencies, or Flow placement matters.
+3. Inspect input and output datasets when schema, data shape, storage, or sample values affect the transformation.
+4. Read the matching recipe-family reference before interpreting a type-specific configuration or describing a new recipe to Cobuild.
+5. Read supporting object skills when the selected recipe depends on managed folders, models, LLMs, Knowledge Banks, agents, code environments, project libraries, or connections.
+6. Route recipe creation, editing, wiring, and execution through `./dataiku-skills/cobuild/SKILL.md`.
+7. After a build or run starts, use `../jobs/SKILL.md` to follow an active or uncertain job. Validate outputs through the relevant object skill.
 
-## Recipe Type Catalog
+## Recipe Families
 
-The available recipe family types are: Data prep (visual), ML (visual), GenAI (visual), and Code. Visual recipe types should be preferred unless the user specifically requests transformations be performed via "code". Descriptions below ground interpretation of `get_recipe_settings` output and precise Cobuild prompts; "Extra context" names read tools to consult beyond the recipe's own settings and its input/output datasets.
-
-Dataiku's formula language (GREL) shows up across several recipe types — most often `prepare` (`CreateColumnWithGREL`, `FilterOnCustomFormula`) but also formula-driven filters and computed fields in other visual recipes. See [formula language reference](references/dataiku_formula_language.md) whenever a recipe's settings contain a formula expression, regardless of recipe type.
-
-### Data prep (visual)
-
-| Type | Use when | Extra context |
+| Family | Purpose | Reference |
 | --- | --- | --- |
-| `prepare` (shaker) | Column-level cleansing/enrichment with visual processors | [Processor catalog](references/prepare_processors_overview.md) |
-| `join` | Join datasets on keys, optional pre/post filters | — |
-| `fuzzyjoin` | Join exactly two datasets using fuzzy distances, optional text normalization, and matching-detail output | — |
-| `geojoin` | Join datasets on geospatial predicates such as distance, containment, and intersection | — |
-| `grouping` | Aggregate rows by group keys | — |
-| `window` | Window analytics (rank, running totals, partitioned calcs) | — |
-| `sampling` | Sampling rows (randomly, first N, class rebalance, etc.) and/or filtering rows (based on rules, formula, etc.) | — |
-| `split` | Dispatch rows of one dataset into several other datasets, based on rules | — |
-| `sort` | Order rows by one or more columns | — |
-| `distinct` | Deduplicate rows | — |
-| `topn` | Keep top and/or bottom N rows sorted by one or more columns | — |
-| `vstack` | Union all/append rows from multiple datasets | — |
-| `sync` | Copy between storage backends | — |
-| `pivot` | Long → wide reshape | — |
-| `download` | Files-based connection → managed folder | Managed folders |
-| `export` | Dataset → files in managed folder | Managed folders |
-| `upsert` | Merge/upsert rows into a target dataset | — |
+| Data prep | Clean, combine, filter, reshape, aggregate, and move data with visual transformations. | [Data prep recipes](references/recipe-types/data-prep-recipes.md) |
+| ML | Generate features, score records, and evaluate model outputs. | [ML recipes](references/recipe-types/ml-recipes.md) |
+| GenAI | Apply LLMs, process documents, populate Knowledge Banks, and evaluate GenAI outputs. | [GenAI recipes](references/recipe-types/genai-recipes.md) |
+| Code | Run explicitly requested Python, R, SQL, Spark, or shell transformations. | [Code recipes](references/recipe-types/code-recipes.md) |
 
-### ML (visual)
+## Shared References
 
-| Type | Use when | Extra context |
-| --- | --- | --- |
-| `generate_features` | Auto-generate features via joins/transforms/aggregations | — |
-| `prediction_scoring` | Score records with a trained prediction model | Saved models |
-| `clustering_scoring` | Label records with a trained clustering model | Saved models |
-| `evaluation` | Evaluate a model against reference data | Evaluation stores |
-| `standalone_evaluation` | Evaluate the prediction outputs of external models (no model object in the Dataiku project) | Evaluation stores |
+- Read the [Dataiku formula language reference](references/shared/dataiku_formula_language.md) when a recipe uses or needs a formula expression.
+- Read the [prepare processor catalog](references/shared/prepare_processors_overview.md) when inspecting or requesting a `prepare` recipe.
 
-**ML training recipes** (`prediction_training`, `clustering_training`, `causal_prediction_training`, `timeseries_forecasting_training`) appear in the flow after deploying an ML analysis. Inspect them via `../machine-learning/SKILL.md` (`get_ml_analysis_settings`/`get_ml_analysis_summary`), not `get_recipe_settings` — they're ML-managed, not plain recipes. Edits route through Cobuild same as everything else.
+## Supporting Context
 
-### GenAI (visual)
-
-| Type | Use when | Extra context |
-| --- | --- | --- |
-| `prompt` | Run column values through an arbitrary LLM prompt | LLM context (`list_llms`/`get_llm_info`) |
-| `nlp_llm_model_provided_classification` | LLM classify text into predefined categories | LLM context |
-| `nlp_llm_user_provided_classification` | LLM classify text into user-defined classes | LLM context |
-| `nlp_llm_summarization` | LLM summarize column text | LLM context |
-| `nlp_llm_rag_embedding` | Embeddings from column text → Knowledge Bank | Knowledge banks, LLM context |
-| `embed_documents` | Embeddings from docs in a managed folder → folder + optional Knowledge Bank | Managed folders, knowledge banks |
-| `extract_content` | Extract text/images from docs in a managed folder | Managed folders |
-| `nlp_llm_finetuning` | Fine-tune LLM from prompt/completion data | LLM context |
-| `nlp_llm_evaluation` | Evaluate LLM outputs | Evaluation stores, LLM context |
-| `nlp_agent_evaluation` | Evaluate agent outputs incl. tool use | Evaluation stores, agent context |
-
-### Code (only when the user specifically requests transformations be performed via "code")
-
-| Type | Use when | Extra context |
-| --- | --- | --- |
-| `python` | External library / stateful / custom ML training | Code environment (`list_code_envs`), library files |
-| `r` | R required | Code environment, library files |
-| `sql_query` | Single-statement SELECT, DSS-managed output plumbing | Code environment, SQL-dataset context |
-| `sql_script` | Multi-statement SQL workflow | Code environment, SQL-dataset context |
-| `pyspark` | Spark required | Code environment |
-| `spark_scala` | Spark Scala required | Code environment |
-| `spark_sql_query` | Spark SQL required | Code environment |
-| `shell` | Shell-based flow step | Code environment |
+- Dataset inputs and outputs: `../datasets/SKILL.md`
+- Managed-folder inputs and outputs: `../managed_folders/SKILL.md`
+- Output storage connections: `../connections/SKILL.md`
+- ML analyses and saved models: `../machine-learning/SKILL.md`
+- LLMs, Knowledge Banks, and RAG LLMs: `../llms-and-knowledge-banks/SKILL.md`
+- Agent-backed prompts or agent evaluation: `../agents/SKILL.md`
+- Explicitly requested code environments: `../code-environments/SKILL.md`
+- Project-library code dependencies: `../project-libraries/SKILL.md`
+- Active or uncertain execution: `../jobs/SKILL.md`
 
 ## Preferred Tools
 
@@ -94,6 +72,9 @@ Dataiku's formula language (GREL) shows up across several recipe types — most 
 
 ## Safety Rules
 
-- Prefer visual recipe families unless the user explicitly requests code.
-- Keep this skill focused on inspection and Cobuild grounding.
-- Do not document non-Cobuild recipe mutation workflows here.
+- Discover recipe names and referenced object identifiers through tools; do not invent them.
+- Inspect an existing recipe before requesting a modification through Cobuild.
+- Use visual recipes unless the user explicitly requests a code-based transformation.
+- Preserve the surrounding Flow's storage and dependency context unless the user requests a change.
+- Treat a timed-out or interrupted build as potentially still running; inspect the job before retrying or changing related Flow objects.
+- Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct recipe mutation workflows here.

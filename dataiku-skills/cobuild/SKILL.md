@@ -1,43 +1,51 @@
 ---
 name: cobuild
-description: Use Dataiku Cobuild as the default path for project-level asset creation and conversational project co-development. Cobuild can inspect a project, propose changes, create or modify assets when allowed, and request confirmation before destructive actions.
+description: Use Dataiku Cobuild for project-level asset creation, modification, and conversational co-development. Use when an agent needs to build or change project assets, continue a Cobuild conversation, or gather project context before making changes.
 ---
 
 # Cobuild
 
-Cobuild is Dataiku's AI building agent for co-developing DSS projects. It can build and modify flows, recipes, models, dashboards, webapps, notebooks, wiki content, agents, scenarios, and other project assets through a retained conversation.
+Cobuild is Dataiku's AI building agent for co-developing Dataiku projects. It can build and modify flows, recipes, models, dashboards, webapps, notebooks, wiki content, agents, scenarios, and other project assets through a retained conversation.
 
 Use this skill as the default path for project-level asset creation. This includes both broad requests such as "build me a flow for this use case" and narrow requests such as "create a filter recipe on dataset X".
+
+## Cobuild Concepts
+
+- A Cobuild conversation is stateful and bound to one project. Reuse its `conversation_id` for related work in that project.
+- `allow_edit_project` determines whether Cobuild may modify project assets. Use `false` for inspection or explanation and `true` only for an explicitly requested creation or modification.
+- Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
+- Deletion is a separate confirmation step. A request to edit does not authorize a broader or unexpected deletion.
 
 ## When To Use This Skill
 
 Use this skill when the user wants to:
+
 - create project assets
 - modify project assets through a conversational workflow
 - have Cobuild inspect a project and then build or refactor something
 - continue an existing Cobuild conversation
 
 Do not use this skill when:
+
 - the task is inspection-only and a direct read tool is the simpler path
 - the task is not a project-level Cobuild workflow
 
-## Execution Pattern
+## Workflow
 
 1. Confirm the exact `project_key`.
-2. Start a conversation with `start_cobuild_conversation`.
-3. Retain and reuse the returned `conversation_id`.
-4. Send follow-up prompts with both `conversation_id` and `project_key`.
-5. For creation or modification requests, use `allow_edit_project=true`.
-6. If Cobuild returns a delete confirmation request, inspect the returned deletion details and continue through `answer_cobuild_confirmation`.
-7. Use `list_cobuild_conversations(project_key=...)` when you need to rediscover a retained conversation for the current project.
+2. When changing an existing asset, inspect it through its relevant object skill before preparing the Cobuild request. For greenfield work, ask Cobuild to inspect the necessary project context.
+3. Reuse a known `conversation_id` only with its matching `project_key`. For a requested continuation without an available ID, use `list_cobuild_conversations` to rediscover it.
+4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
+5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
+6. Retain the returned `conversation_id` for follow-up work.
+7. If Cobuild returns a delete confirmation request, inspect the deletion details and respond through `answer_cobuild_confirmation`.
 
 ## Prompt Guidance
 
-- Prefer explicit DSS object names in prompts.
+- Prefer explicit Dataiku object names in prompts.
 - For creation requests, describe the intended asset, inputs, outputs, and constraints clearly.
-- For inspection or explanation prompts, use `allow_edit_project=false`.
-- For creation or modification prompts, use `allow_edit_project=true`.
 - If Cobuild needs project context, mention the relevant datasets, recipes, folders, models, dashboards, or other assets directly by name.
+- For existing assets, include the configuration and constraints discovered through the relevant object skill.
 
 ## Preferred Tools
 
@@ -48,18 +56,10 @@ Do not use this skill when:
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
 
-## Confirmation Behavior
+## Safety Rules
 
-- `send_cobuild_message` may return `is_confirmation_request=true`.
-- Confirmation requests include deletion details in `objects_to_delete` and `deletion_impacts`.
-- Continue the flow with `answer_cobuild_confirmation`.
-- If the requested deletion clearly matches the user's stated intent, the agent may send `APPROVE`.
-- If the deletion scope is broader than the user's request, ambiguous, or otherwise surprising, stop and clarify before approving.
-
-## Key Behaviors And Limits
-
-- Cobuild is conversational and stateful. Reuse the same `conversation_id` across related steps.
-- `conversation_id` reuse is project-specific. Always pass the matching `project_key`.
-- Cobuild can inspect and describe existing assets, but this skill should be the default route when the task includes creating project assets.
-- Do not assume Cobuild has richer UI context than what the MCP tool flow provides. Be explicit in prompts.
-- There is no close/delete conversation tool.
+- Keep each `conversation_id` paired with its matching `project_key`.
+- Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
+- `send_cobuild_message` may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`.
+- Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
+- There is no close or delete conversation tool.

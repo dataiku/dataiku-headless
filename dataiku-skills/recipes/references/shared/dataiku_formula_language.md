@@ -5,11 +5,11 @@ description: "Conceptual reference for Dataiku's formula language (GREL), for re
 
 # Shared Formula Language
 
-Use this reference to understand the Dataiku formula language (GREL) as it appears in formula-based prepare processors (for example `CreateColumnWithGREL`, `FlagOnCustomFormula` / docs label "Flag rows with formula", `FilterOnCustomFormula` / docs label "Filter rows/cells with formula", `FormulaToNumber`, `FormulaToString`, `FormulaToDate`, and related formula operators). It supports two uses: reading an existing formula from `get_recipe_settings` output and accurately explaining what it does, and describing a desired formula precisely in a Cobuild prompt.
+Use this reference to understand the Dataiku formula language (GREL) as it appears in formula-based prepare processors (for example `CreateColumnWithGREL`, `FlagOnCustomFormula` / docs label "Flag rows with formula", `FilterOnCustomFormula` / docs label "Filter rows/cells with formula", `FormulaToNumber`, `FormulaToString`, `FormulaToDate`, and related formula operators). It supports two uses: reading an existing formula from `get_recipe_settings` output and accurately explaining what it does, and describing a desired formula precisely in a Cobuild prompt. It does not document direct recipe mutation mechanics.
 
 ## Typing Notation
 
-- `string<formula_expression>`: any valid DSS formula expression.
+- `string<formula_expression>`: any valid Dataiku formula expression.
 - `string<column_name>`: any valid column name from schema.
 - `""`: explicit empty string.
 
@@ -19,7 +19,7 @@ Use this reference to understand the Dataiku formula language (GREL) as it appea
 | --- | --- |
 | Column references | Use a simple column name directly — it starts with a letter and contains only letters, numbers, and underscores (e.g. `applicant_age + 1`). For names with spaces or special characters, to control how a value is read, or to apply a row offset, use `val`, `strval`, or `numval` with the name double-quoted, e.g. `val("applicant age")`. See **Value Access Functions** for read semantics. |
 | Function calls | Use `function(arg1, arg2, ...)` syntax. |
-| Row offsets | `val`, `strval`, and `numval` support row offsets (for example `numval("event_count", 1)` for previous row). Offset arguments are only available in Prepare recipes with DSS engine. |
+| Row offsets | `val`, `strval`, and `numval` support row offsets (for example `numval("event_count", 1)` for previous row). Offset arguments are only available in Prepare recipes with the Dataiku engine. |
 | Null/blank handling | Guard with checks like `isBlank(...)` before expensive parsing or casting chains. |
 
 ## Valid Functions — Complete Reference
@@ -176,7 +176,7 @@ Use this reference to understand the Dataiku formula language (GREL) as it appea
 Use a simple column name directly (`col_1 + 4`). Reach for these when the name has spaces or special characters, when you want to fix how the value is read, or when you need a row offset:
 - `val(o, [string defaultValue], [number offset])` → varies — auto-typed read
 - `strval(o, [string defaultValue], [number offset])` → string — forces string read (skips numeric auto-typing)
-- `numval(o, [number offset])` → number — forces decimal read; offset = rows back (Prepare/DSS engine only)
+- `numval(o, [number offset])` → number — forces decimal read; offset = rows back (Prepare/Dataiku engine only)
 
 ### Control Structures (cannot use object notation)
 
@@ -219,7 +219,7 @@ Use a simple column name directly (`col_1 + 4`). Reach for these when the name h
 | Split and pick token | `get(split(full_name, " "), 0)` | Useful for first-name extraction. |
 | JSON field access | `get(parseJson(metadata), "country", "unknown")` | Parse object/array from JSON string first. |
 | Array membership | `arrayContains(parseJson(tags), "vip")` | For JSON-array-like string columns. |
-| Variable-driven threshold | `if(height < variables["max_height"], "OK", variables["warning_msg"])` | Uses DSS variables as JSON values. |
+| Variable-driven threshold | `if(height < variables["max_height"], "OK", variables["warning_msg"])` | Uses Dataiku variables as JSON values. |
 | Categorical mapping with default | `switch(country, "US", "North America", "FR", "Europe", "Other")` | Compact multi-branch mapping. |
 | Previous-row comparison | `if(numval("event count") > numval("event count", 1), "up", "flat_or_down")` | Uses row offset (`1` = previous row). |
 | Reuse intermediate expression | `with(split(full_name, " "), p, concat(get(p, 0), "_", get(p, 1)))` | Improves readability for complex formulas. |
@@ -231,5 +231,5 @@ Use a simple column name directly (`col_1 + 4`). Reach for these when the name h
 
 ## References
 
-- Dataiku DSS: Formula language reference  
+- Dataiku: Formula language reference
   https://doc.dataiku.com/dss/latest/formula/index.html
