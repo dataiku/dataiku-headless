@@ -3,8 +3,6 @@
 ## Scope
 These rules apply when Claude Code (or another coding agent) is **contributing to this repository** — adding or modifying MCP tools, skills, prompts, or supporting infrastructure.
 
-Always read @AGENTS.md for rules about operating Dataiku via the MCP server — inspecting projects, recipes, and ML pipelines, and driving Cobuild for project-level building.
-
 ## Local Setup
 
 ```bash
