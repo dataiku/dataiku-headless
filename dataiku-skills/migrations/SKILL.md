@@ -24,7 +24,7 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
     * List of the input data sources.
     * Explain the role of each source in accomplishing the Business Intent.
   - Dataiku Migration Plan (discover and read whatever skills needed with `ls ./dataiku-skills/`): 
-    * Translate the source bundle logic into a plan for a Dataiku Flow. 
+    * Translate the source bundle logic into a plan for a Dataiku Flow. Use visual recipe families by default. Use a Code recipe only when the user explicitly requests a code-based transformation.
     * The migrated Dataiku Flow **must** start from the same input datasets as the source bundle; it is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
     * The requested final output dataset must be produced in DSS from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.
 4. Create a Validation Plan for the migrated project and write it to `<bundle_dir>/migration_v<n>/validation_plan.md`. The Validation Plan should (at least) include:
@@ -78,6 +78,9 @@ The migration is not complete until all required documentation, Flow Zone, Wiki,
 
 
 # Migration Notes
+
+## Visual-first Flows
+The Dataiku projects produced by a Migration myst use visual recipe families by default. Use a Code recipe only when the user explicitly requests a code-based transformation. Visual recipe families are defined in `./dataiku-skills/recipes/SKILL.md`.
 
 ## Input-boundary invariant
 
