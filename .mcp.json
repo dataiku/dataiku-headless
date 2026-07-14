@@ -2,12 +2,8 @@
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
-      "command": "uvx",
-      "args": ["dataiku-headless", "serve"],
-      "env": {
-        "DKU_DSS_URL": "${DKU_DSS_URL:-}",
-        "DKU_API_KEY": "${DKU_API_KEY:-}"
-      }
+      "command": "bash",
+      "args": ["./bin/run_mcp.sh"]
     }
   }
 }
