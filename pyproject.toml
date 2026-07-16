@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dataiku-headless"
 version = "0.2.0"
-description = "Headless Dataiku DSS agent kit: a FastMCP server plus the full agent skill library for operating Dataiku DSS from an AI agent harness."
+description = "Headless Dataiku DSS agent kit: a FastMCP server for operating Dataiku DSS from an AI agent harness. The companion agent skill library ships via the Claude Code / Codex / Cortex Code plugin, not this package."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "LicenseRef-Proprietary"
@@ -32,26 +32,15 @@ Repository = "https://github.com/dataiku/dataiku-agent-dev-kit"
 [project.scripts]
 dataiku-mcp = "dataiku_mcp:run_server"
 dataiku-headless = "cli.cli:app"
-dataiku-headless-skills = "dataiku_mcp.skills:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["dataiku_mcp", "cli"]
-
-# Bundle the prompt-based skill library (top-level ``dataiku-skills``) and the
-# agent operating docs (``AGENTS.md``, ``CLAUDE.md``) into the wheel under
-# ``dataiku_mcp`` so they ship alongside the server code.
-[tool.hatch.build.targets.wheel.force-include]
-"dataiku-skills" = "dataiku_mcp/skills"
-"AGENTS.md" = "dataiku_mcp/AGENTS.md"
-"CLAUDE.md" = "dataiku_mcp/CLAUDE.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "dataiku_mcp",
     "cli",
     "dataiku-skills",
-    "AGENTS.md",
-    "CLAUDE.md",
     "README.md",
     "pyproject.toml",
 ]
@@ -78,6 +67,12 @@ version_provider = "pep621"
 tag_format = "v$version"
 update_changelog_on_bump = true
 major_version_zero = true
+# Keep the plugin manifests' "version" field in lockstep with [project].version.
+version_files = [
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".cursor-plugin/plugin.json",
+]
 
 [dependency-groups]
 dev = [

@@ -1,6 +1,6 @@
 # Dataiku Agent Dev Kit
 
-An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Cursor, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild, Dataiku's AI building agent to build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
+An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Snowflake CoCo (Cortex Code), Cursor, OpenCode, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild, Dataiku's AI building agent to build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
 
 Cobuild is exposed here as a retained conversation, driven through MCP tools. This repo's own tool surface stays deliberately thin around it: read/list/get/inspect tools for every object type (for context-gathering inside or outside a Cobuild conversation), plus a handful of operations Cobuild cannot do because they are cross-project, instance-level, or precede a project/conversation existing (creating a project, uploading a local file into a dataset or managed folder or project library).
 
@@ -25,65 +25,66 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 | Skill | Covers |
 | --- | --- |
 | `cobuild` | Default path for project-level asset creation/modification — start, continue, and confirm Cobuild conversations |
-| `projects` | Project discovery, flow navigation, metadata/variable inspection; `create_project` remains a direct write |
-| `connections` | DSS connection discovery, type/category filtering, capability inspection, health checks |
+| `projects` | Project discovery, metadata/variables, Flow organization; `create_project` remains a direct write |
+| `connections` | Connection discovery, type/category filtering, capability inspection, health checks; connection-type reference |
 | `code-environments` | List available code environments to reference in a Cobuild prompt |
-| `datasets` | Dataset inspection, profiling, schema; local-file upload tools remain direct writes |
+| `datasets` | Dataset storage/schema/metadata/quality-signal inspection; creating an Uploaded Files dataset remains a direct write |
 | `jobs` | DSS job tracking, status, waiting, and log inspection |
-| `data-quality` | Dataset Data Quality rule inspection — status, results, history |
+| `data-quality` | Data Quality rule and result inspection; rule-type reference |
 | `managed_folders` | Managed folder inspection; local-file upload remains a direct write |
-| `recipes` | Recipe and recipe-type inspection to gather context before a Cobuild write |
-| `machine-learning` | ML analysis and saved-model inspection |
-| `insights` | Insight inspection, especially chart insights dashboards reference |
-| `dashboards` | Dashboard inspection and context-gathering |
-| `llms-and-knowledge-banks` | LLM, Knowledge Bank, and RAG object inspection |
-| `agents` | DSS agent, version, and agent-tool inspection |
+| `recipes` | Recipe type selection and existing-recipe inspection; recipe-family references (data-prep, ML, GenAI, code) and prepare processor/formula-language reference |
+| `machine-learning` | ML analysis, trained-model, and saved-model inspection; task-type references (prediction, clustering, causal, forecasting) |
+| `insights` | Insight and referenced-object inspection, especially chart insights dashboards reference |
+| `dashboards` | Dashboard listing and settings inspection |
+| `llms-and-knowledge-banks` | LLM, Knowledge Bank, and Retrieval-Augmented LLM inspection |
+| `agents` | Agent and agent-tool inspection — types, versions, configuration, execution design; agent-type and agent-tool references |
 | `agent-reviews` | Agent review, test, run, and result inspection |
 | `scenarios` | Scenario, run-history, and messaging-channel inspection |
 | `semantic-models` | Semantic model and version inspection |
 | `webapps` | WebApp and backend-state inspection |
-| `wikis` | Wiki article and hierarchy inspection |
+| `wikis` | Wiki article and hierarchy inspection; wiki-content reference |
 | `project-libraries` | Project library file tree inspection/search; local-file write remains a direct write |
 | `cross-project-sharing` | Inspect existing cross-project sharing relationships |
-| `data-collections` | List and inspect Data Collections and their member objects |
+| `data-collections` | Discover a dataset by topic across projects via curated Data Collections |
 | `migrations` | Translate a third-party Source Bundle into a Dataiku migration plan, then hand the build off to Cobuild |
 
-Skills are loaded on demand by the agent — see `AGENTS.md` for routing rules and operating instructions.
+Skills are loaded on demand — each `SKILL.md`'s frontmatter `description` is what the agent harness matches against the conversation to decide when to pull it in. There is no separate root routing file; the descriptions themselves are the routing table.
 
-## Getting Started
+## Install
 
-### 1. Install
+Grouped by harness. Each plugin install wires up both `dataiku-skills/` and the MCP server (`uvx dataiku-headless serve`) in one step. Cloning this repo directly works too — every config file the plugins use (`.mcp.json`, `.cursor/mcp.json`, `opencode.json`, `dataiku-skills/`) is a real, readable file at the repo root.
 
-```bash
-uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
+### Claude Code
+
+```
+/plugin marketplace add dataiku/dataiku-agent-dev-kit
+/plugin install dataiku@dataiku
 ```
 
-### 2. Initialize your project
+### Codex
 
-Run once in your project directory to copy the agent operating instructions and skill library:
+```
+/plugins
+```
+Add the marketplace and install `dataiku` from there.
 
-```bash
-dataiku-headless initialize
+### Snowflake CoCo (Cortex Code)
+
+```
+cortex plugin install dataiku/dataiku-agent-dev-kit
 ```
 
-This writes `AGENTS.md`, `CLAUDE.md`, and `dataiku-skills/` into the current directory. Your agent harness picks them up automatically — Claude Code reads `CLAUDE.md`, Codex reads `AGENTS.md`.
+### Cursor
 
-**If `AGENTS.md` or `CLAUDE.md` already exist** in your project (e.g. with your own custom instructions), `initialize` will not overwrite them. Instead it writes to `AGENTS_DATAIKU_HEADLESS.md` / `CLAUDE_DATAIKU_HEADLESS.md` and prompts you to merge it into your `AGENTS.md` or `CLAUDE.md`.
+**Auto-discovered:** `.cursor/mcp.json` at the repo root wires up the MCP tools with no install step.
 
-### Upgrading to new versions
+**Plugin** (adds skills too): install the [`dataiku` plugin](https://cursor.com/marketplace) from Cursor's Marketplace UI (Customize → Marketplace → search `dataiku`).
 
-After upgrading the package, re-run `initialize --force` to update your project:
+### OpenCode
 
-```bash
-uv pip install --upgrade --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
-dataiku-headless initialize --force
-```
+**Auto-discovered:** `opencode.json` at the repo root wires up the MCP tools with no install step.
 
-`--force` fully replaces `dataiku-skills/` without prompting. For `AGENTS.md` / `CLAUDE.md`, the same rule applies regardless of `--force`: if they don't exist they're written fresh; if they already exist, the updated content is written to `AGENTS_DATAIKU_HEADLESS.md` / `CLAUDE_DATAIKU_HEADLESS.md` and you're prompted to merge.
-
-`dataiku-headless serve` will warn you if your `AGENTS.md` or `CLAUDE.md` are behind the installed package version.
-
-### 3. Configure
+## Configure
 
 Set your Dataiku connection information and other configuration details:
 
@@ -139,36 +140,15 @@ Auth resolution order:
 
 **Cobuild modes:** `CREATE_ONLY` (default) keeps this server's full read-tool surface enabled alongside the Cobuild conversation tools, for context-gathering independent of any Cobuild conversation. `FULL` additionally disables the read tools that duplicate what Cobuild can already inspect within its own conversation, leaving only cross-project/instance tools, the direct-write exceptions, and the Cobuild conversation tools themselves.
 
-### 4. Connect to your agent harness
+## Run
 
-Add the MCP server to your agent — see [Connecting to an Agent Harness](#connecting-to-an-agent-harness) for Claude Code, Codex, and other harnesses.
-
-### 5. Run
+Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly or running `streamable-http` as a standing service:
 
 ```bash
+uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
 dataiku-headless serve
 # or simply:
 dataiku-headless
-```
-
-## Connecting to an Agent Harness
-
-### Claude Code
-
-```bash
-claude mcp add-json dataiku-mcp '{
-  "type": "stdio",
-  "command": "dataiku-headless"
-}' --scope user
-```
-
-### Codex
-
-Add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.dataiku-mcp]
-command = "dataiku-headless"
 ```
 
 ## Project Structure
@@ -208,31 +188,56 @@ command = "dataiku-headless"
 │   └── __main__.py
 ├── dataiku-skills/
 │   ├── cobuild/               # Default path for project-level asset creation via Cobuild
-│   ├── agents/                # Agent/agent-version/agent-tool inspection skill
+│   ├── agents/
+│   │   ├── SKILL.md                # Agent/agent-version/agent-tool inspection skill
+│   │   └── references/             # Agent-type references (simple, structured, code) + agent tools
 │   ├── agent-reviews/         # Agent review/test/run inspection skill
 │   ├── insights/              # Insight inspection skill
 │   ├── code-environments/     # Code environment listing skill
-│   ├── connections/           # DSS connection discovery and inspection skill
+│   ├── connections/
+│   │   ├── SKILL.md                # DSS connection discovery and inspection skill
+│   │   └── references/             # Connection type/category reference
 │   ├── cross-project-sharing/ # Cross-project sharing inspection skill
 │   ├── dashboards/            # Dashboard inspection skill
 │   ├── data-collections/      # Data Collection listing and inspection skill
-│   ├── data-quality/          # Dataset Data Quality rule inspection skill
-│   ├── datasets/              # Dataset inspection/profiling skill
+│   ├── data-quality/
+│   │   ├── SKILL.md                # Dataset Data Quality rule inspection skill
+│   │   └── references/             # Rule-type reference
+│   ├── datasets/
+│   │   ├── SKILL.md                # Dataset inspection/profiling skill
+│   │   └── references/             # Uploaded Files dataset reference
 │   ├── jobs/                  # DSS job tracking and investigation skill
 │   ├── llms-and-knowledge-banks/ # LLM, Knowledge Bank, and RAG object inspection skill
-│   ├── machine-learning/      # ML analysis + saved-model inspection skill
+│   ├── machine-learning/
+│   │   ├── SKILL.md                # ML analysis + saved-model inspection skill
+│   │   └── references/             # Task-type references (prediction, clustering, causal, forecasting)
 │   ├── managed_folders/       # Managed folder inspection skill
 │   ├── project-libraries/     # Project library inspection/search skill
 │   ├── projects/              # Project discovery + flow navigation skill
 │   ├── scenarios/             # Scenario/run-history inspection skill
 │   ├── semantic-models/       # Semantic model inspection skill
 │   ├── webapps/               # WebApp/backend-state inspection skill
-│   ├── wikis/                 # Wiki article inspection skill
+│   ├── wikis/
+│   │   ├── SKILL.md                # Wiki article inspection skill
+│   │   └── references/             # Wiki content reference
 │   ├── migrations/            # Source Bundle -> migration plan -> Cobuild handoff skill
 │   └── recipes/
 │       ├── SKILL.md                # Recipe inspection skill, covers all recipe types
-│       └── references/             # prepare processor catalog + formula language (all other types need none)
-├── AGENTS.md                  # Agent operating instructions
+│       └── references/
+│           ├── recipe-types/       # Recipe-family references (data-prep, ML, GenAI, code)
+│           └── shared/              # Prepare processor catalog + formula language
+├── .claude-plugin/
+│   ├── plugin.json             # Claude Code plugin manifest (points at dataiku-skills/ and .mcp.json)
+│   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
+├── .codex-plugin/
+│   └── plugin.json             # Codex plugin manifest (points at dataiku-skills/ and .mcp.json)
+├── .mcp.json                   # Shared MCP server config (uvx dataiku-headless serve), read by both manifests
+├── opencode.json               # OpenCode project-level MCP config (auto-discovered)
+├── .cursor/
+│   └── mcp.json                # Cursor project-level MCP config (auto-discovered)
+├── .cursor-plugin/
+│   ├── plugin.json             # Cursor plugin manifest (bundles dataiku-skills/ as skills + .mcp.json)
+│   └── marketplace.json        # Marketplace catalog (single-plugin, source: ".")
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
