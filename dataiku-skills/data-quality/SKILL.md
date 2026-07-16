@@ -1,82 +1,43 @@
 ---
 name: data-quality
-description: Inspect, create, update, compute, and delete Dataiku DSS Data Quality rules on datasets through MCP tools. Use when an agent must list dataset DQ rules, inspect DQ status/results/history, create raw rule payloads, update existing rules, compute rules, or delete rules with explicit user intent.
+description: Understand and inspect Dataiku Data Quality rules and results. Use when an agent must discover existing rules, interpret quality outcomes, or gather grounded context before asking Cobuild to modify or create a rule.
 ---
 
-# Data Quality Rule Operations
+# Data Quality
 
-Use Dataiku MCP tools to manage DSS Data Quality rules on datasets. These are the newer dataset Data Quality rules, not legacy metrics/checks and not local dataset profiling.
+Use this skill to understand and inspect Data Quality rules, status, and outcomes for a dataset.
 
-## Follow This Execution Pattern
+## Data Quality Concepts
 
-1. For inspection, call `list_data_quality_rules` first. It returns compact summaries for discovery, not full configs. Use `get_data_quality_rule` when you need one exact raw rule by ID. Then use `get_data_quality_status`, `get_data_quality_rule_results`, or `get_data_quality_rule_history` depending on whether the user needs current dataset state, latest rule outcomes, or trends.
-2. For creation, pass a raw JSON object to `create_data_quality_rule`. Require at least `type`. For column-based rules, call `get_dataset_info` and verify referenced columns exist. Use the observed payload reference before constructing type-specific fields.
-3. For updates, list the rules and read the target rule with `get_data_quality_rule` first. Modify the returned raw rule config and call `update_data_quality_rule` with the complete object.
-4. For compute, announce the run before calling `compute_data_quality_rules`. Use async only when the dataset is expensive or partition-heavy and the user accepts getting a DSSFuture ID; follow async runs with `get_future_status`.
-5. For delete, require explicit user confirmation before calling `delete_data_quality_rule`.
-6. When reporting results, distinguish the dataset-level status from individual rule outcomes. If a configured rule has no latest result, say that no computed result is available.
+Data Quality rules are dataset-level checks. They are distinct from legacy metrics/checks and local dataset profiling. A rule can evaluate completeness, validity, uniqueness, distribution, schema, drift, or a custom condition.
 
-## Tool Reference
+Rule configuration, the dataset's overall quality status, a rule's latest result, and rule-result history are distinct. A configured rule may have no result when it has not been computed for the relevant partition. A disabled rule remains configured but is ignored during computation and status evaluation.
 
-| Goal | Tool |
-| --- | --- |
-| List configured rules, compact summaries, and dataset monitor flag | `list_data_quality_rules` |
-| Read one full raw rule config | `get_data_quality_rule` |
-| Read dataset-level DQ status | `get_data_quality_status` |
-| Read latest computed rule result(s) | `get_data_quality_rule_results` |
-| Read rule result history | `get_data_quality_rule_history` |
-| Create a rule from raw config | `create_data_quality_rule` |
-| Replace a rule config | `update_data_quality_rule` |
-| Compute all enabled rules, or one rule when `rule_id` is provided | `compute_data_quality_rules` |
-| Inspect an async compute future | `get_future_status` |
-| Delete one rule | `delete_data_quality_rule` |
+Rule outcomes can include `OK`, `WARNING`, `ERROR`, and `EMPTY`. A warning generally represents a soft-threshold signal, while an error represents a hard-threshold failure and can affect builds when the rule runs automatically after a dataset build.
 
-## Key Behaviors
+Drift rules compare current results with a historical baseline. A new drift rule may not have enough history to produce a meaningful result.
 
-- **Rule IDs vs names**: Tools that mutate rules require the `rule_id`, not the display name. Use `list_data_quality_rules` first to resolve names to IDs.
-- **Updates are full-replace**: `update_data_quality_rule` replaces the rule config. Read the current rule with `get_data_quality_rule`, modify only the intended fields, and pass the complete modified rule back.
-- **Nested config**: Rules can contain nested objects such as `driftParams`, `expectedSchema`, `envSelection`, and `meta`. Preserve sibling fields unless the user explicitly wants to remove them.
-- **Type changes**: Changing a rule's type is allowed by the MCP tool, but should be treated as repurposing the rule. Prefer creating a new rule unless the user explicitly wants to replace the existing rule's meaning.
-- **Python rules**: Prefer built-in rule types. Use Python-code rules only as a fallback when no built-in rule type can express the desired check.
+Read [Rule Types](references/rule-types.md) when interpreting an existing rule type or preparing a Data Quality request for Cobuild.
 
-## Raw Rule Payloads
+## Workflow
 
-Data Quality rule payloads are type-specific. Prefer raw payloads and observed reference shapes over invented field names.
+1. Use `./dataiku-skills/datasets/SKILL.md` to inspect the dataset's schema, partitions, and relevant context when rule interpretation depends on them.
+2. Use `list_data_quality_rules` to discover the dataset's configured rules.
+3. Use `get_data_quality_status` to inspect the current overall quality status.
+4. Use `get_data_quality_rule`, `get_data_quality_rule_results`, and `get_data_quality_rule_history` for rule-specific configuration, latest outcomes, and trends.
+5. Route Data Quality rule creation, edits, computation, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
 
-Read [Rule settings and payload reference](references/data_quality_settings_and_payload.md) before constructing or editing type-specific payloads beyond simple metadata toggles.
+## Preferred Tools
 
-For column-based rules, validate referenced columns with `get_dataset_info` before creation.
-
-## Status And Results
-
-The dataset-level status is not the same as individual rule results.
-
-- `get_data_quality_status` returns the dataset's current/worst DQ status when DSS has one.
-- `get_data_quality_rule_results` returns only the latest computed results available for the requested partition; uncomputed rules may simply be absent.
-- `get_data_quality_rule_history` returns historical computed rule results, not rule configuration.
-- If DSS has no computed status yet, the tool may return `status: null` with a warning rather than inventing a status string.
-
-Known outcomes include `OK`, `WARNING`, `ERROR`, and `EMPTY`. Treat unknown strings as DSS-provided statuses and report them literally.
-
-## Dataset Monitor
-
-`list_data_quality_rules` includes the dataset-level `monitor` flag when DSS returns it. This flag controls whether the dataset contributes to broader Data Quality monitoring views. Rule configuration and rule computation are separate from this flag.
-
-Monitor is read-only in this v1 skill. Do not attempt to write it unless a future MCP tool explicitly supports that operation.
+- `list_data_quality_rules`
+- `get_data_quality_status`
+- `get_data_quality_rule`
+- `get_data_quality_rule_results`
+- `get_data_quality_rule_history`
 
 ## Safety Rules
 
-- Never delete a rule without explicit user confirmation.
-- Never invent project keys, dataset names, rule IDs, or connection names.
-- Prefer built-in rule types over Python rules; create or edit Python-code rules only when no built-in rule type can express the desired check, and review the code before saving it.
-- Be explicit about partition handling: `partition="NP"` for non-partitioned datasets, a concrete partition ID for partitioned datasets, or `"ALL"` when the user asks for whole-dataset computation.
-- Treat `autoRun=true` as build behavior: DSS computes the rule after dataset builds, and `ERROR` results can fail build jobs.
-
-## Analytical Lens
-
-When inspecting rules, explain what they imply:
-
-- A rule with no latest result has not been computed for that partition, or DSS has no retained result.
-- A disabled rule remains configured but is ignored by compute/status.
-- `WARNING` may be an acceptable soft-threshold signal; `ERROR` usually means a hard-threshold failure and can break builds when `autoRun=true`.
-- Drift rules need enough historical runs to be meaningful; a freshly created drift rule may not have a useful baseline.
+- Discover dataset names and rule IDs via tools; do not invent identifiers.
+- Keep this skill read-only. Route Data Quality rule creation, edits, computation, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
+- Interpret results in the relevant partition and dataset context; an absent result is not a passing result.
+- Prefer built-in rule types over custom Python checks when preparing a Cobuild request.

@@ -27,6 +27,7 @@ from .tools import (  # noqa: F401,E402
     agent_reviews,
     agents,
     code_environments,
+    cobuild,
     connections,
     cross_project_sharing,
     dashboards,
@@ -50,10 +51,6 @@ from .tools import (  # noqa: F401,E402
 )
 from .tools.machine_learning import (  # noqa: F401,E402
     analyses,
-    causal,
-    clustering,
-    forecasting,
-    prediction,
     saved_models,
 )
 
@@ -78,6 +75,10 @@ elif transport == "streamable-http":
     mcp.local_provider.remove_tool("create_upload_dataset")
     mcp.local_provider.remove_tool("switch_instance")
     mcp.local_provider.remove_tool("list_instances")
+
+if config_mcp.DKU_MCP_COBUILD_MODE == "FULL":
+    for tool_name in sorted(config_mcp.FULL_COBUILD_DISABLED_TOOLS):
+        mcp.local_provider.remove_tool(tool_name)
 
 # Configure MCP search mode
 if config_mcp.DKU_MCP_TOOL_EXPOSURE == "search":

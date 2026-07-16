@@ -1,83 +1,53 @@
 ---
 name: projects
-description: Explore, create, and edit Dataiku projects through MCP tools. Use when an agent must list projects, inspect the flow, or read/write project metadata (description, tags, checklists) and project variables.
+description: Understand and inspect Dataiku projects, their metadata, variables, and Flow organization. Use when an agent must discover projects, orient in a project, gather context for Cobuild, or create a new project through the direct creation exception.
 ---
 
-# Project Operations
+# Projects
+
+Use this skill to understand and inspect Dataiku projects and gather grounded context for Cobuild.
+
+## Project Concepts
+
+A project is the primary boundary for Dataiku assets, including datasets, recipes, models, folders, dashboards, agents, and Flow organization.
+
+The project key is the stable technical identifier. The display name, shown as project metadata, is human-facing and can differ from the key.
+
+Project metadata includes labels, descriptions, tags, and checklists. Project variables provide runtime configuration: standard variables are shared across instances, while local variables are instance-specific overrides.
+
+Flow zones organize related Flow items visually. They are useful context when a user asks Cobuild to reorganize a Flow, but they do not change an asset's technical dependencies.
+
+## Modification Routes
+
+| Action | Route |
+| --- | --- |
+| Create a new project | Direct creation exception |
+| Modify an existing project's metadata, variables, Flow structure, or assets | Cobuild |
 
 ## Workflow
 
-- Use `list_projects` to discover and confirm the exact `project_key`. Never invent project keys.
-- For flow orientation: `get_flow_items_in_traversal_order`. Supplement with `list_recipes`, `list_datasets`, `list_managed_folders`, `list_saved_models`, or `list_agents` as needed for the task.
-- `set_project_metadata` and `set_project_variables` are full replaces — always call the corresponding get tool first, modify only what you need, then pass the complete dict back.
-- `set_project_metadata` requires **project admin** privileges. If it returns `Action forbidden`, inform the user and do not retry.
-- Project creation (`create_project`) is significant — confirm the project key and name with the user before calling.
+1. Use `count_projects` and `list_projects` to discover projects and confirm the exact project key.
+2. For existing-project context, use `get_project_metadata` and `get_project_variables` to inspect metadata and configuration.
+3. Use `get_flow_items_in_traversal_order` and `list_flow_zones` to orient in the Flow when dependencies or organization matter.
+4. Use `get_flow_object_metadata` to inspect metadata for a specific project object.
+5. For a new project, confirm the unique project key and display name with the user, then use `create_project`.
+6. Verify a newly created project with `list_projects` or `get_project_metadata`.
+7. Route all existing-project changes through `./dataiku-skills/cobuild/SKILL.md`.
 
-## Project Metadata
+## Preferred Tools
 
-**Display name field:** use `name` when creating a project; use `label` when reading or updating an existing project's metadata.
+- `count_projects`
+- `list_projects`
+- `create_project`
+- `get_project_metadata`
+- `get_project_variables`
+- `get_flow_items_in_traversal_order`
+- `list_flow_zones`
+- `get_flow_object_metadata`
 
-`get_project_metadata` returns the full metadata dict. Key editable fields:
+## Safety Rules
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `label` | string | Project display name |
-| `shortDesc` | string | One-line description shown in the project list |
-| `description` | string | Long-form markdown description |
-| `tags` | list of strings | Project tags |
-| `checklists` | list of checklist objects | Project to-do lists |
-
-### Checklist structure
-
-The `checklists` field is double-nested — the outer key is a wrapper, the inner key holds the array:
-
-```json
-{
-  "checklists": {
-    "checklists": [
-      {
-        "title": "Pre-launch checks",
-        "createdOn": 0,
-        "items": [
-          {"text": "Validate training data", "done": false, "createdOn": 0, "createdBy": "user", "stateChangedOn": 0},
-          {"text": "Review model metrics", "done": true, "createdOn": 0, "createdBy": "user", "stateChangedOn": 0}
-        ]
-      }
-    ]
-  }
-}
-```
-
-Preserve all item fields (`createdOn`, `createdBy`, `stateChangedOn`) when round-tripping — only modify `done` or `text`.
-
-## Project Variables
-
-`get_project_variables` returns `{"standard": {...}, "local": {...}}`.
-
-- **standard**: shared across all instances running the project
-- **local**: instance-specific overrides
-
-## Flow Zones
-
-Flow zones group related flow items visually.
-
-1. `list_flow_zones` — see existing zones and their contents (`zone_id`, `name`, `items`).
-2. `get_flow_items_in_traversal_order` — see all item refs and types.
-3. `add_items_to_flow_zone` with target `zone_id` and a list of `{object_type, object_id}` pairs. Items are automatically removed from their current zone. DSS may auto-move dependents (e.g. moving a saved model pulls its training recipe) — check `list_flow_zones` after.
-4. To move items back to the default zone: use `zone_id='default'`.
-5. `create_flow_zone` with a name and optional hex color to create a new zone.
-
-**Default zone is virtual.** Its `items` from `list_flow_zones` is always `[]` — even after `add_items_to_flow_zone(zone_id='default', ...)` (that call only removes items from non-default zones; it does not populate a stored list). Default contains every flow item not explicitly placed in another zone. If no non-default zones exist, `list_flow_zones` may return `zone_count: 0`; treat that as "all items are in Default." To enumerate Default's contents, cross-reference `get_flow_items_in_traversal_order` against the union of items across non-default zones.
-
-**`object_type` values** (use the ref from `get_flow_items_in_traversal_order` as `object_id`):
-
-| Flow item type | `object_type` to pass |
-| --- | --- |
-| `COMPUTABLE_DATASET` | `DATASET` |
-| `RUNNABLE_RECIPE` | `RECIPE` |
-| `COMPUTABLE_FOLDER` | `MANAGED_FOLDER` |
-| `COMPUTABLE_SAVED_MODEL` | `SAVED_MODEL` |
-| `COMPUTABLE_RETRIEVABLE_KNOWLEDGE` | `RETRIEVABLE_KNOWLEDGE` |
-| `COMPUTABLE_MODEL_EVALUATION_STORE` | `MODEL_EVALUATION_STORE` |
-
-`RUNNABLE_IMPLICIT_RECIPE` items cannot be moved directly — they follow their associated saved model automatically.
+- Discover project keys via tools; do not invent identifiers.
+- Confirm the project key and display name before creating a project.
+- Verify that the requested project key is not already in use before direct creation.
+- Keep existing-project changes under the Cobuild route.

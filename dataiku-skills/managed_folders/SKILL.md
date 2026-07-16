@@ -1,56 +1,49 @@
 ---
-name: managed_folders
-description: Inspect and maintain Dataiku managed folders through MCP tools. Use when an agent must create folders, upload local files, list folders, inspect folder contents/info/metrics, or delete folders with explicit user intent.
+name: managed-folders
+description: Understand and inspect Dataiku managed folders and, when explicitly needed, upload local files into them. Use when an agent must inspect folder storage or contents, gather context for Cobuild, or place a user-supplied local file into an existing folder.
 ---
 
-# Folder Operations
+# Managed Folders
 
-Use Dataiku MCP tools for managed-folder inspection and controlled maintenance in a project.
+Use this skill to understand and inspect managed folders, and to handle the direct local-file upload exception.
 
-## Follow This Execution Pattern
+## Managed Folder Concepts
 
-1. Use `get_flow_items_in_traversal_order` to understand flow dependencies before folder changes.
-2. Use `list_managed_folders` to discover exact folder ids/names and storage backends.
-3. Use `get_managed_folder_contents`, `get_managed_folder_info`, and `get_managed_folder_metrics` before proposing destructive changes.
-4. For delete, require explicit user confirmation before calling `delete_managed_folder`.
+A managed folder is a connection-backed project asset for arbitrary files and file-based artifacts. It is appropriate for documents, binary files, exports, model artifacts, and other non-tabular content.
 
-## Creating New Managed Folders
+Managed folders differ from datasets, which represent tabular data, and project libraries, which hold source code and small code-supporting resources.
 
-Use this section when the user explicitly wants a new managed folder, or when another workflow needs a missing folder output created first.
+Folder connection, path, and contents determine how a folder can be used. Create or modify a folder through Cobuild so its connection and surrounding Flow context are selected deliberately.
 
-- Use an explicitly requested connection when the user provides one.
-- Otherwise prefer the same connection as adjacent managed folders when `list_managed_folders` or `get_managed_folder_info` shows a clear match.
-- Use the configured default folder connection only when there is no stronger context signal.
-- Use `create_managed_folder` to create the new managed folder.
+## Modification Routes
 
-## Creating a Dataset from Folder Files
+| Action | Route |
+| --- | --- |
+| Create, delete, reconfigure, or restructure a managed folder | Cobuild |
+| Change folder metadata or broader project assets that use the folder | Cobuild |
+| Place a user-supplied local file in an existing folder | Direct upload exception |
 
-Use `create_files_in_folder_dataset` when files in a managed folder need to be read as a dataset.
+Direct upload can replace an existing file at the same folder path. Inspect the target path and obtain explicit user intent before replacing it.
 
-- Pass `files_selection` to scope which files are read — see the files-in-folder-dataset-selection-rules reference for the full schema and examples. Omit it to read all files.
-- Autodetect runs automatically. If `autodetect_warning` is present, fix column types with `set_dataset_column_storage_types` (see datasets skill).
-- `columns: null` in the result means autodetect failed; `columns: []` means autodetect ran but found no columns.
+## Workflow
 
-## Uploading Content
-
-Use `upload_file_to_managed_folder` when the user explicitly wants to place a local file in a managed folder.
-
-- Inspect the folder first with `get_managed_folder_contents` to see existing contents.
-- Uploading to an existing target path replaces that file.
+1. Use `list_managed_folders` to discover exact folder IDs, names, types, and connections.
+2. Use `get_managed_folder_info` and `get_managed_folder_contents` to inspect a selected folder before any follow-up action.
+3. For a requested local-file upload, confirm the local source file and target folder path. If the target path already exists, obtain explicit replacement intent.
+4. Use `upload_file_to_managed_folder` only for that explicit local-file placement.
+5. Re-inspect folder contents when confirmation that the file is present matters.
+6. For folder creation or other project-asset changes, inspect `./dataiku-skills/connections/SKILL.md` when storage context is unclear, then route the change through `./dataiku-skills/cobuild/SKILL.md`.
 
 ## Preferred Tools
 
-- Discover: `get_flow_items_in_traversal_order`, `list_managed_folders`
-- Create folder: `create_managed_folder`
-- Create dataset from folder: `create_files_in_folder_dataset`
-- Upload: `upload_file_to_managed_folder`
-- Inspect: `get_managed_folder_contents`, `get_managed_folder_info`, `get_managed_folder_metrics`
-- Metadata: `get_flow_object_metadata`, `set_flow_object_metadata` (use `object_type="managed_folder"`, folder id as `object_name`)
-- Delete: `delete_managed_folder`
+- `list_managed_folders`
+- `get_managed_folder_info`
+- `get_managed_folder_contents`
+- `upload_file_to_managed_folder`
 
 ## Safety Rules
 
-- Never set `overwrite=true` without explicit user intent.
-- Never upload over an existing managed-folder path without explicit user intent.
-- Never delete a managed folder without explicit user intent.
-- Prefer folder id for destructive actions when there is any ambiguity in folder names.
+- Discover folder IDs and target paths via tools; do not invent identifiers.
+- Keep this skill read-only except for an explicitly requested local-file upload.
+- Do not replace an existing folder path without explicit user intent.
+- Route folder creation, deletion, metadata changes, and broader restructuring through `./dataiku-skills/cobuild/SKILL.md`.

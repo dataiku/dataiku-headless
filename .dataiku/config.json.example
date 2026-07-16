@@ -1,0 +1,23 @@
+{
+  "default_instance": "dev",
+  "dss_instances": {
+    "dev": {
+      "url": "https://dev.dataiku.com",
+      "api_key": "your-dev-api-key",
+      "no_check_certificate": false,
+      "default_connection": "filesystem_managed",
+      "default_folder_connection": "filesystem_folders",
+      "default_llm": "openai:<YOUR_CONNECTION_NAME>:gpt-5.4",
+      "default_embedding_llm": "openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small"
+    },
+    "prod": {
+      "url": "https://prod.dataiku.com",
+      "api_key": "your-prod-api-key",
+      "no_check_certificate": false,
+      "default_connection": "filesystem_managed",
+      "default_folder_connection": "filesystem_folders",
+      "default_llm": "openai:<YOUR_CONNECTION_NAME>:gpt-5.4",
+      "default_embedding_llm": "openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small"
+    }
+  }
+}

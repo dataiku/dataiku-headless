@@ -1,90 +1,63 @@
 ---
 name: scenarios
-description: Create, inspect, edit, and trigger Dataiku scenarios through MCP tools. Use when an agent must list scenarios, create a new scenario, read or update steps and triggers, run scenarios manually, or review run history.
+description: Understand and inspect Dataiku scenarios and their run history, then use grounded context for Cobuild automation work. Use when reviewing existing automation or planning a scenario.
 ---
 
-# Scenario Operations
+# Scenarios
 
-Use Dataiku MCP tools to inspect and trigger scenarios safely.
+Use this skill to understand existing project automation and plan grounded scenario work through Cobuild.
 
-## What Are Scenarios?
+## Scenario Concepts
 
-Scenarios are Dataiku's automation layer. A scenario contains:
-- **Steps**: actions to perform sequentially — build datasets, train models, run SQL, export data, send notifications, execute custom Python, etc.
-- **Triggers**: conditions that fire the scenario automatically — time schedules, dataset changes, SQL query changes, or completion of another scenario.
-- **Reporters**: notifications sent when a run completes (email with optional attachments).
+A scenario is a Dataiku automation object. It combines ordered steps, automatic triggers, and completion reporters.
 
-## Follow This Execution Pattern
+- **Steps** perform work such as building data, training models, moving or exporting data, running custom work, or sending notifications.
+- **Triggers** start a scenario when a schedule or configured project event occurs.
+- **Reporters** notify people when a run completes.
 
-1. Call `list_scenarios` to discover available scenarios. Note which are `active` (auto-triggers enabled) and which are currently `running`.
-2. Before running or editing a scenario, call `get_scenario_settings` to understand its steps, triggers, and reporters.
-3. Announce the intended action in one sentence. If the scenario has expensive steps (recursive builds, ML training, large exports), confirm with the user before proceeding.
-4. To create a new scenario, call `create_scenario` with `type` of `step_based` (default) or `custom_python`. To add steps and triggers after creation — or to edit an existing scenario — call `get_scenario_settings`, modify the returned dict, then call `set_scenario_settings` with the full modified dict. **Load `./step-reference/REFERENCE.md` before constructing any step, trigger, or reporter payloads.**
-5. Call `run_scenario` with `wait_for_completion=true` for scenarios expected to finish within a few minutes. Use `false` for long-running scenarios and check results with `get_scenario_run_history`.
-6. After a run, interpret the outcome:
-   - `SUCCESS`: all steps completed normally.
-   - `WARNING`: steps completed but some reported non-fatal issues.
-   - `FAILED`: one or more steps failed — surface the failing step from the run history if possible.
-   - `ABORTED`: run was manually stopped.
-7. Use `get_scenario_run_history` to assess reliability: how often does this scenario fail, and on which step?
+The `active` setting controls whether automatic triggers can start runs; it does not remove the scenario. Run history records outcomes and timing, providing evidence about reliability and recurring failures.
 
-## Scenario Settings Structure
+Scenarios can have broad operational impact. Creation, edits, activation, manual runs, and deletion route through Cobuild.
 
-`get_scenario_settings` returns a full dict. Key top-level fields:
-
-| Field | Description |
+| Component | Concept |
 | --- | --- |
-| `id` | Scenario ID — use this in all tool calls |
-| `name` | Display name |
-| `type` | `"step_based"` or `"custom_python"` |
-| `active` | Whether auto-triggers are enabled |
-| `runAsUser` | Optional: login of the user the scenario runs as |
-| `params.steps` | Ordered list of step dicts (step_based only) |
-| `triggers` | List of trigger dicts |
-| `reporters` | List of reporter (notification) dicts |
-| `delayedTriggersBehavior` | Controls squashing/suppressing triggers while running |
+| Steps | Ordered work performed by a run, such as builds, model work, data movement, exports, code, or notifications. |
+| Triggers | Schedules or configured events, including data changes and scenario completion, that can start a run automatically. |
+| Reporters | Completion notifications sent through a configured channel to selected recipients. |
+| Delayed triggers | Defines what happens when a trigger occurs while a prior run is still active. |
+| Run history | Records success, warning, failure, or aborted outcomes and helps identify recurring failures or slow runs. |
 
-> **Python scenario note**: For `custom_python` scenarios, `get_scenario_settings` returns the settings dict but NOT the Python script body. Script editing is not supported via these tools; use the DSS UI.
+When describing automation to Cobuild, state the intended trigger, work sequence, notification audience, and failure behavior.
 
-## Reading `get_scenario_settings` Output
+## Workflow
 
-Retain the full settings object — it's needed for any subsequent `set_scenario_settings` call. When reporting to the user, extract and surface these facts rather than dumping the raw payload:
+1. Use `list_scenarios` to discover scenarios and identify active or running automation.
+2. Use `get_scenario_settings` to inspect a selected scenario's steps, triggers, reporters, and execution behavior.
+3. Use `get_scenario_run_history` to investigate reliability, recent outcomes, and recurring failures.
+4. Use `list_messaging_channels` only when reporter configuration is relevant.
+5. Inspect the project objects a scenario operates on when a requested change affects them.
+6. Route scenario creation, edits, activation, runs, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
 
-| What to report | Where to find it |
-|----------------|-----------------|
-| Active (auto-triggers on?) | `active` |
-| Trigger count and types | `triggers[*].type` — e.g., `"temporal"`, `"dataset_modified"`, `"sql_query"`, `"scenario_run"` |
-| Each trigger active? | `triggers[*].active` |
-| Step count | `len(params.steps)` |
-| Ordered step types | `params.steps[*].type` in order |
-| Reporter count and channels | `reporters[*].type` and `reporters[*].params.channelId` |
+## Supporting Context
 
-## Step and Trigger Reference
-
-For full payload shapes for all step types, trigger types, and reporter configuration, load:
-
-**`./step-reference/REFERENCE.md`**
-
-Load this file whenever you need to construct or edit steps, triggers, or reporters. Do not guess payload shapes from memory — always consult the reference.
+- Dataset and Flow build steps: `../datasets/SKILL.md` and `../recipes/SKILL.md`
+- ML training or deployment steps: `../machine-learning/SKILL.md`
+- Managed-folder or export steps: `../managed_folders/SKILL.md`
+- WebApp steps: `../webapps/SKILL.md`
+- Active or uncertain job execution: `../jobs/SKILL.md`
 
 ## Preferred Tools
 
-- Discover: `list_scenarios`
-- Create: `create_scenario`
-- Inspect: `get_scenario_settings`
-- Edit: `set_scenario_settings`
-- Run: `run_scenario`
-- Audit: `get_scenario_run_history`
-- Delete: `delete_scenario`
-- List messaging channels: `list_messaging_channels`
+- `list_scenarios`
+- `get_scenario_settings`
+- `get_scenario_run_history`
+- `list_messaging_channels`
 
 ## Safety Rules
 
-- Always call `get_scenario_settings` before `run_scenario` — understand what steps will execute.
-- Never run a scenario that is already `running` — check `list_scenarios` first.
-- Never call `delete_scenario` on a scenario that is currently `running` — check `list_scenarios` first and confirm with the user before deleting any scenario.
-- Scenarios can trigger recursive dataset builds or ML training jobs. Confirm with the user before running if the scenario has heavy or expensive steps.
-- `run_scenario` with `wait_for_completion=false` fires and forgets — default to `true` unless the user explicitly accepts async behavior.
-- Never invent scenario IDs, dataset names, managed folder IDs, model IDs, connection names, SMTP channel IDs, webapp IDs, or dashboard IDs — always discover them first.
-- `set_scenario_settings` is a full replace — always round-trip through `get_scenario_settings` first; never construct a settings dict from scratch unless creating a new scenario.
-- Before creating a reporter: call `list_messaging_channels` for valid channel IDs, then ask the user which channel. Non-null `default_sender` -> use it (sender fixed). Null `default_sender` -> ask the user for a `sender` address. Always ask for a `recipient`. Require sender + recipient populated; if the user leaves any required field blank, omit the reporter entirely. All required fields present -> set `active: true` (reporter runs only when `active: true`).
+- Discover scenario and messaging-channel identifiers through tools; do not invent them.
+- Inspect a scenario's steps before requesting a manual run or a behavior change.
+- Do not request a new run while the scenario may already be running.
+- Treat scenarios with expensive builds, training, exports, or notifications as consequential automation.
+- Preserve existing triggers, reporters, and delayed-trigger behavior unless the user requests a change.
+- Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct scenario mutation workflows here.

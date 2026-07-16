@@ -1,47 +1,34 @@
 ---
 name: code-environments
-description: Discover and configure Dataiku DSS code environments. Use when an agent must list available code environments or set the code environment used by a Python, R, or PySpark recipe or an ML analysis.
+description: Understand and inspect Dataiku code environments. Use when selecting an environment or diagnosing an environment-related issue before asking Cobuild to change a recipe, ML analysis, or code agent.
 ---
 
 # Code Environments
 
-## Discover
+Use this skill to inspect available Dataiku code environments and gather grounded context for Cobuild.
 
-Call `list_code_envs` to see all code environments on the instance with their name, language, and deployment type. Never invent an environment name.
+## Code Environment Concepts
 
-## Set a Recipe's Code Environment
+A code environment provides the language runtime and installed dependencies for code-based work, including Python, R, and PySpark recipes, ML analyses, and code agents.
 
-Use `set_recipe_settings` with the `set_code_env` action. Applies to `python`, `r`, and `pyspark` recipes.
+An asset can use an explicitly selected environment, inherit a configured default, or use its language's built-in environment. Choose an explicit environment only when the user requests it or the task/error context establishes that it is needed.
 
-```json
-{"action": "set_code_env", "env_mode": "EXPLICIT_ENV", "env_name": "my_env"}
-{"action": "set_code_env", "env_mode": "INHERIT"}
-{"action": "set_code_env", "env_mode": "USE_BUILTIN_MODE"}
-```
+Matching a workload's language does not establish package or runtime compatibility. Diagnose failures using error details and known requirements, and involve Cobuild or an administrator when the available context is insufficient.
 
-- `EXPLICIT_ENV` — requires `env_name`; use an exact name from `list_code_envs`
-- `INHERIT` — recipe inherits the project or instance default
-- `USE_BUILTIN_MODE` — use DSS built-in environment for the language
+## Workflow
 
-## Set an ML Analysis Code Environment
+1. Use `list_code_envs` to discover exact environment names and available languages.
+2. Identify the affected workload's language and requirements from the relevant recipe, ML analysis, code agent, or error message.
+3. Use the returned environment metadata to identify compatible candidates. Do not assume that a compatible language means a compatible dependency set.
+4. For a requested change, include the exact environment name or intended selection behavior in a grounded Cobuild prompt.
+5. Route recipe, ML analysis, and code-agent environment changes through `./dataiku-skills/cobuild/SKILL.md`.
 
-Pass `env_mode` and `env_name` to any of the update analysis tools:
-- `update_prediction_analysis`
-- `update_clustering_analysis`
-- `update_causal_prediction_analysis`
-- `update_timeseries_forecasting_analysis`
+## Preferred Tools
 
-The same three `env_mode` values apply. The current value is visible in `get_ml_analysis_settings` under `mltask_settings.envSelection`.
-
-## When to Change the Code Environment
-
-Do not change the code environment proactively. Only act on it when a recipe run or ML training job fails with an error that indicates an environment problem — missing package, import error, or incompatible Python version. When that happens:
-
-1. Call `list_code_envs` and filter by the relevant language (`PYTHON`, `R`, etc.).
-2. Tell the user how many environments of that language exist and ask them to provide the exact name to use.
-3. Set `env_mode=EXPLICIT_ENV` with the name they provide.
+- `list_code_envs`
 
 ## Safety Rules
 
-- Always discover with `list_code_envs` before setting `EXPLICIT_ENV`.
-- Do not apply `set_code_env` to visual recipes or SQL recipes — it will fail.
+- Discover code environment names via tools; do not invent identifiers.
+- Keep this skill read-only. Route recipe, ML analysis, and code-agent environment changes through `./dataiku-skills/cobuild/SKILL.md`.
+- Do not select an explicit environment solely from a package or import error unless its compatibility is otherwise established.

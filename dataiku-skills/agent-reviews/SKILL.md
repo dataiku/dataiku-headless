@@ -1,83 +1,55 @@
 ---
 name: agent-reviews
-description: Create, configure, and run Dataiku DSS Agent Reviews — objects that evaluate an agent's behaviour across a set of test queries using named evaluation traits.
+description: Understand and inspect Dataiku Agent Reviews. Use when an agent needs to interpret existing reviews or gather grounded context before asking Cobuild to create or modify project assets.
 ---
 
-# Agent Review Operations
+# Agent Reviews
 
-Use Dataiku MCP tools to manage DSS Agent Reviews. An agent review links a DSS agent to a set of **traits** (evaluation criteria) and **tests** (input queries), then executes **runs** that drive each test through the agent and score the responses against each trait.
+Use this skill to understand and inspect Agent Reviews, including their traits, tests, runs, and results.
 
-## Object Hierarchy
+## Agent Review Concepts
 
-```
+An Agent Review evaluates one DSS agent against a set of test queries and named evaluation traits. It provides a repeatable way to assess the agent's behavior, identify weak cases, and compare outcomes across runs.
+
+### Object Model
+
+```text
 Agent Review
-├── Traits   — named evaluation dimensions (e.g. "Factual accuracy", "Tone")
-├── Tests    — input queries with optional reference answers and expectations
-└── Runs     — executions of tests; each run → Results → per-test, per-trait outcomes
+|- Traits: evaluation criteria, such as factual accuracy or tone
+|- Tests: input queries, optionally with reference answers and expectations
+`- Runs: executions of the test set, producing per-test, per-trait results
 ```
 
-## Execution Pattern
+### Core Concepts
 
-For inspection, use the tool table below — list first, then get. Always call `get_agent_review` before mutating (traits, linked agent, name).
+- **Traits** define how an agent response is evaluated. A trait can require a test's reference answer or free-text expectations.
+- **Tests** are the user queries sent to the linked agent. Supply reference answers and expectations when the configured traits require them.
+- **Runs** execute the review's tests. A test may be executed multiple times to expose non-deterministic agent behavior.
+- **Results** record outcomes for each test and trait, including the evaluator's status and justification. A final result may reflect a human override where one exists.
 
-**Creating a review:**
-1. `list_agents` to find the agent ID.
-2. `create_agent_review` with a name and optional `agent_id` and `traits`.
-3. `create_agent_review_test` — one call per test query.
-4. `perform_agent_review_run` with `wait_for_completion=true` for interactive feedback.
+### Interpretation Notes
 
-**Updating traits:**
-1. `get_agent_review` — read the current traits list.
-2. `update_agent_review` with the complete new traits list. Traits are **full-replace**; include unchanged traits or they will be dropped.
+- Inspect the linked agent and trait definitions before interpreting a result: the same response can pass or fail depending on the trait's criteria.
+- Check that each test provides the inputs required by its traits, especially reference answers and expectations.
+- Compare repeated executions of a test when assessing reliability; inconsistent outcomes are evidence of agent variability, not necessarily a tooling error.
 
-## Tool Reference
+## Workflow
 
-| Goal | Tool |
-| --- | --- |
-| List all reviews in a project | `list_agent_reviews` |
-| Read review config (traits, linked agent) | `get_agent_review` |
-| Create a new review | `create_agent_review` |
-| Update name, linked agent, or traits | `update_agent_review` |
-| Delete a review | `delete_agent_review` |
-| List tests in a review | `list_agent_review_tests` |
-| Add a test query | `create_agent_review_test` |
-| Edit a test's query, reference answer, or expectations | `update_agent_review_test` |
-| Delete a test | `delete_agent_review_test` |
-| Execute a run (all or a subset of tests) | `perform_agent_review_run` |
-| List past runs | `list_agent_review_runs` |
-| Read per-test, per-trait outcomes for a run | `get_agent_review_run_results` |
+1. Use `list_agent_reviews` to discover reviews.
+2. Use `get_agent_review` to inspect the review configuration and discover its linked agent. When agent behavior or configuration matters, use `./dataiku-skills/agents/SKILL.md` to inspect that agent.
+3. Use `list_agent_review_tests` to inspect the test set.
+4. Use `list_agent_review_runs` and `get_agent_review_run_results` to inspect outcomes.
+5. If the task requires creating, editing, deleting, or executing Agent Reviews, route that work through `./dataiku-skills/cobuild/SKILL.md`.
 
-## Key Concepts
+## Preferred Tools
 
-**Traits** are LLM-as-judge evaluators — each one computes a PASS/FAIL outcome for a test result. Each trait has:
-- `name` — label shown in results
-- `description` — what the trait means
-- `criteria` — the prompt/instructions the evaluator LLM uses to score the response
-- `enabled` — disabled traits are ignored during runs
-- `needsReference` — set `true` when the trait compares the response against a reference answer
-- `needsExpectations` — set `true` when the trait checks against free-text expectations per test
-- `llmId` — LLM for this trait's evaluator. Always set explicitly; if omitted and the instance has no default GenAI Evaluation LLM, runs will fail. Use `list_llms` to discover valid IDs.
-
-When creating or updating traits, pass a full list to `update_agent_review`. Each trait dict: `{name, description, criteria, enabled, needsReference, needsExpectations, llmId}`. For existing traits, include their DSS-assigned `id` so DSS preserves them; new traits omit `id` and DSS assigns one on save. Do not invent IDs.
-
-**Tests** are the inputs the agent receives. Each test has:
-- `query` — the user message sent to the agent (required)
-- `referenceAnswer` — expected answer, required when any trait has `needsReference=true`
-- `expectations` — free-text behavioral expectations, required when any trait has `needsExpectations=true`
-
-**Runs** execute the test set. Each test is executed `nb_executions` times per run (configured on the review) to account for agent non-determinism; a single test can produce multiple execution results. `perform_agent_review_run` blocks until completion when `wait_for_completion=true`. For large test sets, consider `wait_for_completion=false` and poll via `list_agent_review_runs`.
-
-**Results** are per-test, per-trait. `get_agent_review_run_results` returns a summary (PASS/FAIL/total counts) plus each result's `status` and `justification`. `trait_status_per_trait_id` reflects the **final** status — human overrides always win over AI evaluation. Human reviews and trait overrides are not covered by the current MCP tools; use the DSS UI for HITL review.
-
-## Key Behaviors
-
-- **Agent ID format**: Pass the bare `list_agents` ID as-is (e.g. `jdcefvxV`); DSS expects it bare in `agentSmartId`, no project-key prefix.
-- **Traits are full-replace**: `update_agent_review` replaces the entire traits list — always include unchanged traits or they will be dropped.
-- **Run subset**: Pass `test_ids` to `perform_agent_review_run` to run only specific tests; omit to run all.
-- **`nb_executions`**: Each test runs this many times per run (configured on the review). Multiple execution results per test is expected, not an error.
+- `list_agent_reviews`
+- `get_agent_review`
+- `list_agent_review_tests`
+- `list_agent_review_runs`
+- `get_agent_review_run_results`
 
 ## Safety Rules
 
-- Delete a review or test only after the user explicitly confirms.
-- Always discover review IDs, test IDs, and agent smart IDs via tools.
-- `perform_agent_review_run` invokes the linked agent against real LLM calls; confirm with the user before running large test sets.
+- Discover review, test, and run ids via tools; do not invent identifiers.
+- Keep this skill read-only. Route Agent Review creation, edits, deletion, and execution through `./dataiku-skills/cobuild/SKILL.md`.

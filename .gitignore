@@ -20,6 +20,9 @@ learning-dev-agent/recipe-snapshot-corpus/recipe_snapshots/*
 .codex_tmp
 tmp
 
+# Codex: MCP server command paths are machine-specific, never commit
+.codex/
+
 # Design / rationale docs — local working notes, not tracked
 docs/
 

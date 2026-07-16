@@ -1,78 +1,51 @@
 ---
 name: insights
-description: Create, inspect, update, and delete Dataiku insights, especially chart insights. Use when an agent must build or maintain insight payloads, inspect insight definitions, or create reusable insights that dashboards reference.
+description: Understand and inspect Dataiku insights and their referenced objects. Use when an agent must inspect existing insights or gather grounded context before asking Cobuild to create or modify insight assets.
 ---
 
-# Insight Operations
+# Insights
 
-Use Dataiku MCP tools to manage DSS insights safely, especially `type: "chart"` insights.
+Use this skill to understand and inspect existing Dataiku insights and gather grounded context for Cobuild.
 
-In practice, insights are mainly reusable building blocks for dashboards, rather than standalone end-user artifacts.
+## Insight Concepts
 
-## Required Reading Before Mutation
+Insights are reusable project resources that present or expose information from another Dataiku object. They are commonly used as dashboard building blocks, but dashboards own tile layout, sizing, page filters, and other display context.
 
-Before any create or update:
-1. Read the reference file for the specific insight type you are editing:
-   - `chart`: [chart payload reference](references/chart-payload-reference.md)
-   - `dataset_table`: [dataset table insight reference](references/dataset-table-insight-reference.md)
-   - `saved-model_report`: [saved model report insight reference](references/saved-model-report-insight-reference.md)
-   - `model-evaluation_report`: [model evaluation report insight reference](references/model-evaluation-report-insight-reference.md)
-   - `data-quality`: [data quality insight reference](references/data-quality-insight-reference.md)
-   - `scenario_last_runs`: [scenario last runs insight reference](references/scenario-last-runs-insight-reference.md)
-   - `scenario_run_button`: [scenario run button insight reference](references/scenario-run-button-insight-reference.md)
-   - `web_app`: [web app insight reference](references/web-app-insight-reference.md)
-2. If the insight will be pinned on a dashboard, also coordinate with the `dashboards` skill so the tile references the correct `insightId`.
+An insight binds to a source object or provides dashboard content:
 
-Do not guess insight type strings, chart type strings, variants, or object-binding fields from memory.
+| Type | Binds to | What it shows |
+| --- | --- | --- |
+| `chart` | a dataset | A chart definition, including encoding, engine, and sampling. |
+| `dataset_table` | a dataset | A reusable table exploration view with persisted state. |
+| `data-quality` | a Dataiku object | That object's current Data Quality status. |
+| `model-evaluation_report` | a model evaluation store entry | A chosen evaluation-report section. |
+| `saved-model_report` | a saved model | A chosen model-report section. |
+| `scenario_last_runs` | a scenario | Recent run outcomes, simplified or ranged. |
+| `scenario_run_button` | a scenario | A dashboard-embedded control that triggers the scenario. |
+| `web_app` | a WebApp | The WebApp rendered inline. |
 
-## Follow This Execution Pattern
+An insight tile can reference an insight by `insightId`, but the dashboard skill owns the tile and page configuration.
 
-1. Discover current insights with `list_insights`. Never invent insight IDs.
-2. Read the current object with `get_insight_settings` before any edit.
-3. For creates, call `create_insight` with the raw insight object, without the outer `{"insightPrototype": ...}` wrapper.
-4. Announce the intended action in one sentence before any mutation.
-5. For edits, start from the live full settings dict and persist with `set_insight_settings`.
-6. Validate after every mutation with `list_insights` or `get_insight_settings`.
+## Workflow
+
+1. Use `list_insights` to discover insights in a project.
+2. Use `get_insight_settings` to inspect a selected insight and identify its source-object binding.
+3. Inspect the referenced source object through its relevant skill before preparing a Cobuild request:
+   - datasets for `chart` and `dataset_table`;
+   - Data Quality for `data-quality`;
+   - machine learning or evaluation stores for model reports;
+   - scenarios for scenario insights;
+   - WebApps for `web_app`.
+4. When an insight will be used on a dashboard, use `./dataiku-skills/dashboards/SKILL.md` to inspect the dashboard and its existing insight references. For greenfield work, define the required source object, insight, and dashboard relationship in the Cobuild request.
+5. Route insight creation, updates, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
 
 ## Preferred Tools
 
-| Goal | Tool |
-| --- | --- |
-| Discover insights | `list_insights` |
-| Read an insight | `get_insight_settings` |
-| Create an insight | `create_insight` |
-| Replace insight settings | `set_insight_settings` |
-| Delete an insight | `delete_insight` |
-
-## Key Behaviors
-
-- `create_insight` adds the required DSS wrapper automatically. Pass the raw insight definition only.
-- `set_insight_settings` is a full replace and uses DSS insight update semantics under the hood.
-- `dashboardCreationId` can be used as a free-form provenance tag for scripted insight creation.
-- Many non-chart insight types are thin bindings to another DSS object. In those cases, the insight payload is usually small and the dashboard tile carries most of the display-specific options.
-
-## Chart Guidance
-
-**IMPORTANT** Chart insights created using these MCP tools will appear in the project's Insights tab and can be used in dashbaords, but will not appear in the dataset's Charts tab, as this is not exposed by the public API.
-
-- Inspect chart source datasets with `get_dataset_info` and `get_dataset_sample` before building a chart when field readiness is uncertain. Pay attention to DSS column types, not just what values look like in raw rows.
-- Use insight `type: "chart"` for charts.
-- Set the source dataset at `params.datasetSmartName`.
-- Set the chart engine at `params.engineType`.
-- Put the full chart definition at `params.def`.
-- Use the chart payload reference for chart types, slot shapes, variants, and field-readiness rules.
-- Prefer in-database engines when they fit the dataset and chart type: `SQL` for SQL-backed datasets, `SPARKSQL` for Spark-compatible datasets when a Spark cluster is available, otherwise `LINO`. Use the chart payload reference for the live-tested LINO-only chart families.
-
-## Other Insight Guidance
-
-- Keep dashboard layout and tile rendering concerns in the `dashboards` skill. Tile `displayMode`, sizing, and page filters are dashboard concerns, not insight-envelope concerns.
-- For non-chart insights, focus on the object-binding fields inside `params`.
-- When creating or editing reusable non-chart insights, preserve unknown keys on readback edits just like chart insights.
-- Use the per-type reference file for the non-chart insight binding you are working with.
+- `list_insights`
+- `get_insight_settings`
 
 ## Safety Rules
 
-- Never invent insight IDs, dataset names, chart type strings, or variant strings.
-- Never invent smart IDs for saved models, model evaluations, scenarios, webapps, or other referenced DSS objects.
-- If a field only looks chartable because of raw string formatting, stop and recommend a prepare step rather than forcing a chart payload that assumes the wrong DSS type.
-- Delete insights only with explicit user confirmation.
+- Discover insight IDs and referenced-object IDs via tools; do not invent identifiers.
+- Keep this skill read-only. Route insight creation, updates, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
+- Inspect chart-source dataset schema and profile context before requesting a chart change when field readiness is unclear.

@@ -1,80 +1,46 @@
 ---
 name: wikis
-description: Create, read, update, and delete wiki articles in a Dataiku DSS project. Use when an agent must list wiki articles, read article content, create new articles, edit article names or bodies, move articles in the hierarchy, or delete articles.
+description: Understand and inspect Dataiku wiki articles, then use grounded context for Cobuild documentation work. Use when reviewing wiki structure, article content, or planning wiki changes.
 ---
 
-# Wiki Operations
+# Wikis
 
-Use Dataiku MCP tools to manage wiki articles inside a DSS project.
+Use this skill to understand existing project documentation and plan grounded wiki work through Cobuild.
 
-## What Is a DSS Wiki?
+## Wiki Concepts
 
-Each DSS project has one wiki — a structured collection of markdown articles organized in a tree hierarchy (parent/child). Articles have a display name, a markdown body, and a position in the taxonomy. One article can be designated as the home article.
+Each Dataiku project has a wiki composed of Markdown articles organized in a parent/child hierarchy. An article has a title, body, and position in the tree; one article can serve as the home article.
 
-## Follow This Execution Pattern
+Wiki articles can document project assets through Dataiku object references and can link to other articles. Creation, edits, moves, and deletion route through Cobuild.
 
-1. Call `list_wiki_articles` to discover existing articles, their IDs, parent hierarchy, and which article is the home article.
-2. Announce the intended action in one sentence before any mutation.
-3. For reads: call `get_wiki_article` with the article ID.
-4. For creates: call `create_wiki_article`. Provide `parent_article_id` to nest the article.
-6. For updates: call `update_wiki_article`. Pass only the fields that need to change.
-7. For deletes: confirm with the user first — deletion is irreversible.
-8. After any mutation, validate by calling `list_wiki_articles` or `get_wiki_article`.
+Read [wiki content](references/wiki-content.md) when a request involves article links or Dataiku object references.
 
-## Tool Reference
+## Workflow
 
-| Goal | Tool |
-| --- | --- |
-| Discover all articles and hierarchy | `list_wiki_articles` |
-| Read article content (name + body) | `get_wiki_article` |
-| Create a new article | `create_wiki_article` |
-| Update name, body, or hierarchy position | `update_wiki_article` |
-| Delete an article | `delete_wiki_article` |
+1. Use `list_wiki_articles` to discover article identifiers, hierarchy, and the home article.
+2. Use `get_wiki_article` to read a selected article before interpreting or changing its content.
+3. For new or moved content, inspect the intended parent and nearby articles to ground placement and avoid duplication.
+4. Discover any referenced project objects through their object-specific skills.
+5. Route wiki creation, edits, moves, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
+6. Re-read the article or hierarchy after a Cobuild change when validation is needed.
 
-## Key Behaviors
+## Supporting Context
 
-- **Article IDs vs names**: Tools that mutate articles require the `article_id` (e.g. `"nMHjj59X"`), not the display name. Always call `list_wiki_articles` first to resolve names to IDs.
-- **body is full-replace**: `update_wiki_article` with a `body` argument replaces the entire article body. Read the existing body with `get_wiki_article` first if you want to append or patch content.
-- **Hierarchy**: `create_wiki_article` accepts an optional `parent_article_id`. `update_wiki_article` accepts `new_parent_article_id` to move an article, or `move_to_top_level=True` to remove its parent.
-- **Deletion**: `delete_wiki_article` is irreversible. Always confirm with the user before calling it.
+- Datasets and recipes: `../datasets/SKILL.md` and `../recipes/SKILL.md`
+- Models and analyses: `../machine-learning/SKILL.md`
+- Agents and reviews: `../agents/SKILL.md` and `../agent-reviews/SKILL.md`
+- Scenarios and dashboards: `../scenarios/SKILL.md` and `../dashboards/SKILL.md`
 
-## DSS Object References
+## Preferred Tools
 
-Wiki article bodies support clickable references to DSS project objects using markdown link syntax:
-
-```
-[Display Name](object_type:object_id)
-```
-
-Or without a display name (DSS renders a default badge):
-
-```
-object_type:object_id
-```
-
-To link to another wiki article within the same project:
-
-```
-[[Article Name]]
-```
-
-### Supported object types
-
-| Object type | Reference syntax | ID source |
-| --- | --- | --- |
-| Dataset | `dataset:<name>` | Dataset name (not a hash) |
-| Recipe | `recipe:<name>` | Recipe name |
-| Saved model | `saved_model:<id>` | Saved model ID (hash) |
-| ML analysis | `analysis:<id>` | Analysis ID (hash) |
-| Agent | `ai_agent:<id>` | Agent ID (hash) |
-| Agent tool | `agent_tool:<name>` | Agent tool name |
-| Scenario | `scenario:<id>` | Scenario ID |
-| Dashboard | `dashboard:<id>` | Dashboard ID (hash) |
-
-Use `get_flow_items_in_traversal_order` to discover dataset and recipe names, and `list_saved_models`, `list_agents`, `list_scenarios` etc. to discover IDs for other object types. Never invent IDs — always discover them.
+- `list_wiki_articles`
+- `get_wiki_article`
 
 ## Safety Rules
 
-- Never invent article IDs — always discover them with `list_wiki_articles`.
-- Do not overwrite an existing body without first reading and presenting the current content to the user.
-- Treat deletion as a destructive action — confirm explicitly before calling `delete_wiki_article`.
+- Discover article, parent, and referenced-object identifiers through tools; do not invent them.
+- Read an existing article before requesting a content change.
+- Preserve existing Markdown body content unless the user requests replacement.
+- Inspect hierarchy before moving or nesting an article.
+- Treat deletion as destructive, even though Cobuild manages confirmation.
+- Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct wiki mutation workflows here.

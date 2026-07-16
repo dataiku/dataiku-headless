@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "fastmcp",
-    "dataiku-api-client",
+    "dataiku-api-client>=14.7.0",
     "python-dotenv",
     "typer>=0.12",
 ]

@@ -475,13 +475,13 @@ wheels = [
 
 [[package]]
 name = "dataiku-api-client"
-version = "14.6.1"
+version = "14.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/62/06/5b99cd47c788746ccd2fa3c42a6b6d0f4a07351ac5216f5fdc479e28f515/dataiku_api_client-14.6.1.tar.gz", hash = "sha256:808fda10a0220c9a95c18b13fc4916080735ec922af7e8110aea420d58599624", size = 409468, upload-time = "2026-06-05T08:16:16Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/96/f1154abb9f9666f54583b6df809ce50a596191ba70c63660d46d7cb39c8d/dataiku_api_client-14.7.0.tar.gz", hash = "sha256:7521aab14fae2324736ec158742014b8c419c2b12600dc962282e05557a5816f", size = 413752, upload-time = "2026-06-18T17:16:21.914Z" }
 
 [[package]]
 name = "dataiku-headless"
@@ -503,7 +503,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dataiku-api-client" },
+    { name = "dataiku-api-client", specifier = ">=14.7.0" },
     { name = "fastmcp" },
     { name = "python-dotenv" },
     { name = "typer", specifier = ">=0.12" },
