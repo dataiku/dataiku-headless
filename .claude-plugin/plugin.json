@@ -1,7 +1,7 @@
 {
   "name": "dataiku",
-  "version": "0.2.0",
-  "description": "Inspect Dataiku projects through read-only MCP tools and drive Dataiku Cobuild for project-level building — recipes, datasets, ML analyses, dashboards, agents, and more.",
+  "version": "0.3.0",
+  "description": "Gather Dataiku project context, delegate building to Cobuild, and verify the result.",
   "author": {
     "name": "Dataiku"
   },

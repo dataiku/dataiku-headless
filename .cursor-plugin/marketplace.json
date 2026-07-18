@@ -4,13 +4,13 @@
     "name": "Dataiku"
   },
   "metadata": {
-    "description": "Dataiku agent dev kit — inspect DSS projects and drive Cobuild for project-level building."
+    "description": "Supervisor kit for Dataiku — gather project context, delegate building to Cobuild, and verify the result."
   },
   "plugins": [
     {
       "name": "dataiku",
       "source": ".",
-      "description": "Inspect Dataiku DSS projects through read-only MCP tools and drive Dataiku Cobuild for project-level building.",
+      "description": "Gather Dataiku project context, delegate building to Cobuild, and verify the result.",
       "category": "data"
     }
   ]

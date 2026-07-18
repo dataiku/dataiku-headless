@@ -1,58 +1,105 @@
-# Dataiku Agent Dev Kit
+# Dataiku Headless — Cobuild supervisor kit
 
-An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Snowflake CoCo (Cortex Code), Cursor, OpenCode, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild, Dataiku's AI building agent to build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
+Gather Dataiku project context, delegate building to Cobuild, and verify the result.
 
-Cobuild is exposed here as a retained conversation, driven through MCP tools. This repo's own tool surface stays deliberately thin around it: read/list/get/inspect tools for every object type (for context-gathering inside or outside a Cobuild conversation), plus a handful of operations Cobuild cannot do because they are cross-project, instance-level, or precede a project/conversation existing (creating a project, uploading a local file into a dataset or managed folder or project library).
+`dataiku-headless` connects a coding agent (Claude Code, Codex, Cursor, OpenCode, or a
+custom MCP client) to a Dataiku DSS instance and gives it a deliberately narrow job:
+**supervise Cobuild.** Your agent reads the project to ground itself, hands each unit of
+building to **Cobuild** — the AI builder that runs *inside* DSS — and then verifies the
+result with its own reads. The agent does not hand-build the flow; DSS builds it, natively
+and reviewably, and your agent stays accountable for what lands.
 
-## MCP Server
+## What it is
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
+The tool surface reflects that division of labor:
 
-- Async execution for all Dataiku API calls
-- Progress notifications for long-running operations
-- Tiered server-side authentication (env API key or HTTP bearer token)
-- Modular architecture by functional domain
-- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
-- `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
-- Optional search-based tool exposure mode for progressive disclosure
+- **Context & verification (read-only).** List, inspect, sample, and profile every object
+  type — projects, flows, datasets, recipes, connections, scenarios, jobs, Data Quality,
+  ML, agents, LLMs. Two composed tools do the heavy lifting: `get_project_overview`
+  (one call instead of a `list_*` fan-out) and `get_flow_graph` (nodes, edges, and an
+  ASCII build tree). `audit_project` is the independent finish gate.
+- **Cobuild delegation — the build path.** Every in-project mutation (recipes, datasets,
+  models, dashboards, scenarios, zones, wiki, deletions) is delegated through a Cobuild
+  conversation. There are no direct `create_recipe` / `update_dataset` style write tools.
+- **Three direct executions.** `build_datasets`, `run_recipe`, `run_scenario` — deterministic
+  execution of assets that already exist. Nothing more runs outside Cobuild.
+- **Four bootstrap writes.** The only writes Cobuild cannot do because they precede a
+  project or conversation, or are file-uploads from the agent's own machine:
+  `create_project`, `create_upload_dataset` / `create_upload_dataset_from_rows`,
+  `upload_file_to_managed_folder`, `write_project_library_file`.
+- **Instance management.** `list_instances`, `switch_instance`, `get_current_instance` for
+  driving multiple DSS instances from one agent.
 
-Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or request headers.
+`dataiku_mcp` is a [FastMCP](https://gofastmcp.com) server: every tool is a typed, async
+MCP tool, all blocking DSS API calls run off an event loop, and long operations emit
+progress notifications. Tools never accept an API key as an argument — authentication is
+resolved server-side from environment variables or the request's bearer token.
 
-## Agent Skills
+## How delegation works
 
-`dataiku-skills` contains prompt-based skill files that teach an agent *how* to use the MCP tools correctly — when a task should route through Cobuild vs. a direct read tool, how to interpret results, and what the current limitations are.
+A Cobuild turn can run for minutes, so delegation is a small state machine rather than a
+blocking call:
 
-| Skill | Covers |
-| --- | --- |
-| `cobuild` | Default path for project-level asset creation/modification — start, continue, and confirm Cobuild conversations |
-| `projects` | Project discovery, metadata/variables, Flow organization; `create_project` remains a direct write |
-| `connections` | Connection discovery, type/category filtering, capability inspection, health checks; connection-type reference |
-| `code-environments` | List available code environments to reference in a Cobuild prompt |
-| `datasets` | Dataset storage/schema/metadata/quality-signal inspection; creating an Uploaded Files dataset remains a direct write |
-| `jobs` | DSS job tracking, status, waiting, and log inspection |
-| `data-quality` | Data Quality rule and result inspection; rule-type reference |
-| `managed_folders` | Managed folder inspection; local-file upload remains a direct write |
-| `recipes` | Recipe type selection and existing-recipe inspection; recipe-family references (data-prep, ML, GenAI, code) and prepare processor/formula-language reference |
-| `machine-learning` | ML analysis, trained-model, and saved-model inspection; task-type references (prediction, clustering, causal, forecasting) |
-| `insights` | Insight and referenced-object inspection, especially chart insights dashboards reference |
-| `dashboards` | Dashboard listing and settings inspection |
-| `llms-and-knowledge-banks` | LLM, Knowledge Bank, and Retrieval-Augmented LLM inspection |
-| `agents` | Agent and agent-tool inspection — types, versions, configuration, execution design; agent-type and agent-tool references |
-| `agent-reviews` | Agent review, test, run, and result inspection |
-| `scenarios` | Scenario, run-history, and messaging-channel inspection |
-| `semantic-models` | Semantic model and version inspection |
-| `webapps` | WebApp and backend-state inspection |
-| `wikis` | Wiki article and hierarchy inspection; wiki-content reference |
-| `project-libraries` | Project library file tree inspection/search; local-file write remains a direct write |
-| `cross-project-sharing` | Inspect existing cross-project sharing relationships |
-| `data-collections` | Discover a dataset by topic across projects via curated Data Collections |
-| `migrations` | Translate a third-party Source Bundle into a Dataiku migration plan, then hand the build off to Cobuild |
+1. **`start_cobuild_conversation(project_key)`** opens a thread and registers it durably.
+   The returned `conversation_id` is the handle for everything that follows; it is persisted,
+   so follow-ups keep working after the MCP server restarts.
+2. **`send_cobuild_message(conversation_id, project_key, message, allow_edit_project=…, timeout_seconds=…)`**
+   sends one instruction. `allow_edit_project` is a **per-message grant, default `false`** —
+   inspection and planning run read-only, and you flip it `true` only on the message that
+   carries an explicitly requested build.
+3. **Timeout ≠ failure.** If a turn exceeds `timeout_seconds`, the tool returns
+   `status: timeout` and *retains the work* in a background thread. Poll it with
+   **`get_cobuild_turn_status`** — never re-send, which would double-run the build. Sending
+   while a turn is already in flight returns `status: in_progress` instead of overlapping.
+4. **Deletions require confirmation.** When Cobuild proposes a destructive change it returns
+   `status: needs_confirmation` with the objects to delete. Inspect them, then
+   **`answer_cobuild_confirmation(…, choice="APPROVE"|"CANCEL")`**. The `confirmation_id` is
+   restorable from the durable store, so a confirmation survives a restart.
+5. **`list_cobuild_conversations(project_key)`** rediscovers a project's conversations
+   (and any pending confirmation / in-flight turn) after a restart.
 
-Skills are loaded on demand — each `SKILL.md`'s frontmatter `description` is what the agent harness matches against the conversation to decide when to pull it in. There is no separate root routing file; the descriptions themselves are the routing table.
+Conversation metadata lives under `DKU_MCP_STATE_DIR` (see [Configure](#configure)); the
+in-memory handles are only a hot cache.
+
+## Tool surface
+
+One fixed surface — no exposure modes, no search mode. **53 non-cobuild + 5 cobuild tools**
+are registered; transport gating (below) trims a few at runtime.
+
+| Role | Tools | Representative |
+| --- | ---: | --- |
+| Context & verification (read-only) | 41 | `get_project_overview`, `get_flow_graph`, `get_dataset_profile`, `get_recipe_settings`, `get_job_log`, `get_data_quality_status` |
+| Independent audit | 1 | `audit_project` |
+| Cobuild delegation | 5 | `start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations` |
+| Direct execution (existing assets) | 3 | `build_datasets`, `run_recipe`, `run_scenario` |
+| Bootstrap writes | 5 | `create_project`, `create_upload_dataset` / `_from_rows`, `upload_file_to_managed_folder`, `write_project_library_file` |
+| Instance management | 3 | `list_instances`, `switch_instance`, `get_current_instance` |
+
+The exhaustive list with a one-line purpose for every tool is generated into the skill's
+`dataiku-skills/dataiku-headless/references/tool-index.md`.
+
+**Transport gating** (set by `DKU_MCP_TRANSPORT`):
+
+- `stdio` exposes `create_upload_dataset` (uploads from a local file path the server can see)
+  and the instance-management tools.
+- `streamable-http` exposes `create_upload_dataset_from_rows` (tabular `columns` + `rows`,
+  for when no server-local file path exists) and removes `switch_instance` / `list_instances`,
+  since a shared HTTP server should not carry per-client instance state.
+
+## The skill
+
+The kit ships **one** agent skill, `dataiku-skills/dataiku-headless/`, loaded on demand when
+its `SKILL.md` frontmatter `description` matches the conversation. `SKILL.md` is the router
+(permanent rules + a task→playbook table), `soul.md` is the judgment layer for multi-stage
+work (decompose → delegate → verify → finish), and `playbooks/` holds one recipe per task
+kind (build via Cobuild, inspect, direct execution, verify output, migrate). `references/`
+carries the facts an agent opens only when it needs them, including the generated tool-index.
 
 ## Install
 
-Grouped by harness. Each plugin install wires up both `dataiku-skills/` and the MCP server (`uvx dataiku-headless serve`) in one step. Cloning this repo directly works too — every config file the plugins use (`.mcp.json`, `.cursor/mcp.json`, `opencode.json`, `dataiku-skills/`) is a real, readable file at the repo root.
+Each plugin install wires up both `dataiku-skills/` and the MCP server in one step. Cloning
+the repo works too — every config file the plugins reference (`.mcp.json`, `.cursor/mcp.json`,
+`opencode.json`, `dataiku-skills/`) is a real file at the repo root.
 
 ### Claude Code
 
@@ -68,180 +115,78 @@ Grouped by harness. Each plugin install wires up both `dataiku-skills/` and the 
 ```
 Add the marketplace and install `dataiku` from there.
 
-### Snowflake CoCo (Cortex Code)
-
-```
-cortex plugin install dataiku/dku-headless
-```
-
 ### Cursor
 
-**Auto-discovered:** `.cursor/mcp.json` at the repo root wires up the MCP tools with no install step.
-
-**Plugin** (adds skills too): install the [`dataiku` plugin](https://cursor.com/marketplace) from Cursor's Marketplace UI (Customize → Marketplace → search `dataiku`).
+- **Auto-discovered:** `.cursor/mcp.json` at the repo root wires up the MCP tools with no
+  install step.
+- **Plugin** (adds the skill too): install the `dataiku` plugin from Cursor's Marketplace UI
+  (Customize → Marketplace → search `dataiku`).
 
 ### OpenCode
 
-**Auto-discovered:** `opencode.json` at the repo root wires up the MCP tools with no install step.
+**Auto-discovered:** `opencode.json` at the repo root wires up the MCP tools with no install
+step.
 
 ## Configure
 
-Set your Dataiku connection information and other configuration details:
+Set your Dataiku connection. The minimum is a URL and an API key:
 
-**Temporary:**
 ```bash
 export DKU_DSS_URL="https://your-instance.dataiku.com"
 export DKU_API_KEY="your-api-key"
 ```
 
-**.env file:**
-Copy `.env.example` to `.env` and fill in your values:
-```bash
-DKU_DSS_URL=https://your-instance.dataiku.com
-DKU_API_KEY=your-api-key
-DKU_DEFAULT_CONNECTION=filesystem_managed
-DKU_DEFAULT_FOLDER_CONNECTION=filesystem_folders
-DKU_DEFAULT_LLM=openai:<YOUR_CONNECTION_NAME>:gpt-5.4
-DKU_DEFAULT_EMBEDDING_LLM=openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small
-DKU_MCP_MAX_WORKERS=4
-DKU_MCP_TRANSPORT=stdio
-DKU_MCP_COBUILD_MODE=CREATE_ONLY
-DKU_MCP_TOOL_EXPOSURE=search
-DKU_MCP_SEARCH_MAX_RESULTS=5
-DKU_MCP_SEARCH_ALWAYS_VISIBLE=get_current_instance
+Or copy `.env.example` to `.env` and fill it in. Full variable reference:
 
-# Set to true/1 to skip SSL verification, matching Dataiku's local config.
-DKU_NO_CHECK_CERTIFICATE=false
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DKU_DSS_URL` | — | DSS instance URL. Setting it is what marks an instance as configured. |
+| `DKU_API_KEY` | — | API key. May instead be supplied per-request over streamable-http as `Authorization: Bearer <key>`. |
+| `DKU_INSTANCE_NAME` | `dss-env` | Name for the env-configured instance; it takes precedence over any `default_instance` in `.dataiku/config.json`. |
+| `DKU_NO_CHECK_CERTIFICATE` | `false` | `true`/`1` skips SSL verification (matches Dataiku's local config). |
+| `DKU_DEFAULT_CONNECTION` | — | Optional default dataset connection, fed to Cobuild prompts / upload tools when omitted. |
+| `DKU_DEFAULT_FOLDER_CONNECTION` | — | Optional default managed-folder connection. |
+| `DKU_DEFAULT_LLM` | — | Optional default LLM id. |
+| `DKU_DEFAULT_EMBEDDING_LLM` | — | Optional default embedding LLM id. |
+| `DKU_MCP_MAX_WORKERS` | `4` | Thread-pool size for blocking DSS API calls. |
+| `DKU_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http`. Gates the transport-specific tools. |
+| `DKU_MCP_STATE_DIR` | `~/.local/state/dataiku-headless` | Durable Cobuild conversation registry — conversations and pending confirmations survive restarts. |
 
-# Optional streamable-http settings
-FASTMCP_HOST=127.0.0.1
-FASTMCP_PORT=8000
-FASTMCP_STREAMABLE_HTTP_PATH=/mcp
-```
+Streamable-http also honors the standard FastMCP settings `FASTMCP_HOST`, `FASTMCP_PORT`,
+and `FASTMCP_STREAMABLE_HTTP_PATH`.
 
-**Upload tool behavior depends on transport:**
+### Multiple instances
 
-- `stdio` exposes `create_upload_dataset`, which uploads from a local file path visible to the MCP server process.
-- `streamable-http` exposes `create_upload_dataset_from_rows`, which uploads tabular data passed as `columns` plus positional `rows` when a server-local file path is not usable.
+Put instance definitions in `.dataiku/config.json` (see `.dataiku/config.json.example` for
+the shape), then drive them from the agent with `list_instances`, `switch_instance`, and
+`get_current_instance`. Auth resolves in this order:
 
-**Connect to multiple instances:**
-Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape. 
+1. Environment variables (`DKU_DSS_URL` / `DKU_API_KEY`, named by `DKU_INSTANCE_NAME`) — this
+   instance takes precedence and becomes the current one.
+2. `.dataiku/config.json`, using its `default_instance`.
+3. For streamable-http only, the API key from `Authorization: Bearer <DKU_API_KEY>`.
 
-Use `DKU_DEFAULT_INSTANCE` to select a non-default instance at startup. 
-
-After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
-
-Auth resolution order:
-1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
-2. Local config: `.dataiku/config.json`, using `DKU_DEFAULT_INSTANCE` when set or `default_instance` otherwise
-3. Streamable HTTP request header for API key only: `Authorization: Bearer <DKU_API_KEY>`
-
-**Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
-
-**Cobuild modes:** `CREATE_ONLY` (default) keeps this server's full read-tool surface enabled alongside the Cobuild conversation tools, for context-gathering independent of any Cobuild conversation. `FULL` additionally disables the read tools that duplicate what Cobuild can already inspect within its own conversation, leaving only cross-project/instance tools, the direct-write exceptions, and the Cobuild conversation tools themselves.
-
-## Run
-
-Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly or running `streamable-http` as a standing service:
+## Development
 
 ```bash
-uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
-dataiku-headless serve
-# or simply:
-dataiku-headless
+uv sync                # create .venv and install with dependencies (Python 3.10+, uv)
+uv run pytest          # smoke + surface + cobuild + context + audit tests; no live DSS needed
+uv run ruff check .    # lint (rule set pinned in pyproject.toml)
 ```
 
-## Project Structure
+Two maintenance scripts keep the skill honest and run in CI: one regenerates the skill's
+tool-index from the registered tool surface, and one validates the skill's internal
+reference links. The registered tool set itself is pinned by the allow-list in
+`tests/test_smoke.py` — any add/remove/rename must update it on purpose.
 
-```text
-.
-├── dataiku_mcp/
-│   ├── tools/
-│   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
-│   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
-│   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
-│   │   ├── insights.py        # Insight inspection tools, especially chart insights
-│   │   ├── connections.py     # DSS connection discovery/test tools
-│   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
-│   │   ├── data_collections.py  # Data Collection listing/inspection tools
-│   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
-│   │   ├── dashboards.py      # Dashboard inspection tools
-│   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
-│   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
-│   │   ├── flow.py            # Flow inspection tools
-│   │   ├── instances.py       # Multi-instance switching tools
-│   │   ├── jobs.py            # Async job status/log/wait tools
-│   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
-│   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
-│   │   ├── projects.py        # Project inspection tools + create_project write
-│   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
-│   │   ├── semantic_models.py # Semantic model inspection tools
-│   │   ├── webapps.py         # WebApp/backend-state inspection tools
-│   │   ├── wikis.py           # Wiki article inspection tools
-│   │   ├── project_libraries.py  # Project library inspection/search + local-file write
-│   │   ├── recipes.py         # Recipe inspection tools
-│   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Shared runtime utilities
-│   ├── config.py
-│   ├── config_mcp.py          # Tool exposure + Cobuild mode configuration
-│   ├── __init__.py
-│   └── __main__.py
-├── dataiku-skills/
-│   ├── cobuild/               # Default path for project-level asset creation via Cobuild
-│   ├── agents/
-│   │   ├── SKILL.md                # Agent/agent-version/agent-tool inspection skill
-│   │   └── references/             # Agent-type references (simple, structured, code) + agent tools
-│   ├── agent-reviews/         # Agent review/test/run inspection skill
-│   ├── insights/              # Insight inspection skill
-│   ├── code-environments/     # Code environment listing skill
-│   ├── connections/
-│   │   ├── SKILL.md                # DSS connection discovery and inspection skill
-│   │   └── references/             # Connection type/category reference
-│   ├── cross-project-sharing/ # Cross-project sharing inspection skill
-│   ├── dashboards/            # Dashboard inspection skill
-│   ├── data-collections/      # Data Collection listing and inspection skill
-│   ├── data-quality/
-│   │   ├── SKILL.md                # Dataset Data Quality rule inspection skill
-│   │   └── references/             # Rule-type reference
-│   ├── datasets/
-│   │   ├── SKILL.md                # Dataset inspection/profiling skill
-│   │   └── references/             # Uploaded Files dataset reference
-│   ├── jobs/                  # DSS job tracking and investigation skill
-│   ├── llms-and-knowledge-banks/ # LLM, Knowledge Bank, and RAG object inspection skill
-│   ├── machine-learning/
-│   │   ├── SKILL.md                # ML analysis + saved-model inspection skill
-│   │   └── references/             # Task-type references (prediction, clustering, causal, forecasting)
-│   ├── managed_folders/       # Managed folder inspection skill
-│   ├── project-libraries/     # Project library inspection/search skill
-│   ├── projects/              # Project discovery + flow navigation skill
-│   ├── scenarios/             # Scenario/run-history inspection skill
-│   ├── semantic-models/       # Semantic model inspection skill
-│   ├── webapps/               # WebApp/backend-state inspection skill
-│   ├── wikis/
-│   │   ├── SKILL.md                # Wiki article inspection skill
-│   │   └── references/             # Wiki content reference
-│   ├── migrations/            # Source Bundle -> migration plan -> Cobuild handoff skill
-│   └── recipes/
-│       ├── SKILL.md                # Recipe inspection skill, covers all recipe types
-│       └── references/
-│           ├── recipe-types/       # Recipe-family references (data-prep, ML, GenAI, code)
-│           └── shared/              # Prepare processor catalog + formula language
-├── .claude-plugin/
-│   ├── plugin.json             # Claude Code plugin manifest (points at dataiku-skills/ and .mcp.json)
-│   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
-├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest (points at dataiku-skills/ and .mcp.json)
-├── .mcp.json                   # Shared MCP server config (uvx dataiku-headless serve), read by both manifests
-├── opencode.json               # OpenCode project-level MCP config (auto-discovered)
-├── .cursor/
-│   └── mcp.json                # Cursor project-level MCP config (auto-discovered)
-├── .cursor-plugin/
-│   ├── plugin.json             # Cursor plugin manifest (bundles dataiku-skills/ as skills + .mcp.json)
-│   └── marketplace.json        # Marketplace catalog (single-plugin, source: ".")
-├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
-└── pyproject.toml
+Run the server standalone (only needed for direct testing or running streamable-http as a
+standing service):
+
+```bash
+./bin/run_mcp.sh           # uv run python -m dataiku_mcp
+# or, from an installed package:
+uvx dataiku-headless serve
 ```
 
-## Contributing
-
-See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist.
+See `CODING_STANDARDS_AND_STRUCTURE.md` for contribution scope, the tool-surface and
+write-routing conventions, and the PR checklist.
