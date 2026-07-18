@@ -45,8 +45,16 @@ A Cobuild turn returns one of: `completed` · `in_progress` · `needs_confirmati
   the first; it races it and corrupts the conversation. Poll the existing turn
   instead.
 - **`completed` is Cobuild's claim, not your proof.** Move to verify (step 7).
-- **`error`** — read the message, correct the prompt, and re-send on the same
-  conversation.
+- **`error`** — read `error_kind` before you react, because not every error is safe
+  to re-send.
+  - A **definitive DSS error** (Cobuild actually rejected the turn: bad prompt,
+    missing edit permission, unknown object name) → fix what the message says is
+    wrong and re-send on the same conversation.
+  - **`error_kind: transport_outcome_unknown`** (a connection-level failure — the
+    request may have reached DSS and the build may have partly landed) → **do not
+    blindly re-send.** A resend can double-run a build that already ran. First find
+    out what actually happened: inspect the project, or send a **read-only**
+    follow-up (`allow_edit_project=false`) on the same conversation, then decide.
 
 ## Escalating allow_edit
 
@@ -60,9 +68,11 @@ all stay false. Only the message that should actually write assets carries true.
 A build grant does not authorize deletion — DSS gates that separately. When a turn
 returns `needs_confirmation`, follow the deletion protocol in
 `../references/safety-and-confirmations.md`: inspect `objects_to_delete` and
-`deletion_impacts`, and approve through `answer_cobuild_confirmation` only when the
-scope matches the user's stated intent. If it is broader, ambiguous, or surprising,
-surface it to the user before responding — do not approve to keep the build moving.
+`deletion_impacts`, then approve through `answer_cobuild_confirmation` — passing the
+`confirmation_id` from that result, which is required and is your exact-match proof
+you inspected this specific deletion — only when the scope matches the user's stated
+intent. If it is broader, ambiguous, or surprising, surface it to the user before
+responding — do not approve to keep the build moving.
 
 ## Done when
 

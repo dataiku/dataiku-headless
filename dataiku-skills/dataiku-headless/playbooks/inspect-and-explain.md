@@ -42,8 +42,11 @@ from. The overview plus one or two targeted reads answers most questions.
   discovery.
 - Don't fan out across every Data Collection unless the user needs an instance-wide
   catalog search; it is expensive on large instances.
-- Treat redacted connection summaries as the source of truth — never try to surface
-  secret-bearing fields.
+- Treat redacted summaries as the source of truth. `get_connection_info` and the
+  project-variable reads (`get_project_variables`, and the variables inside
+  `get_project_overview`) redact secret-like values; `get_project_variables` also
+  hides local variables unless you pass `include_local=true`. Never try to surface a
+  secret-bearing field.
 
 ## Done when
 

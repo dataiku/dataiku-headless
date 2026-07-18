@@ -14,7 +14,7 @@ Match the check to what Cobuild claimed it did:
 | changed the flow's shape | `get_flow_graph` — diff the nodes/edges/build-order against what you expected |
 | a build or run succeeded | `list_jobs` → `get_job_status`; `get_job_log` on any failure or 0-row output |
 | added quality validation | `list_data_quality_rules`, `get_data_quality_status` |
-| trained or scored a model | `../references/ml-and-genai-objects.md` — read model details and evaluation |
+| trained or scored a model | `../references/ml-and-genai-objects.md` — inspect the model via a read-only Cobuild turn, and read its evaluation artifacts (evaluation store, metrics, scored-output rows) |
 | built or changed an agent | test it with several skeptical queries; check tools fired and citations are real |
 | finished the project | `audit_project`, optionally with a contract |
 
@@ -33,11 +33,14 @@ DSS rarely errors loudly, so the dangerous outcomes are the quiet ones:
 
 ## audit_project as the contract check
 
-`audit_project` buckets its verdict into structure, documentation, evidence, and
-maintainability. Pass a contract to assert the specific outputs you delegated exist
-with the expected shape — that turns "the project looks fine" into "the outputs I
-asked for are present and correct". A clean audit is the floor; a `get_flow_graph`
-read you can explain branch by branch is the ceiling (`../soul.md` doctrine 4).
+`audit_project` audits the **flow** — datasets, recipes, zones, wiki — bucketing its
+verdict into structure, documentation, evidence, and maintainability. Pass a contract
+to assert the specific outputs you delegated exist with the expected shape — that
+turns "the project looks fine" into "the outputs I asked for are present and
+correct". It does **not** judge models, agents, or dashboards; verify those from the
+rows above (targeted reads and read-only Cobuild turns). A clean audit is the floor;
+a `get_flow_graph` read you can explain branch by branch is the ceiling (`../soul.md`
+doctrine 4).
 
 ## On failure
 

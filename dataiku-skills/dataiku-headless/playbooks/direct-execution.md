@@ -23,18 +23,19 @@ unsure, delegate; there is no write path to invent (rule 2).
 
 ## The job-follow loop
 
-All three default to **not waiting** (rule 3). Firing one returns a handle, not a
+All three default to **not waiting** (rule 3). Firing one returns an id, not a
 result — driving it to completion is your job:
 
-1. Fire the tool. Retain the returned job/future handle.
-2. For builds and recipe runs, follow with `wait_for_job` (normal follow-up) or
-   `get_job_status` (lightweight poll; ask for full detail when activities, outputs,
-   or timings matter). Read `get_job_log` on failure.
-3. For scenarios, follow outcomes with `get_scenario_run_history`; check
-   `get_future_status` for an in-flight future.
+1. Fire the tool. Retain the returned id: a **job id** from `build_datasets` /
+   `run_recipe`, a **scenario run id** from `run_scenario`.
+2. For builds and recipe runs, follow the job id with `wait_for_job` (normal
+   follow-up) or `get_job_status` (lightweight poll; ask for full detail when
+   activities, outputs, or timings matter). Read `get_job_log` on failure.
+3. For scenarios, follow the run with `get_scenario_run_history`. A scenario run is
+   not a DSS job — it settles there, not through `wait_for_job`.
 4. **A timeout or interrupted wait ends observation, not execution.** Treat the job
-   as active until its status reaches a terminal state; re-attach to the same handle
-   rather than firing a replacement run.
+   or scenario run as active until its status reaches a terminal state; re-attach to
+   the same id rather than firing a replacement run.
 
 ## Don't start overlapping work
 
@@ -47,6 +48,6 @@ mid-build — whether the other run is a direct execution or a Cobuild turn. Che
 
 - The intended asset was executed by a direct tool only because it already existed
   with decided behavior — no design decision was smuggled into an execution.
-- The job/future reached a terminal state, observed via `wait_for_job` /
+- The job or scenario run reached a terminal state, observed via `wait_for_job` /
   `get_job_status` / `get_scenario_run_history` — not assumed from the launch call.
 - The refreshed output was checked on real data (see `verify-cobuild-output.md`).

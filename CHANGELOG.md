@@ -23,6 +23,47 @@ surface (53 non-cobuild + 5 cobuild tools), gated only by transport.
 - **skills**: single-skill layout with a generated tool-index and a skill link checker as the skills contract
 - **ci**: continuous integration running the test suite and skill-integrity checks
 
+### Review hardening
+
+Adversarial re-review pass. The skills were rewritten against the *real* registered
+tool surface and the behavior/vocabulary below was aligned across docs, skills, and
+`.env.example`:
+
+- **skills**: purge 37 references to tools that were pruned from the surface but still
+  cited (`object-model.md` + playbooks). Where an object type has no deep-read tool,
+  the docs now say so explicitly and route inspection through a read-only Cobuild turn.
+- **guard**: new `scripts/check_skill_tool_names.py` validates every tool-shaped token
+  in the skill markdown against the live registry (with an explicit non-tool
+  allowlist), wired into the `pytest` gate — a reintroduced ghost tool now fails CI.
+- **checker**: `check_skill_links.py` — basename fallback is restricted to *bare*
+  references; path-qualified references must resolve exactly; duplicate basenames in
+  the tree are an error rather than silently overwriting each other.
+- **cobuild**: `answer_cobuild_confirmation` now **requires** `confirmation_id`
+  (exact-match proof-of-inspection).
+- **cobuild**: `streamable-http` no longer exposes `upload_file_to_managed_folder` /
+  `write_project_library_file` (no server-filesystem access over a shared HTTP host).
+- **cobuild**: restart semantics — conversations and observed confirmation ids survive
+  a restart; a turn still *running* does not, and polling it reports `turn_lost`.
+- **cobuild**: retained turns are capped by `DKU_MCP_MAX_COBUILD_TURNS` (default `8`).
+- **config**: instance config resolves `$DKU_CONFIG_DIR/config.json` →
+  `./.dataiku/config.json` → `~/.config/dataiku-headless/config.json`.
+- **config**: `DKU_NO_CHECK_CERTIFICATE` uses a strict vocabulary — `true`/`1`/`yes`
+  vs `false`/`0`/`no` (or empty); any other value is rejected.
+- **config**: remove `DKU_DEFAULT_CONNECTION` / `DKU_DEFAULT_FOLDER_CONNECTION` /
+  `DKU_DEFAULT_LLM` / `DKU_DEFAULT_EMBEDDING_LLM` (they were never applied).
+- **projects**: `get_project_variables` redacts secret-like values and takes
+  `include_local` (default `false`); `get_project_overview` redacts variables too.
+- **folders**: `upload_file_to_managed_folder` enforces `overwrite=false` — no silent
+  replacement of an existing file.
+- **audit**: `audit_project` documented as a **flow-level** audit (datasets, recipes,
+  zones, wiki); models, agents, and dashboards are verified separately.
+- **libraries**: `list_project_library` / `read_project_library_file` are bounded
+  (`max_items` / `depth` / `max_bytes`).
+- **execution**: `build_datasets` runs one build job covering all requested outputs;
+  scenario runs settle via `get_scenario_run_history`, not a DSSFuture path.
+- **license**: align `SKILL.md` frontmatter and the Codex plugin manifest to
+  `LicenseRef-Proprietary` (matching `LICENSE` and `pyproject.toml`).
+
 ## v0.2.0 (2026-06-09)
 
 ### Feat

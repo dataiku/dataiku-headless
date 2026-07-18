@@ -70,7 +70,7 @@ export DKU_API_KEY="your-api-key"
 
 ## Skills Contract
 - There is exactly one skill: `dataiku-skills/dataiku-headless/`. Routing is by the `SKILL.md` frontmatter `description` — there is no separate root routing file. Judgment lives in `soul.md`, task recipes in `playbooks/`, facts in `references/`.
-- `references/tool-index.md` is generated from the registered tool surface — never hand-edit it; regenerate it. The skill's internal reference links are validated by a link checker. Both run in CI, so a drifted tool-index or a broken cross-reference fails the build.
+- `references/tool-index.md` is generated from the registered tool surface — never hand-edit it; regenerate it. Two checkers guard the skill and run in CI: `scripts/check_skill_links.py` (frontmatter, routing completeness, dead *file* references — path-qualified refs must resolve exactly, duplicate basenames are an error) and `scripts/check_skill_tool_names.py` (every backticked, tool-shaped token in the skill markdown must resolve to a real registered tool or the explicit non-tool allowlist). A drifted tool-index, a broken cross-reference, or a reference to a non-existent tool fails the build.
 
 ## Guardrails
 - Do not hardcode instance-specific values (project keys, model IDs, LLM IDs, code env names, connection names) as defaults in tools or skills.

@@ -57,19 +57,51 @@ def _resolve(
 ) -> Path | None:
     """Resolve a .md reference to a real file, or None if it dangles.
 
-    Tried in order, mirroring how the skill files actually cross-link:
-    1. relative to the referring file's directory (`../references/x.md`),
-    2. relative to the skill root with leading `../` stripped,
-    3. a basename match anywhere in the skill (the bare-filename convention —
-       one file naming a sibling playbook without spelling out the path).
+    A **path-qualified** reference (one containing `/`, e.g. `../references/x.md`)
+    is a hard link and must resolve *exactly* — either relative to the referring
+    file's directory, or relative to the skill root with leading `../` stripped.
+    The basename fallback is deliberately NOT tried for these: it would rescue a
+    path-qualified typo (`references/objct-model.md`) by matching a same-named file
+    elsewhere in the tree, hiding a real dead link.
+
+    A **bare** reference (no `/`, the sibling-filename convention where one file
+    names another without spelling out the path) resolves against the referring
+    file's directory first, then the unique-basename map.
     """
-    stripped = ref
-    while stripped.startswith("../"):
-        stripped = stripped[3:]
-    for candidate in ((from_file.parent / ref), (skill_dir / stripped)):
-        if candidate.is_file():
-            return candidate.resolve()
-    return by_name.get(Path(ref).name)
+    if "/" in ref:
+        stripped = ref
+        while stripped.startswith("../"):
+            stripped = stripped[3:]
+        for candidate in ((from_file.parent / ref), (skill_dir / stripped)):
+            if candidate.is_file():
+                return candidate.resolve()
+        return None
+
+    candidate = from_file.parent / ref
+    if candidate.is_file():
+        return candidate.resolve()
+    return by_name.get(ref)
+
+
+def _by_name(md_files: list[Path]) -> tuple[dict[str, Path], list[str]]:
+    """Map each unique basename to its file; report any basename claimed twice.
+
+    The bare-filename convention (`_resolve`) relies on a basename identifying
+    exactly one file. Two files sharing a basename make every bare reference to
+    that name ambiguous, so it is a hard error rather than a last-writer-wins
+    overwrite of the lookup map.
+    """
+    by_name: dict[str, Path] = {}
+    seen: dict[str, list[Path]] = {}
+    for path in md_files:
+        seen.setdefault(path.name, []).append(path)
+    errors: list[str] = []
+    for name, paths in seen.items():
+        by_name[name] = paths[0].resolve()
+        if len(paths) > 1:
+            joined = ", ".join(str(p) for p in sorted(paths))
+            errors.append(f"duplicate basename `{name}` in the skill tree: {joined}")
+    return by_name, errors
 
 
 def _md_refs(path: Path) -> set[str]:
@@ -82,7 +114,8 @@ def _check_skill(skill_dir: Path) -> list[str]:
     errors += _frontmatter_errors(skill_dir, skill_md.read_text(encoding="utf-8"))
 
     md_files = sorted(skill_dir.rglob("*.md"))
-    by_name = {path.name: path.resolve() for path in md_files}
+    by_name, dup_errors = _by_name(md_files)
+    errors += [f"{skill_dir.name}: {msg}" for msg in dup_errors]
 
     # (c) Dead-reference detection. A *path-qualified* .md reference (one with a
     # directory or ../ component) is a hard link and must resolve. Bare filename

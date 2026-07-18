@@ -1,7 +1,7 @@
 ---
 name: dataiku-headless
 description: Operate Dataiku DSS end to end as the supervisor of Cobuild. Use for any task touching Dataiku or DSS in any form — inspecting, building, running, migrating, or verifying flows, datasets, recipes, jobs, scenarios, dashboards, ML models, GenAI agents, semantic models, or wikis — even when the user never names Dataiku, Cobuild, or a specific tool. Also use when deciding whether a request is a read, a delegated build, or a direct execution.
-license: Apache-2.0 (see repository LICENSE)
+license: LicenseRef-Proprietary (see repository LICENSE)
 metadata:
   author: dataiku
   tags: dataiku, dss, cobuild, supervisor
@@ -65,10 +65,13 @@ didn't read, finish gold. Skip it for one-shot reads and single delegations.
 5. **Verify with real data.** Cobuild reporting "done" is a claim. Confirm with reads
    — sample rows, metrics, profile, flow graph, job log, DQ status. Empty output is
    data, not success.
-6. **`audit_project` is the finish gate.** Before calling a project done, run it: the
-   read-only verdict over structure, documentation, evidence, and maintainability,
-   with an optional contract asserting the outputs you delegated. A clean audit is the
-   floor — then read the flow graph with your own eyes.
+6. **`audit_project` is the finish gate — over the flow.** Before calling a project
+   done, run it: a read-only verdict on the flow (datasets, recipes, zones, wiki),
+   bucketed into structure, documentation, evidence, and maintainability, with an
+   optional contract asserting the outputs you delegated. It does **not** judge
+   models, agents, or dashboards — verify those with targeted reads and read-only
+   Cobuild turns. A clean audit is the floor — then read the flow graph with your own
+   eyes.
 7. **Exact tool parameters live in the tool schema.** Never restate a parameter,
    default, or enum in these docs — read the schema and pass what it defines.
 8. **One conversation per project.** Reuse a project's `conversation_id` for related

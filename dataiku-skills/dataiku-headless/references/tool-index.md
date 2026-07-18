@@ -12,7 +12,7 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 - `create_project` — Create a new project on the Dataiku instance.
 - `get_project_metadata` — Get project metadata: label, descriptions, tags, and checklists.
 - `get_project_overview` — Call this first when orienting on a project — one call replaces the list_* fan-out.
-- `get_project_variables` — Get the project variables as {'standard': {...}, 'local': {...}}.
+- `get_project_variables` — Get the project's standard variables, with credential-like values redacted.
 - `list_projects` — List the projects on the Dataiku instance.
 
 ## Datasets
@@ -50,7 +50,7 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 
 ## Jobs
 
-- `build_datasets` — Build one or more existing datasets as DSS jobs.
+- `build_datasets` — Build one or more existing datasets as a single DSS job.
 - `get_future_status` — Get the status of a DSSFuture returned by a long-running DSS operation.
 - `get_job_log` — Get DSS job logs.
 - `get_job_status` — Get the current status of a DSS job.
@@ -63,7 +63,7 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 - `get_managed_folder_contents` — List files inside a managed folder.
 - `get_managed_folder_info` — Get a managed folder's id, name, type, connection, and path.
 - `list_managed_folders` — List the managed folders in the project.
-- `upload_file_to_managed_folder` — Upload a local file to a path inside a managed folder, replacing any existing file.
+- `upload_file_to_managed_folder` — Upload a local file to a path inside a managed folder.
 
 ## Code environments
 
@@ -81,7 +81,7 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 ## Project libraries
 
 - `list_project_library` — List project library contents, optionally filtering to internal or external items.
-- `read_project_library_file` — Read a text file from the project library.
+- `read_project_library_file` — Read a text file from the project library, bounded to ``max_bytes``.
 - `write_project_library_file` — Create or update a project library file from a local file upload.
 
 ## Data quality
@@ -118,4 +118,4 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 
 ## Project audit
 
-- `audit_project` — Run after a Cobuild delegation to independently verify the work: structure, documentation, evidence (real rows), maintainability.
+- `audit_project` — Run after a Cobuild delegation to independently verify the work with a flow-level audit (datasets, recipes, zones, wiki): structure, documentation, evidence (real rows), maintainability.

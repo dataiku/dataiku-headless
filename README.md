@@ -17,7 +17,10 @@ The tool surface reflects that division of labor:
   type — projects, flows, datasets, recipes, connections, scenarios, jobs, Data Quality,
   ML, agents, LLMs. Two composed tools do the heavy lifting: `get_project_overview`
   (one call instead of a `list_*` fan-out) and `get_flow_graph` (nodes, edges, and an
-  ASCII build tree). `audit_project` is the independent finish gate.
+  ASCII build tree). Secret-like values are redacted from connection and project-variable
+  reads, and `get_project_variables` hides local variables unless `include_local=true`.
+  `audit_project` is the independent finish gate over the flow (datasets, recipes, zones,
+  wiki).
 - **Cobuild delegation — the build path.** Every in-project mutation (recipes, datasets,
   models, dashboards, scenarios, zones, wiki, deletions) is delegated through a Cobuild
   conversation. There are no direct `create_recipe` / `update_dataset` style write tools.
@@ -52,14 +55,22 @@ blocking call:
    **`get_cobuild_turn_status`** — never re-send, which would double-run the build. Sending
    while a turn is already in flight returns `status: in_progress` instead of overlapping.
 4. **Deletions require confirmation.** When Cobuild proposes a destructive change it returns
-   `status: needs_confirmation` with the objects to delete. Inspect them, then
-   **`answer_cobuild_confirmation(…, choice="APPROVE"|"CANCEL")`**. The `confirmation_id` is
-   restorable from the durable store, so a confirmation survives a restart.
+   `status: needs_confirmation` with the objects to delete and a `confirmation_id`. Inspect
+   the objects, then
+   **`answer_cobuild_confirmation(…, confirmation_id=…, choice="APPROVE"|"CANCEL")`**. Passing
+   `confirmation_id` is **required** and must exact-match the pending confirmation — it is
+   proof-of-inspection of *this* deletion, and it survives a restart because the durable store
+   retains observed confirmation ids.
 5. **`list_cobuild_conversations(project_key)`** rediscovers a project's conversations
    (and any pending confirmation / in-flight turn) after a restart.
 
 Conversation metadata lives under `DKU_MCP_STATE_DIR` (see [Configure](#configure)); the
-in-memory handles are only a hot cache.
+in-memory handles are only a hot cache. **What survives a restart:** the conversations and any
+observed confirmation id. **What does not:** a turn that was still *running* — the in-flight
+work is dropped and polling it reports `turn_lost`, so treat its outcome as unknown (inspect
+the project or send a read-only follow-up) rather than failed. The same caution applies to a
+connection-level failure mid-turn, reported as `error_kind: transport_outcome_unknown`: do not
+blindly re-send. Retained turns are capped by `DKU_MCP_MAX_COBUILD_TURNS` (default `8`).
 
 ## Tool surface
 
@@ -80,11 +91,14 @@ The exhaustive list with a one-line purpose for every tool is generated into the
 
 **Transport gating** (set by `DKU_MCP_TRANSPORT`):
 
-- `stdio` exposes `create_upload_dataset` (uploads from a local file path the server can see)
+- `stdio` exposes `create_upload_dataset` (uploads from a local file path the server can see),
+  the server-filesystem writers `upload_file_to_managed_folder` / `write_project_library_file`,
   and the instance-management tools.
-- `streamable-http` exposes `create_upload_dataset_from_rows` (tabular `columns` + `rows`,
-  for when no server-local file path exists) and removes `switch_instance` / `list_instances`,
-  since a shared HTTP server should not carry per-client instance state.
+- `streamable-http` exposes `create_upload_dataset_from_rows` (tabular `columns` + `rows`, for
+  when no server-local file path exists) and removes the tools that assume a shared server has
+  the client's filesystem or per-client state: `switch_instance`, `list_instances`, and the
+  server-filesystem readers/writers `upload_file_to_managed_folder` and
+  `write_project_library_file` (no reading a local path off a shared HTTP host).
 
 ## The skill
 
@@ -143,27 +157,33 @@ Or copy `.env.example` to `.env` and fill it in. Full variable reference:
 | `DKU_DSS_URL` | — | DSS instance URL. Setting it is what marks an instance as configured. |
 | `DKU_API_KEY` | — | API key. May instead be supplied per-request over streamable-http as `Authorization: Bearer <key>`. |
 | `DKU_INSTANCE_NAME` | `dss-env` | Name for the env-configured instance; it takes precedence over any `default_instance` in `.dataiku/config.json`. |
-| `DKU_NO_CHECK_CERTIFICATE` | `false` | `true`/`1` skips SSL verification (matches Dataiku's local config). |
-| `DKU_DEFAULT_CONNECTION` | — | Optional default dataset connection, fed to Cobuild prompts / upload tools when omitted. |
-| `DKU_DEFAULT_FOLDER_CONNECTION` | — | Optional default managed-folder connection. |
-| `DKU_DEFAULT_LLM` | — | Optional default LLM id. |
-| `DKU_DEFAULT_EMBEDDING_LLM` | — | Optional default embedding LLM id. |
+| `DKU_NO_CHECK_CERTIFICATE` | `false` | `true` skips SSL verification; `false` (default) enforces it. Strict — invalid values are rejected (accepts `true`/`1`/`yes`, `false`/`0`/`no`, or empty). |
 | `DKU_MCP_MAX_WORKERS` | `4` | Thread-pool size for blocking DSS API calls. |
 | `DKU_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http`. Gates the transport-specific tools. |
-| `DKU_MCP_STATE_DIR` | `~/.local/state/dataiku-headless` | Durable Cobuild conversation registry — conversations and pending confirmations survive restarts. |
+| `DKU_MCP_STATE_DIR` | `~/.local/state/dataiku-headless` | Durable Cobuild conversation registry — conversations and observed confirmation ids survive restarts. |
+| `DKU_MCP_MAX_COBUILD_TURNS` | `8` | Cap on retained Cobuild turns (in-flight + recently settled) kept in memory. |
+| `DKU_CONFIG_DIR` | — | Overrides where the instance config file is looked up (see [Multiple instances](#multiple-instances)). |
 
 Streamable-http also honors the standard FastMCP settings `FASTMCP_HOST`, `FASTMCP_PORT`,
 and `FASTMCP_STREAMABLE_HTTP_PATH`.
 
 ### Multiple instances
 
-Put instance definitions in `.dataiku/config.json` (see `.dataiku/config.json.example` for
-the shape), then drive them from the agent with `list_instances`, `switch_instance`, and
-`get_current_instance`. Auth resolves in this order:
+Put instance definitions in a `config.json` (see `.dataiku/config.json.example` for the
+shape), then drive them from the agent with `list_instances`, `switch_instance`, and
+`get_current_instance`.
+
+The config file is located in this order — first match wins:
+
+1. `$DKU_CONFIG_DIR/config.json`, when `DKU_CONFIG_DIR` is set.
+2. `./.dataiku/config.json`, relative to the working directory.
+3. `~/.config/dataiku-headless/config.json`.
+
+Auth then resolves in this order:
 
 1. Environment variables (`DKU_DSS_URL` / `DKU_API_KEY`, named by `DKU_INSTANCE_NAME`) — this
    instance takes precedence and becomes the current one.
-2. `.dataiku/config.json`, using its `default_instance`.
+2. The located config file, using its `default_instance`.
 3. For streamable-http only, the API key from `Authorization: Bearer <DKU_API_KEY>`.
 
 ## Development

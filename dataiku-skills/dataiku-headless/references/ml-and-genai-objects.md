@@ -5,6 +5,14 @@ to read their results critically. Object identity and read tools are in
 `object-model.md`; recipe selection is in `recipe-families.md`. This file is the
 judgment: how to design the ask and what to distrust in the result.
 
+**No object here has a direct deep-read tool.** You discover them with
+`list_ml_analyses`, `list_saved_models`, `list_agents`, and `list_llms`, and you
+inspect their internals — analysis settings, model details, KB config, agent
+wiring, review traits — by asking Cobuild in a **read-only turn**
+(`allow_edit_project=false`) or by reading the flow artifacts they produce
+(evaluation stores, metrics datasets, scored outputs). "Inspect its settings"
+below always means one of those two paths, never a direct settings tool.
+
 ## Machine learning
 
 Interpret every model against its business objective, validation design, baseline,
