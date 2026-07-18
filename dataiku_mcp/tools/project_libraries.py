@@ -15,7 +15,14 @@ from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.serialization import columnar, compact_json
 from .utils.auth import get_dss_client
-from .utils.validation import require_non_empty_string as _require_non_empty_string
+from .utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+    require_positive_int as _require_positive_int,
+)
+
+DEFAULT_LIST_MAX_ITEMS = 500
+DEFAULT_LIST_MAX_DEPTH = 20
+DEFAULT_READ_MAX_BYTES = 200_000
 
 
 def _normalize_library_path(path: str) -> str:
@@ -126,44 +133,58 @@ def _walk_library_tree(
     external_libraries: list[dict],
     source: str,
     external_config_available: bool,
-) -> list[dict]:
-    """Flatten a library folder into a list of items filtered by source."""
-    items = []
-    for item in folder.list():
-        item_path = (prefix + "/" + item.name).replace("//", "/")
-        is_folder = item.children is not None
-        external_library = (
-            _match_external_library(item_path, external_libraries)
-            if external_config_available
-            else None
-        )
-        item_source = (
-            "external"
-            if external_library is not None
-            else ("internal" if external_config_available else "unknown")
-        )
+    max_items: int,
+    max_depth: int,
+) -> tuple[list[dict], bool]:
+    """Flatten a library folder into ``(items, truncated)`` filtered by source.
 
-        if source in {"all", item_source}:
-            entry = {
-                "path": item_path,
-                "type": "folder" if is_folder else "file",
-                "source": item_source,
-            }
-            if external_library is not None:
-                entry["external_library"] = external_library
-            items.append(entry)
+    Bounded on two axes so a deep or huge library tree cannot produce an
+    unbounded payload: at most ``max_items`` matching entries, and descent no
+    deeper than ``max_depth`` levels below ``folder``. ``truncated`` is True when
+    either bound clipped the walk.
+    """
+    items: list[dict] = []
+    state = {"truncated": False}
 
-        if is_folder:
-            items.extend(
-                _walk_library_tree(
-                    item,
-                    item_path,
-                    external_libraries,
-                    source,
-                    external_config_available,
-                )
+    def _walk(node, node_prefix: str, depth: int) -> None:
+        for item in node.list():
+            if len(items) >= max_items:
+                state["truncated"] = True
+                return
+            item_path = (node_prefix + "/" + item.name).replace("//", "/")
+            is_folder = item.children is not None
+            external_library = (
+                _match_external_library(item_path, external_libraries)
+                if external_config_available
+                else None
             )
-    return items
+            item_source = (
+                "external"
+                if external_library is not None
+                else ("internal" if external_config_available else "unknown")
+            )
+
+            if source in {"all", item_source}:
+                entry = {
+                    "path": item_path,
+                    "type": "folder" if is_folder else "file",
+                    "source": item_source,
+                }
+                if external_library is not None:
+                    entry["external_library"] = external_library
+                items.append(entry)
+
+            if is_folder:
+                if depth + 1 > max_depth:
+                    state["truncated"] = True
+                    continue
+                _walk(item, item_path, depth + 1)
+                if len(items) >= max_items:
+                    state["truncated"] = True
+                    return
+
+    _walk(folder, prefix, 1)
+    return items, state["truncated"]
 
 
 @mcp.tool()
@@ -173,14 +194,26 @@ async def list_project_library(
     path: str = "/",
     source: str = "all",
     include_external_metadata: bool = False,
+    max_items: int = DEFAULT_LIST_MAX_ITEMS,
+    max_depth: int = DEFAULT_LIST_MAX_DEPTH,
 ) -> str:
-    """List project library contents, optionally filtering to internal or external items."""
+    """List project library contents, optionally filtering to internal or external items.
+
+    Bounded: at most ``max_items`` entries (default 500) and ``max_depth`` levels
+    of descent (default 20). When either bound clips the walk the payload carries
+    ``truncated: true`` alongside the applied ``max_items``/``max_depth``.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path or "/")
     source = source.strip().lower() or "all"
     if source not in {"all", "internal", "external"}:
         raise ValueError("source must be one of: all, internal, external")
-    await ctx.info(f"Listing project library {project_key} from {path} (source={source})...")
+    max_items = _require_positive_int(max_items, "max_items")
+    max_depth = _require_positive_int(max_depth, "max_depth")
+    await ctx.info(
+        f"Listing project library {project_key} from {path} (source={source}, "
+        f"max_items={max_items}, max_depth={max_depth})..."
+    )
 
     def _run():
         project = get_dss_client().get_project(project_key)
@@ -196,20 +229,27 @@ async def list_project_library(
                 f"for '{source}' cannot be evaluated. Details: {external_error}"
             )
         prefix = "" if path == "/" else path.rstrip("/")
+        walked, tree_truncated = _walk_library_tree(
+            folder,
+            prefix,
+            external_libraries,
+            source,
+            external_config_available,
+            max_items,
+            max_depth,
+        )
         payload = {
             "path": path,
             "source": source,
             "items": columnar(
-                _walk_library_tree(
-                    folder,
-                    prefix,
-                    external_libraries,
-                    source,
-                    external_config_available,
-                ),
+                walked,
                 ["path", "type", "source", "external_library"],
             ),
         }
+        if tree_truncated:
+            payload["truncated"] = True
+            payload["max_items"] = max_items
+            payload["max_depth"] = max_depth
         if not external_config_available:
             payload["external_libraries_available"] = False
             payload["warning"] = (
@@ -244,11 +284,21 @@ async def read_project_library_file(
     project_key: str,
     path: str,
     ctx: Context,
+    max_bytes: int = DEFAULT_READ_MAX_BYTES,
 ) -> str:
-    """Read a text file from the project library."""
+    """Read a text file from the project library, bounded to ``max_bytes``.
+
+    The DSS API returns the whole file, so the cap is applied to the *returned*
+    content (default 200_000 bytes, measured UTF-8). When the file is larger the
+    payload is clipped on a byte boundary and carries ``truncated: true`` with the
+    total and returned byte counts.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
-    await ctx.info(f"Reading project library file {path} in {project_key}...")
+    max_bytes = _require_positive_int(max_bytes, "max_bytes")
+    await ctx.info(
+        f"Reading project library file {path} in {project_key} (max_bytes={max_bytes})..."
+    )
 
     def _run():
         library = get_dss_client().get_project(project_key).get_library()
@@ -257,10 +307,19 @@ async def read_project_library_file(
         file = _safe_get_file(library, path)
         if file is None:
             raise ValueError(f"File not found: {path}")
-        return {
-            "path": path,
-            "content": file.read(),
-        }
+        content = file.read()
+        encoded = content.encode("utf-8")
+        total_bytes = len(encoded)
+        result = {"path": path, "content": content}
+        if total_bytes > max_bytes:
+            # Clip on a byte boundary; drop any partial trailing multibyte char.
+            clipped = encoded[:max_bytes].decode("utf-8", errors="ignore")
+            result["content"] = clipped
+            result["truncated"] = True
+            result["max_bytes"] = max_bytes
+            result["bytes_total"] = total_bytes
+            result["bytes_returned"] = len(clipped.encode("utf-8"))
+        return result
 
     return compact_json(await run_blocking(_run))
 

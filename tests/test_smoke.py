@@ -94,14 +94,16 @@ EXPECTED_NON_COBUILD = frozenset(
     }
 )
 
-# The cobuild module is owned/extended concurrently; assert only that its four
-# core tools are always present, not the exact set.
+# The cobuild module's tool surface is exactly these five tools. The concurrent
+# cobuild agent may change tool *signatures* (e.g. making confirmation_id
+# required) but the name-level surface asserted here must stay exact.
 KNOWN_COBUILD = frozenset(
     {
         "start_cobuild_conversation",
         "send_cobuild_message",
         "answer_cobuild_confirmation",
         "list_cobuild_conversations",
+        "get_cobuild_turn_status",
     }
 )
 
@@ -111,7 +113,15 @@ def _expected_non_cobuild_for_transport() -> set[str]:
     if dataiku_mcp.transport == "stdio":
         expected.discard("create_upload_dataset_from_rows")
     elif dataiku_mcp.transport == "streamable-http":
-        expected -= {"create_upload_dataset", "switch_instance", "list_instances"}
+        # Every server-filesystem-reading tool is dropped over HTTP, plus the
+        # stdio-only multi-instance controls.
+        expected -= {
+            "create_upload_dataset",
+            "upload_file_to_managed_folder",
+            "write_project_library_file",
+            "switch_instance",
+            "list_instances",
+        }
     return expected
 
 
@@ -156,6 +166,8 @@ def test_registered_tool_surface():
         f"Unexpected (present, not allowed): {sorted(non_cobuild_names - expected)}\n"
         f"Missing (allowed, not present):    {sorted(expected - non_cobuild_names)}"
     )
-    assert KNOWN_COBUILD <= cobuild_names, (
-        f"Missing core cobuild tools: {sorted(KNOWN_COBUILD - cobuild_names)}"
+    assert cobuild_names == KNOWN_COBUILD, (
+        "Registered cobuild tool surface drifted from the expected five-tool set.\n"
+        f"Unexpected (present, not expected): {sorted(cobuild_names - KNOWN_COBUILD)}\n"
+        f"Missing (expected, not present):    {sorted(KNOWN_COBUILD - cobuild_names)}"
     )

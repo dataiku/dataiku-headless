@@ -73,6 +73,24 @@ def _tail_log_text(log_text: str, tail_lines: int | None) -> tuple[str, int, boo
     return "\n".join(lines[-tail_lines:]), line_count, True
 
 
+def _per_dataset_outcomes(
+    dataset_names: list[str], status_summary: dict
+) -> list[dict]:
+    """Map each requested dataset to the state of the activity that produces it.
+
+    A single job builds every requested output, so per-dataset outcomes are read
+    from the job's activities (each activity carries its output refs + state).
+    Datasets with no matching activity yet report ``state: null``.
+    """
+    state_by_ref: dict[str, str | None] = {}
+    for activity in status_summary.get("activities", []) or []:
+        for output in activity.get("outputs", []) or []:
+            ref = output.get("ref")
+            if ref:
+                state_by_ref[ref] = activity.get("state")
+    return [{"dataset": name, "state": state_by_ref.get(name)} for name in dataset_names]
+
+
 @mcp.tool()
 async def build_datasets(
     project_key: str,
@@ -83,19 +101,24 @@ async def build_datasets(
     auto_update_schema: bool = True,
     timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Build one or more existing datasets as DSS jobs.
+    """Build one or more existing datasets as a single DSS job.
 
     Direct execution of an existing asset; for creating or modifying assets use Cobuild.
 
-    Defaults to fire-and-return (wait_for_completion=False): the builds are started
-    and their job IDs are returned immediately. The supervisor then drives waiting
-    explicitly with wait_for_job(project_key, job_id) and inspects outcomes with
+    All requested datasets are built by ONE job (their outputs are chained onto a
+    single job definition), so there is exactly one job_id and one shared timeout —
+    overlapping Flow builds and per-dataset timeout multiplication are avoided.
+
+    Defaults to fire-and-return (wait_for_completion=False): the job is started and
+    its job_id returned immediately. The supervisor then drives waiting explicitly
+    with wait_for_job(project_key, job_id) and inspects outcomes with
     get_job_status / get_job_log. Set wait_for_completion=true only for a short
-    inline wait bounded by timeout_seconds.
+    inline wait bounded by timeout_seconds; the wait path additionally reports
+    per-dataset outcomes derived from the job's activities.
 
     Args:
-        dataset_names: Existing dataset names to build (at least one)
-        wait_for_completion: If true, wait up to timeout_seconds for the jobs to finish; if false (default), start them and return their job IDs for wait_for_job / get_job_status
+        dataset_names: Existing dataset names to build (at least one); all built by one job
+        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false (default), start it and return the job_id for wait_for_job / get_job_status
         job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD
         auto_update_schema: Whether to auto-update output schemas before each recipe run
         timeout_seconds: Max time to wait before returning in-progress job state (only used when wait_for_completion=true)
@@ -110,82 +133,85 @@ async def build_datasets(
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
 
     await ctx.info(
-        f"Starting build of {len(names)} dataset(s) in {project_key} "
+        f"Starting build of {len(names)} dataset(s) in {project_key} as one job "
         f"({job_type}, wait_for_completion={wait_for_completion}, "
         f"auto_update_schema={auto_update_schema})..."
     )
 
-    def _start_job(target_dataset_name: str):
+    def _start_job():
         project = get_dss_client().get_project(project_key)
         builder = project.new_job(job_type)
-        builder.with_output(target_dataset_name)
+        for target_dataset_name in names:
+            builder.with_output(target_dataset_name)
         if auto_update_schema:
             builder.with_auto_update_schema_before_each_recipe_run(True)
         return builder.start()
 
-    jobs = []
-    for ds_name in names:
-        try:
-            job = await run_blocking(_start_job, ds_name)
-            jobs.append(
-                {"dataset": ds_name, "status": "STARTED", "job_id": job.id, "obj": job}
-            )
-        except Exception as e:
-            jobs.append(
-                {"dataset": ds_name, "status": "FAILED_TO_START", "error": str(e)}
-            )
-
-    top_level_status = "builds_started"
-    for job in jobs:
-        if job["status"] == "FAILED_TO_START":
-            top_level_status = "builds_started_with_errors"
-            break
+    try:
+        job = await run_blocking(_start_job)
+    except Exception as e:
+        return compact_json(
+            {
+                "status": "build_failed_to_start",
+                "project_key": project_key,
+                "datasets": names,
+                "error": str(e),
+            }
+        )
 
     if not wait_for_completion:
         return compact_json(
             {
-                "status": top_level_status,
+                "status": "build_started",
                 "project_key": project_key,
-                "jobs": [{k: v for k, v in j.items() if k != "obj"} for j in jobs],
+                "job_id": job.id,
+                "datasets": names,
                 "hint": (
-                    "Builds started. Wait explicitly with "
+                    "Build started. Wait explicitly with "
                     "wait_for_job(project_key, job_id, timeout_seconds=...) or poll "
                     "get_job_status(project_key, job_id); use get_job_log for logs."
                 ),
             }
         )
 
-    for job in jobs:
-        if job["status"] != "STARTED":
-            continue
-        timed_out, status_summary = await _wait_for_job_result(
-            project_key,
-            job["obj"],
-            timeout_seconds,
-        )
-        job["status_summary"] = status_summary
-        job["wait_timed_out"] = timed_out
-        job["status"] = status_summary["state"]
+    timed_out, status_summary = await _wait_for_job_result(
+        project_key,
+        job,
+        timeout_seconds,
+    )
+    per_dataset = _per_dataset_outcomes(names, status_summary)
 
-    top_level_status = "builds_completed"
-    for job in jobs:
-        if job["status"] in {"FAILED_TO_START", "FAILED", "ABORTED"}:
-            top_level_status = "builds_completed_with_errors"
-            break
-        if job.get("wait_timed_out"):
-            top_level_status = "builds_still_running"
+    if timed_out:
+        return compact_json(
+            {
+                "status": "build_still_running",
+                "project_key": project_key,
+                "job_id": job.id,
+                "datasets": names,
+                "per_dataset": per_dataset,
+                "status_summary": status_summary,
+                "hint": (
+                    "The build job is still running. Do not start another build for "
+                    "these flow objects. Use wait_for_job(project_key, job_id, "
+                    "timeout_seconds=...) or get_job_status(project_key, job_id). Add "
+                    "full=true only when you need more detail, or use "
+                    "get_job_log(project_key, job_id) for logs."
+                ),
+            }
+        )
+
+    top_level_status = "build_completed"
+    if status_summary["state"] in {"FAILED", "ABORTED"}:
+        top_level_status = "build_completed_with_errors"
 
     return compact_json(
         {
             "status": top_level_status,
             "project_key": project_key,
-            "jobs": [{k: v for k, v in j.items() if k != "obj"} for j in jobs],
-            "hint": (
-                "If any job is still running, do not start another build for the same "
-                "flow object. Use wait_for_job(project_key, job_id, timeout_seconds=...) "
-                "or get_job_status(project_key, job_id). Add full=true only when you "
-                "need more detail, or use get_job_log(project_key, job_id) for logs."
-            ),
+            "job_id": job.id,
+            "datasets": names,
+            "per_dataset": per_dataset,
+            "status_summary": status_summary,
         }
     )
 

@@ -193,6 +193,10 @@ def overview(project_key="PROJ", **kwargs):
     return json.loads(run(projects.get_project_overview(project_key, FakeCtx(), **kwargs)))
 
 
+def variables(project_key="PROJ", **kwargs):
+    return json.loads(run(projects.get_project_variables(project_key, FakeCtx(), **kwargs)))
+
+
 def flow_graph(project_key="PROJ", **kwargs):
     return json.loads(run(flow.get_flow_graph(project_key, FakeCtx(), **kwargs)))
 
@@ -330,6 +334,64 @@ def test_overview_section_failure_is_isolated(monkeypatch):
     assert res["recipes"]["rows"] == [["join_recipe", "join"]]
     assert len(res["warnings"]) == 1
     assert res["warnings"][0].startswith("scenarios:")
+
+
+def test_overview_redacts_sensitive_standard_variables(monkeypatch):
+    project = FakeProject(
+        "PROJ",
+        variables={
+            "standard": {"api_key": "sk-secret", "env": "prod"},
+            "local": {"password": "should-not-appear"},
+        },
+    )
+    bind(monkeypatch, project)
+
+    res = overview()
+
+    # Sensitive-keyed values are redacted; benign ones survive.
+    assert res["variables"]["api_key"] == "***REDACTED***"
+    assert res["variables"]["env"] == "prod"
+    # Overview only surfaces standard variables, never local ones.
+    assert "should-not-appear" not in json.dumps(res)
+
+
+# --------------------------------------------------------------------------- #
+# get_project_variables
+# --------------------------------------------------------------------------- #
+
+
+def test_get_project_variables_redacts_standard_and_excludes_local_by_default(monkeypatch):
+    project = FakeProject(
+        "PROJ",
+        variables={
+            "standard": {"password": "p", "region": "eu"},
+            "local": {"access_token": "t"},
+        },
+    )
+    bind(monkeypatch, project)
+
+    res = variables()
+
+    assert res["standard"]["password"] == "***REDACTED***"
+    assert res["standard"]["region"] == "eu"
+    # Local variables are opt-in, so they are absent by default.
+    assert "local" not in res
+
+
+def test_get_project_variables_include_local_is_opt_in_and_redacted(monkeypatch):
+    project = FakeProject(
+        "PROJ",
+        variables={
+            "standard": {},
+            "local": {"access_token": "t", "host": "db.internal"},
+        },
+    )
+    bind(monkeypatch, project)
+
+    res = variables(include_local=True)
+
+    assert res["local"]["access_token"] == "***REDACTED***"
+    assert res["local"]["host"] == "db.internal"
 
 
 def test_overview_empty_sections_are_omitted_but_zero_counts_kept(monkeypatch):

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
@@ -43,12 +44,19 @@ FAIL = "fail"
 WARN = "warn"
 SKIP = "skip"
 PASS = "pass"
+# A FAIL-severity check whose evidence could not be read/evaluated. Unlike a
+# ``skip`` (a WARN check that could not run), an ``error`` blocks the gate and
+# marks the whole audit ``incomplete`` — unreadable evidence is never success.
+ERROR = "error"
 
 MAX_SAMPLE_ROWS = 100
 
-# The flow-consistency check is the one heavy DSS round-trip. Bound it so a slow
-# or wedged instance turns one check into a ``skip`` instead of hanging the audit.
+# The flow-consistency check is the one heavy DSS round-trip. Bound the internal
+# future polling with this soft deadline, and bound the whole check body (which
+# runs in a dedicated thread) with the hard deadline below, so a slow or wedged
+# instance turns one check into an ``error`` instead of hanging the audit.
 FLOW_CHECK_TIMEOUT_SECONDS = 60.0
+FLOW_CHECK_HARD_TIMEOUT_SECONDS = 70.0
 _FLOW_POLL_INTERVAL_SECONDS = 1.0
 
 AUDIT_BUCKETS_ORDER = ("structure", "documentation", "evidence", "maintainability")
@@ -100,6 +108,10 @@ def _skip(id: str, *, bucket: str, severity: str, detail: str) -> Check:
     return Check(id=id, status=SKIP, bucket=bucket, severity=severity, detail=detail)
 
 
+def _error(id: str, *, bucket: str, severity: str, detail: str) -> Check:
+    return Check(id=id, status=ERROR, bucket=bucket, severity=severity, detail=detail)
+
+
 def _verdict(
     id: str, *, bucket: str, problems: list[str], severity: str = FAIL, fix: str = ""
 ) -> Check:
@@ -135,8 +147,10 @@ def _listing(
 
 
 # A check unit: (id, bucket, severity, thunk). ``thunk`` produces the Check(s);
-# if it raises, the unit becomes a ``skip`` so one broken read never aborts the
-# audit. ``severity`` is the severity the skip inherits.
+# if it raises, the unit degrades so one broken read never aborts the audit. A
+# FAIL-severity unit degrades to an ``error`` (unreadable evidence blocks the
+# gate); a WARN-severity unit degrades to a ``skip`` (advisory, never blocks).
+# ``severity`` is the severity the degraded check inherits.
 CheckUnit = tuple[str, str, str, Callable[[], "Check | list[Check] | None"]]
 
 
@@ -146,9 +160,24 @@ def _collect(units: list[CheckUnit]) -> list[Check]:
         try:
             result = thunk()
         except Exception as exc:  # per-check isolation
-            out.append(
-                _skip(check_id, bucket=bucket, severity=severity, detail=f"check could not run: {exc}")
-            )
+            if severity == FAIL:
+                out.append(
+                    _error(
+                        check_id,
+                        bucket=bucket,
+                        severity=severity,
+                        detail=f"check could not be evaluated: {exc}",
+                    )
+                )
+            else:
+                out.append(
+                    _skip(
+                        check_id,
+                        bucket=bucket,
+                        severity=severity,
+                        detail=f"check could not run: {exc}",
+                    )
+                )
             continue
         if result is None:
             continue
@@ -300,8 +329,14 @@ def _await_future_bounded(future, timeout_seconds: float) -> None:
         state = future.get_state()
 
 
-def _flow_check_clean(proj, timeout_seconds: float = FLOW_CHECK_TIMEOUT_SECONDS) -> tuple[bool, str]:
-    """Run the DSS flow consistency check; return (clean, first error message)."""
+def _run_flow_consistency(proj, timeout_seconds: float) -> tuple[bool, str]:
+    """Body of the flow consistency check; return (clean, first error message).
+
+    Runs the DSS round-trip: start the tool, poll its future (bounded), read the
+    per-node results, and always stop the tool. Any of these SDK calls can block,
+    so this body is invoked from a bounded worker thread (see
+    :func:`_flow_check_clean`).
+    """
     flow = proj.get_flow()
     tool = flow.start_tool("CHECK_CONSISTENCY")
     try:
@@ -323,6 +358,37 @@ def _flow_check_clean(proj, timeout_seconds: float = FLOW_CHECK_TIMEOUT_SECONDS)
     finally:
         with contextlib.suppress(Exception):
             tool.stop()
+
+
+def _flow_check_clean(proj, timeout_seconds: float = FLOW_CHECK_TIMEOUT_SECONDS) -> tuple[bool, str]:
+    """Run the flow consistency check in a bounded worker thread.
+
+    The individual SDK calls (``tool.update``, future polling, ``tool.stop``) can
+    each block indefinitely on a wedged instance, and the between-calls deadline
+    in :func:`_await_future_bounded` cannot interrupt a call already in flight. So
+    the whole body runs in a daemon thread bounded by
+    :data:`FLOW_CHECK_HARD_TIMEOUT_SECONDS`. On timeout this raises ``TimeoutError``
+    (the check is FAIL-severity, so :func:`_collect` records it as an ``error`` and
+    the audit continues); the abandoned daemon thread cannot block process exit.
+    """
+    box: dict[str, Any] = {}
+
+    def _body() -> None:
+        try:
+            box["result"] = _run_flow_consistency(proj, timeout_seconds)
+        except BaseException as exc:  # propagated to the caller thread below
+            box["error"] = exc
+
+    worker = threading.Thread(target=_body, name="audit-flow-check", daemon=True)
+    worker.start()
+    worker.join(FLOW_CHECK_HARD_TIMEOUT_SECONDS)
+    if worker.is_alive():
+        raise TimeoutError(
+            f"flow consistency check exceeded {FLOW_CHECK_HARD_TIMEOUT_SECONDS:.0f}s"
+        )
+    if "error" in box:
+        raise box["error"]
+    return box["result"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1100,12 +1166,44 @@ def run_bucket(actx: AuditContext, bucket: str) -> list[Check]:
 # --------------------------------------------------------------------------- #
 # Contract
 # --------------------------------------------------------------------------- #
+def _validate_string_list(dataset: str, field_name: str, value: Any) -> None:
+    """Reject a non-list, or any empty/non-string entry, for columns/not_blank."""
+    if not isinstance(value, list):
+        raise ValueError(f'contract output "{dataset}": "{field_name}" must be a list')
+    for i, entry in enumerate(value):
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValueError(
+                f'contract output "{dataset}": "{field_name}"[{i}] must be a '
+                "non-empty string"
+            )
+
+
+def _validate_output_spec(dataset: str, spec: dict[str, Any]) -> dict[str, Any]:
+    """Reject degenerate spec values with a precise message (no DSS work here)."""
+    if "columns" in spec:
+        _validate_string_list(dataset, "columns", spec["columns"])
+    if "not_blank" in spec:
+        _validate_string_list(dataset, "not_blank", spec["not_blank"])
+    if spec.get("min_rows") is not None:
+        min_rows = spec["min_rows"]
+        # A numeric string (or float/bool) is rejected outright, never coerced.
+        if isinstance(min_rows, bool) or not isinstance(min_rows, int) or min_rows < 0:
+            raise ValueError(
+                f'contract output "{dataset}": "min_rows" must be a non-negative '
+                f"integer, got {min_rows!r}"
+            )
+    return spec
+
+
 def normalize_contract(contract: Any) -> dict[str, Any]:
     """Validate + normalize a delegated-output contract into ``{"outputs": {name: spec}}``.
 
     Accepts the documented list form ``{"outputs": [{"dataset": ..., "columns": ...,
-    "min_rows": ...}]}`` and the equivalent mapping form. Raises ``ValueError`` with a
-    clear message on anything malformed.
+    "min_rows": ...}]}`` and the equivalent mapping form. Every degenerate value is
+    rejected here, before any DSS work: an empty ``outputs``; an empty or duplicate
+    dataset name; a non-integer or negative ``min_rows`` (a numeric string is
+    rejected, not coerced); and a non-list or empty-string-bearing ``columns`` /
+    ``not_blank``. Raises ``ValueError`` with a clear message on anything malformed.
     """
     if not isinstance(contract, dict):
         raise ValueError("contract must be a JSON object")
@@ -1114,18 +1212,32 @@ def normalize_contract(contract: Any) -> dict[str, Any]:
     outputs = contract["outputs"]
     normalized: dict[str, Any] = {}
     if isinstance(outputs, list):
+        if not outputs:
+            raise ValueError('contract "outputs" list must not be empty')
         for i, entry in enumerate(outputs):
             if not isinstance(entry, dict):
                 raise ValueError(f"contract outputs[{i}] must be an object")
             dataset = entry.get("dataset")
-            if not dataset or not isinstance(dataset, str):
+            if not isinstance(dataset, str) or not dataset.strip():
                 raise ValueError(f'contract outputs[{i}] must have a non-empty "dataset" field')
-            normalized[dataset] = {k: v for k, v in entry.items() if k != "dataset"}
+            dataset = dataset.strip()
+            if dataset in normalized:
+                raise ValueError(f'contract has a duplicate output dataset "{dataset}"')
+            normalized[dataset] = _validate_output_spec(
+                dataset, {k: v for k, v in entry.items() if k != "dataset"}
+            )
     elif isinstance(outputs, dict):
+        if not outputs:
+            raise ValueError('contract "outputs" object must not be empty')
         for name, spec in outputs.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("contract output names must be non-empty strings")
+            clean_name = name.strip()
             if not isinstance(spec, dict):
-                raise ValueError(f'contract output "{name}" must map to an object')
-            normalized[name] = spec
+                raise ValueError(f'contract output "{clean_name}" must map to an object')
+            if clean_name in normalized:
+                raise ValueError(f'contract has a duplicate output dataset "{clean_name}"')
+            normalized[clean_name] = _validate_output_spec(clean_name, spec)
     else:
         raise ValueError('contract "outputs" must be a list or an object')
     return {"outputs": normalized}
@@ -1287,22 +1399,35 @@ def validate_buckets(buckets: list[str] | None) -> list[str]:
     return [b for b in AUDIT_BUCKETS_ORDER if b in selected]
 
 
+# The audit only inspects flow-level objects; the scope claim is stated on every
+# payload (and in the tool docstring) so the verdict is never read as broader.
+AUDIT_SCOPE = "flow-level audit (datasets, recipes, zones, wiki)"
+
+
 def build_payload(project_key: str, checks: list[Check], inventory: dict[str, Any]) -> dict[str, Any]:
     """Assemble the lean verdict payload.
 
-    Only ``fail``/``warn``/``skip`` checks are itemized (dense mode); the full
-    pass list is emitted only when every check passed. Skips never affect the
-    score or block the gate.
+    Only non-``pass`` checks are itemized (dense mode); the full pass list is
+    emitted only when every check passed. A ``skip`` (a WARN check that could not
+    run) never affects the score or blocks the gate. An ``error`` (a FAIL check
+    whose evidence could not be read) blocks the gate, lowers the score, and marks
+    the payload ``incomplete``.
     """
     failed = [c for c in checks if c.status == FAIL]
+    errored = [c for c in checks if c.status == ERROR]
     warnings = sum(1 for c in checks if c.status == WARN)
     skipped = sum(1 for c in checks if c.status == SKIP)
-    scored = [c for c in checks if c.status in {PASS, FAIL, WARN}]
+    scored = [c for c in checks if c.status in {PASS, FAIL, WARN, ERROR}]
     passed_count = sum(1 for c in scored if c.status == PASS)
     score = round(passed_count / len(scored), 3) if scored else 1.0
 
-    if failed:
-        summary = f"{len(failed)} check(s) failed"
+    if failed or errored:
+        parts = []
+        if failed:
+            parts.append(f"{len(failed)} check(s) failed")
+        if errored:
+            parts.append(f"{len(errored)} check(s) errored (evidence unreadable)")
+        summary = "; ".join(parts)
     elif warnings:
         summary = f"passed with {warnings} warning(s)"
     else:
@@ -1324,14 +1449,19 @@ def build_payload(project_key: str, checks: list[Check], inventory: dict[str, An
     else:
         checks_block["passed_checks"] = [c.id for c in checks]
 
-    return {
+    payload: dict[str, Any] = {
         "project_key": project_key,
-        "passed": not failed,
+        "scope": AUDIT_SCOPE,
+        "passed": not failed and not errored,
         "score": score,
         "summary": summary,
         "checks": checks_block,
         "inventory": inventory,
     }
+    if errored:
+        payload["incomplete"] = True
+        payload["errors"] = len(errored)
+    return payload
 
 
 def run_audit(

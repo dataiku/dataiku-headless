@@ -5,6 +5,7 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
+from .utils.redaction import redact_sensitive_values
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -79,14 +80,32 @@ async def get_project_metadata(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool()
-async def get_project_variables(project_key: str, ctx: Context) -> str:
-    """Get the project variables as {'standard': {...}, 'local': {...}}."""
+async def get_project_variables(
+    project_key: str,
+    ctx: Context,
+    include_local: bool = False,
+) -> str:
+    """Get the project's standard variables, with credential-like values redacted.
+
+    Values whose key matches the sensitive patterns (password/secret/token/key/
+    credential families) are replaced with '***REDACTED***'. Local variables are
+    opt-in via ``include_local=True`` because they more often hold credentials;
+    they are redacted the same way.
+
+    Returns ``{'standard': {...}}`` by default, or ``{'standard': {...},
+    'local': {...}}`` when ``include_local=True``.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
-    await ctx.info(f"Fetching variables for project {project_key}...")
+    await ctx.info(
+        f"Fetching variables for project {project_key} (include_local={include_local})..."
+    )
     variables = await run_blocking(
         lambda: get_dss_client().get_project(project_key).get_variables()
     )
-    return compact_json(variables)
+    result = {"standard": redact_sensitive_values(variables.get("standard", {}) or {})}
+    if include_local:
+        result["local"] = redact_sensitive_values(variables.get("local", {}) or {})
+    return compact_json(result)
 
 
 def _project_identity(project) -> dict:
@@ -229,7 +248,10 @@ async def get_project_overview(
         )
         wiki_articles = section("wiki_articles", lambda: _wiki_articles(project))
         variables = section(
-            "variables", lambda: project.get_variables().get("standard", {})
+            "variables",
+            lambda: redact_sensitive_values(
+                project.get_variables().get("standard", {}) or {}
+            ),
         )
 
         return _assemble_overview(

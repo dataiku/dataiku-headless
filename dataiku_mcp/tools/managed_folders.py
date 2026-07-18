@@ -125,19 +125,35 @@ async def upload_file_to_managed_folder(
     target_path: str,
     ctx: Context,
     local_path: str,
+    overwrite: bool = False,
 ) -> str:
-    """Upload a local file to a path inside a managed folder, replacing any existing file."""
+    """Upload a local file to a path inside a managed folder.
+
+    Refuses to clobber an existing file: if ``target_path`` already exists and
+    ``overwrite`` is False (default), the call fails with a clear error naming the
+    path and the flag. Pass ``overwrite=True`` to replace an existing file.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     folder_id = _require_non_empty_string(folder_id, "folder_id")
     target_path = _require_non_empty_string(target_path, "target_path")
     local_path = _require_non_empty_string(local_path, "local_path")
     await ctx.info(
         f"Uploading to managed folder '{folder_id}' in {project_key} at "
-        f"'{target_path}' from local file '{local_path}'..."
+        f"'{target_path}' from local file '{local_path}' (overwrite={overwrite})..."
     )
 
     def _run():
         folder = get_dss_client().get_project(project_key).get_managed_folder(folder_id)
+        if not overwrite:
+            existing = {
+                (item.get("path") or "").strip("/")
+                for item in folder.list_contents().get("items", [])
+            }
+            if target_path.strip("/") in existing:
+                raise ValueError(
+                    f"A file already exists at '{target_path}' in managed folder "
+                    f"'{folder_id}'. Pass overwrite=True to replace it."
+                )
         with open(local_path, "rb") as handle:
             folder.put_file(target_path, handle)
         return omit_empty(
@@ -145,6 +161,7 @@ async def upload_file_to_managed_folder(
                 "folder_id": folder_id,
                 "target_path": target_path,
                 "local_path": local_path,
+                "overwrite": overwrite,
             }
         )
 

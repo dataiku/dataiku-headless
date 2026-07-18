@@ -70,15 +70,42 @@ def _raw_status(job_id, *, end_time, runtime_state=None):
     }
 
 
+def _raw_status_with_activities(job_id, *, end_time, runtime_state, activities):
+    """A completed-job status carrying per-activity output refs + states.
+
+    ``activities`` is a list of ``(activity_id, state, [dataset_refs])`` — enough
+    for get_job_status_full to surface per-output activity states, which
+    build_datasets maps back to per-dataset outcomes.
+    """
+    return {
+        "def": {"id": job_id},
+        "baseStatus": {
+            "jobStartTime": 100,
+            "jobEndTime": end_time,
+            "activities": {
+                aid: {"targets": [{"type": "DATASET", "id": ref} for ref in refs]}
+                for aid, _state, refs in activities
+            },
+        },
+        "runtimeSummary": {
+            "state": runtime_state,
+            "activities": [
+                {"activityId": aid, "state": state} for aid, state, _refs in activities
+            ],
+        },
+        "initiator": {},
+    }
+
+
 # --------------------------------------------------------------------------- #
-# build_datasets
+# build_datasets — one job builds all requested outputs
 # --------------------------------------------------------------------------- #
 
 
-def test_build_datasets_no_wait_returns_job_ids():
-    job1, job2 = _job("J1"), _job("J2")
+def test_build_datasets_no_wait_starts_one_job_with_all_outputs():
+    job = _job("J1")
     builder = MagicMock()
-    builder.start.side_effect = [job1, job2]
+    builder.start.return_value = job
     project = MagicMock()
     project.new_job.return_value = builder
     client = MagicMock()
@@ -89,19 +116,50 @@ def test_build_datasets_no_wait_returns_job_ids():
             jobs.build_datasets("PK", FakeCtx(), ["a", "b"], wait_for_completion=False)
         )
 
-    assert res["status"] == "builds_started"
-    assert [j["job_id"] for j in res["jobs"]] == ["J1", "J2"]
-    assert all(j["status"] == "STARTED" for j in res["jobs"])
+    assert res["status"] == "build_started"
+    # ONE job, ONE job_id, for all requested outputs.
+    assert res["job_id"] == "J1"
+    assert res["datasets"] == ["a", "b"]
+    project.new_job.assert_called_once()
+    builder.start.assert_called_once()
+    assert builder.with_output.call_count == 2
+    builder.with_output.assert_any_call("a")
+    builder.with_output.assert_any_call("b")
     # No wait means no status was fetched.
-    assert job1.get_status.call_count == 0
+    assert job.get_status.call_count == 0
 
 
-def test_build_datasets_wait_aggregates_completed_errors_and_running():
-    job_done = _job("JD", _raw_status("JD", end_time=200))
-    job_failed = _job("JF", _raw_status("JF", end_time=300, runtime_state="FAILED"))
-    job_running = _job("JR", _raw_status("JR", end_time=0, runtime_state="RUNNING"))
+def test_build_datasets_wait_reports_per_dataset_outcomes():
+    raw = _raw_status_with_activities(
+        "J1",
+        end_time=200,
+        runtime_state="DONE",
+        activities=[("act_a", "DONE", ["a"]), ("act_b", "DONE", ["b"])],
+    )
+    job = _job("J1", raw)
     builder = MagicMock()
-    builder.start.side_effect = [job_done, job_failed, job_running]
+    builder.start.return_value = job
+    project = MagicMock()
+    project.new_job.return_value = builder
+    client = MagicMock()
+    client.get_project.return_value = project
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.build_datasets("PK", FakeCtx(), ["a", "b"], wait_for_completion=True)
+        )
+
+    assert res["status"] == "build_completed"
+    assert res["job_id"] == "J1"
+    per = {d["dataset"]: d["state"] for d in res["per_dataset"]}
+    assert per == {"a": "DONE", "b": "DONE"}
+
+
+def test_build_datasets_wait_timeout_returns_still_running():
+    raw = _raw_status("J1", end_time=0, runtime_state="RUNNING")
+    job = _job("J1", raw)
+    builder = MagicMock()
+    builder.start.return_value = job
     project = MagicMock()
     project.new_job.return_value = builder
     client = MagicMock()
@@ -113,18 +171,32 @@ def test_build_datasets_wait_aggregates_completed_errors_and_running():
         mock_time.monotonic.side_effect = _incrementing_monotonic()
         res = _load(
             jobs.build_datasets(
-                "PK", FakeCtx(), ["d", "f", "r"], wait_for_completion=True
+                "PK", FakeCtx(), ["a", "b"], wait_for_completion=True
             )
         )
 
-    by_ds = {j["dataset"]: j for j in res["jobs"]}
-    assert by_ds["d"]["status"] == "DONE"
-    assert by_ds["f"]["status"] == "FAILED"
-    assert by_ds["r"]["status"] == "RUNNING"
-    assert by_ds["r"]["wait_timed_out"] is True
-    assert by_ds["d"]["wait_timed_out"] is False
-    # Top-level summary surfaces the error (highest-priority signal).
-    assert res["status"] == "builds_completed_with_errors"
+    # A single shared timeout for the whole build; one job_id still running.
+    assert res["status"] == "build_still_running"
+    assert res["job_id"] == "J1"
+    assert res["datasets"] == ["a", "b"]
+
+
+def test_build_datasets_failed_to_start_reports_error():
+    builder = MagicMock()
+    builder.start.side_effect = RuntimeError("nope")
+    project = MagicMock()
+    project.new_job.return_value = builder
+    client = MagicMock()
+    client.get_project.return_value = project
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.build_datasets("PK", FakeCtx(), ["a", "b"], wait_for_completion=False)
+        )
+
+    assert res["status"] == "build_failed_to_start"
+    assert res["datasets"] == ["a", "b"]
+    assert "nope" in res["error"]
 
 
 def test_build_datasets_invalid_job_type_rejected():

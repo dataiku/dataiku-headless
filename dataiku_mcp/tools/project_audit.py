@@ -24,8 +24,11 @@ async def audit_project(
     buckets: list[str] | None = None,
     contract: dict | None = None,
 ) -> str:
-    """Run after a Cobuild delegation to independently verify the work: structure,
-    documentation, evidence (real rows), maintainability. Pass
+    """Run after a Cobuild delegation to independently verify the work with a
+    flow-level audit (datasets, recipes, zones, wiki): structure, documentation,
+    evidence (real rows), maintainability. It inspects only those flow-level
+    objects — it does not audit scenarios, code envs, connections, ML models,
+    or other project settings. Pass
     contract={"outputs":[{"dataset":...,"columns":...,"min_rows":...}]} to assert
     what you delegated.
 
@@ -34,7 +37,9 @@ async def audit_project(
     copy-paste fix (a Cobuild delegation prompt, or a named MCP tool such as
     build_datasets). ``buckets`` restricts which of structure/documentation/
     evidence/maintainability run (default all four). ``passed`` is true only when
-    no ``fail``-severity check fails; warnings are advisory.
+    no ``fail``-severity check fails and no check errored (unreadable evidence
+    marks the payload ``incomplete``); warnings are advisory. The payload's
+    ``scope`` field restates this flow-level scope.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     selected = validate_buckets(buckets)

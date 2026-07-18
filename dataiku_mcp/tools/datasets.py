@@ -46,20 +46,32 @@ def _write_upload_rows_to_temp_csv(
     columns: list[str],
     rows: list[list[str | int | float | bool | None]],
 ) -> tuple[str, str]:
+    # Column validation runs before the temp file exists, so a bad schema leaks
+    # nothing. Once the file is created (delete=False, so the caller can hand its
+    # path to the uploader), any mid-write error must unlink it here — the caller
+    # never receives the path to clean up if this function raises.
     cleaned_columns = _validate_upload_columns(columns)
-    with tempfile.NamedTemporaryFile(
+    temp_file = tempfile.NamedTemporaryFile(
         mode="w", newline="", encoding="utf-8", suffix=".csv", delete=False
-    ) as temp_file:
-        writer = csv.writer(temp_file)
-        writer.writerow(cleaned_columns)
-        expected_row_length = len(cleaned_columns)
-        for row_index, row in enumerate(rows):
-            if len(row) != expected_row_length:
-                raise ValueError(
-                    f"'rows[{row_index}]' must contain exactly {expected_row_length} values"
-                )
-            writer.writerow([_serialize_upload_cell(value) for value in row])
+    )
+    try:
+        with temp_file:
+            writer = csv.writer(temp_file)
+            writer.writerow(cleaned_columns)
+            expected_row_length = len(cleaned_columns)
+            for row_index, row in enumerate(rows):
+                if len(row) != expected_row_length:
+                    raise ValueError(
+                        f"'rows[{row_index}]' must contain exactly {expected_row_length} values"
+                    )
+                writer.writerow([_serialize_upload_cell(value) for value in row])
         return temp_file.name, f"{dataset_name}.csv"
+    except BaseException:
+        try:
+            os.unlink(temp_file.name)
+        except OSError:
+            pass
+        raise
 
 
 def _create_uploaded_dataset_from_file(

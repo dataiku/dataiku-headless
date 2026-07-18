@@ -390,26 +390,47 @@ def test_flow_consistency_dirty_flow_fails():
 
 
 # --------------------------------------------------------------------------- #
-# Per-check failure isolation
+# Per-check failure isolation: FAIL raise -> error, WARN raise -> skip
 # --------------------------------------------------------------------------- #
-def test_per_check_isolation_flow_tool_raises_becomes_skip():
+def test_collect_fail_severity_raise_becomes_error_warn_becomes_skip():
+    def boom():
+        raise RuntimeError("nope")
+
+    units = [
+        ("fc", "evidence", ae.FAIL, boom),
+        ("wc", "documentation", ae.WARN, boom),
+    ]
+    checks = {c.id: c for c in ae._collect(units)}
+    # A FAIL-severity check that cannot be evaluated is an error, not a skip.
+    assert checks["fc"].status == "error"
+    assert "nope" in checks["fc"].detail
+    # A WARN-severity check that cannot run stays an advisory skip.
+    assert checks["wc"].status == "skip"
+    assert "nope" in checks["wc"].detail
+
+
+def test_per_check_isolation_fail_check_raise_becomes_error():
+    # The flow-consistency check is FAIL-severity; when the flow tool explodes it
+    # becomes an error (unreadable evidence), not a skip.
     proj = linear_project(tool=RuntimeError("flow tool exploded"))
     checks = checks_for_bucket(proj, "evidence")
     flow = checks["flow_check_clean"]
-    assert flow.status == "skip"
+    assert flow.status == "error"
     assert "flow tool exploded" in flow.detail
     # The rest of the evidence bucket still ran.
     assert checks["terminal_outputs_built"].status in {"pass", "fail"}
     assert checks["terminal_row_counts"].status == "pass"
 
 
-def test_skip_does_not_block_gate_or_penalize_score():
+def test_unreadable_fail_evidence_marks_incomplete_and_not_passed():
     proj = linear_project(tool=RuntimeError("boom"))
     payload = ae.run_audit(proj, "PROJ", buckets=["evidence"])
-    # A skip is surfaced but never fails the gate.
-    assert payload["checks"]["counts"].get("skip") == 1
-    # Score is computed over pass/fail/warn only.
-    assert payload["passed"] is True
+    # The unreadable FAIL check is an error, which blocks the gate...
+    assert payload["checks"]["counts"].get("error") == 1
+    assert payload["passed"] is False
+    # ...and marks the whole audit incomplete with an error count.
+    assert payload["incomplete"] is True
+    assert payload["errors"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -459,6 +480,59 @@ def test_contract_normalization_accepts_both_shapes_and_rejects_malformed():
         ae.normalize_contract({"outputs": [{"columns": ["a"]}]})
     with pytest.raises(ValueError, match="object"):
         ae.normalize_contract("nope")
+
+
+def test_contract_rejects_empty_outputs_list():
+    with pytest.raises(ValueError, match="must not be empty"):
+        ae.normalize_contract({"outputs": []})
+
+
+def test_contract_rejects_empty_outputs_object():
+    with pytest.raises(ValueError, match="must not be empty"):
+        ae.normalize_contract({"outputs": {}})
+
+
+def test_contract_rejects_empty_dataset_name():
+    with pytest.raises(ValueError, match="dataset"):
+        ae.normalize_contract({"outputs": [{"dataset": "   ", "columns": ["a"]}]})
+
+
+def test_contract_rejects_duplicate_dataset_names():
+    with pytest.raises(ValueError, match="duplicate"):
+        ae.normalize_contract({"outputs": [{"dataset": "B"}, {"dataset": "B"}]})
+
+
+def test_contract_rejects_non_int_min_rows_no_coercion():
+    # A numeric string is rejected outright, not coerced to an int.
+    with pytest.raises(ValueError, match="min_rows"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": "100"}]})
+
+
+def test_contract_rejects_bool_and_negative_min_rows():
+    with pytest.raises(ValueError, match="min_rows"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": True}]})
+    with pytest.raises(ValueError, match="min_rows"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": -1}]})
+
+
+def test_contract_rejects_non_list_and_empty_string_columns():
+    with pytest.raises(ValueError, match="columns"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "columns": "x"}]})
+    with pytest.raises(ValueError, match="columns"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "columns": ["ok", ""]}]})
+
+
+def test_contract_rejects_non_list_and_empty_string_not_blank():
+    with pytest.raises(ValueError, match="not_blank"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "not_blank": "x"}]})
+    with pytest.raises(ValueError, match="not_blank"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "not_blank": [" "]}]})
+
+
+def test_contract_accepts_zero_min_rows():
+    # 0 is a valid non-negative integer and must survive normalization.
+    normalized = ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": 0}]})
+    assert normalized == {"outputs": {"B": {"min_rows": 0}}}
 
 
 # --------------------------------------------------------------------------- #
@@ -537,6 +611,9 @@ def test_clean_project_passes_with_full_score():
     assert payload["passed"] is True
     assert payload["score"] == 1.0
     assert payload["summary"] == "passed"
+    # The verdict restates its narrow, flow-level scope; nothing is overclaimed.
+    assert payload["scope"] == "flow-level audit (datasets, recipes, zones, wiki)"
+    assert "incomplete" not in payload
     # Everything passed -> the full pass list is emitted, no issues block.
     assert "issues" not in payload["checks"]
     assert payload["checks"]["passed_checks"]
