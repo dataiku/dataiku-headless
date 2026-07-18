@@ -8,7 +8,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from fastmcp import FastMCP
-from fastmcp.server.transforms.search import BM25SearchTransform
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -24,19 +23,15 @@ config.load_dss_instances()
 
 # Import all modules to register tools and resources
 from .tools import (  # noqa: F401,E402
-    agent_reviews,
     agents,
     code_environments,
     cobuild,
     connections,
     cross_project_sharing,
-    dashboards,
     data_collections,
     data_quality,
     datasets,
-    evaluation_stores,
     flow,
-    insights,
     instances,
     jobs,
     llms_and_knowledge_banks,
@@ -45,9 +40,6 @@ from .tools import (  # noqa: F401,E402
     projects,
     recipes,
     scenarios,
-    semantic_models,
-    webapps,
-    wikis,
 )
 from .tools.machine_learning import (  # noqa: F401,E402
     analyses,
@@ -75,24 +67,6 @@ elif transport == "streamable-http":
     mcp.local_provider.remove_tool("create_upload_dataset")
     mcp.local_provider.remove_tool("switch_instance")
     mcp.local_provider.remove_tool("list_instances")
-
-if config_mcp.DKU_MCP_COBUILD_MODE == "FULL":
-    for tool_name in sorted(config_mcp.FULL_COBUILD_DISABLED_TOOLS):
-        mcp.local_provider.remove_tool(tool_name)
-
-# Configure MCP search mode
-if config_mcp.DKU_MCP_TOOL_EXPOSURE == "search":
-    mcp.add_transform(
-        BM25SearchTransform(
-            max_results=config_mcp.DKU_MCP_SEARCH_MAX_RESULTS,
-            always_visible=config_mcp.DKU_MCP_SEARCH_ALWAYS_VISIBLE,
-        )
-    )
-    config_mcp.logger.info(
-        "Enabled MCP search tool exposure mode with max_results=%s always_visible=%s",
-        config_mcp.DKU_MCP_SEARCH_MAX_RESULTS,
-        config_mcp.DKU_MCP_SEARCH_ALWAYS_VISIBLE,
-    )
 
 
 def run_server():

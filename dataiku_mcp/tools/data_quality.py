@@ -7,24 +7,13 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
-from .utils.parsing import coerce_json_array as _coerce_json_array
 from .utils.serialization import compact_json, is_empty, omit_empty
-from .utils.validation import (
-    require_non_empty_string as _require_non_empty_string,
-    require_non_negative_int as _require_non_negative_int,
-    require_positive_int as _require_positive_int,
-)
+from .utils.validation import require_non_empty_string as _require_non_empty_string
 
 
 def _get_ruleset(project_key: str, dataset_name: str):
     dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
     return dataset.get_data_quality_rules()
-
-
-def _serialize_rule_result(result):
-    if result is None:
-        return None
-    return result.get_raw()
 
 
 def _summarize_rule(raw_rule: dict) -> dict:
@@ -49,24 +38,6 @@ def _summarize_rule(raw_rule: dict) -> dict:
         if key in raw_rule:
             summary[f"has_{key}"] = True
     return summary
-
-
-def _find_rule(ruleset, rule_id: str):
-    rules = ruleset.list_rules(as_type="objects")
-    for rule in rules:
-        if rule.id == rule_id:
-            return rule
-    raise ValueError(f"Data Quality rule '{rule_id}' was not found")
-
-
-def _parse_rule_ids(rule_ids) -> list[str] | None:
-    if rule_ids is None:
-        return None
-    parsed = _coerce_json_array(rule_ids, "rule_ids")
-    result = []
-    for index, value in enumerate(parsed):
-        result.append(_require_non_empty_string(value, f"rule_ids[{index}]"))
-    return result
 
 
 def _safe_status(ruleset) -> tuple[Any, str | None]:
@@ -147,123 +118,6 @@ async def get_data_quality_status(
                 )
         if warnings:
             result["warnings"] = warnings
-        return result
-
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
-async def get_data_quality_rule(
-    project_key: str,
-    dataset_name: str,
-    rule_id: str,
-    ctx: Context,
-) -> str:
-    """Get one raw Data Quality rule configuration by ID."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
-    rule_id = _require_non_empty_string(rule_id, "rule_id")
-    await ctx.info(
-        f"Loading Data Quality rule {rule_id} for {dataset_name} in {project_key}..."
-    )
-
-    def _run():
-        ruleset = _get_ruleset(project_key, dataset_name)
-        rule = _find_rule(ruleset, rule_id)
-        return {"rule": rule.get_raw()}
-
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
-async def get_data_quality_rule_results(
-    project_key: str,
-    dataset_name: str,
-    ctx: Context,
-    partition: str = "NP",
-    rule_id: str | None = None,
-) -> str:
-    """Get the latest computed Data Quality rule result(s) for a dataset partition."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
-    partition = _require_non_empty_string(partition or "NP", "partition")
-    if rule_id is not None:
-        rule_id = _require_non_empty_string(rule_id, "rule_id")
-
-    await ctx.info(
-        f"Loading Data Quality rule results for {dataset_name} in {project_key} "
-        f"(partition={partition}, rule_id={rule_id})..."
-    )
-
-    def _run():
-        ruleset = _get_ruleset(project_key, dataset_name)
-        if rule_id:
-            rule = _find_rule(ruleset, rule_id)
-            raw_results = [_serialize_rule_result(rule.get_last_result(partition))]
-            raw_results = [item for item in raw_results if item is not None]
-        else:
-            raw_results = [
-                _serialize_rule_result(result)
-                for result in ruleset.get_last_rules_results(partition)
-            ]
-        result = {"partition": partition, "rule_id": rule_id, "results": raw_results}
-        if is_empty(result["rule_id"]):
-            del result["rule_id"]
-        return result
-
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
-async def get_data_quality_rule_history(
-    project_key: str,
-    dataset_name: str,
-    ctx: Context,
-    min_timestamp: int | None = None,
-    max_timestamp: int | None = None,
-    results_per_page: int = 100,
-    page: int = 0,
-    rule_ids=None,
-) -> str:
-    """Get recent Data Quality rule result history for a dataset."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
-    if min_timestamp is not None:
-        min_timestamp = _require_non_negative_int(min_timestamp, "min_timestamp")
-    if max_timestamp is not None:
-        max_timestamp = _require_non_negative_int(max_timestamp, "max_timestamp")
-    results_per_page = min(
-        _require_positive_int(results_per_page, "results_per_page"), 1000
-    )
-    page = _require_non_negative_int(page, "page")
-    rule_ids_list = _parse_rule_ids(rule_ids)
-
-    await ctx.info(
-        f"Loading Data Quality rule history for {dataset_name} in {project_key} "
-        f"(page={page}, results_per_page={results_per_page})..."
-    )
-
-    def _run():
-        ruleset = _get_ruleset(project_key, dataset_name)
-        results = ruleset.get_rules_history(
-            min_timestamp=min_timestamp,
-            max_timestamp=max_timestamp,
-            results_per_page=results_per_page,
-            page=page,
-            rule_ids=rule_ids_list,
-        )
-        raw_results = [_serialize_rule_result(result) for result in results]
-        result = {
-            "min_timestamp": min_timestamp,
-            "max_timestamp": max_timestamp,
-            "page": page,
-            "results_per_page": results_per_page,
-            "rule_ids": rule_ids_list,
-            "results": raw_results,
-        }
-        for key in ("min_timestamp", "max_timestamp", "rule_ids"):
-            if is_empty(result[key]):
-                del result[key]
         return result
 
     return compact_json(await run_blocking(_run))

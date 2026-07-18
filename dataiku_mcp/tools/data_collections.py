@@ -32,9 +32,15 @@ async def list_data_collection_objects(collection_id: str, ctx: Context) -> str:
 
     def _run():
         items = get_dss_client().get_data_collection(collection_id).list_objects(as_type="dict")
-        for i in items:
-            if "projectKey" in i:
-                i["project_key"] = i.pop("projectKey")
-        return items
+        rows = [
+            {
+                "type": item.get("type"),
+                "id": item.get("id") or item.get("ref"),
+                "name": item.get("name") or item.get("displayName"),
+                "project_key": item.get("projectKey"),
+            }
+            for item in items
+        ]
+        return columnar(rows, ["type", "id", "name", "project_key"])
 
     return compact_json(await run_blocking(_run))

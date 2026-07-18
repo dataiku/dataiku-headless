@@ -328,46 +328,6 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
 
 
 @mcp.tool()
-async def get_dataset_column_descriptions(
-    project_key: str,
-    dataset_name: str,
-    ctx: Context,
-    columns: list[str] | None = None,
-) -> str:
-    """Get per-column descriptions from the dataset schema."""
-    await ctx.info(f"Loading column descriptions for {dataset_name} in {project_key}...")
-
-    def _run():
-        dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
-        schema = dataset.get_schema()
-        columns_by_name = {column["name"]: column for column in schema.get("columns", [])}
-        requested_columns = list(columns) if columns else list(columns_by_name)
-        missing = [
-            column_name
-            for column_name in requested_columns
-            if column_name not in columns_by_name
-        ]
-        if missing:
-            raise ValueError(
-                f"Unknown column(s): {missing}. Available columns: {sorted(columns_by_name)}"
-            )
-        return {
-            "columns": columnar(
-                [
-                    {
-                        "name": column_name,
-                        "description": columns_by_name[column_name].get("comment", ""),
-                    }
-                    for column_name in requested_columns
-                ],
-                ["name", "description"],
-            )
-        }
-
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
 async def get_dataset_profile(
     project_key: str,
     dataset_name: str,

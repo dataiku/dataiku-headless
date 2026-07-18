@@ -5,11 +5,22 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
-from .utils.serialization import columnar, compact_json
+from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
     require_positive_int as _require_positive_int,
 )
+
+
+def _summarize_reporter(reporter: dict) -> dict:
+    messaging = reporter.get("messaging") or {}
+    configuration = messaging.get("configuration") or {}
+    return omit_empty(
+        {
+            "messaging_channel": configuration.get("channelId") or messaging.get("type"),
+            "condition": reporter.get("runCondition"),
+        }
+    )
 
 
 @mcp.tool()
@@ -49,19 +60,41 @@ async def get_scenario_settings(
     scenario_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full scenario settings (steps, triggers, reporters)."""
+    """Summarize a scenario's settings: run-as, triggers, steps, and reporters."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     await ctx.info(f"Fetching settings for scenario {scenario_id} in {project_key}...")
 
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client().get_project(project_key).get_scenario(scenario_id)
+    def _run():
+        raw = (
+            get_dss_client()
+            .get_project(project_key)
+            .get_scenario(scenario_id)
             .get_settings()
             .get_raw()
         )
-    )
-    return compact_json(raw)
+        params = raw.get("params") or {}
+        summary = {
+            "id": raw.get("id"),
+            "name": raw.get("name"),
+            "active": raw.get("active"),
+            "run_as": raw.get("runAsUser"),
+            "triggers": [
+                omit_empty({"type": trigger.get("type"), "active": trigger.get("active")})
+                for trigger in (raw.get("triggers") or [])
+            ],
+            "steps": [
+                omit_empty({"type": step.get("type"), "name": step.get("name")})
+                for step in (params.get("steps") or [])
+            ],
+            "reporters": [
+                _summarize_reporter(reporter)
+                for reporter in (raw.get("reporters") or [])
+            ],
+        }
+        return omit_empty(summary)
+
+    return compact_json(await run_blocking(_run))
 
 
 @mcp.tool()
@@ -108,24 +141,4 @@ async def get_scenario_run_history(
                 ["run_id", "running", "outcome", "start", "end", "trigger_type"],
             ),
         }
-    )
-
-
-@mcp.tool()
-async def list_messaging_channels(ctx: Context) -> str:
-    """List the messaging channels configured on this DSS instance."""
-    await ctx.info("Listing messaging channels...")
-
-    channels = await run_blocking(lambda: get_dss_client().list_messaging_channels())
-    result = [
-        {
-            "id": channel.id,
-            "type": channel.type,
-            "family": channel.family,
-            "default_sender": channel.get_raw().get("sender"),
-        }
-        for channel in channels
-    ]
-    return compact_json(
-        {"channels": columnar(result, ["id", "type", "family", "default_sender"])}
     )

@@ -5,45 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 
-def summarize_trained_models(mltask, model_ids: list[str] | None = None) -> list[dict]:
-    summaries = []
-    selected_model_ids = model_ids or mltask.get_trained_models_ids()
-    for model_id in selected_model_ids:
-        details = mltask.get_trained_model_details(model_id)
-        summaries.append(
-            {
-                "id": model_id,
-                "algorithm": details.get_modeling_settings().get("algorithm", "unknown"),
-                "metrics": details.get_performance_metrics(),
-            }
-        )
-    return summaries
-
-
-def build_feature_summaries(
-    raw_settings: dict,
-    include_feature_details: bool,
-) -> dict[str, Any]:
+def build_feature_summaries(raw_settings: dict) -> dict[str, Any]:
     per_feature = raw_settings.get("preprocessing", {}).get("per_feature", {})
     role_counts: dict[str, int] = {}
-    feature_details = []
     for feature_name in sorted(per_feature):
-        feature = per_feature[feature_name]
-        role = feature.get("role", "UNKNOWN")
+        role = per_feature[feature_name].get("role", "UNKNOWN")
         role_counts[role] = role_counts.get(role, 0) + 1
-        if include_feature_details:
-            feature_details.append(
-                {
-                    "name": feature_name,
-                    "role": role,
-                    "type": feature.get("type"),
-                    "missing_handling": feature.get("missing_handling"),
-                }
-            )
-    return {
-        "feature_role_counts": role_counts,
-        "features": feature_details if include_feature_details else None,
-    }
+    return {"feature_role_counts": role_counts}
 
 
 def build_split_summary(raw_settings: dict) -> dict[str, Any]:
@@ -125,8 +93,6 @@ def build_ml_task_summary(
     mltask_id: str,
     mltask,
     settings,
-    include_feature_details: bool,
-    include_trained_models: bool,
 ) -> dict[str, Any]:
     raw_settings = settings.get_raw()
     status = mltask.get_status()
@@ -156,9 +122,5 @@ def build_ml_task_summary(
         "weighting": raw_settings.get("weight"),
         "diagnostics": build_diagnostics_summary(raw_settings),
     }
-    summary.update(build_feature_summaries(raw_settings, include_feature_details))
-
-    if include_trained_models:
-        summary["trained_models"] = summarize_trained_models(mltask)
-
+    summary.update(build_feature_summaries(raw_settings))
     return summary
