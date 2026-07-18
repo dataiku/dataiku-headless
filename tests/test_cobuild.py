@@ -831,11 +831,11 @@ def test_callback_exception_still_persists_terminal(env, monkeypatch):
     real = cs.ConversationStore.record_outcome
     calls = {"n": 0}
 
-    def flaky(self, conversation_id, status, pending):
+    def flaky(self, conversation_id, status, pending, token=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("simulated store failure on first terminal write")
-        return real(self, conversation_id, status, pending)
+        return real(self, conversation_id, status, pending, token=token)
 
     monkeypatch.setattr(cs.ConversationStore, "record_outcome", flaky)
 
@@ -977,3 +977,214 @@ def test_late_callback_after_eviction_still_persists(env):
     f.add_done_callback(lambda _f: cobuild._persist_terminal_outcome(turn))
     f.set_result(_Resp())
     assert read_store(env)[cid]["last_result_status"] == "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Round-3 Finding 1: confirmation validation + consumption is atomic inside
+# _begin_turn — two concurrent answers, only one consumes; the loser gets a
+# structured in_progress with NO handle mutation and NO stale restore.
+# --------------------------------------------------------------------------- #
+
+
+def test_two_concurrent_confirmations_only_one_consumes(env, monkeypatch):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    # A pending delete confirmation cid-9 is live on the handle.
+    backend.turn_responses = [confirmation("Delete x?", "cid-9", [OBJ], {})]
+    send(cid, "delete x")
+    entry = cobuild._get_live(cid)
+    assert entry.conversation._pending_confirmation_id == "cid-9"
+
+    # Caller A has already reserved the slot (its answer turn is in flight).
+    cobuild._in_flight[cid] = _pending_turn(cid)
+
+    # Caller B races in with a VALID confirmation_id but bypasses the early
+    # fast-path, so it hits the ATOMIC _begin_turn overlap branch — the real
+    # second-caller race path.
+    monkeypatch.setattr(cobuild, "_get_in_flight", lambda _cid: None)
+    backend.turn_responses = [assistant("must not run")]
+    res = answer(cid, "APPROVE", "cid-9")
+
+    # The loser gets a structured in_progress, not a raised exception or a send.
+    assert res["status"] == "in_progress"
+    # It consumed/validated nothing: the live pending id is untouched (no stale
+    # restore, no clobber) and no confirmation POST was ever issued.
+    assert entry.conversation._pending_confirmation_id == "cid-9"
+    assert not any("/confirmation/" in p for _m, p, _b in backend.calls)
+
+
+def test_begin_turn_confirmation_consumed_atomically_on_winner(env):
+    # The winner validates + consumes inside _begin_turn under the lock: the SDK
+    # answer_confirmation reads the id we bound, then clears it (consumed once).
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    backend.turn_responses = [confirmation("Delete y?", "cid-win", [OBJ], {})]
+    send(cid, "delete y")
+
+    backend.turn_responses = [assistant("deleted y")]
+    res = answer(cid, "APPROVE", "cid-win")
+    assert res["status"] == "completed"
+    assert any("/confirmation/cid-win" in p for _m, p, _b in backend.calls)
+    # Consumed exactly once: the handle's pending slot is cleared afterwards.
+    assert cobuild._get_live(cid).conversation._pending_confirmation_id is None
+
+
+# --------------------------------------------------------------------------- #
+# Round-3 Finding 2: a rehydration racing a live entry discards its thin handle;
+# the live handle of the active turn survives.
+# --------------------------------------------------------------------------- #
+
+
+def test_rehydration_discards_handle_when_live_entry_present(env, monkeypatch):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()  # installs a live entry + a store record
+    live_entry = cobuild._get_live(cid)
+    live_handle = live_entry.conversation
+
+    # Force the cache-miss (rehydration) path even though a live entry exists,
+    # simulating a caller that missed the cache then a concurrent caller that
+    # installed/kept the live handle before our install.
+    monkeypatch.setattr(cobuild, "_get_live", lambda _cid: None)
+
+    _name, client = cobuild._resolve_client_and_instance()
+    entry, rehydrated = cobuild._resolve_entry(cid, "PROJ", "inst-a", client)
+
+    # The live handle survived; the freshly-rehydrated thin handle was discarded.
+    assert entry is live_entry
+    assert entry.conversation is live_handle
+    assert rehydrated is False
+    # The cache still holds the original live handle, not a replacement.
+    assert cobuild._conversations[cid] is live_entry
+
+
+def test_remember_does_not_overwrite_live_with_rehydrated(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    live_entry = cobuild._get_live(cid)
+
+    thin = cobuild._CobuildEntry(
+        instance_name="inst-a",
+        project_key="PROJ",
+        conversation=object(),
+        created_at="",
+    )
+    # Install-if-absent (default): an existing live entry wins, thin is discarded.
+    effective = cobuild._remember(cid, thin)
+    assert effective is live_entry
+    assert cobuild._conversations[cid] is live_entry
+
+    # The start path (replace=True) is the only sanctioned overwrite.
+    replacement = cobuild._CobuildEntry(
+        instance_name="inst-a",
+        project_key="PROJ",
+        conversation=object(),
+        created_at="",
+    )
+    effective2 = cobuild._remember(cid, replacement, replace=True)
+    assert effective2 is replacement
+    assert cobuild._conversations[cid] is replacement
+
+
+# --------------------------------------------------------------------------- #
+# Round-3 Finding 3: a late/stale in_flight marker cannot overwrite a terminal
+# outcome recorded for the SAME turn token; a NEW turn still may go in_flight.
+# --------------------------------------------------------------------------- #
+
+
+def test_late_in_flight_mark_cannot_clobber_terminal(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    store = cobuild._store()
+    token = f"{cobuild._PROCESS_ID}:7"
+
+    # Simulate the OLD interleaving: the turn's terminal outcome was settled
+    # (for token T) BEFORE the original caller armed persistence.
+    store.record_outcome(cid, "completed", None, token=token)
+    assert read_store(env)[cid]["last_result_status"] == "completed"
+
+    # The late mark_in_flight for the SAME turn token must be REFUSED: a completed
+    # turn cannot be resurrected to in_flight (settle-once can no longer correct it
+    # once armed inside _begin_turn, so the store itself must refuse).
+    store.mark_in_flight(cid, token)
+    assert read_store(env)[cid]["last_result_status"] == "completed"
+
+    # A genuinely NEW turn (newer token) may still go in_flight after the old
+    # terminal outcome.
+    store.mark_in_flight(cid, f"{cobuild._PROCESS_ID}:8")
+    assert read_store(env)[cid]["last_result_status"] == "in_flight"
+
+
+def test_older_turn_token_cannot_clobber_newer_outcome(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    store = cobuild._store()
+
+    store.record_outcome(cid, "completed", None, token=f"{cobuild._PROCESS_ID}:5")
+    # An OLDER turn from the SAME process writes a late outcome: refused.
+    store.record_outcome(cid, "error", "cid-old", token=f"{cobuild._PROCESS_ID}:3")
+    assert read_store(env)[cid]["last_result_status"] == "completed"
+
+    # A DIFFERENT process (a restart resets the sequence) is never refused: its
+    # threads cannot race, and a reset seq must not freeze the store.
+    store.record_outcome(cid, "needs_confirmation", "cid-new", token="other-proc:1")
+    assert read_store(env)[cid]["last_result_status"] == "needs_confirmation"
+
+
+def test_send_persists_terminal_never_lingers_in_flight(env):
+    # End-to-end: arm-before-visible means a fast send settles to a terminal
+    # store status; it never lingers at in_flight.
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    backend.turn_responses = [assistant("built fast")]
+    res = send(cid, "quick build")
+    assert res["status"] == "completed"
+    rec = _wait_store_terminal(env, cid)
+    assert rec["last_result_status"] == "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Round-3 Finding 4: a DataikuException without a client-error signature (the
+# HTTP status was discarded by dataikuapi) is outcome-UNKNOWN; a structured DSS
+# client error stays DEFINITIVE.
+# --------------------------------------------------------------------------- #
+
+
+def test_backend_failure_without_status_is_outcome_unknown(env):
+    backend = FakeBackend()
+    # A real HTTP 503 body: dataikuapi discards the status code, so no "5xx" text.
+    backend.turn_responses = [DataikuException("BackendFailure: write failed")]
+    env.set_client(backend)
+    cid = start()
+
+    res = send(cid, "build something")
+    assert res["status"] == "error"
+    assert res["error_kind"] == "transport_outcome_unknown"
+    assert "partially" in res["message"].lower()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Permission denied on project X",
+        "Invalid argument: column 'x' is unknown",
+        "Object not found: dataset orders",
+        "Dataset already exists: orders",
+    ],
+)
+def test_structured_client_error_stays_definitive(env, text):
+    backend = FakeBackend()
+    backend.turn_responses = [DataikuException(text)]
+    env.set_client(backend)
+    cid = start()
+
+    res = send(cid, "build something")
+    assert res["status"] == "error"
+    # A recognized DSS client-error signature → definitive (no blind-resend risk).
+    assert res.get("error_kind") != "transport_outcome_unknown"

@@ -29,6 +29,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -107,6 +108,22 @@ _PERMISSION_MARKERS = (
 )
 
 
+# Per-process identity + monotonic counter used to stamp every turn with a token
+# ``"<process-id>:<seq>"``. The token lets the durable store reject an out-of-order
+# ``in_flight``/outcome write for a settled turn without confusing a genuinely new
+# turn (see ``ConversationStore``/``_token_is_stale``). The seq is only advanced
+# under ``_lock`` in ``_begin_turn``, so it is serialized process-wide.
+_PROCESS_ID = uuid.uuid4().hex
+_turn_token_seq = 0
+
+
+def _next_turn_token() -> str:
+    """Return the next process-scoped monotonic turn token. Caller holds ``_lock``."""
+    global _turn_token_seq
+    _turn_token_seq += 1
+    return f"{_PROCESS_ID}:{_turn_token_seq}"
+
+
 @dataclass
 class _CobuildEntry:
     """A live conversation handle plus its owning instance/project."""
@@ -115,6 +132,19 @@ class _CobuildEntry:
     project_key: str
     conversation: object
     created_at: str
+
+
+@dataclass
+class _ConfirmDirective:
+    """A delete-confirmation to validate + consume atomically inside ``_begin_turn``.
+
+    ``supplied_id`` is the caller's proof-of-inspection argument; ``rehydrated``
+    records whether the handle was freshly rebuilt this call (a post-restart path
+    that must sync the durable store after consuming).
+    """
+
+    supplied_id: str
+    rehydrated: bool
 
 
 @dataclass
@@ -131,6 +161,11 @@ class _InFlightTurn:
     allow_edit_project: bool
     rehydrated: bool = False
     restore_confirmation_id: str | None = None
+    # Process-scoped monotonic identity for this turn, set in ``_begin_turn``. Used
+    # to scope the durable store's in_flight/outcome writes so a late/stale write
+    # cannot clobber a newer turn (None for test-constructed turns → the store
+    # keeps its unconditional, token-less behaviour).
+    token: str | None = None
     # monotonic time the future settled; set by the done-callback, used by the
     # TTL sweep. None while the turn is still running.
     settled_at: float | None = None
@@ -187,8 +222,25 @@ def _store() -> ConversationStore:
     return ConversationStore(_state_dir() / "conversations.json")
 
 
-def _remember(conversation_id: str, entry: _CobuildEntry) -> None:
+def _remember(
+    conversation_id: str, entry: _CobuildEntry, *, replace: bool = False
+) -> _CobuildEntry:
+    """Install ``entry`` in the hot cache and return the EFFECTIVE live entry.
+
+    Default (``replace=False`` — the rehydration path): install-if-absent under
+    the lock. If a live entry already exists (a concurrent caller won the race
+    while we were reading the store / building a thin handle), the passed
+    rehydrated handle is DISCARDED and the existing live entry is returned — a
+    thin handle must never clobber the live handle of an active turn.
+
+    ``replace=True`` (the ``start_cobuild_conversation`` path ONLY): install
+    unconditionally; that caller created this conversation and owns its handle.
+    """
     with _lock:
+        existing = _conversations.get(conversation_id)
+        if existing is not None and not replace:
+            _conversations.move_to_end(conversation_id)
+            return existing
         _conversations[conversation_id] = entry
         _conversations.move_to_end(conversation_id)
         while len(_conversations) > _LIVE_HANDLE_MAX:
@@ -198,6 +250,7 @@ def _remember(conversation_id: str, entry: _CobuildEntry) -> None:
                     break
             else:
                 break
+        return entry
 
 
 def _get_live(conversation_id: str) -> _CobuildEntry | None:
@@ -294,14 +347,23 @@ def _resolve_entry(
         # The SDK exposes no public setter; _pending_confirmation_id is the only
         # hook for restoring a pending delete confirmation after a restart.
         handle._pending_confirmation_id = pending
-    entry = _CobuildEntry(
+    rehydrated_entry = _CobuildEntry(
         instance_name=str(record.get("instance_name", "")),
         project_key=owner_project,
         conversation=handle,
         created_at=str(record.get("created_at", "")),
     )
-    _remember(conversation_id, entry)
-    return entry, True
+    # Double-checked install: between the cache miss above and here another caller
+    # may have installed a LIVE handle (e.g. started a turn on it). ``_remember``
+    # re-checks the cache under the lock and, if a live entry appeared, discards
+    # this thin handle and returns the winner — a rehydrated handle must never
+    # replace the live handle of an active turn.
+    effective = _remember(conversation_id, rehydrated_entry)
+    if effective is rehydrated_entry:
+        return rehydrated_entry, True
+    _guard_project(conversation_id, effective.project_key, project_key)
+    _guard_instance(conversation_id, effective.instance_name, instance_name)
+    return effective, False
 
 
 # --------------------------------------------------------------------------- #
@@ -346,7 +408,9 @@ def _abandon_turn(turn: _InFlightTurn) -> None:
     silently losing the turn.
     """
     with contextlib.suppress(Exception):
-        _store().record_outcome(turn.conversation_id, "abandoned", None)
+        _store().record_outcome(
+            turn.conversation_id, "abandoned", None, token=turn.token
+        )
 
 
 def _sweep_in_flight(now: float | None = None) -> None:
@@ -407,6 +471,48 @@ def _running_conversation_ids() -> list[str]:
     return sorted(cid for cid, t in _in_flight.items() if not t.future.done())
 
 
+def _consume_confirmation(
+    conversation_id: str, handle, directive: _ConfirmDirective
+) -> str:
+    """Validate the supplied confirmation id against the SINGLE authoritative
+    source and consume it. Caller holds ``_lock``.
+
+    The authoritative pending id is the handle's own ``_pending_confirmation_id``:
+    on a live cache hit it is the id the caller actually saw; on a post-restart
+    rehydration ``_resolve_entry`` already seeded it from the durable store. The
+    store is therefore NEVER unioned with the live id — a stale persisted id can
+    never approve a different live deletion. Returns the consumed id so a failed
+    answer POST can settle-aware re-arm exactly it for a retry.
+
+    Runs entirely under the lock, after the overlap check and before the slot is
+    reserved: the losing overlapping caller exits with ``_CobuildInProgress``
+    BEFORE any validation side-effect, so it can never write (or replay) a pending
+    id onto the shared handle.
+    """
+    authoritative = getattr(handle, "_pending_confirmation_id", None)
+    if not authoritative:
+        raise ValueError(
+            f"No pending confirmation for conversation '{conversation_id}'. "
+            "Re-send the request so Cobuild asks again, then pass the "
+            "confirmation_id from that needs_confirmation result."
+        )
+    if directive.supplied_id != authoritative:
+        raise ValueError(
+            f"confirmation_id '{directive.supplied_id}' does not match the pending "
+            f"confirmation for conversation '{conversation_id}'. Re-read the "
+            "latest needs_confirmation response and pass exactly its "
+            "confirmation_id — it is your proof of having inspected precisely "
+            "which objects will be deleted."
+        )
+    # Bind/consume the authoritative id onto the handle (idempotent on the live
+    # path; installs the store value on the freshly-rehydrated thin handle).
+    handle._pending_confirmation_id = authoritative
+    if directive.rehydrated:
+        # Restart-path match: sync the store to what we are about to answer.
+        _sync_pending_confirmation(conversation_id, handle)
+    return authoritative
+
+
 def _begin_turn(
     conversation_id: str,
     entry: _CobuildEntry,
@@ -416,31 +522,49 @@ def _begin_turn(
     allow_edit_project: bool,
     rehydrated: bool,
     client: object,
-    restore_confirmation_id: str | None = None,
+    confirmation: _ConfirmDirective | None = None,
 ) -> _InFlightTurn:
-    """Atomically reserve the turn slot, bind ``client`` to the handle, and spawn.
+    """Atomically reserve the turn slot, arm persistence, and spawn.
 
-    Everything below runs under the single registry lock: sweep, reject an
-    overlapping turn, enforce the concurrency cap, bind the captured client onto
-    the handle, then spawn. Because the bind and the slot reservation happen in
-    the same critical section, no concurrent caller can rebind the handle's client
-    between the overlap check and the send — the losing caller is turned away with
-    ``_CobuildInProgress`` (mapped to a structured ``in_progress`` response) and
-    never touches the handle.
+    Everything below runs under the single registry lock, in this order:
+
+    1. **sweep** stale/hung retained turns (may free a slot);
+    2. **overlap check** — a second in-flight turn for this conversation turns the
+       loser away with ``_CobuildInProgress`` BEFORE any validation side-effect;
+    3. **validate + consume** a delete confirmation (answer path only): the
+       supplied id is checked against the single authoritative source and consumed
+       onto the handle — so two concurrent answers can never both validate/write
+       the same pending id, and the loser never replays a stale id;
+    4. **cap check** (``_CobuildSaturated``);
+    5. **client bind** — the captured client is bound onto the handle so the turn
+       thread reads THIS caller's client/bearer and no interleaved caller can
+       retarget it;
+    6. **spawn** the daemon-thread turn;
+    7. **arm persistence** — the ``in_flight`` store marker + terminal-outcome
+       callback are installed while still under the lock and BEFORE the turn is
+       inserted, so a fast-completing turn cannot be settled by an overlapping
+       caller before its persistence is armed (which would let a late ``in_flight``
+       marker clobber the terminal outcome);
+    8. **insert** — only now is the turn visible to any other caller.
+
+    Because steps 2-8 share one critical section, none of them can interleave with
+    a concurrent caller.
     """
     with _lock:
         _sweep_in_flight()
         existing = _in_flight.get(conversation_id)
         if existing is not None:
             raise _CobuildInProgress(existing)
+        restore_confirmation_id: str | None = None
+        if confirmation is not None:
+            restore_confirmation_id = _consume_confirmation(
+                conversation_id, entry.conversation, confirmation
+            )
         running = _running_conversation_ids()
         if len(running) >= MAX_CONCURRENT_COBUILD_TURNS:
             # Checked atomically under _lock with the insert below, so the cap
             # cannot be raced past.
             raise _CobuildSaturated(running)
-        # Bind the captured client onto the handle here, immediately before the
-        # spawn and still under the lock, so the turn thread reads THIS caller's
-        # client/bearer and no interleaved caller can retarget it.
         entry.conversation.client = client
         turn = _InFlightTurn(
             future=_spawn_blocking(fn),
@@ -453,7 +577,9 @@ def _begin_turn(
             allow_edit_project=allow_edit_project,
             rehydrated=rehydrated,
             restore_confirmation_id=restore_confirmation_id,
+            token=_next_turn_token(),
         )
+        _arm_turn_persistence(turn)
         _in_flight[conversation_id] = turn
         return turn
 
@@ -493,7 +619,9 @@ def _persist_terminal_once(
             return
         turn.terminal_persisted = True
     try:
-        _store().record_outcome(turn.conversation_id, status, pending)
+        _store().record_outcome(
+            turn.conversation_id, status, pending, token=turn.token
+        )
     except Exception:  # noqa: BLE001 - best-effort; retried minimally below
         _logger.exception(
             "Failed to persist terminal Cobuild outcome for conversation %s; "
@@ -501,7 +629,9 @@ def _persist_terminal_once(
             turn.conversation_id,
         )
         with contextlib.suppress(Exception):
-            _store().record_outcome(turn.conversation_id, status, None)
+            _store().record_outcome(
+                turn.conversation_id, status, None, token=turn.token
+            )
 
 
 def _persist_terminal_outcome(turn: _InFlightTurn) -> None:
@@ -538,18 +668,38 @@ def _arm_turn_persistence(turn: _InFlightTurn) -> None:
     after a restart (the daemon thread does not survive one). The callback then
     overwrites it with the real terminal state the moment the future settles.
     Order matters: mark first, register second, so the terminal state always wins.
+
+    Called from INSIDE ``_begin_turn`` under ``_lock``, before the turn is inserted
+    into the registry — so the marker and callback are armed before any other
+    caller can observe (and race to settle) this turn. The marker is scoped to the
+    turn's token, so a late/duplicate marker can never regress a terminal outcome.
     """
-    _store().mark_in_flight(turn.conversation_id)
+    _store().mark_in_flight(turn.conversation_id, turn.token)
     turn.future.add_done_callback(lambda _f: _persist_terminal_outcome(turn))
 
 
 def _restore_confirmation(turn: _InFlightTurn) -> None:
-    # answer_confirmation() clears _pending_confirmation_id before its POST; if
-    # that POST failed the id is lost, so restore it for a retry. No public setter.
-    if turn.restore_confirmation_id and (
-        getattr(turn.handle, "_pending_confirmation_id", None) is None
-    ):
-        turn.handle._pending_confirmation_id = turn.restore_confirmation_id
+    """Re-arm the confirmation the SDK cleared before a FAILED answer POST.
+
+    ``answer_confirmation()`` clears ``_pending_confirmation_id`` before its POST;
+    if that POST failed the id is lost, so restore exactly it for a retry (no
+    public setter exists). Settle-aware: we only restore when
+    (a) there is an id to restore, (b) a NEWER turn has not taken over this
+    conversation (restoring over a successor would replay a consumed deletion),
+    and (c) the handle's pending slot is still empty (a live successor that set a
+    new pending must not be clobbered). We only ever restore the exact id THIS
+    turn consumed, never a value that no longer matches. The durable side is
+    additionally guarded by the monotonic turn token in ``record_outcome``.
+    """
+    if not turn.restore_confirmation_id:
+        return
+    with _lock:
+        current = _in_flight.get(turn.conversation_id)
+        if current is not None and current is not turn and current.token != turn.token:
+            # A different turn now owns this conversation; do not replay onto it.
+            return
+        if getattr(turn.handle, "_pending_confirmation_id", None) is None:
+            turn.handle._pending_confirmation_id = turn.restore_confirmation_id
 
 
 async def _wait_for_turn(
@@ -613,8 +763,12 @@ _TRANSPORT_MARKERS = (
 
 # requests/urllib3 transport exception class names: a raise of one of these means
 # the request never got a definitive HTTP response, so the DSS-side outcome is
-# UNKNOWN. A ``DataikuException`` is raised for ANY >=400 response (4xx AND 5xx),
-# so it is only definitive when the status is not a server error (see below).
+# UNKNOWN. ``dataikuapi`` raises a bare ``DataikuException`` for ANY >=400 response
+# and DISCARDS the HTTP status code while doing so (see
+# ``dataikuapi/utils.py:handle_http_exception`` — it formats only errorType +
+# detailedMessage), so a 5xx cannot be recovered from the message text. That is
+# why a DataikuException is classified by matching known client-error signatures
+# rather than by looking for a 5xx (see ``_is_transport_outcome_unknown``).
 _TRANSPORT_EXC_NAMES = frozenset(
     {
         "connectionerror",
@@ -630,9 +784,36 @@ _TRANSPORT_EXC_NAMES = frozenset(
     }
 )
 
-# A 5xx from DSS may have mutated state before failing, so its outcome is UNKNOWN.
-# ``\b5\d\d\b`` matches a standalone 5xx status code; the phrase markers catch the
-# common reason strings when no bare code is present.
+# Known DSS *structured client-error* signatures. A ``DataikuException`` whose
+# message matches one of these was a request DSS rejected BEFORE mutating (a 4xx-
+# class error), so its outcome is DEFINITIVE. Anything else from DSS — including a
+# 5xx whose status code was discarded (e.g. "BackendFailure: write failed") — is
+# treated as outcome-UNKNOWN, the safe direction (never advise a blind resend on
+# an ambiguous server error). Kept deliberately specific so a genuine server-side
+# failure is not misread as a clean client rejection.
+_DSS_CLIENT_ERROR_MARKERS = (
+    "permission",
+    "not allowed",
+    "not permitted",
+    "forbidden",
+    "unauthorized",
+    "not authorized",
+    "authorization denied",
+    "access denied",
+    "not found",
+    "does not exist",
+    "no such",
+    "already exists",
+    "invalid argument",
+    "illegal argument",
+    "validation",
+    "bad request",
+    "security token",
+)
+
+# A bare 5xx signature in an arbitrary (non-Dataiku) error's text still means the
+# server may have mutated state before failing → UNKNOWN. ``\b5\d\d\b`` matches a
+# standalone 5xx status code; the phrase markers catch the common reason strings.
 _SERVER_ERROR_RE = re.compile(r"\b5\d\d\b")
 _SERVER_ERROR_MARKERS = (
     "internal server error",
@@ -649,28 +830,35 @@ def _looks_server_error(text: str) -> bool:
     )
 
 
+def _looks_dss_client_error(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _DSS_CLIENT_ERROR_MARKERS)
+
+
 def _is_transport_outcome_unknown(exc: BaseException) -> bool:
     """True when it is UNKNOWN whether DSS received and acted on the turn.
 
-    Two cases leave the outcome unknown, so the caller must not blindly resend:
+    The caller must not blindly resend when the outcome is unknown:
 
-    * A transport-layer failure (no HTTP response ever arrived).
-    * A ``DataikuException`` carrying a **5xx** status — DSS may have partially
-      applied a mutation before failing.
-
-    A ``DataikuException`` with a 4xx / permission / validation status stays
-    DEFINITIVE (DSS rejected the request before mutating). A ``DataikuException``
-    with no recognizable status also stays definitive: DSS raises it for
-    structured, already-handled errors, and defaulting those to 'unknown' would
-    make every ordinary rejection ambiguous. The trade-off is deliberate — only an
-    explicit 5xx signature flips a DataikuException to 'unknown'.
+    * A transport-layer failure (no HTTP response ever arrived) → UNKNOWN.
+    * A ``DataikuException`` is classified by INVERTING the default, because
+      ``dataikuapi`` discards the HTTP status code when it raises (a real 503 body
+      "BackendFailure: write failed" carries no "5xx" text). It is DEFINITIVE only
+      when its message matches a known DSS structured client-error signature
+      (permission / not-found / already-exists / invalid-argument / validation /
+      bad-request / security-token …); OTHERWISE it is UNKNOWN — a server-side
+      error may have partially applied a mutation. This is the safe direction: a
+      misclassified client error merely asks the caller to verify state, whereas a
+      misclassified server error would wrongly green-light a blind resend.
+    * Any other exception whose text names a transport failure or a bare 5xx →
+      UNKNOWN.
     """
     for cls in type(exc).__mro__:
         if cls.__name__.lower() in _TRANSPORT_EXC_NAMES:
             return True
     text = str(exc)
     if type(exc).__name__ == "DataikuException":
-        return _looks_server_error(text)
+        return not _looks_dss_client_error(text)
     if any(marker in text.lower() for marker in _TRANSPORT_MARKERS):
         return True
     # A non-Dataiku, non-transport error that nonetheless names a 5xx: unknown.
@@ -995,6 +1183,9 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
             conversation=conversation,
             created_at=created_at,
         ),
+        # This caller CREATED the conversation and owns its live handle, so it may
+        # install unconditionally (the only sanctioned replace of a cache entry).
+        replace=True,
     )
     # Persist off the event-loop thread (the store takes a bounded file lock).
     await run_blocking(
@@ -1110,7 +1301,8 @@ async def send_cobuild_message(
                 )
             )
         )
-    await run_blocking(_arm_turn_persistence, turn)
+    # Persistence was armed inside _begin_turn (under the lock, before the turn
+    # became visible), so nothing extra to arm here.
     try:
         response, elapsed = await _wait_for_turn(turn, timeout, ctx)
     except _CobuildTimeout:
@@ -1173,49 +1365,19 @@ async def answer_cobuild_confirmation(
     entry, rehydrated = await run_blocking(
         _resolve_entry, conversation_id, project_key, instance_name, client
     )
-    handle = entry.conversation
 
-    # Determine the SINGLE authoritative pending confirmation id — never the union
-    # of live + store. When a live handle survived (a cache hit), ITS pending id is
-    # authoritative and a possibly-divergent store value is ignored, so a stale
-    # persisted id can never approve a different live deletion. Only on a
-    # post-restart rehydration (no live handle) is the durable store consulted.
-    live_pending = getattr(handle, "_pending_confirmation_id", None)
-    if not rehydrated:
-        authoritative = live_pending
-        restart_path = False
-    else:
-        record = await run_blocking(_store().read, conversation_id)
-        authoritative = (record or {}).get("pending_confirmation_id")
-        restart_path = True
-
-    if not authoritative:
-        raise ValueError(
-            f"No pending confirmation for conversation '{conversation_id}'. "
-            "Re-send the request so Cobuild asks again, then pass the "
-            "confirmation_id from that needs_confirmation result."
-        )
-    if confirmation_id != authoritative:
-        raise ValueError(
-            f"confirmation_id '{confirmation_id}' does not match the pending "
-            f"confirmation for conversation '{conversation_id}'. Re-read the "
-            "latest needs_confirmation response and pass exactly its "
-            "confirmation_id — it is your proof of having inspected precisely "
-            "which objects will be deleted."
-        )
-    # Bind the authoritative id onto the handle. On the live path this already
-    # equals live_pending (no override of a differing live id); on the restart
-    # path it installs the store value onto the freshly-rehydrated thin handle.
-    handle._pending_confirmation_id = authoritative
-    if restart_path:
-        # Restart-path match: sync the store to what we are about to answer.
-        await run_blocking(_sync_pending_confirmation, conversation_id, handle)
-
-    restore_confirmation_id = authoritative
+    # The delete confirmation is validated AND consumed INSIDE _begin_turn, under
+    # the registry lock and after the overlap check (see _consume_confirmation).
+    # This makes the whole check-and-consume atomic: two concurrent answers can
+    # never both validate the same id, and a losing overlapping caller exits with
+    # in_progress BEFORE touching the handle, so it can never write or replay a
+    # stale pending id. The authoritative source is the single handle pending id —
+    # a live cache hit keeps the id the caller saw; a post-restart rehydration was
+    # already seeded from the durable store by _resolve_entry.
     timeout = _clamp_timeout(timeout_seconds)
 
     def _call():
-        return handle.answer_confirmation(choice)
+        return entry.conversation.answer_confirmation(choice)
 
     try:
         turn = await run_blocking(
@@ -1227,7 +1389,9 @@ async def answer_cobuild_confirmation(
             allow_edit_project=True,  # an approved deletion is itself an edit
             rehydrated=rehydrated,
             client=client,
-            restore_confirmation_id=restore_confirmation_id,
+            confirmation=_ConfirmDirective(
+                supplied_id=confirmation_id, rehydrated=rehydrated
+            ),
         )
     except _CobuildInProgress as exc:
         _guard_project(conversation_id, exc.turn.project_key, project_key)
@@ -1240,7 +1404,7 @@ async def answer_cobuild_confirmation(
                 )
             )
         )
-    await run_blocking(_arm_turn_persistence, turn)
+    # Persistence was armed inside _begin_turn, before the turn became visible.
     try:
         response, elapsed = await _wait_for_turn(turn, timeout, ctx)
     except _CobuildTimeout:

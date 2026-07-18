@@ -46,6 +46,36 @@ STORE_LOCK_TIMEOUT_SECONDS = 5
 # even when two corruptions land in the same wall-clock second.
 _quarantine_counter = itertools.count()
 
+# Statuses that represent a *settled* turn in the durable store. An ``in_flight``
+# marker must never be written over one of these when it belongs to the SAME turn
+# (a late, out-of-order marker for a turn that already reached a terminal state).
+_TERMINAL_STORE_STATUSES = frozenset(
+    {"completed", "needs_confirmation", "error", "abandoned"}
+)
+
+
+def _token_is_stale(existing_token, new_token) -> bool:
+    """True when ``new_token`` is an OLDER turn from the SAME process as ``existing``.
+
+    Turn tokens are ``"<process-id>:<monotonic-seq>"``. The sequence is only
+    meaningful within a single process (it resets to 1 on restart), so an ordering
+    comparison is valid ONLY when both tokens carry the same process id. Across
+    processes (a restart) we never call a write stale: the old process's worker
+    threads are gone and cannot race the new one, and a reset seq would otherwise
+    wrongly freeze the store at the pre-restart outcome. A missing/None token on
+    either side is never stale (backward-compatible with token-less callers).
+    """
+    if not existing_token or not new_token:
+        return False
+    existing_proc, _, existing_seq = str(existing_token).rpartition(":")
+    new_proc, _, new_seq = str(new_token).rpartition(":")
+    if not existing_proc or existing_proc != new_proc:
+        return False
+    try:
+        return int(new_seq) < int(existing_seq)
+    except ValueError:
+        return False
+
 
 class ConversationStoreError(RuntimeError):
     """Raised when the store file exists but cannot be trusted (fail closed)."""
@@ -205,35 +235,67 @@ class ConversationStore:
             record["pending_confirmation_id"] = value
             self._write_all(data)
 
-    def mark_in_flight(self, conversation_id: str) -> None:
+    def mark_in_flight(self, conversation_id: str, token: str | None = None) -> None:
         """Mark a turn as running so a poll after a crash can report it lost.
 
         A daemon-thread turn does not survive a process restart; persisting an
         ``in_flight`` marker lets ``get_cobuild_turn_status`` distinguish a
         turn that was lost to a restart from one that simply never existed.
+
+        ``token`` scopes the marker to a specific turn. The write is REFUSED when
+        it would regress the store: either the incoming token is an older turn
+        from this process (a stale, out-of-order marker), or a terminal outcome
+        has already been recorded for this exact token (a late marker that must
+        not resurrect a settled turn to ``in_flight``). A genuinely NEW turn
+        (a newer/other token) may of course go ``in_flight`` after an old
+        terminal outcome. Token-less callers keep the previous unconditional
+        behaviour.
         """
         with self._guarded():
             data = self._read_all()
             record = data.get(conversation_id)
             if record is None:
                 return
+            if token is not None:
+                existing_token = record.get("last_result_turn_token")
+                if _token_is_stale(existing_token, token):
+                    return
+                if (
+                    existing_token == token
+                    and record.get("last_result_status") in _TERMINAL_STORE_STATUSES
+                ):
+                    return
+                record["last_result_turn_token"] = token
             record["last_result_status"] = "in_flight"
             self._write_all(data)
 
     def record_outcome(
-        self, conversation_id: str, status: str, pending: str | None
+        self,
+        conversation_id: str,
+        status: str,
+        pending: str | None,
+        token: str | None = None,
     ) -> None:
         """Persist a settled turn's terminal status + pending confirmation id.
 
         Called from the turn's done-callback so a finished-but-unpolled turn's
         outcome (and any newly-requested delete confirmation) is not lost until
         the client next polls.
+
+        ``token`` scopes the outcome to a specific turn: an OLDER turn's late
+        outcome (same process, lower sequence) is REFUSED so it cannot clobber a
+        newer turn's already-recorded state. Token-less callers keep the previous
+        unconditional behaviour.
         """
         with self._guarded():
             data = self._read_all()
             record = data.get(conversation_id)
             if record is None:
                 return
+            if token is not None:
+                if _token_is_stale(record.get("last_result_turn_token"), token):
+                    return
+                record["last_result_turn_token"] = token
             record["last_result_status"] = status
             record["pending_confirmation_id"] = pending
             self._write_all(data)
