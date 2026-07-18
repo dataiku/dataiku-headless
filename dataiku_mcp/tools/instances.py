@@ -29,7 +29,11 @@ async def list_instances(ctx: Context) -> str:
 
 @mcp.tool()
 async def switch_instance(name: str, ctx: Context) -> str:
-    """Switch the active Dataiku instance. All subsequent tool calls will use this instance.
+    """Switch the active Dataiku instance.
+
+    The switch affects only tool calls made *after* this returns. A call already
+    in flight — notably a long-running Cobuild turn — keeps running against the
+    instance it was started on; it is never retargeted mid-flight.
 
     Args:
         name: Instance name (run list_instances() to retrieve all available instance names).

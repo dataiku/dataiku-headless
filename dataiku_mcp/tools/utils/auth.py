@@ -6,9 +6,19 @@ from fastmcp.server.dependencies import get_http_request
 from ... import config
 
 
-def get_dss_client() -> dataikuapi.DSSClient:
-    """Get a Dataiku API client using Dataiku-style env/config resolution."""
-    current_instance = config.get_current_instance()
+def get_dss_client(
+    instance: "config.DSSInstance | None" = None,
+) -> dataikuapi.DSSClient:
+    """Get a Dataiku API client using Dataiku-style env/config resolution.
+
+    Pass ``instance`` to build a client for an already-captured instance
+    snapshot. Callers that hand work to a worker/daemon thread must resolve the
+    active instance and build the client *at tool entry* (in the request
+    context) and thread it through, so an in-flight ``switch_instance`` cannot
+    retarget the client and so HTTP bearer auth is read while the request
+    ContextVars are still in scope.
+    """
+    current_instance = instance if instance is not None else config.get_current_instance()
     api_key = _resolve_api_key(current_instance.api_key)
     dss_backend_url = _resolve_backend_url(current_instance.url)
 
