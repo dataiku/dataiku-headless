@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feature request or idea
+    url: https://github.com/dataiku/dku-headless/discussions/new/choose
+    about: To request a feature or share an idea, open a new discussion.
+  - name: Security vulnerability
+    url: mailto:opensource@dataiku.com
+    about: Do not file public issues for security problems — email us instead.

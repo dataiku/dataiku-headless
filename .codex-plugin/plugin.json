@@ -5,7 +5,7 @@
   "author": {
     "name": "Dataiku"
   },
-  "license": "LicenseRef-Proprietary",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/dataiku/dku-headless",
   "repository": "https://github.com/dataiku/dku-headless",
   "skills": "./dataiku-skills/",

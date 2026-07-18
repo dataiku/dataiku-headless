@@ -1,7 +1,7 @@
 ---
 name: dataiku-headless
 description: Operate Dataiku DSS end to end as the supervisor of Cobuild. Use for any task touching Dataiku or DSS in any form — inspecting, building, running, migrating, or verifying flows, datasets, recipes, jobs, scenarios, dashboards, ML models, GenAI agents, semantic models, or wikis — even when the user never names Dataiku, Cobuild, or a specific tool. Also use when deciding whether a request is a read, a delegated build, or a direct execution.
-license: LicenseRef-Proprietary (see repository LICENSE)
+license: Apache-2.0 (see repository LICENSE)
 metadata:
   author: dataiku
   tags: dataiku, dss, cobuild, supervisor

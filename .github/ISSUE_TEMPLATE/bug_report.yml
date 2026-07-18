@@ -1,0 +1,112 @@
+name: Report a bug
+description: Report a problem with dataiku-headless.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report.
+
+        Feature request? Please open a [Discussion](https://github.com/dataiku/dku-headless/discussions/new/choose) instead.
+
+        Security issue? **Do not file a public issue** — email opensource@dataiku.com.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Reproduction steps
+      description: Steps to reproduce the behavior, from a clean install.
+      placeholder: |
+        1. Start the server with DKU_MCP_TRANSPORT=stdio
+        2. Call `get_project_overview` for project MYPROJ
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current behavior
+      description: What actually happens?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: dataiku-headless version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: "3.11.8"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15.4 / Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: dss_version
+    attributes:
+      label: DSS version
+      placeholder: "14.7.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      description: Value of DKU_MCP_TRANSPORT.
+      options:
+        - stdio
+        - streamable-http
+    validations:
+      required: true
+
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      description: Which agent harness you were using.
+      options:
+        - Claude Code
+        - Codex
+        - Cursor
+        - OpenCode
+        - Other / custom MCP client
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack traces
+      description: Copy and paste any relevant output. This will be automatically formatted.
+      render: shell

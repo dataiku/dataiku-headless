@@ -1,15 +1,67 @@
-# Dataiku Headless — Cobuild supervisor kit
+<div align="center">
 
-Gather Dataiku project context, delegate building to Cobuild, and verify the result.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/senryu-bird-white.svg">
+  <img alt="Senryu Labs" src="docs/assets/senryu-bird-black.svg" width="104">
+</picture>
 
-`dataiku-headless` connects a coding agent (Claude Code, Codex, Cursor, OpenCode, or a
-custom MCP client) to a Dataiku DSS instance and gives it a deliberately narrow job:
-**supervise Cobuild.** Your agent reads the project to ground itself, hands each unit of
-building to **Cobuild** — the AI builder that runs *inside* DSS — and then verifies the
-result with its own reads. The agent does not hand-build the flow; DSS builds it, natively
-and reviewably, and your agent stays accountable for what lands.
+<h1><code>$&nbsp;dku-headless</code></h1>
 
-## What it is
+<p><strong>The Dataiku Cobuild supervisor kit</strong><br>
+<sub>a Senryu Labs sub-brand · <a href="https://www.dataiku.com">Dataiku</a></sub></p>
+
+<p><code>SUPERVISE&nbsp;·&nbsp;DELEGATE&nbsp;·&nbsp;VERIFY</code></p>
+
+<p>
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
+  <a href="https://github.com/dataiku/dku-headless/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dataiku/dku-headless/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://gofastmcp.com"><img alt="Built with FastMCP" src="https://img.shields.io/badge/MCP-FastMCP-8A2BE2"></a>
+</p>
+
+</div>
+
+---
+
+**`dku-headless` connects a coding agent — Claude Code, Codex, Cursor, OpenCode, or any
+custom MCP client — to a Dataiku DSS instance and gives it a deliberately narrow job:
+supervise Cobuild.**
+
+Your agent reads the project to ground itself, hands each unit of building to **Cobuild** —
+the AI builder that runs *inside* DSS — and then verifies the result with its own reads. The
+agent does not hand-build the flow; DSS builds it, natively and reviewably, and your agent
+stays accountable for what lands. The division of labor is the whole point:
+
+<div align="center">
+
+**gather context** → **delegate the build to Cobuild** → **verify independently** → **run exactly 3 direct executions**
+
+</div>
+
+```mermaid
+flowchart LR
+    A["Coding agent<br/>Claude Code / Codex / Cursor / OpenCode"]
+
+    subgraph MCP["dku-headless — FastMCP server"]
+        direction TB
+        R["Context and verification<br/>read-only tools"]
+        C["Cobuild delegation<br/>conversation state machine"]
+        X["Direct execution<br/>build_datasets / run_recipe / run_scenario"]
+    end
+
+    B["Cobuild<br/>AI builder inside DSS"]
+    D[("Dataiku DSS")]
+
+    A -->|"1 · read to ground"| R
+    A -->|"2 · delegate the build"| C
+    A -->|"3 · verify and run"| X
+
+    R --> D
+    C --> B
+    X --> D
+    B -->|"builds natively"| D
+    R -.->|"audit_project · finish gate"| A
+```
 
 The tool surface reflects that division of labor:
 
@@ -37,6 +89,52 @@ The tool surface reflects that division of labor:
 MCP tool, all blocking DSS API calls run off an event loop, and long operations emit
 progress notifications. Tools never accept an API key as an argument — authentication is
 resolved server-side from environment variables or the request's bearer token.
+
+## Install
+
+Each plugin install wires up both `dataiku-skills/` and the MCP server in one step. Cloning
+the repo works too — every config file the plugins reference (`.mcp.json`, `.cursor/mcp.json`,
+`opencode.json`, `dataiku-skills/`) is a real file at the repo root.
+
+### Claude Code
+
+```
+/plugin marketplace add dataiku/dku-headless
+/plugin install dataiku@dataiku
+```
+
+### Codex
+
+```
+/plugins
+```
+Add the marketplace and install `dataiku` from there.
+
+### Cursor
+
+- **Auto-discovered:** `.cursor/mcp.json` at the repo root wires up the MCP tools with no
+  install step.
+- **Plugin** (adds the skill too): install the `dataiku` plugin from Cursor's Marketplace UI
+  (Customize → Marketplace → search `dataiku`).
+
+### OpenCode
+
+**Auto-discovered:** `opencode.json` at the repo root wires up the MCP tools with no install
+step.
+
+### From source / standalone server
+
+Clone the repo and run the server directly — only needed for direct testing, or for running
+streamable-http as a standing service:
+
+```bash
+uv sync                    # create .venv and install with dependencies (Python 3.10+, uv)
+./bin/run_mcp.sh           # uv run python -m dataiku_mcp
+# or, from an installed package:
+uvx dataiku-headless serve
+```
+
+Then set your Dataiku connection — see [Configure](#configure).
 
 ## How delegation works
 
@@ -116,38 +214,6 @@ work (decompose → delegate → verify → finish), and `playbooks/` holds one 
 kind (build via Cobuild, inspect, direct execution, verify output, migrate). `references/`
 carries the facts an agent opens only when it needs them, including the generated tool-index.
 
-## Install
-
-Each plugin install wires up both `dataiku-skills/` and the MCP server in one step. Cloning
-the repo works too — every config file the plugins reference (`.mcp.json`, `.cursor/mcp.json`,
-`opencode.json`, `dataiku-skills/`) is a real file at the repo root.
-
-### Claude Code
-
-```
-/plugin marketplace add dataiku/dku-headless
-/plugin install dataiku@dataiku
-```
-
-### Codex
-
-```
-/plugins
-```
-Add the marketplace and install `dataiku` from there.
-
-### Cursor
-
-- **Auto-discovered:** `.cursor/mcp.json` at the repo root wires up the MCP tools with no
-  install step.
-- **Plugin** (adds the skill too): install the `dataiku` plugin from Cursor's Marketplace UI
-  (Customize → Marketplace → search `dataiku`).
-
-### OpenCode
-
-**Auto-discovered:** `opencode.json` at the repo root wires up the MCP tools with no install
-step.
-
 ## Configure
 
 Set your Dataiku connection. The minimum is a URL and an API key:
@@ -215,5 +281,15 @@ standing service):
 uvx dataiku-headless serve
 ```
 
-See `CODING_STANDARDS_AND_STRUCTURE.md` for contribution scope, the tool-surface and
-write-routing conventions, and the PR checklist.
+## Contributing
+
+Contributions are welcome. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the workflow,
+PR checklist, and security-reporting policy, and
+**[CODING_STANDARDS_AND_STRUCTURE.md](CODING_STANDARDS_AND_STRUCTURE.md)** for contribution
+scope, the tool-surface and write-routing conventions, and the skill contract. Feature ideas
+go to [GitHub Discussions](https://github.com/dataiku/dku-headless/discussions/new/choose);
+security issues go to **opensource@dataiku.com**, never a public issue.
+
+## License
+
+Licensed under the **[Apache License 2.0](LICENSE)**. Copyright 2026 Dataiku.

@@ -21,4 +21,6 @@ tmp
 .codex/
 
 # Design / rationale docs — local working notes, not tracked
-docs/
+# (but keep the committed brand assets the README renders)
+docs/*
+!docs/assets/
