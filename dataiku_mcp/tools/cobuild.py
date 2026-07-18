@@ -202,6 +202,15 @@ class _CobuildSaturated(Exception):
 
 _conversations: OrderedDict[str, _CobuildEntry] = OrderedDict()
 _in_flight: dict[str, _InFlightTurn] = {}
+# The LATEST turn token ever started per conversation, recorded inside
+# ``_begin_turn``'s critical section. A turn's late callback/finalizer may write
+# shared handle state (``_restore_confirmation``) ONLY while its token is still the
+# latest here. This deliberately OUTLIVES a turn's ``_in_flight`` entry: a
+# live-only check would miss the case where a successor turn already settled AND
+# left the registry, letting an old turn's delayed callback re-pollute the shared
+# handle. Kept unbounded on purpose — entries are tiny (id→token) and must persist
+# beyond the turn's registry lifetime for the lineage guard to stay sound.
+_latest_turn_token: dict[str, str] = {}
 _lock = threading.RLock()
 
 
@@ -579,6 +588,12 @@ def _begin_turn(
             restore_confirmation_id=restore_confirmation_id,
             token=_next_turn_token(),
         )
+        # Stamp this as the latest lineage for the conversation while still under
+        # the lock, before the turn is visible. A now-superseded earlier turn's
+        # late callback consults this to recognise it lost lineage (see
+        # ``_restore_confirmation``) even after its successor left ``_in_flight``.
+        if turn.token is not None:
+            _latest_turn_token[conversation_id] = turn.token
         _arm_turn_persistence(turn)
         _in_flight[conversation_id] = turn
         return turn
@@ -683,20 +698,26 @@ def _restore_confirmation(turn: _InFlightTurn) -> None:
 
     ``answer_confirmation()`` clears ``_pending_confirmation_id`` before its POST;
     if that POST failed the id is lost, so restore exactly it for a retry (no
-    public setter exists). Settle-aware: we only restore when
-    (a) there is an id to restore, (b) a NEWER turn has not taken over this
-    conversation (restoring over a successor would replay a consumed deletion),
-    and (c) the handle's pending slot is still empty (a live successor that set a
-    new pending must not be clobbered). We only ever restore the exact id THIS
-    turn consumed, never a value that no longer matches. The durable side is
-    additionally guarded by the monotonic turn token in ``record_outcome``.
+    public setter exists). Lineage-aware (NOT merely live-aware): we only restore
+    when (a) there is an id to restore, (b) this turn is still the LATEST turn ever
+    started for the conversation (``_latest_turn_token``) — a live-only check would
+    pass once a successor has settled and left ``_in_flight``, letting this old
+    turn's delayed callback re-pollute the shared handle with a superseded
+    deletion — and (c) the handle's pending slot is still empty (a live successor
+    that set a new pending must not be clobbered). We only ever restore the exact
+    id THIS turn consumed. The durable side is separately guarded by the monotonic
+    turn token in ``record_outcome``, so a stale token's outcome write is refused
+    even though this handle write is now a no-op.
     """
     if not turn.restore_confirmation_id:
         return
     with _lock:
-        current = _in_flight.get(turn.conversation_id)
-        if current is not None and current is not turn and current.token != turn.token:
-            # A different turn now owns this conversation; do not replay onto it.
+        latest = _latest_turn_token.get(turn.conversation_id)
+        if turn.token is not None and latest is not None and latest != turn.token:
+            # A newer turn has since started for this conversation (it may already
+            # have settled and left ``_in_flight``). Replaying this turn's consumed
+            # confirmation onto the shared handle would resurrect a superseded
+            # deletion, so this stale callback is a no-op on the handle.
             return
         if getattr(turn.handle, "_pending_confirmation_id", None) is None:
             turn.handle._pending_confirmation_id = turn.restore_confirmation_id
@@ -710,7 +731,13 @@ async def _wait_for_turn(
     while True:
         if turn.future.done():
             with _lock:
-                _in_flight.pop(turn.conversation_id, None)
+                # Identity-checked removal: only evict OUR entry. If an overlap
+                # caller already settled this turn and a SUCCESSOR took the slot,
+                # leave the successor in place — we still return from our own
+                # future below. An unconditional pop here would delete the
+                # successor and lose its retained turn.
+                if _in_flight.get(turn.conversation_id) is turn:
+                    del _in_flight[turn.conversation_id]
             elapsed = int(time.monotonic() - turn.started_at)
             return turn.future.result(), elapsed  # may raise; caller finalizes
         elapsed = int(time.monotonic() - turn.started_at)
@@ -1117,7 +1144,11 @@ def _store_reported_result(
 def _settle_turn(turn: _InFlightTurn) -> dict:
     """Pop a finished retained turn and turn its Future into a result dict."""
     with _lock:
-        _in_flight.pop(turn.conversation_id, None)
+        # Identity-checked removal: never evict a SUCCESSOR that took this slot
+        # after an overlap caller already settled the turn we own. We finalize
+        # from this turn's own future regardless of who occupies the registry.
+        if _in_flight.get(turn.conversation_id) is turn:
+            del _in_flight[turn.conversation_id]
     elapsed = int(time.monotonic() - turn.started_at)
     try:
         response = turn.future.result()

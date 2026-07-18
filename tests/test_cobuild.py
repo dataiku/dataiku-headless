@@ -195,6 +195,7 @@ def env(tmp_path, monkeypatch):
     )
     cobuild._conversations.clear()
     cobuild._in_flight.clear()
+    cobuild._latest_turn_token.clear()
 
     class _Env:
         def __init__(self):
@@ -213,6 +214,7 @@ def env(tmp_path, monkeypatch):
     yield e
     cobuild._conversations.clear()
     cobuild._in_flight.clear()
+    cobuild._latest_turn_token.clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -1188,3 +1190,186 @@ def test_structured_client_error_stays_definitive(env, text):
     assert res["status"] == "error"
     # A recognized DSS client-error signature → definitive (no blind-resend risk).
     assert res.get("error_kind") != "transport_outcome_unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Round-4 Finding: turn-registry / handle mutations are turn-identity /
+# lineage-scoped, so a stale turn's late wake or callback can never evict a
+# successor's entry or re-pollute the shared handle. (Reviewer probes:
+# successor_survived_stale_waiter, handle_pending_after_late_old_restore.)
+# --------------------------------------------------------------------------- #
+
+
+class _AssistantResp:
+    type = "assistant_message"
+    is_error = False
+    message = "settled"
+
+
+def _tok(seq):
+    return f"{cobuild._PROCESS_ID}:{seq}"
+
+
+def test_stale_waiter_does_not_evict_successor(env):
+    # Probe: successor_survived_stale_waiter. An OLD waiter wakes after an overlap
+    # caller already settled its turn AND a successor took the registry slot. The
+    # old waiter must return its OWN turn's result and leave the successor intact.
+    cid = "conv-race"
+    sentinel = object()
+    old_future = concurrent.futures.Future()
+    old_future.set_result(sentinel)
+    old = _pending_turn(cid)
+    old.future = old_future
+    old.token = _tok(100)
+
+    successor = _pending_turn(cid)  # never settles
+    successor.token = _tok(101)
+    cobuild._in_flight[cid] = successor
+
+    result, _elapsed = run(cobuild._wait_for_turn(old, timeout=5, ctx=None))
+
+    assert result is sentinel  # returned from its own future, not the successor's
+    assert cobuild._in_flight[cid] is successor  # successor SURVIVED the stale wake
+
+
+def test_wait_for_turn_removes_own_entry_when_it_is_the_occupant(env):
+    # Regression: a same-turn settle still removes its OWN entry (the normal path).
+    cid = "conv-own"
+    fut = concurrent.futures.Future()
+    fut.set_result(object())
+    turn = _pending_turn(cid)
+    turn.future = fut
+    turn.token = _tok(200)
+    cobuild._in_flight[cid] = turn
+
+    run(cobuild._wait_for_turn(turn, timeout=5, ctx=None))
+
+    assert cid not in cobuild._in_flight  # its own entry was removed
+
+
+def test_settle_turn_leaves_successor_in_place(env):
+    # _settle_turn is the retained-turn overlap path; it too must be identity-
+    # scoped so it never evicts a successor that took the slot.
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+
+    fut = concurrent.futures.Future()
+    fut.set_result(_AssistantResp())
+    old = _pending_turn(cid)
+    old.future = fut
+    old.token = _tok(300)
+
+    successor = _pending_turn(cid)  # unsettled successor holds the slot
+    successor.token = _tok(301)
+    cobuild._in_flight[cid] = successor
+
+    res = cobuild._settle_turn(old)
+
+    assert res["status"] == "completed"  # settled from old's OWN future
+    assert cobuild._in_flight[cid] is successor  # successor NOT evicted
+
+
+def test_settle_turn_removes_own_entry(env):
+    # Regression: a same-turn settle removes its own entry.
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+
+    fut = concurrent.futures.Future()
+    fut.set_result(_AssistantResp())
+    turn = _pending_turn(cid)
+    turn.future = fut
+    cobuild._in_flight[cid] = turn
+
+    res = cobuild._settle_turn(turn)
+
+    assert res["status"] == "completed"
+    assert cid not in cobuild._in_flight
+
+
+def test_stale_old_restore_does_not_repollute_handle_after_successor_left(env):
+    # Probe: handle_pending_after_late_old_restore. A delayed failed-approval
+    # restore from an OLD turn fires AFTER a successor turn started, settled, and
+    # left the registry. The lineage guard must make it a no-op on the shared
+    # handle — the old confirmation id must NOT be restored.
+    cid = "conv-lineage"
+
+    class _Handle:
+        _pending_confirmation_id = None
+
+    handle = _Handle()
+    old = _pending_turn(cid)
+    old.handle = handle
+    old.token = _tok(400)
+    old.restore_confirmation_id = "cid-old"
+
+    # A successor turn is the LATEST lineage for the conversation, then it settled
+    # and left _in_flight (a live-only check would now see an empty slot and wrongly
+    # allow the old restore).
+    cobuild._latest_turn_token[cid] = _tok(401)
+    assert cid not in cobuild._in_flight
+
+    cobuild._restore_confirmation(old)
+
+    assert handle._pending_confirmation_id is None  # NOT re-polluted with cid-old
+
+
+def test_restore_confirmation_rearms_when_turn_is_latest(env):
+    # Regression: the normal single-turn retry path. A failed answer POST left the
+    # handle empty; this turn is still the latest lineage, so its consumed id IS
+    # restored for a retry.
+    cid = "conv-retry"
+
+    class _Handle:
+        _pending_confirmation_id = None
+
+    handle = _Handle()
+    turn = _pending_turn(cid)
+    turn.handle = handle
+    turn.token = _tok(500)
+    turn.restore_confirmation_id = "cid-retry"
+    cobuild._latest_turn_token[cid] = turn.token  # this turn is the latest
+
+    cobuild._restore_confirmation(turn)
+
+    assert handle._pending_confirmation_id == "cid-retry"
+
+
+def test_restore_confirmation_does_not_clobber_live_successor_pending(env):
+    # Even when this turn is (implausibly) still the latest, a non-empty handle
+    # pending slot is never clobbered.
+    cid = "conv-nonempty"
+
+    class _Handle:
+        _pending_confirmation_id = "cid-successor"
+
+    handle = _Handle()
+    turn = _pending_turn(cid)
+    turn.handle = handle
+    turn.token = _tok(600)
+    turn.restore_confirmation_id = "cid-old"
+    cobuild._latest_turn_token[cid] = turn.token
+
+    cobuild._restore_confirmation(turn)
+
+    assert handle._pending_confirmation_id == "cid-successor"  # untouched
+
+
+def test_begin_turn_records_latest_turn_token(env):
+    # The lineage map is updated inside _begin_turn's critical section so a later
+    # callback can consult it. The token recorded is the turn's own token.
+    backend = FakeBackend()
+    gate = threading.Event()
+    backend.gate = gate  # hold the turn open so it stays in flight
+    backend.turn_responses = [assistant("built")]
+    env.set_client(backend)
+    cid = start()
+
+    res = send(cid, "long build", timeout_seconds=1)
+    assert res["status"] == "timeout"
+    turn = cobuild._in_flight[cid]
+    assert cobuild._latest_turn_token[cid] == turn.token
+
+    gate.set()
+    poll_status(cid)
