@@ -1128,6 +1128,49 @@ def _flow_check_unit(proj) -> Check:
     )
 
 
+def _terminal_outputs_built_check(sweep: dict[str, Any]) -> Check:
+    """FAIL-severity evidence gate: every terminal output was built with real rows.
+
+    The proof is each output's cached record count. Fail-closed, same discipline as
+    the description scans (:func:`_scan_verdict`):
+
+    * a proven-empty output (count <= 0) is a real fail — report it (and note any
+      outputs whose count could not be read);
+    * no proven-empty output but an *unreadable* count for some output means the
+      assertion cannot be certified for those outputs, so the check is an ``error``
+      (blocks the gate, marks the audit incomplete) rather than a false pass on
+      absent evidence;
+    * only when every output's count was readable and non-empty does it pass.
+
+    The WARN :func:`_terminal_row_counts_check` still notes the same read gap.
+    """
+    empty = sweep["empty"]
+    unknown = sweep["unknown_count"]
+    gap = (
+        "; could not read a record-count metric (evidence gap) for: " + ", ".join(unknown)
+        if unknown
+        else ""
+    )
+    if empty:
+        return _bad(
+            "terminal_outputs_built",
+            bucket="evidence",
+            detail="Terminal outputs with zero rows: " + ", ".join(empty) + gap,
+            fix=_FIX_BUILT.format(names=", ".join(empty)),
+        )
+    if unknown:
+        return _error(
+            "terminal_outputs_built",
+            bucket="evidence",
+            severity=FAIL,
+            detail=(
+                "cannot certify terminal outputs were built — record-count evidence "
+                "unreadable for: " + ", ".join(unknown)
+            ),
+        )
+    return _ok("terminal_outputs_built", bucket="evidence", severity=FAIL)
+
+
 def _terminal_row_counts_check(sweep: dict[str, Any]) -> Check:
     """Advisory (WARN) evidence-read check: unread cached counts and samples.
 
@@ -1174,13 +1217,7 @@ def _evidence_units(actx: AuditContext) -> list[CheckUnit]:
             "terminal_outputs_built",
             "evidence",
             FAIL,
-            lambda: _listing(
-                "terminal_outputs_built",
-                bucket="evidence",
-                items=sweep()["empty"],
-                problem="Terminal outputs with zero rows: {names}",
-                fix=_FIX_BUILT,
-            ),
+            lambda: _terminal_outputs_built_check(sweep()),
         ),
         (
             "terminal_row_counts",
@@ -1333,6 +1370,12 @@ def _validate_string_list(dataset: str, field_name: str, value: Any) -> None:
 # so it is rejected rather than ignored.
 _KNOWN_OUTPUT_SPEC_KEYS = frozenset({"columns", "not_blank", "min_rows", "types"})
 
+# The only top-level keys a contract may carry. ``outputs`` is the sole key the
+# engine consumes (see :func:`_contract_units`), so an unknown top-level key
+# (e.g. a top-level ``min_rows`` that belongs inside an output spec) is a typo
+# that would otherwise be silently dropped — reject it rather than ignore it.
+_KNOWN_CONTRACT_KEYS = frozenset({"outputs"})
+
 
 def _validate_types(dataset: str, value: Any) -> None:
     """Reject a ``types`` spec that isn't a non-empty {column: type} string map."""
@@ -1383,7 +1426,9 @@ def normalize_contract(contract: Any) -> dict[str, Any]:
 
     Accepts the documented list form ``{"outputs": [{"dataset": ..., "columns": ...,
     "min_rows": ...}]}`` and the equivalent mapping form. Every degenerate value is
-    rejected here, before any DSS work: an empty ``outputs``; an empty or duplicate
+    rejected here, before any DSS work: an unknown *top-level* key (only ``outputs``
+    is consumed — a misplaced top-level ``min_rows`` would otherwise be silently
+    dropped); an empty ``outputs``; an empty or duplicate
     dataset name; an *unknown* spec key (a ``min_row`` typo would otherwise silently
     drop the assertion — only ``columns``/``not_blank``/``min_rows``/``types`` are
     allowed); a non-integer or negative ``min_rows`` (a numeric string is rejected,
@@ -1393,6 +1438,13 @@ def normalize_contract(contract: Any) -> dict[str, Any]:
     """
     if not isinstance(contract, dict):
         raise ValueError("contract must be a JSON object")
+    unknown_top = sorted(k for k in contract if k not in _KNOWN_CONTRACT_KEYS)
+    if unknown_top:
+        raise ValueError(
+            f"contract has unknown top-level key(s) {unknown_top}. Allowed keys: "
+            f"{sorted(_KNOWN_CONTRACT_KEYS)} (per-output assertions like "
+            f'"min_rows"/"columns" belong inside each "outputs" entry)'
+        )
     if "outputs" not in contract:
         raise ValueError('contract must contain an "outputs" key')
     outputs = contract["outputs"]
@@ -1448,11 +1500,23 @@ def _contract_types_check(dataset: str, spec: dict[str, Any], columns: list[dict
 
 
 def _contract_min_rows_check(proj, dataset: str, spec: dict[str, Any]) -> Check:
-    try:
-        count = _terminal_row_count(proj, dataset) or 0
-    except Exception:
-        count = 0
     min_rows = spec["min_rows"]
+    # A raising metric read is unreadable evidence, never a measured zero: fabricating
+    # count=0 would report a *fail* asserting the dataset is empty — a claim the audit
+    # cannot back. Propagate it as an ``error`` (blocks the gate, marks the audit
+    # incomplete) so the shortfall verdict only ever rests on a real count.
+    try:
+        count = _terminal_row_count(proj, dataset)
+    except Exception as exc:
+        return _error(
+            f"contract_min_rows:{dataset}",
+            bucket="evidence",
+            severity=FAIL,
+            detail=(
+                f"cannot verify the min_rows contract for {dataset} — record-count "
+                f"evidence unreadable: {exc}"
+            ),
+        )
     short = count < min_rows
     return _verdict(
         f"contract_min_rows:{dataset}",

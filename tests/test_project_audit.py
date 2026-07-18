@@ -502,6 +502,39 @@ def test_unreadable_terminal_schema_is_noted_not_counted_documented():
     assert "unreadable" in tcd.detail and "out" in tcd.detail
 
 
+def test_unreadable_terminal_row_count_errors_terminal_outputs_built():
+    # A raising cached-metric read for a terminal output must not leave the
+    # FAIL-severity build check passing on absent evidence: it errors (blocks the
+    # gate, marks the audit incomplete). The WARN row-count check still notes it.
+    proj = linear_project(
+        datasets={"out": {"description": "out", "columns": [col("id", comment="c")], "count": None}}
+    )
+    checks = checks_for_bucket(proj, "evidence")
+    built = checks["terminal_outputs_built"]
+    assert built.status == "error"
+    assert "out" in built.detail
+    # The WARN check keeps noting the same evidence gap, never blocking.
+    assert checks["terminal_row_counts"].status == "warn"
+    assert "out" in checks["terminal_row_counts"].detail
+
+    payload = ae.run_audit(proj, "PROJ", buckets=["evidence"])
+    assert payload["passed"] is False
+    assert payload["incomplete"] is True
+    assert payload["errors"] >= 1
+
+
+def test_readable_but_empty_terminal_still_fails_not_errors():
+    # An unreadable count errors; a *proven* zero still fails (with a real fix). The
+    # two must not be conflated.
+    proj = linear_project(
+        datasets={"out": {"description": "out", "columns": [col("id", comment="c")], "count": 0}}
+    )
+    built = checks_for_bucket(proj, "evidence")["terminal_outputs_built"]
+    assert built.status == "fail"
+    assert "out" in built.detail
+    assert "build_datasets" in built.fix
+
+
 # --------------------------------------------------------------------------- #
 # Contract
 # --------------------------------------------------------------------------- #
@@ -525,6 +558,50 @@ def test_contract_missing_column_and_min_rows_failures():
     assert "100" in checks["contract_min_rows:B"].detail and "got 5" in checks["contract_min_rows:B"].detail
     # A column that IS present passes the type check.
     assert checks["contract_types:B"].status == "pass"
+
+
+def test_contract_min_rows_unreadable_count_errors_not_fabricated_zero():
+    # A raising metric read during min_rows evaluation must not be converted into a
+    # measured zero (which would *fail*, asserting the dataset is empty — a
+    # fabricated claim). It errors instead: evidence unreadable, incomplete audit.
+    proj = make_project(
+        datasets={
+            "src": {"description": "s", "count": 5},
+            "B": {"description": "b", "count": None, "columns": [col("x")]},
+        },
+        recipes={"compute_B": {"type": "prepare"}},
+        nodes={"compute_B": recipe_node(["src"], ["B"])},
+    )
+    actx = ae.load_context(proj, "PROJ")
+    contract = ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": 100}]})
+    checks_list = ae.run_contract_checks(actx, contract)
+    checks = {c.id: c for c in checks_list}
+
+    mr = checks["contract_min_rows:B"]
+    assert mr.status == "error"
+    assert "unreadable" in mr.detail
+    # No fabricated measurement leaks into the verdict.
+    assert "got 0" not in mr.detail
+    assert "Expected at least" not in mr.detail
+
+    payload = ae.build_payload("PROJ", checks_list, actx.inventory)
+    assert payload["passed"] is False
+    assert payload["incomplete"] is True
+    assert payload["errors"] >= 1
+
+
+def test_contract_rejects_unknown_top_level_key_naming_allowed_set():
+    # A misplaced top-level `min_rows` (it belongs inside an output spec) would be
+    # silently dropped; reject it and name the allowed top-level key set.
+    with pytest.raises(ValueError, match="unknown top-level key") as exc:
+        ae.normalize_contract({"outputs": {"B": {"min_rows": 3}}, "min_rows": 99})
+    msg = str(exc.value)
+    assert "outputs" in msg  # allowed set is named
+    assert "min_rows" in msg  # the offending key is named
+    # The dict-vs-list outputs duality stays supported (no false rejection).
+    assert ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": 3}]}) == {
+        "outputs": {"B": {"min_rows": 3}}
+    }
 
 
 def test_contract_output_missing_dataset_fails():
