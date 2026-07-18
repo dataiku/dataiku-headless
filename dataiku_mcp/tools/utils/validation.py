@@ -33,6 +33,12 @@ def require_non_negative_int(value: int, field_name: str) -> int:
     return value
 
 
+def require_non_empty_list(values: list, field_name: str) -> list:
+    if len(values) < 1:
+        raise ValueError(f"'{field_name}' must be a non-empty list")
+    return values
+
+
 def require_allowed_value(value: str, field_name: str, allowed_values: set[str]) -> str:
     if value not in allowed_values:
         allowed = sorted(allowed_values)

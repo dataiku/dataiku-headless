@@ -16,12 +16,30 @@ from .utils.job_summaries import (
 )
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
+    require_allowed_value as _require_allowed_value,
+    require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
     require_positive_int as _require_positive_int,
 )
 
+VALID_JOB_TYPES = {
+    "NON_RECURSIVE_FORCED_BUILD",
+    "RECURSIVE_BUILD",
+    "RECURSIVE_FORCED_BUILD",
+}
+
+DEFAULT_WAIT_TIMEOUT_SECONDS = 50
 JOB_POLL_INTERVAL_SECONDS = 2
 TERMINAL_JOB_STATES = {"DONE", "FAILED", "ABORTED"}
+
+COMPUTABLE_TO_JOB_OUTPUT_TYPE = {
+    "COMPUTABLE_DATASET": "DATASET",
+    "COMPUTABLE_FOLDER": "MANAGED_FOLDER",
+    "COMPUTABLE_SAVED_MODEL": "SAVED_MODEL",
+    "COMPUTABLE_STREAMING_ENDPOINT": "STREAMING_ENDPOINT",
+    "COMPUTABLE_MODEL_EVALUATION_STORE": "MODEL_EVALUATION_STORE",
+    "COMPUTABLE_RETRIEVABLE_KNOWLEDGE": "RETRIEVABLE_KNOWLEDGE",
+}
 
 
 async def _wait_for_job_result(
@@ -53,6 +71,241 @@ def _tail_log_text(log_text: str, tail_lines: int | None) -> tuple[str, int, boo
     if tail_lines is None or line_count <= tail_lines:
         return log_text, line_count, False
     return "\n".join(lines[-tail_lines:]), line_count, True
+
+
+@mcp.tool()
+async def build_datasets(
+    project_key: str,
+    ctx: Context,
+    dataset_names: list[str],
+    wait_for_completion: bool = False,
+    job_type: str = "NON_RECURSIVE_FORCED_BUILD",
+    auto_update_schema: bool = True,
+    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+) -> str:
+    """Build one or more existing datasets as DSS jobs.
+
+    Direct execution of an existing asset; for creating or modifying assets use Cobuild.
+
+    Defaults to fire-and-return (wait_for_completion=False): the builds are started
+    and their job IDs are returned immediately. The supervisor then drives waiting
+    explicitly with wait_for_job(project_key, job_id) and inspects outcomes with
+    get_job_status / get_job_log. Set wait_for_completion=true only for a short
+    inline wait bounded by timeout_seconds.
+
+    Args:
+        dataset_names: Existing dataset names to build (at least one)
+        wait_for_completion: If true, wait up to timeout_seconds for the jobs to finish; if false (default), start them and return their job IDs for wait_for_job / get_job_status
+        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD
+        auto_update_schema: Whether to auto-update output schemas before each recipe run
+        timeout_seconds: Max time to wait before returning in-progress job state (only used when wait_for_completion=true)
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    names = _require_non_empty_list(dataset_names, "dataset_names")
+    names = [
+        _require_non_empty_string(name, f"dataset_names[{i}]")
+        for i, name in enumerate(names)
+    ]
+    job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
+    timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
+
+    await ctx.info(
+        f"Starting build of {len(names)} dataset(s) in {project_key} "
+        f"({job_type}, wait_for_completion={wait_for_completion}, "
+        f"auto_update_schema={auto_update_schema})..."
+    )
+
+    def _start_job(target_dataset_name: str):
+        project = get_dss_client().get_project(project_key)
+        builder = project.new_job(job_type)
+        builder.with_output(target_dataset_name)
+        if auto_update_schema:
+            builder.with_auto_update_schema_before_each_recipe_run(True)
+        return builder.start()
+
+    jobs = []
+    for ds_name in names:
+        try:
+            job = await run_blocking(_start_job, ds_name)
+            jobs.append(
+                {"dataset": ds_name, "status": "STARTED", "job_id": job.id, "obj": job}
+            )
+        except Exception as e:
+            jobs.append(
+                {"dataset": ds_name, "status": "FAILED_TO_START", "error": str(e)}
+            )
+
+    top_level_status = "builds_started"
+    for job in jobs:
+        if job["status"] == "FAILED_TO_START":
+            top_level_status = "builds_started_with_errors"
+            break
+
+    if not wait_for_completion:
+        return compact_json(
+            {
+                "status": top_level_status,
+                "project_key": project_key,
+                "jobs": [{k: v for k, v in j.items() if k != "obj"} for j in jobs],
+                "hint": (
+                    "Builds started. Wait explicitly with "
+                    "wait_for_job(project_key, job_id, timeout_seconds=...) or poll "
+                    "get_job_status(project_key, job_id); use get_job_log for logs."
+                ),
+            }
+        )
+
+    for job in jobs:
+        if job["status"] != "STARTED":
+            continue
+        timed_out, status_summary = await _wait_for_job_result(
+            project_key,
+            job["obj"],
+            timeout_seconds,
+        )
+        job["status_summary"] = status_summary
+        job["wait_timed_out"] = timed_out
+        job["status"] = status_summary["state"]
+
+    top_level_status = "builds_completed"
+    for job in jobs:
+        if job["status"] in {"FAILED_TO_START", "FAILED", "ABORTED"}:
+            top_level_status = "builds_completed_with_errors"
+            break
+        if job.get("wait_timed_out"):
+            top_level_status = "builds_still_running"
+
+    return compact_json(
+        {
+            "status": top_level_status,
+            "project_key": project_key,
+            "jobs": [{k: v for k, v in j.items() if k != "obj"} for j in jobs],
+            "hint": (
+                "If any job is still running, do not start another build for the same "
+                "flow object. Use wait_for_job(project_key, job_id, timeout_seconds=...) "
+                "or get_job_status(project_key, job_id). Add full=true only when you "
+                "need more detail, or use get_job_log(project_key, job_id) for logs."
+            ),
+        }
+    )
+
+
+@mcp.tool()
+async def run_recipe(
+    project_key: str,
+    recipe_name: str,
+    ctx: Context,
+    wait_for_completion: bool = False,
+    job_type: str = "NON_RECURSIVE_FORCED_BUILD",
+    auto_update_schema: bool = True,
+    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+) -> str:
+    """Run an existing recipe by building its first output as the trigger target.
+
+    Direct execution of an existing asset; for creating or modifying assets use Cobuild.
+
+    Defaults to fire-and-return (wait_for_completion=False): the job is started and
+    its ID returned immediately. The supervisor then waits explicitly with
+    wait_for_job(project_key, job_id) and inspects outcomes with get_job_status /
+    get_job_log. Set wait_for_completion=true only for a short inline wait bounded by
+    timeout_seconds.
+
+    Args:
+        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false (default), start it and return the job ID for wait_for_job / get_job_status
+        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD
+        auto_update_schema: Whether to auto-update output schemas before each recipe run
+        timeout_seconds: Max time to wait before returning in-progress job state (only used when wait_for_completion=true)
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    recipe_name = _require_non_empty_string(recipe_name, "recipe_name")
+    job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
+    timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
+
+    await ctx.info(
+        f"Running recipe {recipe_name} in {project_key} "
+        f"({job_type}, wait_for_completion={wait_for_completion}, "
+        f"auto_update_schema={auto_update_schema})..."
+    )
+
+    def _run():
+        project = get_dss_client().get_project(project_key)
+        recipe = project.get_recipe(recipe_name)
+
+        # We do not use DSSRecipe.run() directly. Instead we trigger the recipe by
+        # building its first output object, so that auto_update_schema can attach to
+        # the job builder (this prevents e.g. scoring recipes from building datasets
+        # with an empty schema).
+        outputs = project.get_flow().get_graph().get_successor_computables(recipe)
+        if not outputs:
+            raise Exception(f"recipe '{recipe_name}' has no outputs, can't run it")
+
+        first_output = outputs[0]
+        object_type = COMPUTABLE_TO_JOB_OUTPUT_TYPE.get(first_output.get("type"))
+        if object_type is None:
+            raise Exception(
+                f"recipe '{recipe_name}' has unsupported output type "
+                f"{first_output.get('type')}, can't run it"
+            )
+
+        builder = project.new_job(job_type)
+        builder.with_output(first_output["ref"], object_type=object_type)
+        if auto_update_schema:
+            builder.with_auto_update_schema_before_each_recipe_run(True)
+        return builder.start()
+
+    job = await run_blocking(_run)
+
+    if not wait_for_completion:
+        return compact_json(
+            {
+                "status": "recipe_run_started",
+                "project_key": project_key,
+                "recipe": recipe_name,
+                "job_id": job.id,
+                "hint": (
+                    "Recipe run started. Wait explicitly with "
+                    "wait_for_job(project_key, job_id, timeout_seconds=...) or poll "
+                    "get_job_status(project_key, job_id); use get_job_log for logs."
+                ),
+            }
+        )
+
+    timed_out, status_summary = await _wait_for_job_result(
+        project_key,
+        job,
+        timeout_seconds,
+    )
+    if timed_out:
+        return compact_json(
+            {
+                "status": "recipe_run_still_running",
+                "project_key": project_key,
+                "recipe": recipe_name,
+                "job_id": job.id,
+                "status_summary": status_summary,
+                "hint": (
+                    "Do not start another build for this recipe or its outputs while "
+                    "this job is still running. Use wait_for_job(project_key, job_id, "
+                    "timeout_seconds=...) or get_job_status(project_key, job_id). Add "
+                    "full=true only when you need more detail, or use "
+                    "get_job_log(project_key, job_id) for logs."
+                ),
+            }
+        )
+
+    top_level_status = "recipe_run_completed"
+    if status_summary["state"] in {"FAILED", "ABORTED"}:
+        top_level_status = "recipe_run_completed_with_errors"
+
+    return compact_json(
+        {
+            "status": top_level_status,
+            "status_summary": status_summary,
+            "project_key": project_key,
+            "recipe": recipe_name,
+            "job_id": job.id,
+        }
+    )
 
 
 @mcp.tool()
