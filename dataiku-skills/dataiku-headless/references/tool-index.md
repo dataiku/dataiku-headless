@@ -104,7 +104,7 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 
 ## Instances
 
-- `get_current_instance` — Get the active Dataiku instance URL and configured defaults.
+- `get_current_instance` — Return the active Dataiku instance (name, URL, description; API key omitted).
 - `list_instances` — List the configured Dataiku instances (name, URL, description, active flag).
 - `switch_instance` — Switch the active Dataiku instance.
 

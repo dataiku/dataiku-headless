@@ -6,17 +6,22 @@ see what changed, and trust the result?
 
 Everything here is read-only. Metrics are read from their *cached* values
 (never recomputed); row samples are bounded to :data:`MAX_SAMPLE_ROWS`; the only
-heavy operation (the flow-consistency check) is time-bounded and degrades to a
-``skip`` if it fails or overruns. Nothing mutates DSS.
+heavy operation (the flow-consistency check) is time-bounded. Because that check
+is FAIL-severity, a failure or timeout degrades it to an ``error`` (unreadable
+evidence blocks the gate and marks the audit incomplete), never a silent pass.
+Nothing mutates DSS.
 
 The verdict spans four buckets (structure, documentation, evidence,
-maintainability) plus an optional contract, and three severities carried on each
-:class:`Check`:
+maintainability) plus an optional contract, and four statuses a :class:`Check`
+can carry:
 
 * ``fail`` — a reviewer cannot trust or operate the project (blocks the gate).
 * ``warn`` — suspicious; usually worth fixing before delivery (advisory).
-* ``skip`` — the check could not run (its dependency raised / timed out); never
-  blocks and is surfaced so the supervisor knows it was not evaluated.
+* ``error`` — a FAIL-severity check whose evidence could not be read/evaluated
+  (raised or timed out); blocks the gate and marks the audit ``incomplete`` —
+  unreadable evidence is never treated as success.
+* ``skip`` — a WARN-severity check that could not run (its dependency raised /
+  timed out); never blocks, surfaced so the supervisor knows it was not run.
 
 Every failing check names the offending objects and a ``fix`` re-pointed at this
 server's action model: a copy-paste Cobuild delegation prompt, or a named MCP
@@ -36,6 +41,7 @@ import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from itertools import islice
 from typing import Any, Callable
 
 from .serialization import columnar
@@ -281,23 +287,37 @@ def _dataset_columns(proj, name: str) -> list[dict[str, Any]]:
     return proj.get_dataset(name).get_definition().get("schema", {}).get("columns", [])
 
 
-def _has_documented_column(proj, name: str) -> bool:
-    """True if any column carries a description (the schema ``comment`` field)."""
-    try:
-        columns = _dataset_columns(proj, name)
-    except Exception:
-        return True  # unreadable schema is the row-count check's problem, not this one
-    return not columns or any(c.get("comment", "").strip() for c in columns)
+def _terminal_columns_scan(proj, terminal: set[str]) -> tuple[list[str], list[str]]:
+    """Split terminal outputs into (undocumented columns, unreadable schema).
+
+    A dataset whose schema read *raises* is unreadable evidence — it is reported
+    as an explicit gap, never silently treated as "documented" (the old
+    ``_has_documented_column`` returned True on failure, which hid a denied read).
+    A dataset with no schema at all is neither undocumented nor unreadable.
+    """
+    undocumented: list[str] = []
+    unreadable: list[str] = []
+    for name in sorted(terminal):
+        try:
+            columns = _dataset_columns(proj, name)
+        except Exception:
+            unreadable.append(name)
+            continue
+        if columns and not any(c.get("comment", "").strip() for c in columns):
+            undocumented.append(name)
+    return undocumented, unreadable
 
 
 def _dataset_sample(proj, name: str, columns: list[dict[str, Any]], max_rows: int) -> list[dict[str, Any]]:
     names = [c.get("name", "") for c in columns]
-    rows: list[dict[str, Any]] = []
-    for i, row in enumerate(proj.get_dataset(name).iter_rows()):
-        if i >= max_rows:
-            break
-        rows.append(dict(zip(names, row, strict=False)))
-    return rows
+    # ``islice`` pulls *exactly* ``max_rows`` items from the row iterator and no
+    # more — so a 100-row sample consumes 100 rows, never the 101st. (An
+    # ``enumerate``/``break`` loop would fetch row max_rows+1 before deciding to
+    # stop, an unnecessary read against the live dataset.)
+    return [
+        dict(zip(names, row, strict=False))
+        for row in islice(proj.get_dataset(name).iter_rows(), max(max_rows, 0))
+    ]
 
 
 def _terminal_row_count(proj, name: str) -> int:
@@ -453,37 +473,91 @@ def _undescribed_zones(zones: list[dict[str, Any]], universe: set[str]) -> list[
 # --------------------------------------------------------------------------- #
 # Description scans
 # --------------------------------------------------------------------------- #
-def _description_scan(reader, proj, names: list[str], label: str) -> list[str]:
-    """Read each object's description via ``reader``; return the problem list."""
+# A description scan returns (problems, unreadable): the quality problems found
+# among readable objects, and the names of objects whose metadata read *raised*
+# (unreadable evidence — never silently dropped, per fail-closed auditing).
+DescriptionScan = tuple[list[str], list[str]]
+
+
+def _description_scan(reader, proj, names: list[str], label: str) -> DescriptionScan:
+    """Read each object's description via ``reader``; return (problems, unreadable)."""
     missing: list[str] = []
     described: dict[str, str] = {}
+    unreadable: list[str] = []
     for name in names:
         try:
             meta = reader(proj, name)
         except Exception:
+            unreadable.append(name)
             continue
         text = (meta.get("description") or meta.get("shortDesc") or "").strip()
         if text:
             described[name] = text
         else:
             missing.append(name)
-    return _describe_problems(missing, described, label)
+    return _describe_problems(missing, described, label), unreadable
 
 
-def _short_desc_scan(reader, proj, names: list[str], label: str) -> list[str]:
+def _short_desc_scan(reader, proj, names: list[str], label: str) -> DescriptionScan:
     missing: list[str] = []
     described: dict[str, str] = {}
+    unreadable: list[str] = []
     for name in names:
         try:
             meta = reader(proj, name)
         except Exception:
+            unreadable.append(name)
             continue
         text = (meta.get("shortDesc") or "").strip()
         if text:
             described[name] = text
         else:
             missing.append(name)
-    return _describe_problems(missing, described, label)
+    return _describe_problems(missing, described, label), unreadable
+
+
+def _scan_verdict(
+    id: str,
+    *,
+    bucket: str,
+    scan: DescriptionScan,
+    severity: str,
+    fix: str = "",
+) -> Check:
+    """Turn a description-scan result into a Check with fail-closed evidence rules.
+
+    A read that *raised* is unreadable evidence, not a clean object:
+
+    * FAIL-severity — a pass can only be certified when every object was
+      readable. A found problem is a proven fail (report it, note any unreadable
+      objects). No problem but unreadable reads means the assertion cannot be
+      proven, so the check is an ``error`` (blocks the gate, marks the audit
+      incomplete) rather than a false pass.
+    * WARN-severity — advisory, never blocks; it reports its problems and merely
+      notes the unread objects as an evidence gap in the detail.
+    """
+    problems, unreadable = scan
+    gap = f"could not read (evidence gap): {', '.join(sorted(unreadable))}" if unreadable else ""
+    if severity == FAIL:
+        if problems:
+            detail = "; ".join(problems + ([gap] if gap else []))
+            return _bad(id, bucket=bucket, detail=detail, severity=FAIL, fix=fix)
+        if unreadable:
+            return _error(
+                id,
+                bucket=bucket,
+                severity=FAIL,
+                detail=f"cannot certify — description evidence unreadable for: "
+                f"{', '.join(sorted(unreadable))}",
+            )
+        return _ok(id, bucket=bucket, severity=FAIL)
+    return _verdict(
+        id,
+        bucket=bucket,
+        problems=problems + ([gap] if gap else []),
+        severity=WARN,
+        fix=fix,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -779,9 +853,11 @@ def _flow_visible_description_check(actx: AuditContext) -> Check:
 
     # Datasets have no `shortDesc` in DSS — only `description`, which is what the
     # flow tile renders. Recipes and zones do carry a real `shortDesc`.
-    terminal_problems = _description_scan(_dataset_metadata, proj, sorted(terminal), "Terminal datasets")
-    source_problems = _description_scan(_dataset_metadata, proj, sorted(sources), "Source datasets")
-    recipe_problems = _short_desc_scan(_recipe_metadata, proj, recipe_names, "Recipes")
+    terminal_problems, terminal_unreadable = _description_scan(
+        _dataset_metadata, proj, sorted(terminal), "Terminal datasets"
+    )
+    source_problems, _ = _description_scan(_dataset_metadata, proj, sorted(sources), "Source datasets")
+    recipe_problems, _ = _short_desc_scan(_recipe_metadata, proj, recipe_names, "Recipes")
     zone_missing = _undescribed_zones(zones, sources | terminal | set(recipe_names))
     zone_problems = (
         [f"Named zones without a short description: {', '.join(sorted(zone_missing))}"]
@@ -789,18 +865,43 @@ def _flow_visible_description_check(actx: AuditContext) -> Check:
         else []
     )
     problems = terminal_problems + source_problems + recipe_problems + zone_problems
-    if not problems:
-        return _ok("flow_visible_descriptions", bucket="documentation", severity=WARN)
+    gap = (
+        f"terminal description evidence unreadable for: {', '.join(sorted(terminal_unreadable))}"
+        if terminal_unreadable
+        else ""
+    )
     # A missing terminal-output description is flow-blind at the point that matters
     # most, so it fails; the rest are advisory.
-    severity = FAIL if terminal_problems else WARN
-    return _bad(
-        "flow_visible_descriptions",
-        bucket="documentation",
-        detail="; ".join(problems),
-        severity=severity,
-        fix=_FIX_FLOW_VISIBLE,
-    )
+    if terminal_problems:
+        return _bad(
+            "flow_visible_descriptions",
+            bucket="documentation",
+            detail="; ".join(problems + ([gap] if gap else [])),
+            severity=FAIL,
+            fix=_FIX_FLOW_VISIBLE,
+        )
+    # Terminal descriptions are the FAIL-worthy part; if they could not be read we
+    # cannot certify them — that is an ``error`` (blocks the gate), even when
+    # only advisory source/recipe/zone problems exist.
+    if terminal_unreadable:
+        detail = gap
+        if problems:
+            detail += "; also: " + "; ".join(problems)
+        return _error(
+            "flow_visible_descriptions",
+            bucket="documentation",
+            severity=FAIL,
+            detail=detail,
+        )
+    if problems:
+        return _bad(
+            "flow_visible_descriptions",
+            bucket="documentation",
+            detail="; ".join(problems),
+            severity=WARN,
+            fix=_FIX_FLOW_VISIBLE,
+        )
+    return _ok("flow_visible_descriptions", bucket="documentation", severity=WARN)
 
 
 def _wiki_units(actx: AuditContext) -> list[CheckUnit]:
@@ -850,6 +951,32 @@ def _wiki_units(actx: AuditContext) -> list[CheckUnit]:
     ]
 
 
+def _terminal_columns_check(proj, terminal: set[str]) -> Check:
+    """Advisory (WARN) check: terminal outputs should carry column descriptions.
+
+    Unreadable schemas are surfaced as an explicit evidence gap rather than being
+    counted as documented — a WARN never blocks, but it must not hide a denied
+    schema read behind a clean pass.
+    """
+    undocumented, unreadable = _terminal_columns_scan(proj, terminal)
+    problems: list[str] = []
+    if undocumented:
+        problems.append(
+            "Terminal outputs with no documented columns: " + ", ".join(undocumented)
+        )
+    if unreadable:
+        problems.append("schema unreadable (evidence gap): " + ", ".join(unreadable))
+    if not problems:
+        return _ok("terminal_columns_documented", bucket="documentation", severity=WARN)
+    return _bad(
+        "terminal_columns_documented",
+        bucket="documentation",
+        detail="; ".join(problems),
+        severity=WARN,
+        fix=_FIX_COLUMN_DESC.format(names=", ".join(undocumented)) if undocumented else "",
+    )
+
+
 def _documentation_units(actx: AuditContext) -> list[CheckUnit]:
     proj = actx.proj
     datasets, terminal = actx.datasets, actx.terminal
@@ -860,10 +987,11 @@ def _documentation_units(actx: AuditContext) -> list[CheckUnit]:
             "datasets_have_descriptions",
             "documentation",
             FAIL,
-            lambda: _verdict(
+            lambda: _scan_verdict(
                 "datasets_have_descriptions",
                 bucket="documentation",
-                problems=_description_scan(_dataset_metadata, proj, sorted(terminal), "Output datasets"),
+                scan=_description_scan(_dataset_metadata, proj, sorted(terminal), "Output datasets"),
+                severity=FAIL,
                 fix=_FIX_OUTPUT_DESC,
             ),
         ),
@@ -871,11 +999,11 @@ def _documentation_units(actx: AuditContext) -> list[CheckUnit]:
             "source_datasets_have_descriptions",
             "documentation",
             WARN,
-            lambda: _verdict(
+            lambda: _scan_verdict(
                 "source_datasets_have_descriptions",
                 bucket="documentation",
                 severity=WARN,
-                problems=_description_scan(
+                scan=_description_scan(
                     _dataset_metadata, proj, sorted(datasets - terminal), "Source datasets"
                 ),
                 fix=_FIX_SOURCE_DESC,
@@ -885,11 +1013,11 @@ def _documentation_units(actx: AuditContext) -> list[CheckUnit]:
             "recipes_have_descriptions",
             "documentation",
             WARN,
-            lambda: _verdict(
+            lambda: _scan_verdict(
                 "recipes_have_descriptions",
                 bucket="documentation",
                 severity=WARN,
-                problems=_description_scan(_recipe_metadata, proj, recipe_names, "Recipes"),
+                scan=_description_scan(_recipe_metadata, proj, recipe_names, "Recipes"),
                 fix=_FIX_RECIPE_DESC,
             ),
         ),
@@ -910,14 +1038,7 @@ def _documentation_units(actx: AuditContext) -> list[CheckUnit]:
             "terminal_columns_documented",
             "documentation",
             WARN,
-            lambda: _listing(
-                "terminal_columns_documented",
-                bucket="documentation",
-                severity=WARN,
-                items=sorted(t for t in terminal if not _has_documented_column(proj, t)),
-                problem="Terminal outputs with no documented columns: {names}",
-                fix=_FIX_COLUMN_DESC,
-            ),
+            lambda: _terminal_columns_check(proj, terminal),
         ),
         (
             "flow_visible_descriptions",
@@ -957,11 +1078,15 @@ def _scan_column_smells(
 def _evidence_sweep(proj, terminal: set[str]) -> dict[str, Any]:
     """One read-only pass over terminal outputs: cached row counts + value smells.
 
-    A single unreadable dataset must not abort the sweep — it is recorded via the
-    row-count check and skipped for smells.
+    A single unreadable dataset must not abort the sweep. Both evidence gaps are
+    recorded, never silently dropped: a missing/denied cached count lands in
+    ``unknown_count`` and a denied schema/sample read lands in
+    ``unreadable_sample`` — both surfaced by the (WARN-severity) row-count check.
+    Only fully-read samples feed the value-smell heuristics.
     """
     empty: list[str] = []
     unknown_count: list[str] = []
+    unreadable_sample: list[str] = []
     smells: dict[str, list[str]] = {
         "all_null": [],
         "blank_keys": [],
@@ -982,9 +1107,15 @@ def _evidence_sweep(proj, terminal: set[str]) -> dict[str, Any]:
             rows = _dataset_sample(proj, dataset, columns, MAX_SAMPLE_ROWS) if columns else []
         except Exception:
             rows = []
+            unreadable_sample.append(dataset)
         if rows:
             _scan_column_smells(dataset, columns, rows, smells)
-    return {"empty": empty, "unknown_count": unknown_count, "smells": smells}
+    return {
+        "empty": empty,
+        "unknown_count": unknown_count,
+        "unreadable_sample": unreadable_sample,
+        "smells": smells,
+    }
 
 
 def _flow_check_unit(proj) -> Check:
@@ -994,6 +1125,32 @@ def _flow_check_unit(proj) -> Check:
         bucket="evidence",
         problems=[message or "flow consistency check reported an error"] if not clean else [],
         fix=_FIX_FLOW_CHECK,
+    )
+
+
+def _terminal_row_counts_check(sweep: dict[str, Any]) -> Check:
+    """Advisory (WARN) evidence-read check: unread cached counts and samples.
+
+    Surfaces both gaps recorded by :func:`_evidence_sweep`. A sample-only gap
+    (schema/sample denied but the count was readable) is reported separately so a
+    denied read is never silent; a fully-denied dataset shows only in the
+    count clause, not twice.
+    """
+    unknown = sweep["unknown_count"]
+    sample_only = [d for d in sweep["unreadable_sample"] if d not in set(unknown)]
+    problems: list[str] = []
+    if unknown:
+        problems.append("Could not read a cached row count for: " + ", ".join(unknown))
+    if sample_only:
+        problems.append("Could not read a data sample for: " + ", ".join(sample_only))
+    if not problems:
+        return _ok("terminal_row_counts", bucket="evidence", severity=WARN)
+    return _bad(
+        "terminal_row_counts",
+        bucket="evidence",
+        detail="; ".join(problems),
+        severity=WARN,
+        fix=_FIX_ROW_COUNT,
     )
 
 
@@ -1029,14 +1186,7 @@ def _evidence_units(actx: AuditContext) -> list[CheckUnit]:
             "terminal_row_counts",
             "evidence",
             WARN,
-            lambda: _listing(
-                "terminal_row_counts",
-                bucket="evidence",
-                severity=WARN,
-                items=sweep()["unknown_count"],
-                problem="Could not read a cached row count for: {names}",
-                fix=_FIX_ROW_COUNT,
-            ),
+            lambda: _terminal_row_counts_check(sweep()),
         ),
         (
             "all_null_columns",
@@ -1178,12 +1328,45 @@ def _validate_string_list(dataset: str, field_name: str, value: Any) -> None:
             )
 
 
+# The only assertion keys a per-output spec may carry. An unknown key is a typo
+# (``min_row`` for ``min_rows``) that would otherwise silently drop the assertion,
+# so it is rejected rather than ignored.
+_KNOWN_OUTPUT_SPEC_KEYS = frozenset({"columns", "not_blank", "min_rows", "types"})
+
+
+def _validate_types(dataset: str, value: Any) -> None:
+    """Reject a ``types`` spec that isn't a non-empty {column: type} string map."""
+    if not isinstance(value, dict) or not value:
+        raise ValueError(
+            f'contract output "{dataset}": "types" must be a non-empty object mapping '
+            "column name to expected type"
+        )
+    for column, expected in value.items():
+        if not isinstance(column, str) or not column.strip():
+            raise ValueError(
+                f'contract output "{dataset}": "types" keys must be non-empty strings'
+            )
+        if not isinstance(expected, str) or not expected.strip():
+            raise ValueError(
+                f'contract output "{dataset}": "types"[{column!r}] must be a '
+                "non-empty string"
+            )
+
+
 def _validate_output_spec(dataset: str, spec: dict[str, Any]) -> dict[str, Any]:
     """Reject degenerate spec values with a precise message (no DSS work here)."""
+    unknown = sorted(k for k in spec if k not in _KNOWN_OUTPUT_SPEC_KEYS)
+    if unknown:
+        raise ValueError(
+            f'contract output "{dataset}": unknown key(s) {unknown}. Allowed keys: '
+            f"{sorted(_KNOWN_OUTPUT_SPEC_KEYS)}"
+        )
     if "columns" in spec:
         _validate_string_list(dataset, "columns", spec["columns"])
     if "not_blank" in spec:
         _validate_string_list(dataset, "not_blank", spec["not_blank"])
+    if "types" in spec:
+        _validate_types(dataset, spec["types"])
     if spec.get("min_rows") is not None:
         min_rows = spec["min_rows"]
         # A numeric string (or float/bool) is rejected outright, never coerced.
@@ -1201,9 +1384,12 @@ def normalize_contract(contract: Any) -> dict[str, Any]:
     Accepts the documented list form ``{"outputs": [{"dataset": ..., "columns": ...,
     "min_rows": ...}]}`` and the equivalent mapping form. Every degenerate value is
     rejected here, before any DSS work: an empty ``outputs``; an empty or duplicate
-    dataset name; a non-integer or negative ``min_rows`` (a numeric string is
-    rejected, not coerced); and a non-list or empty-string-bearing ``columns`` /
-    ``not_blank``. Raises ``ValueError`` with a clear message on anything malformed.
+    dataset name; an *unknown* spec key (a ``min_row`` typo would otherwise silently
+    drop the assertion — only ``columns``/``not_blank``/``min_rows``/``types`` are
+    allowed); a non-integer or negative ``min_rows`` (a numeric string is rejected,
+    not coerced); a non-list or empty-string-bearing ``columns`` / ``not_blank``;
+    and a ``types`` that isn't a non-empty {column: type} map of non-empty strings.
+    Raises ``ValueError`` with a clear message on anything malformed.
     """
     if not isinstance(contract, dict):
         raise ValueError("contract must be a JSON object")

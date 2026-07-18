@@ -29,7 +29,17 @@ class FakeMetrics:
 
 
 class FakeDataset:
-    def __init__(self, name, description="", short_desc="", columns=None, count=None, rows=None, raises=None):
+    def __init__(
+        self,
+        name,
+        description="",
+        short_desc="",
+        columns=None,
+        count=None,
+        rows=None,
+        raises=None,
+        meta_raises=None,
+    ):
         self.name = name
         self._description = description
         self._short_desc = short_desc
@@ -37,6 +47,10 @@ class FakeDataset:
         self._count = count
         self._rows = rows or []
         self._raises = raises
+        # A read that fails for ONE facet only (e.g. a denied metadata read while
+        # schema/metrics stay readable), so a scan-level evidence gap can be
+        # exercised without failing every read.
+        self._meta_raises = meta_raises
 
     def _guard(self):
         if self._raises is not None:
@@ -44,6 +58,8 @@ class FakeDataset:
 
     def get_metadata(self):
         self._guard()
+        if self._meta_raises is not None:
+            raise self._meta_raises
         meta = {}
         if self._description:
             meta["description"] = self._description
@@ -433,6 +449,59 @@ def test_unreadable_fail_evidence_marks_incomplete_and_not_passed():
     assert payload["errors"] == 1
 
 
+def test_denied_terminal_metadata_read_is_error_not_false_pass():
+    # A denied per-object description read inside a scan must not vanish into a
+    # clean pass. The terminal output's metadata is unreadable; the FAIL-severity
+    # description checks cannot certify a pass, so they error (not pass).
+    denied = PermissionError("metadata read denied")
+    proj = linear_project(
+        datasets={"out": {"columns": [col("id", comment="c")], "count": 5, "meta_raises": denied}}
+    )
+    checks = checks_for_bucket(proj, "documentation")
+
+    ddesc = checks["datasets_have_descriptions"]
+    assert ddesc.status == "error"
+    assert "out" in ddesc.detail
+    # The flow-visible check (also FAIL, terminal-driven) cannot certify either.
+    assert checks["flow_visible_descriptions"].status == "error"
+
+    payload = ae.run_audit(proj, "PROJ", buckets=["documentation"])
+    assert payload["passed"] is False
+    assert payload["incomplete"] is True
+    assert payload["errors"] >= 1
+
+
+def test_warn_scan_notes_evidence_gap_without_erroring():
+    # A denied SOURCE-dataset read feeds only a WARN check: it never blocks, but
+    # the gap must be noted in the detail rather than silently dropped.
+    denied = PermissionError("denied")
+    proj = linear_project(
+        datasets={"src": {"columns": [col("id")], "count": 3, "meta_raises": denied}}
+    )
+    checks = checks_for_bucket(proj, "documentation")
+    src = checks["source_datasets_have_descriptions"]
+    assert src.status == "warn"
+    assert "src" in src.detail and "evidence gap" in src.detail
+
+
+def test_unreadable_terminal_schema_is_noted_not_counted_documented():
+    # A denied schema read must not be silently treated as "columns documented".
+    class NoSchema(FakeDataset):
+        def get_definition(self):
+            raise PermissionError("schema denied")
+
+    proj = linear_project()
+    proj._datasets["out"] = NoSchema("out", description="Cleaned output", count=5)
+    checks = checks_for_bucket(proj, "evidence")
+    # Sample read failed -> surfaced by the row-count evidence check, not hidden.
+    assert checks["terminal_row_counts"].status == "warn"
+    assert "out" in checks["terminal_row_counts"].detail
+    doc_checks = checks_for_bucket(proj, "documentation")
+    tcd = doc_checks["terminal_columns_documented"]
+    assert tcd.status == "warn"
+    assert "unreadable" in tcd.detail and "out" in tcd.detail
+
+
 # --------------------------------------------------------------------------- #
 # Contract
 # --------------------------------------------------------------------------- #
@@ -533,6 +602,73 @@ def test_contract_accepts_zero_min_rows():
     # 0 is a valid non-negative integer and must survive normalization.
     normalized = ae.normalize_contract({"outputs": [{"dataset": "B", "min_rows": 0}]})
     assert normalized == {"outputs": {"B": {"min_rows": 0}}}
+
+
+def test_contract_rejects_unknown_spec_key_typo():
+    # A `min_row` typo would silently drop the row-count assertion; reject it and
+    # name the allowed key set instead of ignoring the key.
+    with pytest.raises(ValueError, match="unknown key"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "min_row": 5}]})
+
+
+def test_contract_rejects_empty_and_non_string_types():
+    with pytest.raises(ValueError, match="types"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "types": {}}]})
+    with pytest.raises(ValueError, match="types"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "types": {"col": 1}}]})
+    with pytest.raises(ValueError, match="types"):
+        ae.normalize_contract({"outputs": [{"dataset": "B", "types": {"": "string"}}]})
+
+
+def test_contract_accepts_full_valid_contract_with_types():
+    normalized = ae.normalize_contract(
+        {
+            "outputs": [
+                {
+                    "dataset": "B",
+                    "columns": ["x"],
+                    "not_blank": ["x"],
+                    "min_rows": 3,
+                    "types": {"x": "string"},
+                }
+            ]
+        }
+    )
+    assert normalized == {
+        "outputs": {
+            "B": {
+                "columns": ["x"],
+                "not_blank": ["x"],
+                "min_rows": 3,
+                "types": {"x": "string"},
+            }
+        }
+    }
+
+
+def test_dataset_sample_stops_before_consuming_the_next_row():
+    # The bounded row sample must consume exactly max_rows items from the live
+    # iterator — never row max_rows+1 (an unnecessary read against the dataset).
+    consumed = {"n": 0}
+
+    def gen():
+        i = 0
+        while True:
+            consumed["n"] += 1
+            i += 1
+            yield [i]
+
+    class OneDataset:
+        def iter_rows(self):
+            return gen()
+
+    class OneProj:
+        def get_dataset(self, name):
+            return OneDataset()
+
+    rows = ae._dataset_sample(OneProj(), "d", [col("v")], 100)
+    assert len(rows) == 100
+    assert consumed["n"] == 100  # row 101 was never pulled
 
 
 # --------------------------------------------------------------------------- #

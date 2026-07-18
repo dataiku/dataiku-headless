@@ -33,6 +33,15 @@ ROUTED_SUBDIRS = ("playbooks", "references")
 _MD_TOKEN = re.compile(r"(?:\.\./|[\w.-]+/)*[\w.-]+\.md")
 
 
+def _within_skill_root(resolved: Path) -> bool:
+    """True if a resolved path lives inside the skills root (no ``../`` escape)."""
+    try:
+        resolved.relative_to(SKILL_ROOT.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def _frontmatter_errors(skill_dir: Path, text: str) -> list[str]:
     """SKILL.md must carry `name` + `description`, and name must equal the dir."""
     match = re.match(r"\A---\n(.*?)\n---\n", text, re.DOTALL)
@@ -74,12 +83,20 @@ def _resolve(
             stripped = stripped[3:]
         for candidate in ((from_file.parent / ref), (skill_dir / stripped)):
             if candidate.is_file():
-                return candidate.resolve()
+                resolved = candidate.resolve()
+                # A ``../``-laden ref must not climb out of the skill tree. A
+                # target outside SKILL_ROOT (e.g. `../../../README.md`) is treated
+                # as unresolvable so it fails the dead-reference check rather than
+                # silently pointing the supervisor at a file off the routed tree.
+                if _within_skill_root(resolved):
+                    return resolved
         return None
 
     candidate = from_file.parent / ref
     if candidate.is_file():
-        return candidate.resolve()
+        resolved = candidate.resolve()
+        if _within_skill_root(resolved):
+            return resolved
     return by_name.get(ref)
 
 

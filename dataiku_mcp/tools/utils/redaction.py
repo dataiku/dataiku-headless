@@ -16,44 +16,48 @@ CONNECTION_REDACTION = "__DATAIKU_REDACTED__"
 # Marker written into project-variable payloads.
 VARIABLE_REDACTION = "***REDACTED***"
 
-_SENSITIVE_EXACT_KEYS = {
+# Separators that hide the shape of a credential key (``AWS_ACCESS_KEY_ID``,
+# ``client-secret``, ``api.key``) are stripped before matching so the heuristic
+# sees one contiguous lowercase token.
+_SEPARATORS = str.maketrans("", "", "_-.")
+
+# A normalized key is sensitive if it CONTAINS any of these fragments. Chosen so
+# that real-world credential keys — ``clientSecret``, ``myApiKey``,
+# ``AWS_ACCESS_KEY_ID``, ``authorization``, ``Bearer_Token`` — all match, and so
+# that the old connections.py pattern set (apikey/accesskey/credential(s)/
+# password/privatekey/secret(key)/(session)token exact + *password/*privatekey/
+# *secretkey/*sessiontoken/*credential/*token suffixes) is a strict subset.
+_SENSITIVE_SUBSTRINGS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "credential",
     "apikey",
     "accesskey",
-    "credentials",
-    "password",
     "privatekey",
-    "secret",
-    "secretkey",
-    "sessiontoken",
-    "token",
-    "resolvedawscredential",
-    "resolvedbasiccredential",
-    "resolvedoauth2credential",
-}
-_SENSITIVE_SUFFIXES = (
-    "password",
-    "privatekey",
-    "secretkey",
-    "sessiontoken",
+    "keystore",
+    "authorization",
+    "bearer",
 )
+
+# Fragments too short to use as a substring without nuking innocent keys: ``key``
+# would flag ``keyspace``/``monkey`` and ``auth`` would flag ``author``. They
+# redact only on an EXACT normalized match.
+_SENSITIVE_EXACT_KEYS = frozenset({"auth", "key"})
+
+
+def _normalize_key(key: str) -> str:
+    """Lowercase and drop ``_ - .`` separators so key shape survives spelling."""
+    return key.translate(_SEPARATORS).lower()
 
 
 def is_sensitive_key(key: str) -> bool:
     """True if ``key`` names a password/secret/token/key/credential value."""
-    normalized = key.replace("_", "").replace("-", "").lower()
+    normalized = _normalize_key(key)
     if normalized in _SENSITIVE_EXACT_KEYS:
         return True
-
-    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES):
-        return True
-
-    if normalized.endswith("credential"):
-        return True
-
-    if normalized.endswith("token"):
-        return True
-
-    return False
+    return any(fragment in normalized for fragment in _SENSITIVE_SUBSTRINGS)
 
 
 def redact_sensitive_values(value: Any, placeholder: str = VARIABLE_REDACTION) -> Any:

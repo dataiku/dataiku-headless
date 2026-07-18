@@ -65,7 +65,7 @@ export DKU_API_KEY="your-api-key"
 - `allow_edit_project` is a per-message grant defaulting to `false`. Keep it that way: inspection and planning are read-only; a build grant is opt-in on the specific message that carries a requested change.
 
 ## Project Audit Engine
-- `audit_engine.py` is read-only: metrics are read from cached values (never recomputed), row samples are bounded, and the flow-consistency check is time-bounded and degrades to `skip`. Nothing may mutate DSS.
+- `audit_engine.py` is read-only: metrics are read from cached values (never recomputed), row samples are bounded, and the flow-consistency check is time-bounded. It is FAIL-severity, so a check exception or timeout degrades to status `error` (not `skip`): `passed=false`, the audit is marked `incomplete`, and the gate blocks — unreadable evidence is never scored as a pass. Only WARN-severity checks degrade to `skip`. Nothing may mutate DSS.
 - Every failing check must carry a `fix` re-pointed at this server's action model: a copy-paste Cobuild delegation prompt, or a named MCP tool (e.g. `build_datasets`) for the rare direct action. Never emit `dku` shell commands or any other harness's syntax — they are meaningless to the supervisor.
 
 ## Skills Contract

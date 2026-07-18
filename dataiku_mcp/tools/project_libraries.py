@@ -24,6 +24,14 @@ DEFAULT_LIST_MAX_ITEMS = 500
 DEFAULT_LIST_MAX_DEPTH = 20
 DEFAULT_READ_MAX_BYTES = 200_000
 
+# Hard server ceilings. A caller may raise the defaults, but never past these:
+# the values are silently clamped down (not rejected) so an over-eager request
+# still returns a bounded payload instead of an unbounded tree/file. ``<= 0`` is
+# still rejected upstream by ``require_positive_int``.
+MAX_LIST_MAX_ITEMS = 2000
+MAX_LIST_MAX_DEPTH = 50
+MAX_READ_MAX_BYTES = 1_000_000
+
 
 def _normalize_library_path(path: str) -> str:
     """Normalize a library path to a leading-slash, no-trailing-slash form."""
@@ -201,15 +209,19 @@ async def list_project_library(
 
     Bounded: at most ``max_items`` entries (default 500) and ``max_depth`` levels
     of descent (default 20). When either bound clips the walk the payload carries
-    ``truncated: true`` alongside the applied ``max_items``/``max_depth``.
+    ``truncated: true`` alongside the applied ``max_items``/``max_depth``. Caller
+    values above the server ceilings (``max_items`` ≤ 2000, ``max_depth`` ≤ 50)
+    are clamped down, not rejected, so the payload is always bounded.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path or "/")
     source = source.strip().lower() or "all"
     if source not in {"all", "internal", "external"}:
         raise ValueError("source must be one of: all, internal, external")
-    max_items = _require_positive_int(max_items, "max_items")
-    max_depth = _require_positive_int(max_depth, "max_depth")
+    # Reject <= 0, then clamp down to the hard server ceiling (a caller cannot
+    # bypass the bound by asking for more).
+    max_items = min(_require_positive_int(max_items, "max_items"), MAX_LIST_MAX_ITEMS)
+    max_depth = min(_require_positive_int(max_depth, "max_depth"), MAX_LIST_MAX_DEPTH)
     await ctx.info(
         f"Listing project library {project_key} from {path} (source={source}, "
         f"max_items={max_items}, max_depth={max_depth})..."
@@ -288,14 +300,18 @@ async def read_project_library_file(
 ) -> str:
     """Read a text file from the project library, bounded to ``max_bytes``.
 
-    The DSS API returns the whole file, so the cap is applied to the *returned*
-    content (default 200_000 bytes, measured UTF-8). When the file is larger the
-    payload is clipped on a byte boundary and carries ``truncated: true`` with the
-    total and returned byte counts.
+    The DSS SDK exposes no streaming/range read — ``file.read()`` returns the
+    whole file in one call — so the cap is applied to the *returned* content
+    (default 200_000 bytes, measured UTF-8; hard ceiling 1_000_000). A caller
+    value above the ceiling is clamped down, not rejected. Very large files are
+    truncated at the applied cap: the payload is clipped on a byte boundary and
+    carries ``truncated: true`` with the total and returned byte counts.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
-    max_bytes = _require_positive_int(max_bytes, "max_bytes")
+    # Reject <= 0, then clamp down to the hard server ceiling so the response is
+    # always bounded even when the caller asks for more.
+    max_bytes = min(_require_positive_int(max_bytes, "max_bytes"), MAX_READ_MAX_BYTES)
     await ctx.info(
         f"Reading project library file {path} in {project_key} (max_bytes={max_bytes})..."
     )
@@ -307,6 +323,9 @@ async def read_project_library_file(
         file = _safe_get_file(library, path)
         if file is None:
             raise ValueError(f"File not found: {path}")
+        # The SDK has no range/streaming read: this materializes the whole file.
+        # The response is bounded below by clipping to ``max_bytes`` (itself capped
+        # at MAX_READ_MAX_BYTES), so the caller never receives an unbounded payload.
         content = file.read()
         encoded = content.encode("utf-8")
         total_bytes = len(encoded)

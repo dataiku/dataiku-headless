@@ -11,11 +11,17 @@ How it works, and why it can't be fooled by a stale doc:
    hand-maintained list — imported in a subprocess under both transports and
    unioned (streamable-http swaps `create_upload_dataset` for
    `create_upload_dataset_from_rows`, so the union is the full name space).
-2. Every backticked, tool-shaped token in the skill markdown is extracted
-   (snake_case identifier, optionally written as a call `name(...)`), then each
-   must resolve to either a registered tool or an explicit non-tool ``ALLOWLIST``
-   entry (parameters, statuses, recipe-family identifiers, config keys, example
-   object names). Anything else is a dead tool reference and fails the check.
+2. Every tool-shaped token in *code* is extracted — backticked inline runs and
+   fenced code blocks alike (snake_case identifier, optionally written as a call
+   `name(...)`) — then each must resolve to either a registered tool or an
+   explicit non-tool ``ALLOWLIST`` entry (parameters, statuses, recipe-family
+   identifiers, config keys, example object names). Anything else is a dead tool
+   reference and fails the check.
+3. A targeted prose sweep additionally flags an *unbackticked* tool-shaped name
+   that opens with a real tool's verb prefix (`get_`/`list_`/`create_`/…, derived
+   live from the registry) but resolves to no registered tool and is not
+   allowlisted — a ghost route hiding in running text. An unbackticked *real*
+   tool name is never flagged.
 
 Precision over recall on the extraction: camelCase fields (`insightId`),
 single-word tokens (`prepare`, `timeout`), and tokens carrying `*`/`:`/`=`/`/`
@@ -39,6 +45,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = ROOT / "dataiku-skills"
 
+# A fenced code block, including its ``` markers and any info string. Matched and
+# removed first so inline-code extraction never sees fence content, and scanned
+# separately for tool-shaped tokens (a tool name written inside a fenced example
+# must resolve just like a backticked one).
+_FENCE = re.compile(r"```.*?```", re.DOTALL)
 # Content between single backticks on one line. Triple-backtick fence markers
 # never match (the inner run would have to contain a backtick), so fenced code
 # openers like ```python are ignored, not mis-parsed.
@@ -48,6 +59,10 @@ _CALL = re.compile(r"^([a-z][a-z0-9_]+)\s*\(")
 # Tool-name shape: lowercase snake_case with at least one underscore (>=2
 # segments). Every real tool matches; single words and camelCase do not.
 _IDENT = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
+# A bare identifier as it appears in running text/code: used to harvest
+# tool-shaped candidates from fenced blocks and from prose (each still filtered
+# through _IDENT, so the same shape heuristics apply).
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Minimum plausible registry size; below this the subprocess import is assumed
 # broken and we fail closed rather than pass a tree against an empty name set.
@@ -159,29 +174,75 @@ def registry_tool_names() -> set[str]:
     return names
 
 
-def tool_shaped_tokens(text: str) -> set[str]:
-    """Every backticked, tool-shaped token in a markdown string."""
+def _fenced_tokens(text: str) -> set[str]:
+    """Every tool-shaped token inside a fenced code block."""
     found: set[str] = set()
-    for span in _INLINE_CODE.findall(text):
+    for block in _FENCE.findall(text):
+        for word in _WORD.findall(block):
+            if _IDENT.fullmatch(word):
+                found.add(word)
+    return found
+
+
+def tool_shaped_tokens(text: str) -> set[str]:
+    """Every tool-shaped token in *code* — backticked inline runs and fenced blocks.
+
+    Both surfaces name tools the supervisor is routed to, so both must resolve to
+    a real tool or the allowlist. Fences are extracted before inline scanning so a
+    ``` opener is never mis-read as an inline run.
+    """
+    outside_fences = _FENCE.sub("\n", text)
+    found: set[str] = set()
+    for span in _INLINE_CODE.findall(outside_fences):
         token = span.strip()
         call = _CALL.match(token)
         if call:
             token = call.group(1)
         if _IDENT.fullmatch(token):
             found.add(token)
-    return found
+    return found | _fenced_tokens(text)
+
+
+def _registry_prefixes(registry: set[str]) -> frozenset[str]:
+    """Tool-verb prefixes (first snake segment) derived from the live registry."""
+    return frozenset(name.split("_", 1)[0] for name in registry)
+
+
+def prose_ghost_tokens(text: str, valid: set[str], prefixes: frozenset[str]) -> set[str]:
+    """Unbackticked, tool-verb-prefixed snake_case tokens that name no real tool.
+
+    Catches a ghost tool referenced in running prose without backticks (e.g.
+    ``use get_webapp_state ...``). To stay precise it fires only on a token that
+    (1) is tool-shaped (``_IDENT``), (2) opens with a verb prefix that a real tool
+    uses (``get_``/``list_``/``create_``/…, derived from the registry), and (3)
+    resolves to neither a registered tool nor the allowlist. An unbackticked *real*
+    tool name is therefore never flagged — only ghosts are.
+    """
+    prose = _INLINE_CODE.sub(" ", _FENCE.sub("\n", text))
+    ghosts: set[str] = set()
+    for match in _WORD.finditer(prose):
+        token = match.group(0)
+        if not _IDENT.fullmatch(token):
+            continue
+        if token.split("_", 1)[0] not in prefixes:
+            continue
+        if token not in valid:
+            ghosts.add(token)
+    return ghosts
 
 
 def check() -> tuple[list[str], int, int]:
     """Return (errors, tokens_checked, registry_size)."""
     registry = registry_tool_names()
     valid = registry | ALLOWLIST
+    prefixes = _registry_prefixes(registry)
 
     md_files = sorted(SKILL_ROOT.rglob("*.md"))
     errors: list[str] = []
     checked = 0
     for path in md_files:
-        tokens = tool_shaped_tokens(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        tokens = tool_shaped_tokens(text)
         checked += len(tokens)
         rel = path.relative_to(SKILL_ROOT)
         for token in sorted(tokens):
@@ -193,6 +254,13 @@ def check() -> tuple[list[str], int, int]:
                     "scripts/check_skill_tool_names.py; otherwise it is a dead tool "
                     "reference — fix it against references/tool-index.md."
                 )
+        for token in sorted(prose_ghost_tokens(text, valid, prefixes)):
+            errors.append(
+                f"{rel}: unbackticked tool-shaped name '{token}' in prose names no "
+                "registered tool. If it is a real non-tool token, add it to "
+                "ALLOWLIST; if it is a real tool, backtick it; otherwise it is a "
+                "dead tool reference — fix it against references/tool-index.md."
+            )
     return errors, checked, len(registry)
 
 
