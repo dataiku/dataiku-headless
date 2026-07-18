@@ -1,0 +1,60 @@
+name: Semantic PR Title
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  lint-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        id: lint_pr_title
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            chore
+            refactor
+            test
+            ci
+            perf
+            deps
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: "Subject must not start with an uppercase letter"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        if: always() && (steps.lint_pr_title.outputs.error_message != null)
+        with:
+          header: pr-title-lint-error
+          message: |
+            > [!WARNING]
+            > **PR title does not follow the Conventional Commits specification.**
+
+            ${{ steps.lint_pr_title.outputs.error_message }}
+
+            ---
+
+            Format: `<type>(<scope>): <subject>`
+
+            Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `deps`.
+
+            See [Conventional Commits](https://www.conventionalcommits.org/).
+
+      - uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        if: ${{ steps.lint_pr_title.outputs.error_message == null }}
+        with:
+          header: pr-title-lint-error
+          delete: true

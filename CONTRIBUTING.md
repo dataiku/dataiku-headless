@@ -117,6 +117,15 @@ uv run cz check --rev-range origin/main..HEAD  # validate your branch's messages
 uv run cz commit                               # guided, interactive commit
 ```
 
+## Releasing
+
+Maintainers cut a release from `main`:
+
+1. Preview the next version: `uv run cz bump --dry-run`.
+2. `uv run cz bump` — bumps `[project].version` and the three plugin manifests (via `version_files`), regenerates `CHANGELOG.md`, and creates the annotated `vX.Y.Z` tag from commit history.
+3. `git push origin main --follow-tags` — pushes the commit and the tag together.
+4. The `v*` tag triggers `.github/workflows/release.yml`, which re-runs the full gate (tests, lint, skill-integrity checks), builds the wheel and sdist, verifies the wheel version matches the tag, and publishes a GitHub Release with generated notes and the `dist/` artifacts.
+
 ## Security issues
 
 **Please do not file public GitHub issues for security vulnerabilities.**

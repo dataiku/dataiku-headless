@@ -70,7 +70,8 @@ name = "cz_conventional_commits"
 version_provider = "pep621"
 tag_format = "v$version"
 update_changelog_on_bump = true
-major_version_zero = true
+major_version_zero = false
+annotated_tag = true
 # Keep the plugin manifests' "version" field in lockstep with [project].version.
 version_files = [
     ".claude-plugin/plugin.json",
