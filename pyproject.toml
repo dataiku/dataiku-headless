@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dataiku-headless"
-version = "0.2.0"
-description = "Headless Dataiku DSS agent kit: a FastMCP server for operating Dataiku DSS from an AI agent harness. The companion agent skill library ships via the Claude Code / Codex / Cortex Code plugin, not this package."
+version = "0.3.0"
+description = "Dataiku supervisor kit: a FastMCP server that lets an AI agent harness gather Dataiku DSS context, delegate building to Cobuild, and verify the result. The companion skill ships via the Claude Code / Codex / Cursor plugin, not this package."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "LicenseRef-Proprietary"
@@ -45,6 +45,12 @@ include = [
     "pyproject.toml",
 ]
 
+[tool.ruff]
+# Match the code style already in the tree (Ruff's 88-column default). Line
+# length is not in the enforced rule set below, so this documents intent rather
+# than gating; keep it aligned if the rule set ever adds E501.
+line-length = 88
+
 [tool.ruff.lint]
 # Pin to Ruff's default rule set (pyflakes + a subset of pycodestyle) so the
 # lint gate stays stable across Ruff upgrades. Import sorting is configured
@@ -55,10 +61,7 @@ select = ["E4", "E7", "E9", "F"]
 combine-as-imports = true
 
 [tool.pytest.ini_options]
-testpaths = [
-    "tests",
-    "dataiku-skills/migrations/gate/tests",
-]
+testpaths = ["tests"]
 addopts = "-ra"
 
 [tool.commitizen]

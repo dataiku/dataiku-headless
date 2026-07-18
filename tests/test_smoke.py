@@ -140,8 +140,9 @@ def test_mcp_server_initialized():
 
 
 def test_distribution_version_is_resolvable():
-    # The version is the commitizen / PEP 621 source of truth in pyproject.toml
-    # and what the release workflow diffs to decide whether to publish.
+    # The version is the commitizen / PEP 621 source of truth in pyproject.toml;
+    # this asserts the installed distribution metadata actually resolves it, so
+    # CI runs against a properly built/installed package rather than a bare tree.
     version = importlib.metadata.version("dataiku-headless")
     assert version and version[0].isdigit()
 
