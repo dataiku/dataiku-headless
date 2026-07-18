@@ -1,4 +1,4 @@
-## Unreleased
+## v1.0.0 (2026-07-18)
 
 Supervisor refactor: `dataiku-headless` is now the supervisor kit for external
 coding agents — gather project context and verify with read tools, delegate

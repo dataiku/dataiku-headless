@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dataiku-headless"
-version = "0.3.0"
+version = "1.0.0"
 description = "Dataiku supervisor kit: a FastMCP server that lets an AI agent harness gather Dataiku DSS context, delegate building to Cobuild, and verify the result. The companion skill ships via the Claude Code / Codex / Cursor plugin, not this package."
 readme = "README.md"
 requires-python = ">=3.10"
