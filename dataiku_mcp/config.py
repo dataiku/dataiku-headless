@@ -5,7 +5,8 @@ Config-file resolution (first hit wins), so an installed package does not read a
 
 1. ``$DKU_CONFIG_DIR/config.json`` when ``DKU_CONFIG_DIR`` is set,
 2. else ``./.dataiku/config.json`` relative to the current working directory,
-3. else ``~/.config/dataiku-headless/config.json``.
+3. else ``$XDG_CONFIG_HOME/dataiku-headless/config.json`` (XDG-compliant; defaults
+   to ``~/.config/dataiku-headless/config.json`` when ``XDG_CONFIG_HOME`` is unset).
 
 ``resolve_dotenv_path()`` exposes the matching precedence for a ``.env`` file so
 the entrypoint can load it from the same locations (the actual ``load_dotenv``
@@ -48,6 +49,14 @@ _TRUE_TOKENS = frozenset({"true", "1", "yes"})
 _FALSE_TOKENS = frozenset({"false", "0", "no", ""})
 
 
+def _xdg_config_home() -> Path:
+    """Return ``$XDG_CONFIG_HOME`` when set, else the XDG default ``~/.config``."""
+    raw = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if raw:
+        return Path(raw)
+    return Path.home() / ".config"
+
+
 def _config_search_paths() -> list[Path]:
     """Ordered candidate locations for ``config.json`` (first hit wins)."""
     paths: list[Path] = []
@@ -55,7 +64,7 @@ def _config_search_paths() -> list[Path]:
     if config_dir:
         paths.append(Path(config_dir) / "config.json")
     paths.append(Path.cwd() / ".dataiku" / "config.json")
-    paths.append(Path.home() / ".config" / "dataiku-headless" / "config.json")
+    paths.append(_xdg_config_home() / "dataiku-headless" / "config.json")
     return paths
 
 
@@ -80,7 +89,7 @@ def resolve_dotenv_path() -> Path:
     if config_dir:
         candidates.append(Path(config_dir) / ".env")
     candidates.append(Path.cwd() / ".env")
-    candidates.append(Path.home() / ".config" / "dataiku-headless" / ".env")
+    candidates.append(_xdg_config_home() / "dataiku-headless" / ".env")
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -105,6 +114,33 @@ def _parse_no_check_certificate(value: str) -> bool:
     raise ValueError(
         f"Invalid DKU_NO_CHECK_CERTIFICATE {value!r}. Allowed values: "
         "true/1/yes (verification off) or false/0/no or empty (verification on)."
+    )
+
+
+def _coerce_no_check_certificate(value: object, *, instance_name: str) -> bool:
+    """Strictly coerce a config-file ``no_check_certificate`` value.
+
+    A JSON boolean is honored directly; a JSON string runs through the same
+    strict vocabulary as the env parser (``true``/``1``/``yes`` vs
+    ``false``/``0``/``no``/empty). Everything else — including the string
+    ``"false"`` being naively truthy — raises, naming the offending instance, so
+    a typo or a stringified bool can never silently disable TLS verification.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        try:
+            return _parse_no_check_certificate(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid 'no_check_certificate' for instance '{instance_name}': "
+                f"{exc}"
+            ) from exc
+    raise ValueError(
+        f"Invalid 'no_check_certificate' for instance '{instance_name}': {value!r}. "
+        "Expected a JSON boolean or one of true/1/yes, false/0/no."
     )
 
 
@@ -172,7 +208,9 @@ def _load_instances_from_config() -> dict:
             url=details["url"],
             api_key=details["api_key"],
             description=details.get("description", ""),
-            no_check_certificate=details.get("no_check_certificate", False),
+            no_check_certificate=_coerce_no_check_certificate(
+                details.get("no_check_certificate", False), instance_name=name
+            ),
             source=str(config_file),
         )
     return instances_from_config

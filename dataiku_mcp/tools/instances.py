@@ -45,7 +45,7 @@ async def switch_instance(name: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance URL and configured defaults."""
+    """Return the active Dataiku instance (name, URL, description; API key omitted)."""
 
     # Strip api_key from return value
     current_instance = asdict(config.get_current_instance())

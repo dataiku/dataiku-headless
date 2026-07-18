@@ -23,7 +23,9 @@ Concurrency & durability:
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
+import itertools
 import json
 import os
 import tempfile
@@ -33,6 +35,16 @@ from pathlib import Path
 
 _FILE_MODE = 0o600
 _lock = threading.RLock()
+
+# Upper bound on how long a read-modify-write cycle will wait for the sidecar
+# ``flock`` before giving up. The lock is acquired non-blocking in a short retry
+# loop so a wedged peer can never freeze the caller (notably an async event
+# loop) indefinitely.
+STORE_LOCK_TIMEOUT_SECONDS = 5
+
+# Monotonic, process-lifetime counter that makes a quarantine backup name unique
+# even when two corruptions land in the same wall-clock second.
+_quarantine_counter = itertools.count()
 
 
 class ConversationStoreError(RuntimeError):
@@ -58,22 +70,64 @@ class ConversationStore:
 
     @contextlib.contextmanager
     def _guarded(self):
-        """Hold the in-process lock and an inter-process flock for one RMW cycle."""
+        """Hold the in-process lock and a bounded inter-process flock for one RMW cycle.
+
+        The flock is acquired non-blocking in a short retry loop bounded by
+        ``STORE_LOCK_TIMEOUT_SECONDS`` so a wedged peer holding the lock can never
+        freeze the caller (notably an async event-loop thread) indefinitely; on
+        the deadline we raise a clear error naming the lock file.
+        """
         with _lock:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, _FILE_MODE)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-                yield
+                self._acquire_flock(fd)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
             finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
                 os.close(fd)
 
+    def _acquire_flock(self, fd: int) -> None:
+        """Acquire the exclusive sidecar flock, bounded by the store lock timeout."""
+        deadline = time.monotonic() + STORE_LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise ConversationStoreError(
+                        f"Timed out after {STORE_LOCK_TIMEOUT_SECONDS}s waiting for "
+                        f"the conversation-store lock at {self._lock_path}. Another "
+                        "MCP process (or a wedged/crashed peer) is holding it; check "
+                        "for a stuck process, then remove the stale .lock file if "
+                        "none is running."
+                    ) from exc
+                time.sleep(0.05)
+
     def _quarantine(self, reason: str) -> Path:
-        """Move a corrupt store aside and return the backup path."""
-        backup = self._path.with_name(f"{self._path.name}.corrupt-{int(time.time())}")
-        with contextlib.suppress(OSError):
+        """Move a corrupt store aside and return the backup path.
+
+        The backup name carries a unix-second, pid, and monotonic-counter suffix
+        so two corruptions in the same second never collide. If the move itself
+        fails the corrupt file is left in place and a ``ConversationStoreError`` is
+        raised naming both paths — we never claim the file was quarantined when it
+        was not.
+        """
+        suffix = f"{int(time.time())}-{os.getpid()}-{next(_quarantine_counter)}"
+        backup = self._path.with_name(f"{self._path.name}.corrupt-{suffix}")
+        try:
             os.replace(self._path, backup)
+        except OSError as exc:
+            raise ConversationStoreError(
+                f"Conversation store at {self._path} is corrupt ({reason}) and could "
+                f"NOT be quarantined to {backup} ({exc}). The corrupt file is still "
+                f"in place at {self._path}; move or remove it by hand, then retry."
+            ) from exc
         return backup
 
     def _read_all(self) -> dict:

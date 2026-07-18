@@ -70,7 +70,11 @@ observed confirmation id. **What does not:** a turn that was still *running* —
 work is dropped and polling it reports `turn_lost`, so treat its outcome as unknown (inspect
 the project or send a read-only follow-up) rather than failed. The same caution applies to a
 connection-level failure mid-turn, reported as `error_kind: transport_outcome_unknown`: do not
-blindly re-send. Retained turns are capped by `DKU_MCP_MAX_COBUILD_TURNS` (default `8`).
+blindly re-send. **Registry bounds:** `DKU_MCP_MAX_COBUILD_TURNS` (default `8`) caps how many turns
+run *concurrently* — a send beyond it is refused with `error_kind: saturated` rather than started.
+Independently, settled turns are swept from memory once their outcome is persisted (and their total
+is hard-capped), and a turn still running past a hard time ceiling is evicted with a persisted
+`abandoned` outcome so it can never wedge a slot forever.
 
 ## Tool surface
 
@@ -161,7 +165,7 @@ Or copy `.env.example` to `.env` and fill it in. Full variable reference:
 | `DKU_MCP_MAX_WORKERS` | `4` | Thread-pool size for blocking DSS API calls. |
 | `DKU_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http`. Gates the transport-specific tools. |
 | `DKU_MCP_STATE_DIR` | `~/.local/state/dataiku-headless` | Durable Cobuild conversation registry — conversations and observed confirmation ids survive restarts. |
-| `DKU_MCP_MAX_COBUILD_TURNS` | `8` | Cap on retained Cobuild turns (in-flight + recently settled) kept in memory. |
+| `DKU_MCP_MAX_COBUILD_TURNS` | `8` | Max Cobuild turns running **concurrently**; a send beyond it is refused as `saturated`. Settled turns are swept separately, and a turn wedged past a hard ceiling is evicted as `abandoned`. |
 | `DKU_CONFIG_DIR` | — | Overrides where the instance config file is looked up (see [Multiple instances](#multiple-instances)). |
 
 Streamable-http also honors the standard FastMCP settings `FASTMCP_HOST`, `FASTMCP_PORT`,

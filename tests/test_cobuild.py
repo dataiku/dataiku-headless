@@ -546,6 +546,10 @@ def test_switch_instance_does_not_retarget_in_flight_turn(env):
     env.set_client(backend_b)
 
     gate.set()
+    # Polling now verifies instance ownership, so switch back to the conversation's
+    # original instance to settle it (per the documented switch-back requirement);
+    # the turn itself already ran against the entry-time backend_a.
+    env.set_instance("inst-a")
     settled = poll_status(cid)
     assert settled["status"] == "completed"
     assert settled["message"] == "built on A"
@@ -696,3 +700,280 @@ def test_dss_definitive_error_is_not_outcome_unknown(env):
     assert res["status"] == "error"
     # A real DSS response is definitive: no transport_outcome_unknown marker.
     assert res.get("error_kind") != "transport_outcome_unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 11: a DataikuException carrying a 5xx is outcome-unknown
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Internal Server Error (500)", "DSS error: 503 Service Unavailable", "boom 502"],
+)
+def test_dss_5xx_error_is_outcome_unknown(env, text):
+    backend = FakeBackend()
+    backend.turn_responses = [DataikuException(text)]
+    env.set_client(backend)
+    cid = start()
+
+    res = send(cid, "build something")
+    assert res["status"] == "error"
+    # A 5xx may have mutated state before failing → treat the outcome as unknown.
+    assert res["error_kind"] == "transport_outcome_unknown"
+
+
+def test_dss_unclassifiable_error_stays_definitive(env):
+    backend = FakeBackend()
+    # No transport signature, no 5xx: a structured DSS error stays definitive.
+    backend.turn_responses = [DataikuException("Recipe validation failed: bad SQL")]
+    env.set_client(backend)
+    cid = start()
+
+    res = send(cid, "build something")
+    assert res["status"] == "error"
+    assert res.get("error_kind") != "transport_outcome_unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 1: only the single authoritative pending id can be approved
+# --------------------------------------------------------------------------- #
+
+
+def test_stale_store_pending_cannot_override_live(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    # The live handle holds cid-NEW (the deletion the caller actually saw).
+    backend.turn_responses = [confirmation("Delete new?", "cid-NEW", [OBJ], {})]
+    send(cid, "delete the new dataset")
+
+    # Corrupt the durable store to hold a DIVERGENT, stale id.
+    cobuild._store().set_pending_confirmation(cid, "cid-STALE")
+    entry = cobuild._get_live(cid)
+    assert entry.conversation._pending_confirmation_id == "cid-NEW"
+
+    # The stale store id must NOT be accepted (no union with the live id).
+    with pytest.raises(ValueError, match="does not match"):
+        answer(cid, "APPROVE", "cid-STALE")
+    assert not any("/confirmation/" in path for _m, path, _b in backend.calls)
+    # The live id was never overwritten by the supplied stale one.
+    assert entry.conversation._pending_confirmation_id == "cid-NEW"
+
+    # And the true live id still approves.
+    backend.turn_responses = [assistant("deleted new")]
+    res = answer(cid, "APPROVE", "cid-NEW")
+    assert res["status"] == "completed"
+    assert any("/confirmation/cid-NEW" in path for _m, path, _b in backend.calls)
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 2: begin-turn is atomic — a second caller cannot rebind the
+# first caller's client, and never raises an uncaught RuntimeError.
+# --------------------------------------------------------------------------- #
+
+
+def test_begin_turn_overlap_does_not_rebind_client(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    entry = cobuild._get_live(cid)
+    client_a = object()
+    entry.conversation.client = client_a
+
+    # Caller A already reserved the slot.
+    cobuild._in_flight[cid] = _pending_turn(cid)
+
+    # Caller B tries to begin a turn with a DIFFERENT client.
+    client_b = object()
+    with pytest.raises(cobuild._CobuildInProgress) as excinfo:
+        cobuild._begin_turn(
+            cid,
+            entry,
+            lambda: None,
+            kind="send",
+            allow_edit_project=False,
+            rehydrated=False,
+            client=client_b,
+        )
+    assert excinfo.value.turn is cobuild._in_flight[cid]
+    # The shared handle's client was NOT rebound to B's client: the overlap check
+    # and the client bind happen atomically under one lock, in that order.
+    assert entry.conversation.client is client_a
+
+
+def test_send_overlap_returns_in_progress_not_exception(env, monkeypatch):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    cobuild._in_flight[cid] = _pending_turn(cid)
+    # Bypass the early fast-path check to force the atomic _begin_turn overlap
+    # branch — the real concurrent-race path a second HTTP caller would hit.
+    monkeypatch.setattr(cobuild, "_get_in_flight", lambda _cid: None)
+
+    res = send(cid, "second build")
+    assert res["status"] == "in_progress"  # structured, not a raised RuntimeError
+    assert not any(p.endswith("/messages") for _m, p, _b in backend.calls)
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 3: a callback exception still leaves the store terminal
+# --------------------------------------------------------------------------- #
+
+
+def test_callback_exception_still_persists_terminal(env, monkeypatch):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+
+    from dataiku_mcp.tools.utils import conversation_store as cs
+
+    real = cs.ConversationStore.record_outcome
+    calls = {"n": 0}
+
+    def flaky(self, conversation_id, status, pending):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated store failure on first terminal write")
+        return real(self, conversation_id, status, pending)
+
+    monkeypatch.setattr(cs.ConversationStore, "record_outcome", flaky)
+
+    backend.turn_responses = [assistant("done")]
+    res = send(cid, "build")
+    assert res["status"] == "completed"
+
+    # Despite the first record_outcome raising, the store must NOT linger at
+    # in_flight: the minimal terminal retry (or the other settle path) wrote it.
+    rec = _wait_store_terminal(env, cid)
+    assert rec["last_result_status"] == "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 4: status polling verifies instance ownership (both paths)
+# --------------------------------------------------------------------------- #
+
+
+def test_status_poll_rejects_wrong_instance_live(env):
+    backend = FakeBackend()
+    gate = threading.Event()
+    backend.gate = gate
+    backend.turn_responses = [assistant("done")]
+    env.set_client(backend)
+    cid = start()
+    assert send(cid, "long build", timeout_seconds=1)["status"] == "timeout"
+
+    env.set_instance("inst-b")
+    with pytest.raises(ValueError, match="belongs to instance"):
+        run(cobuild.get_cobuild_turn_status(cid, "PROJ", FakeCtx()))
+
+    # Cleanup: settle on the owning instance.
+    gate.set()
+    env.set_instance("inst-a")
+    poll_status(cid)
+
+
+def test_status_poll_rejects_wrong_instance_store(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    backend.turn_responses = [confirmation("Delete x?", "cid-x", [OBJ], {})]
+    send(cid, "delete x")
+    _wait_store_terminal(env, cid)
+    cobuild._in_flight.clear()  # force the store-backed polling path
+
+    env.set_instance("inst-b")
+    with pytest.raises(ValueError, match="belongs to instance"):
+        run(cobuild.get_cobuild_turn_status(cid, "PROJ", FakeCtx()))
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 5: retained registry is bounded (settled cap + hung sweep)
+# --------------------------------------------------------------------------- #
+
+
+def test_settled_eviction_bounds_retained_entries(env, monkeypatch):
+    monkeypatch.setattr(cobuild, "MAX_SETTLED_RETAINED", 3)
+    now = time.monotonic()
+    for i in range(6):
+        f = concurrent.futures.Future()
+        f.set_result(None)
+        turn = _pending_turn(f"s-{i}")
+        turn.future = f
+        turn.settled_at = now - (100 - i)  # smaller i => older
+        cobuild._in_flight[f"s-{i}"] = turn
+
+    with cobuild._lock:
+        cobuild._sweep_in_flight(now=now)
+
+    # Only the newest MAX_SETTLED_RETAINED settled turns are retained.
+    assert set(cobuild._in_flight) == {"s-3", "s-4", "s-5"}
+
+
+def test_hung_turn_evicted_and_abandoned(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()  # registers the conversation in the store
+
+    turn = _pending_turn(cid)  # unfinished future
+    turn.started_at = time.monotonic() - cobuild.HUNG_TURN_CEILING_SECONDS - 1
+    cobuild._in_flight[cid] = turn
+
+    with cobuild._lock:
+        cobuild._sweep_in_flight()
+
+    assert cid not in cobuild._in_flight
+    assert read_store(env)[cid]["last_result_status"] == "abandoned"
+
+
+def test_hung_turn_eviction_frees_capacity(env, monkeypatch):
+    monkeypatch.setattr(cobuild, "MAX_CONCURRENT_COBUILD_TURNS", 1)
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+
+    # A wedged turn occupies the only concurrency slot.
+    hung = _pending_turn("hung")
+    hung.started_at = time.monotonic() - cobuild.HUNG_TURN_CEILING_SECONDS - 1
+    cobuild._in_flight["hung"] = hung
+
+    # A new send sweeps the hung turn (freeing the slot) and proceeds.
+    backend.turn_responses = [assistant("built")]
+    res = send(cid, "please build")
+    assert res["status"] == "completed"
+    assert "hung" not in cobuild._in_flight
+
+
+def test_late_callback_after_eviction_still_persists(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+
+    class _Resp:
+        type = "assistant_message"
+        is_error = False
+        message = "late done"
+
+    f = concurrent.futures.Future()
+    f.set_running_or_notify_cancel()
+    turn = cobuild._InFlightTurn(
+        future=f,
+        conversation_id=cid,
+        project_key="PROJ",
+        instance_name="inst-a",
+        handle=object(),
+        started_at=time.monotonic(),
+        kind="send",
+        allow_edit_project=False,
+    )
+
+    # The hung turn is evicted with an 'abandoned' placeholder outcome.
+    with cobuild._lock:
+        cobuild._abandon_turn(turn)
+    assert read_store(env)[cid]["last_result_status"] == "abandoned"
+
+    # Its daemon later finishes: the done-callback must tolerate the gone entry
+    # and still overwrite 'abandoned' with the real terminal outcome.
+    f.add_done_callback(lambda _f: cobuild._persist_terminal_outcome(turn))
+    f.set_result(_Resp())
+    assert read_store(env)[cid]["last_result_status"] == "completed"

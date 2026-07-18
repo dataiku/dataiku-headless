@@ -32,6 +32,7 @@ def _isolate(monkeypatch, tmp_path):
         "DKU_API_KEY",
         "DKU_INSTANCE_NAME",
         "DKU_NO_CHECK_CERTIFICATE",
+        "XDG_CONFIG_HOME",
     ):
         monkeypatch.delenv(var, raising=False)
     # A dedicated HOME so the ~/.config fallback is testable and never hits the
@@ -303,3 +304,160 @@ def test_store_file_permissions_are_0600(tmp_path):
     store = ConversationStore(path)
     store.upsert("c1", {"project_key": "PROJ"})
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 7: config-file no_check_certificate is strictly parsed
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(True, True), (False, False), ("true", True), ("false", False), ("yes", True)],
+)
+def test_config_no_check_certificate_strict(monkeypatch, tmp_path, value, expected):
+    cfg_dir = tmp_path / "cfgdir"
+    _write_config(
+        cfg_dir / "config.json",
+        {"i": {"url": "http://i", "api_key": "k", "no_check_certificate": value}},
+    )
+    monkeypatch.setenv("DKU_CONFIG_DIR", str(cfg_dir))
+
+    loaded = config._load_instances_from_config()
+    assert loaded["instances"]["i"].no_check_certificate is expected
+
+
+@pytest.mark.parametrize("value", ["garbage", "flase", 2, [], "maybe"])
+def test_config_no_check_certificate_rejects_garbage(monkeypatch, tmp_path, value):
+    cfg_dir = tmp_path / "cfgdir"
+    _write_config(
+        cfg_dir / "config.json",
+        {"badinst": {"url": "http://i", "api_key": "k", "no_check_certificate": value}},
+    )
+    monkeypatch.setenv("DKU_CONFIG_DIR", str(cfg_dir))
+
+    with pytest.raises(ValueError, match="no_check_certificate"):
+        config._load_instances_from_config()
+
+
+def test_config_no_check_certificate_missing_defaults_false(monkeypatch, tmp_path):
+    cfg_dir = tmp_path / "cfgdir"
+    _write_config(cfg_dir / "config.json", {"i": {"url": "http://i", "api_key": "k"}})
+    monkeypatch.setenv("DKU_CONFIG_DIR", str(cfg_dir))
+
+    loaded = config._load_instances_from_config()
+    assert loaded["instances"]["i"].no_check_certificate is False
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 8: $XDG_CONFIG_HOME is honored for the home-tier candidate
+# --------------------------------------------------------------------------- #
+
+
+def test_xdg_config_home_honored_for_config(monkeypatch, tmp_path):
+    xdg = tmp_path / "xdg"
+    _write_config(
+        xdg / "dataiku-headless" / "config.json",
+        {"x": {"url": "http://x", "api_key": "k"}},
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+
+    assert config.resolve_config_file() == xdg / "dataiku-headless" / "config.json"
+
+
+def test_xdg_config_home_honored_for_dotenv(monkeypatch, tmp_path):
+    xdg = tmp_path / "xdg"
+    (xdg / "dataiku-headless").mkdir(parents=True)
+    (xdg / "dataiku-headless" / ".env").write_text("X=1")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+
+    assert config.resolve_dotenv_path() == xdg / "dataiku-headless" / ".env"
+
+
+def test_xdg_default_is_home_dot_config(monkeypatch, tmp_path):
+    # With XDG_CONFIG_HOME unset, the home-tier default remains ~/.config.
+    home = tmp_path / "home"
+    _write_config(
+        home / ".config" / "dataiku-headless" / "config.json",
+        {"d": {"url": "http://d", "api_key": "k"}},
+    )
+    monkeypatch.setenv("HOME", str(home))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+
+    assert config.resolve_config_file() == home / ".config" / "dataiku-headless" / "config.json"
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 6: the store lock is bounded (times out, never hangs)
+# --------------------------------------------------------------------------- #
+
+
+def test_store_lock_times_out_when_held(tmp_path, monkeypatch):
+    import fcntl
+
+    monkeypatch.setattr(
+        "dataiku_mcp.tools.utils.conversation_store.STORE_LOCK_TIMEOUT_SECONDS", 0.3
+    )
+    path = tmp_path / "conversations.json"
+    store = ConversationStore(path)
+    store.upsert("c1", {"project_key": "PROJ"})  # creates the .lock sidecar
+
+    lock_path = tmp_path / "conversations.json.lock"
+    holder = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(holder, fcntl.LOCK_EX)  # a "wedged peer" holds the flock
+    try:
+        with pytest.raises(ConversationStoreError, match="Timed out"):
+            store.read("c1")
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        os.close(holder)
+
+    # Once released, the store works again.
+    assert store.read("c1") == {"project_key": "PROJ"}
+
+
+# --------------------------------------------------------------------------- #
+# Wave-2 Finding 9: quarantine is unique per corruption and honest on failure
+# --------------------------------------------------------------------------- #
+
+
+def test_quarantine_unique_across_same_second(tmp_path):
+    path = tmp_path / "conversations.json"
+    store = ConversationStore(path)
+
+    path.write_text("{bad-1")
+    with pytest.raises(ConversationStoreError):
+        store.all()
+    path.write_text("{bad-2")
+    with pytest.raises(ConversationStoreError):
+        store.all()
+
+    # Two corruptions in the same second do not overwrite each other.
+    backups = list(tmp_path.glob("conversations.json.corrupt-*"))
+    assert len(backups) == 2
+
+
+def test_quarantine_failure_reports_not_moved(tmp_path, monkeypatch):
+    path = tmp_path / "conversations.json"
+    path.write_text("{bad json")
+    store = ConversationStore(path)
+
+    def _boom(*_a, **_k):
+        raise OSError("cannot move")
+
+    monkeypatch.setattr(
+        "dataiku_mcp.tools.utils.conversation_store.os.replace", _boom
+    )
+
+    with pytest.raises(ConversationStoreError, match="could NOT be quarantined"):
+        store.all()
+    # The corrupt file is still in place — never falsely reported as moved.
+    assert path.exists()
