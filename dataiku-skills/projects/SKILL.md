@@ -27,8 +27,8 @@ Flow zones organize related Flow items visually. They are useful context when a 
 ## Workflow
 
 1. Use `count_projects` and `list_projects` to discover projects and confirm the exact project key.
-2. For existing-project context, use `get_project_metadata` and `get_project_variables` to inspect metadata and configuration.
-3. Use `get_flow_items_in_traversal_order` and `list_flow_zones` to orient in the Flow when dependencies or organization matter.
+2. Start existing-project work with `get_project_overview`; it returns the main asset lists, recent jobs, Flow sources, redacted standard variables, and section warnings in one bounded call.
+3. Use `get_flow_graph` and `list_flow_zones` when dependencies or organization matter. Scope a large graph by zone or raise its node and edge limits only within the documented ceilings.
 4. Use `get_flow_object_metadata` to inspect metadata for a specific project object.
 5. For a new project, confirm the unique project key and display name with the user, then use `create_project`.
 6. Verify a newly created project with `list_projects` or `get_project_metadata`.
@@ -41,7 +41,8 @@ Flow zones organize related Flow items visually. They are useful context when a 
 - `create_project`
 - `get_project_metadata`
 - `get_project_variables`
-- `get_flow_items_in_traversal_order`
+- `get_project_overview`
+- `get_flow_graph`
 - `list_flow_zones`
 - `get_flow_object_metadata`
 
@@ -51,3 +52,5 @@ Flow zones organize related Flow items visually. They are useful context when a 
 - Confirm the project key and display name before creating a project.
 - Verify that the requested project key is not already in use before direct creation.
 - Keep existing-project changes under the Cobuild route.
+- Treat a warning or `truncated: true` result as partial context; narrow the request before drawing conclusions about omitted assets.
+- Local project variables are opt-in and all credential-shaped values remain redacted.
