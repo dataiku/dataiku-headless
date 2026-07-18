@@ -20,12 +20,15 @@ import dataiku_mcp
 # number of these depending on ``DKU_MCP_TRANSPORT``; the test accounts for it.
 EXPECTED_NON_COBUILD = frozenset(
     {
-        # projects (5)
+        # projects (6)
         "list_projects",
         "count_projects",
         "create_project",
         "get_project_metadata",
         "get_project_variables",
+        "get_project_overview",
+        # project audit (1)
+        "audit_project",
         # datasets (7)
         "list_datasets",
         "get_dataset_info",
@@ -38,23 +41,26 @@ EXPECTED_NON_COBUILD = frozenset(
         "list_recipes",
         "get_recipe_settings",
         # flow (3)
-        "get_flow_items_in_traversal_order",
+        "get_flow_graph",
         "list_flow_zones",
         "get_flow_object_metadata",
         # connections (3)
         "list_connections",
         "get_connection_info",
         "test_connection",
-        # scenarios (3)
+        # scenarios (4)
         "list_scenarios",
         "get_scenario_settings",
         "get_scenario_run_history",
-        # jobs (5)
+        "run_scenario",
+        # jobs (7)
         "list_jobs",
         "get_job_status",
         "get_job_log",
         "wait_for_job",
         "get_future_status",
+        "build_datasets",
+        "run_recipe",
         # managed folders (4)
         "list_managed_folders",
         "get_managed_folder_contents",
