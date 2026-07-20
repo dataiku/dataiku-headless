@@ -18,8 +18,16 @@ type — agents, dashboards, wikis, semantic models, insights, WebApps, knowledg
 banks, RAG LLMs, agent tools, agent reviews, ML analyses, saved-model versions,
 evaluation stores — is read through the single generic
 [`get_object_settings`](tool-index.md) `(project_key, object_type, object_id)`
-tool, which returns that object's raw settings dict (secrets redacted, payload
-byte-bounded). This exists precisely so verification never depends on Cobuild
+tool, which returns that object's type-specific deep-read payload (secrets
+redacted, final payload byte-bounded). Usually that payload is the raw settings
+dict, but a few types return a purpose-shaped payload: `saved_model` returns a
+version snippet, `wiki_article` a name+body, and `ml_analysis` / an agent
+`version_id` read / `evaluation_store` a small composed envelope (the last folds
+in the evaluation summary — ids, labels, metrics). The versioned types (`agent`,
+`saved_model`, `semantic_model`) take an optional `version_id`: given it returns
+that version's detail; omitted it returns a version-discovery payload (metadata +
+available version ids + active flags) so you can find the id without a separate
+list tool. This exists precisely so verification never depends on Cobuild
 grading its own homework: Cobuild's report is testimony, and `get_object_settings`
 is the independent read that turns it into evidence (rule: *verify with your own
 reads*). Raw settings are static config, though — for **runtime state** they don't
@@ -43,14 +51,14 @@ evaluation stores, scored outputs). Rows below name the deep read to reach for.
 | Code environment | Language runtime + dependency set for code work | `list_code_envs` | Read-only (select; changes via Cobuild) |
 | ML analysis | Training/experimentation config: task, features, algorithms, validation | `list_ml_analyses` (discovery); `get_object_settings(object_type="ml_analysis")` for raw task settings | Cobuild |
 | Trained model | A candidate result inside an analysis | no direct read — inspect via a read-only Cobuild turn, or read its evaluation artifacts in the flow | Cobuild |
-| Saved model | Deployed, versioned model artifact | `list_saved_models` (discovery); `get_object_settings(object_type="saved_model", version_id=…)` for a version's detail | Cobuild |
+| Saved model | Deployed, versioned model artifact | `list_saved_models` (discovery); `get_object_settings(object_type="saved_model")` lists versions, add `version_id=…` for a version's detail | Cobuild |
 | LLM | A configured model with specific purposes (completion, embedding, rerank, image) | `list_llms` (discovery); no per-object settings — inspect via a read-only Cobuild turn | Read-only (referenced in prompts) |
 | Knowledge Bank | Indexed content for retrieval; config sets embedding + vector-store behavior | `get_object_settings(object_type="knowledge_bank")` | Cobuild |
 | Retrieval-Augmented LLM | LLM + Knowledge Bank + retrieval settings | `get_object_settings(object_type="retrieval_augmented_llm")` | Cobuild |
 | Agent | LLM-driven agent; `agent_type` is `TOOLS_USING_AGENT` / `STRUCTURED_AGENT` / `PYTHON_AGENT` | `list_agents` (discovery); `get_object_settings(object_type="agent")` for settings/versions (optional `version_id`) | Cobuild |
 | Agent tool | Project-level tool an agent calls, referenced by stable id | `get_object_settings(object_type="agent_tool")` | Cobuild |
 | Agent review | Evaluates one agent vs test queries and named traits, over runs | `get_object_settings(object_type="agent_review")` for its config/traits; run *outcomes* are runtime — read via a read-only Cobuild turn | Cobuild |
-| Semantic model | Business meaning over data for NL→query; container of versions, one active | `get_object_settings(object_type="semantic_model", version_id=…)` (version required) | Cobuild |
+| Semantic model | Business meaning over data for NL→query; container of versions, one active | `get_object_settings(object_type="semantic_model")` lists versions, add `version_id=…` for a version's settings | Cobuild |
 | Data quality rule | Dataset-level check; outcomes OK/WARNING/ERROR/EMPTY | `list_data_quality_rules`, `get_data_quality_status` | Cobuild |
 | Wiki article | Markdown doc in a parent/child tree; one home article | `get_object_settings(object_type="wiki_article")` (returns name + markdown body) | Cobuild |
 | Dashboard | Owns pages, layout, page filters, tiles; not the underlying insight content | `get_object_settings(object_type="dashboard")` | Cobuild |

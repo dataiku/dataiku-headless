@@ -142,3 +142,47 @@ def test_scalars_and_non_dict_values_pass_through():
     assert redact_sensitive_values("plain") == "plain"
     assert redact_sensitive_values(42) == 42
     assert redact_sensitive_values(["a", "b"]) == ["a", "b"]
+
+
+# --------------------------------------------------------------------------- #
+# Structure-aware redaction of inline secret param entries
+#
+# DSS structured-agent / plugin params carry the secret INLINE as a sibling of
+# its own metadata: ``{"key": "api_key", "value": "sk-live-…", "secret": true}``.
+# The name-only heuristic gets this backwards — it masks the ``key``/``secret``
+# NAMES and leaves ``value`` (the secret) exposed. The structure-aware pass masks
+# ``value`` and preserves the key/secret/type metadata a reviewer needs.
+# --------------------------------------------------------------------------- #
+def test_inline_secret_flag_masks_value_preserves_metadata():
+    entry = {"key": "api_key", "value": "sk-live-DEADBEEF", "secret": True}
+    out = redact_sensitive_values(entry)
+    assert out["value"] == VARIABLE_REDACTION  # secret gone
+    assert out["key"] == "api_key"  # metadata intact
+    assert out["secret"] is True  # flag intact
+
+
+def test_typed_password_param_masks_value_preserves_metadata():
+    entry = {"name": "token", "value": "topsecret", "type": "PASSWORD"}
+    out = redact_sensitive_values(entry)
+    assert out["value"] == VARIABLE_REDACTION
+    assert out["type"] == "PASSWORD"
+    assert out["name"] == "token"
+
+
+def test_non_secret_sibling_entry_is_fully_preserved():
+    # secret:false / no secret flag → ordinary entry, value must survive.
+    entry = {"key": "temperature", "value": "0.2", "secret": False}
+    assert redact_sensitive_values(entry) == entry
+
+
+def test_secret_param_entries_inside_a_list_are_each_handled():
+    payload = {
+        "params": [
+            {"key": "api_key", "value": "sk-1", "secret": True},
+            {"key": "model", "value": "gpt-4", "secret": False},
+        ]
+    }
+    out = redact_sensitive_values(payload)
+    assert out["params"][0]["value"] == VARIABLE_REDACTION
+    assert out["params"][0]["key"] == "api_key"
+    assert out["params"][1] == {"key": "model", "value": "gpt-4", "secret": False}

@@ -46,6 +46,54 @@ _SENSITIVE_SUBSTRINGS = (
 # redact only on an EXACT normalized match.
 _SENSITIVE_EXACT_KEYS = frozenset({"auth", "key"})
 
+# Plugin / structured-agent parameter entries carry the secret INLINE as a
+# sibling of its own metadata, e.g. ``{"key": "api_key", "value": "sk-live-…",
+# "secret": true}`` or a typed param ``{"name": "token", "value": "…",
+# "type": "PASSWORD"}`` (plugin param reference:
+# https://doc.dataiku.com/dss/latest/plugins/reference/params.html). The
+# name-only heuristic gets these exactly backwards: it redacts the ``key`` and
+# ``secret`` metadata NAMES while leaving ``value`` — the actual secret —
+# exposed, and destroys the metadata a reviewer needs to verify wiring. So a
+# dict recognized structurally as a param entry keeps its key/secret/type
+# metadata verbatim, and its ``value`` sibling is masked only when the entry is
+# actually secret (``secret: true`` or a password/credential type).
+_SECRET_PARAM_TYPES = frozenset({"password", "credential_request", "credentials"})
+# The value field masked on a secret param entry.
+_PARAM_VALUE_KEY = "value"
+# Metadata that must survive verbatim on a param entry so it stays verifiable
+# (which parameter is set, whether it IS secret, its declared type/name).
+_PRESERVED_PARAM_KEYS = frozenset({"key", "secret", "type", "name"})
+
+
+def _is_param_entry(value: dict) -> bool:
+    """True if ``value`` looks like a DSS param entry carrying its own value.
+
+    The two shapes are ``{"key": …, "value": …, "secret": bool}`` (structured
+    agent / plugin param) and ``{"name": …, "value": …, "type": str}`` (typed
+    plugin param). Recognizing the entry by SHAPE lets redaction preserve the
+    key/secret/type metadata instead of the name heuristic nuking it — for both
+    secret and non-secret entries.
+    """
+    if _PARAM_VALUE_KEY not in value:
+        return False
+    return isinstance(value.get("secret"), bool) or isinstance(value.get("type"), str)
+
+
+def _param_entry_is_secret(value: dict) -> bool:
+    """True if a param entry's ``value`` field holds a secret to be masked."""
+    if value.get("secret") is True:
+        return True
+    declared_type = value.get("type")
+    if isinstance(declared_type, str):
+        normalized = declared_type.strip().lower()
+        if (
+            normalized in _SECRET_PARAM_TYPES
+            or "credential" in normalized
+            or "password" in normalized
+        ):
+            return True
+    return False
+
 
 def _normalize_key(key: str) -> str:
     """Lowercase and drop ``_ - .`` separators so key shape survives spelling."""
@@ -63,14 +111,25 @@ def is_sensitive_key(key: str) -> bool:
 def redact_sensitive_values(value: Any, placeholder: str = VARIABLE_REDACTION) -> Any:
     """Recursively replace values whose *key* looks sensitive with ``placeholder``.
 
-    Redaction keys off the key name, never the value, so structure is preserved
-    and non-sensitive data is untouched. Lists are walked element-wise; scalars
-    pass through.
+    Redaction is name-driven for ordinary keys but STRUCTURE-aware for inline
+    secret param entries (``{key, value, secret: true}`` / typed password params):
+    there the ``value`` sibling is masked and the key/secret/type metadata is
+    preserved. Otherwise structure is preserved and non-sensitive data is
+    untouched. Lists are walked element-wise; scalars pass through.
     """
     if isinstance(value, dict):
+        param_entry = _is_param_entry(value)
+        mask_value = param_entry and _param_entry_is_secret(value)
         redacted = {}
         for key, item in value.items():
-            if is_sensitive_key(str(key)):
+            key_str = str(key)
+            if param_entry and key_str == _PARAM_VALUE_KEY:
+                redacted[key] = (
+                    placeholder if mask_value else redact_sensitive_values(item, placeholder)
+                )
+            elif param_entry and key_str in _PRESERVED_PARAM_KEYS:
+                redacted[key] = item
+            elif is_sensitive_key(key_str):
                 redacted[key] = placeholder
             else:
                 redacted[key] = redact_sensitive_values(item, placeholder)

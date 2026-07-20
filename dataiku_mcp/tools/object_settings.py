@@ -9,9 +9,14 @@ semantic-models the only surviving read path was asking Cobuild.
 
 This restores an INDEPENDENT read path without restoring 43 tools. One tool,
 ``get_object_settings``, dispatches on a closed ``object_type`` enum to the exact
-``dataikuapi`` call the deleted tool used, returns the raw settings dict, redacts
-secret-bearing keys with the shared heuristic, and bounds the payload to a hard
-byte ceiling. Object types that already have their own deep reads (datasets,
+``dataikuapi`` call the deleted tool used and returns that type's deep-read
+payload — usually the raw settings dict, but a few types return a purpose-shaped
+payload (saved_model returns a version snippet; wiki_article a name+body;
+ml_analysis / agent-version / evaluation_store a small composed envelope; and the
+versioned types return a version-discovery payload when ``version_id`` is
+omitted). Secret values are redacted (structure-aware for inline secret params)
+and the FINAL serialized response is bounded to a hard byte ceiling. Object types
+that already have their own deep reads (datasets,
 recipes, scenarios, connections, folders, jobs, projects) are intentionally NOT
 covered here — reach for their dedicated tools.
 """
@@ -24,7 +29,10 @@ from dataikuapi.utils import DataikuException
 from fastmcp import Context
 
 from .. import mcp
-from .machine_learning.shared.common import require_single_ml_task
+from .machine_learning.shared.common import (
+    find_analysis_input_dataset,
+    require_single_ml_task,
+)
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.redaction import VARIABLE_REDACTION, redact_sensitive_values
@@ -43,12 +51,12 @@ from .utils.validation import (
 MAX_SETTINGS_BYTES = 1_000_000
 
 # ``version_id`` addresses a specific version of a versioned object. It is
-# REQUIRED for the two types whose deep read is a per-version detail, OPTIONAL
-# for agents (defaults to the full multi-version settings), and rejected for
-# every other type so a caller learns the argument is inert rather than silently
-# ignored.
-_VERSION_REQUIRED_TYPES = frozenset({"saved_model", "semantic_model"})
-_VERSIONED_TYPES = _VERSION_REQUIRED_TYPES | {"agent"}
+# OPTIONAL for all three versioned types: given, it returns that version's
+# detail; omitted, it returns a DISCOVERY payload (object metadata + the
+# available version ids and active flags) so a caller with no separate list tool
+# can find the version ids these deep reads take. It is rejected for every other
+# type so a caller learns the argument is inert rather than silently ignored.
+_VERSIONED_TYPES = frozenset({"saved_model", "semantic_model", "agent"})
 
 
 def _wiki_article(project, object_id: str, version_id: str) -> dict[str, Any]:
@@ -101,11 +109,35 @@ def _agent(project, object_id: str, version_id: str) -> dict[str, Any]:
 
 
 def _semantic_model(project, object_id: str, version_id: str) -> dict[str, Any]:
-    return project.get_semantic_model(object_id).get_version(version_id).get_settings().get_raw()
+    semantic_model = project.get_semantic_model(object_id)
+    if not version_id:
+        try:
+            active_version_id = semantic_model.get_active_version_id()
+        except Exception:  # SDK raises plain Exception when no active version
+            active_version_id = None
+        return {
+            "discovery": True,
+            "active_version_id": active_version_id,
+            "version_ids": semantic_model.list_versions_ids(),
+        }
+    try:
+        return semantic_model.get_version(version_id).get_settings().get_raw()
+    except DataikuException:
+        raise
+    except Exception as exc:
+        # The real semantic-model SDK raises a plain ``Exception`` (not
+        # ``DataikuException``) for an unknown version. Normalize it to the same
+        # clear ValueError the caller gets for every other bad-version path.
+        raise ValueError(
+            f"Version '{version_id}' not found for semantic_model '{object_id}': {exc}"
+        ) from exc
 
 
 def _saved_model(project, object_id: str, version_id: str) -> dict[str, Any]:
-    details = project.get_saved_model(object_id).get_version_details(version_id)
+    saved_model = project.get_saved_model(object_id)
+    if not version_id:
+        return {"discovery": True, "versions": saved_model.list_versions()}
+    details = saved_model.get_version_details(version_id)
     return {
         "details_class": details.__class__.__name__,
         "snippet": details.get_raw_snippet(),
@@ -119,18 +151,43 @@ def _ml_analysis(project, object_id: str, version_id: str) -> dict[str, Any]:
     mltask = analysis.get_ml_task(mltask_id)
     return {
         "analysis_name": analysis.get_definition().get_raw().get("name"),
+        "input_dataset": find_analysis_input_dataset(project, object_id),
         "mltask_id": mltask_id,
         "mltask_settings": mltask.get_settings().get_raw(),
     }
 
 
 def _evaluation_store(project, object_id: str, version_id: str) -> dict[str, Any]:
-    return project.get_model_evaluation_store(object_id).get_settings().settings
+    store = project.get_model_evaluation_store(object_id)
+    store_settings = store.get_settings().settings
+    evaluations: list[dict[str, Any]] = []
+    for evaluation in store.list_evaluations():
+        try:
+            info = evaluation.get_full_info()
+            evaluations.append(
+                {
+                    "evaluation_id": evaluation.evaluation_id,
+                    "name": info.user_meta.get("name", ""),
+                    "labels": info.user_meta.get("labels", []),
+                    "created": info.creation_date,
+                    "prediction_type": info.prediction_type,
+                    "target_variable": info.target_variable,
+                    "prediction_variable": info.prediction_variable,
+                    "metrics": info.metrics,
+                }
+            )
+        except Exception as exc:
+            evaluations.append(
+                {"evaluation_id": evaluation.evaluation_id, "error": str(exc)}
+            )
+    evaluations.sort(key=lambda item: item.get("created") or 0, reverse=True)
+    return {"store_settings": store_settings, "evaluations": evaluations}
 
 
 # Closed enum -> resolver. Each resolver reuses the exact ``dataikuapi`` call the
-# now-deleted narrow tool used, and returns the raw settings dict to place under
-# ``settings`` in the response envelope.
+# now-deleted narrow tool used, and returns the type's deep-read payload to place
+# under ``settings`` in the response envelope (usually the raw settings dict; see
+# the module docstring for the few types with a purpose-shaped payload).
 _RESOLVERS: dict[str, Callable[[Any, str, str], dict[str, Any]]] = {
     "wiki_article": _wiki_article,
     "dashboard": _dashboard,
@@ -149,24 +206,57 @@ _RESOLVERS: dict[str, Callable[[Any, str, str], dict[str, Any]]] = {
 _OBJECT_TYPES = frozenset(_RESOLVERS)
 
 
-def _bounded_settings(settings: Any) -> dict[str, Any]:
-    """Return either ``{"settings": …}`` or a byte-bounded truncation envelope.
+def _truncation_envelope(base: dict[str, Any], settings: Any) -> dict[str, Any]:
+    """Build a truncation envelope whose SERIALIZED form fits the ceiling.
 
-    The redacted settings are serialized; if the compact JSON fits under the
-    ceiling it is returned parsed, otherwise the JSON text is clipped on a UTF-8
-    boundary and returned as a string alongside ``truncated`` and byte counts, so
-    the response is always bounded and never silently lies about completeness.
+    The settings JSON is clipped and carried as a string; embedding that string in
+    the final response re-escapes every quote/backslash, so the clip length is
+    chosen against the fully-serialized envelope (escaping included), not the raw
+    inner text. A binary search finds the largest clip whose serialized envelope
+    is ``<= MAX_SETTINGS_BYTES`` while ``total_bytes``/``returned_bytes`` stay
+    truthful about how much was elided.
     """
     encoded = compact_json(settings).encode("utf-8")
-    if len(encoded) <= MAX_SETTINGS_BYTES:
-        return {"settings": settings}
-    clipped = encoded[:MAX_SETTINGS_BYTES].decode("utf-8", errors="ignore")
-    return {
-        "truncated": True,
-        "total_bytes": len(encoded),
-        "returned_bytes": len(clipped.encode("utf-8")),
-        "settings_json_truncated": clipped,
-    }
+    total_bytes = len(encoded)
+
+    def envelope_for(clip_bytes: int) -> dict[str, Any]:
+        clipped = encoded[:clip_bytes].decode("utf-8", errors="ignore")
+        return {
+            **base,
+            "truncated": True,
+            "total_bytes": total_bytes,
+            "returned_bytes": len(clipped.encode("utf-8")),
+            "settings_json_truncated": clipped,
+        }
+
+    def serialized_len(envelope: dict[str, Any]) -> int:
+        return len(compact_json(envelope).encode("utf-8"))
+
+    best = envelope_for(0)
+    lo, hi = 0, total_bytes
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = envelope_for(mid)
+        if serialized_len(candidate) <= MAX_SETTINGS_BYTES:
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
+def _finalize(base: dict[str, Any], settings: Any) -> str:
+    """Serialize ``base`` + ``settings``, bounding the FINAL string to the ceiling.
+
+    If the whole envelope (with ``settings`` as a nested object) serializes under
+    the ceiling it is returned as-is; otherwise a truncation envelope is built
+    whose serialized form — escaping and all — is guaranteed within the ceiling.
+    """
+    full = {**base, "settings": settings}
+    encoded = compact_json(full)
+    if len(encoded.encode("utf-8")) <= MAX_SETTINGS_BYTES:
+        return encoded
+    return compact_json(_truncation_envelope(base, settings))
 
 
 @mcp.tool()
@@ -196,10 +286,12 @@ async def get_object_settings(
             semantic_model, knowledge_bank, retrieval_augmented_llm, agent,
             agent_tool, agent_review, ml_analysis, saved_model, evaluation_store.
         object_id: The object's stable id within the project.
-        version_id: Required for saved_model and semantic_model (their deep read
-            is a per-version detail). Optional for agent (defaults to the full
-            multi-version settings; when given, returns just that version). Must
-            be empty for every other type.
+        version_id: Optional for the versioned types (agent, saved_model,
+            semantic_model). Given, it returns that version's detail. Omitted, it
+            returns a DISCOVERY payload — object metadata plus the available
+            version ids and active flags — so you can find the version to read
+            without a separate list tool (agent still returns full multi-version
+            settings when omitted). Must be empty for every other type.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     object_type = _require_allowed_value(
@@ -214,11 +306,6 @@ async def get_object_settings(
         raise ValueError(
             f"'version_id' does not apply to object_type '{object_type}'. It is "
             f"used only by: {sorted(_VERSIONED_TYPES)}."
-        )
-    if object_type in _VERSION_REQUIRED_TYPES and not version_id:
-        raise ValueError(
-            f"object_type '{object_type}' requires 'version_id' (its deep read is "
-            f"a per-version detail). Discover versions with the matching list tool."
         )
 
     await ctx.info(
@@ -237,13 +324,12 @@ async def get_object_settings(
                 f"'{project_key}': {exc}"
             ) from exc
         redacted = redact_sensitive_values(settings, VARIABLE_REDACTION)
-        result: dict[str, Any] = {
+        base: dict[str, Any] = {
             "object_type": object_type,
             "object_id": object_id,
         }
         if version_id:
-            result["version_id"] = version_id
-        result.update(_bounded_settings(redacted))
-        return result
+            base["version_id"] = version_id
+        return _finalize(base, redacted)
 
-    return compact_json(await run_blocking(_run))
+    return await run_blocking(_run)
