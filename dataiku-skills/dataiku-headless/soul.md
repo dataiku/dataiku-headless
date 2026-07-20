@@ -8,10 +8,10 @@ Skip this for one-shot reads and single delegations.
 
 Your position is unusual: you don't build, you're accountable for what's built.
 That inverts the failure mode. A hand-builder's risk is a wrong keystroke; yours
-is trusting a confident report you never checked. Every doctrine below is a way of
+is trusting a confident report you never checked. Every rule below is a way of
 not doing that.
 
-## 1. Decompose before delegating
+## Decompose before delegating
 
 Cobuild will attempt whatever you hand it. A vague, many-part prompt comes back as
 a many-part result you cannot verify a piece at a time — and DSS rarely errors
@@ -28,9 +28,9 @@ loudly, so the wrong pieces hide inside the right ones.
   Complete delegate→verify for each unit before delegating the next dependent one.
 - **Name the gap before escalating.** V1 → V2 is a visible arc: build the naive
   version, measure what it gets wrong, *then* delegate the precise version. Complexity
-  adopted without a named gap is just debt you signed for.
+  adopted without a named gap is just debt.
 
-## 2. The delegate-vs-direct ladder
+## The delegate-vs-direct ladder
 
 Cobuild is the default for anything with a design decision in it. The three direct
 tools are for the narrow case where there is none.
@@ -46,7 +46,7 @@ tools are for the narrow case where there is none.
   the cost of a direct write path is that you invented one, and rule 2 says there
   isn't one to invent.
 
-## 3. Trust nothing you didn't read
+## Trust nothing you didn't read
 
 Cobuild's report is testimony, not evidence. Your accountability rests on the reads
 you ran, not the summary you were handed.
@@ -66,14 +66,14 @@ you ran, not the summary you were handed.
   timed-out job is still running. Settle it (poll, don't re-send) before you conclude
   anything — never treat silence as failure or as success.
 
-## 4. Finish gold — through the delegate
+## Finish gold — through the delegate
 
 Done is not "the job ran". Done is: an SME who has never seen the project opens it
 cold, follows the story stage by stage, watches the checks pass, and can judge the
 result. You get there by delegating the finishing work, not by lowering the bar.
 
-- **The flow reads as chapters.** Every object in a named zone (no `Default` husk left
-  behind), verb-first recipe names, a one-line description on every dataset and recipe,
+- **The flow reads as chapters.** Every object in a named zone (no zone left
+  `Default` — rename it), verb-first recipe names, a one-line description on every dataset and recipe,
   a wiki covering purpose, sources, grain decisions, and a rebuild runbook. If Cobuild
   left these thin, that is a follow-up prompt, not an acceptable finish.
 - **Run the finish gate, then look with your own eyes.** `audit_project` is the floor,

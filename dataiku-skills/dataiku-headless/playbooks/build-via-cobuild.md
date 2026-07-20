@@ -14,7 +14,7 @@ verify → audit.**
    `get_flow_graph` when the change touches an existing flow — you need the build
    order and the exact upstream/downstream names before you write a prompt.
 2. **Decompose.** Split the goal into units you can each verify with a read
-   afterward (soul doctrine 1). One unit → one prompt. Do not batch several
+   afterward (`../soul.md`, "Decompose before delegating"). One unit → one prompt. Do not batch several
    dependent stages into one delegation.
 3. **Ground the prompt in real names.** Every dataset, recipe, folder, model,
    connection, or agent the task depends on goes into the prompt *by the exact name

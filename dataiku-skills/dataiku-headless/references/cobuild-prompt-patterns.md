@@ -59,5 +59,5 @@ run, so the result is falsifiable.
   the prompt (see `../playbooks/inspect-and-explain.md`).
 - For greenfield work, tell Cobuild which project context to inspect rather than
   assuming it will find the right objects.
-- One verifiable unit per prompt; don't batch dependent stages (`../soul.md`
-  doctrine 1).
+- One verifiable unit per prompt; don't batch dependent stages (`../soul.md`,
+  "Decompose before delegating").

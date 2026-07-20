@@ -1,7 +1,8 @@
 # Verify Cobuild output
 
 Proving a delegated result is real. Cobuild's `completed` status is testimony;
-this playbook is how you turn it into evidence (rule 5, `../soul.md` doctrine 3).
+this playbook is how you turn it into evidence (rule 5; `../soul.md`, "Trust nothing
+you didn't read").
 Run it after every build unit, not only at the end.
 
 ## What to check, by claim
@@ -39,8 +40,8 @@ to assert the specific outputs you delegated exist with the expected shape — t
 turns "the project looks fine" into "the outputs I asked for are present and
 correct". It does **not** judge models, agents, or dashboards; verify those from the
 rows above (targeted reads and read-only Cobuild turns). A clean audit is the floor;
-a `get_flow_graph` read you can explain branch by branch is the ceiling (`../soul.md`
-doctrine 4).
+a `get_flow_graph` read you can explain branch by branch is the ceiling (`../soul.md`,
+"Finish gold").
 
 ## On failure
 

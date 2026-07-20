@@ -94,4 +94,4 @@ criteria, and a trait may require the test's reference answer or expectations.
 Compare repeated runs to expose non-deterministic behavior — inconsistent outcomes
 are agent variability, not tooling error. Write traits as pass/fail, and prefer an
 agent review living in the project over a one-off manual test you ran once
-(`../soul.md` doctrine 3).
+(`../soul.md`, "Trust nothing you didn't read").

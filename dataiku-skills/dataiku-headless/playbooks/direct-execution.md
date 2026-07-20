@@ -1,7 +1,8 @@
 # Direct execution
 
 The three sanctioned non-Cobuild actions, and when to reach for them instead of
-delegating. For the judgment on delegate-vs-direct, read `../soul.md` doctrine 2.
+delegating. For the judgment on delegate-vs-direct, read `../soul.md`, "The delegate-vs-direct
+ladder".
 
 ## The three tools
 
