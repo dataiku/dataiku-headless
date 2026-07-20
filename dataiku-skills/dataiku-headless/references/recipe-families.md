@@ -24,6 +24,10 @@ a black box. If the user asks for code, it applies only to the part requested.
 | Sample / order / dedup / top-N | `sampling`, `sort`, `distinct`, `topn` | Distinct on a subset ≠ full-row dedup |
 | Move data across storage | `sync`, `download`, `export` | Storage move, not transformation; `download`/`export` need a managed folder |
 
+When reading or reviewing an existing `prepare` recipe's settings, the processor
+catalog is in `recipe-shared/prepare-processors-overview.md`; formula-step syntax
+and its traps are in `recipe-shared/dataiku-formula-language.md`.
+
 ## ML recipes
 
 | Family | Does | Grounding |

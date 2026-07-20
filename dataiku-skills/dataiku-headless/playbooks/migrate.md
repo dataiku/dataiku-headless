@@ -16,7 +16,8 @@ loop until validation passes.
    failure modes that make a migration wrong or mis-parsed:
    - Alteryx → `../references/migration-sources/alteryx/alteryx.md`
    - SAS → `../references/migration-sources/sas/sas.md`
-   - Unknown platform → proceed best-effort from the bundle itself.
+   - Unknown platform → proceed best-effort from the bundle itself. To add a new
+     source reference, see `../references/migration-sources/CONTRIBUTING.md`.
 3. Write `migration_plan.md`: **Business intent** (harvested from the bundle's
    notes, annotations, comments, object descriptions), **input data sources** (each
    one's role), and a **Dataiku migration plan** translating the source logic into a
