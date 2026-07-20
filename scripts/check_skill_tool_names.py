@@ -89,10 +89,23 @@ ALLOWLIST: frozenset[str] = frozenset(
         "max_bytes",
         "max_items",
         "min_rows",
+        "object_id",
+        "object_type",
         "objects_to_delete",
         "project_key",
         "timeout_seconds",
+        "version_id",
         "wait_for_completion",
+        # --- get_object_settings `object_type` enum values (not tools) ---
+        "agent_review",
+        "agent_tool",
+        "evaluation_store",
+        "knowledge_bank",
+        "ml_analysis",
+        "retrieval_augmented_llm",
+        "saved_model",
+        "semantic_model",
+        "wiki_article",
         # --- Cobuild turn statuses / signals (multi-segment ones only;
         #     single-word statuses like completed/error/timeout aren't tokens) ---
         "in_progress",

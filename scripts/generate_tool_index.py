@@ -60,6 +60,7 @@ GROUPS: list[tuple[str, str]] = [
     ("agents", "Agents"),
     ("llms_and_knowledge_banks", "LLMs and knowledge banks"),
     ("machine_learning", "Machine learning"),
+    ("object_settings", "Object settings"),
     ("instances", "Instances"),
     ("cobuild", "Cobuild"),
     ("project_audit", "Project audit"),

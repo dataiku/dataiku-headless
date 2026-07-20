@@ -87,6 +87,8 @@ EXPECTED_NON_COBUILD = frozenset(
         # machine learning (2)
         "list_ml_analyses",
         "list_saved_models",
+        # object settings (1)
+        "get_object_settings",
         # instances (3)
         "list_instances",
         "switch_instance",
