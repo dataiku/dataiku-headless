@@ -34,7 +34,7 @@ stays accountable for what lands. The division of labor is the whole point:
 
 <div align="center">
 
-**gather context** → **delegate the build to Cobuild** → **verify independently** → **run exactly 3 direct executions**
+**gather context** → **delegate the build to Cobuild** → **verify independently** → **execute directly only where Cobuild cannot**
 
 </div>
 
@@ -63,7 +63,12 @@ flowchart LR
     R -.->|"audit_project · finish gate"| A
 ```
 
-The tool surface reflects that division of labor:
+The tool surface reflects that division of labor, and the routing rule is a capability rule,
+not a list: in-project asset work routes through Cobuild; direct tools exist where Cobuild
+cannot act — instance-level operations, cross-project operations, bootstrap actions that
+precede a project or conversation, and deterministic execution of assets that already exist.
+The direct surface grows only along those capability lines (instance administration, for
+example) — never with in-project asset writes. Today's surface, by role:
 
 - **Context & verification (read-only).** List, inspect, sample, and profile every object
   type — projects, flows, datasets, recipes, connections, scenarios, jobs, Data Quality,
@@ -76,10 +81,10 @@ The tool surface reflects that division of labor:
 - **Cobuild delegation — the build path.** Every in-project mutation (recipes, datasets,
   models, dashboards, scenarios, zones, wiki, deletions) is delegated through a Cobuild
   conversation. There are no direct `create_recipe` / `update_dataset` style write tools.
-- **Three direct executions.** `build_datasets`, `run_recipe`, `run_scenario` — deterministic
-  execution of assets that already exist. Nothing more runs outside Cobuild.
-- **Four bootstrap writes.** The only writes Cobuild cannot do because they precede a
-  project or conversation, or are file-uploads from the agent's own machine:
+- **Direct execution.** Deterministic execution of assets that already exist — today that's
+  `build_datasets`, `run_recipe`, `run_scenario`.
+- **Bootstrap writes.** Writes Cobuild cannot do because they precede a project or
+  conversation, or are file-uploads from the agent's own machine — today that's
   `create_project`, `create_upload_dataset` / `create_upload_dataset_from_rows`,
   `upload_file_to_managed_folder`, `write_project_library_file`.
 - **Instance management.** `list_instances`, `switch_instance`, `get_current_instance` for
