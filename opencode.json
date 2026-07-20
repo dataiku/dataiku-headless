@@ -3,9 +3,9 @@
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": [".venv/bin/python", "-m", "dataiku_mcp"],
+      "command": ["uvx", "dataiku-headless", "serve"],
       "enabled": true,
-      "env": {
+      "environment": {
         "DKU_MCP_TRANSPORT": "stdio"
       }
     }

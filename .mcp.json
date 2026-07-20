@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dataiku": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["./bin/run_mcp.sh"]
+    }
+  }
+}
