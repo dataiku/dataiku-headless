@@ -1,7 +1,7 @@
 """Cobuild conversation tools."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from fastmcp import Context
 
@@ -81,7 +81,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
             instance_name=config.get_current_instance_name(),
             project_key=project_key,
             conversation=conversation,
-            created_at=datetime.now(UTC).isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
         )
         _conversations[conversation.conversation_id] = entry
         return omit_empty(
