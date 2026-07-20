@@ -11,7 +11,12 @@ and reviewably, and your agent stays accountable for what lands.
 
 ## What it is
 
-The tool surface reflects that division of labor:
+The tool surface reflects that division of labor, and the routing rule is a capability
+rule, not a list: in-project asset work routes through Cobuild; direct tools exist where
+Cobuild cannot act — instance-level operations, cross-project operations, bootstrap
+actions that precede a project or conversation, and deterministic execution of assets
+that already exist. The direct surface grows only along those capability lines (instance
+administration, for example), never with in-project asset writes. Today's surface:
 
 - **Context & verification (read-only).** List, inspect, sample, and profile every object
   type — projects, flows, datasets, recipes, connections, scenarios, jobs, Data Quality,
@@ -20,14 +25,16 @@ The tool surface reflects that division of labor:
   ASCII build tree). Secret-like values are redacted from connection and project-variable
   reads, and `get_project_variables` hides local variables unless `include_local=true`.
   `audit_project` is the independent finish gate over the flow (datasets, recipes, zones,
-  wiki).
+  wiki), and `get_object_settings` is the generic deep read over the object types Cobuild
+  builds (agents, dashboards, wikis, semantic models, ML analyses, and the rest) so
+  verification never depends on Cobuild's own account of its work.
 - **Cobuild delegation — the build path.** Every in-project mutation (recipes, datasets,
   models, dashboards, scenarios, zones, wiki, deletions) is delegated through a Cobuild
   conversation. There are no direct `create_recipe` / `update_dataset` style write tools.
-- **Three direct executions.** `build_datasets`, `run_recipe`, `run_scenario` — deterministic
-  execution of assets that already exist. Nothing more runs outside Cobuild.
-- **Four bootstrap writes.** The only writes Cobuild cannot do because they precede a
-  project or conversation, or are file-uploads from the agent's own machine:
+- **Direct execution.** Deterministic execution of assets that already exist — today
+  that's `build_datasets`, `run_recipe`, `run_scenario`.
+- **Bootstrap writes.** Writes Cobuild cannot do because they precede a
+  project or conversation, or are file-uploads from the agent's own machine — today that's
   `create_project`, `create_upload_dataset` / `create_upload_dataset_from_rows`,
   `upload_file_to_managed_folder`, `write_project_library_file`.
 - **Instance management.** `list_instances`, `switch_instance`, `get_current_instance` for
