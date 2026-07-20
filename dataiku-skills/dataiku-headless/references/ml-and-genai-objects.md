@@ -5,13 +5,21 @@ to read their results critically. Object identity and read tools are in
 `object-model.md`; recipe selection is in `recipe-families.md`. This file is the
 judgment: how to design the ask and what to distrust in the result.
 
-**No object here has a direct deep-read tool.** You discover them with
-`list_ml_analyses`, `list_saved_models`, `list_agents`, and `list_llms`, and you
-inspect their internals — analysis settings, model details, KB config, agent
-wiring, review traits — by asking Cobuild in a **read-only turn**
-(`allow_edit_project=false`) or by reading the flow artifacts they produce
-(evaluation stores, metrics datasets, scored outputs). "Inspect its settings"
-below always means one of those two paths, never a direct settings tool.
+**Discover, then deep-read, then verify against artifacts.** You discover these
+objects with `list_ml_analyses`, `list_saved_models`, `list_agents`, and
+`list_llms`, and you read their configuration — analysis settings, saved-model
+version detail, KB config, agent wiring, review traits — with the single generic
+`get_object_settings(project_key, object_type, object_id)` tool (`object_type`
+one of `ml_analysis`, `saved_model` (needs `version_id`), `knowledge_bank`,
+`retrieval_augmented_llm`, `agent`, `agent_tool`, `agent_review`). That is your
+INDEPENDENT read — the point is to verify Cobuild's report with your own eyes, not
+to take its word. An **LLM** has no per-object settings read (inspect via a
+read-only Cobuild turn). And raw settings are static config: for **runtime
+outcomes** — a model's live metrics, an agent review's per-run pass/fail — read
+the flow artifacts they produce (evaluation stores, metrics datasets, scored
+outputs) or ask Cobuild in a read-only turn (`allow_edit_project=false`). "Inspect
+its settings" below means `get_object_settings`; "read its results" means the
+artifacts.
 
 ## Machine learning
 

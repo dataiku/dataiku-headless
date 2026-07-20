@@ -2,7 +2,7 @@
 
 > Generated from the live FastMCP registry by `scripts/generate_tool_index.py`. Do not edit by hand — change the tool docstring and regenerate: `uv run python scripts/generate_tool_index.py`.
 
-Every tool the headless supervisor exposes (57 under the default **stdio** transport), grouped by domain, each with the first sentence of its docstring. Skim this when the capability you need isn't obvious from a playbook; then get exact parameters, defaults, and enums from the tool schema — never from this list.
+Every tool the headless supervisor exposes (58 under the default **stdio** transport), grouped by domain, each with the first sentence of its docstring. Skim this when the capability you need isn't obvious from a playbook; then get exact parameters, defaults, and enums from the tool schema — never from this list.
 
 Under the `streamable-http` transport the surface differs: the registry swaps `create_upload_dataset` for `create_upload_dataset_from_rows` and drops the instance-switching tools (`switch_instance`, `list_instances`). This file reflects the stdio surface.
 
@@ -101,6 +101,10 @@ Under the `streamable-http` transport the surface differs: the registry swaps `c
 
 - `list_ml_analyses` — List the ML analyses in the project with their single-task summaries.
 - `list_saved_models` — List the saved models in the project.
+
+## Object settings
+
+- `get_object_settings` — Read the raw settings of one DSS object, for INDEPENDENT verification of Cobuild's work.
 
 ## Instances
 
