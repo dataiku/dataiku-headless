@@ -23,8 +23,9 @@ tmp
 # Codex: MCP server command paths are machine-specific, never commit
 .codex/
 
-# Design / rationale docs — local working notes, not tracked
-docs/
+# Design / rationale docs — local working notes, except committed brand assets
+docs/*
+!docs/assets/
 
 # Local test fixtures, migration-run scratch, benchmark research, setup notes (not shipped)
 test-data/

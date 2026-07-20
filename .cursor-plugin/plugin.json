@@ -7,7 +7,7 @@
   },
   "homepage": "https://github.com/dataiku/dku-headless",
   "repository": "https://github.com/dataiku/dku-headless",
-  "license": "LicenseRef-Proprietary",
+  "license": "Apache-2.0",
   "keywords": ["dataiku", "dss", "mcp", "cobuild", "agent"],
   "skills": "./dataiku-skills/",
   "mcpServers": "./.mcp.json"

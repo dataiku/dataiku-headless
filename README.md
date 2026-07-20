@@ -1,4 +1,25 @@
-# Dataiku Agent Dev Kit
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dataiku-lockup-white.svg">
+  <img alt="Dataiku" src="docs/assets/dataiku-lockup-black.svg" width="280">
+</picture>
+
+<h1><code>$&nbsp;dku-headless</code></h1>
+
+<p><strong>The Dataiku Cobuild supervisor kit</strong></p>
+
+<p><code>SUPERVISE&nbsp;·&nbsp;DELEGATE&nbsp;·&nbsp;VERIFY</code></p>
+
+<p>
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
+  <a href="https://gofastmcp.com"><img alt="Built with FastMCP" src="https://img.shields.io/badge/MCP-FastMCP-8A2BE2"></a>
+</p>
+
+</div>
+
+---
 
 An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Snowflake CoCo (Cortex Code), Cursor, OpenCode, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild, Dataiku's AI building agent to build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
 
@@ -245,3 +266,7 @@ dataiku-headless
 ## Contributing
 
 See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist.
+
+## License
+
+Licensed under the **[Apache License 2.0](LICENSE)**. Copyright 2026 Dataiku.
