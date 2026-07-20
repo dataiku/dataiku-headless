@@ -57,7 +57,7 @@ Grouped by harness. Each plugin install wires up both `dataiku-skills/` and the 
 ### Claude Code
 
 ```
-/plugin marketplace add dataiku/dataiku-agent-dev-kit
+/plugin marketplace add dataiku/dku-headless
 /plugin install dataiku@dataiku
 ```
 
@@ -71,7 +71,7 @@ Add the marketplace and install `dataiku` from there.
 ### Snowflake CoCo (Cortex Code)
 
 ```
-cortex plugin install dataiku/dataiku-agent-dev-kit
+cortex plugin install dataiku/dku-headless
 ```
 
 ### Cursor

@@ -5,8 +5,8 @@
   "author": {
     "name": "Dataiku"
   },
-  "homepage": "https://github.com/dataiku/dataiku-agent-dev-kit",
-  "repository": "https://github.com/dataiku/dataiku-agent-dev-kit",
+  "homepage": "https://github.com/dataiku/dku-headless",
+  "repository": "https://github.com/dataiku/dku-headless",
   "license": "LicenseRef-Proprietary",
   "keywords": ["dataiku", "dss", "mcp", "cobuild", "agent"],
   "skills": "./dataiku-skills/",
