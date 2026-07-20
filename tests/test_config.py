@@ -7,6 +7,7 @@ pointing ``DKU_CONFIG_DIR``, the working directory, and ``$HOME`` at ``tmp_path`
 
 import dataclasses
 import json
+import multiprocessing
 import os
 
 import pytest
@@ -15,6 +16,9 @@ from dataiku_mcp import config
 from dataiku_mcp.tools.utils.conversation_store import (
     ConversationStore,
     ConversationStoreError,
+    ConversationTurnBusy,
+    ConversationTurnLost,
+    ConversationTurnSaturated,
 )
 
 
@@ -50,6 +54,19 @@ def _write_config(path, instances, default_instance=""):
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"default_instance": default_instance, "dss_instances": instances}
     path.write_text(json.dumps(payload))
+
+
+def _claim_in_process(path, barrier, release, results):
+    store = ConversationStore(path)
+    barrier.wait()
+    try:
+        claim = store.claim_turn("c1", f"pid-{os.getpid()}:1", max_concurrent_turns=2)
+    except ConversationTurnBusy:
+        results.put("busy")
+        return
+    results.put("claimed")
+    release.wait(10)
+    claim.release()
 
 
 # --------------------------------------------------------------------------- #
@@ -295,6 +312,81 @@ def test_record_outcome_and_mark_in_flight(tmp_path):
     store.mark_in_flight("ghost")
     store.record_outcome("ghost", "completed", None)
     assert store.read("ghost") is None
+
+
+def test_turn_claim_is_exclusive_across_processes(tmp_path):
+    path = tmp_path / "conversations.json"
+    ConversationStore(path).upsert("c1", {"project_key": "PROJ"})
+    ctx = multiprocessing.get_context("spawn")
+    barrier = ctx.Barrier(2)
+    release = ctx.Event()
+    results = ctx.Queue()
+    processes = [
+        ctx.Process(
+            target=_claim_in_process,
+            args=(path, barrier, release, results),
+        )
+        for _ in range(2)
+    ]
+    for process in processes:
+        process.start()
+    outcomes = sorted(results.get(timeout=10) for _ in processes)
+    release.set()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+    assert outcomes == ["busy", "claimed"]
+
+
+def test_lost_turn_requires_read_only_recovery(tmp_path):
+    path = tmp_path / "conversations.json"
+    store = ConversationStore(path)
+    store.upsert("c1", {"project_key": "PROJ"})
+    store.mark_in_flight("c1", "dead-process:1")
+
+    with pytest.raises(ConversationTurnLost):
+        store.claim_turn("c1", "new-process:1", max_concurrent_turns=1)
+
+    claim = store.claim_turn(
+        "c1",
+        "new-process:2",
+        max_concurrent_turns=1,
+        allow_lost_recovery=True,
+    )
+    assert store.read("c1")["last_result_turn_token"] == "new-process:2"
+    claim.release()
+
+
+def test_turn_claim_enforces_global_capacity_across_conversations(tmp_path):
+    path = tmp_path / "conversations.json"
+    store = ConversationStore(path)
+    store.upsert("c1", {"project_key": "PROJ"})
+    store.upsert("c2", {"project_key": "PROJ"})
+
+    claim = store.claim_turn("c1", "process-a:1", max_concurrent_turns=1)
+    with pytest.raises(ConversationTurnSaturated):
+        store.claim_turn("c2", "process-a:2", max_concurrent_turns=1)
+    claim.release()
+
+    successor = store.claim_turn("c2", "process-a:3", max_concurrent_turns=1)
+    successor.release()
+
+
+def test_late_foreign_outcome_cannot_overwrite_new_owner(tmp_path):
+    path = tmp_path / "conversations.json"
+    store = ConversationStore(path)
+    store.upsert("c1", {"project_key": "PROJ"})
+
+    first = store.claim_turn("c1", "process-a:1", max_concurrent_turns=1)
+    store.record_outcome("c1", "completed", None, token="process-a:1")
+    first.release()
+    second = store.claim_turn("c1", "process-b:1", max_concurrent_turns=1)
+
+    store.record_outcome("c1", "error", "stale", token="process-a:1")
+    record = store.read("c1")
+    assert record["last_result_status"] == "in_flight"
+    assert record["last_result_turn_token"] == "process-b:1"
+    second.release()
 
 
 def test_store_file_permissions_are_0600(tmp_path):

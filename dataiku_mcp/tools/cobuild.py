@@ -32,7 +32,7 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dataikuapi.dss.cobuild import DSSCobuildConversation
@@ -41,7 +41,13 @@ from fastmcp import Context
 from .. import config, mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
-from .utils.conversation_store import ConversationStore
+from .utils.conversation_store import (
+    ConversationStore,
+    ConversationTurnBusy,
+    ConversationTurnClaim,
+    ConversationTurnLost,
+    ConversationTurnSaturated,
+)
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -173,6 +179,7 @@ class _InFlightTurn:
     # finalizer writes this turn's terminal outcome to the store first; the other
     # becomes a no-op. Guarantees a single terminal write and no in_flight linger.
     terminal_persisted: bool = False
+    claim: ConversationTurnClaim | None = None
 
 
 class _CobuildTimeout(Exception):
@@ -416,10 +423,13 @@ def _abandon_turn(turn: _InFlightTurn) -> None:
     no-op). Persisting 'abandoned' keeps a poll before that honest rather than
     silently losing the turn.
     """
-    with contextlib.suppress(Exception):
-        _store().record_outcome(
-            turn.conversation_id, "abandoned", None, token=turn.token
-        )
+    try:
+        with contextlib.suppress(Exception):
+            _store().record_outcome(
+                turn.conversation_id, "abandoned", None, token=turn.token
+            )
+    finally:
+        _release_turn_claim(turn)
 
 
 def _sweep_in_flight(now: float | None = None) -> None:
@@ -516,9 +526,6 @@ def _consume_confirmation(
     # Bind/consume the authoritative id onto the handle (idempotent on the live
     # path; installs the store value on the freshly-rehydrated thin handle).
     handle._pending_confirmation_id = authoritative
-    if directive.rehydrated:
-        # Restart-path match: sync the store to what we are about to answer.
-        _sync_pending_confirmation(conversation_id, handle)
     return authoritative
 
 
@@ -535,29 +542,26 @@ def _begin_turn(
 ) -> _InFlightTurn:
     """Atomically reserve the turn slot, arm persistence, and spawn.
 
-    Everything below runs under the single registry lock, in this order:
+    Everything below runs under the local registry lock, in this order:
 
     1. **sweep** stale/hung retained turns (may free a slot);
     2. **overlap check** — a second in-flight turn for this conversation turns the
        loser away with ``_CobuildInProgress`` BEFORE any validation side-effect;
-    3. **validate + consume** a delete confirmation (answer path only): the
-       supplied id is checked against the single authoritative source and consumed
-       onto the handle — so two concurrent answers can never both validate/write
-       the same pending id, and the loser never replays a stale id;
-    4. **cap check** (``_CobuildSaturated``);
-    5. **client bind** — the captured client is bound onto the handle so the turn
+    3. **validate + stage** a delete confirmation (answer path only);
+    4. **local cap check** (``_CobuildSaturated``);
+    5. **durable claim** — atomically acquire the cross-process conversation lock
+       and a global capacity slot, consume any confirmation, and persist the
+       token-scoped ``in_flight`` marker;
+    6. **client bind** — the captured client is bound onto the handle so the turn
        thread reads THIS caller's client/bearer and no interleaved caller can
        retarget it;
-    6. **spawn** the daemon-thread turn;
-    7. **arm persistence** — the ``in_flight`` store marker + terminal-outcome
-       callback are installed while still under the lock and BEFORE the turn is
-       inserted, so a fast-completing turn cannot be settled by an overlapping
-       caller before its persistence is armed (which would let a late ``in_flight``
-       marker clobber the terminal outcome);
-    8. **insert** — only now is the turn visible to any other caller.
+    7. **spawn** the daemon-thread turn;
+    8. **arm persistence** — install the terminal-outcome callback;
+    9. **insert** — only now is the turn visible to another local caller.
 
-    Because steps 2-8 share one critical section, none of them can interleave with
-    a concurrent caller.
+    The durable claim's locks remain held until the terminal outcome is persisted.
+    If the process dies, the OS releases those locks while the durable marker stays
+    ``in_flight``, allowing only an explicit read-only recovery turn.
     """
     with _lock:
         _sweep_in_flight()
@@ -574,20 +578,45 @@ def _begin_turn(
             # Checked atomically under _lock with the insert below, so the cap
             # cannot be raced past.
             raise _CobuildSaturated(running)
-        entry.conversation.client = client
-        turn = _InFlightTurn(
-            future=_spawn_blocking(fn),
-            conversation_id=conversation_id,
-            project_key=entry.project_key,
-            instance_name=entry.instance_name,
-            handle=entry.conversation,
-            started_at=time.monotonic(),
-            kind=kind,
-            allow_edit_project=allow_edit_project,
-            rehydrated=rehydrated,
-            restore_confirmation_id=restore_confirmation_id,
-            token=_next_turn_token(),
+        token = _next_turn_token()
+        claim = _store().claim_turn(
+            conversation_id,
+            token,
+            max_concurrent_turns=MAX_CONCURRENT_COBUILD_TURNS,
+            allow_lost_recovery=kind == "send" and not allow_edit_project,
+            confirmation_id=restore_confirmation_id,
+            confirmation_source_token=(
+                _latest_turn_token.get(conversation_id)
+                if confirmation is not None and not confirmation.rehydrated
+                else None
+            ),
         )
+        entry.conversation.client = client
+        try:
+            turn = _InFlightTurn(
+                future=_spawn_blocking(fn),
+                conversation_id=conversation_id,
+                project_key=entry.project_key,
+                instance_name=entry.instance_name,
+                handle=entry.conversation,
+                started_at=time.monotonic(),
+                kind=kind,
+                allow_edit_project=allow_edit_project,
+                rehydrated=rehydrated,
+                restore_confirmation_id=restore_confirmation_id,
+                token=token,
+                claim=claim,
+            )
+        except BaseException:
+            with contextlib.suppress(Exception):
+                _store().record_outcome(
+                    conversation_id,
+                    "error",
+                    restore_confirmation_id,
+                    token=token,
+                )
+            claim.release()
+            raise
         # Stamp this as the latest lineage for the conversation while still under
         # the lock, before the turn is visible. A now-superseded earlier turn's
         # late callback consults this to recognise it lost lineage (see
@@ -634,19 +663,29 @@ def _persist_terminal_once(
             return
         turn.terminal_persisted = True
     try:
-        _store().record_outcome(
-            turn.conversation_id, status, pending, token=turn.token
-        )
-    except Exception:  # noqa: BLE001 - best-effort; retried minimally below
-        _logger.exception(
-            "Failed to persist terminal Cobuild outcome for conversation %s; "
-            "retrying a minimal terminal-status write.",
-            turn.conversation_id,
-        )
-        with contextlib.suppress(Exception):
+        try:
             _store().record_outcome(
-                turn.conversation_id, status, None, token=turn.token
+                turn.conversation_id, status, pending, token=turn.token
             )
+        except Exception:  # noqa: BLE001 - best-effort; retried minimally below
+            _logger.exception(
+                "Failed to persist terminal Cobuild outcome for conversation %s; "
+                "retrying a minimal terminal-status write.",
+                turn.conversation_id,
+            )
+            with contextlib.suppress(Exception):
+                _store().record_outcome(
+                    turn.conversation_id, status, None, token=turn.token
+                )
+    finally:
+        _release_turn_claim(turn)
+
+
+def _release_turn_claim(turn: _InFlightTurn) -> None:
+    claim = turn.claim
+    if claim is not None:
+        claim.release()
+        turn.claim = None
 
 
 def _persist_terminal_outcome(turn: _InFlightTurn) -> None:
@@ -677,19 +716,12 @@ def _persist_terminal_outcome(turn: _InFlightTurn) -> None:
 
 
 def _arm_turn_persistence(turn: _InFlightTurn) -> None:
-    """Persist an in-flight marker and register the terminal-outcome callback.
+    """Register terminal persistence before the turn becomes locally visible.
 
-    The marker lets ``get_cobuild_turn_status`` report ``turn_lost`` truthfully
-    after a restart (the daemon thread does not survive one). The callback then
-    overwrites it with the real terminal state the moment the future settles.
-    Order matters: mark first, register second, so the terminal state always wins.
-
-    Called from INSIDE ``_begin_turn`` under ``_lock``, before the turn is inserted
-    into the registry — so the marker and callback are armed before any other
-    caller can observe (and race to settle) this turn. The marker is scoped to the
-    turn's token, so a late/duplicate marker can never regress a terminal outcome.
+    ``claim_turn`` has already persisted the token-scoped ``in_flight`` marker and
+    acquired the locks proving ownership. This callback replaces the marker with
+    the terminal state and releases those locks as soon as the future settles.
     """
-    _store().mark_in_flight(turn.conversation_id, turn.token)
     turn.future.add_done_callback(lambda _f: _persist_terminal_outcome(turn))
 
 
@@ -1064,6 +1096,25 @@ def _in_progress_result(turn: _InFlightTurn) -> dict:
     }
 
 
+def _cross_process_in_progress_result(
+    conversation_id: str, project_key: str, instance_name: str
+) -> dict:
+    return {
+        "conversation_id": conversation_id,
+        "project_key": project_key,
+        "instance_name": instance_name,
+        "status": "in_progress",
+        "message": (
+            "A Cobuild turn is already running for this conversation in another "
+            "MCP process; no new message was sent."
+        ),
+        "next_action": (
+            "Poll get_cobuild_turn_status from the process that started the turn. "
+            "Do not resend while that process is still running."
+        ),
+    }
+
+
 def _saturation_result(
     conversation_id: str, project_key: str, instance_name: str, running: list[str]
 ) -> dict:
@@ -1204,7 +1255,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
 
     conversation = await run_blocking(_run)
     conversation_id = conversation.conversation_id
-    created_at = datetime.now(UTC).isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     _remember(
         conversation_id,
@@ -1324,7 +1375,19 @@ async def send_cobuild_message(
     except _CobuildInProgress as exc:
         _guard_project(conversation_id, exc.turn.project_key, project_key)
         return compact_json(omit_empty(await run_blocking(_handle_existing_turn, exc.turn)))
-    except _CobuildSaturated as exc:
+    except ConversationTurnBusy:
+        return compact_json(
+            omit_empty(
+                _cross_process_in_progress_result(
+                    conversation_id, project_key, instance_name
+                )
+            )
+        )
+    except ConversationTurnLost:
+        return compact_json(
+            omit_empty(_turn_lost_result(conversation_id, project_key, instance_name))
+        )
+    except (_CobuildSaturated, ConversationTurnSaturated) as exc:
         return compact_json(
             omit_empty(
                 _saturation_result(
@@ -1427,7 +1490,19 @@ async def answer_cobuild_confirmation(
     except _CobuildInProgress as exc:
         _guard_project(conversation_id, exc.turn.project_key, project_key)
         return compact_json(omit_empty(await run_blocking(_handle_existing_turn, exc.turn)))
-    except _CobuildSaturated as exc:
+    except ConversationTurnBusy:
+        return compact_json(
+            omit_empty(
+                _cross_process_in_progress_result(
+                    conversation_id, project_key, instance_name
+                )
+            )
+        )
+    except ConversationTurnLost:
+        return compact_json(
+            omit_empty(_turn_lost_result(conversation_id, project_key, instance_name))
+        )
+    except (_CobuildSaturated, ConversationTurnSaturated) as exc:
         return compact_json(
             omit_empty(
                 _saturation_result(
@@ -1567,7 +1642,10 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
             "project_key": record.get("project_key"),
             "created_at": record.get("created_at"),
             "pending_confirmation_id": record.get("pending_confirmation_id"),
-            "in_flight": cid in in_flight_ids,
+            "in_flight": (
+                cid in in_flight_ids
+                or record.get("last_result_status") == "in_flight"
+            ),
         }
         for cid, record in merged.items()
         if record.get("instance_name") == current_instance_name

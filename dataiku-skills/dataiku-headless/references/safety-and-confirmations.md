@@ -53,7 +53,9 @@ was still running does not survive**: the in-flight work is dropped and polling 
 reports `turn_lost`. Treat `turn_lost` the way you treat `transport_outcome_unknown`
 (`build-via-cobuild.md`) — the turn's outcome is unknown, not failed. Inspect the
 project or send a read-only follow-up to learn what actually landed before re-sending
-anything.
+anything. A mutating send is refused until that read-only recovery settles. Separate
+MCP processes sharing `DKU_MCP_STATE_DIR` also share the per-conversation overlap guard
+and the global turn cap.
 
 ## No raw API fallback
 

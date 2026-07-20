@@ -53,7 +53,8 @@ blocking call:
 3. **Timeout ≠ failure.** If a turn exceeds `timeout_seconds`, the tool returns
    `status: timeout` and *retains the work* in a background thread. Poll it with
    **`get_cobuild_turn_status`** — never re-send, which would double-run the build. Sending
-   while a turn is already in flight returns `status: in_progress` instead of overlapping.
+   while a turn is already in flight returns `status: in_progress` instead of overlapping,
+   including from another MCP process sharing the same state directory.
 4. **Deletions require confirmation.** When Cobuild proposes a destructive change it returns
    `status: needs_confirmation` with the objects to delete and a `confirmation_id`. Inspect
    the objects, then
@@ -67,11 +68,13 @@ blocking call:
 Conversation metadata lives under `DKU_MCP_STATE_DIR` (see [Configure](#configure)); the
 in-memory handles are only a hot cache. **What survives a restart:** the conversations and any
 observed confirmation id. **What does not:** a turn that was still *running* — the in-flight
-work is dropped and polling it reports `turn_lost`, so treat its outcome as unknown (inspect
-the project or send a read-only follow-up) rather than failed. The same caution applies to a
+work is dropped and polling it reports `turn_lost`, so treat its outcome as unknown. A mutating
+re-send is refused; inspect the project or use a read-only follow-up to recover first. The same
+caution applies to a
 connection-level failure mid-turn, reported as `error_kind: transport_outcome_unknown`: do not
 blindly re-send. **Registry bounds:** `DKU_MCP_MAX_COBUILD_TURNS` (default `8`) caps how many turns
-run *concurrently* — a send beyond it is refused with `error_kind: saturated` rather than started.
+run *concurrently across processes sharing the state directory* — a send beyond it is refused
+with `error_kind: saturated` rather than started.
 Independently, settled turns are swept from memory once their outcome is persisted (and their total
 is hard-capped), and a turn still running past a hard time ceiling is evicted with a persisted
 `abandoned` outcome so it can never wedge a slot forever.

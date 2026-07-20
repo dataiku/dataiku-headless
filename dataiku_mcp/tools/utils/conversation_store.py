@@ -14,6 +14,9 @@ Concurrency & durability:
 * Every read-modify-write cycle is guarded by both a process-wide lock and an
   inter-process ``fcntl.flock`` on a sidecar ``.lock`` file, so two MCP
   processes sharing a state dir cannot clobber each other's updates.
+* A live turn also holds a per-conversation flock and one global capacity-slot
+  flock for its entire lifetime. This prevents separate MCP processes sharing
+  the state directory from double-sending or racing past the concurrency cap.
 * The store **fails closed** on corruption: a file that is not valid JSON (or
   not a JSON object) is quarantined to ``<name>.corrupt-<unix-ts>`` and a clear
   error is raised naming the backup — it is never silently overwritten. A
@@ -25,6 +28,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import fcntl
+import hashlib
 import itertools
 import json
 import os
@@ -81,6 +85,41 @@ class ConversationStoreError(RuntimeError):
     """Raised when the store file exists but cannot be trusted (fail closed)."""
 
 
+class ConversationTurnBusy(RuntimeError):
+    """Raised when another process owns this conversation's active turn."""
+
+
+class ConversationTurnLost(RuntimeError):
+    """Raised when a prior process died while its turn was still in flight."""
+
+
+class ConversationTurnSaturated(RuntimeError):
+    """Raised when every cross-process Cobuild capacity slot is occupied."""
+
+    def __init__(self, running: list[str]):
+        super().__init__("Cobuild turn capacity reached.")
+        self.running = running
+
+
+class ConversationTurnClaim:
+    """Held OS locks proving ownership of one conversation turn and capacity slot."""
+
+    def __init__(self, conversation_fd: int, slot_fd: int):
+        self._conversation_fd = conversation_fd
+        self._slot_fd = slot_fd
+        self._released = False
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        for fd in (self._slot_fd, self._conversation_fd):
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+
 class ConversationStore:
     """File-backed ``{conversation_id: record}`` registry.
 
@@ -97,6 +136,23 @@ class ConversationStore:
     @property
     def _lock_path(self) -> Path:
         return self._path.with_name(self._path.name + ".lock")
+
+    def _turn_lock_path(self, conversation_id: str) -> Path:
+        digest = hashlib.sha256(conversation_id.encode("utf-8")).hexdigest()[:24]
+        return self._path.with_name(f"{self._path.name}.turn-{digest}.lock")
+
+    def _slot_lock_path(self, slot: int) -> Path:
+        return self._path.with_name(f"{self._path.name}.slot-{slot}.lock")
+
+    @staticmethod
+    def _try_flock(fd: int) -> bool:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError as exc:
+            if exc.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+                return False
+            raise
 
     @contextlib.contextmanager
     def _guarded(self):
@@ -221,6 +277,101 @@ class ConversationStore:
             data[conversation_id] = existing
             self._write_all(data)
 
+    def claim_turn(
+        self,
+        conversation_id: str,
+        token: str,
+        *,
+        max_concurrent_turns: int,
+        allow_lost_recovery: bool = False,
+        confirmation_id: str | None = None,
+        confirmation_source_token: str | None = None,
+    ) -> ConversationTurnClaim:
+        """Atomically claim a conversation and one global capacity slot.
+
+        The per-conversation and slot flocks remain held by the returned claim for
+        the whole turn. They are released automatically if the process dies, while
+        the durable ``in_flight`` marker remains behind so the next process reports
+        an outcome-unknown lost turn rather than blindly resending it.
+
+        A caller may recover that lost marker only for an explicitly read-only
+        follow-up. Because acquiring the conversation flock proves no live process
+        still owns the turn, this preserves the documented inspection path without
+        allowing a second mutating send after an ambiguous crash.
+        """
+        if max_concurrent_turns < 1:
+            raise ValueError("max_concurrent_turns must be at least 1")
+
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        conversation_fd = os.open(
+            self._turn_lock_path(conversation_id), os.O_CREAT | os.O_RDWR, _FILE_MODE
+        )
+        if not self._try_flock(conversation_fd):
+            os.close(conversation_fd)
+            raise ConversationTurnBusy(
+                f"Conversation '{conversation_id}' has a turn in another process."
+            )
+
+        slot_fd: int | None = None
+        try:
+            for slot in range(max_concurrent_turns):
+                candidate = os.open(
+                    self._slot_lock_path(slot), os.O_CREAT | os.O_RDWR, _FILE_MODE
+                )
+                if self._try_flock(candidate):
+                    slot_fd = candidate
+                    break
+                os.close(candidate)
+            if slot_fd is None:
+                with self._guarded():
+                    data = self._read_all()
+                    running = sorted(
+                        cid
+                        for cid, record in data.items()
+                        if record.get("last_result_status") == "in_flight"
+                    )
+                raise ConversationTurnSaturated(running)
+
+            with self._guarded():
+                data = self._read_all()
+                record = data.get(conversation_id)
+                if record is None:
+                    raise ValueError(f"Unknown Cobuild conversation_id '{conversation_id}'.")
+                if record.get("last_result_status") == "in_flight":
+                    if not allow_lost_recovery:
+                        raise ConversationTurnLost(
+                            f"Conversation '{conversation_id}' was in flight when its "
+                            "owning process exited."
+                        )
+                if confirmation_id is not None:
+                    pending = record.get("pending_confirmation_id")
+                    if pending != confirmation_id:
+                        same_producing_turn = (
+                            confirmation_source_token is not None
+                            and record.get("last_result_turn_token")
+                            == confirmation_source_token
+                        )
+                        if not same_producing_turn:
+                            raise ValueError(
+                                f"confirmation_id '{confirmation_id}' does not match "
+                                f"the durable pending confirmation for conversation "
+                                f"'{conversation_id}'."
+                            )
+                    record["pending_confirmation_id"] = None
+                record["last_result_status"] = "in_flight"
+                record["last_result_turn_token"] = token
+                record["turn_started_at"] = time.time()
+                data[conversation_id] = record
+                self._write_all(data)
+            return ConversationTurnClaim(conversation_fd, slot_fd)
+        except BaseException:
+            if slot_fd is not None:
+                fcntl.flock(slot_fd, fcntl.LOCK_UN)
+                os.close(slot_fd)
+            fcntl.flock(conversation_fd, fcntl.LOCK_UN)
+            os.close(conversation_fd)
+            raise
+
     def set_pending_confirmation(self, conversation_id: str, value: str | None) -> None:
         """Persist (or clear) the pending confirmation id for a known conversation.
 
@@ -282,10 +433,10 @@ class ConversationStore:
         outcome (and any newly-requested delete confirmation) is not lost until
         the client next polls.
 
-        ``token`` scopes the outcome to a specific turn: an OLDER turn's late
-        outcome (same process, lower sequence) is REFUSED so it cannot clobber a
-        newer turn's already-recorded state. Token-less callers keep the previous
-        unconditional behaviour.
+        ``token`` scopes the outcome to a specific turn. Once a token owns the
+        record, an outcome carrying any other token is refused, so a late worker
+        from another process cannot clobber its successor. Token-less callers
+        keep the previous unconditional behaviour.
         """
         with self._guarded():
             data = self._read_all()
@@ -293,7 +444,8 @@ class ConversationStore:
             if record is None:
                 return
             if token is not None:
-                if _token_is_stale(record.get("last_result_turn_token"), token):
+                existing_token = record.get("last_result_turn_token")
+                if existing_token is not None and existing_token != token:
                     return
                 record["last_result_turn_token"] = token
             record["last_result_status"] = status

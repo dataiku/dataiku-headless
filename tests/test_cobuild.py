@@ -441,6 +441,20 @@ def test_list_survives_restart_from_store(env):
     assert cid in [row[0] for row in table["rows"]]
 
 
+def test_list_reports_turn_owned_by_another_process(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    cobuild._store().mark_in_flight(cid, "other-process:1")
+    cobuild._in_flight.clear()
+
+    table = json.loads(
+        run(cobuild.list_cobuild_conversations("PROJ", FakeCtx()))
+    )["conversations"]
+    rows = [dict(zip(table["columns"], row)) for row in table["rows"]]
+    assert next(row for row in rows if row["conversation_id"] == cid)["in_flight"] is True
+
+
 # --------------------------------------------------------------------------- #
 # Finding 1: confirmation_id is required proof-of-inspection
 # --------------------------------------------------------------------------- #
@@ -613,6 +627,25 @@ def test_turn_lost_reported_after_restart(env):
     assert res["status"] == "turn_lost"
     assert "restart" in res["message"].lower()
     assert "inspect" in res["next_action"].lower()
+
+
+def test_lost_turn_allows_only_read_only_recovery(env):
+    backend = FakeBackend()
+    env.set_client(backend)
+    cid = start()
+    cobuild._store().mark_in_flight(cid, "dead-process:1")
+
+    blocked = send(cid, "repeat the build", allow_edit_project=True)
+    assert blocked["status"] == "turn_lost"
+    assert not any(path.endswith("/messages") for _m, path, _b in backend.calls)
+
+    backend.turn_responses = [assistant("inspection complete")]
+    inspected = send(cid, "Inspect what landed", allow_edit_project=False)
+    assert inspected["status"] == "completed"
+
+    backend.turn_responses = [assistant("safe follow-up completed")]
+    resumed = send(cid, "Apply the reviewed follow-up", allow_edit_project=True)
+    assert resumed["status"] == "completed"
 
 
 # --------------------------------------------------------------------------- #
@@ -1132,10 +1165,10 @@ def test_older_turn_token_cannot_clobber_newer_outcome(env):
     store.record_outcome(cid, "error", "cid-old", token=f"{cobuild._PROCESS_ID}:3")
     assert read_store(env)[cid]["last_result_status"] == "completed"
 
-    # A DIFFERENT process (a restart resets the sequence) is never refused: its
-    # threads cannot race, and a reset seq must not freeze the store.
+    # A DIFFERENT process cannot overwrite a turn it never claimed. Cross-process
+    # ownership is exact-token compare-and-set, not sequence ordering.
     store.record_outcome(cid, "needs_confirmation", "cid-new", token="other-proc:1")
-    assert read_store(env)[cid]["last_result_status"] == "needs_confirmation"
+    assert read_store(env)[cid]["last_result_status"] == "completed"
 
 
 def test_send_persists_terminal_never_lingers_in_flight(env):
