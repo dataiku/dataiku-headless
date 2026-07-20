@@ -36,8 +36,7 @@ verify → audit.**
 
 ## Timeout / poll protocol
 
-A Cobuild turn returns one of: `completed` · `in_progress` · `needs_confirmation`
-· `error` · `timeout`.
+Branch on `status`; exact fields and status values live in each tool's schema.
 
 - **`timeout` is not failure.** The turn is retained server-side. Settle it with
   `get_cobuild_turn_status` — poll until it reaches a terminal status.
@@ -55,6 +54,10 @@ A Cobuild turn returns one of: `completed` · `in_progress` · `needs_confirmati
     blindly re-send.** A resend can double-run a build that already ran. First find
     out what actually happened: inspect the project, or send a **read-only**
     follow-up (`allow_edit_project=false`) on the same conversation, then decide.
+  - **`error_kind: saturated`** → no turn started. Poll the listed in-flight
+    conversations, then retry.
+- **`turn_lost` / `abandoned`** — the outcome is unknown. Inspect the project or
+  send a read-only follow-up before deciding whether to re-send.
 
 ## Escalating allow_edit
 

@@ -25,6 +25,9 @@ the objects it created/changed, the row counts of outputs, and which validation 
 added — a proof-carrying report, not "done". You still verify independently (rule
 5), but a well-shaped report tells you exactly what to verify.
 
+Keep the response compact. On build turns ask for objects created or changed,
+output row counts, and anything Cobuild could not complete.
+
 ## Read-only plan first
 
 For any build with a design decision, send the task once with
@@ -54,6 +57,8 @@ run, so the result is falsifiable.
 
 ## Grounding rules
 
+- Name the outcome, constraints, and checks; leave DSS mechanics to Cobuild unless
+  they are part of the user's intent.
 - Prefer explicit object names over descriptions Cobuild has to resolve.
 - For a change to an existing asset, inspect it first and carry its real config into
   the prompt (see `../playbooks/inspect-and-explain.md`).

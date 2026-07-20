@@ -16,7 +16,9 @@ delete.
 2. Decide against the user's stated intent. **Approve only when the scope clearly
    matches what the user asked for.** If it is broader, ambiguous, or surprising,
    stop and surface it to the user before responding — never approve to keep a build
-   moving.
+   moving. **Fail closed on an empty scope:** if `objects_to_delete` is empty or
+   missing, you cannot verify what would be deleted — answer CANCEL and re-ask with
+   a narrower prompt. Never approve a deletion you cannot enumerate.
 3. Respond with `answer_cobuild_confirmation`, choice `APPROVE` or `CANCEL`, and the
    `confirmation_id` from that turn. Passing `confirmation_id` is **required** and
    must exact-match the pending confirmation — so it doubles as proof you inspected

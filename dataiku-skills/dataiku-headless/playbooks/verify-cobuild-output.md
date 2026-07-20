@@ -5,6 +5,12 @@ this playbook is how you turn it into evidence (rule 5; `../soul.md`, "Trust not
 you didn't read").
 Run it after every build unit, not only at the end.
 
+## Start from the report, not from scratch
+
+Diff the reported objects and row counts against intent, and note anything Cobuild
+could not complete. Use that inventory to scope the targeted reads below; it does
+not replace them.
+
 ## What to check, by claim
 
 Match the check to what Cobuild claimed it did:
