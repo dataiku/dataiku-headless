@@ -2,7 +2,7 @@
 
 Selection knowledge for naming the right transformation in a Cobuild prompt. This
 is *which family fits an intent*, not how to author a payload — Cobuild owns
-payloads now. Open it when a build or migration needs you to specify a recipe.
+payloads now. Open it when a build needs you to specify a recipe.
 
 **Visual-first (the load-bearing rule).** Use a visual recipe family unless the user
 explicitly requests code. Complexity, awkwardness, statefulness, or "cleaner in

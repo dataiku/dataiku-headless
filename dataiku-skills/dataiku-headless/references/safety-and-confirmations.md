@@ -27,10 +27,6 @@ delete.
    answer in-session can still be settled — `list_cobuild_conversations` rediscovers
    the conversation and its pending confirmation.
 
-Treat deletion as destructive even though Cobuild manages the mechanics. Migration
-cleanup deletes only this migration's failed attempts and orphans, never pre-existing
-assets (`../playbooks/migrate.md`).
-
 ## Overlapping builds
 
 Never start a build, run, or scenario against flow objects that may already be

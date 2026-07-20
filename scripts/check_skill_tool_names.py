@@ -129,7 +129,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "sql_query",
         "sql_script",
         "standalone_evaluation",
-        # --- Migration / domain identifiers ---
+        # --- Domain identifiers ---
         "data_type",
         # --- Illustrative object/column names in prompt examples ---
         "customer_id",

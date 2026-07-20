@@ -120,7 +120,7 @@ The kit ships **one** agent skill, `dataiku-skills/dataiku-headless/`, loaded on
 its `SKILL.md` frontmatter `description` matches the conversation. `SKILL.md` is the router
 (permanent rules + a task→playbook table), `soul.md` is the judgment layer for multi-stage
 work (decompose → delegate → verify → finish), and `playbooks/` holds one recipe per task
-kind (build via Cobuild, inspect, direct execution, verify output, migrate). `references/`
+kind (build via Cobuild, inspect, direct execution, verify output, Excel migration). `references/`
 carries the facts an agent opens only when it needs them, including the generated tool-index.
 
 ## Install

@@ -10,9 +10,8 @@ checker fails on either. Run standalone or in CI:
     uv run python scripts/check_skill_links.py
 
 Layout assumed under SKILL_ROOT: one directory per skill, each with a SKILL.md
-router at its root and `playbooks/` + `references/` subtrees. Non-markdown
-assets (e.g. the parser `.py` files under references/migration-sources/) are not
-routed and are ignored.
+router at its root and `playbooks/` + `references/` subtrees. Non-markdown assets
+are not routed and are ignored.
 """
 
 from __future__ import annotations
@@ -137,7 +136,7 @@ def _check_skill(skill_dir: Path) -> list[str]:
     # (c) Dead-reference detection. A *path-qualified* .md reference (one with a
     # directory or ../ component) is a hard link and must resolve. Bare filename
     # tokens are treated as soft references: they overlap with prose (e.g. an
-    # artifact the agent writes at runtime, like `migration_plan.md`), so they
+    # artifact the agent writes at runtime, like `runtime_plan.md`), so they
     # are not flagged here — they only feed reachability below.
     for path in md_files:
         for ref in sorted(_md_refs(path)):

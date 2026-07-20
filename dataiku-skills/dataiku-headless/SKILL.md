@@ -1,6 +1,6 @@
 ---
 name: dataiku-headless
-description: Operate Dataiku DSS end to end as the supervisor of Cobuild. Use for any task touching Dataiku or DSS in any form — inspecting, building, running, migrating, or verifying flows, datasets, recipes, jobs, scenarios, dashboards, ML models, GenAI agents, semantic models, or wikis — even when the user never names Dataiku, Cobuild, or a specific tool. Also use when deciding whether a request is a read, a delegated build, or a direct execution.
+description: Operate Dataiku DSS end to end as the supervisor of Cobuild. Use for any task touching Dataiku or DSS in any form — inspecting, building, running, or verifying flows, datasets, recipes, jobs, scenarios, dashboards, ML models, GenAI agents, semantic models, or wikis — even when the user never names Dataiku, Cobuild, or a specific tool — and for Excel migrations into DSS. Also use when deciding whether a request is a read, a delegated build, or a direct execution.
 license: LicenseRef-Proprietary (see repository LICENSE)
 metadata:
   author: dataiku
@@ -38,7 +38,7 @@ project tomorrow is your real user. Supervise accordingly:
   into the quality of what was asked — never into silent scope creep.
 
 **Multi-stage work? Read `soul.md` first** — any project with several
-delegate→verify cycles (a new flow, a migration, an agent system). It is the
+delegate→verify cycles (a new flow, an Excel workbook, an agent system). It is the
 judgment layer: decompose before delegating, delegate-vs-direct, trust nothing you
 didn't read, finish gold. Skip it for one-shot reads and single delegations.
 
@@ -86,7 +86,7 @@ didn't read, finish gold. Skip it for one-shot reads and single delegations.
 | Investigate or explain a project, flow, dataset, or object — read-only | `playbooks/inspect-and-explain.md` |
 | Re-run or rebuild assets that already exist, no design decision | `playbooks/direct-execution.md` |
 | Prove Cobuild's output is real — verify claims, sample, audit | `playbooks/verify-cobuild-output.md` |
-| Port a legacy workflow (Alteryx, SAS, Excel, Tableau Prep) into DSS | `playbooks/migrate.md` |
+| Move an Excel workbook's data and logic into DSS | `playbooks/excel-migration.md` |
 
 ## References (open on demand)
 

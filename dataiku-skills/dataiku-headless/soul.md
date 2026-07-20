@@ -1,6 +1,6 @@
 # Soul — how a supervised Dataiku project earns its keep
 
-Read this once before any multi-stage work — a new flow, a migration, an agent
+Read this once before any multi-stage work — a new flow, an Excel workbook, an agent
 system; anything with several delegate→verify cycles. It is the judgment layer
 above the playbooks: what their steps are *for*, and how to choose when no rule
 decides. Tool parameters live in the schema; task steps live in the playbooks.
