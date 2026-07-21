@@ -1,3 +1,5 @@
+**Note**: this branch is here to preserve the previous implementation of MCP http-streamable, as it might be a useful reference when we want to re-add it in the near future.
+
 <div align="center">
 
 <picture>
