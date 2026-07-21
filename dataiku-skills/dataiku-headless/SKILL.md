@@ -76,6 +76,7 @@ single isolated Cobuild change.
 
 | Need | Reference |
 |---|---|
+| Find the tool for a capability by name and one-line purpose | `references/tool-index.md` |
 | Which read discovers or inspects an object, and how changes route | `references/object-model.md` |
 | Write a bounded, testable Cobuild request | `references/cobuild-prompt-patterns.md` |
 | Choose a visual, ML, GenAI, or explicitly requested code recipe family | `references/recipe-families.md` |

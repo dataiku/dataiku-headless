@@ -79,6 +79,17 @@ export DKU_API_KEY="your-api-key"
 - Bound contract size, inventory lists, check text, samples, blocking consistency work, and the final serialized response.
 - Never return raw backend exception or consistency-message text from an audit; it may contain SQL, URLs, or connection details.
 
+## Generated Skill Contract
+
+The skill and the tool surface must change together, and that relationship is enforced mechanically rather than by review memory.
+
+- `dataiku-skills/dataiku-headless/references/tool-index.md` is **generated** from the live FastMCP registry by `scripts/generate_tool_index.py` (one in-process import — this chain is stdio-only, so there is no transport union). Never hand-edit it; change the tool docstring or the registered surface, then regenerate and commit. `tests/test_tool_index.py` fails when the committed file drifts from a fresh render.
+- `scripts/check_skill_links.py` requires frontmatter (`name`/`description`, name matching the directory), rejects duplicate basenames, resolves every path-qualified Markdown link, and requires every skill Markdown file to be reachable from `SKILL.md`. First-party skill Markdown is trusted, so there is no path-traversal guard.
+- `scripts/check_skill_tool_names.py` extracts backticked and fenced identifiers that sit in the server's tool-verb namespace (`get_*`, `list_*`, `run_*`, …) and requires each to be a registered tool or a genuine non-tool name in its small `ALLOWLIST`. This catches a pruned or renamed reader that survives in skill prose — a dead route the index generator cannot see. Scoping to the tool-verb namespace keeps the allowlist minimal: field, value, recipe-family, and example identifiers that never share a tool verb are out of scope, not allowlisted one by one.
+- `tests/test_skill_links.py` runs both checkers under pytest, so CI enforces them without a second workflow.
+
+When a tool is added, removed, renamed, moved, or its first docstring sentence changes: update the pinned catalog in `tests/test_smoke.py`, run `uv run python scripts/generate_tool_index.py`, update the routed skill if behavior or payloads changed, and update the tool counts in `README.md`.
+
 ## Validation
 
 Run a syntax check before committing Python changes:

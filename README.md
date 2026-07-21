@@ -39,7 +39,7 @@ Cobuild conversations and their retained turns are **process-local**: they live 
 - `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families (agents, dashboards, wikis, semantic models, and more); live/runtime readers remain separate
 - `audit_project`: a read-only, bounded Flow review after a build — a deterministic finish gate, not a correctness oracle. DSS Flow consistency and explicit output contracts fail closed; documentation and layout conventions stay advisory
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
-- One fixed, directly visible tool catalog — no tool-exposure or Cobuild "mode" that makes capabilities depend on deployment configuration
+- One fixed, directly visible tool catalog of 81 tools (76 non-Cobuild inspect/execute/bootstrap tools plus 5 Cobuild conversation tools) — no tool-exposure or Cobuild "mode" that makes capabilities depend on deployment configuration. `references/tool-index.md` in the skill lists every name with a one-line purpose (generated from the live registry)
 
 Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
 Project-variable reads redact credential-shaped fields, exclude local overrides by
