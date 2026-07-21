@@ -11,9 +11,6 @@ venv/
 .env
 .dataiku/config.json
 
-# Local snapshot corpora (keep folder scaffold only)
-learning-dev-agent/recipe-snapshot-corpus/recipe_snapshots/*
-!learning-dev-agent/recipe-snapshot-corpus/recipe_snapshots/.gitkeep
 # Claude Code: keep shared settings.json (committed), ignore personal/local bits
 .claude/*
 !.claude/settings.json
@@ -26,13 +23,3 @@ tmp
 # Design / rationale docs — local working notes, except committed brand assets
 docs/*
 !docs/assets/
-
-# Local test fixtures, migration-run scratch, benchmark research, setup notes (not shipped)
-test-data/
-token-benchmarks/
-TESTING.md
-dku_agent_dev_kit_test_setup.md
-migration_token_diet.md
-sample_extracted/
-extract/
-*_extracted/
