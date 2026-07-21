@@ -5,9 +5,9 @@
   <img alt="Dataiku" src="docs/assets/dataiku-lockup-black.svg" width="280">
 </picture>
 
-<h1><code>$&nbsp;dku-headless</code></h1>
+<h1><code>$&nbsp;dataiku-headless</code></h1>
 
-<p><strong>The Dataiku Cobuild supervisor kit</strong></p>
+<p><strong>Dataiku Headless: Agentic Analytics, Data Science, and AI Development powered by Dataiku Cobuild</strong></p>
 
 <p><code>SUPERVISE&nbsp;·&nbsp;DELEGATE&nbsp;·&nbsp;VERIFY</code></p>
 
