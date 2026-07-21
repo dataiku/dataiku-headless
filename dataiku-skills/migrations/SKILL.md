@@ -24,7 +24,7 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
     * List of the input data sources.
     * Explain the role of each source in accomplishing the Business Intent.
   - Dataiku Migration Plan (discover and read whatever skills needed with `ls ./dataiku-skills/`): 
-    * Translate the source bundle logic into a plan for a Dataiku Flow. 
+    * Translate the source bundle logic into a plan for a Dataiku Flow. The migrated flow must use only visual recipe families unless the user explicitly requests a code-based transformation. Do not choose a Code recipe because it seems easier, faster, more reliable, or more expressive. If the user did not explicitly ask for code, keep searching for a visual-recipe implementation.
     * The migrated Dataiku Flow **must** start from the same input datasets as the source bundle; it is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
     * The requested final output dataset must be produced in DSS from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.
 4. Create a Validation Plan for the migrated project and write it to `<bundle_dir>/migration_v<n>/validation_plan.md`. The Validation Plan should (at least) include:
@@ -68,6 +68,8 @@ If any part of the validation fails, repeat the Build and then re-validate. Loop
 
 Validation must confirm that the requested final output dataset is produced by a recipe chain rooted in the migrated source datasets.
 
+Validation must also confirm that the completed migrated flow contains no code recipes unless the user explicitly requested code.
+
 Validation is not complete until the migration also satisfies the Documentation and Cleanup Plan.
 
 ## Phase 4: Document and Cleanup
@@ -78,6 +80,14 @@ The migration is not complete until all required documentation, Flow Zone, Wiki,
 
 
 # Migration Notes
+
+## Visual-only rule
+
+Unless the user explicitly requests a code-based transformation, migrations must be implemented with visual recipe families only. Code recipes are forbidden by default.
+
+Do not use Python, SQL, R, or other code recipes merely because the logic is awkward, stateful, easier to express in code, or difficult to reproduce visually. Difficulty is not an exception.
+
+If the user explicitly asks for code, a code recipe may be used only for the part the user asked to implement in code. Otherwise, the migration must remain fully visual. Visual recipe families are defined in `./dataiku-skills/recipes/SKILL.md`.
 
 ## Input-boundary invariant
 

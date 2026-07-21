@@ -1,0 +1,15 @@
+{
+  "name": "dataiku",
+  "owner": {
+    "name": "Dataiku"
+  },
+  "description": "Dataiku agent dev kit — inspect Dataiku projects and drive Cobuild for project-level building.",
+  "plugins": [
+    {
+      "name": "dataiku",
+      "source": "./",
+      "description": "Inspect Dataiku DSS projects through read-only MCP tools and drive Dataiku Cobuild for project-level building.",
+      "category": "data"
+    }
+  ]
+}

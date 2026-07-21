@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "dataiku": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["dataiku-headless", "serve"],
+      "env": {
+        "DKU_DSS_URL": "${env:DKU_DSS_URL}",
+        "DKU_API_KEY": "${env:DKU_API_KEY}"
+      }
+    }
+  }
+}

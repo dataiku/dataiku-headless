@@ -62,4 +62,6 @@ Do not use this skill when:
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
 - `send_cobuild_message` may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
+- Before triggering a build-affecting prompt, check `../jobs/SKILL.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
+- If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.
 - There is no close or delete conversation tool.
