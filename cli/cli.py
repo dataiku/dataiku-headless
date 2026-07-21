@@ -31,7 +31,7 @@ app = typer.Typer(
 
 @app.command()
 def serve() -> None:
-    """Run the Dataiku FastMCP server (stdio or streamable-http per env config)."""
+    """Run the Dataiku FastMCP server over stdio."""
     from dataiku_mcp import run_server
 
     run_server()

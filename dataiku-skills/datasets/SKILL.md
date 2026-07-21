@@ -52,7 +52,6 @@ Inspect `./dataiku-skills/connections/SKILL.md` before a Cobuild request when th
 - `get_dataset_sample`
 - `get_dataset_metrics`
 - `create_upload_dataset`
-- `create_upload_dataset_from_rows`
 
 ## Safety Rules
 

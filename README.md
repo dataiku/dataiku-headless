@@ -33,16 +33,15 @@ Cobuild conversations and their retained turns are **process-local**: they live 
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Tiered server-side authentication (env API key or HTTP bearer token)
+- Server-side authentication (env API key or `.dataiku/config.json`)
 - Modular architecture by functional domain
 - Dense, bounded orientation calls for a project overview and its Flow graph
 - `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families (agents, dashboards, wikis, semantic models, and more); live/runtime readers remain separate
 - `audit_project`: a read-only, bounded Flow review after a build — a deterministic finish gate, not a correctness oracle. DSS Flow consistency and explicit output contracts fail closed; documentation and layout conventions stay advisory
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
-- `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
-- Optional search-based tool exposure mode for progressive disclosure
+- One fixed, directly visible tool catalog — no tool-exposure or Cobuild "mode" that makes capabilities depend on deployment configuration
 
-Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or request headers.
+Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
 Project-variable reads redact credential-shaped fields, exclude local overrides by
 default, and clip oversized values before returning them to the model.
 
@@ -128,25 +127,18 @@ Copy `.env.example` to `.env` and fill in your values:
 DKU_DSS_URL=https://your-instance.dataiku.com
 DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
-DKU_MCP_TRANSPORT=stdio
-DKU_MCP_COBUILD_MODE=CREATE_ONLY
-DKU_MCP_TOOL_EXPOSURE=search
-DKU_MCP_SEARCH_MAX_RESULTS=5
-DKU_MCP_SEARCH_ALWAYS_VISIBLE=get_current_instance
 
 # Set to true/1 to skip SSL verification, matching Dataiku's local config.
 DKU_NO_CHECK_CERTIFICATE=false
-
-# Optional streamable-http settings
-FASTMCP_HOST=127.0.0.1
-FASTMCP_PORT=8000
-FASTMCP_STREAMABLE_HTTP_PATH=/mcp
 ```
 
-**Upload tool behavior depends on transport:**
-
-- `stdio` exposes `create_upload_dataset`, which uploads from a local file path visible to the MCP server process.
-- `streamable-http` exposes `create_upload_dataset_from_rows`, which uploads tabular data passed as `columns` plus positional `rows` when a server-local file path is not usable.
+**Transport is stdio, always.** The server is a single-user, single-credential
+local plugin that the agent harness launches and speaks to over stdio. There is
+no HTTP transport: an HTTP server would demand per-request credential ownership
+and shared-state machinery this v1 deliberately excludes. If a hosted/multi-user
+deployment is ever needed, it belongs in its own project, not behind an env flag
+here. `create_upload_dataset` uploads from a local file path visible to the MCP
+server process.
 
 **Connect to multiple instances:**
 Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape. 
@@ -156,20 +148,19 @@ After adding multiple instance configs, you can use the `list_instances`, `switc
 Auth resolution order:
 1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
 2. The first existing config file: `$DKU_CONFIG_DIR/config.json`, `./.dataiku/config.json`, then `$XDG_CONFIG_HOME/dataiku-headless/config.json` (or `~/.config/dataiku-headless/config.json`)
-3. Streamable HTTP request header for API key only: `Authorization: Bearer <DKU_API_KEY>`
 
 The old `DKU_DEFAULT_CONNECTION`, `DKU_DEFAULT_FOLDER_CONNECTION`,
 `DKU_DEFAULT_LLM`, and `DKU_DEFAULT_EMBEDDING_LLM` settings were never consumed
 by a tool. They are no longer part of the configuration contract; pass concrete
 object identifiers in the relevant tool or Cobuild instruction instead.
 
-**Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
-
-**Cobuild modes:** `CREATE_ONLY` (default) keeps this server's full read-tool surface enabled alongside the Cobuild conversation tools, for context-gathering independent of any Cobuild conversation. `FULL` additionally disables the read tools that duplicate what Cobuild can already inspect within its own conversation, leaving only cross-project/instance tools, the direct-write exceptions, and the Cobuild conversation tools themselves.
+**Fixed tool surface:** the server registers one directly visible catalog. It
+has no tool-exposure or Cobuild mode, so a deployment environment variable
+cannot silently hide a verification tool.
 
 ## Run
 
-Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly or running `streamable-http` as a standing service:
+Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly:
 
 ```bash
 uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
@@ -210,7 +201,7 @@ dataiku-headless
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Shared runtime utilities
 │   ├── config.py
-│   ├── config_mcp.py          # Tool exposure + Cobuild mode configuration
+│   ├── config_mcp.py          # Worker-pool configuration
 │   ├── __init__.py
 │   └── __main__.py
 ├── dataiku-skills/

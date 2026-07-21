@@ -1,10 +1,3 @@
-## Unreleased
-
-### Feat
-
-- **datasets**: add `create_upload_dataset_from_rows` for `streamable-http` transport
-- **mcp,datasets**: expose transport-specific uploaded-dataset tools by mode
-
 ## v0.2.0 (2026-06-09)
 
 ### Feat
