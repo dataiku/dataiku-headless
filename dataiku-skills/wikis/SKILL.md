@@ -18,7 +18,7 @@ Read [wiki content](references/wiki-content.md) when a request involves article 
 ## Workflow
 
 1. Use `list_wiki_articles` to discover article identifiers, hierarchy, and the home article.
-2. Use `get_wiki_article` to read a selected article before interpreting or changing its content.
+2. Use `get_object_settings` with `object_type=wiki_article` to read a selected article before interpreting or changing its content.
 3. For new or moved content, inspect the intended parent and nearby articles to ground placement and avoid duplication.
 4. Discover any referenced project objects through their object-specific skills.
 5. Route wiki creation, edits, moves, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
@@ -34,7 +34,7 @@ Read [wiki content](references/wiki-content.md) when a request involves article 
 ## Preferred Tools
 
 - `list_wiki_articles`
-- `get_wiki_article`
+- `get_object_settings`
 
 ## Safety Rules
 

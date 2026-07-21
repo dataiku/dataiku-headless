@@ -23,6 +23,7 @@ dependencies = [
     "dataiku-api-client>=14.7.0",
     "portalocker>=3.2,<4",
     "python-dotenv",
+    "regex>=2024.5.15",
     "typer>=0.12",
 ]
 
@@ -43,6 +44,7 @@ include = [
     "cli",
     "dataiku-skills",
     "README.md",
+    "TOOL_SURFACE_DECISIONS.md",
     "pyproject.toml",
 ]
 

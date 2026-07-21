@@ -36,7 +36,7 @@ Agent Review
 ## Workflow
 
 1. Use `list_agent_reviews` to discover reviews.
-2. Use `get_agent_review` to inspect the review configuration and discover its linked agent. When agent behavior or configuration matters, use `./dataiku-skills/agents/SKILL.md` to inspect that agent.
+2. Use `get_object_settings` with `object_type=agent_review` to inspect the review configuration and discover its linked agent. When agent behavior or configuration matters, use `./dataiku-skills/agents/SKILL.md` to inspect that agent.
 3. Use `list_agent_review_tests` to inspect the test set.
 4. Use `list_agent_review_runs` and `get_agent_review_run_results` to inspect outcomes.
 5. If the task requires creating, editing, deleting, or executing Agent Reviews, route that work through `./dataiku-skills/cobuild/SKILL.md`.
@@ -44,7 +44,7 @@ Agent Review
 ## Preferred Tools
 
 - `list_agent_reviews`
-- `get_agent_review`
+- `get_object_settings`
 - `list_agent_review_tests`
 - `list_agent_review_runs`
 - `get_agent_review_run_results`

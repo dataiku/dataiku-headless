@@ -18,14 +18,14 @@ Page filters apply to a dashboard page, not to an individual tile. A page filter
 ## Workflow
 
 1. Use `list_dashboards` to discover dashboards.
-2. Use `get_dashboard_settings` to inspect a selected dashboard before asking Cobuild to change it.
+2. Use `get_object_settings` with `object_type=dashboard` to inspect a selected dashboard before asking Cobuild to change it.
 3. When a dashboard uses existing insights, use `./dataiku-skills/insights/SKILL.md` to inspect those insights before preparing the Cobuild request. For greenfield work, define the required insights and dashboard relationship in the request.
 4. Route dashboard and underlying-insight creation, edits, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
 
 ## Preferred Tools
 
 - `list_dashboards`
-- `get_dashboard_settings`
+- `get_object_settings`
 
 ## Safety Rules
 

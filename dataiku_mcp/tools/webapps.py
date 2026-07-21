@@ -1,7 +1,5 @@
 """WebApp inspection tools for Dataiku DSS."""
 
-import copy
-
 from fastmcp import Context
 
 from .. import mcp
@@ -9,18 +7,6 @@ from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
-
-WEBAPP_SECRET_REDACTION = "__DATAIKU_REDACTED__"
-_PRESERVED_SENSITIVE_KEYS = {"apiKey"}
-
-
-def _redact_webapp_settings(raw_settings: dict) -> dict:
-    redacted = copy.deepcopy(raw_settings)
-    for key in _PRESERVED_SENSITIVE_KEYS:
-        if key in redacted:
-            redacted[key] = WEBAPP_SECRET_REDACTION
-    return redacted
-
 
 def _serialize_webapp_list_item(item: dict) -> dict:
     created_by = item.get("createdBy") or {}
@@ -66,29 +52,6 @@ async def list_webapps(project_key: str, ctx: Context) -> str:
             )
         }
     )
-
-
-@mcp.tool()
-async def get_webapp_settings(
-    project_key: str,
-    webapp_id: str,
-    ctx: Context,
-) -> str:
-    """Get the full WebApp settings dict with sensitive top-level fields redacted."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    webapp_id = _require_non_empty_string(webapp_id, "webapp_id")
-    await ctx.info(f"Loading settings for WebApp {webapp_id} in {project_key}...")
-
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_webapp(webapp_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(_redact_webapp_settings(raw))
 
 
 @mcp.tool()

@@ -28,7 +28,7 @@ Choose the framework that matches the requested application and existing project
 ## Workflow
 
 1. Use `list_webapps` to discover WebApps and project-wide application context.
-2. Use `get_webapp_settings` to inspect a selected WebApp's type and configuration.
+2. Use `get_object_settings` with `object_type=webapp` to inspect a selected WebApp's type and saved configuration.
 3. Use `get_webapp_state` only when diagnosing availability, startup, or backend runtime issues.
 4. Inspect referenced datasets, folders, models, APIs, code environments, and project-library files when they affect the requested change.
 5. Route WebApp creation, updates, backend restarts, and backend stops through `./dataiku-skills/cobuild/SKILL.md`.
@@ -45,7 +45,7 @@ Choose the framework that matches the requested application and existing project
 ## Preferred Tools
 
 - `list_webapps`
-- `get_webapp_settings`
+- `get_object_settings`
 - `get_webapp_state`
 
 ## Safety Rules

@@ -34,7 +34,7 @@ Ground entities and attributes in inspected dataset schemas. Validate entity gra
 ## Workflow
 
 1. Use `list_semantic_models` to discover models, versions, and the active version.
-2. Use `get_semantic_model_version_settings` to inspect a selected version's business definition.
+2. Use `get_object_settings` with `object_type=semantic_model`. Omit `version_id` to discover versions; pass one to inspect its business definition.
 3. Inspect source datasets and schemas before requesting entity, attribute, metric, filter, or relationship changes.
 4. Decide whether a request should change the active version or create a version for review first.
 5. Route semantic-model creation, versioning, activation, indexing, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
@@ -48,7 +48,7 @@ Ground entities and attributes in inspected dataset schemas. Validate entity gra
 ## Preferred Tools
 
 - `list_semantic_models`
-- `get_semantic_model_version_settings`
+- `get_object_settings`
 
 ## Safety Rules
 

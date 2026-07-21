@@ -38,26 +38,3 @@ async def list_insights(project_key: str, ctx: Context) -> str:
             )
         }
     )
-
-
-@mcp.tool()
-async def get_insight_settings(
-    project_key: str,
-    insight_id: str,
-    ctx: Context,
-) -> str:
-    """Get the full insight settings dict for round-trip inspection."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    insight_id = _require_non_empty_string(insight_id, "insight_id")
-    await ctx.info(f"Loading insight {insight_id} in {project_key}...")
-
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_insight(insight_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(raw)

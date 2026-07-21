@@ -16,7 +16,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 - `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families; live/runtime readers remain separate
 - `audit_project`: a read-only, bounded Flow review after a build; DSS consistency and explicit output contracts gate, while naming/documentation conventions stay advisory
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
-- One fixed, directly visible tool catalog; only server-local file tools differ by transport
+- One reviewed catalog: 79 non-Cobuild tools plus 5 Cobuild tools before transport gating; every name and pruning decision is pinned in [TOOL_SURFACE_DECISIONS.md](TOOL_SURFACE_DECISIONS.md)
 
 Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or request headers.
 Project-variable reads redact credential-shaped fields, exclude local overrides by
@@ -146,7 +146,7 @@ share the same state directory. Keep that capacity setting the same in those
 processes. Durable conversation and turn state defaults to the XDG user state
 directory and can be relocated with `DKU_MCP_STATE_DIR`.
 
-**Fixed tool surface:** the server registers one directly visible catalog. It has no search/full or Cobuild exposure mode, so deployment environment variables cannot silently hide a verification tool. The only runtime difference is transport safety: streamable HTTP removes server-filesystem path tools and the stdio-only multi-instance controls described above.
+**Fixed tool surface:** the server registers one directly visible catalog: 79 non-Cobuild tools plus 5 Cobuild tools before transport gating. It has no search/full or Cobuild exposure mode, so deployment environment variables cannot silently hide a verification tool. Stdio exposes 78 of those non-Cobuild tools; streamable HTTP exposes 74. The difference is limited to the row-upload alternative, server-filesystem path tools, and the stdio-only multi-instance controls described above. Tests assert the exact names under both transports.
 
 ## Run
 

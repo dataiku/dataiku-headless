@@ -11,11 +11,22 @@ from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
-from .utils.serialization import columnar, compact_json, is_empty
+from .utils.serialization import (
+    bounded_compact_json,
+    columnar,
+    compact_json,
+    is_empty,
+)
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
     require_positive_int as _require_positive_int,
 )
+
+
+_DEFAULT_DATASET_INFO_COLUMNS = 1_000
+_MAX_DATASET_INFO_COLUMNS = 5_000
+_MAX_DATASET_INFO_RESPONSE_BYTES = 1_000_000
+_MAX_COLUMN_SUGGESTIONS = 50
 
 
 def _serialize_upload_cell(value):
@@ -289,15 +300,61 @@ async def get_dataset_sample(
 
 
 @mcp.tool()
-async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) -> str:
-    """Get the dataset's type, connection, and column schema."""
+async def get_dataset_info(
+    project_key: str,
+    dataset_name: str,
+    ctx: Context,
+    columns: list[str] | None = None,
+    max_columns: int = _DEFAULT_DATASET_INFO_COLUMNS,
+) -> str:
+    """Get bounded dataset type, connection, and column metadata.
+
+    Column rows include name, type, meaning, and comment. Pass ``columns`` to
+    select named columns in caller order. Without a selection, ``max_columns``
+    bounds the schema response and explicit counts state whether it was clipped.
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
+    max_columns = _require_positive_int(max_columns, "max_columns")
+    if max_columns > _MAX_DATASET_INFO_COLUMNS:
+        raise ValueError(f"'max_columns' must be <= {_MAX_DATASET_INFO_COLUMNS}")
+    requested_columns = None
+    if columns is not None:
+        requested_columns = [
+            _require_non_empty_string(name, f"columns[{index}]")
+            for index, name in enumerate(columns)
+        ]
+        if not requested_columns:
+            raise ValueError("'columns' must be null or a non-empty list")
+        if len(requested_columns) > max_columns:
+            raise ValueError("'columns' cannot contain more entries than 'max_columns'")
+    client = get_dss_client()
     await ctx.info(f"Loading dataset info for {dataset_name} in {project_key}...")
 
     def _run():
-        project = get_dss_client().get_project(project_key)
+        project = client.get_project(project_key)
         dataset = project.get_dataset(dataset_name)
         schema = dataset.get_schema()
         settings = dataset.get_settings().get_raw()
+        all_columns = schema.get("columns", [])
+        columns_by_name = {column["name"]: column for column in all_columns}
+        if requested_columns is not None:
+            missing = [name for name in requested_columns if name not in columns_by_name]
+            if missing:
+                available = sorted(columns_by_name)
+                shown = available[:_MAX_COLUMN_SUGGESTIONS]
+                suffix = (
+                    f" (showing {len(shown)} of {len(available)})"
+                    if len(shown) < len(available)
+                    else ""
+                )
+                raise ValueError(
+                    f"Unknown column(s): {missing}. "
+                    f"Available columns{suffix}: {shown}"
+                )
+            selected_columns = [columns_by_name[name] for name in requested_columns]
+        else:
+            selected_columns = all_columns[:max_columns]
         dataset_type = None
         for ds_info in project.list_datasets():
             if ds_info.get("name") == dataset_name:
@@ -314,57 +371,24 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
                         "meaning": column.get("meaning", ""),
                         "comment": column.get("comment", ""),
                     }
-                    for column in schema.get("columns", [])
+                    for column in selected_columns
                 ],
                 ["name", "type", "meaning", "comment"],
             ),
+            "total_columns": len(all_columns),
+            "returned_columns": len(selected_columns),
+            "truncated": requested_columns is None
+            and len(selected_columns) < len(all_columns),
         }
         for key in ("type", "connection"):
             if is_empty(result[key]):
                 del result[key]
         return result
 
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
-async def get_dataset_column_descriptions(
-    project_key: str,
-    dataset_name: str,
-    ctx: Context,
-    columns: list[str] | None = None,
-) -> str:
-    """Get per-column descriptions from the dataset schema."""
-    await ctx.info(f"Loading column descriptions for {dataset_name} in {project_key}...")
-
-    def _run():
-        dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
-        schema = dataset.get_schema()
-        columns_by_name = {column["name"]: column for column in schema.get("columns", [])}
-        requested_columns = list(columns) if columns else list(columns_by_name)
-        missing = [
-            column_name
-            for column_name in requested_columns
-            if column_name not in columns_by_name
-        ]
-        if missing:
-            raise ValueError(
-                f"Unknown column(s): {missing}. Available columns: {sorted(columns_by_name)}"
-            )
-        return {
-            "columns": columnar(
-                [
-                    {
-                        "name": column_name,
-                        "description": columns_by_name[column_name].get("comment", ""),
-                    }
-                    for column_name in requested_columns
-                ],
-                ["name", "description"],
-            )
-        }
-
-    return compact_json(await run_blocking(_run))
+    return bounded_compact_json(
+        await run_blocking(_run),
+        _MAX_DATASET_INFO_RESPONSE_BYTES,
+    )
 
 
 @mcp.tool()

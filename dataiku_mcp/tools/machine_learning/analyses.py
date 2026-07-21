@@ -9,7 +9,7 @@ from fastmcp import Context
 from ... import mcp
 from ..utils.async_executor import run_blocking
 from ..utils.auth import get_dss_client
-from ..utils.serialization import columnar, compact_json, omit_empty
+from ..utils.serialization import columnar, compact_json
 from ..utils.validation import require_non_empty_string as _require_non_empty_string
 from .shared.common import find_analysis_input_dataset, require_single_ml_task
 from .shared.summaries import build_ml_task_summary
@@ -34,22 +34,6 @@ def slim_model_data(data: Any) -> Any:
     if isinstance(data, list):
         return [slim_model_data(item) for item in data]
     return data
-
-
-def slim_mltask_settings(raw_settings: dict) -> dict:
-    slimmed = dict(raw_settings)
-    modeling = slimmed.get("modeling")
-    if isinstance(modeling, dict):
-        slimmed["modeling"] = {
-            key: value
-            for key, value in modeling.items()
-            if not (
-                isinstance(value, dict)
-                and "enabled" in value
-                and not value["enabled"]
-            )
-        }
-    return slimmed
 
 
 @mcp.tool()
@@ -149,34 +133,6 @@ async def get_ml_analysis_summary(
             include_feature_details=True,
             include_trained_models=False,
         )
-
-    return compact_json(await run_blocking(_get))
-
-
-@mcp.tool()
-async def get_ml_analysis_settings(
-    project_key: str,
-    analysis_id: str,
-    ctx: Context,
-) -> str:
-    """Get the raw analysis and ML task settings for an ML analysis."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    analysis_id = _require_non_empty_string(analysis_id, "analysis_id")
-    await ctx.info(f"Loading ML analysis settings for {analysis_id}...")
-
-    def _get() -> dict[str, Any]:
-        project, analysis, mltask_id, mltask = get_single_task_bundle(
-            project_key, analysis_id
-        )
-        analysis_definition = analysis.get_definition().get_raw()
-        settings = mltask.get_settings()
-        result = {
-            "analysis_name": analysis_definition.get("name"),
-            "input_dataset": find_analysis_input_dataset(project, analysis_id),
-            "mltask_id": mltask_id,
-            "mltask_settings": slim_mltask_settings(settings.get_raw()),
-        }
-        return omit_empty(result)
 
     return compact_json(await run_blocking(_get))
 

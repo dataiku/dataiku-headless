@@ -11,15 +11,73 @@ This module intentionally keeps the surface small:
 import ast
 import fnmatch
 import os
-import re
+import time
+
+import regex
 
 from fastmcp import Context
 
 from .. import mcp
 from .utils.async_executor import run_blocking
-from .utils.serialization import columnar, compact_json, omit_empty
+from .utils.serialization import bounded_compact_json, columnar, omit_empty
 from .utils.auth import get_dss_client
-from .utils.validation import require_non_empty_string as _require_non_empty_string
+from .utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+    require_positive_int as _require_positive_int,
+)
+
+
+_DEFAULT_LIST_ITEMS = 500
+_MAX_LIST_ITEMS = 2_000
+_DEFAULT_VISITED_NODES = 2_000
+_MAX_VISITED_NODES = 10_000
+_DEFAULT_LIBRARY_DEPTH = 20
+_MAX_LIBRARY_DEPTH = 50
+_DEFAULT_READ_BYTES = 200_000
+_MAX_FILE_BYTES = 1_000_000
+_MAX_RESPONSE_BYTES = 1_000_000
+_MAX_LIBRARY_PATH_CHARACTERS = 4_096
+_DEFAULT_SEARCH_FILES = 200
+_MAX_SEARCH_FILES = 1_000
+_MAX_EXTERNAL_LIBRARIES = 1_000
+_MAX_QUERY_CHARACTERS = 500
+_MAX_GLOB_CHARACTERS = 500
+_REGEX_MATCH_TIMEOUT_SECONDS = 0.05
+_SEARCH_TIME_BUDGET_SECONDS = 5.0
+
+
+def _bounded_positive_int(value: int, field_name: str, hard_max: int) -> int:
+    """Validate a positive integer without silently weakening its requested bound."""
+    value = _require_positive_int(value, field_name)
+    if value > hard_max:
+        raise ValueError(f"'{field_name}' must be <= {hard_max}")
+    return value
+
+
+def _read_library_bytes(file) -> bytes:
+    """Read a library file as bytes and reject unexpected SDK return types."""
+    raw = file.read(as_type="bytes")
+    if not isinstance(raw, bytes):
+        raise ValueError("DSS returned a non-byte project library payload")
+    return raw
+
+
+def _decode_utf8_prefix(raw: bytes, max_bytes: int) -> tuple[str, int, bool]:
+    """Decode at most ``max_bytes`` without returning a split UTF-8 code point."""
+    truncated = len(raw) > max_bytes
+    prefix = raw[:max_bytes]
+    try:
+        return prefix.decode("utf-8"), len(prefix), truncated
+    except UnicodeDecodeError as exc:
+        # A byte cap can cut through the final code point. Remove only that
+        # incomplete suffix; malformed UTF-8 elsewhere is still an error.
+        if truncated and exc.end == len(prefix):
+            prefix = prefix[: exc.start]
+            try:
+                return prefix.decode("utf-8"), len(prefix), True
+            except UnicodeDecodeError:
+                pass
+        raise ValueError("Project library file is not valid UTF-8 text") from exc
 
 
 def _normalize_library_path(path: str) -> str:
@@ -28,7 +86,17 @@ def _normalize_library_path(path: str) -> str:
     if not stripped:
         raise ValueError("path must be a non-empty string")
     normalized = "/" + stripped.strip("/")
-    return "/" if normalized == "/" else normalized.rstrip("/")
+    normalized = "/" if normalized == "/" else normalized.rstrip("/")
+    if len(normalized) > _MAX_LIBRARY_PATH_CHARACTERS:
+        raise ValueError(
+            f"path must be <= {_MAX_LIBRARY_PATH_CHARACTERS} characters"
+        )
+    return normalized
+
+
+def _tool_json(payload) -> str:
+    """Serialize a project-library result under the shared hard ceiling."""
+    return bounded_compact_json(payload, _MAX_RESPONSE_BYTES)
 
 
 def _safe_get_folder(library, path: str):
@@ -96,8 +164,14 @@ def _load_external_libraries(project) -> tuple[list[dict], str | None]:
     """Load external-library config with explicit error signaling."""
     try:
         payload = project.get_project_git().list_libraries() or {}
+        references = (payload.get("gitReferences") or {}) or {}
+        if len(references) > _MAX_EXTERNAL_LIBRARIES:
+            return [], (
+                "External library configuration exceeds the supported "
+                f"{_MAX_EXTERNAL_LIBRARIES}-entry classification limit."
+            )
         entries = []
-        for local_path, ref in ((payload.get("gitReferences") or {}) or {}).items():
+        for local_path, ref in references.items():
             entries.append(
                 {
                     "local_path": local_path.strip("/"),
@@ -110,12 +184,12 @@ def _load_external_libraries(project) -> tuple[list[dict], str | None]:
                 }
             )
         return sorted(entries, key=lambda entry: entry["local_path"]), None
-    except Exception as e:
+    except Exception as exc:
         return [], (
             "External library configuration is unavailable. Check whether the "
             "caller has permission to inspect external libraries and whether "
             "project git/external-library support is available on this project "
-            f"or DSS instance. Details: {str(e).strip()}"
+            f"or DSS instance ({type(exc).__name__})."
         )
 
 
@@ -138,11 +212,36 @@ def _walk_library_tree(
     external_libraries: list[dict],
     source: str,
     external_config_available: bool,
-) -> list[dict]:
-    """Flatten a library folder into a list of items filtered by source."""
-    items = []
-    for item in folder.list():
-        item_path = (prefix + "/" + item.name).replace("//", "/")
+    max_items: int,
+    max_visited_nodes: int,
+    max_depth: int,
+    deadline: float | None = None,
+) -> dict:
+    """Flatten a library tree with independent output, work, and depth limits.
+
+    ``visited_nodes`` counts every inspected node, including entries filtered out
+    by ``source``. This distinction matters: limiting only returned matches lets a
+    selective filter walk an arbitrarily large tree.
+    """
+    items: list[dict] = []
+    visited_nodes = 0
+    truncation_reasons: set[str] = set()
+    stack = [
+        (item, prefix, 1)
+        for item in reversed(folder.list())
+    ]
+
+    while stack:
+        if deadline is not None and time.monotonic() >= deadline:
+            truncation_reasons.add("search_time_budget")
+            break
+        if visited_nodes >= max_visited_nodes:
+            truncation_reasons.add("max_visited_nodes")
+            break
+
+        item, parent_prefix, depth = stack.pop()
+        visited_nodes += 1
+        item_path = (parent_prefix + "/" + item.name).replace("//", "/")
         is_folder = item.children is not None
         external_library = (
             _match_external_library(item_path, external_libraries)
@@ -156,6 +255,9 @@ def _walk_library_tree(
         )
 
         if source in {"all", item_source}:
+            if len(items) >= max_items:
+                truncation_reasons.add("max_items")
+                break
             entry = {
                 "path": item_path,
                 "type": "folder" if is_folder else "file",
@@ -166,16 +268,21 @@ def _walk_library_tree(
             items.append(entry)
 
         if is_folder:
-            items.extend(
-                _walk_library_tree(
-                    item,
-                    item_path,
-                    external_libraries,
-                    source,
-                    external_config_available,
+            children = item.list()
+            if children and depth >= max_depth:
+                truncation_reasons.add("max_depth")
+            elif children:
+                stack.extend(
+                    (child, item_path, depth + 1)
+                    for child in reversed(children)
                 )
-            )
-    return items
+
+    return {
+        "items": items,
+        "visited_nodes": visited_nodes,
+        "truncated": bool(truncation_reasons),
+        "truncation_reasons": sorted(truncation_reasons),
+    }
 
 
 def _ast_validate_python(content: str) -> dict:
@@ -243,17 +350,32 @@ async def list_project_library(
     path: str = "/",
     source: str = "all",
     include_external_metadata: bool = False,
+    max_items: int = _DEFAULT_LIST_ITEMS,
+    max_visited_nodes: int = _DEFAULT_VISITED_NODES,
+    max_depth: int = _DEFAULT_LIBRARY_DEPTH,
 ) -> str:
-    """List project library contents, optionally filtering to internal or external items."""
+    """List a bounded project-library tree.
+
+    ``max_items`` bounds returned rows. ``max_visited_nodes`` independently
+    bounds all inspected nodes, including rows excluded by ``source``.
+    ``max_depth`` bounds traversal below ``path``. The result states whether it
+    was truncated and why, so a partial inventory cannot look complete.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path or "/")
     source = source.strip().lower() or "all"
     if source not in {"all", "internal", "external"}:
         raise ValueError("source must be one of: all, internal, external")
+    max_items = _bounded_positive_int(max_items, "max_items", _MAX_LIST_ITEMS)
+    max_visited_nodes = _bounded_positive_int(
+        max_visited_nodes, "max_visited_nodes", _MAX_VISITED_NODES
+    )
+    max_depth = _bounded_positive_int(max_depth, "max_depth", _MAX_LIBRARY_DEPTH)
+    client = get_dss_client()
     await ctx.info(f"Listing project library {project_key} from {path} (source={source})...")
 
     def _run():
-        project = get_dss_client().get_project(project_key)
+        project = client.get_project(project_key)
         library = project.get_library()
         folder = library.root if path == "/" else _safe_get_folder(library, path)
         if folder is None:
@@ -266,19 +388,27 @@ async def list_project_library(
                 f"for '{source}' cannot be evaluated. Details: {external_error}"
             )
         prefix = "" if path == "/" else path.rstrip("/")
+        walk = _walk_library_tree(
+            folder,
+            prefix,
+            external_libraries,
+            source,
+            external_config_available,
+            max_items,
+            max_visited_nodes,
+            max_depth,
+        )
         payload = {
             "path": path,
             "source": source,
             "items": columnar(
-                _walk_library_tree(
-                    folder,
-                    prefix,
-                    external_libraries,
-                    source,
-                    external_config_available,
-                ),
+                walk["items"],
                 ["path", "type", "source", "external_library"],
             ),
+            "returned_items": len(walk["items"]),
+            "visited_nodes": walk["visited_nodes"],
+            "truncated": walk["truncated"],
+            "truncation_reasons": walk["truncation_reasons"],
         }
         if not external_config_available:
             payload["external_libraries_available"] = False
@@ -306,7 +436,7 @@ async def list_project_library(
             )
         return payload
 
-    return compact_json(await run_blocking(_run))
+    return _tool_json(await run_blocking(_run))
 
 
 @mcp.tool()
@@ -314,25 +444,37 @@ async def read_project_library_file(
     project_key: str,
     path: str,
     ctx: Context,
+    max_bytes: int = _DEFAULT_READ_BYTES,
 ) -> str:
-    """Read a text file from the project library."""
+    """Read bounded UTF-8 text from a project-library file.
+
+    The payload reports the full byte size, returned byte count, and whether the
+    content was clipped. ``max_bytes`` has a hard 1 MB ceiling.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
+    max_bytes = _bounded_positive_int(max_bytes, "max_bytes", _MAX_FILE_BYTES)
+    client = get_dss_client()
     await ctx.info(f"Reading project library file {path} in {project_key}...")
 
     def _run():
-        library = get_dss_client().get_project(project_key).get_library()
+        library = client.get_project(project_key).get_library()
         if _safe_get_folder(library, path) is not None:
             raise ValueError(f"Path is a folder: {path}")
         file = _safe_get_file(library, path)
         if file is None:
             raise ValueError(f"File not found: {path}")
+        raw = _read_library_bytes(file)
+        content, returned_bytes, truncated = _decode_utf8_prefix(raw, max_bytes)
         return {
             "path": path,
-            "content": file.read(),
+            "content": content,
+            "size_bytes": len(raw),
+            "returned_bytes": returned_bytes,
+            "truncated": truncated,
         }
 
-    return compact_json(await run_blocking(_run))
+    return _tool_json(await run_blocking(_run))
 
 
 @mcp.tool()
@@ -345,31 +487,56 @@ async def search_project_library(
     case_insensitive: bool = False,
     file_glob: str = "",
     max_matches: int = 200,
+    max_files: int = _DEFAULT_SEARCH_FILES,
+    max_visited_nodes: int = _DEFAULT_VISITED_NODES,
+    max_depth: int = _DEFAULT_LIBRARY_DEPTH,
+    max_file_bytes: int = _DEFAULT_READ_BYTES,
 ) -> str:
-    """Search project library files using substring or regex matching."""
+    """Search bounded project-library text using substring or timed regex matching.
+
+    Traversal, attempted reads, bytes accepted per file, matches returned, tree
+    depth, per-regex execution, and cooperative processing time all have
+    independent limits. Partial searches report explicit truncation reasons.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     query = _require_non_empty_string(query, "query")
     path = _normalize_library_path(path or "/")
-    if max_matches < 1 or max_matches > 5000:
-        raise ValueError("max_matches must be between 1 and 5000")
+    max_matches = _bounded_positive_int(max_matches, "max_matches", 1_000)
+    max_files = _bounded_positive_int(max_files, "max_files", _MAX_SEARCH_FILES)
+    max_visited_nodes = _bounded_positive_int(
+        max_visited_nodes, "max_visited_nodes", _MAX_VISITED_NODES
+    )
+    max_depth = _bounded_positive_int(max_depth, "max_depth", _MAX_LIBRARY_DEPTH)
+    max_file_bytes = _bounded_positive_int(
+        max_file_bytes, "max_file_bytes", _MAX_FILE_BYTES
+    )
+    if len(query) > _MAX_QUERY_CHARACTERS:
+        raise ValueError(f"'query' must be <= {_MAX_QUERY_CHARACTERS} characters")
+    if len(file_glob) > _MAX_GLOB_CHARACTERS:
+        raise ValueError(
+            f"'file_glob' must be <= {_MAX_GLOB_CHARACTERS} characters"
+        )
+    client = get_dss_client()
     await ctx.info(
         f"Searching project library {project_key} under {path} for "
-        f"{'regex' if is_regex else 'substring'} '{query}'..."
+        f"a {'regex' if is_regex else 'substring'} match..."
     )
 
-    flags = re.IGNORECASE if case_insensitive else 0
+    flags = regex.IGNORECASE if case_insensitive else 0
     if is_regex:
         try:
-            regex = re.compile(query, flags)
-        except re.error as e:
-            raise ValueError(f"Invalid regex: {e}") from e
+            pattern = regex.compile(query, flags)
+        except regex.error as exc:
+            raise ValueError(f"Invalid regex: {exc}") from exc
     else:
-        regex = re.compile(re.escape(query), flags)
+        pattern = regex.compile(regex.escape(query), flags)
 
-    glob_re = re.compile(fnmatch.translate(file_glob)) if file_glob else None
+    glob_pattern = regex.compile(fnmatch.translate(file_glob)) if file_glob else None
 
     def _run():
-        project = get_dss_client().get_project(project_key)
+        started = time.monotonic()
+        deadline = started + _SEARCH_TIME_BUDGET_SECONDS
+        project = client.get_project(project_key)
         library = project.get_library()
         folder = library.root if path == "/" else _safe_get_folder(library, path)
         if folder is None:
@@ -377,29 +544,76 @@ async def search_project_library(
         external_libraries, external_error = _load_external_libraries(project)
         external_config_available = external_error is None
         prefix = "" if path == "/" else path.rstrip("/")
-
-        matches = []
-        truncated = False
-        for entry in _walk_library_tree(
+        walk = _walk_library_tree(
             folder,
             prefix,
             external_libraries,
             "all",
             external_config_available,
-        ):
+            max_visited_nodes,
+            max_visited_nodes,
+            max_depth,
+            deadline,
+        )
+
+        matches = []
+        files_attempted = 0
+        files_read = 0
+        files_searched = 0
+        skipped_files = {
+            "oversized": 0,
+            "non_utf8": 0,
+            "unreadable": 0,
+        }
+        truncation_reasons = set(walk["truncation_reasons"])
+        stop = False
+        for entry in walk["items"]:
             if entry["type"] != "file":
                 continue
-            if glob_re is not None and not glob_re.match(entry["path"]):
+            if glob_pattern is not None and not glob_pattern.match(entry["path"]):
                 continue
-            file = library.get_file(entry["path"])
-            if file is None:
+            if files_attempted >= max_files:
+                truncation_reasons.add("max_files")
+                break
+            if time.monotonic() - started >= _SEARCH_TIME_BUDGET_SECONDS:
+                truncation_reasons.add("search_time_budget")
+                break
+            files_attempted += 1
+            try:
+                file = library.get_file(entry["path"])
+                if file is None:
+                    skipped_files["unreadable"] += 1
+                    continue
+                raw = _read_library_bytes(file)
+            except Exception:
+                skipped_files["unreadable"] += 1
+                continue
+            files_read += 1
+            if len(raw) > max_file_bytes:
+                skipped_files["oversized"] += 1
                 continue
             try:
-                text = file.read()
-            except Exception:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                skipped_files["non_utf8"] += 1
                 continue
+            files_searched += 1
             for lineno, line in enumerate(text.splitlines(), start=1):
-                if regex.search(line):
+                remaining = _SEARCH_TIME_BUDGET_SECONDS - (time.monotonic() - started)
+                if remaining <= 0:
+                    truncation_reasons.add("search_time_budget")
+                    stop = True
+                    break
+                try:
+                    matched = pattern.search(
+                        line,
+                        timeout=min(_REGEX_MATCH_TIMEOUT_SECONDS, remaining),
+                    )
+                except TimeoutError:
+                    truncation_reasons.add("regex_timeout")
+                    stop = True
+                    break
+                if matched:
                     matches.append(
                         {
                             "path": entry["path"],
@@ -408,43 +622,37 @@ async def search_project_library(
                         }
                     )
                     if len(matches) >= max_matches:
-                        truncated = True
-                        return {
-                            "path": path,
-                            "matches": columnar(matches, ["path", "line", "text"]),
-                            "truncated": truncated,
-                            **(
-                                {
-                                    "external_libraries_available": False,
-                                    "warning": (
-                                        "External library configuration is unavailable; "
-                                        "search results may include both internal and "
-                                        "external-backed files without distinction."
-                                    ),
-                                }
-                                if not external_config_available
-                                else {}
-                            ),
-                        }
-        return {
+                        truncation_reasons.add("max_matches")
+                        stop = True
+                        break
+            if stop:
+                break
+
+        for reason, count in skipped_files.items():
+            if count:
+                truncation_reasons.add(f"{reason}_files")
+
+        payload = {
             "path": path,
             "matches": columnar(matches, ["path", "line", "text"]),
-            "truncated": truncated,
-            **(
-                {
-                    "external_libraries_available": False,
-                    "warning": (
-                        "External library configuration is unavailable; search "
-                        "results may include both internal and external-backed "
-                        "files without distinction."
-                    ),
-                }
-                if not external_config_available
-                else {}
-            ),
+            "visited_nodes": walk["visited_nodes"],
+            "files_attempted": files_attempted,
+            "files_read": files_read,
+            "files_searched": files_searched,
+            "skipped_files": skipped_files,
+            "truncated": bool(truncation_reasons),
+            "truncation_reasons": sorted(truncation_reasons),
         }
+        if not external_config_available:
+            payload["external_libraries_available"] = False
+            payload["warning"] = (
+                "External library configuration is unavailable; search results "
+                "may include both internal and external-backed files without "
+                "distinction."
+            )
+        return payload
 
-    return compact_json(await run_blocking(_run))
+    return _tool_json(await run_blocking(_run))
 
 
 @mcp.tool()
@@ -453,10 +661,13 @@ async def validate_project_library_file(
     path: str,
     ctx: Context,
     content: str | None = None,
+    max_bytes: int = _MAX_FILE_BYTES,
 ) -> str:
-    """Validate a project library file, with Python AST parsing for ``.py`` files."""
+    """Validate a bounded project-library file, parsing Python with ``ast``."""
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
+    max_bytes = _bounded_positive_int(max_bytes, "max_bytes", _MAX_FILE_BYTES)
+    client = get_dss_client()
     await ctx.info(f"Validating project library file {path} in {project_key}...")
 
     is_python = path.lower().endswith(".py")
@@ -464,15 +675,34 @@ async def validate_project_library_file(
     if content is None:
 
         def _read():
-            library = get_dss_client().get_project(project_key).get_library()
+            library = client.get_project(project_key).get_library()
             if _safe_get_folder(library, path) is not None:
                 raise ValueError(f"Path is a folder: {path}")
             file = _safe_get_file(library, path)
             if file is None:
                 raise ValueError(f"File not found: {path}")
-            return file.read()
+            raw = _read_library_bytes(file)
+            if len(raw) > max_bytes:
+                raise ValueError(
+                    f"Project library file exceeds the {max_bytes}-byte validation limit"
+                )
+            try:
+                return raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(
+                    "Project library file is not valid UTF-8 text"
+                ) from exc
 
         content = await run_blocking(_read)
+    else:
+        try:
+            content_bytes = content.encode("utf-8")
+        except AttributeError as exc:
+            raise ValueError("'content' must be a string or null") from exc
+        if len(content_bytes) > max_bytes:
+            raise ValueError(
+                f"Provided content exceeds the {max_bytes}-byte validation limit"
+            )
 
     base = {
         "path": path,
@@ -481,11 +711,14 @@ async def validate_project_library_file(
         else (path.rsplit(".", 1)[-1].lower() if "." in path else "unknown"),
     }
     if not is_python:
-        return compact_json(
+        return _tool_json(
             {**base, "is_valid": True, "checks_skipped": "non-python file"}
         )
 
-    return compact_json({**base, **_ast_validate_python(content)})
+    validation = await run_blocking(_ast_validate_python, content)
+    return _tool_json(
+        {**base, "is_valid": "syntax_error" not in validation, **validation}
+    )
 
 
 @mcp.tool()
@@ -500,11 +733,12 @@ async def write_project_library_file(
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     filepath = _require_non_empty_string(filepath, "filepath")
+    client = get_dss_client()
     await ctx.info(f"Uploading local file {filepath} to project library {path} in {project_key}...")
 
     def _run():
         local_bytes = _read_local_file_bytes(filepath)
-        library = get_dss_client().get_project(project_key).get_library()
+        library = client.get_project(project_key).get_library()
         if _safe_get_folder(library, path) is not None:
             raise ValueError(f"Path already exists as a folder: {path}")
         file = _safe_get_file(library, path)
@@ -532,4 +766,4 @@ async def write_project_library_file(
             "action": "created",
         }
 
-    return compact_json(await run_blocking(_run))
+    return _tool_json(await run_blocking(_run))

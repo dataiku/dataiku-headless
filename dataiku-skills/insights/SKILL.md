@@ -29,7 +29,7 @@ An insight tile can reference an insight by `insightId`, but the dashboard skill
 ## Workflow
 
 1. Use `list_insights` to discover insights in a project.
-2. Use `get_insight_settings` to inspect a selected insight and identify its source-object binding.
+2. Use `get_object_settings` with `object_type=insight` to inspect a selected insight and identify its source-object binding.
 3. Inspect the referenced source object through its relevant skill before preparing a Cobuild request:
    - datasets for `chart` and `dataset_table`;
    - Data Quality for `data-quality`;
@@ -42,7 +42,7 @@ An insight tile can reference an insight by `insightId`, but the dashboard skill
 ## Preferred Tools
 
 - `list_insights`
-- `get_insight_settings`
+- `get_object_settings`
 
 ## Safety Rules
 

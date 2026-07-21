@@ -32,34 +32,6 @@ async def list_agent_reviews(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool()
-async def get_agent_review(
-    project_key: str,
-    review_id: str,
-    ctx: Context,
-) -> str:
-    """Get an agent review's configuration including its traits."""
-    project_key = require_non_empty_string(project_key, "project_key")
-    review_id = require_non_empty_string(review_id, "review_id")
-    await ctx.info(f"Getting agent review {review_id} in {project_key}...")
-
-    def _run():
-        review = get_dss_client().get_project(project_key).get_agent_review(review_id)
-        raw = review.get_raw()
-        return omit_empty(
-            {
-                "id": raw.get("id"),
-                "name": raw.get("name"),
-                "agent_id": raw.get("agentSmartId"),
-                "nb_executions": raw.get("nbExecutions"),
-                "traits": raw.get("traits", []),
-                "tags": raw.get("tags") or [],
-            }
-        )
-
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
 async def list_agent_review_tests(
     project_key: str,
     review_id: str,

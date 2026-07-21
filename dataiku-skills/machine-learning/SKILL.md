@@ -27,9 +27,9 @@ Data suitability and evaluation context matter before model selection. Inspect t
 ## Inspection Workflow
 
 1. Use `./dataiku-skills/datasets/SKILL.md` to inspect the source dataset's schema, quality signals, sample size, and potential leakage before interpreting or requesting ML work.
-2. Use `list_ml_analyses` when analysis discovery, comparison, or reuse context matters. For a known analysis, use `get_ml_analysis_summary` and `get_ml_analysis_settings` directly.
+2. Use `list_ml_analyses` when analysis discovery, comparison, or reuse context matters. For a known analysis, use `get_ml_analysis_summary` for normalized context and `get_object_settings` with `object_type=ml_analysis` for raw settings evidence.
 3. Use `list_ml_analysis_models` and `get_ml_model_details` to inspect candidate trained models, their evaluation results, and feature behavior.
-4. Use `list_saved_models`, `list_saved_model_versions`, and `get_saved_model_version_details` to inspect deployed models and versions.
+4. Use `list_saved_models`, then `get_object_settings` with `object_type=saved_model`. Omit `version_id` to discover versions; pass one to inspect its detail snippet.
 5. When training, deployment, or retraining is already in progress, use `./dataiku-skills/jobs/SKILL.md` to supervise the existing job.
 6. Route ML analysis creation, tuning, training, deployment, and saved-model changes through `./dataiku-skills/cobuild/SKILL.md`.
 7. Route scoring and retraining Flow assets through `./dataiku-skills/recipes/SKILL.md` and Cobuild.
@@ -38,12 +38,10 @@ Data suitability and evaluation context matter before model selection. Inspect t
 
 - `list_ml_analyses`
 - `get_ml_analysis_summary`
-- `get_ml_analysis_settings`
+- `get_object_settings`
 - `list_ml_analysis_models`
 - `get_ml_model_details`
 - `list_saved_models`
-- `list_saved_model_versions`
-- `get_saved_model_version_details`
 
 ## Safety Rules
 
