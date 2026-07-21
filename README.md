@@ -29,14 +29,14 @@ Cobuild conversations and their retained turns are **process-local**: they live 
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, scenarios, agents, LLMs and knowledge banks, job management, project audit, and Cobuild conversations. The remaining Cobuild-built families (dashboards, insights, WebApps, wikis, evaluation stores, semantic models, agent tools/reviews, RAG LLMs) are read through one generic `get_object_settings` inspector rather than per-domain modules.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
 - Server-side authentication (env API key or `.dataiku/config.json`)
 - Modular architecture by functional domain
 - Dense, bounded orientation calls for a project overview and its Flow graph
-- `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families (agents, dashboards, wikis, semantic models, and more); live/runtime readers remain separate
+- `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families (agents, dashboards, wikis, semantic models, and more); it returns saved settings, not live/runtime state — obtain runtime proof (a WebApp's running backend, an agent review's runs) by delegating a read-only Cobuild turn. Discover ids for the families with no dedicated `list_*` tool from `get_project_overview`'s `object_inventory` section
 - `audit_project`: a read-only, bounded Flow review after a build — a deterministic finish gate, not a correctness oracle. DSS Flow consistency and explicit output contracts fail closed; documentation and layout conventions stay advisory
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 - One fixed, directly visible tool catalog of 58 tools (53 non-Cobuild inspect/execute/bootstrap tools plus 5 Cobuild conversation tools) — no tool-exposure or Cobuild "mode" that makes capabilities depend on deployment configuration. `references/tool-index.md` in the skill lists every name with a one-line purpose (generated from the live registry)
@@ -164,29 +164,25 @@ dataiku-headless
 .
 ├── dataiku_mcp/
 │   ├── tools/
-│   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
-│   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
+│   │   ├── agents.py          # Agent listing (list_agents)
 │   │   ├── cobuild.py         # Cobuild conversation tools (start/send/poll/confirm/list)
-│   │   ├── insights.py        # Insight inspection tools, especially chart insights
+│   │   ├── code_environments.py  # Code environment listing (list_code_envs)
 │   │   ├── connections.py     # DSS connection discovery/test tools
-│   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
+│   │   ├── cross_project_sharing.py  # Cross-project shared-object listing
 │   │   ├── data_collections.py  # Data Collection listing/inspection tools
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
-│   │   ├── dashboards.py      # Dashboard inspection tools
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
-│   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
-│   │   ├── flow.py            # Flow inspection tools
-│   │   ├── instances.py       # Multi-instance switching tools
-│   │   ├── jobs.py            # Async job status/log/wait tools
-│   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
+│   │   ├── flow.py            # Flow graph, zones, and object-metadata inspection tools
+│   │   ├── instances.py       # Multi-instance listing/switching tools
+│   │   ├── jobs.py            # Job status/log/wait + build_datasets/run_recipe execution
+│   │   ├── llms_and_knowledge_banks.py  # LLM listing (list_llms)
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
-│   │   ├── projects.py        # Project inspection tools + create_project write
-│   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
-│   │   ├── semantic_models.py # Semantic model inspection tools
-│   │   ├── webapps.py         # WebApp/backend-state inspection tools
-│   │   ├── wikis.py           # Wiki article inspection tools
-│   │   ├── project_libraries.py  # Project library inspection/search + local-file write
+│   │   ├── object_settings.py # One generic redacted deep-read across 13 Cobuild-built families (get_object_settings)
+│   │   ├── project_audit.py   # Read-only bounded Flow audit gate (audit_project)
+│   │   ├── project_libraries.py  # Project library inspection + local-file write (bounded)
+│   │   ├── projects.py        # Project inspection/overview tools + create_project write
 │   │   ├── recipes.py         # Recipe inspection tools
+│   │   ├── scenarios.py       # Scenario inspection + run_scenario execution/history
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Shared runtime utilities
 │   ├── config.py

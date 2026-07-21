@@ -6,10 +6,12 @@ enum to the same ``dataikuapi`` accessors each narrow reader once used and retur
 the same evidence: usually the raw settings dictionary, with purpose-shaped
 envelopes for wiki articles, ML analyses, model versions, and evaluation stores.
 
-Runtime evidence is deliberately outside this read. A WebApp's live backend state
-and an agent review's runs/results still require their dedicated read tools.
-Datasets, recipes, scenarios, connections, folders, jobs, and project metadata
-also retain their dedicated deep reads.
+Runtime evidence is deliberately outside this read: it returns saved settings, not
+live state. There are no dedicated runtime readers for a WebApp's live backend or an
+agent review's runs/results — obtain that proof by delegating a read-only Cobuild
+turn. Discover the ``object_id`` for the families with no ``list_*`` tool from
+``get_project_overview``'s ``object_inventory``. Datasets, recipes, scenarios,
+connections, folders, jobs, and project metadata retain their dedicated deep reads.
 
 Every result is recursively redacted by field name (the one shared redactor) and
 the serialized settings blob is bounded to a hard byte ceiling.
@@ -221,14 +223,15 @@ async def get_object_settings(
 ) -> str:
     """Read one DSS object's settings for independent verification of Cobuild.
 
-    This generic read consolidates equivalent per-type settings calls. It does
-    not replace live/runtime evidence such as WebApp state or agent-review runs.
+    This generic read consolidates equivalent per-type settings calls. It returns
+    saved settings, not live/runtime state such as a WebApp's running backend or an
+    agent review's runs/results; for that proof, delegate a read-only Cobuild turn.
 
     Cobuild's report is testimony, not evidence — this is the read path that lets
     you confirm it with your own eyes for the object types Cobuild builds but that
     have no other deep read. Secret-bearing keys are redacted and the settings blob
-    is bounded to a hard byte ceiling. Use the dedicated runtime read tool when
-    settings cannot answer the question.
+    is bounded to a hard byte ceiling. Discover the ``object_id`` for the families
+    with no ``list_*`` tool from ``get_project_overview``'s ``object_inventory``.
 
     Object types with their own dedicated deep reads (datasets, recipes,
     scenarios, connections, folders, jobs, projects) are NOT served here; use

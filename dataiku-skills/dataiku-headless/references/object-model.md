@@ -21,9 +21,18 @@ types: `agent`, `agent_review`, `agent_tool`, `dashboard`,
 and `wiki_article`. It redacts secret-shaped values and has a hard response
 ceiling.
 
-Use `get_project_overview` and the surviving `list_*` calls to obtain ids before
-calling it. When saved settings cannot answer a runtime question, execute the asset
-(`run_scenario`, `run_recipe`, `build_datasets`) and read the job or run record.
+Obtain ids before calling it. Datasets, recipes, folders, scenarios, jobs, and wiki
+articles have dedicated `list_*` tools (or appear directly in the overview). The nine
+families with **no** `list_*` tool — `dashboard`, `insight`, `webapp`,
+`evaluation_store`, `knowledge_bank`, `retrieval_augmented_llm`, `agent_tool`,
+`agent_review`, `semantic_model` — are discovered from `get_project_overview`'s
+`object_inventory` section: each present family carries a `count` and a compact
+`{id, name}` table. The route is `get_project_overview` inventory → `get_object_settings(object_id)`.
+
+`get_object_settings` returns saved settings, not live/runtime state. When settings
+cannot answer a runtime question, either execute the asset (`run_scenario`,
+`run_recipe`, `build_datasets`) and read the job or run record, or — for a WebApp's
+running backend or an agent review's runs/results — delegate a read-only Cobuild turn.
 
 | Object | Inspect or discover with | Change or execute route |
 |---|---|---|
@@ -42,18 +51,18 @@ calling it. When saved settings cannot answer a runtime question, execute the as
 | ML analysis | `list_ml_analyses`, `get_object_settings(object_type="ml_analysis")` | Cobuild |
 | Trained analysis model | `list_ml_analyses`, `get_object_settings(object_type="ml_analysis")` | Cobuild |
 | Saved model | `list_saved_models`, `get_object_settings(object_type="saved_model")`; pass `version_id` for one version | Cobuild |
-| Evaluation store | `get_object_settings(object_type="evaluation_store")` | Cobuild |
+| Evaluation store | `get_project_overview` inventory, then `get_object_settings(object_type="evaluation_store")` | Cobuild |
 | LLM | `list_llms` | Read-only reference in this surface |
-| Knowledge Bank | `get_object_settings(object_type="knowledge_bank")` | Cobuild |
-| Retrieval-Augmented LLM | `get_object_settings(object_type="retrieval_augmented_llm")` | Cobuild |
+| Knowledge Bank | `get_project_overview` inventory, then `get_object_settings(object_type="knowledge_bank")` | Cobuild |
+| Retrieval-Augmented LLM | `get_project_overview` inventory, then `get_object_settings(object_type="retrieval_augmented_llm")` | Cobuild |
 | Agent | `list_agents`, `get_object_settings(object_type="agent")`; pass `version_id` for one version | Cobuild |
-| Agent tool | `get_object_settings(object_type="agent_tool")` | Cobuild |
-| Agent Review | `get_object_settings(object_type="agent_review")` | Cobuild |
-| Semantic model | `get_object_settings(object_type="semantic_model")`; pass `version_id` for one version; concepts in `objects/semantic-models.md` | Cobuild |
+| Agent tool | `get_project_overview` inventory, then `get_object_settings(object_type="agent_tool")` | Cobuild |
+| Agent Review | `get_project_overview` inventory, then `get_object_settings(object_type="agent_review")` | Cobuild |
+| Semantic model | `get_project_overview` inventory, then `get_object_settings(object_type="semantic_model")`; pass `version_id` for one version; concepts in `objects/semantic-models.md` | Cobuild |
 | Wiki article | `get_project_overview`, `get_object_settings(object_type="wiki_article")`; hierarchy and link syntax in `objects/wiki-content.md` | Cobuild |
-| Dashboard | `get_object_settings(object_type="dashboard")`; dashboard/insight relationship in `objects/dashboards-and-insights.md` | Cobuild |
-| Insight | `get_object_settings(object_type="insight")`; types in `objects/dashboards-and-insights.md` | Cobuild |
-| WebApp | `get_object_settings(object_type="webapp")`; frameworks in `objects/webapps.md` | Cobuild |
+| Dashboard | `get_project_overview` inventory, then `get_object_settings(object_type="dashboard")`; dashboard/insight relationship in `objects/dashboards-and-insights.md` | Cobuild |
+| Insight | `get_project_overview` inventory, then `get_object_settings(object_type="insight")`; types in `objects/dashboards-and-insights.md` | Cobuild |
+| WebApp | `get_project_overview` inventory, then `get_object_settings(object_type="webapp")`; frameworks in `objects/webapps.md` | Cobuild |
 | Data collection | `list_data_collections`, `list_data_collection_objects` | Read-only catalog |
 | Shared object | `list_shared_objects`; ownership and permission facts in `objects/cross-project-sharing.md` | Sharing changes through Cobuild |
 

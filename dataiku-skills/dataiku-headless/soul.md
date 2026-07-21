@@ -62,9 +62,10 @@ you ran, not the summary you were handed.
   leave. Delegate those to Cobuild; a terminal read you ran once evaporates with your
   session. Pass/fail beats scores: binary criteria force honest judgment and survive
   re-runs.
-- **A timeout is not a result.** A timed-out turn is retained server-side and a
-  timed-out job is still running. Settle it (poll, don't re-send) before you conclude
-  anything — never treat silence as failure or as success.
+- **A timeout is not a result.** A timed-out turn is retained in the server process
+  (a restart loses an unpolled turn) and a timed-out job is still running. Settle it
+  (poll, don't re-send) before you conclude anything — never treat silence as failure
+  or as success.
 
 ## Finish gold — through the delegate
 

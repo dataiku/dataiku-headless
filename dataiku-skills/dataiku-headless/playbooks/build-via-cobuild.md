@@ -38,13 +38,18 @@ verify → audit.**
 ## Timeout / poll protocol
 
 A Cobuild turn returns one of: `completed` · `in_progress` · `needs_confirmation`
-· `error` · `timeout`.
+· `error` · `timeout` · `busy`.
 
-- **`timeout` is not failure.** The turn is retained server-side. Settle it with
-  `get_cobuild_turn_status` — poll until it reaches a terminal status.
+- **`timeout` is not failure.** The turn is retained in the server process (a
+  restart loses an unpolled turn). Settle it with `get_cobuild_turn_status` —
+  poll until it reaches a terminal status.
+- **`busy` means you already have a turn in flight.** If you send or answer while a
+  turn is still running for that conversation, the server refuses the new
+  instruction and returns the existing `turn_id` with `status: busy` — nothing is
+  double-run. Poll that `turn_id` with `get_cobuild_turn_status`; do not resend.
 - **Never re-send while a turn is `in_progress`.** A second message does not cancel
-  the first; it races it and corrupts the conversation. Poll the existing turn
-  instead.
+  or race the first — the server serializes turns and rejects it as `busy`,
+  returning the existing `turn_id`. Poll the existing turn instead.
 - **`completed` is Cobuild's claim, not your proof.** Move to verify (step 7).
 - **`error`** — read `error_kind` before you react, because not every error is safe
   to re-send.

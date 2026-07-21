@@ -21,6 +21,20 @@ The object-specific calls are indexed in
 `../references/object-model.md` and the ML/agent sequence is detailed in
 `../references/ml-and-genai-objects.md`.
 
+Discover the `object_id` for families with no dedicated `list_*` tool (dashboards,
+insights, WebApps, evaluation stores, knowledge banks, RAG LLMs, agent tools, agent
+reviews, semantic models) from `get_project_overview`'s `object_inventory` section,
+then read settings with `get_object_settings(object_type, object_id)`.
+
+`get_object_settings` is an independent settings read — direct DSS evidence, not
+Cobuild's testimony. But it returns saved configuration, not live/runtime state:
+there is no dedicated reader for a WebApp's running backend or an agent review's
+runs/results, so runtime proof for those comes from a Cobuild turn (delegated
+read-only). Treat that runtime report as a claim; corroborate it with the settings
+read and any executed job/run records you can read directly, and prefer in-flow
+checks (data-quality rules, scenario checks, evaluation stores) that keep validating
+after your session ends.
+
 ## Grain and emptiness
 
 The most costly data failures often finish without a transport or job error:

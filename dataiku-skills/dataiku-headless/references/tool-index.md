@@ -84,7 +84,7 @@ Use this index to find a capability. Get parameters, defaults, enums, and the cu
 ## Project libraries
 
 - `list_project_library` — List project library contents, optionally filtering to internal or external items.
-- `read_project_library_file` — Read a text file from the project library.
+- `read_project_library_file` — Read a text file from the project library, bounded to ``max_bytes``.
 - `write_project_library_file` — Create or update a project library file from a local file upload.
 
 ## Data quality

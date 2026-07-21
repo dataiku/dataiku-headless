@@ -5,9 +5,9 @@ Subcommand:
 * ``serve`` — run the FastMCP server (the default when no subcommand is given,
   preserving the legacy ``dataiku-headless`` behavior).
 
-Skills are distributed via the Claude Code / Codex / Cortex Code plugin
+Skills are distributed via the Claude Code / Codex / Cursor plugin
 (``dataiku-skills/`` referenced directly from ``.claude-plugin/plugin.json`` /
-``.codex-plugin/plugin.json`` / ``.cortex-plugin/plugin.json``). Anyone cloning
+``.codex-plugin/plugin.json`` / ``.cursor-plugin/plugin.json``). Anyone cloning
 this repo directly already has ``dataiku-skills/`` on disk to point their
 harness at, so this CLI doesn't duplicate that as a copy command.
 """
