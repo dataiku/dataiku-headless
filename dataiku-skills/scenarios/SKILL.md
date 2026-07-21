@@ -1,6 +1,6 @@
 ---
 name: scenarios
-description: Understand and inspect Dataiku scenarios and their run history, then use grounded context for Cobuild automation work. Use when reviewing existing automation or planning a scenario.
+description: Inspect existing Dataiku scenarios, run them manually when requested, and review their history. Use when reviewing automation, executing an existing scenario, or planning scenario changes through Cobuild.
 ---
 
 # Scenarios
@@ -17,7 +17,7 @@ A scenario is a Dataiku automation object. It combines ordered steps, automatic 
 
 The `active` setting controls whether automatic triggers can start runs; it does not remove the scenario. Run history records outcomes and timing, providing evidence about reliability and recurring failures.
 
-Scenarios can have broad operational impact. Creation, edits, activation, manual runs, and deletion route through Cobuild.
+Scenarios can have broad operational impact. Creation, edits, activation, and deletion route through Cobuild. `run_scenario` is the fixed direct exception for executing an existing scenario.
 
 | Component | Concept |
 | --- | --- |
@@ -34,9 +34,10 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 1. Use `list_scenarios` to discover scenarios and identify active or running automation.
 2. Use `get_scenario_settings` to inspect a selected scenario's steps, triggers, reporters, and execution behavior.
 3. Use `get_scenario_run_history` to investigate reliability, recent outcomes, and recurring failures.
-4. Use `list_messaging_channels` only when reporter configuration is relevant.
-5. Inspect the project objects a scenario operates on when a requested change affects them.
-6. Route scenario creation, edits, activation, runs, and deletion through `./dataiku-skills/cobuild/SKILL.md`.
+4. When the user explicitly requests a manual run and no run is active, use `run_scenario`. Keep its returned `run_id`; a `trigger_fire_id` is not a scenario run id.
+5. Use `list_messaging_channels` only when reporter configuration is relevant.
+6. Inspect the project objects a scenario operates on when a requested change affects them.
+7. Route scenario creation, edits, activation, and deletion through `../cobuild/SKILL.md`.
 
 ## Supporting Context
 
@@ -51,6 +52,7 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 - `list_scenarios`
 - `get_scenario_settings`
 - `get_scenario_run_history`
+- `run_scenario`
 - `list_messaging_channels`
 
 ## Safety Rules
@@ -58,6 +60,8 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 - Discover scenario and messaging-channel identifiers through tools; do not invent them.
 - Inspect a scenario's steps before requesting a manual run or a behavior change.
 - Do not request a new run while the scenario may already be running.
+- If triggering or run-id lookup raises, inspect run history before retrying; the trigger may already have reached DSS.
+- A bounded wait returning `scenario_run_still_running` is not failure. Keep polling the same run.
 - Treat scenarios with expensive builds, training, exports, or notifications as consequential automation.
 - Preserve existing triggers, reporters, and delayed-trigger behavior unless the user requests a change.
 - Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct scenario mutation workflows here.

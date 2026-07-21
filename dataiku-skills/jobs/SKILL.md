@@ -1,11 +1,11 @@
 ---
 name: jobs
-description: Track and investigate Dataiku jobs. Use when an agent wants to list running and completed project jobs, check a job status, wait for completion, or inspect logs.
+description: Run existing Dataiku datasets or recipes, then track and investigate their jobs. Use when an agent wants to execute an existing Flow asset, list jobs, check status, wait for completion, or inspect logs.
 ---
 
 # Jobs
 
-Use this skill to inspect and supervise project jobs that already exist rather than launch a new one.
+Use this skill to execute existing datasets or recipes and supervise the resulting DSS job. Asset creation and configuration changes still route through Cobuild.
 
 ## Job Concepts
 
@@ -17,9 +17,9 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 
 ## Workflow
 
-1. If the user wants to see recent project jobs, start with `list_jobs`.
-2. If you already have a `job_id`, retain and reuse it rather than rediscovering the job.
-3. If a synchronous build, run, training, or deployment call timed out or was interrupted before reaching a terminal state, switch here and continue from the existing `job_id` when available.
+1. Inspect the target and check recent/running jobs before starting work.
+2. Use `build_datasets` for one or more existing dataset outputs, or `run_recipe` for one existing recipe. Both default to returning immediately with one `job_id`.
+3. Retain and reuse that `job_id` rather than rediscovering or restarting the job.
 4. Use `wait_for_job` for normal follow-up on an active job.
 5. Use `get_job_status` for lightweight polling, or `full=true` when activities, outputs, or timings matter.
 6. Use `get_job_log` when execution logs or failure text are needed.
@@ -27,6 +27,8 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 ## Preferred Tools
 
 - `list_jobs`
+- `build_datasets`
+- `run_recipe`
 - `get_job_status`
 - `wait_for_job`
 - `get_job_log`
@@ -34,6 +36,8 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 ## Safety Rules
 
 - If a tool returns `*_still_running` or the harness reports a timeout, treat the job as still active until proven otherwise.
+- `build_datasets` starts all requested outputs in one job. Do not split them into overlapping calls.
+- If a start request raises before returning a `job_id`, inspect recent jobs before retrying; DSS may have accepted the request before the connection failed.
 - Do not assume a timed-out wait means the job failed; timeout is not failure.
 - Do not assume a missing `job_id` means the job is gone; use `list_jobs` to rediscover recent project jobs first.
 - If the current agent already started the job, keep supervising that same job instead of launching a replacement run.

@@ -56,7 +56,7 @@ export DKU_API_KEY="your-api-key"
 ## Cobuild Write-Routing Convention
 - This server intentionally does not expose direct create/update/delete tools for in-project assets (recipes, datasets, ML analyses, dashboards, agents, scenarios, etc.). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead.
 - Do not add a new direct write tool for an in-project asset type. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
-- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists (see the existing exceptions: `create_project`, `upload_file_to_managed_folder`, `write_project_library_file`, `create_upload_dataset`, `create_upload_dataset_from_rows`).
+- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists (see the existing bootstrap exceptions: `create_project`, `upload_file_to_managed_folder`, `write_project_library_file`, `create_upload_dataset`, `create_upload_dataset_from_rows`). The other fixed exceptions are deterministic execution of existing assets: `build_datasets`, `run_recipe`, and `run_scenario`.
 - If a tool module's write surface changes, update `config_mcp.py`'s `FULL_COBUILD_DISABLED_TOOLS` set to match (add newly-redundant read tools to it in `FULL` mode; do not add cross-project/instance tools to it — those stay enabled regardless of Cobuild mode).
 
 ## Guardrails
