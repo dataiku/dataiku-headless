@@ -29,18 +29,9 @@
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
-      "command": "uv",
-      "args": [
-        "run",
-        "--no-dev",
-        "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "python",
-        "-m",
-        "dataiku_mcp"
-      ],
+      "command": "bash",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.sh"],
       "env": {
-        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv",
         "DKU_DSS_URL": "${user_config.dss_url}",
         "DKU_API_KEY": "${user_config.api_key}"
       }
