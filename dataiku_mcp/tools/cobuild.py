@@ -60,6 +60,12 @@ _MAX_TERMINAL_RESULT_BYTES = 512_000
 _SETTLED_TURN_TTL_SECONDS = 3600
 _MAX_SETTLED_TURNS = 64
 
+# Bound on the conversation registry. A conversation with an in-flight turn or an
+# armed deletion confirmation is never evicted, so no active work or pending
+# approval is dropped; idle, unconfirmed handles beyond the cap are evicted
+# oldest-first.
+_MAX_CONVERSATIONS = 128
+
 
 @dataclass
 class _CobuildConversationEntry:
@@ -115,13 +121,18 @@ _turn_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_COBUILD_TURNS)
 
 
 def _capture_binding() -> tuple[str, object]:
-    """Capture instance name and client at tool entry, before any ``await``.
+    """Capture instance name and client from ONE immutable snapshot at tool entry.
 
-    A turn's SDK call runs in a daemon thread. Resolving the client here (in the
-    request context) and threading it through means an in-flight
-    ``switch_instance`` cannot retarget a running turn.
+    Both the name and the client are derived from a single
+    ``config.get_current_instance()`` read and threaded through together. A
+    concurrent ``switch_instance`` between two separate reads previously could
+    yield a name from instance A paired with a client for instance B; deriving
+    both from one snapshot makes the pair atomic. Resolving the client here (in
+    the request context) and threading it through also means an in-flight switch
+    cannot retarget a running turn.
     """
-    return config.get_current_instance_name(), get_dss_client()
+    instance = config.get_current_instance()
+    return instance.name, get_dss_client(instance=instance)
 
 
 def _guard_entry(
@@ -358,6 +369,10 @@ def _settle_turn(turn: _RetainedTurn) -> None:
         if not turn.semaphore_released:
             _turn_semaphore.release()
             turn.semaphore_released = True
+        # Sweep at settlement too, not only before a new turn starts, so expired
+        # or over-cap settled turns do not linger until later activity.
+        _sweep_settled_locked(turn.settled_at)
+        _evict_conversations_locked()
 
 
 def _on_turn_done(turn: _RetainedTurn, _future: concurrent.futures.Future) -> None:
@@ -385,6 +400,38 @@ def _sweep_settled_locked(now: float) -> None:
             del _turns[turn_id]
 
 
+def _conversation_is_evictable(entry: _CobuildConversationEntry) -> bool:
+    """True when a conversation holds no in-flight turn and no pending deletion."""
+    active_id = entry.active_turn_id
+    if active_id is not None:
+        turn = _turns.get(active_id)
+        if turn is not None and not turn.future.done():
+            return False
+    if getattr(entry.conversation, "_pending_confirmation_id", None):
+        return False
+    return True
+
+
+def _evict_conversations_locked() -> None:
+    """Cap the conversation registry, evicting only idle, unconfirmed entries.
+
+    Oldest-first by ``created_at``. A conversation with an in-flight turn or an
+    armed deletion confirmation is never evicted, so no active work or pending
+    approval is dropped. Callers must hold ``_registry_lock``.
+    """
+    if len(_conversations) <= _MAX_CONVERSATIONS:
+        return
+    evictable = [
+        (conversation_id, entry)
+        for conversation_id, entry in _conversations.items()
+        if _conversation_is_evictable(entry)
+    ]
+    evictable.sort(key=lambda item: item[1].created_at)
+    overflow = len(_conversations) - _MAX_CONVERSATIONS
+    for conversation_id, _entry in evictable[:overflow]:
+        del _conversations[conversation_id]
+
+
 def _begin_turn(
     entry: _CobuildConversationEntry,
     client: object,
@@ -399,6 +446,7 @@ def _begin_turn(
     """Serialize per conversation, claim a global slot, then start the worker."""
     with _registry_lock:
         _sweep_settled_locked(time.monotonic())
+        _evict_conversations_locked()
 
         active_id = entry.active_turn_id
         if active_id is not None:

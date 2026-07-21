@@ -116,6 +116,20 @@ def cobuild_env(monkeypatch):
     state = {"instance": "instance-a"}
     monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: client)
     monkeypatch.setattr(config, "get_current_instance_name", lambda: state["instance"])
+    # _capture_binding derives name AND client from one config.get_current_instance()
+    # snapshot; return a fresh DSSInstance reflecting the current state so a test
+    # can flip the active instance to exercise the ownership guard.
+    monkeypatch.setattr(
+        config,
+        "get_current_instance",
+        lambda: config.DSSInstance(
+            name=state["instance"],
+            url=f"https://{state['instance']}.invalid",
+            api_key="test-key",
+            no_check_certificate=False,
+            source="test",
+        ),
+    )
     # A fresh capacity per test so one test's saturation can't leak into another.
     monkeypatch.setattr(
         cobuild,
@@ -374,6 +388,46 @@ def test_turn_runs_with_the_client_captured_at_tool_entry(cobuild_env):
     send(allow_edit_project=True)
 
     assert client.conversation.send_calls[-1]["client"] is client
+
+
+def test_capture_binding_cannot_split_name_and_client_under_switch(monkeypatch):
+    """A concurrent switch_instance between the two reads must not split the pair.
+
+    Forced interleaving: reading the active instance flips the underlying registry
+    to a *different* instance as a side effect (as a real switch_instance would,
+    landing right after the snapshot is taken). Because _capture_binding derives
+    both the name and the client from ONE get_current_instance() snapshot, the pair
+    stays on instance A. A regression to two separate reads — name from A, then a
+    no-arg get_dss_client() that re-reads the registry — would return a B client.
+    """
+    instance_a = config.DSSInstance(
+        name="a", url="https://a.invalid", api_key="ka",
+        no_check_certificate=False, source="test",
+    )
+    instance_b = config.DSSInstance(
+        name="b", url="https://b.invalid", api_key="kb",
+        no_check_certificate=False, source="test",
+    )
+    registry = {"current": instance_a}
+
+    def racing_get_current_instance():
+        # The switch lands immediately after this snapshot is captured.
+        snapshot = registry["current"]
+        registry["current"] = instance_b
+        return snapshot
+
+    def instance_aware_get_dss_client(instance=None):
+        # A no-arg (regressed) call re-reads the now-flipped registry -> B.
+        source = instance if instance is not None else registry["current"]
+        return {"name": source.name, "url": source.url}
+
+    monkeypatch.setattr(config, "get_current_instance", racing_get_current_instance)
+    monkeypatch.setattr(cobuild, "get_dss_client", instance_aware_get_dss_client)
+
+    name, client = cobuild._capture_binding()
+
+    assert name == "a"
+    assert client == {"name": "a", "url": "https://a.invalid"}
 
 
 def test_timeout_returns_pollable_turn_and_worker_is_retained(cobuild_env):
@@ -695,3 +749,99 @@ def test_overdue_running_turn_is_never_swept(cobuild_env):
     cobuild._settle_turn(turn)
     assert turn.semaphore_released is True
     assert entry.active_turn_id is None
+
+
+def _make_settled_turn(turn_id, *, settled_ago, created_at="2026-01-01T00:00:00+00:00"):
+    """Build a synthetic already-settled turn for retention-sweep tests."""
+    entry = cobuild._CobuildConversationEntry(
+        instance_name="instance-a",
+        project_key="PROJECT",
+        conversation=FakeConversation(f"conv-{turn_id}"),
+        created_at=created_at,
+    )
+    future: concurrent.futures.Future = concurrent.futures.Future()
+    future.set_result({"status": "completed"})
+    turn = cobuild._RetainedTurn(
+        turn_id=turn_id,
+        conversation_id=f"conv-{turn_id}",
+        project_key="PROJECT",
+        instance_name="instance-a",
+        kind="message",
+        allow_edit_project=False,
+        entry=entry,
+        client=None,
+        future=future,
+        started_at=0.0,
+    )
+    turn.result_payload = {"status": "completed"}
+    turn.settled_at = time.monotonic() - settled_ago
+    turn.semaphore_released = True
+    return turn
+
+
+def test_sweep_evicts_expired_and_over_cap_settled_turns(cobuild_env):
+    with cobuild._registry_lock:
+        cobuild._turns.clear()
+        cobuild._turns["expired"] = _make_settled_turn(
+            "expired", settled_ago=cobuild._SETTLED_TURN_TTL_SECONDS + 10
+        )
+        for i in range(cobuild._MAX_SETTLED_TURNS + 2):
+            cobuild._turns[f"t{i}"] = _make_settled_turn(f"t{i}", settled_ago=i)
+        cobuild._sweep_settled_locked(time.monotonic())
+        remaining = set(cobuild._turns)
+
+    # TTL-expired turns are gone and the count cap is enforced.
+    assert "expired" not in remaining
+    assert len(remaining) == cobuild._MAX_SETTLED_TURNS
+
+
+def test_settlement_sweeps_expired_settled_turns(cobuild_env):
+    # A settled turn beyond the TTL must be swept when the next turn settles, not
+    # only when a new turn starts.
+    with cobuild._registry_lock:
+        cobuild._turns["expired"] = _make_settled_turn(
+            "expired", settled_ago=cobuild._SETTLED_TURN_TTL_SECONDS + 10
+        )
+    start()
+    result = send(allow_edit_project=True)  # runs to completion -> settles -> sweeps
+
+    assert result["status"] == "completed"
+    with cobuild._registry_lock:
+        assert "expired" not in cobuild._turns
+
+
+def _seed_idle_conversations(count, *, armed_index=None):
+    cobuild._conversations.clear()
+    for i in range(count):
+        conversation = FakeConversation(f"conv-{i}")
+        if armed_index is not None and i == armed_index:
+            conversation._pending_confirmation_id = "armed"
+        cobuild._conversations[f"conv-{i}"] = cobuild._CobuildConversationEntry(
+            instance_name="instance-a",
+            project_key="PROJECT",
+            conversation=conversation,
+            created_at=f"2026-01-01T00:00:00.{i:04d}+00:00",
+        )
+
+
+def test_idle_conversations_are_evicted_oldest_first_beyond_cap(cobuild_env):
+    with cobuild._registry_lock:
+        _seed_idle_conversations(cobuild._MAX_CONVERSATIONS + 5)
+        cobuild._evict_conversations_locked()
+        remaining = set(cobuild._conversations)
+
+    assert len(remaining) == cobuild._MAX_CONVERSATIONS
+    assert "conv-0" not in remaining  # oldest evicted
+    assert f"conv-{cobuild._MAX_CONVERSATIONS + 4}" in remaining  # newest kept
+
+
+def test_eviction_never_drops_a_conversation_with_pending_confirmation(cobuild_env):
+    with cobuild._registry_lock:
+        _seed_idle_conversations(cobuild._MAX_CONVERSATIONS + 1, armed_index=0)
+        cobuild._evict_conversations_locked()
+        remaining = set(cobuild._conversations)
+
+    # The armed oldest conversation is protected; the next-oldest idle one goes.
+    assert "conv-0" in remaining
+    assert "conv-1" not in remaining
+    assert len(remaining) == cobuild._MAX_CONVERSATIONS
