@@ -82,6 +82,8 @@ Grouped by harness. Each plugin install wires up both `dataiku-skills/` and the 
 /plugin install dataiku@dataiku
 ```
 
+Claude Code prompts for your DSS URL and personal API key when the plugin is enabled. The API key is stored as a sensitive plugin setting.
+
 ### Codex
 
 ```
@@ -248,11 +250,11 @@ dataiku-headless
 │           ├── recipe-types/       # Recipe-family references (data-prep, ML, GenAI, code)
 │           └── shared/              # Prepare processor catalog + formula language
 ├── .claude-plugin/
-│   ├── plugin.json             # Claude Code plugin manifest (points at dataiku-skills/ and .mcp.json)
+│   ├── plugin.json             # Claude Code plugin manifest (skills, MCP server, and DSS credentials)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex plugin manifest (points at dataiku-skills/ and .mcp.json)
-├── .mcp.json                   # Shared MCP server config (uvx dataiku-headless serve), read by both manifests
+├── .mcp.json                   # MCP server config shared by non-Claude harnesses
 ├── opencode.json               # OpenCode project-level MCP config (auto-discovered)
 ├── .cursor/
 │   └── mcp.json                # Cursor project-level MCP config (auto-discovered)
