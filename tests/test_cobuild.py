@@ -97,11 +97,23 @@ class FakeClient:
         return FakeProject(self.conversation)
 
 
+class RehydratedConversation(FakeConversation):
+    created = []
+
+    def __init__(self, client, project_key, conversation_id):
+        super().__init__(conversation_id)
+        self.client = client
+        self.project_key = project_key
+        type(self).created.append(self)
+
+
 @pytest.fixture(autouse=True)
-def isolate_registry(monkeypatch):
+def isolate_registry(monkeypatch, tmp_path):
+    monkeypatch.setenv("DKU_MCP_STATE_DIR", str(tmp_path / "state"))
     with cobuild._registry_lock:
         cobuild._conversations.clear()
     client = FakeClient()
+    RehydratedConversation.created.clear()
     binding = ["instance-a", client, "principal-a"]
     monkeypatch.setattr(cobuild, "_capture_binding", lambda: tuple(binding))
     yield binding
@@ -410,3 +422,122 @@ def test_principal_fingerprint_is_stable_distinct_and_not_the_secret(monkeypatch
     assert fingerprint_a != fingerprint_b
     assert "secret-one" not in fingerprint_a
     assert len(fingerprint_a) == 64
+
+
+def test_conversation_rehydrates_after_process_local_cache_is_lost(
+    isolate_registry, monkeypatch
+):
+    start()
+    with cobuild._registry_lock:
+        cobuild._conversations.clear()
+    replacement_client = FakeClient(label="after-restart")
+    isolate_registry[1] = replacement_client
+    monkeypatch.setattr(cobuild, "DSSCobuildConversation", RehydratedConversation)
+
+    result = send()
+
+    assert result["message"] == "ok"
+    assert len(RehydratedConversation.created) == 1
+    restored = RehydratedConversation.created[0]
+    assert restored.conversation_id == "conversation-1"
+    assert restored.project_key == "PROJECT"
+    assert restored.send_calls[0]["client"] is replacement_client
+
+
+def test_pending_confirmation_can_be_answered_after_rehydration(
+    isolate_registry, monkeypatch
+):
+    conversation = isolate_registry[1].conversation
+    conversation.next_send = FakeResponse(
+        message="Delete old output?",
+        response_type="delete_confirmation_request",
+        confirmation_id="confirm-after-restart",
+        objects_to_delete=[{"type": "DATASET", "id": "old_output"}],
+        deletion_impacts={"recipes": ["downstream"]},
+    )
+    start()
+    send(allow_edit_project=True)
+    with cobuild._registry_lock:
+        cobuild._conversations.clear()
+    monkeypatch.setattr(cobuild, "DSSCobuildConversation", RehydratedConversation)
+
+    result = answer("confirm-after-restart")
+
+    assert result["message"] == "confirmed"
+    assert RehydratedConversation.created[0].answer_calls[0]["confirmation_id"] == (
+        "confirm-after-restart"
+    )
+
+
+def test_list_comes_from_durable_state_after_cache_loss(isolate_registry):
+    start()
+    with cobuild._registry_lock:
+        cobuild._conversations.clear()
+
+    payload = json.loads(
+        run(cobuild.list_cobuild_conversations("PROJECT", DummyContext()))
+    )
+
+    created_at = payload["conversations"]["rows"][0][3]
+    assert payload["conversations"]["rows"] == [
+        ["conversation-1", "instance-a", "PROJECT", created_at, False]
+    ]
+
+
+def test_unanswered_proposal_blocks_a_new_message(isolate_registry):
+    conversation = isolate_registry[1].conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="confirm-first",
+        objects_to_delete=[{"id": "old"}],
+        deletion_impacts={"count": 1},
+    )
+    start()
+    send(allow_edit_project=True)
+
+    with pytest.raises(ValueError, match="unanswered deletion proposal"):
+        send()
+
+    assert len(conversation.send_calls) == 1
+
+
+def test_proposal_is_not_approvable_when_persistence_fails(
+    isolate_registry, monkeypatch
+):
+    conversation = isolate_registry[1].conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="confirm-not-durable",
+        objects_to_delete=[{"id": "old"}],
+        deletion_impacts={"count": 1},
+    )
+    start()
+
+    def fail_persistence(*_args, **_kwargs):
+        raise RuntimeError("disk unavailable")
+
+    monkeypatch.setattr(
+        cobuild.ConversationStore,
+        "set_pending_confirmation",
+        fail_persistence,
+    )
+
+    with pytest.raises(RuntimeError, match="disk unavailable"):
+        send(allow_edit_project=True)
+
+    assert conversation._pending_confirmation_id is None
+
+
+def test_wrong_owner_cannot_rehydrate_known_conversation_id(
+    isolate_registry, monkeypatch
+):
+    start()
+    with cobuild._registry_lock:
+        cobuild._conversations.clear()
+    isolate_registry[2] = "principal-b"
+    monkeypatch.setattr(cobuild, "DSSCobuildConversation", RehydratedConversation)
+
+    with pytest.raises(ValueError, match="current credential"):
+        send()
+
+    assert RehydratedConversation.created == []
