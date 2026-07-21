@@ -1,5 +1,7 @@
 """Authentication utilities for Dataiku client creation."""
 
+import hashlib
+
 import dataikuapi
 from fastmcp.server.dependencies import get_http_request
 
@@ -18,15 +20,32 @@ def get_dss_client(
     retarget the client and so HTTP bearer auth is read while the request
     ContextVars are still in scope.
     """
-    current_instance = (
-        instance if instance is not None else config.get_current_instance()
-    )
+    client, _ = get_dss_client_and_principal(instance)
+    return client
+
+
+def get_dss_client_and_principal(
+    instance: "config.DSSInstance | None" = None,
+) -> tuple[dataikuapi.DSSClient, str]:
+    """Return a DSS client and a non-secret identity for its effective API key.
+
+    Cobuild conversation metadata can outlive one HTTP request. Binding it only
+    to an instance/project would let a different bearer key reuse or approve a
+    conversation if it learned the id. The fingerprint lets state-only paths
+    compare the effective credential without retaining or returning that key.
+    DSS API keys are high-entropy credentials; the domain separator prevents
+    this digest from being confused with an unrelated raw SHA-256 use.
+    """
+    current_instance = instance if instance is not None else config.get_current_instance()
     api_key = _resolve_api_key(current_instance.api_key)
     dss_backend_url = _resolve_backend_url(current_instance.url)
 
     client = dataikuapi.DSSClient(dss_backend_url, api_key)
     client._session.verify = not current_instance.no_check_certificate
-    return client
+    principal = hashlib.sha256(
+        b"dataiku-headless:dss-principal:v1\0" + api_key.encode("utf-8")
+    ).hexdigest()
+    return client, principal
 
 
 def _resolve_api_key(api_key) -> str:
