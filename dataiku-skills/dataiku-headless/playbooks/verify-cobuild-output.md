@@ -57,8 +57,12 @@ conversation, and do not proceed to a dependent unit until this one passes.
 
 ## Done when
 
+- No Cobuild turn is still in flight. A turn that outlives your session finishes
+  unsupervised and unaudited — poll `get_cobuild_turn_status` until it settles
+  before reporting the task done, however long that takes.
 - Every claim Cobuild made about this unit was confirmed by a read, not accepted
   from its status.
 - Row counts were checked at every grain change; no output is unexpectedly empty.
 - For a finished project, `audit_project` (with a contract on the delegated outputs)
-  reports no fail-severity findings.
+  reports no fail-severity findings — run after the last turn has settled, never
+  around one still in flight.

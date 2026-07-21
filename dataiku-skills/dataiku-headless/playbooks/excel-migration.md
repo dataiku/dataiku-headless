@@ -37,6 +37,8 @@ Before building, state:
 
 - the business intent and each logical source table;
 - the planned visual recipe units and their exact DSS inputs and outputs;
+- the storage connection for every planned output, chosen from `list_connections`
+  and confirmed working with `test_connection` — never left for Cobuild to pick;
 - each unit's grain, ordered columns, types, and known source row count;
 - the terminal output contract and cached-value parity reference;
 - open questions, especially macros, external connections, volatile formulas, and
@@ -77,7 +79,9 @@ Excel-specific traps:
 
 Delegate one functional unit at a time on the same project conversation. Name its
 exact inputs, target output, visual family, grain, columns, connection, and parity
-checks. Do not start a dependent unit until the current one is verified.
+checks. For Group and Pivot units, spell out the output column order explicitly —
+aggregation recipes emit their own ordering otherwise, and reordering costs an
+extra turn. Do not start a dependent unit until the current one is verified.
 
 After each unit:
 
