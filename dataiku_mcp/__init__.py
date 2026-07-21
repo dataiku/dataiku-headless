@@ -7,7 +7,6 @@ from typing import Literal
 from dotenv import load_dotenv
 
 from fastmcp import FastMCP
-from fastmcp.server.transforms.search import BM25SearchTransform
 
 from . import config
 
@@ -56,7 +55,8 @@ from .tools.machine_learning import (  # noqa: F401,E402
     saved_models,
 )
 
-# Detect Transport mode, and enable/disable tools based on mode
+# Detect transport mode. The registered catalog is fixed; the sole runtime
+# difference is whether a tool requires a path on the MCP server's filesystem.
 Transport = Literal["stdio", "streamable-http"]
 transport: Transport
 
@@ -74,27 +74,13 @@ else:
 if transport == "stdio":
     mcp.local_provider.remove_tool("create_upload_dataset_from_rows")
 elif transport == "streamable-http":
+    # Under HTTP the caller is remote. A filepath/local_path argument would name
+    # the server's filesystem, so no server-file-reading tool is exposed.
     mcp.local_provider.remove_tool("create_upload_dataset")
+    mcp.local_provider.remove_tool("upload_file_to_managed_folder")
+    mcp.local_provider.remove_tool("write_project_library_file")
     mcp.local_provider.remove_tool("switch_instance")
     mcp.local_provider.remove_tool("list_instances")
-
-if config_mcp.DKU_MCP_COBUILD_MODE == "FULL":
-    for tool_name in sorted(config_mcp.FULL_COBUILD_DISABLED_TOOLS):
-        mcp.local_provider.remove_tool(tool_name)
-
-# Configure MCP search mode
-if config_mcp.DKU_MCP_TOOL_EXPOSURE == "search":
-    mcp.add_transform(
-        BM25SearchTransform(
-            max_results=config_mcp.DKU_MCP_SEARCH_MAX_RESULTS,
-            always_visible=config_mcp.DKU_MCP_SEARCH_ALWAYS_VISIBLE,
-        )
-    )
-    config_mcp.logger.info(
-        "Enabled MCP search tool exposure mode with max_results=%s always_visible=%s",
-        config_mcp.DKU_MCP_SEARCH_MAX_RESULTS,
-        config_mcp.DKU_MCP_SEARCH_ALWAYS_VISIBLE,
-    )
 
 
 def run_server():

@@ -16,8 +16,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 - `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families; live/runtime readers remain separate
 - `audit_project`: a read-only, bounded Flow review after a build; DSS consistency and explicit output contracts gate, while naming/documentation conventions stay advisory
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
-- `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
-- Optional search-based tool exposure mode for progressive disclosure
+- One fixed, directly visible tool catalog; only server-local file tools differ by transport
 
 Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or request headers.
 Project-variable reads redact credential-shaped fields, exclude local overrides by
@@ -106,10 +105,6 @@ DKU_DSS_URL=https://your-instance.dataiku.com
 DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_MCP_TRANSPORT=stdio
-DKU_MCP_COBUILD_MODE=CREATE_ONLY
-DKU_MCP_TOOL_EXPOSURE=search
-DKU_MCP_SEARCH_MAX_RESULTS=5
-DKU_MCP_SEARCH_ALWAYS_VISIBLE=get_current_instance
 DKU_COBUILD_TIMEOUT_SECONDS=1200
 DKU_COBUILD_MAX_TIMEOUT_SECONDS=1800
 DKU_MCP_MAX_COBUILD_TURNS=8
@@ -126,7 +121,7 @@ FASTMCP_STREAMABLE_HTTP_PATH=/mcp
 **Upload tool behavior depends on transport:**
 
 - `stdio` exposes `create_upload_dataset`, which uploads from a local file path visible to the MCP server process.
-- `streamable-http` exposes `create_upload_dataset_from_rows`, which uploads tabular data passed as `columns` plus positional `rows` when a server-local file path is not usable.
+- `streamable-http` exposes `create_upload_dataset_from_rows`, which uploads tabular data passed as `columns` plus positional `rows` when a server-local file path is not usable. It does not expose `create_upload_dataset`, `upload_file_to_managed_folder`, or `write_project_library_file`, because their path arguments would refer to the remote server's filesystem.
 
 **Connect to multiple instances:**
 Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape. 
@@ -151,9 +146,7 @@ share the same state directory. Keep that capacity setting the same in those
 processes. Durable conversation and turn state defaults to the XDG user state
 directory and can be relocated with `DKU_MCP_STATE_DIR`.
 
-**Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
-
-**Cobuild modes:** `CREATE_ONLY` (default) keeps this server's full read-tool surface enabled alongside the Cobuild conversation tools, for context-gathering independent of any Cobuild conversation. `FULL` additionally disables the read tools that duplicate what Cobuild can already inspect within its own conversation, leaving only cross-project/instance tools, the direct-write exceptions, and the Cobuild conversation tools themselves.
+**Fixed tool surface:** the server registers one directly visible catalog. It has no search/full or Cobuild exposure mode, so deployment environment variables cannot silently hide a verification tool. The only runtime difference is transport safety: streamable HTTP removes server-filesystem path tools and the stdio-only multi-instance controls described above.
 
 ## Run
 
@@ -198,7 +191,7 @@ dataiku-headless
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Shared runtime utilities
 │   ├── config.py
-│   ├── config_mcp.py          # Tool exposure + Cobuild mode configuration
+│   ├── config_mcp.py          # Transport and worker configuration
 │   ├── __init__.py
 │   └── __main__.py
 ├── dataiku-skills/
