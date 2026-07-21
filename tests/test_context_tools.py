@@ -56,6 +56,14 @@ class FakeWiki:
         return self._articles
 
 
+class FakeInvItem:
+    """A discovery list item exposing the ``id``/``name`` the overview extracts."""
+
+    def __init__(self, item_id, name):
+        self.id = item_id
+        self.name = name
+
+
 class FakeGraph:
     def __init__(self, nodes):
         self.nodes = nodes
@@ -110,6 +118,7 @@ class FakeProject:
         articles=None,
         variables=None,
         zones=None,
+        inventory=None,
         failures=None,
     ):
         self.project_key = key
@@ -123,6 +132,8 @@ class FakeProject:
         self._articles = articles or []
         self._variables = variables or {"standard": {}, "local": {}}
         self._zones = zones or []
+        # {object_type: [(id, name), ...]} for the no-list_* discovery families.
+        self._inventory = inventory or {}
         self._failures = set(failures or ())
 
     def _guard(self, name):
@@ -164,6 +175,37 @@ class FakeProject:
     def get_flow(self):
         self._guard("flow_sources")
         return FakeFlow(self._nodes, self._zones)
+
+    def _inventory_items(self, object_type):
+        self._guard(f"inventory:{object_type}")
+        return [FakeInvItem(i, n) for i, n in self._inventory.get(object_type, [])]
+
+    def list_dashboards(self):
+        return self._inventory_items("dashboard")
+
+    def list_insights(self):
+        return self._inventory_items("insight")
+
+    def list_webapps(self):
+        return self._inventory_items("webapp")
+
+    def list_evaluation_stores(self):
+        return self._inventory_items("evaluation_store")
+
+    def list_knowledge_banks(self):
+        return self._inventory_items("knowledge_bank")
+
+    def list_retrieval_augmented_llms(self):
+        return self._inventory_items("retrieval_augmented_llm")
+
+    def list_agent_tools(self):
+        return self._inventory_items("agent_tool")
+
+    def list_agent_reviews(self):
+        return self._inventory_items("agent_review")
+
+    def list_semantic_models(self):
+        return self._inventory_items("semantic_model")
 
 
 class FakeClient:
@@ -475,6 +517,67 @@ def test_overview_empty_sections_are_omitted_but_zero_counts_kept(monkeypatch):
         "wiki_articles": 0,
     }
     assert "warnings" not in res
+    # No inventory families present -> the section is omitted entirely.
+    assert "object_inventory" not in res
+
+
+def test_overview_object_inventory_lists_no_list_star_families(monkeypatch):
+    project = FakeProject(
+        "PROJ",
+        inventory={
+            "dashboard": [("db1", "Sales"), ("db2", "Ops")],
+            "webapp": [("wa1", "Explorer")],
+            "semantic_model": [("sm1", "Retail model")],
+        },
+    )
+    bind(monkeypatch, project)
+
+    res = overview()
+    inv = res["object_inventory"]
+
+    # Only non-empty families appear, keyed by the get_object_settings object_type.
+    assert set(inv) == {"dashboard", "webapp", "semantic_model"}
+    assert inv["dashboard"] == {
+        "count": 2,
+        "ids": {"columns": ["id", "name"], "rows": [["db1", "Sales"], ["db2", "Ops"]]},
+    }
+    assert inv["webapp"] == {
+        "count": 1,
+        "ids": {"columns": ["id", "name"], "rows": [["wa1", "Explorer"]]},
+    }
+    assert "warnings" not in res
+
+
+def test_overview_object_inventory_is_capped_and_reports_full_count(monkeypatch):
+    project = FakeProject(
+        "PROJ",
+        inventory={"insight": [(f"in-{i}", f"Insight {i}") for i in range(5)]},
+    )
+    bind(monkeypatch, project)
+
+    res = overview(items_limit=2)
+    inv = res["object_inventory"]["insight"]
+
+    # Count is the full total; the ids table is capped at items_limit.
+    assert inv["count"] == 5
+    assert [row[0] for row in inv["ids"]["rows"]] == ["in-0", "in-1"]
+    assert "inventory:insight: returning 2 of 5 items" in res["warnings"]
+
+
+def test_overview_object_inventory_family_failure_is_isolated(monkeypatch):
+    project = FakeProject(
+        "PROJ",
+        inventory={"dashboard": [("db1", "Sales")]},
+        failures=("inventory:webapp",),
+    )
+    bind(monkeypatch, project)
+
+    res = overview()
+
+    # A failing family is dropped with a redacted warning; others still appear.
+    assert set(res["object_inventory"]) == {"dashboard"}
+    assert any(w.startswith("inventory:webapp:") for w in res["warnings"])
+    assert all("boom-" not in w for w in res["warnings"])
 
 
 # --------------------------------------------------------------------------- #

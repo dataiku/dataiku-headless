@@ -17,6 +17,24 @@ _MAX_OVERVIEW_ITEMS = 1_000
 _MAX_OVERVIEW_JOBS = 100
 _MAX_TEXT_CHARS = 2_000
 
+# Object families that have no dedicated list_* discovery tool. Their ids are the
+# only way to reach get_object_settings(object_type=..., object_id=...), so the
+# overview carries a compact {id, name} inventory for each. Keys are the exact
+# get_object_settings object_type values. Each lister reuses the same dataikuapi
+# accessor the object_settings resolvers build on. Per-family read failures are
+# isolated like every other overview section.
+_INVENTORY_FAMILIES: tuple[tuple[str, object], ...] = (
+    ("dashboard", lambda project: project.list_dashboards()),
+    ("insight", lambda project: project.list_insights()),
+    ("webapp", lambda project: project.list_webapps()),
+    ("evaluation_store", lambda project: project.list_evaluation_stores()),
+    ("knowledge_bank", lambda project: project.list_knowledge_banks()),
+    ("retrieval_augmented_llm", lambda project: project.list_retrieval_augmented_llms()),
+    ("agent_tool", lambda project: project.list_agent_tools()),
+    ("agent_review", lambda project: project.list_agent_reviews()),
+    ("semantic_model", lambda project: project.list_semantic_models()),
+)
+
 
 @mcp.tool()
 async def count_projects(ctx: Context) -> str:
@@ -159,6 +177,19 @@ def _flow_source_datasets(project) -> list:
     ]
 
 
+def _inventory_item(obj) -> dict:
+    """Extract a compact {id, name} from a discovery list item.
+
+    Every list-item family here exposes an ``id`` (and usually a ``name``)
+    property; evaluation-store objects expose ``id`` only, so ``name`` falls back
+    to an empty string.
+    """
+    return {
+        "id": _clip_text(getattr(obj, "id", "") or "", 512),
+        "name": _clip_text(getattr(obj, "name", "") or "", 512),
+    }
+
+
 def _wiki_articles(project) -> list:
     wiki = project.get_wiki()
     return [
@@ -183,6 +214,7 @@ def _assemble_overview(
     wiki_articles,
     variables,
     counts,
+    object_inventory,
     warnings,
 ) -> dict:
     def table(rows, columns):
@@ -199,6 +231,7 @@ def _assemble_overview(
             "flow_sources": flow_sources or None,
             "recent_jobs": table(recent_jobs, ["id", "state"]),
             "wiki_articles": table(wiki_articles, ["id", "title"]),
+            "object_inventory": object_inventory or None,
             "variables": variables or None,
             "counts": omit_empty(counts) or None,
             "warnings": warnings or None,
@@ -216,12 +249,19 @@ async def get_project_overview(
     """Call this first when orienting on a project — one call replaces the list_* fan-out.
 
     Returns identity, datasets, recipes, folders, scenarios, flow sources, recent jobs,
-    wiki articles, standard variables, and counts as one dense payload. Each section is
-    fetched independently: if one fails it is omitted and the reason is appended to
-    ``warnings`` rather than failing the whole call. ``items_limit`` bounds each asset
-    list (maximum 1000); counts still report the full section size. Standard variables
-    have credential-shaped fields redacted; oversized values are clipped. Local
-    variables are never returned here.
+    wiki articles, standard variables, counts, and an ``object_inventory`` as one dense
+    payload. Each section is fetched independently: if one fails it is omitted and the
+    reason is appended to ``warnings`` rather than failing the whole call. ``items_limit``
+    bounds each asset list (maximum 1000); counts still report the full section size.
+    Standard variables have credential-shaped fields redacted; oversized values are
+    clipped. Local variables are never returned here.
+
+    ``object_inventory`` is the id-discovery route for the families that have no
+    dedicated ``list_*`` tool — dashboard, insight, webapp, evaluation_store,
+    knowledge_bank, retrieval_augmented_llm, agent_tool, agent_review, semantic_model.
+    Each present family carries a ``count`` and a compact ``{id, name}`` table (capped
+    at ``items_limit``); pass an id straight to ``get_object_settings(object_type,
+    object_id)`` for the deep read. Empty families are omitted.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     jobs_limit = _require_positive_int(jobs_limit, "jobs_limit")
@@ -272,6 +312,29 @@ async def get_project_overview(
         )
         wiki_articles = section("wiki_articles", lambda: _wiki_articles(project))
         variables = section("variables", lambda: project.get_variables().get("standard", {}))
+
+        # Compact {id, name} inventory for the families with no dedicated list_*
+        # tool, so a caller can discover the ids get_object_settings requires.
+        # Each family is failure-isolated and capped at items_limit; only
+        # non-empty families are included.
+        object_inventory: dict[str, dict] = {}
+        for object_type, lister in _INVENTORY_FAMILIES:
+            listed = section(
+                f"inventory:{object_type}",
+                lambda lister=lister: lister(project),
+            )
+            if not listed:
+                continue
+            total = len(listed)
+            capped = _limit_rows(
+                listed, items_limit, warnings, f"inventory:{object_type}"
+            )
+            object_inventory[object_type] = {
+                "count": total,
+                "ids": columnar(
+                    [_inventory_item(obj) for obj in capped], ["id", "name"]
+                ),
+            }
 
         counts = {
             "datasets": len(datasets) if datasets is not None else None,
@@ -352,6 +415,7 @@ async def get_project_overview(
             wiki_articles=wiki_articles,
             variables=variables,
             counts=counts,
+            object_inventory=object_inventory,
             warnings=warnings,
         )
 
