@@ -67,7 +67,7 @@ Use this index to find a capability. Get parameters, defaults, enums, and the cu
 - `get_managed_folder_contents` — List files inside a managed folder.
 - `get_managed_folder_info` — Get a managed folder's id, name, type, connection, and path.
 - `list_managed_folders` — List the managed folders in the project.
-- `upload_file_to_managed_folder` — Upload a local file to a path inside a managed folder, replacing any existing file.
+- `upload_file_to_managed_folder` — Upload a local file, requiring explicit intent to replace a known target.
 
 ## Code environments
 
@@ -75,7 +75,7 @@ Use this index to find a capability. Get parameters, defaults, enums, and the cu
 
 ## Data collections
 
-- `list_data_collection_objects` — List the objects in a Data Collection.
+- `list_data_collection_objects` — List a bounded stable-identity summary of Data Collection objects.
 - `list_data_collections` — List the Data Collections accessible on the instance.
 
 ## Cross-project sharing
