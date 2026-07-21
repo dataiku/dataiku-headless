@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Headless Dataiku DSS agent kit: a FastMCP server for operating Dataiku DSS from an AI agent harness. The companion agent skill library ships via the Claude Code / Codex / Cortex Code plugin, not this package."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Dataiku" }]
 keywords = ["dataiku", "dss", "mcp", "fastmcp", "agent", "llm"]
@@ -17,6 +17,7 @@ classifiers = [
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
     "fastmcp",
