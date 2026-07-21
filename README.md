@@ -13,6 +13,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 - Tiered server-side authentication (env API key or HTTP bearer token)
 - Modular architecture by functional domain
 - Dense, bounded orientation calls for a project overview and its Flow graph
+- `get_object_settings`: one closed, redacted deep-read for independent verification across the Cobuild-built object families; live/runtime readers remain separate
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 - `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
 - Optional search-based tool exposure mode for progressive disclosure

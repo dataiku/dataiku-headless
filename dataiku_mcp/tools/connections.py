@@ -1,11 +1,10 @@
 """DSS connection discovery and inspection tools."""
 
-from typing import Any
-
 from fastmcp import Context
 
 from .. import mcp
 from .utils.async_executor import run_blocking
+from .utils.redaction import CONNECTION_REDACTION, redact_sensitive_values
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.auth import get_dss_client
 from .utils.validation import (
@@ -13,60 +12,9 @@ from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
 
-_CONNECTION_SECRET_REDACTION = "__DATAIKU_REDACTED__"
-_SENSITIVE_EXACT_KEYS = {
-    "apikey",
-    "accesskey",
-    "credentials",
-    "password",
-    "privatekey",
-    "secret",
-    "secretkey",
-    "sessiontoken",
-    "token",
-    "resolvedawscredential",
-    "resolvedbasiccredential",
-    "resolvedoauth2credential",
-}
-_SENSITIVE_SUFFIXES = (
-    "password",
-    "privatekey",
-    "secretkey",
-    "sessiontoken",
-)
-
-
-def _is_sensitive_key(key: str) -> bool:
-    normalized = key.replace("_", "").replace("-", "").lower()
-    if normalized in _SENSITIVE_EXACT_KEYS:
-        return True
-
-    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES):
-        return True
-
-    if normalized.endswith("credential"):
-        return True
-
-    if normalized.endswith("token"):
-        return True
-
-    return False
-
-
-def _redact_sensitive_data(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted = {}
-        for key, item in value.items():
-            if _is_sensitive_key(str(key)):
-                redacted[key] = _CONNECTION_SECRET_REDACTION
-            else:
-                redacted[key] = _redact_sensitive_data(item)
-        return redacted
-
-    if isinstance(value, list):
-        return [_redact_sensitive_data(item) for item in value]
-
-    return value
+def _redact_sensitive_data(value):
+    """Redact connection secrets while keeping the established marker."""
+    return redact_sensitive_values(value, CONNECTION_REDACTION)
 
 
 
@@ -172,13 +120,13 @@ async def list_connections(
         else _KNOWN_CONNECTION_TYPES
     )
 
+    client = get_dss_client()
     await ctx.info(
         "Listing DSS connections "
         f"(type={connection_type}, category={connection_category})..."
     )
 
     def _run():
-        client = get_dss_client()
         types_to_query = (
             [connection_type]
             if connection_type != "all"
@@ -234,12 +182,12 @@ async def get_connection_info(
             contextual_project_key, "contextual_project_key"
         )
 
+    client = get_dss_client()
     await ctx.info(f"Loading info for DSS connection '{connection_name}'...")
 
     raw_info = await run_blocking(
         lambda: dict(
-            get_dss_client()
-            .get_connection(connection_name)
+            client.get_connection(connection_name)
             .get_info(contextual_project_key=contextual_project_key)
         )
     )
@@ -260,10 +208,11 @@ async def get_connection_info(
 async def test_connection(connection_name: str, ctx: Context) -> str:
     """Test if a DSS connection is available. Returns an error if testing is not supported for the connection type, or if the caller lacks required permissions."""
     connection_name = _require_non_empty_string(connection_name, "connection_name")
+    client = get_dss_client()
     await ctx.info(f"Testing DSS connection '{connection_name}'...")
 
     raw_result = await run_blocking(
-        lambda: get_dss_client().get_connection(connection_name).test()
+        lambda: client.get_connection(connection_name).test()
     )
 
     result = {
