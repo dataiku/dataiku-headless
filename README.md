@@ -125,7 +125,6 @@ DKU_DEFAULT_FOLDER_CONNECTION=filesystem_folders
 DKU_DEFAULT_LLM=openai:<YOUR_CONNECTION_NAME>:gpt-5.4
 DKU_DEFAULT_EMBEDDING_LLM=openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small
 DKU_MCP_MAX_WORKERS=4
-DKU_MCP_TRANSPORT=stdio
 DKU_MCP_COBUILD_MODE=CREATE_ONLY
 DKU_MCP_TOOL_EXPOSURE=search
 DKU_MCP_SEARCH_MAX_RESULTS=5
@@ -133,17 +132,9 @@ DKU_MCP_SEARCH_ALWAYS_VISIBLE=get_current_instance
 
 # Set to true/1 to skip SSL verification, matching Dataiku's local config.
 DKU_NO_CHECK_CERTIFICATE=false
-
-# Optional streamable-http settings
-FASTMCP_HOST=127.0.0.1
-FASTMCP_PORT=8000
-FASTMCP_STREAMABLE_HTTP_PATH=/mcp
 ```
 
-**Upload tool behavior depends on transport:**
-
-- `stdio` exposes `create_upload_dataset`, which uploads from a local file path visible to the MCP server process.
-- `streamable-http` exposes `create_upload_dataset_from_rows`, which uploads tabular data passed as `columns` plus positional `rows` when a server-local file path is not usable.
+**Uploaded files:** use `create_upload_dataset` with a local file path visible to the MCP server process.
 
 **Connect to multiple instances:**
 Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape. 
@@ -155,7 +146,6 @@ After adding multiple instance configs, you can use the `list_instances`, `switc
 Auth resolution order:
 1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
 2. Local config: `.dataiku/config.json`, using `DKU_DEFAULT_INSTANCE` when set or `default_instance` otherwise
-3. Streamable HTTP request header for API key only: `Authorization: Bearer <DKU_API_KEY>`
 
 **Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
 
@@ -163,7 +153,7 @@ Auth resolution order:
 
 ## Run
 
-Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly or running `streamable-http` as a standing service:
+Every install path above has your harness launch the server itself via `uvx`. Run it standalone only when testing it directly:
 
 ```bash
 uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless

@@ -14,12 +14,9 @@ Uploaded Files datasets require a file-compatible connection. Discover the exact
 
 Use the surrounding flow's storage context when it is clear. Otherwise, ask the user to select from compatible discovered connections.
 
-## Transport-Specific Creation
+## Creation
 
-- In `stdio` transport, use `create_upload_dataset` with a local file path visible to the MCP server process.
-- In `streamable-http` transport, use `create_upload_dataset_from_rows` with ordered columns and positional tabular rows.
-- The row-upload path is for tabular data only; it does not upload arbitrary binary files.
-
+Use `create_upload_dataset` with a local file path visible to the MCP server process.
 Keep `overwrite=false` unless the user explicitly authorizes replacement.
 
 ## Validation After Upload

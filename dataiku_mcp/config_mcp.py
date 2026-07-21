@@ -119,7 +119,6 @@ def _parse_csv(value: str) -> list[str]:
 
 
 DKU_MCP_MAX_WORKERS = int(os.environ.get("DKU_MCP_MAX_WORKERS", "4"))
-DKU_MCP_TRANSPORT = os.environ.get("DKU_MCP_TRANSPORT", "stdio")
 DKU_MCP_COBUILD_MODE = _parse_cobuild_mode(
     os.environ.get("DKU_MCP_COBUILD_MODE", "CREATE_ONLY")
 )
