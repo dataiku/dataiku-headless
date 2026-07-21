@@ -1,8 +1,9 @@
 # Build via Cobuild
 
 The flagship arc: turn a build request into verified, reviewable assets by
-delegating to Cobuild and checking its work. For the judgment behind the sequence
-and prompt structure, read `../references/cobuild-prompt-patterns.md`.
+delegating to Cobuild and checking its work. For a build with several dependent
+delegate-and-verify cycles, read `../soul.md` first. For the judgment behind the
+sequence and prompt structure, read `../references/cobuild-prompt-patterns.md`.
 
 ## The arc
 

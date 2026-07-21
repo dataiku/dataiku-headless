@@ -17,6 +17,14 @@ object-specific facts remain in the references.
 Get exact parameters, defaults, and enums from the live tool schema. Do not
 restate or guess them from these documents.
 
+## Multi-stage judgment
+
+Multi-stage work — a new flow, a migration, an agent system, anything with
+several dependent delegate-and-verify cycles — read `soul.md` first. It is the
+judgment layer above the playbooks: what their steps are for, and how to choose
+when no rule decides. Skip it for one-shot reads, one direct execution, or a
+single isolated Cobuild change.
+
 ## Permanent operating rules
 
 1. **Orient from DSS state.** For work in a known project, start with

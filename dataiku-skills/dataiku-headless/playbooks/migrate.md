@@ -3,6 +3,7 @@
 Port business logic from a third-party tool (Alteryx, SAS, Tableau Prep, Excel)
 into a runnable, reviewable Dataiku flow. The build itself runs through
 `build-via-cobuild.md`; this playbook is the migration-specific shape on top of it.
+Migration has several dependent cycles, so read `../soul.md` before planning.
 
 Four phases: **plan → build → validate → document & clean up.** Build and validate
 loop until validation passes.
