@@ -40,6 +40,7 @@ Do not use this skill when:
 6. If the call returns `timeout` or `in_progress`, retain its `turn_id` and poll `get_cobuild_turn_status`. Do not resend the instruction: the original worker is still authoritative.
 7. Retain the returned `conversation_id` for follow-up work.
 8. If Cobuild returns `needs_confirmation`, inspect the complete `objects_to_delete` and `deletion_impacts`, then pass its exact `confirmation_id` to `answer_cobuild_confirmation` with `APPROVE` or `CANCEL`.
+9. After a build, verify saved settings through independent read tools and run `audit_project`. Pass an output contract when the delegated request named required datasets, columns, types, row minima, or sampled non-blank fields. Treat reviewability warnings as advice, not proof that the build is wrong.
 
 ## Prompt Guidance
 
@@ -57,6 +58,7 @@ Do not use this skill when:
 | Poll a long-running or timed-out turn | `get_cobuild_turn_status` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
+| Review Flow evidence and an explicit output contract | `audit_project` |
 
 ## Safety Rules
 
@@ -70,3 +72,4 @@ Do not use this skill when:
 - Before triggering a build-affecting prompt, check `../jobs/SKILL.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
 - If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.
 - There is no close or delete conversation tool.
+- `audit_project` covers datasets, recipes, zones, wiki headings, cached counts, bounded samples, and DSS Flow consistency. It does not certify scenarios, connections, models, code environments, or live application behavior.

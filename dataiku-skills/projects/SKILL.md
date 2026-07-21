@@ -33,6 +33,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 5. For a new project, confirm the unique project key and display name with the user, then use `create_project`.
 6. Verify a newly created project with `list_projects` or `get_project_metadata`.
 7. Route all existing-project changes through `./dataiku-skills/cobuild/SKILL.md`.
+8. After a Cobuild build, use `audit_project` for a bounded Flow review. Add a contract when the requested output shape or minimum row count is known.
 
 ## Preferred Tools
 
@@ -45,6 +46,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 - `get_flow_graph`
 - `list_flow_zones`
 - `get_flow_object_metadata`
+- `audit_project`
 
 ## Safety Rules
 

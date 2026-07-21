@@ -65,6 +65,14 @@ export DKU_API_KEY="your-api-key"
 - Keep behavior changes minimal and explicit; preserve backward compatibility unless a bug or safety issue requires change.
 - Avoid committing sensitive snapshot files if they contain internal identifiers.
 
+## Audit Contract
+
+- Keep `audit_project` read-only: use cached metrics and bounded samples; never recompute dataset metrics or mutate project objects.
+- Treat DSS Flow consistency and caller-supplied output contracts as fail-closed evidence. A failed or unreadable gate blocks `passed` and marks unreadable evidence as incomplete.
+- Treat names, descriptions, zones, wiki headings, recipe-family preference, and zero-row graph leaves as advisory reviewability checks. They are conventions, not proof of correctness.
+- Bound contract size, wiki scanning, inventory lists, check text, samples, blocking consistency work, and the final serialized response.
+- Never return raw backend exception or consistency-message text from an audit; it may contain SQL, URLs, or connection details.
+
 ## Validation
 
 Run a syntax check before committing Python changes:
