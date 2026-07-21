@@ -10,6 +10,6 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# `uv run` creates .venv and syncs deps from uv.lock on first launch.
+# Runtime launchers do not need the project's development dependencies.
 cd "${REPO_ROOT}"
-exec uv run python -m dataiku_mcp
+exec uv run --no-dev python -m dataiku_mcp
