@@ -12,7 +12,10 @@ Use this skill as the default path for project-level asset creation. This includ
 ## Cobuild Concepts
 
 - A Cobuild conversation is stateful and bound to one project. Reuse its `conversation_id` for related work in that project.
+- Conversations and retained turns are **process-local**: they live only in the running MCP server process. A server restart drops them, so start a new conversation rather than reusing an old `conversation_id`.
 - `allow_edit_project` determines whether Cobuild may modify project assets. Use `false` for inspection or explanation and `true` only for an explicitly requested creation or modification.
+- One turn can run for minutes. If a call returns `timeout` or `in_progress`, its worker is still running: poll the returned `turn_id` with `get_cobuild_turn_status`. **Never resend a timed-out instruction** — the original worker is authoritative and a resend can duplicate a mutation.
+- Only one turn runs per conversation at a time. A send while a turn is in flight returns `busy` with that turn's `turn_id`; poll it instead of resending.
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion is a separate confirmation step. A request to edit does not authorize a broader or unexpected deletion.
 
@@ -37,8 +40,9 @@ Do not use this skill when:
 3. Reuse a known `conversation_id` only with its matching `project_key`. For a requested continuation without an available ID, use `list_cobuild_conversations` to rediscover it.
 4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
-6. Retain the returned `conversation_id` for follow-up work.
-7. If Cobuild returns a delete confirmation request, inspect the deletion details and respond through `answer_cobuild_confirmation`.
+6. If the call returns `timeout`, `in_progress`, or `busy`, retain its `turn_id` and poll `get_cobuild_turn_status`. Do not resend the instruction: the original worker is still authoritative.
+7. Retain the returned `conversation_id` for follow-up work.
+8. If Cobuild returns `needs_confirmation`, inspect the complete `objects_to_delete` and `deletion_impacts`, then pass its exact `confirmation_id` to `answer_cobuild_confirmation` with `APPROVE` or `CANCEL`.
 
 ## Prompt Guidance
 
@@ -53,6 +57,7 @@ Do not use this skill when:
 | --- | --- |
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
+| Poll a long-running or timed-out turn | `get_cobuild_turn_status` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
 
@@ -60,7 +65,10 @@ Do not use this skill when:
 
 - Keep each `conversation_id` paired with its matching `project_key`.
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
-- `send_cobuild_message` may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`.
+- A `timeout` ends only the MCP client's wait, not the worker. Poll the returned `turn_id` with `get_cobuild_turn_status`; never resend a timed-out mutation.
+- Treat `transport_outcome_unknown` as ambiguous. Inspect project state before deciding whether to retry any mutation.
+- Conversations and turns do not survive a server restart. If a `turn_id` or `conversation_id` is reported unknown, start a new conversation rather than resending.
+- `send_cobuild_message` may return `needs_confirmation`, with the exact proposal in `objects_to_delete` and `deletion_impacts`.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `../jobs/SKILL.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
 - If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.

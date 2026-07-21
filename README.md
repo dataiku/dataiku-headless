@@ -25,6 +25,8 @@ An MCP server and agent skill library for operating Dataiku with an AI agent har
 
 Cobuild is exposed here as a retained conversation, driven through MCP tools. This repo's own tool surface stays deliberately thin around it: read/list/get/inspect tools for every object type (for context-gathering inside or outside a Cobuild conversation), plus a handful of operations Cobuild cannot do because they are cross-project, instance-level, or precede a project/conversation existing (creating a project, uploading a local file into a dataset or managed folder or project library).
 
+Cobuild conversations and their retained turns are **process-local**: they live only in the running server process, with no durable store. A server restart drops them, so start a new conversation rather than reusing an old id. A single turn can run for minutes; when a call reaches its wait timeout it returns a pollable `turn_id` (the worker keeps running). Poll it with `get_cobuild_turn_status` — **never resend a timed-out turn**, or you may duplicate a mutation.
+
 ## MCP Server
 
 `dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
@@ -33,7 +35,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 - Progress notifications for long-running operations
 - Tiered server-side authentication (env API key or HTTP bearer token)
 - Modular architecture by functional domain
-- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
+- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 - `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
 - Optional search-based tool exposure mode for progressive disclosure
 
@@ -179,7 +181,7 @@ dataiku-headless
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
-│   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
+│   │   ├── cobuild.py         # Cobuild conversation tools (start/send/poll/confirm/list)
 │   │   ├── insights.py        # Insight inspection tools, especially chart insights
 │   │   ├── connections.py     # DSS connection discovery/test tools
 │   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
