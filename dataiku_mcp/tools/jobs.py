@@ -62,6 +62,14 @@ async def _wait_for_job_result(
     job,
     timeout_seconds: int,
 ) -> tuple[bool, dict]:
+    """Poll a job to a terminal state or the deadline.
+
+    ``timeout_seconds`` is a soft deadline: it is checked between ``get_status``
+    polls, not inside them. The installed DSS client sets no per-request HTTP
+    timeout, so a single hung ``get_status`` call can make the wait exceed
+    ``timeout_seconds``. The wait always returns a job_id the caller polls; it
+    never cancels the underlying job.
+    """
     deadline = time.monotonic() + timeout_seconds
     while True:
         raw_status = await run_blocking(job.get_status)
@@ -129,7 +137,9 @@ async def build_datasets(
     with wait_for_job(project_key, job_id) and inspects outcomes with
     get_job_status / get_job_log. Set wait_for_completion=true only for a short
     inline wait bounded by timeout_seconds; the wait path additionally reports
-    per-dataset outcomes derived from the job's activities.
+    per-dataset outcomes derived from the job's activities. timeout_seconds is a
+    soft deadline checked between status polls — a single hung DSS HTTP call can
+    exceed it — so it never guarantees the wait returns exactly on time.
 
     Args:
         dataset_names: Existing dataset names to build (at least one); all built by one job
@@ -259,7 +269,8 @@ async def run_recipe(
     its ID returned immediately. The supervisor then waits explicitly with
     wait_for_job(project_key, job_id) and inspects outcomes with get_job_status /
     get_job_log. Set wait_for_completion=true only for a short inline wait bounded by
-    timeout_seconds.
+    timeout_seconds. timeout_seconds is a soft deadline checked between status polls
+    — a single hung DSS HTTP call can exceed it.
 
     Args:
         wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false (default), start it and return the job ID for wait_for_job / get_job_status
@@ -501,7 +512,13 @@ async def wait_for_job(
     ctx: Context,
     timeout_seconds: int = 600,
 ) -> str:
-    """Wait for a DSS job to finish, with a timeout."""
+    """Wait for a DSS job to finish, with a timeout.
+
+    timeout_seconds is a soft deadline checked between status polls, not inside
+    them; the DSS client sets no per-request HTTP timeout, so a single hung poll
+    can make the wait exceed timeout_seconds. On timeout the job_id is returned
+    for another wait/poll — the job is never cancelled.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")

@@ -9,8 +9,18 @@ from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
-from .utils.serialization import columnar, compact_json, is_empty
+from .utils.serialization import (
+    bounded_compact_json,
+    columnar,
+    compact_json,
+    is_empty,
+)
 from .utils.validation import require_positive_int as _require_positive_int
+
+# Hard server ceiling on the serialized get_dataset_info payload. A very wide
+# schema (thousands of columns, long comments) is clipped on a UTF-8 boundary
+# with truncation metadata rather than returned unbounded.
+_MAX_DATASET_INFO_BYTES = 1_000_000
 
 
 def _create_uploaded_dataset_from_file(
@@ -204,7 +214,10 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
     """Get the dataset's type, connection, and full column schema.
 
     Each column row carries its name, type, meaning, and comment (the column
-    description), so this is the single reader for the whole schema.
+    description), so this is the single reader for the whole schema. The whole
+    schema is returned (no column selection); the response is bounded to a hard
+    byte ceiling — a very wide schema is clipped on a UTF-8 boundary with
+    ``truncated: true`` and byte counts rather than returned unbounded.
     """
     await ctx.info(f"Loading dataset info for {dataset_name} in {project_key}...")
 
@@ -239,7 +252,11 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
                 del result[key]
         return result
 
-    return compact_json(await run_blocking(_run))
+    return bounded_compact_json(
+        await run_blocking(_run),
+        _MAX_DATASET_INFO_BYTES,
+        payload_key="dataset_info_json_truncated",
+    )
 
 
 @mcp.tool()

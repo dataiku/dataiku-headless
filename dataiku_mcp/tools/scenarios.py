@@ -37,7 +37,14 @@ async def _resolve_scenario_run_id(trigger_fire, budget_seconds: int):
 
 
 async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
-    """Poll a fired trigger and its run within one explicit deadline."""
+    """Poll a fired trigger and its run within one explicit deadline.
+
+    ``timeout_seconds`` is a soft deadline: it is checked between SDK polls
+    (``get_scenario_run`` / ``refresh`` / ``is_cancelled``), not inside them. The
+    installed DSS client sets no per-request HTTP timeout, so a single hung call
+    can make the wait exceed ``timeout_seconds``. The run is never cancelled by a
+    timeout; the caller polls ``get_scenario_run_history``.
+    """
     deadline = time.monotonic() + timeout_seconds
     scenario_run = None
     while True:
@@ -121,7 +128,13 @@ async def run_scenario(
     wait_for_completion: bool = False,
     timeout_seconds: int = 600,
 ) -> str:
-    """Run one existing scenario; creation and modification remain with Cobuild."""
+    """Run one existing scenario; creation and modification remain with Cobuild.
+
+    When wait_for_completion=true, timeout_seconds is a soft deadline checked
+    between SDK polls — a single hung DSS HTTP call can exceed it. A timeout
+    returns the run id (when known) for polling get_scenario_run_history; the run
+    is never cancelled.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
