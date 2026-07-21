@@ -56,8 +56,13 @@ export DKU_API_KEY="your-api-key"
 ## Cobuild Write-Routing Convention
 - This server intentionally does not expose direct create/update/delete tools for in-project assets (recipes, datasets, ML analyses, dashboards, agents, scenarios, etc.). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead.
 - Do not add a new direct write tool for an in-project asset type. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
-- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists (see the existing exceptions: `create_project`, `upload_file_to_managed_folder`, `write_project_library_file`, `create_upload_dataset`, `create_upload_dataset_from_rows`).
-- If a tool module's write surface changes, update `config_mcp.py`'s `FULL_COBUILD_DISABLED_TOOLS` set to match (add newly-redundant read tools to it in `FULL` mode; do not add cross-project/instance tools to it — those stay enabled regardless of Cobuild mode).
+- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists (see the existing exceptions: `create_project`, `upload_file_to_managed_folder`, `write_project_library_file`, `create_upload_dataset`).
+
+## Fixed Tool Surface
+
+- The server is stdio-only: a single-user, single-credential local plugin the harness launches over stdio. There is no HTTP transport and no `DKU_MCP_TRANSPORT`. A hosted/multi-user deployment (which would need per-request credential ownership and shared state) is out of scope for v1 — it belongs in its own project, not behind an env flag.
+- Register one directly visible tool catalog. Do not add search/full or Cobuild exposure modes that make capabilities depend on deployment configuration.
+- The registered set is the contract; `tests/test_smoke.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
 ## Guardrails
 - Do not hardcode instance-specific values (project keys, model IDs, LLM IDs, code env names, connection names) as defaults in tools or skills.
