@@ -12,7 +12,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 - Progress notifications for long-running operations
 - Tiered server-side authentication (env API key or HTTP bearer token)
 - Modular architecture by functional domain
-- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
+- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `get_cobuild_turn_status`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 - `DKU_MCP_COBUILD_MODE` controls how much of the read-tool surface stays exposed alongside Cobuild (see Configure below)
 - Optional search-based tool exposure mode for progressive disclosure
 
@@ -105,6 +105,9 @@ DKU_MCP_COBUILD_MODE=CREATE_ONLY
 DKU_MCP_TOOL_EXPOSURE=search
 DKU_MCP_SEARCH_MAX_RESULTS=5
 DKU_MCP_SEARCH_ALWAYS_VISIBLE=get_current_instance
+DKU_COBUILD_TIMEOUT_SECONDS=1200
+DKU_COBUILD_MAX_TIMEOUT_SECONDS=1800
+DKU_MCP_MAX_COBUILD_TURNS=8
 
 # Set to true/1 to skip SSL verification, matching Dataiku's local config.
 DKU_NO_CHECK_CERTIFICATE=false
@@ -135,6 +138,14 @@ The old `DKU_DEFAULT_CONNECTION`, `DKU_DEFAULT_FOLDER_CONNECTION`,
 by a tool. They are no longer part of the configuration contract; pass concrete
 object identifiers in the relevant tool or Cobuild instruction instead.
 
+**Long Cobuild turns:** `DKU_COBUILD_TIMEOUT_SECONDS` sets how long a tool call
+waits before returning a pollable `turn_id`; it does not cancel work already
+running in DSS. `DKU_COBUILD_MAX_TIMEOUT_SECONDS` caps a caller-supplied timeout,
+and `DKU_MCP_MAX_COBUILD_TURNS` bounds live turns across server processes that
+share the same state directory. Keep that capacity setting the same in those
+processes. Durable conversation and turn state defaults to the XDG user state
+directory and can be relocated with `DKU_MCP_STATE_DIR`.
+
 **Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
 
 **Cobuild modes:** `CREATE_ONLY` (default) keeps this server's full read-tool surface enabled alongside the Cobuild conversation tools, for context-gathering independent of any Cobuild conversation. `FULL` additionally disables the read tools that duplicate what Cobuild can already inspect within its own conversation, leaving only cross-project/instance tools, the direct-write exceptions, and the Cobuild conversation tools themselves.
@@ -158,7 +169,7 @@ dataiku-headless
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
-│   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
+│   │   ├── cobuild.py         # Cobuild conversation tools (start/send/poll/confirm/list)
 │   │   ├── insights.py        # Insight inspection tools, especially chart insights
 │   │   ├── connections.py     # DSS connection discovery/test tools
 │   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools

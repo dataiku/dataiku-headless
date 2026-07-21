@@ -37,8 +37,9 @@ Do not use this skill when:
 3. Reuse a known `conversation_id` only with its matching `project_key`. For a requested continuation without an available ID, use `list_cobuild_conversations` to rediscover it.
 4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
-6. Retain the returned `conversation_id` for follow-up work.
-7. If Cobuild returns a delete confirmation request, inspect the deletion details and respond through `answer_cobuild_confirmation`.
+6. If the call returns `timeout` or `in_progress`, retain its `turn_id` and poll `get_cobuild_turn_status`. Do not resend the instruction: the original worker is still authoritative.
+7. Retain the returned `conversation_id` for follow-up work.
+8. If Cobuild returns `needs_confirmation`, inspect the complete `objects_to_delete` and `deletion_impacts`, then pass its exact `confirmation_id` to `answer_cobuild_confirmation` with `APPROVE` or `CANCEL`.
 
 ## Prompt Guidance
 
@@ -53,6 +54,7 @@ Do not use this skill when:
 | --- | --- |
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
+| Poll a long-running or timed-out turn | `get_cobuild_turn_status` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
 
@@ -60,7 +62,10 @@ Do not use this skill when:
 
 - Keep each `conversation_id` paired with its matching `project_key`.
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
-- `send_cobuild_message` may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`.
+- A timeout ends only the MCP client's wait. Poll the returned `turn_id`; never resend a timed-out mutation.
+- Treat `turn_lost` and `transport_outcome_unknown` as ambiguous. Inspect project state before deciding whether to retry any mutation.
+- `send_cobuild_message` may return `needs_confirmation`, with the exact proposal in `objects_to_delete` and `deletion_impacts`.
+- Never copy a confirmation id from a general conversation list. Only the authenticated turn result/status returns the proposal and its matching id.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `../jobs/SKILL.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
 - If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.

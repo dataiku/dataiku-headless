@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import subprocess
+import sys
+import threading
 import time
 
 import pytest
@@ -48,6 +51,9 @@ class FakeConversation:
         self.answer_calls = []
         self.next_send = FakeResponse()
         self.next_answer = FakeResponse(message="confirmed")
+        self.send_delay = 0
+        self.send_started = threading.Event()
+        self.send_release = None
         self.answer_delay = 0
         self.answer_error = None
 
@@ -59,6 +65,11 @@ class FakeConversation:
                 "client": self.client,
             }
         )
+        self.send_started.set()
+        if self.send_release is not None:
+            self.send_release.wait(timeout=5)
+        if self.send_delay:
+            time.sleep(self.send_delay)
         self._pending_confirmation_id = self.next_send.confirmation_id
         return self.next_send
 
@@ -112,6 +123,7 @@ def isolate_registry(monkeypatch, tmp_path):
     monkeypatch.setenv("DKU_MCP_STATE_DIR", str(tmp_path / "state"))
     with cobuild._registry_lock:
         cobuild._conversations.clear()
+        cobuild._turns.clear()
     client = FakeClient()
     RehydratedConversation.created.clear()
     binding = ["instance-a", client, "principal-a"]
@@ -119,6 +131,19 @@ def isolate_registry(monkeypatch, tmp_path):
     yield binding
     with cobuild._registry_lock:
         cobuild._conversations.clear()
+        turns = list(cobuild._turns.values())
+    for turn in turns:
+        release = getattr(turn.entry.conversation, "send_release", None)
+        if release is not None:
+            release.set()
+        try:
+            turn.future.result(timeout=2)
+        except TimeoutError:
+            pass
+        if turn.future.done():
+            cobuild._try_finalize(turn)
+    with cobuild._registry_lock:
+        cobuild._turns.clear()
 
 
 def run(coroutine):
@@ -215,9 +240,18 @@ def test_confirmation_without_sdk_id_fails_closed(isolate_registry):
     conversation.next_send.is_confirmation_request = True
     start()
 
-    with pytest.raises(RuntimeError, match="without a confirmation id"):
-        send(allow_edit_project=True)
+    result = send(allow_edit_project=True)
 
+    assert result["status"] == "error"
+    assert result["error_kind"] == "missing_confirmation_id"
+    assert "confirmation_id" not in result
+    record = cobuild._store().read_owned(
+        "conversation-1",
+        instance_name="instance-a",
+        project_key="PROJECT",
+        owner_fingerprint="principal-a",
+    )
+    assert record["pending_confirmation_id"] is None
 
 def test_mismatched_confirmation_id_never_reaches_sdk(isolate_registry):
     conversation = isolate_registry[1].conversation
@@ -269,8 +303,11 @@ def test_ambiguous_answer_failure_does_not_rearm_approval(isolate_registry):
     start()
     send(allow_edit_project=True)
 
-    with pytest.raises(ConnectionError, match="after POST"):
-        answer("confirm-once")
+    result = answer("confirm-once")
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "transport_outcome_unknown"
+    assert "after POST" in result["message"]
     with pytest.raises(ValueError, match="No pending confirmation"):
         answer("confirm-once")
 
@@ -301,7 +338,12 @@ def test_concurrent_approvals_are_serialized_and_only_one_can_win(isolate_regist
     outcomes = run(race())
 
     assert len(conversation.answer_calls) == 1
-    assert sum(isinstance(item, ValueError) for item in outcomes) == 1
+    payloads = [json.loads(item) for item in outcomes]
+    assert {payload["status"] for payload in payloads} == {
+        "completed",
+        "in_progress",
+    }
+    assert len({payload["turn_id"] for payload in payloads}) == 1
 
 
 def test_list_does_not_disclose_approval_token(isolate_registry):
@@ -480,7 +522,15 @@ def test_list_comes_from_durable_state_after_cache_loss(isolate_registry):
 
     created_at = payload["conversations"]["rows"][0][3]
     assert payload["conversations"]["rows"] == [
-        ["conversation-1", "instance-a", "PROJECT", created_at, False]
+        [
+            "conversation-1",
+            "instance-a",
+            "PROJECT",
+            created_at,
+            "idle",
+            None,
+            False,
+        ]
     ]
 
 
@@ -513,19 +563,49 @@ def test_proposal_is_not_approvable_when_persistence_fails(
     )
     start()
 
-    def fail_persistence(*_args, **_kwargs):
-        raise RuntimeError("disk unavailable")
+    original = cobuild.ConversationStore.record_turn_result
+    unavailable = True
+
+    def fail_while_unavailable(self, *_args, **_kwargs):
+        if unavailable:
+            raise RuntimeError("disk unavailable")
+        return original(self, *_args, **_kwargs)
 
     monkeypatch.setattr(
         cobuild.ConversationStore,
-        "set_pending_confirmation",
-        fail_persistence,
+        "record_turn_result",
+        fail_while_unavailable,
     )
 
-    with pytest.raises(RuntimeError, match="disk unavailable"):
-        send(allow_edit_project=True)
+    result = send(allow_edit_project=True)
 
-    assert conversation._pending_confirmation_id is None
+    assert result["status"] == "finalization_pending"
+    assert "confirmation_id" not in result
+    record = cobuild._store().read_owned(
+        "conversation-1",
+        instance_name="instance-a",
+        project_key="PROJECT",
+        owner_fingerprint="principal-a",
+    )
+    assert record["pending_confirmation_id"] is None
+    blocked = answer("confirm-not-durable")
+    assert blocked["status"] == "in_progress"
+    assert isolate_registry[1].conversation.answer_calls == []
+
+    unavailable = False
+    persisted = json.loads(
+        run(
+            cobuild.get_cobuild_turn_status(
+                "conversation-1",
+                "PROJECT",
+                DummyContext(),
+                result["turn_id"],
+            )
+        )
+    )
+    assert persisted["status"] == "needs_confirmation"
+    assert persisted["confirmation_id"] == "confirm-not-durable"
+    assert answer("confirm-not-durable")["status"] == "completed"
 
 
 def test_wrong_owner_cannot_rehydrate_known_conversation_id(
@@ -541,3 +621,400 @@ def test_wrong_owner_cannot_rehydrate_known_conversation_id(
         send()
 
     assert RehydratedConversation.created == []
+
+
+def test_timeout_retains_worker_and_poll_returns_one_terminal_result(
+    isolate_registry,
+):
+    conversation = isolate_registry[1].conversation
+    conversation.send_delay = 1.3
+    start()
+
+    timed_out = json.loads(
+        run(
+            cobuild.send_cobuild_message(
+                "conversation-1",
+                "PROJECT",
+                "build once",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=1,
+            )
+        )
+    )
+
+    assert timed_out["status"] == "timeout"
+    assert len(conversation.send_calls) == 1
+    turn = cobuild._turns["conversation-1"]
+    assert turn.turn_id == timed_out["turn_id"]
+    assert turn.thread.daemon is True
+    assert turn.future.cancel() is False
+    assert turn.future.cancelled() is False
+
+    while not turn.future.done():
+        time.sleep(0.02)
+    completed = json.loads(
+        run(
+            cobuild.get_cobuild_turn_status(
+                "conversation-1",
+                "PROJECT",
+                DummyContext(),
+                timed_out["turn_id"],
+            )
+        )
+    )
+
+    assert completed["status"] == "completed"
+    assert completed["turn_id"] == timed_out["turn_id"]
+    assert len(conversation.send_calls) == 1
+
+
+def test_overlapping_send_returns_the_active_turn_without_resending(
+    isolate_registry,
+):
+    conversation = isolate_registry[1].conversation
+    conversation.send_release = threading.Event()
+    start()
+
+    async def overlap():
+        first = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                "conversation-1",
+                "PROJECT",
+                "mutate once",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=2,
+            )
+        )
+        while not conversation.send_started.is_set():
+            await asyncio.sleep(0.005)
+        second = await cobuild.send_cobuild_message(
+            "conversation-1",
+            "PROJECT",
+            "mutate twice",
+            DummyContext(),
+            allow_edit_project=True,
+            timeout_seconds=1,
+        )
+        conversation.send_release.set()
+        return json.loads(await first), json.loads(second)
+
+    first, second = run(overlap())
+
+    assert first["status"] == "completed"
+    assert second["status"] == "in_progress"
+    assert second["turn_id"] == first["turn_id"]
+    assert [call["message"] for call in conversation.send_calls] == ["mutate once"]
+
+
+def test_waiter_settles_result_even_if_done_callback_is_delayed(
+    isolate_registry,
+    monkeypatch,
+):
+    start()
+    callback_entered = threading.Event()
+
+    def skipped_callback(_turn, _future):
+        callback_entered.set()
+
+    monkeypatch.setattr(cobuild, "_on_turn_done", skipped_callback)
+    first = send()
+    assert callback_entered.is_set()
+    second = send()
+
+    assert first["status"] == "completed"
+    assert second["status"] == "completed"
+    assert len(isolate_registry[1].conversation.send_calls) == 2
+
+
+def test_cancelling_the_client_wait_does_not_cancel_the_worker(isolate_registry):
+    conversation = isolate_registry[1].conversation
+    conversation.send_release = threading.Event()
+    start()
+
+    async def cancel_wait():
+        waiting = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                "conversation-1",
+                "PROJECT",
+                "keep working",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=2,
+            )
+        )
+        while not conversation.send_started.is_set():
+            await asyncio.sleep(0.005)
+        turn = cobuild._turns["conversation-1"]
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        assert turn.future.cancelled() is False
+        conversation.send_release.set()
+        return turn
+
+    turn = run(cancel_wait())
+    turn.future.result(timeout=2)
+    completed = json.loads(
+        run(
+            cobuild.get_cobuild_turn_status(
+                "conversation-1", "PROJECT", DummyContext(), turn.turn_id
+            )
+        )
+    )
+
+    assert completed["status"] == "completed"
+    assert len(conversation.send_calls) == 1
+
+
+def test_poll_rejects_a_stale_or_invented_turn_id(isolate_registry):
+    start()
+    completed = send()
+
+    with pytest.raises(ValueError, match="not the latest turn"):
+        run(
+            cobuild.get_cobuild_turn_status(
+                "conversation-1",
+                "PROJECT",
+                DummyContext(),
+                "not-the-returned-turn",
+            )
+        )
+
+    assert completed["turn_id"]
+
+
+def test_authenticated_poll_recovers_the_complete_durable_proposal(
+    isolate_registry,
+):
+    conversation = isolate_registry[1].conversation
+    conversation.next_send = FakeResponse(
+        message="Delete these exact objects?",
+        response_type="delete_confirmation_request",
+        confirmation_id="confirm-from-disk",
+        objects_to_delete=[{"type": "DATASET", "id": "old_output"}],
+        deletion_impacts={"recipes": ["downstream"]},
+    )
+    start()
+    proposal = send(allow_edit_project=True)
+    with cobuild._registry_lock:
+        cobuild._turns.clear()
+        cobuild._conversations.clear()
+
+    recovered = json.loads(
+        run(
+            cobuild.get_cobuild_turn_status(
+                "conversation-1",
+                "PROJECT",
+                DummyContext(),
+                proposal["turn_id"],
+            )
+        )
+    )
+
+    assert recovered["status"] == "needs_confirmation"
+    assert recovered["confirmation_id"] == "confirm-from-disk"
+    assert recovered["objects_to_delete"] == [
+        {"type": "DATASET", "id": "old_output"}
+    ]
+    assert recovered["deletion_impacts"] == {"recipes": ["downstream"]}
+
+
+def test_sdk_wrapper_values_are_normalized_before_durable_finalization(
+    isolate_registry,
+):
+    conversation = isolate_registry[1].conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="confirm-json-safe",
+        objects_to_delete=[{"sdk_value": object()}],
+    )
+    start()
+
+    proposal = send(allow_edit_project=True)
+
+    assert proposal["status"] == "needs_confirmation"
+    assert isinstance(proposal["objects_to_delete"][0]["sdk_value"], str)
+    record = cobuild._store().read_owned(
+        "conversation-1",
+        instance_name="instance-a",
+        project_key="PROJECT",
+        owner_fingerprint="principal-a",
+    )
+    assert record["last_turn_status"] == "needs_confirmation"
+
+
+def test_live_external_turn_is_not_misreported_lost_and_capacity_is_global(
+    isolate_registry,
+    tmp_path,
+):
+    start()
+    store = cobuild._store()
+    store.register(
+        "conversation-2",
+        {
+            "instance_name": "instance-a",
+            "project_key": "PROJECT",
+            "owner_fingerprint": "principal-a",
+            "created_at": "now",
+            "pending_confirmation_id": None,
+            "last_turn_id": None,
+            "last_turn_status": "idle",
+            "last_result": None,
+        },
+    )
+    ready_path = tmp_path / "child-ready"
+    child_code = """
+import sys
+from pathlib import Path
+from dataiku_mcp.tools.utils.conversation_store import ConversationStore
+
+store = ConversationStore(sys.argv[1])
+claim, _ = store.claim_turn(
+    "conversation-1",
+    "external-turn",
+    instance_name="instance-a",
+    project_key="PROJECT",
+    owner_fingerprint="principal-a",
+    kind="message",
+    allow_edit_project=True,
+    max_concurrent_turns=1,
+)
+Path(sys.argv[2]).write_text("ready", encoding="utf-8")
+sys.stdin.readline()
+claim.release()
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", child_code, str(store.path), str(ready_path)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready_path.exists() and process.poll() is None:
+            if time.monotonic() >= deadline:
+                pytest.fail("child process did not claim its Cobuild turn in time")
+            time.sleep(0.02)
+        if process.poll() is not None:
+            pytest.fail(f"child process failed: {process.stderr.read()}")
+
+        live = json.loads(
+            run(
+                cobuild.get_cobuild_turn_status(
+                    "conversation-1",
+                    "PROJECT",
+                    DummyContext(),
+                    "external-turn",
+                )
+            )
+        )
+        assert live["status"] == "in_progress"
+        assert live["turn_id"] == "external-turn"
+
+        with pytest.raises(cobuild.ConversationTurnSaturated) as saturated:
+            store.claim_turn(
+                "conversation-2",
+                "second-turn",
+                instance_name="instance-a",
+                project_key="PROJECT",
+                owner_fingerprint="principal-a",
+                kind="message",
+                allow_edit_project=False,
+                max_concurrent_turns=1,
+            )
+        assert "conversation-1" not in str(saturated.value)
+
+        process.stdin.write("release\n")
+        process.stdin.flush()
+        process.wait(timeout=5)
+        assert process.returncode == 0, process.stderr.read()
+
+        lost = json.loads(
+            run(
+                cobuild.get_cobuild_turn_status(
+                    "conversation-1",
+                    "PROJECT",
+                    DummyContext(),
+                    "external-turn",
+                )
+            )
+        )
+        assert lost["status"] == "turn_lost"
+        assert lost["error_kind"] == "transport_outcome_unknown"
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+
+
+def test_overdue_running_turn_is_never_swept_or_unlocked(isolate_registry):
+    conversation = isolate_registry[1].conversation
+    conversation.send_release = threading.Event()
+    start()
+    entry, rehydrated = cobuild._resolve_conversation_entry(
+        "conversation-1",
+        "PROJECT",
+        "instance-a",
+        isolate_registry[1],
+        "principal-a",
+    )
+    turn = cobuild._begin_turn(
+        entry,
+        isolate_registry[1],
+        conversation_id="conversation-1",
+        kind="message",
+        allow_edit_project=True,
+        rehydrated=rehydrated,
+        message="keep running",
+    )
+    assert conversation.send_started.wait(timeout=2)
+    turn.started_at -= cobuild.MAX_COBUILD_TIMEOUT_SECONDS + 1
+
+    with cobuild._registry_lock:
+        cobuild._sweep_settled_locked(time.monotonic())
+
+    assert cobuild._turns["conversation-1"] is turn
+    assert turn.claim.released is False
+    assert cobuild._progress_payload(turn)["overdue"] is True
+    with pytest.raises(cobuild._TurnAlreadyActive):
+        cobuild._begin_turn(
+            entry,
+            isolate_registry[1],
+            conversation_id="conversation-1",
+            kind="message",
+            allow_edit_project=True,
+            rehydrated=False,
+            message="must not overlap",
+        )
+
+    conversation.send_release.set()
+    turn.future.result(timeout=2)
+    cobuild._try_finalize(turn)
+    assert turn.claim.released is True
+
+
+def test_oversized_deletion_proposal_is_disarmed_not_truncated(
+    isolate_registry,
+    monkeypatch,
+):
+    monkeypatch.setattr(cobuild, "_MAX_PERSISTED_RESULT_BYTES", 1_000)
+    conversation = isolate_registry[1].conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="must-not-be-approvable",
+        objects_to_delete=[{"id": "x" * 10_000}],
+        deletion_impacts={"detail": "y" * 10_000},
+    )
+    start()
+
+    result = send(allow_edit_project=True)
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "confirmation_proposal_too_large"
+    assert "confirmation_id" not in result
+    assert conversation._pending_confirmation_id is None
+    with pytest.raises(ValueError, match="No pending confirmation"):
+        answer("must-not-be-approvable")
