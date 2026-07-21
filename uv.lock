@@ -485,7 +485,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/96/f1154abb9f9666f54
 
 [[package]]
 name = "dataiku-headless"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "dataiku-api-client" },

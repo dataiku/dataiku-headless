@@ -1,6 +1,6 @@
 {
   "name": "dataiku",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Inspect Dataiku DSS projects through read-only MCP tools and drive Dataiku Cobuild for project-level building — recipes, datasets, ML analyses, dashboards, agents, and more.",
   "author": {
     "name": "Dataiku"

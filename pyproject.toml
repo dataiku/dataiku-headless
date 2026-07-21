@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dataiku-headless"
-version = "0.2.0"
+version = "0.3.0"
 description = "Headless Dataiku DSS agent kit: a FastMCP server for operating Dataiku DSS from an AI agent harness. The companion agent skill library (dataiku-skills/) is referenced by the Claude Code / Codex / Cursor plugin manifests and is also included in the source distribution."
 readme = "README.md"
 requires-python = ">=3.10"

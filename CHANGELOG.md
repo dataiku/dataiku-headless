@@ -1,4 +1,4 @@
-## Unreleased
+## v0.3.0 (2026-07-21)
 
 Supervisor slice: read DSS state for grounding and proof, delegate project
 asset design and mutation to Cobuild, and execute only existing assets
