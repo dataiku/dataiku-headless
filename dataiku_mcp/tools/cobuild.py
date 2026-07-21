@@ -1,4 +1,9 @@
-"""Cobuild conversation tools."""
+"""Cobuild conversation tools.
+
+Edits are opt-in per message (``allow_edit_project`` defaults to ``False``) and
+deletion consent is bound to the exact pending proposal id. Conversations are
+retained in-memory and bound to their originating instance and project.
+"""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -53,6 +58,11 @@ def _serialize_response(
     entry: _CobuildConversationEntry,
     response,
 ) -> dict:
+    confirmation_id = (
+        getattr(entry.conversation, "_pending_confirmation_id", None)
+        if response.is_confirmation_request
+        else None
+    )
     return omit_empty(
         {
             "conversation_id": conversation_id,
@@ -62,6 +72,7 @@ def _serialize_response(
             "response_type": response.type,
             "is_error": response.is_error,
             "is_confirmation_request": response.is_confirmation_request,
+            "confirmation_id": confirmation_id,
             "objects_to_delete": response.objects_to_delete,
             "deletion_impacts": response.deletion_impacts,
         }
@@ -102,9 +113,14 @@ async def send_cobuild_message(
     project_key: str,
     message: str,
     ctx: Context,
-    allow_edit_project: bool = True,
+    allow_edit_project: bool = False,
 ) -> str:
-    """Send a message to an existing in-memory Cobuild conversation."""
+    """Send one Cobuild message; project editing is opt-in for this message only.
+
+    ``allow_edit_project`` defaults to ``False`` (read-only supervision). Pass
+    ``True`` only for the single message that should be allowed to create or
+    edit project objects; the grant does not carry over to later messages.
+    """
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     message = _require_non_empty_string(message, "message")
@@ -127,12 +143,20 @@ async def answer_cobuild_confirmation(
     conversation_id: str,
     project_key: str,
     choice: str,
+    confirmation_id: str,
     ctx: Context,
 ) -> str:
-    """Answer a pending Cobuild delete confirmation request."""
+    """Answer the exact pending deletion proposal with APPROVE or CANCEL.
+
+    ``confirmation_id`` is required and must match the id returned with the
+    proposal's ``objects_to_delete`` and ``deletion_impacts``. A mismatched or
+    already-consumed id is rejected before any SDK call, so an ambiguous
+    transport failure cannot be retried as a blind second approval.
+    """
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     choice = _require_non_empty_string(choice, "choice")
+    confirmation_id = _require_non_empty_string(confirmation_id, "confirmation_id")
     if choice not in {"APPROVE", "CANCEL"}:
         raise ValueError("choice must be 'APPROVE' or 'CANCEL'")
     await ctx.info(
@@ -140,6 +164,22 @@ async def answer_cobuild_confirmation(
     )
 
     entry = _get_conversation_entry(conversation_id, project_key)
+
+    pending = getattr(entry.conversation, "_pending_confirmation_id", None)
+    if pending is None:
+        raise ValueError(
+            f"No pending confirmation for conversation '{conversation_id}'. "
+            "Re-read a needs-confirmation response before answering."
+        )
+    # The confirmation id is not a secret, so a plain equality check is correct
+    # here; it exists to bind the approval to the exact proposal, not to resist
+    # timing attacks.
+    if str(pending) != confirmation_id:
+        raise ValueError(
+            "confirmation_id does not match the pending deletion proposal. "
+            "Inspect the latest objects_to_delete and deletion_impacts, then "
+            "pass its exact confirmation_id."
+        )
 
     def _run():
         response = entry.conversation.answer_confirmation(choice)
@@ -161,6 +201,9 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
             "instance_name": entry.instance_name,
             "project_key": entry.project_key,
             "created_at": entry.created_at,
+            "has_pending_confirmation": bool(
+                getattr(entry.conversation, "_pending_confirmation_id", None)
+            ),
         }
         for conversation_id, entry in _conversations.items()
         if entry.instance_name == current_instance_name
@@ -176,6 +219,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                     "instance_name",
                     "project_key",
                     "created_at",
+                    "has_pending_confirmation",
                 ],
             )
         }
