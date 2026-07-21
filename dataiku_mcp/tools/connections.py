@@ -1,74 +1,16 @@
 """DSS connection discovery and inspection tools."""
 
-from typing import Any
-
 from fastmcp import Context
 
 from .. import mcp
 from .utils.async_executor import run_blocking
+from .utils.redaction import CONNECTION_REDACTION, redact_sensitive_values
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.auth import get_dss_client
 from .utils.validation import (
     require_allowed_value as _require_allowed_value,
     require_non_empty_string as _require_non_empty_string,
 )
-
-_CONNECTION_SECRET_REDACTION = "__DATAIKU_REDACTED__"
-_SENSITIVE_EXACT_KEYS = {
-    "apikey",
-    "accesskey",
-    "credentials",
-    "password",
-    "privatekey",
-    "secret",
-    "secretkey",
-    "sessiontoken",
-    "token",
-    "resolvedawscredential",
-    "resolvedbasiccredential",
-    "resolvedoauth2credential",
-}
-_SENSITIVE_SUFFIXES = (
-    "password",
-    "privatekey",
-    "secretkey",
-    "sessiontoken",
-)
-
-
-def _is_sensitive_key(key: str) -> bool:
-    normalized = key.replace("_", "").replace("-", "").lower()
-    if normalized in _SENSITIVE_EXACT_KEYS:
-        return True
-
-    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES):
-        return True
-
-    if normalized.endswith("credential"):
-        return True
-
-    if normalized.endswith("token"):
-        return True
-
-    return False
-
-
-def _redact_sensitive_data(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted = {}
-        for key, item in value.items():
-            if _is_sensitive_key(str(key)):
-                redacted[key] = _CONNECTION_SECRET_REDACTION
-            else:
-                redacted[key] = _redact_sensitive_data(item)
-        return redacted
-
-    if isinstance(value, list):
-        return [_redact_sensitive_data(item) for item in value]
-
-    return value
-
-
 
 _CONNECTION_TYPES_BY_CATEGORY = {
     "object_storage": ["EC2", "GCS", "Azure", "HDFS"],
@@ -245,7 +187,7 @@ async def get_connection_info(
     )
 
     result = {
-        "info": _redact_sensitive_data(raw_info),
+        "info": redact_sensitive_values(raw_info, CONNECTION_REDACTION),
     }
 
     # Lever 4: omit top-level fields whose value carries no information
@@ -267,7 +209,7 @@ async def test_connection(connection_name: str, ctx: Context) -> str:
     )
 
     result = {
-        "test": _redact_sensitive_data(raw_result),
+        "test": redact_sensitive_values(raw_result, CONNECTION_REDACTION),
     }
 
     # Lever 4: omit top-level fields whose value carries no information
