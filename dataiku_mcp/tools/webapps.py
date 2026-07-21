@@ -5,7 +5,6 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
-from .utils.redaction import CONNECTION_REDACTION, redact_sensitive_values
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
@@ -54,29 +53,6 @@ async def list_webapps(project_key: str, ctx: Context) -> str:
             )
         }
     )
-
-
-@mcp.tool()
-async def get_webapp_settings(
-    project_key: str,
-    webapp_id: str,
-    ctx: Context,
-) -> str:
-    """Get the full WebApp settings dict with credential-shaped fields redacted."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    webapp_id = _require_non_empty_string(webapp_id, "webapp_id")
-    await ctx.info(f"Loading settings for WebApp {webapp_id} in {project_key}...")
-
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_webapp(webapp_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(redact_sensitive_values(raw, CONNECTION_REDACTION))
 
 
 @mcp.tool()

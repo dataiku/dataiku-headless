@@ -15,6 +15,42 @@ def compact_json(obj: Any) -> str:
     return json.dumps(obj, separators=(",", ":"), default=str)
 
 
+def bounded_compact_json(
+    obj: Any,
+    max_bytes: int,
+    payload_key: str = "payload_json_truncated",
+) -> str:
+    """Serialize ``obj`` as compact JSON under a hard UTF-8 byte ceiling.
+
+    Plain size-check-and-clip — deliberately *not* a binary search. A payload that
+    fits keeps its ordinary schema. An oversized payload is clipped to the largest
+    UTF-8-safe prefix of its own serialization and returned as a small envelope
+    that reports the elided byte counts. The clipped prefix is diagnostic evidence,
+    not a claim that partial JSON parses.
+
+    Note the ceiling bounds the *payload's* serialized bytes, not the final
+    envelope: re-escaping the clipped prefix into the outer JSON can inflate it
+    (worst case ~2x for quote-heavy content). That is the accepted trade for
+    dropping the binary-search envelope fit — the goal is a bounded read, not a
+    byte-exact response frame. Shared by the settings inspector and other bounded
+    read tools.
+    """
+    encoded = compact_json(obj)
+    raw = encoded.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return encoded
+    clipped = raw[:max_bytes].decode("utf-8", errors="ignore")
+    return compact_json(
+        {
+            "truncated": True,
+            "truncation_reason": "max_response_bytes",
+            "total_bytes": len(raw),
+            "returned_bytes": len(clipped.encode("utf-8")),
+            payload_key: clipped,
+        }
+    )
+
+
 def columnar(rows: list, columns: list) -> dict:
     """Render a list of uniform dicts as a keys-once ``{"columns", "rows"}`` table.
 

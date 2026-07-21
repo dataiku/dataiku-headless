@@ -46,24 +46,3 @@ async def list_wiki_articles(project_key: str, ctx: Context) -> str:
     }
     payload = omit_empty(payload)
     return compact_json(payload)
-
-
-@mcp.tool()
-async def get_wiki_article(project_key: str, article_id: str, ctx: Context) -> str:
-    """Get a wiki article's name and markdown body."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    article_id = _require_non_empty_string(article_id, "article_id")
-    await ctx.info(f"Fetching wiki article {article_id} in {project_key}...")
-
-    def _run():
-        data = (
-            get_dss_client()
-            .get_project(project_key)
-            .get_wiki()
-            .get_article(article_id)
-            .get_data()
-        )
-        return {"name": data.get_name(), "body": data.get_body()}
-
-    result = await run_blocking(_run)
-    return compact_json(omit_empty({**result}))

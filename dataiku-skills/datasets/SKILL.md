@@ -35,7 +35,7 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 2. Use `get_dataset_info` to inspect a selected dataset's type, connection, schema, meanings, and descriptions.
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
-5. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter.
+5. Use `get_dataset_metrics` for attached metrics. `get_dataset_info` already returns each column's type, meaning, and description.
 6. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step.
 
 ## Modification Routing
@@ -51,7 +51,6 @@ Inspect `./dataiku-skills/connections/SKILL.md` before a Cobuild request when th
 - `get_dataset_profile`
 - `get_dataset_sample`
 - `get_dataset_metrics`
-- `get_dataset_column_descriptions`
 - `create_upload_dataset`
 - `create_upload_dataset_from_rows`
 

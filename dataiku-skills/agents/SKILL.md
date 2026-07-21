@@ -28,18 +28,15 @@ Read [Agent Tools](references/agent-tools.md) when inspecting existing tools or 
 ## Workflow
 
 1. Use `list_agents` to discover agents in the project.
-2. Use `get_agent_settings` to inspect the selected agent's configuration and `agent_type`.
-3. Use `list_agent_versions` when version context matters.
-4. Use `list_agent_tools` and `get_agent_tool_settings` when existing tools are relevant.
-5. If the task requires creating, updating, deleting, or running agents or agent tools, route that work through `./dataiku-skills/cobuild/SKILL.md` using the gathered context.
+2. Use `get_object_settings` with `object_type=agent` to inspect the selected agent's configuration and versions. Pass `version_id` to isolate one version.
+3. Use `list_agent_tools` to discover tools and `get_object_settings` with `object_type=agent_tool` to inspect one.
+4. If the task requires creating, updating, deleting, or running agents or agent tools, route that work through `./dataiku-skills/cobuild/SKILL.md` using the gathered context.
 
 ## Preferred Tools
 
 - `list_agents`
-- `get_agent_settings`
-- `list_agent_versions`
+- `get_object_settings`
 - `list_agent_tools`
-- `get_agent_tool_settings`
 
 ## Safety Rules
 

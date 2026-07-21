@@ -26,10 +26,10 @@ A project library can contain internal files and git-imported external libraries
 ## Workflow
 
 1. Use `list_project_library` to discover the current tree and distinguish internal from external content when relevant.
-2. Use `read_project_library_file` and `search_project_library` to understand existing source before changing it.
+2. Use `read_project_library_file` to read existing source before changing it.
 3. When the user explicitly wants to add or replace a local source file, use `write_project_library_file`.
 4. Read the existing target before replacement. Use overwrite only with explicit user intent.
-5. Validate or re-read a written Python file with `validate_project_library_file` and `read_project_library_file`.
+5. Re-read a written file with `read_project_library_file` to confirm its content.
 6. When the user mentions a git-hosted library, repository, branch, tag, or commit, route external-library configuration through `./dataiku-skills/cobuild/SKILL.md`.
 7. Route all other library restructuring and project-asset changes through Cobuild.
 
@@ -37,8 +37,6 @@ A project library can contain internal files and git-imported external libraries
 
 - `list_project_library`
 - `read_project_library_file`
-- `search_project_library`
-- `validate_project_library_file`
 - `write_project_library_file`
 
 ## Safety Rules

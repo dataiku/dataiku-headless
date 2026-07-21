@@ -131,32 +131,6 @@ async def list_knowledge_banks(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool()
-async def get_knowledge_bank_settings(
-    project_key: str,
-    knowledge_bank_id: str,
-    ctx: Context,
-) -> str:
-    """Get the full settings dict for a Knowledge Bank."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    knowledge_bank_id = _require_non_empty_string(
-        knowledge_bank_id, "knowledge_bank_id"
-    )
-    await ctx.info(
-        f"Loading settings for Knowledge Bank {knowledge_bank_id} in {project_key}..."
-    )
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_knowledge_bank(knowledge_bank_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(raw)
-
-
-@mcp.tool()
 async def search_knowledge_bank(
     project_key: str,
     knowledge_bank_id: str,
@@ -264,29 +238,3 @@ async def list_retrieval_augmented_llms(project_key: str, ctx: Context) -> str:
             )
         }
     )
-
-
-@mcp.tool()
-async def get_retrieval_augmented_llm_settings(
-    project_key: str,
-    retrieval_augmented_llm_id: str,
-    ctx: Context,
-) -> str:
-    """Get the full live settings dict for a Retrieval-Augmented LLM."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    retrieval_augmented_llm_id = _require_non_empty_string(
-        retrieval_augmented_llm_id, "retrieval_augmented_llm_id"
-    )
-    await ctx.info(
-        f"Loading Retrieval-Augmented LLM {retrieval_augmented_llm_id} in {project_key}..."
-    )
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_retrieval_augmented_llm(retrieval_augmented_llm_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(raw)

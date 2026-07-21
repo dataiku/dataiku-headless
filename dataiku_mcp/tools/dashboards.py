@@ -39,26 +39,3 @@ async def list_dashboards(project_key: str, ctx: Context) -> str:
             )
         }
     )
-
-
-@mcp.tool()
-async def get_dashboard_settings(
-    project_key: str,
-    dashboard_id: str,
-    ctx: Context,
-) -> str:
-    """Get the full dashboard settings dict for round-trip inspection."""
-    project_key = _require_non_empty_string(project_key, "project_key")
-    dashboard_id = _require_non_empty_string(dashboard_id, "dashboard_id")
-    await ctx.info(f"Loading dashboard {dashboard_id} in {project_key}...")
-
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_dashboard(dashboard_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(raw)
