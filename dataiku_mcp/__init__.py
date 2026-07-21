@@ -4,22 +4,22 @@ Exposes Dataiku DSS operations through FastMCP tools.
 """
 
 from typing import Literal
-from pathlib import Path
 from dotenv import load_dotenv
 
 from fastmcp import FastMCP
 from fastmcp.server.transforms.search import BM25SearchTransform
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+from . import config
+
+# Resolve user configuration at runtime. Installed packages must not look for a
+# user-owned .env beside their site-packages source tree.
+load_dotenv(config.resolve_dotenv_path())
 
 # Create MCP instance
 mcp = FastMCP("Dataiku DSS")
 
 # Load MCP server and DSS instance configuration
-from . import (  # noqa: E402
-    config,
-    config_mcp,
-)
+from . import config_mcp  # noqa: E402
 config.load_dss_instances()
 
 # Import all modules to register tools and resources

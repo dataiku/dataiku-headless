@@ -99,10 +99,6 @@ Copy `.env.example` to `.env` and fill in your values:
 ```bash
 DKU_DSS_URL=https://your-instance.dataiku.com
 DKU_API_KEY=your-api-key
-DKU_DEFAULT_CONNECTION=filesystem_managed
-DKU_DEFAULT_FOLDER_CONNECTION=filesystem_folders
-DKU_DEFAULT_LLM=openai:<YOUR_CONNECTION_NAME>:gpt-5.4
-DKU_DEFAULT_EMBEDDING_LLM=openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small
 DKU_MCP_MAX_WORKERS=4
 DKU_MCP_TRANSPORT=stdio
 DKU_MCP_COBUILD_MODE=CREATE_ONLY
@@ -127,14 +123,17 @@ FASTMCP_STREAMABLE_HTTP_PATH=/mcp
 **Connect to multiple instances:**
 Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape. 
 
-Use `DKU_DEFAULT_INSTANCE` to select a non-default instance at startup. 
-
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 
 Auth resolution order:
 1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
-2. Local config: `.dataiku/config.json`, using `DKU_DEFAULT_INSTANCE` when set or `default_instance` otherwise
+2. The first existing config file: `$DKU_CONFIG_DIR/config.json`, `./.dataiku/config.json`, then `$XDG_CONFIG_HOME/dataiku-headless/config.json` (or `~/.config/dataiku-headless/config.json`)
 3. Streamable HTTP request header for API key only: `Authorization: Bearer <DKU_API_KEY>`
+
+The old `DKU_DEFAULT_CONNECTION`, `DKU_DEFAULT_FOLDER_CONNECTION`,
+`DKU_DEFAULT_LLM`, and `DKU_DEFAULT_EMBEDDING_LLM` settings were never consumed
+by a tool. They are no longer part of the configuration contract; pass concrete
+object identifiers in the relevant tool or Cobuild instruction instead.
 
 **Tool exposure modes:** `search` (default) collapses the visible catalog to `search_tools` and `call_tool`, reducing context overhead for agents with large tool catalogs. `full` exposes all tools directly.
 
