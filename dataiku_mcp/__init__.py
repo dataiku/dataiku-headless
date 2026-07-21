@@ -22,19 +22,15 @@ config.load_dss_instances()
 
 # Import all modules to register tools and resources
 from .tools import (  # noqa: F401,E402
-    agent_reviews,
     agents,
     code_environments,
     cobuild,
     connections,
     cross_project_sharing,
-    dashboards,
     data_collections,
     data_quality,
     datasets,
-    evaluation_stores,
     flow,
-    insights,
     instances,
     jobs,
     llms_and_knowledge_banks,
@@ -45,9 +41,6 @@ from .tools import (  # noqa: F401,E402
     projects,
     recipes,
     scenarios,
-    semantic_models,
-    webapps,
-    wikis,
 )
 from .tools.machine_learning import (  # noqa: F401,E402
     analyses,

@@ -4,16 +4,17 @@ What an agent needs to reference ML and GenAI objects in a Cobuild prompt and
 check their results. Object identity and read tools are in `object-model.md`;
 recipe selection is in `recipe-families.md`.
 
-**Discover, then deep-read, then verify against artifacts.** Use the applicable
-`list_*` tool to obtain ids. Read saved configuration with
-`get_object_settings` for `ml_analysis`, `saved_model`,
+**Discover, then deep-read, then verify against artifacts.** Use
+`get_project_overview` and the applicable `list_*` tool (`list_ml_analyses`,
+`list_saved_models`, `list_agents`, `list_llms`) to obtain ids. Read saved
+configuration with `get_object_settings` for `ml_analysis`, `saved_model`,
 `evaluation_store`, `knowledge_bank`, `retrieval_augmented_llm`, `agent`,
 `agent_tool`, and `agent_review`. Omit `version_id` to discover versions of
-an agent or saved model; pass it to isolate one. Use `get_llm_info` for an LLM.
+an agent or saved model; pass it to isolate one.
 
-Runtime evidence stays separate: analysis summaries, trained-model lists and
-details, evaluation artifacts, Knowledge Bank search results, and Agent Review
-runs/results have dedicated reads. Saved settings do not prove runtime behavior.
+Saved settings do not prove runtime behavior. When configuration cannot answer a
+runtime question, execute the asset and read the resulting job or run record, or
+delegate the check to Cobuild.
 
 ## Machine learning
 
@@ -91,6 +92,7 @@ over repeated **runs**. Inspect the linked agent and the trait definitions befor
 reading a result: the same response passes or fails depending on the trait's
 criteria, and a trait may require the test's reference answer or expectations.
 Compare repeated runs to expose non-deterministic behavior — inconsistent outcomes
-are agent variability, not tooling error. Use `list_agent_review_tests`,
-`list_agent_review_runs`, and `get_agent_review_run_results`; do not infer a
-run outcome from the review's saved configuration.
+are agent variability, not tooling error. Read the review with
+`get_object_settings(object_type="agent_review")`, but do not infer a run outcome
+from saved configuration — delegate an actual review run to Cobuild and read its
+report.

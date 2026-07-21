@@ -30,27 +30,3 @@ async def list_agents(project_key: str, ctx: Context) -> str:
         return columnar(result, ["id", "name", "type"])
 
     return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
-async def list_agent_tools(project_key: str, ctx: Context) -> str:
-    """List the agent tools available in the project."""
-    project_key = require_non_empty_string(project_key, "project_key")
-    await ctx.info(f"Listing agent tools in {project_key}...")
-
-    def _run():
-        project = get_dss_client().get_project(project_key)
-        tools = project.list_agent_tools()
-        result = []
-        for tool in tools:
-            result.append(
-                {
-                    "id": tool.get("id", ""),
-                    "name": tool.get("name", ""),
-                    "type": tool.get("type", ""),
-                    "description": tool.get("description", ""),
-                }
-            )
-        return columnar(result, ["id", "name", "type", "description"])
-
-    return compact_json(await run_blocking(_run))

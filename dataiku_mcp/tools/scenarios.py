@@ -274,23 +274,3 @@ async def get_scenario_run_history(
             ),
         }
     )
-
-
-@mcp.tool()
-async def list_messaging_channels(ctx: Context) -> str:
-    """List the messaging channels configured on this DSS instance."""
-    await ctx.info("Listing messaging channels...")
-
-    channels = await run_blocking(lambda: get_dss_client().list_messaging_channels())
-    result = [
-        {
-            "id": channel.id,
-            "type": channel.type,
-            "family": channel.family,
-            "default_sender": channel.get_raw().get("sender"),
-        }
-        for channel in channels
-    ]
-    return compact_json(
-        {"channels": columnar(result, ["id", "type", "family", "default_sender"])}
-    )

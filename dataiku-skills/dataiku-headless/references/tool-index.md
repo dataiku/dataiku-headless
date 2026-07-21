@@ -5,7 +5,7 @@
 > docstring or the registered surface, then run
 > `uv run python scripts/generate_tool_index.py`.
 
-The server registers 81 tools: 76 non-Cobuild and 5 Cobuild.
+The server registers 58 tools: 53 non-Cobuild and 5 Cobuild.
 
 Use this index to find a capability. Get parameters, defaults, enums, and the current input schema from the live tool schema, not this summary.
 
@@ -48,7 +48,6 @@ Use this index to find a capability. Get parameters, defaults, enums, and the cu
 
 - `get_scenario_run_history` — Get the last runs of a scenario.
 - `get_scenario_settings` — Get the full scenario settings (steps, triggers, reporters).
-- `list_messaging_channels` — List the messaging channels configured on this DSS instance.
 - `list_scenarios` — List the scenarios in the project with their active and running status.
 - `run_scenario` — Run one existing scenario; creation and modification remain with Cobuild.
 
@@ -90,64 +89,21 @@ Use this index to find a capability. Get parameters, defaults, enums, and the cu
 
 ## Data quality
 
-- `get_data_quality_rule` — Get one raw Data Quality rule configuration by ID.
-- `get_data_quality_rule_history` — Get recent Data Quality rule result history for a dataset.
-- `get_data_quality_rule_results` — Get the latest computed Data Quality rule result(s) for a dataset partition.
 - `get_data_quality_status` — Get dataset-level Data Quality status, optionally with partition statuses.
 - `list_data_quality_rules` — List Data Quality rules configured on a dataset with compact summaries.
 
-## Dashboards
-
-- `list_dashboards` — List the dashboards in the project.
-
-## Insights
-
-- `list_insights` — List the insights in the project.
-
-## WebApps
-
-- `get_webapp_state` — Get the WebApp backend state.
-- `list_webapps` — List WebApps in the project with type and backend status.
-
-## Wikis
-
-- `list_wiki_articles` — List wiki articles with IDs, names, parents, and home flag.
-
 ## Agents
 
-- `list_agent_tools` — List the agent tools available in the project.
 - `list_agents` — List the agents in the project.
-
-## Agent reviews
-
-- `get_agent_review_run_results` — Get the results of an agent review run.
-- `list_agent_review_runs` — List the runs for an agent review.
-- `list_agent_review_tests` — List the tests in an agent review.
-- `list_agent_reviews` — List the agent reviews in the project.
-
-## Evaluation stores
-
-- `list_evaluation_stores` — List the Evaluation Stores in the project with IDs, names, flavors, and evaluation counts.
 
 ## LLMs and knowledge banks
 
-- `get_llm_info` — Get the full metadata payload for a DSS-managed LLM visible in the project.
-- `list_knowledge_banks` — List the Knowledge Banks in the project.
 - `list_llms` — List DSS-managed LLMs available in the project.
-- `list_retrieval_augmented_llms` — List the Retrieval-Augmented LLMs in the project.
-- `search_knowledge_bank` — Search for documents in a Knowledge Bank.
 
 ## Machine learning
 
-- `get_ml_analysis_summary` — Get the normalized single-task summary for an ML analysis.
-- `get_ml_model_details` — Get the snippet for a trained model.
 - `list_ml_analyses` — List the ML analyses in the project with their single-task summaries.
-- `list_ml_analysis_models` — List the trained models for the single ML task in an analysis.
 - `list_saved_models` — List the saved models in the project.
-
-## Semantic models
-
-- `list_semantic_models` — List semantic models with IDs, names, active version, and version IDs.
 
 ## Generic object settings
 

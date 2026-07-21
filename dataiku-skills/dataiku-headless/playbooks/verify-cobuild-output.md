@@ -11,10 +11,10 @@ delegated unit, not only at the end.
 | Built or transformed a dataset | `get_dataset_sample`, `get_dataset_metrics`, and, when distribution or null behavior matters, `get_dataset_profile` |
 | Changed Flow structure | `get_flow_graph`; compare nodes, edges, and build order with the requested change |
 | A build or recipe run succeeded | `get_job_status`; use `get_job_log` on failure or unexpected output |
-| Added Data Quality checks | `list_data_quality_rules`, then the applicable rule, result, history, and status reads; rule meanings are in `../references/objects/data-quality-rule-types.md` |
-| Trained or changed an ML model | `get_ml_analysis_summary`, `list_ml_analysis_models`, `get_ml_model_details`, saved-model settings, and evaluation artifacts |
-| Built or changed an agent | Agent settings plus Agent Review tests, repeated runs, and run results |
-| Built or changed a live WebApp | Saved WebApp settings plus `get_webapp_state` |
+| Added Data Quality checks | `list_data_quality_rules`, then `get_data_quality_status`; rule meanings are in `../references/objects/data-quality-rule-types.md` |
+| Trained or changed an ML model | `list_ml_analyses`, `get_object_settings(object_type="ml_analysis")`, saved-model settings, and evaluation artifacts; delegate a fresh scoring or evaluation run to Cobuild for runtime proof |
+| Built or changed an agent | `get_object_settings(object_type="agent")` plus an Agent Review run delegated to Cobuild |
+| Built or changed a live WebApp | `get_object_settings(object_type="webapp")`; confirm live backend behavior through Cobuild |
 | Finished a Flow deliverable | `audit_project`, optionally with an explicit output contract |
 
 The object-specific calls are indexed in
