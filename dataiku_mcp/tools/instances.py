@@ -1,6 +1,5 @@
 """Instance management tools for switching between Dataiku instances."""
 
-from dataclasses import asdict
 from fastmcp import Context
 
 from .. import config, mcp
@@ -29,7 +28,10 @@ async def list_instances(ctx: Context) -> str:
 
 @mcp.tool()
 async def switch_instance(name: str, ctx: Context) -> str:
-    """Switch the active Dataiku instance. All subsequent tool calls will use this instance.
+    """Switch the active Dataiku instance.
+
+    Callers that already captured an instance/client snapshot keep it. A caller
+    that has not resolved its client yet observes the new active instance.
 
     Args:
         name: Instance name (run list_instances() to retrieve all available instance names).
@@ -41,11 +43,17 @@ async def switch_instance(name: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance URL and configured defaults."""
+    """Return the active Dataiku instance (name, URL, description; API key omitted)."""
 
-    # Strip api_key from return value
-    current_instance = asdict(config.get_current_instance())
-    current_instance.pop("api_key", None)
-
-    result = omit_empty(current_instance)
+    # Return only the public connection identity. ``source`` may contain a local
+    # config path and the TLS flag is an operational detail, so neither belongs
+    # in a model-visible response.
+    current_instance = config.get_current_instance()
+    result = omit_empty(
+        {
+            "name": current_instance.name,
+            "url": current_instance.url,
+            "description": current_instance.description,
+        }
+    )
     return compact_json(result)
