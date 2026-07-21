@@ -65,6 +65,15 @@ export DKU_API_KEY="your-api-key"
 - Keep behavior changes minimal and explicit; preserve backward compatibility unless a bug or safety issue requires change.
 - Avoid committing sensitive snapshot files if they contain internal identifiers.
 
+## Audit Contract
+
+- `audit_project` is a deterministic finish gate, not a correctness oracle. Keep it read-only: use cached (possibly stale) metrics and bounded samples (<=100 rows); never recompute dataset metrics or mutate project objects.
+- Only FAIL-severity checks fail closed: DSS Flow consistency and caller-supplied output contracts. A failed or unreadable FAIL check blocks `passed` and marks unreadable evidence `incomplete`. A WARN check that cannot run `skip`s (surfaced, never blocking).
+- Contract `columns`/`types` assert a required subset of the saved schema, not exact equality; `min_rows` reads the cached record-count metric; `not_blank` samples at most 100 rows and errors rather than passing on an empty sample.
+- Treat names, descriptions, zones, and zero-row graph leaves as advisory reviewability checks. They are conventions, not proof of correctness.
+- Bound contract size, inventory lists, check text, samples, blocking consistency work, and the final serialized response.
+- Never return raw backend exception or consistency-message text from an audit; it may contain SQL, URLs, or connection details.
+
 ## Validation
 
 Run a syntax check before committing Python changes:

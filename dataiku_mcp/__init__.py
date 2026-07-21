@@ -42,6 +42,7 @@ from .tools import (  # noqa: F401,E402
     llms_and_knowledge_banks,
     managed_folders,
     object_settings,
+    project_audit,
     project_libraries,
     projects,
     recipes,
