@@ -55,7 +55,6 @@ Inspect `./connections.md` before a Cobuild request when the required connection
 - `get_dataset_metrics`
 - `get_dataset_column_descriptions`
 - `create_upload_dataset`
-- `create_upload_dataset_from_rows`
 
 ## Safety Rules
 

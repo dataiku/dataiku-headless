@@ -1,8 +1,6 @@
 """Dataset inspection plus uploaded-dataset creation tools."""
 
-import csv
 import os
-import tempfile
 
 from fastmcp import Context
 
@@ -12,54 +10,7 @@ from .utils.auth import get_dss_client
 from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
 from .utils.serialization import columnar, compact_json, is_empty
-from .utils.validation import (
-    require_non_empty_string as _require_non_empty_string,
-    require_positive_int as _require_positive_int,
-)
-
-
-def _serialize_upload_cell(value):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int | float):
-        return str(value)
-    raise ValueError(
-        "Upload rows only support scalar values: string, number, boolean, or null."
-    )
-
-
-def _validate_upload_columns(columns: list[str]) -> list[str]:
-    if not columns:
-        raise ValueError("'columns' must be a non-empty list")
-    return [
-        _require_non_empty_string(column_name, f"columns[{index}]")
-        for index, column_name in enumerate(columns)
-    ]
-
-
-def _write_upload_rows_to_temp_csv(
-    dataset_name: str,
-    columns: list[str],
-    rows: list[list[str | int | float | bool | None]],
-) -> tuple[str, str]:
-    cleaned_columns = _validate_upload_columns(columns)
-    with tempfile.NamedTemporaryFile(
-        mode="w", newline="", encoding="utf-8", suffix=".csv", delete=False
-    ) as temp_file:
-        writer = csv.writer(temp_file)
-        writer.writerow(cleaned_columns)
-        expected_row_length = len(cleaned_columns)
-        for row_index, row in enumerate(rows):
-            if len(row) != expected_row_length:
-                raise ValueError(
-                    f"'rows[{row_index}]' must contain exactly {expected_row_length} values"
-                )
-            writer.writerow([_serialize_upload_cell(value) for value in row])
-        return temp_file.name, f"{dataset_name}.csv"
+from .utils.validation import require_positive_int as _require_positive_int
 
 
 def _create_uploaded_dataset_from_file(
@@ -154,46 +105,6 @@ async def create_upload_dataset(
             overwrite=overwrite,
             include_schema=include_schema,
         )
-
-    return compact_json(await run_blocking(_run))
-
-
-@mcp.tool()
-async def create_upload_dataset_from_rows(
-    project_key: str,
-    dataset_name: str,
-    columns: list[str],
-    rows: list[list[str | int | float | bool | None]],
-    ctx: Context,
-    connection: str,
-    filename: str = "",
-    overwrite: bool = False,
-    include_schema: bool = True,
-) -> str:
-    """Create an UploadedFiles dataset from tabular row data."""
-    await ctx.info(f"Creating upload dataset '{dataset_name}' from rows in {project_key}...")
-
-    def _run():
-        temp_filepath, default_filename = _write_upload_rows_to_temp_csv(
-            dataset_name=dataset_name,
-            columns=columns,
-            rows=rows,
-        )
-        try:
-            return _create_uploaded_dataset_from_file(
-                project_key=project_key,
-                dataset_name=dataset_name,
-                filepath=temp_filepath,
-                connection=connection,
-                filename=filename or default_filename,
-                overwrite=overwrite,
-                include_schema=include_schema,
-            )
-        finally:
-            try:
-                os.unlink(temp_filepath)
-            except FileNotFoundError:
-                pass
 
     return compact_json(await run_blocking(_run))
 

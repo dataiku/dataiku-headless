@@ -16,7 +16,6 @@ def test_public_api():
 
 
 def test_mcp_server_initialized():
-    # Importing the package registers every tool module against this server.
     assert dataiku_mcp.mcp.name == "Dataiku DSS"
 
 
