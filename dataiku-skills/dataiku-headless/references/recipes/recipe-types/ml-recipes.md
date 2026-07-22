@@ -5,7 +5,7 @@ description: Conceptual guide to selecting and interpreting Dataiku visual ML re
 
 # ML Recipes
 
-Read this reference when a Flow transformation creates features, scores records, or evaluates model outputs. Use `../machine-learning.md` to inspect the relevant analysis, trained model, or saved model before describing the work to Cobuild.
+Read this reference when a Flow transformation creates features, scores records, or evaluates model outputs. Use `../../machine-learning.md` to inspect the relevant analysis, trained model, or saved model before describing the work to Cobuild.
 
 | Type | Concept |
 | --- | --- |
