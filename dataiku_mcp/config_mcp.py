@@ -35,7 +35,6 @@ FULL_COBUILD_DISABLED_TOOLS = frozenset(
         "get_ml_analysis_summary",
         "get_ml_model_details",
         "get_project_metadata",
-        "get_project_variables",
         "get_recipe_settings",
         "get_retrieval_augmented_llm_settings",
         "get_saved_model_version_details",
