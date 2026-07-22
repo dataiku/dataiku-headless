@@ -17,7 +17,9 @@ class FakeContext:
 
 class FakeProject:
     def __init__(self, variables: dict | None = None):
-        self.variables = variables if variables is not None else {"standard": {}, "local": {}}
+        self.variables = (
+            variables if variables is not None else {"standard": {}, "local": {}}
+        )
         self.set_calls: list[dict] = []
 
     def get_variables(self) -> dict:
@@ -33,4 +35,6 @@ class FakeDSSClient:
         self.projects = projects or {}
 
     def get_project(self, project_key: str) -> FakeProject:
-        return self.projects.setdefault(project_key, FakeProject())
+        if project_key not in self.projects:
+            raise KeyError(f"Unknown fake project: {project_key}")
+        return self.projects[project_key]
