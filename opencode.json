@@ -4,10 +4,7 @@
     "dataiku": {
       "type": "local",
       "command": ["uvx", "dataiku-headless", "serve"],
-      "enabled": true,
-      "environment": {
-        "DKU_MCP_TRANSPORT": "stdio"
-      }
+      "enabled": true
     }
   }
 }
