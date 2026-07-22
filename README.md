@@ -160,7 +160,7 @@ dataiku-headless
 │   ├── __init__.py
 │   └── __main__.py
 ├── dataiku-skills/
-│   └── dataiku/
+│   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
 │       └── references/
 │           ├── cobuild.md          # Default in-project write path via Cobuild
