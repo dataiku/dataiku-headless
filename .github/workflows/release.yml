@@ -1,74 +1,85 @@
 name: Release
 
-# Publishes dataiku-headless to Test PyPI whenever a commitizen version bump
-# lands on main. The bump itself is made upstream (e.g. `cz bump` on a branch);
-# merging it to main changes `[project].version` in pyproject.toml, which this
-# workflow detects and turns into a release.
+# Publishes a stable release of dataiku-headless to PyPI when a release
+# tag is pushed. Cut a release by tagging a commit and pushing the tag:
+#
+#   git tag v0.3.0
+#   git push origin v0.3.0
+#
+# (commitizen's `cz bump` creates this tag for you.) The pushed tag is the
+# source of truth for the version: this workflow stamps `[project].version`
+# in pyproject.toml from the tag before building. Only final vX.Y.Z tags fire
+# here; pre-release vX.Y.Z.preN tags are handled by pre-release.yml.
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch: {}
+    tags:
+      # Final releases only: vMAJOR.MINOR.PATCH (e.g. v0.3.0).
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      # Never fire on pre-release tags — pre-release.yml owns those. The
+      # positive pattern above already excludes them (tag patterns match the
+      # full ref, so the trailing `.preN` can't match); this makes it explicit.
+      - '!v[0-9]+.[0-9]+.[0-9]+.pre[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)publish, e.g. v0.3.0
+        required: true
 
 concurrency:
-  group: release
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  detect:
-    name: Detect version bump
-    runs-on: ubuntu-latest
-    outputs:
-      released: ${{ steps.check.outputs.released }}
-      version: ${{ steps.check.outputs.version }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          # Need the parent commit to diff pyproject.toml against.
-          fetch-depth: 2
-      - id: check
-        name: Compare pyproject version with previous commit
-        run: |
-          set -euo pipefail
-          read_version() {
-            python3 -c "import sys, tomllib; print(tomllib.load(open(sys.argv[1], 'rb'))['project']['version'])" "$1"
-          }
-          current="$(read_version pyproject.toml)"
-          if git show HEAD~1:pyproject.toml > /tmp/prev_pyproject.toml 2>/dev/null; then
-            previous="$(read_version /tmp/prev_pyproject.toml 2>/dev/null || echo '')"
-          else
-            previous=""
-          fi
-          echo "Previous version: ${previous:-<none>}"
-          echo "Current version:  ${current}"
-          echo "version=${current}" >> "$GITHUB_OUTPUT"
-          # workflow_dispatch always releases the current version; a push only
-          # releases when the version actually changed.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${current}" != "${previous}" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "No version change - skipping release."
-          fi
-
   publish:
-    name: Build and publish to Test PyPI
-    needs: detect
-    if: needs.detect.outputs.released == 'true'
+    name: Build and publish to PyPI
     runs-on: ubuntu-latest
     environment:
-      name: testpypi
-      url: https://test.pypi.org/p/dataiku-headless
+      name: pypi
+      url: https://pypi.org/p/dataiku-headless
     permissions:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - id: version
+        name: Derive version from tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Stable vX.Y.Z only; reject pre-release (.preN etc.) tags outright.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag '$TAG' is not a stable vX.Y.Z release tag"
+            exit 1
+          fi
+          version="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Publishing release ${version} (tag ${TAG})"
+      - name: Stamp pyproject version from tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re
+          version = os.environ["VERSION"]
+          path = pathlib.Path("pyproject.toml")
+          text = path.read_text()
+          patched, n = re.subn(r'(?m)^version = ".*"$', f'version = "{version}"', text, count=1)
+          if n != 1:
+              raise SystemExit(f"expected exactly one [project].version line, patched {n}")
+          path.write_text(patched)
+          print(f"Set pyproject version to {version}")
+          PY
       - name: Install uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
       - name: Install dependencies
@@ -79,27 +90,26 @@ jobs:
         run: uv run pytest
       - name: Build sdist and wheel
         run: uv build
-      - name: Publish to Test PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
         with:
-          repository-url: https://test.pypi.org/legacy/
+          # No repository-url: defaults to PyPI (https://upload.pypi.org/legacy/).
           # Don't fail the run if this version was already uploaded.
           skip-existing: true
           # Trusted Publishing (OIDC) is used by default — no token needed.
           # To use an API token instead, set the secret and uncomment:
-          # password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          # password: ${{ secrets.PYPI_API_TOKEN }}
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.detect.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          tag="v${VERSION}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists - skipping."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping."
           else
-            gh release create "$tag" \
-              --target "${{ github.sha }}" \
-              --title "$tag" \
-              --notes "Automated release of dataiku-headless ${VERSION} to Test PyPI."
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Automated release of dataiku-headless ${VERSION} to PyPI."
           fi
