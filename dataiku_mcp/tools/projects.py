@@ -98,10 +98,7 @@ async def set_project_variables(
     """Set the project variables.
 
     Args:
-        variables: A modified version of the object returned by
-            get_project_variables, as {'standard': {...}, 'local': {...}}.
-            Standard variables are exported with bundles; local variables stay
-            instance-specific.
+        variables: A modified version of the object returned by get_project_variables
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     variables_obj = _coerce_json_object(variables, "variables")
