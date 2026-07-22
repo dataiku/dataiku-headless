@@ -34,7 +34,6 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 - Server-side authentication (env API key or `.dataiku/config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
-- One fixed, directly visible tool catalog — no tool-exposure or Cobuild "mode" that makes capabilities depend on deployment configuration
 
 Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
 
@@ -129,14 +128,6 @@ DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
 
-**Transport is stdio, always.** The server is a single-user, single-credential
-local plugin that the agent harness launches and speaks to over stdio. There is
-no HTTP transport: an HTTP server would demand per-request credential ownership
-and shared-state machinery this v1 deliberately excludes. If a hosted/multi-user
-deployment is ever needed, it belongs in its own project, not behind an env flag
-here. `create_upload_dataset` uploads from a local file path visible to the MCP
-server process.
-
 **Connect to multiple instances:**
 Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape. 
 
@@ -147,10 +138,6 @@ After adding multiple instance configs, you can use the `list_instances`, `switc
 Auth resolution order:
 1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
 2. Local config: `.dataiku/config.json`, using `DKU_DEFAULT_INSTANCE` when set or `default_instance` otherwise
-
-**Fixed tool surface:** the server registers one directly visible catalog. It
-has no tool-exposure or Cobuild mode, so a deployment environment variable
-cannot silently hide a verification tool.
 
 ## Run
 
@@ -195,7 +182,7 @@ dataiku-headless
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Shared runtime utilities
 │   ├── config.py
-│   ├── config_mcp.py          # Worker-pool configuration
+│   ├── config_mcp.py          # MCP configuration
 │   ├── __init__.py
 │   └── __main__.py
 ├── dataiku-skills/

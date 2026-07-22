@@ -54,12 +54,7 @@ from .tools.machine_learning import (  # noqa: F401,E402
 
 
 def run_server():
-    """Run the MCP server.
-
-    The server is stdio-only: a single-user, single-credential local plugin
-    launched by the agent harness. There is no HTTP transport and no exposure
-    or Cobuild "mode" — the registered catalog is one fixed surface.
-    """
+    """Run the MCP server in stdio mode."""
     config_mcp.logger.info("Starting Dataiku MCP server (stdio)")
     mcp.run(transport="stdio")
 

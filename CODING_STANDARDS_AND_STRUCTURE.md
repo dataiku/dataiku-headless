@@ -62,7 +62,7 @@ export DKU_API_KEY="your-api-key"
 
 - The server is stdio-only: a single-user, single-credential local plugin the harness launches over stdio. There is no HTTP transport and no `DKU_MCP_TRANSPORT`. A hosted/multi-user deployment (which would need per-request credential ownership and shared state) is out of scope for v1 — it belongs in its own project, not behind an env flag.
 - Register one directly visible tool catalog. Do not add search/full or Cobuild exposure modes that make capabilities depend on deployment configuration.
-- The registered set is the contract; `tests/test_smoke.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
+- The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
 ## Guardrails
 - Do not hardcode instance-specific values (project keys, model IDs, LLM IDs, code env names, connection names) as defaults in tools or skills.
