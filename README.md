@@ -39,35 +39,9 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 ## Agent Skills
 
-`dataiku-skills` contains prompt-based skill files that teach an agent *how* to use the MCP tools correctly — when a task should route through Cobuild vs. a direct read tool, how to interpret results, and what the current limitations are.
+`dataiku-skills` now exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `dataiku-skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
-| Skill | Covers |
-| --- | --- |
-| `cobuild` | Default path for project-level asset creation/modification — start, continue, and confirm Cobuild conversations |
-| `projects` | Project discovery, metadata/variables, Flow organization; `create_project` remains a direct write |
-| `connections` | Connection discovery, type/category filtering, capability inspection, health checks; connection-type reference |
-| `code-environments` | List available code environments to reference in a Cobuild prompt |
-| `datasets` | Dataset storage/schema/metadata/quality-signal inspection; creating an Uploaded Files dataset remains a direct write |
-| `jobs` | DSS job tracking, status, waiting, and log inspection |
-| `data-quality` | Data Quality rule and result inspection; rule-type reference |
-| `managed_folders` | Managed folder inspection; local-file upload remains a direct write |
-| `recipes` | Recipe type selection and existing-recipe inspection; recipe-family references (data-prep, ML, GenAI, code) and prepare processor/formula-language reference |
-| `machine-learning` | ML analysis, trained-model, and saved-model inspection; task-type references (prediction, clustering, causal, forecasting) |
-| `insights` | Insight and referenced-object inspection, especially chart insights dashboards reference |
-| `dashboards` | Dashboard listing and settings inspection |
-| `llms-and-knowledge-banks` | LLM, Knowledge Bank, and Retrieval-Augmented LLM inspection |
-| `agents` | Agent and agent-tool inspection — types, versions, configuration, execution design; agent-type and agent-tool references |
-| `agent-reviews` | Agent review, test, run, and result inspection |
-| `scenarios` | Scenario, run-history, and messaging-channel inspection |
-| `semantic-models` | Semantic model and version inspection |
-| `webapps` | WebApp and backend-state inspection |
-| `wikis` | Wiki article and hierarchy inspection; wiki-content reference |
-| `project-libraries` | Project library file tree inspection/search; local-file write remains a direct write |
-| `cross-project-sharing` | Inspect existing cross-project sharing relationships |
-| `data-collections` | Discover a dataset by topic across projects via curated Data Collections |
-| `migrations` | Translate a third-party Source Bundle into a Dataiku migration plan, then hand the build off to Cobuild |
-
-Skills are loaded on demand — each `SKILL.md`'s frontmatter `description` is what the agent harness matches against the conversation to decide when to pull it in. There is no separate root routing file; the descriptions themselves are the routing table.
+The reference library covers the main Dataiku object areas and workflows, including projects, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
 ## Install
 
@@ -186,45 +160,20 @@ dataiku-headless
 │   ├── __init__.py
 │   └── __main__.py
 ├── dataiku-skills/
-│   ├── cobuild/               # Default path for project-level asset creation via Cobuild
-│   ├── agents/
-│   │   ├── SKILL.md                # Agent/agent-version/agent-tool inspection skill
-│   │   └── references/             # Agent-type references (simple, structured, code) + agent tools
-│   ├── agent-reviews/         # Agent review/test/run inspection skill
-│   ├── insights/              # Insight inspection skill
-│   ├── code-environments/     # Code environment listing skill
-│   ├── connections/
-│   │   ├── SKILL.md                # DSS connection discovery and inspection skill
-│   │   └── references/             # Connection type/category reference
-│   ├── cross-project-sharing/ # Cross-project sharing inspection skill
-│   ├── dashboards/            # Dashboard inspection skill
-│   ├── data-collections/      # Data Collection listing and inspection skill
-│   ├── data-quality/
-│   │   ├── SKILL.md                # Dataset Data Quality rule inspection skill
-│   │   └── references/             # Rule-type reference
-│   ├── datasets/
-│   │   ├── SKILL.md                # Dataset inspection/profiling skill
-│   │   └── references/             # Uploaded Files dataset reference
-│   ├── jobs/                  # DSS job tracking and investigation skill
-│   ├── llms-and-knowledge-banks/ # LLM, Knowledge Bank, and RAG object inspection skill
-│   ├── machine-learning/
-│   │   ├── SKILL.md                # ML analysis + saved-model inspection skill
-│   │   └── references/             # Task-type references (prediction, clustering, causal, forecasting)
-│   ├── managed_folders/       # Managed folder inspection skill
-│   ├── project-libraries/     # Project library inspection/search skill
-│   ├── projects/              # Project discovery + flow navigation skill
-│   ├── scenarios/             # Scenario/run-history inspection skill
-│   ├── semantic-models/       # Semantic model inspection skill
-│   ├── webapps/               # WebApp/backend-state inspection skill
-│   ├── wikis/
-│   │   ├── SKILL.md                # Wiki article inspection skill
-│   │   └── references/             # Wiki content reference
-│   ├── migrations/            # Source Bundle -> migration plan -> Cobuild handoff skill
-│   └── recipes/
-│       ├── SKILL.md                # Recipe inspection skill, covers all recipe types
+│   └── dataiku-headless/
+│       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
 │       └── references/
-│           ├── recipe-types/       # Recipe-family references (data-prep, ML, GenAI, code)
-│           └── shared/              # Prepare processor catalog + formula language
+│           ├── cobuild.md          # Default in-project write path via Cobuild
+│           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
+│           ├── datasets.md         # Dataset inspection/profiling + Uploaded Files direct-write exception
+│           ├── recipes.md          # Recipe inspection and recipe-family routing
+│           ├── jobs.md             # DSS job tracking, waiting, and log inspection
+│           ├── connections.md      # Connection discovery and capability inspection
+│           ├── code-environments.md # Available code environments for prompts and execution context
+│           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
+│           ├── agents.md           # Agent and agent-tool inspection
+│           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
+│           └── recipes/            # Nested recipe-family and shared recipe references
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (points at dataiku-skills/ and .mcp.json)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
