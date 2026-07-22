@@ -15,10 +15,6 @@ class DSSInstance:
     no_check_certificate: bool
     source: str
     description: str = ""
-    default_connection: str | None = None
-    default_folder_connection: str | None = None
-    default_llm: str | None = None
-    default_embedding_llm: str | None = None
 
 
 _instances: dict[str, DSSInstance] = {}
@@ -49,10 +45,6 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
         no_check_certificate=_parse_no_check_certificate(
             os.environ.get("DKU_NO_CHECK_CERTIFICATE", "")
         ),
-        default_connection=os.environ.get("DKU_DEFAULT_CONNECTION"),
-        default_folder_connection=os.environ.get("DKU_DEFAULT_FOLDER_CONNECTION"),
-        default_llm=os.environ.get("DKU_DEFAULT_LLM", ""),
-        default_embedding_llm=os.environ.get("DKU_DEFAULT_EMBEDDING_LLM", ""),
         source="environment variables",
     )
 
@@ -99,10 +91,6 @@ def _load_instances_from_config() -> dict:
             api_key=details["api_key"],
             description=details.get("description", ""),
             no_check_certificate=details.get("no_check_certificate", False),
-            default_connection=details.get("default_connection"),
-            default_folder_connection=details.get("default_folder_connection"),
-            default_llm=details.get("default_llm"),
-            default_embedding_llm=details.get("default_embedding_llm"),
             source=".dataiku/config.json",
         )
     return instances_from_config

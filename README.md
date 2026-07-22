@@ -21,7 +21,7 @@
 
 ---
 
-An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Snowflake CoCo (Cortex Code), Cursor, OpenCode, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild, Dataiku's AI building agent to build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
+An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Snowflake CoCo (Cortex Code), Cursor, OpenCode, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild. Cobuild is Dataiku's agent that can build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
 
 Cobuild is exposed here as a retained conversation, driven through MCP tools. This repo's own tool surface stays deliberately thin around it: read/list/get/inspect tools for every object type (for context-gathering inside or outside a Cobuild conversation), plus a handful of operations Cobuild cannot do because they are cross-project, instance-level, or precede a project/conversation existing (creating a project, uploading a local file into a dataset or managed folder or project library).
 
@@ -39,7 +39,7 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 ## Agent Skills
 
-`dataiku-skills` now exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `dataiku-skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
+`dataiku-skills` exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `dataiku-skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
 The reference library covers the main Dataiku object areas and workflows, including projects, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
@@ -92,10 +92,6 @@ Copy `.env.example` to `.env` and fill in your values:
 ```bash
 DKU_DSS_URL=https://your-instance.dataiku.com
 DKU_API_KEY=your-api-key
-DKU_DEFAULT_CONNECTION=filesystem_managed
-DKU_DEFAULT_FOLDER_CONNECTION=filesystem_folders
-DKU_DEFAULT_LLM=openai:<YOUR_CONNECTION_NAME>:gpt-5.4
-DKU_DEFAULT_EMBEDDING_LLM=openai:<YOUR_CONNECTION_NAME>:text-embedding-3-small
 DKU_MCP_MAX_WORKERS=4
 
 # Set to true/1 to skip SSL verification, matching Dataiku's local config.
