@@ -153,6 +153,9 @@ EXPECTED_TOOLS_BY_MODULE = {
     "semantic_models": frozenset(
         {"get_semantic_model_version_settings", "list_semantic_models"}
     ),
+    "users": frozenset(
+        {"create_user", "delete_user", "list_users", "update_user"}
+    ),
     "webapps": frozenset(
         {"get_webapp_settings", "get_webapp_state", "list_webapps"}
     ),

@@ -44,6 +44,7 @@ from .tools import (  # noqa: F401,E402
     recipes,
     scenarios,
     semantic_models,
+    users,
     webapps,
     wikis,
 )
