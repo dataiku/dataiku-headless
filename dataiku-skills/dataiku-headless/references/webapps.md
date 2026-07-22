@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku WebApps and their backend state, the
 
 Use this guide to understand existing WebApps and plan grounded application work through Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## WebApp Concepts
 
 A WebApp is an interactive application inside a Dataiku project. It can contain a user interface, framework-specific code, an optional backend runtime, and integrations with project objects.

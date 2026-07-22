@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku connections. Use to list configured 
 
 Use this guide to inspect available Dataiku connections and gather grounded context for Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Connection Concepts
 
 Connections are shared Dataiku configuration objects that provide access to storage systems, databases, LLM providers, remote services, and other external systems. A connection can be available on the instance but still be unsuitable or unavailable for a particular project or user.

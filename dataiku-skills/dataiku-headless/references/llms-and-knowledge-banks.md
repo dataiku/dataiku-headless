@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku LLMs, Knowledge Banks, and Retrieval
 
 Use this guide to understand and inspect existing Dataiku LLMs, Knowledge Banks, and Retrieval-Augmented LLMs.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## GenAI Object Concepts
 
 An LLM is a configured model available for capabilities such as text completion, embeddings, reranking, or image generation. Its available purposes determine whether it is suitable for a particular GenAI task.

@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku Data Quality rules and results. Use 
 
 Use this guide to understand and inspect Data Quality rules, status, and outcomes for a dataset.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Data Quality Concepts
 
 Data Quality rules are dataset-level checks. They are distinct from legacy metrics/checks and local dataset profiling. A rule can evaluate completeness, validity, uniqueness, distribution, schema, drift, or a custom condition.

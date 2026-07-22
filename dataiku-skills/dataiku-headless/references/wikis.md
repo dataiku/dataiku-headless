@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku wiki articles, then use grounded con
 
 Use this guide to understand existing project documentation and plan grounded wiki work through Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Wiki Concepts
 
 Each Dataiku project has a wiki composed of Markdown articles organized in a parent/child hierarchy. An article has a title, body, and position in the tree; one article can serve as the home article.

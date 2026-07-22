@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku code environments. Use when selectin
 
 Use this guide to inspect available Dataiku code environments and gather grounded context for Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Code Environment Concepts
 
 A code environment provides the language runtime and installed dependencies for code-based work, including Python, R, and PySpark recipes, ML analyses, and code agents.

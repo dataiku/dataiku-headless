@@ -7,8 +7,6 @@ description: Discover datasets through Dataiku Data Collections, which are curat
 
 Use this guide to discover cataloged datasets across projects and gather grounded context for the next access or asset-change step.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Data Collection Concepts
 
 A Data Collection is a curated cross-project catalog of datasets. It helps users discover relevant datasets without first knowing the source project.

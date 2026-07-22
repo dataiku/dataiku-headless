@@ -8,8 +8,6 @@ description: Translate business logic from third-party tools (e.g. Alteryx, Tabl
 
 Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows.
 
-Apply the shared operating rules in `../SKILL.md` for routing, direct exceptions, visual-first flow design, and validation.
-
 A migration consists of four phases: plan, build, validate, and document and cleanup. The "build" and "validate" phase may loop multiple times if the "validation" encounters issues with the assets created in the "build" phase.
 
 ## Phase 1: Plan

@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku scenarios and their run history, the
 
 Use this guide to understand existing project automation and plan grounded scenario work through Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Scenario Concepts
 
 A scenario is a Dataiku automation object. It combines ordered steps, automatic triggers, and completion reporters.

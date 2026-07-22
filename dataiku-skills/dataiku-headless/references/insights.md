@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku insights and their referenced object
 
 Use this guide to understand and inspect existing Dataiku insights and gather grounded context for Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Insight Concepts
 
 Insights are reusable project resources that present or expose information from another Dataiku object. They are commonly used as dashboard building blocks, but dashboards own tile layout, sizing, page filters, and other display context.

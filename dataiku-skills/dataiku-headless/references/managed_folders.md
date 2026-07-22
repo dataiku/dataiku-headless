@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku managed folders and, when explicitly
 
 Use this guide to understand and inspect managed folders, and to handle the direct local-file upload exception.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Managed Folder Concepts
 
 A managed folder is a connection-backed project asset for arbitrary files and file-based artifacts. It is appropriate for documents, binary files, exports, model artifacts, and other non-tabular content.

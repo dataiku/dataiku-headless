@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku recipes, then use grounded context f
 
 Use this guide to understand existing recipes and plan grounded Flow transformations through Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, visual-first defaults, and validation.
-
 ## Recipe Concepts
 
 A recipe is a Flow transformation that consumes one or more project objects and produces one or more outputs. Most recipes transform datasets; some consume or produce managed folders, saved models, Knowledge Banks, or evaluation outputs.

@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku projects, their metadata, variables,
 
 Use this guide to understand and inspect Dataiku projects, update project variables, and gather grounded context for Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for project selection, routing, grounding, and validation.
-
 ## Project Concepts
 
 A project is the primary boundary for Dataiku assets, including datasets, recipes, models, folders, dashboards, agents, and Flow organization.

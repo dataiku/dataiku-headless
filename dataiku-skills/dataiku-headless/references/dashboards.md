@@ -7,8 +7,6 @@ description: Inspect and understand Dataiku dashboards. Use when an agent must l
 
 Use this guide to understand and inspect existing Dataiku dashboards and gather grounded context for Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Dashboard Concepts
 
 Dashboards are presentation resources separate from insights. A dashboard owns pages, layout, page filters, and tiles; it does not own the underlying chart, report, or other insight content.

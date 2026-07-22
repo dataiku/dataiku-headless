@@ -7,8 +7,6 @@ description: Track and investigate Dataiku jobs. Use when an agent wants to list
 
 Use this guide to inspect and supervise project jobs that already exist rather than launch a new one.
 
-Apply the shared operating rules in `../SKILL.md` for routing, validation, and overlapping-run safety.
-
 ## Job Concepts
 
 A job is an execution record for a build, run, training, or deployment. A job can contain multiple activities, outputs, timings, and logs.

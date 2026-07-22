@@ -7,8 +7,6 @@ description: Understand and inspect a Dataiku project's library tree and, when e
 
 Use this guide to understand and inspect the project library, and to handle the direct local-source-file write exception.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Project Library Concepts
 
 A project library is the per-project source tree available to project code, including recipes, notebooks, and WebApps. Use it for Python modules, R scripts, SQL templates, JSON fixtures, and other small code-supporting resources.

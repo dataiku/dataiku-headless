@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku semantic models and their versions, 
 
 Use this guide to understand existing semantic models and plan grounded semantic-model work through Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Semantic Model Concepts
 
 A semantic model gives business meaning to project data so natural-language questions can be translated into more accurate queries.

@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku agents and agent tools, including ag
 
 Use this guide to understand and inspect existing Dataiku agents and their project-level tools.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Agent Concepts
 
 | Type | `agent_type` | Use when |

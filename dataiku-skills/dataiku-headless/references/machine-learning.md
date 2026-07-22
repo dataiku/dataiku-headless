@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku visual ML analyses, trained models, 
 
 Use this guide to understand and inspect existing Dataiku visual ML analyses, trained models, and saved models.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## ML Concepts
 
 An ML analysis is an experimentation and training configuration. It defines the task, source data, feature roles, preprocessing, algorithms, validation, and evaluation settings.

@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku cross-project sharing relationships.
 
 Use this guide to inspect existing cross-project sharing relationships and gather grounded context for Cobuild.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Cross-Project Sharing Concepts
 
 Cross-project sharing is an outbound relationship: a source project owns an object and exposes it to one or more target projects. The source project remains the owner; target projects can use the shared object as a read-only input.

@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku datasets, including their storage, s
 
 Use this guide to understand and inspect Dataiku datasets, gather context for Cobuild, and handle the direct Uploaded Files creation exception.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Dataset Concepts
 
 A dataset is a project-level representation of data. Its type and connection determine where data lives, who manages its lifecycle, and which operations are available.

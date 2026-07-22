@@ -7,8 +7,6 @@ description: Understand and inspect Dataiku Agent Reviews. Use when an agent nee
 
 Use this guide to understand and inspect Agent Reviews, including their traits, tests, runs, and results.
 
-Apply the shared operating rules in `../SKILL.md` for routing, grounding, and validation.
-
 ## Agent Review Concepts
 
 An Agent Review evaluates one DSS agent against a set of test queries and named evaluation traits. It provides a repeatable way to assess the agent's behavior, identify weak cases, and compare outcomes across runs.
