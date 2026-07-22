@@ -137,6 +137,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "create_project",
             "get_project_metadata",
             "get_project_variables",
+            "set_project_variables",
             "list_projects",
         }
     ),

@@ -5,6 +5,7 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
+from .utils.parsing import coerce_json_object as _coerce_json_object
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -86,3 +87,25 @@ async def get_project_variables(project_key: str, ctx: Context) -> str:
         lambda: get_dss_client().get_project(project_key).get_variables()
     )
     return compact_json(variables)
+
+
+@mcp.tool()
+async def set_project_variables(
+    project_key: str,
+    variables: dict | str,
+    ctx: Context,
+) -> str:
+    """Set the project variables.
+
+    Args:
+        variables: A modified version of the object returned by get_project_variables
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    variables_obj = _coerce_json_object(variables, "variables")
+    await ctx.info(f"Updating variables for project {project_key}...")
+
+    def _run():
+        get_dss_client().get_project(project_key).set_variables(variables_obj)
+
+    await run_blocking(_run)
+    return compact_json({"project_key": project_key})
