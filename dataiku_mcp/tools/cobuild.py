@@ -281,21 +281,56 @@ def _json_size(payload: dict) -> int:
 _HISTORY_TRUNCATION_MARKER = "[cobuild: content truncated to bound retained memory]"
 
 
+# Attributes on an SDK history entry that hold its bulky server payload. The
+# dataiku-api-client CobuildAssistantResponse keeps its large dict under
+# ``_raw`` while ``str(entry)`` is only a short summary, so the true size must be
+# measured from these, not from ``str``.
+_HISTORY_PAYLOAD_ATTRS = ("_raw", "raw")
+
+
 def _history_entry_size(entry: object) -> int:
-    """Serialized byte size of one SDK history entry, tolerant of any shape."""
+    """True serialized byte size of one SDK history entry, tolerant of any shape.
+
+    Plain containers are measured directly. For an SDK object, the retained
+    payload attributes (``_raw`` / ``raw``) and the instance ``__dict__`` are
+    measured, because the object's ``__str__`` is only a short summary that would
+    massively under-report a large retained payload.
+    """
     try:
-        return len(
-            json.dumps(entry, separators=(",", ":"), default=str).encode("utf-8")
-        )
+        if isinstance(entry, (dict, list, str, int, float, bool)) or entry is None:
+            return _json_size(entry)
     except BaseException:
+        pass
+    best = 0
+    for attr in _HISTORY_PAYLOAD_ATTRS:
         try:
-            return len(str(entry).encode("utf-8"))
+            value = getattr(entry, attr, None)
         except BaseException:
-            return 0
+            value = None
+        if value is not None:
+            best = max(best, _json_size(value))
+    try:
+        instance_dict = vars(entry)
+    except BaseException:
+        instance_dict = None
+    if isinstance(instance_dict, dict) and instance_dict:
+        best = max(best, _json_size(instance_dict))
+    try:
+        best = max(best, len(str(entry).encode("utf-8")))
+    except BaseException:
+        pass
+    return best
 
 
-def _truncated_history_entry(entry: object) -> object:
-    """Bounded replacement for one oversized retained history entry."""
+def _shrink_history_entry(entry: object) -> object:
+    """Shrink one oversized retained history entry, in place where possible.
+
+    A plain ``dict`` entry has its oversized string values clipped. An SDK
+    object has its bulky payload attributes (``_raw`` / ``raw``) and any large
+    string attributes replaced IN PLACE, preserving object identity so the SDK's
+    own invariants survive; the same shrunk object is returned. Anything that
+    cannot be shrunk under the bound is replaced with a small marker dict.
+    """
     if isinstance(entry, dict):
         pruned: dict = {}
         for key, value in entry.items():
@@ -304,10 +339,43 @@ def _truncated_history_entry(entry: object) -> object:
             elif isinstance(value, (str, int, float, bool)) or value is None:
                 pruned[key] = value
             else:
-                # A nested container that may itself be large: drop its content.
                 pruned[key] = _HISTORY_TRUNCATION_MARKER
         if _history_entry_size(pruned) <= _MAX_TERMINAL_RESULT_BYTES:
             return pruned
+        return {"cobuild_truncated": True, "note": _HISTORY_TRUNCATION_MARKER}
+
+    cleared = False
+    # Clear the bulky retained payload attributes on the SDK object itself.
+    for attr in _HISTORY_PAYLOAD_ATTRS:
+        try:
+            if getattr(entry, attr, None) is not None:
+                setattr(
+                    entry,
+                    attr,
+                    {"cobuild_truncated": True, "note": _HISTORY_TRUNCATION_MARKER},
+                )
+                cleared = True
+        except BaseException:
+            pass
+    # Clip any large string attributes held directly on the object.
+    try:
+        instance_dict = vars(entry)
+    except BaseException:
+        instance_dict = None
+    if isinstance(instance_dict, dict):
+        for key, value in list(instance_dict.items()):
+            if isinstance(value, str) and len(value) > _TRUNCATED_MESSAGE_CHARS:
+                try:
+                    setattr(
+                        entry,
+                        key,
+                        value[:_TRUNCATED_MESSAGE_CHARS] + _HISTORY_TRUNCATION_MARKER,
+                    )
+                    cleared = True
+                except BaseException:
+                    pass
+    if cleared and _history_entry_size(entry) <= _MAX_TERMINAL_RESULT_BYTES:
+        return entry
     return {"cobuild_truncated": True, "note": _HISTORY_TRUNCATION_MARKER}
 
 
@@ -317,10 +385,11 @@ def _prune_conversation_history(conversation: object) -> None:
     The DSS SDK appends each full response to a private message list before this
     module bounds its own payload, so an oversized response would otherwise be
     retained in full and repeated large turns would grow memory without bound.
-    Any retained entry whose serialized size exceeds the terminal bound has its
-    bulky content replaced with a truncation marker. This touches an SDK-private
-    attribute, so every step is guarded: a missing or renamed attribute, or an
-    unexpected entry shape, is tolerated and never crashes the turn.
+    Any retained entry whose true payload size exceeds the terminal bound is
+    shrunk in place (its bulky ``_raw`` payload cleared) or replaced. This
+    touches SDK-private attributes, so every step is guarded: a missing or
+    renamed attribute, or an unexpected entry shape, is tolerated and never
+    crashes the turn.
     """
     try:
         messages = getattr(conversation, "_messages", None)
@@ -332,7 +401,7 @@ def _prune_conversation_history(conversation: object) -> None:
         try:
             if _history_entry_size(messages[index]) <= _MAX_TERMINAL_RESULT_BYTES:
                 continue
-            messages[index] = _truncated_history_entry(messages[index])
+            messages[index] = _shrink_history_entry(messages[index])
         except BaseException:
             try:
                 messages[index] = {
@@ -365,7 +434,52 @@ def _bounded_replacement(payload: dict) -> dict:
         limit //= 2
 
 
-def _bound_terminal_payload(payload: dict, entry: _CobuildConversationEntry) -> dict:
+# Bound on how many nested oversized successor proposals a single CANCEL chain
+# may unwind before it stops recursing and force-clears (a pathological guard;
+# in practice a CANCEL clears the proposal or raises at most one successor).
+_MAX_CANCEL_RECURSION = 8
+
+
+def _successor_confirmation_payload(
+    base: dict, successor_id: str, successor_response
+) -> dict:
+    """Build a first-class ``needs_confirmation`` result for a successor proposal.
+
+    ``successor_id`` is the conversation's now-pending id (read after the CANCEL
+    call). The result has the same shape as an ordinary deletion proposal, so
+    ``_turn_is_pinned`` recognizes it as armed and it is protected from the
+    sweep, inspectable, and answerable by its own id.
+    """
+    return omit_empty(
+        {
+            "conversation_id": base.get("conversation_id"),
+            "turn_id": base.get("turn_id"),
+            "instance_name": base.get("instance_name"),
+            "project_key": base.get("project_key"),
+            "status": "needs_confirmation",
+            "confirmation_id": str(successor_id),
+            "objects_to_delete": getattr(
+                successor_response, "objects_to_delete", None
+            ),
+            "deletion_impacts": getattr(
+                successor_response, "deletion_impacts", None
+            ),
+            "message": str(getattr(successor_response, "message", "")),
+            "response_type": str(getattr(successor_response, "type", "")),
+            "superseded_oversized_proposal": True,
+            "next_action": (
+                "The oversized deletion proposal was cancelled and Cobuild "
+                "raised a new, smaller confirmation request. Inspect "
+                "objects_to_delete and deletion_impacts, then answer this exact "
+                "confirmation_id with APPROVE or CANCEL."
+            ),
+        }
+    )
+
+
+def _bound_terminal_payload(
+    payload: dict, entry: _CobuildConversationEntry, _depth: int = 0
+) -> dict:
     """Flat size check on terminal payloads, applied in the worker thread.
 
     Runs off the event loop, before the payload is retained, so oversized
@@ -373,19 +487,23 @@ def _bound_terminal_payload(payload: dict, entry: _CobuildConversationEntry) -> 
     settled-turn registry. An oversized deletion proposal is never left armed
     and never truncated: the pending confirmation is answered CANCEL in DSS and
     its confirmation id withheld, so an un-inspectable deletion cannot be
-    approved. If the DSS cancel fails, the proposal is still rejected locally
-    and the payload reports the honest server-side state. An ordinary oversized
-    response is clipped with explicit truncation metadata.
+    approved. If that CANCEL raises a new (successor) proposal, the successor is
+    surfaced in full as a first-class armed ``needs_confirmation`` result and
+    bounded like any proposal. If the DSS cancel fails, the proposal is rejected
+    locally and the payload reports the honest server-side state. An ordinary
+    oversized response is clipped with explicit truncation metadata.
     """
     original_bytes = _json_size(payload)
     if original_bytes <= _MAX_TERMINAL_RESULT_BYTES:
         return payload
     if payload.get("status") == "needs_confirmation":
         # Actually cancel the proposal in DSS (the same SDK call that
-        # answer_cobuild_confirmation uses) while it is still pending.
+        # answer_cobuild_confirmation uses) while it is still pending, and
+        # capture its response: a CANCEL can itself raise a successor proposal.
         cancel_error = None
+        successor_response = None
         try:
-            entry.conversation.answer_confirmation("CANCEL")
+            successor_response = entry.conversation.answer_confirmation("CANCEL")
         except BaseException as exc:
             cancel_error = str(exc) or type(exc).__name__
         replacement = {
@@ -396,35 +514,36 @@ def _bound_terminal_payload(payload: dict, entry: _CobuildConversationEntry) -> 
             "original_bytes": original_bytes,
         }
         if cancel_error is None:
-            # Re-read the SDK's actual pending state rather than forcing None: a
-            # CANCEL can itself return a new (successor) confirmation request,
-            # which the SDK records as the new pending id. Never erase a
-            # legitimate successor.
-            successor = getattr(entry.conversation, "_pending_confirmation_id", None)
-            if successor:
-                replacement.update(
-                    {
-                        "successor_confirmation_pending": True,
-                        "pending_confirmation_id": str(successor),
-                        "message": (
-                            "Cobuild returned a deletion proposal too large to "
-                            "show completely; it was cancelled in DSS, but "
-                            "cancelling it raised a new confirmation request now "
-                            "pending (pending_confirmation_id). Inspect it, then "
-                            "answer that exact id, or start a new conversation. "
-                            "Narrow the requested deletion before proposing "
-                            "again."
-                        ),
-                    }
+            # Re-read the SDK's actual pending state rather than forcing None.
+            successor_id = getattr(
+                entry.conversation, "_pending_confirmation_id", None
+            )
+            if (
+                successor_id
+                and successor_response is not None
+                and _depth < _MAX_CANCEL_RECURSION
+            ):
+                # Surface the successor as a full, inspectable, armed proposal
+                # and bound it like any other (an oversized successor is itself
+                # cancelled by the recursive call).
+                return _bound_terminal_payload(
+                    _successor_confirmation_payload(
+                        payload, successor_id, successor_response
+                    ),
+                    entry,
+                    _depth=_depth + 1,
                 )
-            else:
-                replacement["cancelled_confirmation"] = True
-                replacement["message"] = (
-                    "Cobuild returned a deletion proposal too large to show "
-                    "completely. It was not armed for approval and its pending "
-                    "confirmation was cancelled in DSS. Narrow the requested "
-                    "deletion and ask Cobuild to propose it again."
-                )
+            if successor_id:
+                # No usable successor response, or recursion budget exhausted:
+                # force-clear so no un-inspectable proposal is left armed.
+                entry.conversation._pending_confirmation_id = None
+            replacement["cancelled_confirmation"] = True
+            replacement["message"] = (
+                "Cobuild returned a deletion proposal too large to show "
+                "completely. It was not armed for approval and its pending "
+                "confirmation was cancelled in DSS. Narrow the requested "
+                "deletion and ask Cobuild to propose it again."
+            )
         else:
             # Cancel failed: reject the oversized id locally so it cannot be
             # approved, and report the honest server-side state.
@@ -763,14 +882,29 @@ def _reserve_conversation_slot_locked() -> None:
 def _commit_created_conversation_locked(
     conversation_id: str, entry: _CobuildConversationEntry
 ) -> None:
-    """Insert a freshly created conversation, evicting to honor the cap.
+    """Insert a freshly created conversation, re-validating the cap under lock.
 
     Called only after the remote conversation exists, so no local entry is ever
-    dropped for a creation that failed. Feasibility was already checked at
-    reservation time, so an evictable victim exists when one is needed.
+    dropped for a creation that failed. Registry state may have changed since
+    reservation (for example the entry that was going to be evicted has since
+    become active), so the cap is re-checked here as a HARD invariant: if
+    inserting would exceed it, evict an actually-evictable entry now; if none is
+    evictable, do not insert and raise a registry-full error. The caller's
+    finally releases the reservation, and the caller already tolerates creation
+    failure.
     """
     if len(_conversations) >= _MAX_CONVERSATIONS:
         _evict_conversations_locked(target_len=_MAX_CONVERSATIONS - 1)
+        if len(_conversations) >= _MAX_CONVERSATIONS:
+            raise ValueError(
+                f"The Cobuild conversation registry is full "
+                f"({_MAX_CONVERSATIONS}) and no conversation is currently "
+                "evictable (each has a turn in flight, an armed deletion "
+                "confirmation, or an undelivered latest turn result). Answer or "
+                "cancel pending confirmations, poll undelivered turns with "
+                "get_cobuild_turn_status, or wait for running turns to settle, "
+                "then retry."
+            )
     _conversations[conversation_id] = entry
 
 

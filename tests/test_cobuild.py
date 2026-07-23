@@ -45,6 +45,23 @@ class FakeResponse:
         self.deletion_impacts = deletion_impacts
 
 
+class FakeSDKResponse:
+    """Mimics dataiku-api-client's CobuildAssistantResponse shape.
+
+    The bulky server payload lives under ``_raw``; ``str()``/``repr()`` return
+    only a short summary, so a naive str-based sizer would massively
+    under-report a large retained payload.
+    """
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def __str__(self):
+        return f"CobuildAssistantResponse(type={self._raw.get('type')!r})"
+
+    __repr__ = __str__
+
+
 class FakeConversation:
     def __init__(self, conversation_id="conversation-1"):
         self.conversation_id = conversation_id
@@ -52,6 +69,9 @@ class FakeConversation:
         self._pending_confirmation_id = None
         # Mimics the SDK's private, unbounded retained message history.
         self._messages = []
+        # When True, appended history entries are SDK-shaped objects (big payload
+        # under _raw) instead of plain dicts, exercising the real prune path.
+        self.sdk_history = False
         self.send_calls = []
         self.answer_calls = []
         self.next_send = FakeResponse()
@@ -74,10 +94,20 @@ class FakeConversation:
             self.send_release.wait(timeout=5)
         # The SDK appends the full request and response to its history before
         # this module bounds its own payload.
-        self._messages.append({"role": "user", "content": message})
-        self._messages.append(
-            {"role": "assistant", "content": self.next_send.message}
-        )
+        if self.sdk_history:
+            self._messages.append(
+                FakeSDKResponse({"type": "user", "content": message})
+            )
+            self._messages.append(
+                FakeSDKResponse(
+                    {"type": "assistant", "content": self.next_send.message}
+                )
+            )
+        else:
+            self._messages.append({"role": "user", "content": message})
+            self._messages.append(
+                {"role": "assistant", "content": self.next_send.message}
+            )
         self._pending_confirmation_id = self.next_send.confirmation_id
         return self.next_send
 
@@ -849,42 +879,64 @@ def test_oversized_proposal_reports_honestly_when_dss_cancel_fails(
         answer("stuck-server-side")
 
 
-def test_oversized_proposal_cancel_that_raises_a_successor_reflects_it(
+def test_oversized_proposal_cancel_successor_is_inspectable_pinned_answerable(
     cobuild_env, monkeypatch
 ):
-    """A CANCEL whose response is itself a new confirmation must not be erased.
+    """A CANCEL that raises a successor yields a first-class armed proposal.
 
-    The oversized proposal is cancelled, but the successor the SDK now holds is
-    surfaced (pending_confirmation_id) instead of claiming a clean cancellation,
-    and it stays armed on the conversation.
+    The oversized proposal is cancelled, and the successor is surfaced as a full
+    needs_confirmation result (its objects_to_delete and deletion_impacts, not
+    just an id), recognized as armed by _turn_is_pinned so a count sweep cannot
+    evict it, and answerable by its exact id.
     """
-    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 5_000)
+    monkeypatch.setattr(cobuild, "_MAX_SETTLED_TURNS", 1)
     client, _ = cobuild_env
     conversation = client.conversation
     conversation.next_send = FakeResponse(
         response_type="delete_confirmation_request",
         confirmation_id="oversized-proposal",
-        objects_to_delete=[{"id": "x" * 10_000}],
+        objects_to_delete=[{"id": "x" * 20_000}],
     )
-    # The CANCEL response is itself a fresh, smaller confirmation request.
+    # The CANCEL response is a fresh, smaller, fully inspectable proposal.
     conversation.next_answer = FakeResponse(
         response_type="delete_confirmation_request",
         confirmation_id="successor-proposal",
+        objects_to_delete=[{"type": "DATASET", "id": "small_ds"}],
+        deletion_impacts={"recipes": ["downstream"]},
     )
     start()
 
     result = send(allow_edit_project=True)
 
-    assert result["status"] == "error"
-    assert result["error_kind"] == "response_too_large"
-    assert result["successor_confirmation_pending"] is True
-    assert result["pending_confirmation_id"] == "successor-proposal"
-    # It does not falsely claim a clean cancellation.
-    assert "cancelled_confirmation" not in result
-    # The successor stays armed on the conversation and remains answerable.
+    # The successor is surfaced in full as an armed needs_confirmation result.
+    assert result["status"] == "needs_confirmation"
+    assert result["confirmation_id"] == "successor-proposal"
+    assert result["objects_to_delete"] == [{"type": "DATASET", "id": "small_ds"}]
+    assert result["deletion_impacts"] == {"recipes": ["downstream"]}
+    assert result["superseded_oversized_proposal"] is True
     assert conversation._pending_confirmation_id == "successor-proposal"
+
+    turn_id = result["turn_id"]
+    turn = cobuild._turns[turn_id]
+    assert cobuild._turn_is_pinned(turn) is True
+
+    # A count sweep that evicts many other settled turns must NOT evict it.
+    with cobuild._registry_lock:
+        for i in range(cobuild._MAX_SETTLED_TURNS + 3):
+            cobuild._turns[f"filler-{i}"] = _make_settled_turn(
+                f"filler-{i}", settled_ago=i
+            )
+        cobuild._sweep_settled_locked(time.monotonic())
+    assert turn_id in cobuild._turns
+
+    # The oversized id can never be approved; the successor id is answerable.
     with pytest.raises(ValueError, match="does not match"):
         answer("oversized-proposal")
+    conversation.next_answer = FakeResponse(message="successor resolved")
+    resolved = answer("successor-proposal", "CANCEL")
+    assert resolved["status"] == "completed"
+    assert conversation.answer_calls[-1]["confirmation_id"] == "successor-proposal"
 
 
 def test_missing_confirmation_id_path_is_bounded_with_pathological_id(
@@ -942,6 +994,40 @@ def test_repeated_oversized_turns_keep_retained_history_bounded(
     )
     total = sum(cobuild._history_entry_size(entry) for entry in conversation._messages)
     assert total < 5 * 50_000
+
+
+def test_history_prune_measures_and_clears_real_sdk_raw_payload(
+    cobuild_env, monkeypatch
+):
+    """Repeated oversized proposals in SDK-shaped history stay bounded.
+
+    The real CobuildAssistantResponse hides its large payload under _raw while
+    str() is a short summary, so a str-based sizer misses it. The prune must
+    measure _raw and clear it in place.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 2_000)
+    client, _ = cobuild_env
+    conversation = client.conversation
+    conversation.sdk_history = True  # append SDK-shaped entries with big _raw
+    start()
+
+    # A naive str-based sizer would report ~50 bytes for a 600 KB payload.
+    sample = FakeSDKResponse({"type": "deletion", "payload": "x" * 600_000})
+    assert len(str(sample).encode("utf-8")) < 200
+    assert cobuild._history_entry_size(sample) > 500_000
+
+    for _ in range(3):
+        conversation.next_send = FakeResponse(message="z" * 600_000)
+        result = send(allow_edit_project=True)
+        assert result["error_kind"] == "response_too_large"
+
+    # Every retained SDK entry is now bounded (its _raw was cleared in place),
+    # and the total footprint is nowhere near three full 600 KB payloads.
+    assert conversation._messages
+    for entry in conversation._messages:
+        assert cobuild._history_entry_size(entry) <= cobuild._MAX_TERMINAL_RESULT_BYTES
+    total = sum(cobuild._history_entry_size(entry) for entry in conversation._messages)
+    assert total < 600_000
 
 
 def test_history_pruning_tolerates_a_missing_messages_attribute(cobuild_env):
@@ -1628,3 +1714,95 @@ def test_failed_creation_at_cap_keeps_the_existing_conversation(
         run(cobuild.send_cobuild_message("conv-0", "PROJECT", "still works", DummyContext()))
     )
     assert result["status"] == "completed"
+
+
+class _BlockingCreateClient:
+    """A client whose new_cobuild_conversation blocks between reserve and commit.
+
+    Used to interleave a state change (a conversation becoming active) into the
+    exact window after slot reservation but before the created conversation is
+    committed into the registry.
+    """
+
+    def __init__(self, conversation_id):
+        self.conversation = FakeConversation(conversation_id)
+        self.create_started = threading.Event()
+        self.create_gate = threading.Event()
+
+    def get_project(self, project_key):
+        outer = self
+
+        class _Project:
+            def new_cobuild_conversation(self):
+                outer.create_started.set()
+                outer.create_gate.wait(timeout=5)
+                return outer.conversation
+
+        return _Project()
+
+
+def test_commit_reenforces_cap_when_planned_victim_became_active(
+    cobuild_env, monkeypatch
+):
+    """The cap is a hard invariant at commit, not just at reservation.
+
+    At cap 1 with an idle conv-0, a creation reserves against conv-0, then conv-0
+    starts a blocked (active) turn before the create commits. Commit must not
+    insert on top of a now-unevictable conv-0: it fails, and the registry never
+    exceeds the cap.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 1)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))  # conv-0, idle
+    conv0 = factory.conversations[0]
+    conv0.send_release = threading.Event()  # keep conv-0's turn active (blocked)
+
+    blocker = _BlockingCreateClient("late-conv")
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: blocker)
+
+    async def scenario():
+        create_task = asyncio.create_task(
+            cobuild.start_cobuild_conversation("PROJECT", DummyContext())
+        )
+        # Wait until the creation has reserved and is blocked in the SDK call.
+        while not blocker.create_started.is_set():
+            await asyncio.sleep(0.005)
+            with cobuild._registry_lock:
+                assert len(cobuild._conversations) <= 1  # cap never exceeded
+
+        # Make conv-0 active (its planned-victim status is now revoked).
+        send_task = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                "conv-0",
+                "PROJECT",
+                "occupy conv-0",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=5,
+            )
+        )
+        while not conv0.send_started.is_set():
+            await asyncio.sleep(0.005)
+
+        # Release the creation: commit re-validates the cap under the lock.
+        blocker.create_gate.set()
+        create_error = None
+        try:
+            await create_task
+        except ValueError as exc:
+            create_error = str(exc)
+
+        conv0.send_release.set()
+        await send_task
+        return create_error
+
+    create_error = run(scenario())
+
+    # The cap held as a hard invariant: creation failed, conv-0 kept, late-conv
+    # never admitted, registry never exceeded 1.
+    assert create_error is not None
+    assert "registry is full" in create_error
+    with cobuild._registry_lock:
+        assert set(cobuild._conversations) == {"conv-0"}
+        assert cobuild._reserved_conversation_slots == 0
