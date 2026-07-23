@@ -75,6 +75,15 @@ _MAX_TREE_NODES = 300
 # graph within the node ceiling can still render megabytes. Hard budget on the
 # rendered text itself; past it the tree is omitted, not the nodes/edges.
 _MAX_TREE_CHARS = 200_000
+# Hard ceiling on the serialized response actually returned over MCP. The count
+# ceilings alone are not enough: 512-char refs on 10,000 edges serialize past
+# 10 MB. Measured on the final JSON string, so escaping cannot blow past it;
+# past it the response degrades in stages (tree, then edges, then nodes) with
+# explicit truncation metadata.
+_MAX_RESPONSE_CHARS = 1_000_000
+# Headroom kept while clipping so the truncation warnings added afterwards
+# cannot push the final payload back over _MAX_RESPONSE_CHARS.
+_RESPONSE_BUDGET_SLACK = 2_000
 _DEFAULT_GRAPH_NODES = 1_000
 _MAX_GRAPH_NODES = 2_000
 _DEFAULT_GRAPH_EDGES = 3_000
@@ -86,33 +95,33 @@ def _clip_flow_text(value) -> str:
     text = "" if value is None else str(value)
     if len(text) <= _MAX_FLOW_TEXT_CHARS:
         return text
-    return text[: _MAX_FLOW_TEXT_CHARS - 1] + "…"
+    return text[: _MAX_FLOW_TEXT_CHARS - 3] + "..."
 
 
 class _TreeBudgetExceeded(Exception):
     """Raised internally when the rendered tree passes ``_MAX_TREE_CHARS``."""
 
 
-def _render_flow_tree(
-    nodes: dict, id_to_ref: dict, sources: list, title: str
-) -> tuple:
-    """Render the flow as a plain-text DAG tree (no Rich markup).
+def _render_flow_tree(nodes: dict, id_to_ref: dict, sources: list, title: str):
+    """Render the flow as a plain-text DAG tree.
 
-    Read top-down as build order: each source is a root, nesting is downstream
-    dependency, sibling branches are parallel paths. A node shown as a leaf with
-    `` (↑)`` is a re-convergence point — already drawn upstream in this traversal,
-    so it is not re-expanded (e.g. a join fed by two branches). A leaf marked
-    `` (⟳)`` is a back-edge to a node still open on the current path — a cycle,
+    ASCII-only on purpose: box-drawing glyphs double or triple in size under JSON
+    string escaping, which would make any size budget dishonest about what is
+    actually returned. Read top-down as build order: each source is a root, nesting
+    is downstream dependency, sibling branches are parallel paths. A node shown as
+    a leaf with `` (^)`` is a re-convergence point — already drawn upstream in this
+    traversal, so it is not re-expanded (e.g. a join fed by two branches). A leaf
+    marked `` (cycle)`` is a back-edge to a node still open on the current path,
     which a valid flow DAG never contains.
 
-    Returns ``(tree, has_cycle)``. ``tree`` is ``None`` when the rendered text
-    would exceed ``_MAX_TREE_CHARS``.
+    Returns the tree text, or ``None`` when it would exceed ``_MAX_TREE_CHARS``.
+    Cycle detection is NOT this function's job (rendering can abort mid-graph on
+    the budget); see ``_has_cycle``.
     """
     lines = [f"Flow: {title}"]
     total_chars = len(lines[0])
     visited: set = set()
     on_path: set = set()
-    has_cycle = False
 
     def emit(line: str) -> None:
         nonlocal total_chars
@@ -129,21 +138,19 @@ def _render_flow_tree(
         )
 
     def walk(node_id: str, prefix: str, is_last: bool) -> None:
-        nonlocal has_cycle
-        connector = "└── " if is_last else "├── "
+        connector = "`-- " if is_last else "|-- "
         if node_id in on_path:
             # Back-edge to a node still open on this path: a cycle, not a join.
-            has_cycle = True
-            emit(f"{prefix}{connector}{label(node_id)} (⟳)")
+            emit(f"{prefix}{connector}{label(node_id)} (cycle)")
             return
         if node_id in visited:
-            emit(f"{prefix}{connector}{label(node_id)} (↑)")
+            emit(f"{prefix}{connector}{label(node_id)} (^)")
             return
         emit(f"{prefix}{connector}{label(node_id)}")
         visited.add(node_id)
         on_path.add(node_id)
         children = [s for s in nodes[node_id].get("successors", []) if s in nodes]
-        child_prefix = prefix + ("    " if is_last else "│   ")
+        child_prefix = prefix + ("    " if is_last else "|   ")
         for index, child in enumerate(children):
             walk(child, child_prefix, index == len(children) - 1)
         on_path.discard(node_id)
@@ -157,8 +164,45 @@ def _render_flow_tree(
             if node_id not in visited:
                 walk(node_id, "", True)
     except _TreeBudgetExceeded:
-        return None, has_cycle
-    return "\n".join(lines), has_cycle
+        return None
+    return "\n".join(lines)
+
+
+def _has_cycle(nodes: dict) -> bool:
+    """Whether the successor graph contains a cycle (iterative DFS, no string work).
+
+    Deliberately independent of tree rendering: the renderer can abort mid-graph on
+    its character budget, so any cycle flag accumulated there would depend on
+    traversal order. This pass always sees the whole (selected) graph.
+    """
+    visited: set = set()
+    on_stack: set = set()
+    for root in nodes:
+        if root in visited:
+            continue
+        visited.add(root)
+        on_stack.add(root)
+        stack = [(root, iter(nodes[root].get("successors", [])))]
+        while stack:
+            node_id, successors = stack[-1]
+            advanced = False
+            for successor in successors:
+                if successor not in nodes:
+                    continue
+                if successor in on_stack:
+                    return True
+                if successor not in visited:
+                    visited.add(successor)
+                    on_stack.add(successor)
+                    stack.append(
+                        (successor, iter(nodes[successor].get("successors", [])))
+                    )
+                    advanced = True
+                    break
+            if not advanced:
+                stack.pop()
+                on_stack.discard(node_id)
+    return False
 
 
 def _get_zone_nodes(flow, zone: str) -> dict:
@@ -171,7 +215,23 @@ def _get_zone_nodes(flow, zone: str) -> dict:
     would miss that, along with shared and foreign-project items.
     """
     zones = flow.list_zones()
-    match = next((z for z in zones if z.id == zone or z.name == zone), None)
+    # Ids are authoritative and unique, so an exact id match wins outright; a zone
+    # NAME equal to another zone's ID must not shadow it. Names are only labels
+    # and can collide, so a name match is honored only when it is unambiguous.
+    match = next((z for z in zones if z.id == zone), None)
+    if match is None:
+        name_matches = [z for z in zones if z.name == zone]
+        if len(name_matches) > 1:
+            candidates = sorted(
+                f"{_clip_flow_text(z.name)} (id={_clip_flow_text(z.id)})"
+                for z in name_matches[:50]
+            )
+            raise ValueError(
+                f"Ambiguous flow zone name '{zone}': matches {candidates}. "
+                "Pass the zone id instead."
+            )
+        if name_matches:
+            match = name_matches[0]
     if match is None:
         available = sorted(
             f"{_clip_flow_text(z.name)} (id={_clip_flow_text(z.id)})"
@@ -248,7 +308,7 @@ def _build_flow_graph(
     elif total_node_count > _MAX_TREE_NODES:
         warnings.append("tree omitted for a large flow; use nodes/edges")
     else:
-        tree, has_cycle = _render_flow_tree(selected, id_to_ref, sources, project_key)
+        tree = _render_flow_tree(selected, id_to_ref, sources, project_key)
         if tree is None:
             warnings.append(
                 f"tree omitted because its rendering exceeds {_MAX_TREE_CHARS} "
@@ -256,14 +316,56 @@ def _build_flow_graph(
             )
         else:
             result["tree"] = tree
-        if has_cycle:
-            warnings.append(
-                "flow contains a cycle (back-edges marked (⟳) in the tree); "
-                "a valid flow is acyclic, the backend data may be malformed"
-            )
+    # Full-graph pass, independent of whether (or how much of) the tree rendered,
+    # so the warning does not depend on traversal order. Same text either way; the
+    # tree, when present, additionally marks the back-edges with (cycle).
+    if _has_cycle(selected):
+        warnings.append(
+            "flow contains a cycle; a valid flow is acyclic, "
+            "the backend data may be malformed"
+        )
     if warnings:
         result["warnings"] = warnings
     return omit_empty(result)
+
+
+def _fit_response_to_budget(result: dict) -> str:
+    """Serialize ``result``, degrading in stages until it fits ``_MAX_RESPONSE_CHARS``.
+
+    The budget is measured on the final JSON string — what is actually returned —
+    so escaping cannot blow past it. Degradation order: drop the tree, then clip
+    the edges list, then clip the nodes list, each keeping a stable prefix and
+    leaving the original counts plus explicit truncation metadata in place.
+    """
+    payload = compact_json(result)
+    if len(payload) <= _MAX_RESPONSE_CHARS:
+        return payload
+    budget = _MAX_RESPONSE_CHARS - _RESPONSE_BUDGET_SLACK
+    warnings = result.setdefault("warnings", [])
+    result["truncated"] = True
+    if result.pop("tree", None) is not None:
+        warnings.append("tree omitted to fit the response size budget")
+    payload = compact_json(result)
+    for field, count_key in (
+        ("edges", "returned_edge_count"),
+        ("nodes", "returned_node_count"),
+    ):
+        if len(payload) <= budget:
+            break
+        items = result.get(field) or []
+        kept = len(items)
+        while len(payload) > budget and items:
+            items = items[: len(items) // 2]
+            result[field] = items
+            result[count_key] = len(items)
+            payload = compact_json(result)
+        if len(items) < kept:
+            warnings.append(
+                f"{field}: clipped to {len(items)} of {kept} to fit the "
+                "response size budget; scope by zone for the full graph"
+            )
+            payload = compact_json(result)
+    return payload
 
 
 @mcp.tool()
@@ -278,16 +380,18 @@ async def get_flow_graph(
 
     Prefer this over walking the flow item-by-item. The ``tree`` encodes the flow's
     shape: each source dataset is a root, nesting is downstream build order, sibling
-    branches are parallel paths, and a leaf marked `` (↑)`` is a re-convergence point
+    branches are parallel paths, and a leaf marked `` (^)`` is a re-convergence point
     (a node already drawn upstream, e.g. a join fed by two branches) shown once and not
-    re-expanded. A leaf marked `` (⟳)`` is a back-edge closing a cycle, which a valid
-    flow never contains; it comes with a warning. ``nodes`` are ``[ref, short_type]``
-    pairs and ``edges`` are ``[from_ref, to_ref]`` pairs. Pass ``zone`` to scope to a
-    single flow zone (by id or name, including the default zone); on a very large or
-    very dense flow the tree is omitted (see ``warnings``) and you rely on nodes/edges.
-    Responses are bounded to at most 2,000 nodes and 10,000 edges, and the tree text
-    itself is budgeted; use ``zone`` to narrow a graph or raise the defaults within
-    those hard ceilings.
+    re-expanded. A leaf marked `` (cycle)`` is a back-edge closing a cycle, which a
+    valid flow never contains; cycles are always reported in ``warnings`` even when
+    the tree is omitted. ``nodes`` are ``[ref, short_type]`` pairs and ``edges`` are
+    ``[from_ref, to_ref]`` pairs. Pass ``zone`` to scope to a single flow zone (by id
+    or unambiguous name, including the default zone); on a very large or very dense
+    flow the tree is omitted (see ``warnings``) and you rely on nodes/edges.
+    Responses are bounded to at most 2,000 nodes and 10,000 edges, and the serialized
+    response is capped at 1,000,000 characters, degrading tree first, then edges,
+    then nodes, with explicit truncation metadata; use ``zone`` to narrow a graph or
+    raise the count defaults within those hard ceilings.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     if zone is not None:
@@ -312,14 +416,15 @@ async def get_flow_graph(
             nodes = _get_zone_nodes(flow, zone)
         else:
             nodes = flow.get_graph().nodes
-        return _build_flow_graph(
+        result = _build_flow_graph(
             project_key,
             nodes,
             max_nodes=max_nodes,
             max_edges=max_edges,
         )
+        return _fit_response_to_budget(result)
 
-    return compact_json(await run_blocking(_run))
+    return await run_blocking(_run)
 
 
 @mcp.tool()
