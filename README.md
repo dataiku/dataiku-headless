@@ -120,17 +120,7 @@ The API key never appears in MCP tool arguments.
 
 `~/.dataiku/config.json` contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. See [`.dataiku/config.json.example`](.dataiku/config.json.example).
 
-Config file resolution is `DKU_CONFIG_FILE` → `~/.dataiku/config.json` → repo-local `./.dataiku/config.json`. Browser setup writes to `DKU_CONFIG_FILE` when set, otherwise to the home config.
-
-At startup, config profiles are loaded first and the file's `default_instance` is active. Setting `DKU_DSS_URL` adds an environment-backed profile named `DKU_INSTANCE_NAME` (or `dss-env`) and makes it active instead. `switch_instance` changes the active profile only for the current MCP process.
-
 Environment variables are an explicit override:
-
-```bash
-export DKU_INSTANCE_NAME="ci"
-export DKU_DSS_URL="https://your-instance.dataiku.com"
-export DKU_API_KEY="your-api-key"
-```
 
 **.env file:**
 Copy `.env.example` to `.env` and fill in your values:
@@ -138,8 +128,6 @@ Copy `.env.example` to `.env` and fill in your values:
 DKU_DSS_URL=https://your-instance.dataiku.com
 DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
-
-# Set to true/1 to skip SSL verification, matching Dataiku's local config.
 DKU_NO_CHECK_CERTIFICATE=false
 ```
 
@@ -163,8 +151,6 @@ dataiku-headless serve
 # or simply:
 dataiku-headless
 ```
-
-Local development without any install (from a clone): `bash ./bin/run_mcp.sh`.
 
 ## Project Structure
 
