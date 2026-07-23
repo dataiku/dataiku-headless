@@ -87,6 +87,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "wait_for_job",
         }
     ),
+    "licensing": frozenset({"get_licensing_status"}),
     "llms_and_knowledge_banks": frozenset(
         {
             "get_knowledge_bank_settings",

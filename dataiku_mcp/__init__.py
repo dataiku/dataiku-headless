@@ -37,6 +37,7 @@ from .tools import (  # noqa: F401,E402
     insights,
     instances,
     jobs,
+    licensing,
     llms_and_knowledge_banks,
     managed_folders,
     project_libraries,
