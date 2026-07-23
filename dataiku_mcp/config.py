@@ -227,6 +227,45 @@ def save_instance_from_setup(
     }
 
 
+def delete_instance(name: str) -> dict:
+    """Remove a config-file instance from `.dataiku/config.json`.
+
+    Only file-backed instances can be deleted. An instance defined through
+    environment variables must be removed by unsetting `DKU_DSS_URL`. If the
+    removed instance was the `default_instance`, the default is reassigned to
+    the first remaining instance (or cleared when none remain).
+    """
+    if name not in _instances:
+        raise ValueError(
+            f"Unknown instance '{name}'. Available: {list(_instances.keys())}"
+        )
+    if _instances[name].source != ".dataiku/config.json":
+        raise ValueError(
+            f"Instance '{name}' comes from environment variables and is not stored "
+            "in the config file. Unset DKU_DSS_URL (and DKU_INSTANCE_NAME) to remove it."
+        )
+
+    path = _resolve_config_file()
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    instances = data.get("dss_instances", {})
+    instances.pop(name, None)
+
+    if data.get("default_instance") == name:
+        data["default_instance"] = next(iter(instances), "")
+
+    _atomic_write_config(path, data)
+    load_dss_instances()
+
+    return {
+        "deleted": name,
+        "path": str(path),
+        "default_instance": data.get("default_instance", ""),
+        "remaining": list(instances.keys()),
+    }
+
+
 def switch_instance(name: str) -> dict:
     """Switch to a named instance. Returns the instance info."""
     global _current_instance_name

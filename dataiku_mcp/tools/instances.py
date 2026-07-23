@@ -44,6 +44,21 @@ async def switch_instance(name: str, ctx: Context) -> str:
 
 
 @mcp.tool()
+async def delete_instance(name: str, ctx: Context) -> str:
+    """Delete a Dataiku instance from ~/.dataiku/config.json.
+
+    Only instances stored in the config file can be deleted. An instance defined
+    through environment variables must be removed by unsetting DKU_DSS_URL.
+
+    Args:
+        name: Instance name (run list_instances() to see available names).
+    """
+    await ctx.info(f"Deleting instance '{name}'...")
+    info = config.delete_instance(name)
+    return compact_json(info)
+
+
+@mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
     """Get the active Dataiku instance configuration."""
 

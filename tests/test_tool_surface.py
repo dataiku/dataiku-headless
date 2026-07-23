@@ -78,6 +78,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "instances": frozenset(
         {
             "configure_dataiku",
+            "delete_instance",
             "get_current_instance",
             "list_instances",
             "switch_instance",
