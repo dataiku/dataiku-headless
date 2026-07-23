@@ -133,7 +133,9 @@ async def run_scenario(
     When wait_for_completion=true, timeout_seconds is a soft deadline checked
     between SDK polls — a single hung DSS HTTP call can exceed it. A timeout
     returns the run id (when known) for polling get_scenario_run_history; the run
-    is never cancelled.
+    is never cancelled. Every post-start response carries trigger_fire_id, and
+    run_id additionally once DSS has materialized the run, so the caller can
+    always identify this request in run history instead of re-triggering.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
@@ -162,6 +164,7 @@ async def run_scenario(
         "status": "scenario_run_cancelled",
         "project_key": project_key,
         "scenario_id": scenario_id,
+        "trigger_fire_id": trigger_fire.run_id,
         "hint": (
             "The trigger was cancelled before a run started; the scenario may "
             "already be running. Check get_scenario_run_history."
@@ -185,6 +188,7 @@ async def run_scenario(
             "status": "scenario_run_triggered",
             "project_key": project_key,
             "scenario_id": scenario_id,
+            "trigger_fire_id": trigger_fire.run_id,
         }
         if state == "resolved":
             payload["run_id"] = run_id
@@ -193,7 +197,6 @@ async def run_scenario(
                 "the final result."
             )
         else:
-            payload["trigger_fire_id"] = trigger_fire.run_id
             payload["hint"] = (
                 "The scenario run id was not available yet. trigger_fire_id "
                 "identifies only the trigger request; use run history to find the "
@@ -219,10 +222,13 @@ async def run_scenario(
                 "status": "scenario_run_still_running",
                 "project_key": project_key,
                 "scenario_id": scenario_id,
+                "trigger_fire_id": trigger_fire.run_id,
                 **({"run_id": run_id} if run_id is not None else {}),
                 "hint": (
                     "The scenario did not finish within timeout_seconds. Do not "
-                    "trigger it again; poll get_scenario_run_history."
+                    "trigger it again; poll get_scenario_run_history. If run_id is "
+                    "absent, DSS has not materialized the run yet; trigger_fire_id "
+                    "identifies this trigger request."
                 ),
             }
         )
@@ -236,6 +242,7 @@ async def run_scenario(
             ),
             "project_key": project_key,
             "scenario_id": scenario_id,
+            "trigger_fire_id": trigger_fire.run_id,
             "run_id": run_id,
             "outcome": outcome,
         }

@@ -366,9 +366,9 @@ def test_run_scenario_no_wait_returns_run_id():
         )
 
     assert res["status"] == "scenario_run_triggered"
-    # The real scenario run id (not the trigger fire id) is returned.
+    # The real scenario run id is returned, alongside the trigger identity.
     assert res["run_id"] == "RUN-1"
-    assert "trigger_fire_id" not in res
+    assert res["trigger_fire_id"] == "TRIG-9"
 
 
 def test_run_scenario_no_wait_falls_back_to_trigger_id_when_run_absent():
@@ -413,6 +413,48 @@ def test_run_scenario_wait_bounded_timeout_returns_still_running():
     assert res["status"] == "scenario_run_still_running"
     assert res["run_id"] == "RUN-2"
     assert "get_scenario_run_history" in res["hint"]
+
+
+def test_run_scenario_wait_timeout_before_run_exists_keeps_trigger_fire_id():
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-NO-RUN"
+    trigger_fire.get_scenario_run.return_value = None  # DSS never materializes it
+    trigger_fire.is_cancelled.return_value = False
+    client = _scenario_client(trigger_fire)
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client), patch(
+        "dataiku_mcp.tools.scenarios.time"
+    ) as mock_time:
+        mock_time.monotonic.side_effect = _incrementing_monotonic()
+        res = _load(
+            scenarios.run_scenario(
+                "PK", "sc1", FakeCtx(), wait_for_completion=True, timeout_seconds=1
+            )
+        )
+
+    # The deadline expired before DSS materialized a run: no run_id exists yet,
+    # so the trigger identity must be preserved to forbid a blind re-trigger.
+    assert res["status"] == "scenario_run_still_running"
+    assert "run_id" not in res
+    assert res["trigger_fire_id"] == "TRIG-NO-RUN"
+
+
+def test_run_scenario_cancelled_trigger_keeps_trigger_fire_id():
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-CANCELLED"
+    trigger_fire.get_scenario_run.return_value = None
+    trigger_fire.is_cancelled.return_value = True
+    client = _scenario_client(trigger_fire)
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(
+            scenarios.run_scenario(
+                "PK", "sc1", FakeCtx(), wait_for_completion=True, timeout_seconds=600
+            )
+        )
+
+    assert res["status"] == "scenario_run_cancelled"
+    assert res["trigger_fire_id"] == "TRIG-CANCELLED"
 
 
 def test_run_scenario_poll_failure_preserves_trigger_fire_id():
