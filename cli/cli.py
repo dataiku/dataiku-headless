@@ -6,9 +6,9 @@ Subcommand:
   preserving the legacy ``dataiku-headless`` behavior).
 
 Skills are distributed via the Claude Code / Codex / Cortex Code plugin
-(``dataiku-skills/`` referenced directly from ``.claude-plugin/plugin.json`` /
+(``skills/`` referenced directly from ``.claude-plugin/plugin.json`` /
 ``.codex-plugin/plugin.json`` / ``.cortex-plugin/plugin.json``). Anyone cloning
-this repo directly already has ``dataiku-skills/`` on disk to point their
+this repo directly already has ``skills/`` on disk to point their
 harness at, so this CLI doesn't duplicate that as a copy command.
 """
 
@@ -28,6 +28,7 @@ app = typer.Typer(
 # ---------------------------------------------------------------------------
 # serve  (+ legacy default)
 # ---------------------------------------------------------------------------
+
 
 @app.command()
 def serve() -> None:
