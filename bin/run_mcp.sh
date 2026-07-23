@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# TODO(dist): once dataiku-headless is published to PyPI, switch the plugin
+# manifests (.claude-plugin, .codex-plugin, .cursor-plugin) to
+# `uvx dataiku-headless serve` and retire this local-clone launcher.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
