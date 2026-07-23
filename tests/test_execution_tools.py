@@ -248,7 +248,7 @@ def test_build_datasets_captures_client_before_first_await():
     later.get_project.assert_not_called()
 
 
-def test_build_datasets_poll_failure_preserves_started_job_id():
+def test_build_datasets_poll_failure_returns_structured_job_identity():
     job = _job("KEEP-ME")
     job.get_status.side_effect = ConnectionError("status link dropped")
     builder = MagicMock()
@@ -257,14 +257,38 @@ def test_build_datasets_poll_failure_preserves_started_job_id():
     client.get_project.return_value.new_job.return_value = builder
 
     with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
-        with pytest.raises(RuntimeError, match="KEEP-ME") as raised:
-            _load(
-                jobs.build_datasets(
-                    "PK", FakeCtx(), ["a"], wait_for_completion=True
-                )
-            )
+        res = _load(
+            jobs.build_datasets("PK", FakeCtx(), ["a"], wait_for_completion=True)
+        )
 
-    assert "do not start a replacement" in str(raised.value)
+    # Post-start failures are returned, not raised, so the job identity is
+    # carried as structured fields that survive transport error masking.
+    assert res["status"] == "build_poll_failed"
+    assert res["job_id"] == "KEEP-ME"
+    assert res["datasets"] == ["a"]
+    assert res["error_type"] == "ConnectionError"
+    assert "status link dropped" in res["error"]
+    assert "do not start a replacement" in res["hint"]
+
+
+def test_run_recipe_poll_failure_returns_structured_job_identity():
+    project = _recipe_project([{"type": "COMPUTABLE_DATASET", "ref": "out_ds"}])
+    job = _job("KEEP-RECIPE-JOB")
+    job.get_status.side_effect = ConnectionError("status link dropped")
+    project.new_job.return_value.start.return_value = job
+    client = MagicMock()
+    client.get_project.return_value = project
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.run_recipe("PK", "my_recipe", FakeCtx(), wait_for_completion=True)
+        )
+
+    assert res["status"] == "recipe_poll_failed"
+    assert res["job_id"] == "KEEP-RECIPE-JOB"
+    assert res["recipe"] == "my_recipe"
+    assert res["error_type"] == "ConnectionError"
+    assert "do not run the recipe again" in res["hint"]
 
 
 # --------------------------------------------------------------------------- #
@@ -397,6 +421,7 @@ def test_run_scenario_wait_bounded_timeout_returns_still_running():
     scenario_run.id = "RUN-2"
     scenario_run.running = True  # never finishes
     trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-2"
     trigger_fire.get_scenario_run.return_value = scenario_run
     client = _scenario_client(trigger_fire)
 
@@ -412,7 +437,31 @@ def test_run_scenario_wait_bounded_timeout_returns_still_running():
 
     assert res["status"] == "scenario_run_still_running"
     assert res["run_id"] == "RUN-2"
+    assert res["trigger_fire_id"] == "TRIG-2"
     assert "get_scenario_run_history" in res["hint"]
+
+
+def test_run_scenario_wait_completed_returns_both_identities():
+    scenario_run = MagicMock()
+    scenario_run.id = "RUN-DONE"
+    scenario_run.running = False
+    scenario_run.get_info.return_value = {"result": {"outcome": "SUCCESS"}}
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-DONE"
+    trigger_fire.get_scenario_run.return_value = scenario_run
+    client = _scenario_client(trigger_fire)
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(
+            scenarios.run_scenario(
+                "PK", "sc1", FakeCtx(), wait_for_completion=True, timeout_seconds=600
+            )
+        )
+
+    assert res["status"] == "scenario_run_completed"
+    assert res["run_id"] == "RUN-DONE"
+    assert res["trigger_fire_id"] == "TRIG-DONE"
+    assert res["outcome"] == "SUCCESS"
 
 
 def test_run_scenario_wait_timeout_before_run_exists_keeps_trigger_fire_id():
@@ -457,17 +506,105 @@ def test_run_scenario_cancelled_trigger_keeps_trigger_fire_id():
     assert res["trigger_fire_id"] == "TRIG-CANCELLED"
 
 
-def test_run_scenario_poll_failure_preserves_trigger_fire_id():
+def test_run_scenario_poll_failure_returns_structured_trigger_identity():
     trigger_fire = MagicMock()
     trigger_fire.run_id = "TRIGGER-KEEP"
     trigger_fire.get_scenario_run.side_effect = ConnectionError("poll dropped")
     client = _scenario_client(trigger_fire)
 
     with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
-        with pytest.raises(RuntimeError, match="TRIGGER-KEEP") as raised:
-            _load(scenarios.run_scenario("PK", "sc1", FakeCtx()))
+        res = _load(scenarios.run_scenario("PK", "sc1", FakeCtx()))
 
-    assert "do not trigger" in str(raised.value)
+    # Post-start failures are returned, not raised, so the trigger identity is
+    # carried as structured fields that survive transport error masking.
+    assert res["status"] == "scenario_poll_failed"
+    assert res["trigger_fire_id"] == "TRIGGER-KEEP"
+    assert "run_id" not in res
+    assert res["error_type"] == "ConnectionError"
+    assert "poll dropped" in res["error"]
+    assert "Do not trigger the scenario again" in res["hint"]
+
+
+def test_run_scenario_poll_failure_after_run_materializes_keeps_run_id():
+    scenario_run = MagicMock()
+    scenario_run.id = "RUN-POST"
+    scenario_run.running = False
+    scenario_run.get_info.side_effect = ConnectionError("info dropped")
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-POST"
+    trigger_fire.get_scenario_run.return_value = scenario_run
+    client = _scenario_client(trigger_fire)
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(
+            scenarios.run_scenario(
+                "PK", "sc1", FakeCtx(), wait_for_completion=True, timeout_seconds=600
+            )
+        )
+
+    # The run was observed before polling failed: BOTH identities must survive,
+    # not just the trigger's.
+    assert res["status"] == "scenario_poll_failed"
+    assert res["run_id"] == "RUN-POST"
+    assert res["trigger_fire_id"] == "TRIG-POST"
+    assert res["error_type"] == "ConnectionError"
+
+
+def test_run_scenario_poll_failure_is_structured_over_fastmcp_transport():
+    """Call through the FastMCP server, not the raw function.
+
+    A raised exception would reach the client as unstructured (maskable) error
+    text; a structured tool RESULT is immune to error masking. Assert the tool
+    returns a result carrying the identity fields rather than erroring.
+    """
+    from fastmcp import Client
+
+    import dataiku_mcp
+
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-TRANSPORT"
+    trigger_fire.get_scenario_run.side_effect = ConnectionError("poll dropped")
+    client = _scenario_client(trigger_fire)
+
+    async def _call():
+        async with Client(dataiku_mcp.mcp) as mcp_client:
+            # raise_on_error=True (default): an error result would raise here.
+            return await mcp_client.call_tool(
+                "run_scenario", {"project_key": "PK", "scenario_id": "sc1"}
+            )
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        result = asyncio.run(_call())
+
+    assert not result.is_error
+    payload = json.loads(result.content[0].text)
+    assert payload["status"] == "scenario_poll_failed"
+    assert payload["trigger_fire_id"] == "TRIG-TRANSPORT"
+
+
+def test_get_scenario_run_history_rows_carry_trigger_fire_id():
+    run = MagicMock()
+    run.running = False
+    run.get_info.return_value = {
+        "runId": "RUN-H",
+        "start": 100,
+        "result": {"outcome": "SUCCESS", "endTime": 200},
+        "trigger": {"runId": "TRIG-H", "trigger": {"type": "manual"}},
+    }
+    scenario = MagicMock()
+    scenario.get_last_runs.return_value = [run]
+    client = MagicMock()
+    client.get_project.return_value.get_scenario.return_value = scenario
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(scenarios.get_scenario_run_history("PK", "sc1", FakeCtx()))
+
+    table = res["runs"]
+    row = dict(zip(table["columns"], table["rows"][0]))
+    # The trigger-fire id is exposed so a caller holding only a trigger_fire_id
+    # (timeout before DSS materialized the run) can correlate it to its run.
+    assert row["run_id"] == "RUN-H"
+    assert row["trigger_fire_id"] == "TRIG-H"
 
 
 def test_run_scenario_captures_client_before_first_await():

@@ -34,7 +34,7 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 1. Use `list_scenarios` to discover scenarios and identify active or running automation.
 2. Use `get_scenario_settings` to inspect a selected scenario's steps, triggers, reporters, and execution behavior.
 3. Use `get_scenario_run_history` to investigate reliability, recent outcomes, and recurring failures.
-4. When the user explicitly requests a manual run and no run is active, use `run_scenario`. Every post-start response carries `trigger_fire_id`, and `run_id` once DSS materializes the run. Keep the `run_id` when present; a `trigger_fire_id` identifies only the trigger request, not a scenario run.
+4. When the user explicitly requests a manual run and no run is active, use `run_scenario`. Every post-start response carries `trigger_fire_id`, and `run_id` once DSS materializes the run. Keep the `run_id` when present; a `trigger_fire_id` identifies only the trigger request, not a scenario run. `get_scenario_run_history` rows include `trigger_fire_id`, so a trigger id alone is enough to find the run it produced.
 5. Use `list_messaging_channels` only when reporter configuration is relevant.
 6. Inspect the project objects a scenario operates on when a requested change affects them.
 7. Route scenario creation, edits, activation, and deletion through `./cobuild.md`.
@@ -59,7 +59,8 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 
 - Inspect a scenario's steps before requesting a manual run or a behavior change.
 - Do not request a new run while the scenario may already be running.
-- If triggering or run-id lookup raises, inspect run history before retrying; the trigger may already have reached DSS.
+- If the trigger call itself raises, inspect run history before retrying; the trigger may already have reached DSS.
+- A `scenario_poll_failed` response means the trigger was accepted but polling failed. Use its `trigger_fire_id` (and `run_id` when present) to find the run in history; never re-trigger.
 - A bounded wait returning `scenario_run_still_running` is not failure. Keep polling the same run.
 - Treat scenarios with expensive builds, training, exports, or notifications as consequential automation.
 - Preserve existing triggers, reporters, and delayed-trigger behavior unless the user requests a change.

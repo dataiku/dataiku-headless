@@ -131,7 +131,10 @@ async def build_datasets(
     inline wait bounded by timeout_seconds; the wait path additionally reports
     per-dataset outcomes derived from the job's activities. timeout_seconds is a
     soft deadline checked between status polls — a single hung DSS HTTP call can
-    exceed it — so it never guarantees the wait returns exactly on time.
+    exceed it — so it never guarantees the wait returns exactly on time. If
+    status polling fails after the job starts, the tool returns status
+    build_poll_failed carrying the job_id instead of raising, so the identity
+    survives even when a harness masks error text.
 
     Args:
         dataset_names: Existing dataset names to build (at least one); all built by one job
@@ -201,11 +204,23 @@ async def build_datasets(
             timeout_seconds,
         )
     except Exception as exc:
-        raise RuntimeError(
-            f"Build job '{job.id}' started, but status polling failed. Keep this "
-            "job_id and inspect it with get_job_status or wait_for_job; do not "
-            "start a replacement build."
-        ) from exc
+        # Returned, never raised: the job already exists, and raising would let
+        # an error-masking transport strip the job identity from the response.
+        return compact_json(
+            {
+                "status": "build_poll_failed",
+                "project_key": project_key,
+                "job_id": job.id,
+                "datasets": names,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "hint": (
+                    "The build job started but status polling failed. Keep this "
+                    "job_id and inspect it with get_job_status or wait_for_job; "
+                    "do not start a replacement build."
+                ),
+            }
+        )
     per_dataset = _per_dataset_outcomes(names, status_summary)
 
     if timed_out:
@@ -262,7 +277,10 @@ async def run_recipe(
     wait_for_job(project_key, job_id) and inspects outcomes with get_job_status /
     get_job_log. Set wait_for_completion=true only for a short inline wait bounded by
     timeout_seconds. timeout_seconds is a soft deadline checked between status polls
-    — a single hung DSS HTTP call can exceed it.
+    — a single hung DSS HTTP call can exceed it. If status polling fails after the
+    job starts, the tool returns status recipe_poll_failed carrying the job_id
+    instead of raising, so the identity survives even when a harness masks error
+    text.
 
     Args:
         wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false (default), start it and return the job ID for wait_for_job / get_job_status
@@ -343,11 +361,23 @@ async def run_recipe(
             timeout_seconds,
         )
     except Exception as exc:
-        raise RuntimeError(
-            f"Recipe job '{job.id}' started, but status polling failed. Keep this "
-            "job_id and inspect it with get_job_status or wait_for_job; do not run "
-            "the recipe again."
-        ) from exc
+        # Returned, never raised: the job already exists, and raising would let
+        # an error-masking transport strip the job identity from the response.
+        return compact_json(
+            {
+                "status": "recipe_poll_failed",
+                "project_key": project_key,
+                "recipe": recipe_name,
+                "job_id": job.id,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "hint": (
+                    "The recipe job started but status polling failed. Keep this "
+                    "job_id and inspect it with get_job_status or wait_for_job; "
+                    "do not run the recipe again."
+                ),
+            }
+        )
     if timed_out:
         return compact_json(
             {

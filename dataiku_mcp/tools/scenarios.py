@@ -22,17 +22,25 @@ MAX_SCENARIO_WAIT_SECONDS = 3600
 
 
 async def _resolve_scenario_run_id(trigger_fire, budget_seconds: int):
-    """Return the real scenario-run id, not the trigger-fire id, when available."""
+    """Return the real scenario-run id, not the trigger-fire id, when available.
+
+    Never raises after the trigger fire exists: an SDK failure while resolving
+    returns ``("poll_failed", None, exc)`` so the caller can build a structured
+    response that still carries the trigger identity.
+    """
     deadline = time.monotonic() + budget_seconds
     while True:
-        scenario_run = await run_blocking(trigger_fire.get_scenario_run)
-        if scenario_run is not None:
-            return "resolved", scenario_run.id
-        if await run_blocking(lambda: trigger_fire.is_cancelled(refresh=True)):
-            return "cancelled", None
+        try:
+            scenario_run = await run_blocking(trigger_fire.get_scenario_run)
+            if scenario_run is not None:
+                return "resolved", scenario_run.id, None
+            if await run_blocking(lambda: trigger_fire.is_cancelled(refresh=True)):
+                return "cancelled", None, None
+        except Exception as exc:
+            return "poll_failed", None, exc
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return "unresolved", None
+            return "unresolved", None, None
         await asyncio.sleep(min(SCENARIO_POLL_INTERVAL_SECONDS, remaining))
 
 
@@ -44,27 +52,35 @@ async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
     installed DSS client sets no per-request HTTP timeout, so a single hung call
     can make the wait exceed ``timeout_seconds``. The run is never cancelled by a
     timeout; the caller polls ``get_scenario_run_history``.
+
+    Never raises after the trigger fire exists: an SDK failure while polling
+    returns ``("poll_failed", run_id, None, exc)`` carrying the run id whenever a
+    run was ever observed, so the caller keeps every known identity.
     """
     deadline = time.monotonic() + timeout_seconds
     scenario_run = None
     while True:
-        if scenario_run is None:
-            scenario_run = await run_blocking(trigger_fire.get_scenario_run)
-            if scenario_run is None and await run_blocking(
-                lambda: trigger_fire.is_cancelled(refresh=True)
-            ):
-                return "cancelled", None, None
-        else:
-            await run_blocking(scenario_run.refresh)
+        try:
+            if scenario_run is None:
+                scenario_run = await run_blocking(trigger_fire.get_scenario_run)
+                if scenario_run is None and await run_blocking(
+                    lambda: trigger_fire.is_cancelled(refresh=True)
+                ):
+                    return "cancelled", None, None, None
+            else:
+                await run_blocking(scenario_run.refresh)
 
-        if scenario_run is not None and not scenario_run.running:
-            result = scenario_run.get_info().get("result") or {}
-            return "completed", scenario_run.id, result.get("outcome")
+            if scenario_run is not None and not scenario_run.running:
+                result = scenario_run.get_info().get("result") or {}
+                return "completed", scenario_run.id, result.get("outcome"), None
+        except Exception as exc:
+            run_id = scenario_run.id if scenario_run is not None else None
+            return "poll_failed", run_id, None, exc
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             run_id = scenario_run.id if scenario_run is not None else None
-            return "timed_out", run_id, None
+            return "timed_out", run_id, None, None
         await asyncio.sleep(min(SCENARIO_POLL_INTERVAL_SECONDS, remaining))
 
 
@@ -135,7 +151,11 @@ async def run_scenario(
     returns the run id (when known) for polling get_scenario_run_history; the run
     is never cancelled. Every post-start response carries trigger_fire_id, and
     run_id additionally once DSS has materialized the run, so the caller can
-    always identify this request in run history instead of re-triggering.
+    always identify this request in run history instead of re-triggering. After
+    the trigger is accepted this tool never raises: an SDK failure while
+    resolving or polling returns status scenario_poll_failed with the same
+    identity fields, so the identities survive even when a harness masks error
+    text. Only pre-start failures (validation, the trigger call itself) raise.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
@@ -171,17 +191,33 @@ async def run_scenario(
         ),
     }
 
+    def _poll_failed_payload(run_id, error) -> dict:
+        """A structured post-start failure that keeps every known identity.
+
+        Returned, never raised: raising would let an error-masking transport strip
+        the identities and invite a blind re-trigger.
+        """
+        return {
+            "status": "scenario_poll_failed",
+            "project_key": project_key,
+            "scenario_id": scenario_id,
+            "trigger_fire_id": trigger_fire.run_id,
+            **({"run_id": run_id} if run_id is not None else {}),
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "hint": (
+                "The trigger was accepted but status polling failed. Do not "
+                "trigger the scenario again; poll get_scenario_run_history and "
+                "match run_id, or trigger_fire_id, against its rows."
+            ),
+        }
+
     if not wait_for_completion:
-        try:
-            state, run_id = await _resolve_scenario_run_id(
-                trigger_fire, SCENARIO_RUN_ID_RESOLVE_BUDGET_SECONDS
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Scenario trigger fire '{trigger_fire.run_id}' was accepted, but "
-                "its run id could not be resolved. Use get_scenario_run_history; "
-                "do not trigger the scenario again."
-            ) from exc
+        state, run_id, error = await _resolve_scenario_run_id(
+            trigger_fire, SCENARIO_RUN_ID_RESOLVE_BUDGET_SECONDS
+        )
+        if state == "poll_failed":
+            return compact_json(_poll_failed_payload(run_id, error))
         if state == "cancelled":
             return compact_json(cancelled_payload)
         payload = {
@@ -204,16 +240,11 @@ async def run_scenario(
             )
         return compact_json(payload)
 
-    try:
-        state, run_id, outcome = await _wait_for_scenario_run_result(
-            trigger_fire, timeout_seconds
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Scenario trigger fire '{trigger_fire.run_id}' was accepted, but "
-            "status polling failed. Use get_scenario_run_history; do not trigger "
-            "the scenario again."
-        ) from exc
+    state, run_id, outcome, error = await _wait_for_scenario_run_result(
+        trigger_fire, timeout_seconds
+    )
+    if state == "poll_failed":
+        return compact_json(_poll_failed_payload(run_id, error))
     if state == "cancelled":
         return compact_json(cancelled_payload)
     if state == "timed_out":
@@ -227,8 +258,8 @@ async def run_scenario(
                 "hint": (
                     "The scenario did not finish within timeout_seconds. Do not "
                     "trigger it again; poll get_scenario_run_history. If run_id is "
-                    "absent, DSS has not materialized the run yet; trigger_fire_id "
-                    "identifies this trigger request."
+                    "absent, DSS has not materialized the run yet; match "
+                    "trigger_fire_id against the run-history rows to find it."
                 ),
             }
         )
@@ -272,7 +303,12 @@ async def get_scenario_run_history(
         for run in runs:
             info = run.get_info()
             result = info.get("result") or {}
-            trigger = (info.get("trigger") or {}).get("trigger") or {}
+            # info["trigger"] is the trigger-fire record; its runId is the
+            # trigger fire id (what run_scenario returns as trigger_fire_id),
+            # not a scenario run id. Exposing it lets a caller who only holds a
+            # trigger_fire_id correlate their trigger with the run it produced.
+            trigger_fire = info.get("trigger") or {}
+            trigger = trigger_fire.get("trigger") or {}
             summaries.append(
                 {
                     "run_id": info.get("runId"),
@@ -281,6 +317,7 @@ async def get_scenario_run_history(
                     "start": info.get("start"),
                     "end": result.get("endTime"),
                     "trigger_type": trigger.get("type"),
+                    "trigger_fire_id": trigger_fire.get("runId"),
                 }
             )
         return summaries
@@ -290,7 +327,15 @@ async def get_scenario_run_history(
         {
             "runs": columnar(
                 summaries,
-                ["run_id", "running", "outcome", "start", "end", "trigger_type"],
+                [
+                    "run_id",
+                    "running",
+                    "outcome",
+                    "start",
+                    "end",
+                    "trigger_type",
+                    "trigger_fire_id",
+                ],
             ),
         }
     )
