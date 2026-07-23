@@ -74,6 +74,9 @@ EXPECTED_TOOLS_BY_MODULE = {
             "list_flow_zones",
         }
     ),
+    "groups": frozenset(
+        {"create_group", "delete_group", "list_groups", "update_group"}
+    ),
     "insights": frozenset({"get_insight_settings", "list_insights"}),
     "instances": frozenset(
         {"get_current_instance", "list_instances", "switch_instance"}

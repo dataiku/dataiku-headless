@@ -34,6 +34,7 @@ from .tools import (  # noqa: F401,E402
     datasets,
     evaluation_stores,
     flow,
+    groups,
     insights,
     instances,
     jobs,

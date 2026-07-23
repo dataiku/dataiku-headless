@@ -12,4 +12,5 @@ Use this routing guide for instance-level administrative tasks. These operations
 | User intent | Guide to read next |
 | --- | --- |
 | List, create, update, disable, or delete instance users | `./administration/users.md` |
+| List, create, update, or delete instance groups | `./administration/groups.md` |
 | Inspect license validity, expiry, enabled add-ons, or profile capacity | `./administration/licensing.md` |
