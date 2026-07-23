@@ -790,9 +790,55 @@ def test_oversized_deletion_proposal_is_disarmed_not_truncated(
     assert result["error_kind"] == "response_too_large"
     assert result["cancelled_confirmation"] is True
     assert "confirmation_id" not in result
+    # The disarm actually answered CANCEL to DSS, not just locally.
+    assert conversation.answer_calls == [
+        {
+            "choice": "CANCEL",
+            "confirmation_id": "must-not-be-approvable",
+            "client": client,
+        }
+    ]
     assert conversation._pending_confirmation_id is None
     with pytest.raises(ValueError, match="No pending confirmation"):
         answer("must-not-be-approvable")
+
+
+def test_oversized_proposal_reports_honestly_when_dss_cancel_fails(
+    cobuild_env, monkeypatch
+):
+    """If the DSS-side CANCEL fails, do not claim the proposal was cancelled.
+
+    The id stays rejected locally, but the payload must say the disarm was
+    local only and that the conversation may still await confirmation
+    server-side.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    conversation = client.conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="stuck-server-side",
+        objects_to_delete=[{"id": "x" * 10_000}],
+    )
+    conversation.answer_error = ConnectionError("dss unreachable during cancel")
+    start()
+
+    result = send(allow_edit_project=True)
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "response_too_large"
+    assert "cancelled_confirmation" not in result
+    assert result["confirmation_disarmed_locally"] is True
+    assert result["cancel_failed"] is True
+    assert "dss unreachable" in result["cancel_error"]
+    assert "server-side" in result["message"]
+    assert "confirmation_id" not in result
+    # The CANCEL was attempted against DSS before the failure.
+    assert conversation.answer_calls[-1]["choice"] == "CANCEL"
+    # Locally the id stays rejected regardless.
+    assert conversation._pending_confirmation_id is None
+    with pytest.raises(ValueError, match="No pending confirmation"):
+        answer("stuck-server-side")
 
 
 def test_oversized_completed_response_is_clipped_with_metadata(
@@ -831,6 +877,35 @@ def test_oversized_result_is_bounded_before_retention(cobuild_env, monkeypatch):
     # never the 10 KB original.
     assert cobuild._json_size(retained) < 4_000
     assert poll(turn_id)["error_kind"] == "response_too_large"
+
+
+def test_replacement_payload_is_bounded_even_with_pathological_ids(
+    cobuild_env, monkeypatch
+):
+    """The ceiling is absolute: server-supplied fields embedded in the
+    replacement (like a pathological conversation_id) are re-measured and
+    hard-clipped so the retained result is provably under the limit."""
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    huge_id = "c" * 50_000
+    client.conversation.conversation_id = huge_id
+    client.conversation.next_send = FakeResponse(message="z" * 10_000)
+    start()
+
+    result = json.loads(
+        run(
+            cobuild.send_cobuild_message(
+                huge_id, "PROJECT", "go", DummyContext()
+            )
+        )
+    )
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "response_too_large"
+    retained = next(iter(cobuild._turns.values())).result_payload
+    assert retained["error_kind"] == "response_too_large"
+    assert cobuild._json_size(retained) <= 1_000
+    assert cobuild._json_size(result) <= 1_000
 
 
 # --------------------------------------------------------------------------- #
@@ -1077,6 +1152,9 @@ def test_start_refuses_when_no_conversation_is_evictable(cobuild_env, monkeypatc
 
     with cobuild._registry_lock:
         assert len(cobuild._conversations) == 2  # nothing was dropped
+    # Admission runs before the SDK call: the refusal created NO remote
+    # conversation (only the two admitted earlier exist).
+    assert len(factory.conversations) == 2
 
 
 def test_sending_on_oldest_conversation_does_not_evict_it_mid_use(
@@ -1123,3 +1201,156 @@ def test_sending_on_oldest_conversation_does_not_evict_it_mid_use(
     assert [call["message"] for call in oldest.send_calls] == [
         "use the oldest conversation"
     ]
+
+
+def test_admission_during_send_setup_cannot_evict_the_target_conversation(
+    cobuild_env, monkeypatch
+):
+    """A creation interleaved between resolve and turn start must not evict the
+    conversation the send is about to use.
+
+    The send's context info hook is the exact window between resolving the
+    entry and activating its turn; the interleaved start_cobuild_conversation
+    must evict the idle conv-1, never the pinned conv-0.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 2)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+
+    class InterleavingContext:
+        def __init__(self):
+            self.fired = False
+
+        async def info(self, _message):
+            if not self.fired:
+                self.fired = True
+                # Lands exactly between entry resolution and _begin_turn.
+                await cobuild.start_cobuild_conversation(
+                    "PROJECT", DummyContext()
+                )
+
+    result = json.loads(
+        run(
+            cobuild.send_cobuild_message(
+                "conv-0",
+                "PROJECT",
+                "run on the pinned entry",
+                InterleavingContext(),
+                allow_edit_project=True,
+            )
+        )
+    )
+
+    assert result["status"] == "completed"
+    with cobuild._registry_lock:
+        remaining = set(cobuild._conversations)
+        entry = cobuild._conversations["conv-0"]
+        assert entry.admission_pins == 0  # pin released after activation
+    assert "conv-0" in remaining  # pinned target survived the interleaving
+    assert "conv-1" not in remaining  # the idle entry was evicted instead
+    assert "conv-2" in remaining
+    assert [call["message"] for call in factory.conversations[0].send_calls] == [
+        "run on the pinned entry"
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# Unobserved turns protect their conversation from cap eviction
+# --------------------------------------------------------------------------- #
+
+
+def _orphan_settled_turn(conversation, conversation_id):
+    """Run a send whose client wait is cancelled, then settle the worker.
+
+    Leaves a settled turn whose id was never delivered through the public
+    surface (the real MCP-client-cancelled case)."""
+    conversation.send_release = threading.Event()
+
+    async def cancel_send():
+        waiting = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                conversation_id,
+                "PROJECT",
+                "orphaned mutation",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=5,
+            )
+        )
+        while not conversation.send_started.is_set():
+            await asyncio.sleep(0.005)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        conversation.send_release.set()
+
+    run(cancel_send())
+    turn = next(
+        t
+        for t in cobuild._turns.values()
+        if t.conversation_id == conversation_id
+    )
+    turn.future.result(timeout=2)
+    cobuild._settle_turn(turn)
+    return turn
+
+
+def test_unobserved_settled_turn_protects_conversation_from_eviction(
+    cobuild_env, monkeypatch
+):
+    """At the cap, creation must never evict a conversation whose settled turn
+    was never observed; it evicts an observable idle one instead. Once the
+    orphaned result is delivered via a public poll, the conversation becomes
+    evictable again."""
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 2)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    _orphan_settled_turn(factory.conversations[0], "conv-0")
+
+    # Creation at the cap: conv-1 (never ran a turn) is evicted; the
+    # unobserved conv-0 survives even though it is older and idle.
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    with cobuild._registry_lock:
+        remaining = set(cobuild._conversations)
+    assert "conv-0" in remaining
+    assert "conv-1" not in remaining
+    assert "conv-2" in remaining
+
+    # The orphaned mutation is still recoverable through the public surface.
+    outcome = json.loads(
+        run(cobuild.get_cobuild_turn_status("conv-0", "PROJECT", DummyContext()))
+    )
+    assert outcome["status"] == "completed"
+
+    # Delivered once, conv-0 is evictable again: the next creation drops it
+    # (it is the oldest observable idle conversation).
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    with cobuild._registry_lock:
+        assert "conv-0" not in cobuild._conversations
+
+
+def test_creation_refuses_rather_than_evict_unobserved_conversation(
+    cobuild_env, monkeypatch
+):
+    """When every retained conversation holds an unobserved turn, creation
+    refuses (without touching DSS) instead of making a mutation
+    undiscoverable."""
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 1)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    _orphan_settled_turn(factory.conversations[0], "conv-0")
+
+    with pytest.raises(ValueError, match="registry is full"):
+        run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+
+    with cobuild._registry_lock:
+        assert "conv-0" in cobuild._conversations  # never dropped
+    assert len(factory.conversations) == 1  # refusal made no SDK creation
