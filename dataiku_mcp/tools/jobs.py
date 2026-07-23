@@ -62,11 +62,15 @@ async def _wait_for_job_result(
     project_key: str,
     job,
     timeout_seconds: int,
+    job_id: str | None = None,
 ) -> tuple[bool, dict]:
+    # job_id is the id captured once by the caller. The helper never reads
+    # job.id, so a handle whose .id raises while get_status() still returns a
+    # terminal payload cannot turn a completed build into a poll failure.
     deadline = time.monotonic() + timeout_seconds
     while True:
         raw_status = await run_blocking(job.get_status)
-        summary = _get_job_status_full(project_key, job.id, raw_status)
+        summary = _get_job_status_full(project_key, job_id, raw_status)
         if (
             summary["state"] in TERMINAL_JOB_STATES
             or (
@@ -214,6 +218,7 @@ async def build_datasets(
             project_key,
             job,
             timeout_seconds,
+            job_id,
         )
     except Exception as exc:
         # Returned, never raised: the job already exists, and raising would let
@@ -380,6 +385,7 @@ async def run_recipe(
             project_key,
             job,
             timeout_seconds,
+            job_id,
         )
     except Exception as exc:
         # Returned, never raised: the job already exists, and raising would let
@@ -565,7 +571,7 @@ async def wait_for_job(
         lambda: get_dss_client().get_project(project_key).get_job(job_id)
     )
     timed_out, status_summary = await _wait_for_job_result(
-        project_key, job, timeout_seconds
+        project_key, job, timeout_seconds, job_id
     )
     if timed_out:
         return compact_json(

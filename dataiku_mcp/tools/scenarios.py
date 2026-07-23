@@ -189,11 +189,22 @@ async def run_scenario(
             "Inspect scenario run history before retrying because the trigger may "
             "have reached DSS."
         ) from exc
+
+    # Capture the trigger-fire id once, guarded, the moment the handle exists.
+    # The SDK reads .run_id straight from the fire payload, so a partial payload
+    # can make it raise; nothing below reads trigger_fire.run_id again, so no
+    # post-start payload (including the failure paths) can escape and lose the
+    # identity to transport masking.
+    try:
+        trigger_fire_id = trigger_fire.run_id
+    except Exception:
+        trigger_fire_id = None
+
     cancelled_payload = {
         "status": "scenario_run_cancelled",
         "project_key": project_key,
         "scenario_id": scenario_id,
-        "trigger_fire_id": trigger_fire.run_id,
+        **({"trigger_fire_id": trigger_fire_id} if trigger_fire_id is not None else {}),
         "hint": (
             "The trigger was cancelled before a run started; the scenario may "
             "already be running. Check get_scenario_run_history."
@@ -210,7 +221,11 @@ async def run_scenario(
             "status": "scenario_poll_failed",
             "project_key": project_key,
             "scenario_id": scenario_id,
-            "trigger_fire_id": trigger_fire.run_id,
+            **(
+                {"trigger_fire_id": trigger_fire_id}
+                if trigger_fire_id is not None
+                else {}
+            ),
             **({"run_id": run_id} if run_id is not None else {}),
             "error_type": type(error).__name__,
             "error": _safe_error_text(error),
@@ -233,7 +248,11 @@ async def run_scenario(
             "status": "scenario_run_triggered",
             "project_key": project_key,
             "scenario_id": scenario_id,
-            "trigger_fire_id": trigger_fire.run_id,
+            **(
+                {"trigger_fire_id": trigger_fire_id}
+                if trigger_fire_id is not None
+                else {}
+            ),
         }
         if state == "resolved":
             payload["run_id"] = run_id
@@ -262,7 +281,11 @@ async def run_scenario(
                 "status": "scenario_run_still_running",
                 "project_key": project_key,
                 "scenario_id": scenario_id,
-                "trigger_fire_id": trigger_fire.run_id,
+                **(
+                    {"trigger_fire_id": trigger_fire_id}
+                    if trigger_fire_id is not None
+                    else {}
+                ),
                 **({"run_id": run_id} if run_id is not None else {}),
                 "hint": (
                     "The scenario did not finish within timeout_seconds. Do not "
@@ -282,7 +305,11 @@ async def run_scenario(
             ),
             "project_key": project_key,
             "scenario_id": scenario_id,
-            "trigger_fire_id": trigger_fire.run_id,
+            **(
+                {"trigger_fire_id": trigger_fire_id}
+                if trigger_fire_id is not None
+                else {}
+            ),
             "run_id": run_id,
             "outcome": outcome,
         }

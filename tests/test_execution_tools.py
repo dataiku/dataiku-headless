@@ -439,6 +439,70 @@ def test_run_recipe_poll_failure_with_hostile_handle_stays_structured():
     assert res["error_type"] == "ConnectionError"
 
 
+class _HostileIdButDoneJobHandle:
+    """get_status() SUCCEEDS with a terminal DONE payload while .id raises.
+
+    This is the shape that exercises _wait_for_job_result's OWN job.id read:
+    only passing the caller's captured job_id into the helper keeps a completed
+    build from being misreported as a poll failure. The DONE payload still
+    carries the real id under def.id, so the summary stays complete.
+    """
+
+    def __init__(self, job_id):
+        self._job_id = job_id
+
+    @property
+    def id(self):
+        raise KeyError("jobId")
+
+    def get_status(self):
+        return _raw_status_with_activities(
+            self._job_id,
+            end_time=200,
+            runtime_state="DONE",
+            activities=[("act_a", "DONE", ["a"])],
+        )
+
+
+def test_build_datasets_done_payload_with_hostile_id_completes():
+    job = _HostileIdButDoneJobHandle("DONE-JOB")
+    builder = MagicMock()
+    builder.start.return_value = job
+    client = MagicMock()
+    client.get_project.return_value.new_job.return_value = builder
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.build_datasets("PK", FakeCtx(), ["a"], wait_for_completion=True)
+        )
+
+    # The helper no longer reads job.id, so a DONE payload behind a hostile
+    # handle completes instead of collapsing to build_poll_failed. The id is
+    # recovered from the payload (def.id) and surfaced in the summary.
+    assert res["status"] == "build_completed"
+    assert res["status_summary"]["state"] == "DONE"
+    assert res["status_summary"]["job_id"] == "DONE-JOB"
+    assert res["per_dataset"] == [{"dataset": "a", "state": "DONE"}]
+
+
+def test_run_recipe_done_payload_with_hostile_id_completes():
+    project = _recipe_project([{"type": "COMPUTABLE_DATASET", "ref": "out_ds"}])
+    project.new_job.return_value.start.return_value = _HostileIdButDoneJobHandle(
+        "DONE-RECIPE-JOB"
+    )
+    client = MagicMock()
+    client.get_project.return_value = project
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.run_recipe("PK", "my_recipe", FakeCtx(), wait_for_completion=True)
+        )
+
+    assert res["status"] == "recipe_run_completed"
+    assert res["status_summary"]["state"] == "DONE"
+    assert res["status_summary"]["job_id"] == "DONE-RECIPE-JOB"
+
+
 # --------------------------------------------------------------------------- #
 # run_recipe
 # --------------------------------------------------------------------------- #
@@ -811,6 +875,29 @@ def test_get_scenario_run_history_scalar_int_fire_id_is_kept():
     assert row["trigger_type"] == "manual"
 
 
+def test_get_scenario_run_history_nulls_boolean_fire_id():
+    # A boolean is a scalar in JSON but is never a run id, so it is nulled even
+    # though isinstance(True, int) is True; the type filter excludes booleans.
+    row = _history_row_for_trigger_shape({"runId": True, "trigger": {"type": "manual"}})
+    assert row["trigger_fire_id"] is None
+    assert row["trigger_type"] == "manual"
+
+
+def test_get_scenario_run_history_nulls_list_fire_id():
+    # A list runId is a non-scalar and is nulled, never emitted as a structure.
+    row = _history_row_for_trigger_shape({"runId": ["x"], "trigger": {}})
+    assert row["run_id"] == "RUN-SHAPE"
+    assert row["trigger_fire_id"] is None
+
+
+def test_get_scenario_run_history_nulls_absent_fire_id():
+    # A fire record with no runId key at all yields a null fire id.
+    row = _history_row_for_trigger_shape({"trigger": {"type": "manual"}})
+    assert row["run_id"] == "RUN-SHAPE"
+    assert row["trigger_fire_id"] is None
+    assert row["trigger_type"] == "manual"
+
+
 class _UnformattableError(Exception):
     """An exception whose __str__ raises, as some SDK/HTTP errors do."""
 
@@ -870,6 +957,39 @@ def test_run_scenario_poll_failure_with_partial_run_payload_keeps_trigger_id():
     assert res["status"] == "scenario_poll_failed"
     assert "run_id" not in res
     assert res["trigger_fire_id"] == "TRIG-PARTIAL"
+    assert res["error_type"] == "ConnectionError"
+
+
+class _HostileTriggerFire:
+    """A trigger-fire handle whose .run_id raises after run() succeeded.
+
+    The SDK reads run_id straight from the fire payload, so a partial payload
+    makes it raise. run_scenario captures the id once, guarded, so no post-start
+    payload reads .run_id again and none can escape into transport masking.
+    """
+
+    @property
+    def run_id(self):
+        raise KeyError("runId")
+
+    def get_scenario_run(self):
+        raise ConnectionError("poll dropped")
+
+    def is_cancelled(self, refresh=False):
+        return False
+
+
+def test_run_scenario_hostile_trigger_fire_id_stays_structured():
+    client = _scenario_client(_HostileTriggerFire())
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(scenarios.run_scenario("PK", "sc1", FakeCtx()))
+
+    # .run_id is unreadable and resolving failed: the tool must still RETURN a
+    # structured payload rather than raise. trigger_fire_id is absent because it
+    # was never readable, but the outcome is identified so no blind re-trigger.
+    assert res["status"] == "scenario_poll_failed"
+    assert "trigger_fire_id" not in res
     assert res["error_type"] == "ConnectionError"
 
 
