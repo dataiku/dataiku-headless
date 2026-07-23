@@ -80,10 +80,12 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "jobs": frozenset(
         {
+            "build_datasets",
             "get_future_status",
             "get_job_log",
             "get_job_status",
             "list_jobs",
+            "run_recipe",
             "wait_for_job",
         }
     ),
@@ -157,6 +159,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "get_scenario_settings",
             "list_messaging_channels",
             "list_scenarios",
+            "run_scenario",
         }
     ),
     "semantic_models": frozenset(
