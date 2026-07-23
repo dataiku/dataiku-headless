@@ -12,7 +12,16 @@ from .utils.validation import (
 )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Count projects",
+    annotations={
+        "title": "Count projects",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def count_projects(ctx: Context) -> str:
     """Count projects on the Dataiku instance without listing project metadata."""
     await ctx.info("Counting Dataiku projects...")
@@ -42,7 +51,9 @@ async def list_projects(ctx: Context, search: str = "") -> str:
             or q in project["name"].lower()
             or q in project["shortDesc"].lower()
         ]
-    return compact_json({"projects": columnar(projects, ["projectKey", "name", "shortDesc"])})
+    return compact_json(
+        {"projects": columnar(projects, ["projectKey", "name", "shortDesc"])}
+    )
 
 
 @mcp.tool()
