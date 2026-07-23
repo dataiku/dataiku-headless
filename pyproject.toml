@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "typer==0.26.8",
+    "typer==0.27.0",
     # click.core.UNSET (used by spec.py) is only importable on Click >= 8.3.
     "click==8.4.2",
     "rich>=13",
