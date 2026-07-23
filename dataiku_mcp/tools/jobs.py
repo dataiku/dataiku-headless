@@ -9,6 +9,7 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
+from .utils.errors import safe_error_text as _safe_error_text
 from .utils.job_summaries import (
     get_job_status_brief as _get_job_status_brief,
     get_job_status_full as _get_job_status_full,
@@ -213,7 +214,7 @@ async def build_datasets(
                 "job_id": job.id,
                 "datasets": names,
                 "error_type": type(exc).__name__,
-                "error": str(exc),
+                "error": _safe_error_text(exc),
                 "hint": (
                     "The build job started but status polling failed. Keep this "
                     "job_id and inspect it with get_job_status or wait_for_job; "
@@ -370,7 +371,7 @@ async def run_recipe(
                 "recipe": recipe_name,
                 "job_id": job.id,
                 "error_type": type(exc).__name__,
-                "error": str(exc),
+                "error": _safe_error_text(exc),
                 "hint": (
                     "The recipe job started but status polling failed. Keep this "
                     "job_id and inspect it with get_job_status or wait_for_job; "

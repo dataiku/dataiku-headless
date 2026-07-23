@@ -8,6 +8,7 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
+from .utils.errors import safe_error_text as _safe_error_text
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -55,10 +56,14 @@ async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
 
     Never raises after the trigger fire exists: an SDK failure while polling
     returns ``("poll_failed", run_id, None, exc)`` carrying the run id whenever a
-    run was ever observed, so the caller keeps every known identity.
+    run was ever observed, so the caller keeps every known identity. The run id
+    is captured defensively the moment the run handle appears (the SDK reads it
+    from the raw payload, so a partial payload can make ``.id`` raise); no
+    identity read happens inside a failure handler.
     """
     deadline = time.monotonic() + timeout_seconds
     scenario_run = None
+    observed_run_id = None
     while True:
         try:
             if scenario_run is None:
@@ -70,17 +75,21 @@ async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
             else:
                 await run_blocking(scenario_run.refresh)
 
+            if scenario_run is not None and observed_run_id is None:
+                try:
+                    observed_run_id = scenario_run.id
+                except Exception:
+                    observed_run_id = None
+
             if scenario_run is not None and not scenario_run.running:
                 result = scenario_run.get_info().get("result") or {}
-                return "completed", scenario_run.id, result.get("outcome"), None
+                return "completed", observed_run_id, result.get("outcome"), None
         except Exception as exc:
-            run_id = scenario_run.id if scenario_run is not None else None
-            return "poll_failed", run_id, None, exc
+            return "poll_failed", observed_run_id, None, exc
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            run_id = scenario_run.id if scenario_run is not None else None
-            return "timed_out", run_id, None, None
+            return "timed_out", observed_run_id, None, None
         await asyncio.sleep(min(SCENARIO_POLL_INTERVAL_SECONDS, remaining))
 
 
@@ -204,7 +213,7 @@ async def run_scenario(
             "trigger_fire_id": trigger_fire.run_id,
             **({"run_id": run_id} if run_id is not None else {}),
             "error_type": type(error).__name__,
-            "error": str(error),
+            "error": _safe_error_text(error),
             "hint": (
                 "The trigger was accepted but status polling failed. Do not "
                 "trigger the scenario again; poll get_scenario_run_history and "
@@ -307,8 +316,15 @@ async def get_scenario_run_history(
             # trigger fire id (what run_scenario returns as trigger_fire_id),
             # not a scenario run id. Exposing it lets a caller who only holds a
             # trigger_fire_id correlate their trigger with the run it produced.
-            trigger_fire = info.get("trigger") or {}
-            trigger = trigger_fire.get("trigger") or {}
+            # Both levels are shape-checked: DSS can put non-mapping values here
+            # (e.g. a bare string), and a malformed record must yield null
+            # trigger fields, never a crash or a fabricated id.
+            raw_trigger_fire = info.get("trigger")
+            trigger_fire = (
+                raw_trigger_fire if isinstance(raw_trigger_fire, dict) else {}
+            )
+            raw_trigger = trigger_fire.get("trigger")
+            trigger = raw_trigger if isinstance(raw_trigger, dict) else {}
             summaries.append(
                 {
                     "run_id": info.get("runId"),

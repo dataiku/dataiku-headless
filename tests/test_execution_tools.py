@@ -607,6 +607,107 @@ def test_get_scenario_run_history_rows_carry_trigger_fire_id():
     assert row["trigger_fire_id"] == "TRIG-H"
 
 
+def _history_row_for_trigger_shape(trigger_value):
+    run = MagicMock()
+    run.running = False
+    run.get_info.return_value = {
+        "runId": "RUN-SHAPE",
+        "start": 100,
+        "result": {"outcome": "SUCCESS", "endTime": 200},
+        "trigger": trigger_value,
+    }
+    scenario = MagicMock()
+    scenario.get_last_runs.return_value = [run]
+    client = MagicMock()
+    client.get_project.return_value.get_scenario.return_value = scenario
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(scenarios.get_scenario_run_history("PK", "sc1", FakeCtx()))
+
+    table = res["runs"]
+    return dict(zip(table["columns"], table["rows"][0]))
+
+
+def test_get_scenario_run_history_tolerates_string_trigger_fire():
+    # DSS put a bare string where the trigger-fire record was expected: the row
+    # must still come back, with null trigger fields, never a fabricated id.
+    row = _history_row_for_trigger_shape("manual")
+    assert row["run_id"] == "RUN-SHAPE"
+    assert row["trigger_fire_id"] is None
+    assert row["trigger_type"] is None
+
+
+def test_get_scenario_run_history_tolerates_string_inner_trigger():
+    # The fire record is a dict but its nested trigger definition is a string:
+    # keep the fire id, null the trigger type.
+    row = _history_row_for_trigger_shape({"runId": "TRIG-S", "trigger": "manual"})
+    assert row["run_id"] == "RUN-SHAPE"
+    assert row["trigger_fire_id"] == "TRIG-S"
+    assert row["trigger_type"] is None
+
+
+class _UnformattableError(Exception):
+    """An exception whose __str__ raises, as some SDK/HTTP errors do."""
+
+    def __str__(self):
+        raise RuntimeError("cannot format this error")
+
+
+def test_run_scenario_poll_failure_with_unformattable_error_keeps_identity():
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-UNFORMATTABLE"
+    trigger_fire.get_scenario_run.side_effect = _UnformattableError("boom")
+    client = _scenario_client(trigger_fire)
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(scenarios.run_scenario("PK", "sc1", FakeCtx()))
+
+    # Building the failure payload must never raise, even when the exception's
+    # own __str__ does; the identity survives and the error falls back to repr.
+    assert res["status"] == "scenario_poll_failed"
+    assert res["trigger_fire_id"] == "TRIG-UNFORMATTABLE"
+    assert res["error_type"] == "_UnformattableError"
+    assert "_UnformattableError" in res["error"]
+
+
+class _PartialRun:
+    """A run handle whose payload lacks runId, so .id raises like the SDK's."""
+
+    running = False
+
+    @property
+    def id(self):
+        raise KeyError("runId")
+
+    def refresh(self):
+        pass
+
+    def get_info(self):
+        raise ConnectionError("poll dropped")
+
+
+def test_run_scenario_poll_failure_with_partial_run_payload_keeps_trigger_id():
+    trigger_fire = MagicMock()
+    trigger_fire.run_id = "TRIG-PARTIAL"
+    trigger_fire.get_scenario_run.return_value = _PartialRun()
+    client = _scenario_client(trigger_fire)
+
+    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client):
+        res = _load(
+            scenarios.run_scenario(
+                "PK", "sc1", FakeCtx(), wait_for_completion=True, timeout_seconds=600
+            )
+        )
+
+    # The run payload had no runId (its .id raises KeyError) and polling then
+    # failed: the failure handler must not raise while recovering the run id,
+    # and the trigger identity must survive.
+    assert res["status"] == "scenario_poll_failed"
+    assert "run_id" not in res
+    assert res["trigger_fire_id"] == "TRIG-PARTIAL"
+    assert res["error_type"] == "ConnectionError"
+
+
 def test_run_scenario_captures_client_before_first_await():
     trigger_fire = MagicMock()
     trigger_fire.run_id = "TRIGGER-CAPTURED"
