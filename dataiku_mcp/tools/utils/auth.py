@@ -4,6 +4,7 @@ import dataikuapi
 from dataikuapi.utils import DataikuException
 
 from ... import config
+from .async_executor import run_blocking
 
 
 def get_dss_client() -> dataikuapi.DSSClient:
@@ -17,15 +18,18 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
-def require_admin(client: dataikuapi.DSSClient) -> None:
+async def require_admin() -> None:
     """Raise a concise error unless the configured credentials are an admin."""
-    try:
-        client.get_general_settings()
-    except DataikuException as err:
-        raise PermissionError(
-            "DSS administrator access could not be verified for this operation: "
-            f"{err}"
-        ) from None
+    def _run():
+        try:
+            get_dss_client().get_general_settings()
+        except DataikuException as err:
+            raise PermissionError(
+                "DSS administrator access could not be verified for this operation: "
+                f"{err}"
+            ) from None
+
+    await run_blocking(_run)
 
 
 def _resolve_api_key(api_key) -> str:

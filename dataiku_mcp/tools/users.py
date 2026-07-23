@@ -29,6 +29,22 @@ def _sanitize_user(raw_user: dict) -> dict:
     return {field: raw_user.get(field) for field in _USER_COLUMNS}
 
 
+async def _require_licensed_user_profile(profile: str) -> None:
+    """Raise a clear error unless ``profile`` is available on this DSS instance."""
+    def _run():
+        status = get_dss_client().get_licensing_status()
+        profiles = status.get("base", {}).get("userProfiles", [])
+        if not profiles:
+            raise ValueError("DSS did not return any available user profiles")
+        if profile not in profiles:
+            raise ValueError(
+                f"'profile' must be one of the current DSS licensed profile types: "
+                f"{', '.join(profiles)}"
+            )
+
+    await run_blocking(_run)
+
+
 def _validate_groups(groups: list[str] | None) -> list[str] | None:
     # TODO: retrieve profile types from get_groups tool.
     if groups is None:
@@ -37,8 +53,6 @@ def _validate_groups(groups: list[str] | None) -> list[str] | None:
         _require_non_empty_string(group, f"groups[{index}]")
         for index, group in enumerate(groups)
     ]
-
-## TODO: add _validate_user_profile?
 
 
 @mcp.tool()
@@ -61,12 +75,11 @@ async def list_users(
     groups = _validate_groups(groups)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
+    await require_admin()
     await ctx.info("Listing DSS users...")
 
     def _run():
-        client = get_dss_client()
-        require_admin(client)
-        return client.list_users()
+        return get_dss_client().list_users()
 
     raw_users = await run_blocking(_run)
     users = [_sanitize_user(raw_user) for raw_user in raw_users]
@@ -130,6 +143,9 @@ async def create_user(
 ) -> str:
     """Create an enabled Dataiku user and return its core settings.
 
+    Before assigning ``profile``, call ``get_licensing_status`` to confirm the
+    profile is available and review its licensing capacity.
+
     Args:
         source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH, or AZURE_AD.
         profile: User profile available under the DSS license.
@@ -146,11 +162,12 @@ async def create_user(
     elif password is not None:
         raise ValueError("'password' may only be provided for LOCAL users")
 
+    await require_admin()
+    await _require_licensed_user_profile(profile)
     await ctx.info(f"Creating DSS user '{login}'...")
 
     def _run():
         client = get_dss_client()
-        require_admin(client)
         user = client.create_user(
             login,
             password,
@@ -180,7 +197,9 @@ async def update_user(
     """Patch supplied core settings for one Dataiku user.
 
     Omitted (null) fields are preserved. An empty groups list removes all memberships,
-    and an empty email clears the email address.
+    and an empty email clears the email address. Before changing ``profile``, call
+    ``get_licensing_status`` to confirm the profile is available and review its
+    licensing capacity.
 
     Args:
         source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH, or AZURE_AD.
@@ -194,7 +213,7 @@ async def update_user(
     if groups is not None:
         groups = _validate_groups(groups) # TODO: require allowed values?
     if profile is not None:
-        profile = _require_non_empty_string(profile, "profile") # TODO: require allowed values?
+        profile = _require_non_empty_string(profile, "profile")
     if source_type is not None:
         source_type = _require_allowed_value(source_type, "source_type", _SOURCE_TYPES)
     if password is not None:
@@ -212,11 +231,13 @@ async def update_user(
     if all(value is None for value in changes.values()):
         raise ValueError("Provide at least one user field to update")
 
+    await require_admin()
+    if profile is not None:
+        await _require_licensed_user_profile(profile)
     await ctx.info(f"Updating DSS user '{login}'...")
 
     def _run():
         client = get_dss_client()
-        require_admin(client)
         user = client.get_user(login)
         settings = user.get_settings()
         raw_settings = settings.get_raw()
@@ -248,12 +269,11 @@ async def update_user(
 async def delete_user(login: str, ctx: Context) -> str:
     """Delete one DSS user. Self-deletion remains prohibited."""
     login = _require_non_empty_string(login, "login")
+    await require_admin()
     await ctx.info(f"Deleting DSS user '{login}'...")
 
     def _run():
-        client = get_dss_client()
-        require_admin(client)
-        client.get_user(login).delete()
+        get_dss_client().get_user(login).delete()
 
     await run_blocking(_run)
     return compact_json({"login": login, "deleted": True})

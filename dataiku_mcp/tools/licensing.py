@@ -62,12 +62,11 @@ async def get_licensing_status(
     Args:
         include_profile_capabilities: Include detailed per-profile permission flags.
     """
+    await require_admin()
     await ctx.info("Retrieving DSS licensing status...")
 
     def _run():
-        client = get_dss_client()
-        require_admin(client)
-        return client.get_licensing_status()
+        return get_dss_client().get_licensing_status()
 
     status = await run_blocking(_run)
     base = status.get("base", {})
