@@ -80,4 +80,5 @@ dev = [
     "commitizen>=4.16.3",
     "ruff>=0.15",
     "pytest>=8",
+    "pre-commit>=4",
 ]
