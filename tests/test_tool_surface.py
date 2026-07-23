@@ -76,7 +76,12 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "insights": frozenset({"get_insight_settings", "list_insights"}),
     "instances": frozenset(
-        {"get_current_instance", "list_instances", "switch_instance"}
+        {
+            "configure_dataiku",
+            "get_current_instance",
+            "list_instances",
+            "switch_instance",
+        }
     ),
     "jobs": frozenset(
         {
