@@ -71,6 +71,10 @@ def _short_type(node_type):
 # Above this size the ASCII tree stops being a readable orientation aid and just
 # burns tokens; callers fall back to the flat nodes/edges lists.
 _MAX_TREE_NODES = 300
+# The tree emits one line per edge traversal with a depth-sized prefix, so a dense
+# graph within the node ceiling can still render megabytes. Hard budget on the
+# rendered text itself; past it the tree is omitted, not the nodes/edges.
+_MAX_TREE_CHARS = 200_000
 _DEFAULT_GRAPH_NODES = 1_000
 _MAX_GRAPH_NODES = 2_000
 _DEFAULT_GRAPH_EDGES = 3_000
@@ -85,16 +89,37 @@ def _clip_flow_text(value) -> str:
     return text[: _MAX_FLOW_TEXT_CHARS - 1] + "…"
 
 
-def _render_flow_tree(nodes: dict, id_to_ref: dict, sources: list, title: str) -> str:
+class _TreeBudgetExceeded(Exception):
+    """Raised internally when the rendered tree passes ``_MAX_TREE_CHARS``."""
+
+
+def _render_flow_tree(
+    nodes: dict, id_to_ref: dict, sources: list, title: str
+) -> tuple:
     """Render the flow as a plain-text DAG tree (no Rich markup).
 
     Read top-down as build order: each source is a root, nesting is downstream
     dependency, sibling branches are parallel paths. A node shown as a leaf with
     `` (↑)`` is a re-convergence point — already drawn upstream in this traversal,
-    so it is not re-expanded (e.g. a join fed by two branches).
+    so it is not re-expanded (e.g. a join fed by two branches). A leaf marked
+    `` (⟳)`` is a back-edge to a node still open on the current path — a cycle,
+    which a valid flow DAG never contains.
+
+    Returns ``(tree, has_cycle)``. ``tree`` is ``None`` when the rendered text
+    would exceed ``_MAX_TREE_CHARS``.
     """
     lines = [f"Flow: {title}"]
+    total_chars = len(lines[0])
     visited: set = set()
+    on_path: set = set()
+    has_cycle = False
+
+    def emit(line: str) -> None:
+        nonlocal total_chars
+        total_chars += len(line) + 1
+        if total_chars > _MAX_TREE_CHARS:
+            raise _TreeBudgetExceeded
+        lines.append(line)
 
     def label(node_id: str) -> str:
         node = nodes.get(node_id, {})
@@ -104,48 +129,59 @@ def _render_flow_tree(nodes: dict, id_to_ref: dict, sources: list, title: str) -
         )
 
     def walk(node_id: str, prefix: str, is_last: bool) -> None:
+        nonlocal has_cycle
         connector = "└── " if is_last else "├── "
-        already = node_id in visited
-        lines.append(f"{prefix}{connector}{label(node_id)}" + (" (↑)" if already else ""))
-        if already:
+        if node_id in on_path:
+            # Back-edge to a node still open on this path: a cycle, not a join.
+            has_cycle = True
+            emit(f"{prefix}{connector}{label(node_id)} (⟳)")
             return
+        if node_id in visited:
+            emit(f"{prefix}{connector}{label(node_id)} (↑)")
+            return
+        emit(f"{prefix}{connector}{label(node_id)}")
         visited.add(node_id)
+        on_path.add(node_id)
         children = [s for s in nodes[node_id].get("successors", []) if s in nodes]
         child_prefix = prefix + ("    " if is_last else "│   ")
         for index, child in enumerate(children):
             walk(child, child_prefix, index == len(children) - 1)
+        on_path.discard(node_id)
 
-    for index, source in enumerate(sources):
-        walk(source, "", index == len(sources) - 1)
-    # A valid DAG has at least one source. If malformed backend data contains a
-    # cycle, still show every component once instead of returning only a title.
-    for node_id in nodes:
-        if node_id not in visited:
-            walk(node_id, "", True)
-    return "\n".join(lines)
+    try:
+        for index, source in enumerate(sources):
+            walk(source, "", index == len(sources) - 1)
+        # A valid DAG has at least one source. If malformed backend data contains a
+        # cycle, still show every component once instead of returning only a title.
+        for node_id in nodes:
+            if node_id not in visited:
+                walk(node_id, "", True)
+    except _TreeBudgetExceeded:
+        return None, has_cycle
+    return "\n".join(lines), has_cycle
 
 
-def _filter_nodes_to_zone(flow, nodes: dict, zone: str) -> dict:
-    """Restrict ``nodes`` to the members of the named flow zone (by id or name)."""
-    zones = [z.get_settings().get_raw() for z in flow.list_zones()]
-    match = next(
-        (z for z in zones if z.get("id") == zone or z.get("name") == zone), None
-    )
+def _get_zone_nodes(flow, zone: str) -> dict:
+    """Return the graph nodes of the named flow zone (by id or name).
+
+    Zone membership is resolved server-side via ``DSSFlowZone.get_graph()`` because
+    DSS owns the semantics: the default zone implicitly contains everything not
+    assigned to another zone, so its explicit item list can be empty while the
+    zone covers most of the flow. Reconstructing membership from raw zone items
+    would miss that, along with shared and foreign-project items.
+    """
+    zones = flow.list_zones()
+    match = next((z for z in zones if z.id == zone or z.name == zone), None)
     if match is None:
         available = sorted(
-            f"{_clip_flow_text(z.get('name'))} (id={_clip_flow_text(z.get('id'))})"
+            f"{_clip_flow_text(z.name)} (id={_clip_flow_text(z.id)})"
             for z in zones[:50]
         )
         suffix = " (first 50 shown)" if len(zones) > 50 else ""
         raise ValueError(
             f"Unknown flow zone '{zone}'. Available zones{suffix}: {available}"
         )
-    member_ids = {item.get("objectId") for item in match.get("items", [])}
-    return {
-        node_id: node
-        for node_id, node in nodes.items()
-        if node.get("ref") in member_ids or node_id in member_ids
-    }
+    return match.get_graph().nodes
 
 
 def _build_flow_graph(
@@ -212,7 +248,19 @@ def _build_flow_graph(
     elif total_node_count > _MAX_TREE_NODES:
         warnings.append("tree omitted for a large flow; use nodes/edges")
     else:
-        result["tree"] = _render_flow_tree(selected, id_to_ref, sources, project_key)
+        tree, has_cycle = _render_flow_tree(selected, id_to_ref, sources, project_key)
+        if tree is None:
+            warnings.append(
+                f"tree omitted because its rendering exceeds {_MAX_TREE_CHARS} "
+                "characters on this dense flow; use nodes/edges"
+            )
+        else:
+            result["tree"] = tree
+        if has_cycle:
+            warnings.append(
+                "flow contains a cycle (back-edges marked (⟳) in the tree); "
+                "a valid flow is acyclic, the backend data may be malformed"
+            )
     if warnings:
         result["warnings"] = warnings
     return omit_empty(result)
@@ -232,11 +280,14 @@ async def get_flow_graph(
     shape: each source dataset is a root, nesting is downstream build order, sibling
     branches are parallel paths, and a leaf marked `` (↑)`` is a re-convergence point
     (a node already drawn upstream, e.g. a join fed by two branches) shown once and not
-    re-expanded. ``nodes`` are ``[ref, short_type]`` pairs and ``edges`` are
-    ``[from_ref, to_ref]`` pairs. Pass ``zone`` to scope to a single flow zone; on a very
-    large flow the tree is omitted (see ``warnings``) and you rely on nodes/edges.
-    Responses are bounded to at most 2,000 nodes and 10,000 edges; use ``zone``
-    to narrow a graph or raise the defaults within those hard ceilings.
+    re-expanded. A leaf marked `` (⟳)`` is a back-edge closing a cycle, which a valid
+    flow never contains; it comes with a warning. ``nodes`` are ``[ref, short_type]``
+    pairs and ``edges`` are ``[from_ref, to_ref]`` pairs. Pass ``zone`` to scope to a
+    single flow zone (by id or name, including the default zone); on a very large or
+    very dense flow the tree is omitted (see ``warnings``) and you rely on nodes/edges.
+    Responses are bounded to at most 2,000 nodes and 10,000 edges, and the tree text
+    itself is budgeted; use ``zone`` to narrow a graph or raise the defaults within
+    those hard ceilings.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     if zone is not None:
@@ -257,9 +308,10 @@ async def get_flow_graph(
     def _run():
         project = client.get_project(project_key)
         flow = project.get_flow()
-        nodes = flow.get_graph().nodes
         if zone is not None:
-            nodes = _filter_nodes_to_zone(flow, nodes, zone)
+            nodes = _get_zone_nodes(flow, zone)
+        else:
+            nodes = flow.get_graph().nodes
         return _build_flow_graph(
             project_key,
             nodes,

@@ -32,20 +32,20 @@ class FakeGraph:
         self.nodes = nodes
 
 
-class FakeZoneSettings:
-    def __init__(self, raw):
-        self._raw = raw
-
-    def get_raw(self):
-        return self._raw
-
-
 class FakeZone:
-    def __init__(self, raw):
-        self._raw = raw
+    """Mirrors dataikuapi's DSSFlowZone: id/name properties plus get_graph().
 
-    def get_settings(self):
-        return FakeZoneSettings(self._raw)
+    The zone graph is served whole, like the backend endpoint, so the default
+    zone can have an empty explicit item list yet still contain most of the flow.
+    """
+
+    def __init__(self, zone_id, name, nodes=None):
+        self.id = zone_id
+        self.name = name
+        self._nodes = nodes or {}
+
+    def get_graph(self):
+        return FakeGraph(self._nodes)
 
 
 class FakeFlow:
@@ -57,7 +57,7 @@ class FakeFlow:
         return FakeGraph(self._nodes)
 
     def list_zones(self):
-        return [FakeZone(z) for z in self._zones]
+        return list(self._zones)
 
 
 class FakeProject:
@@ -183,17 +183,8 @@ def test_flow_graph_tree_marks_reconvergence_once(monkeypatch):
 
 def test_flow_graph_zone_filter(monkeypatch):
     nodes = diamond_nodes()
-    zones = [
-        {
-            "id": "zone_prep",
-            "name": "prep",
-            "items": [
-                {"objectType": "DATASET", "objectId": "orders"},
-                {"objectType": "RECIPE", "objectId": "join_recipe"},
-                {"objectType": "DATASET", "objectId": "joined"},
-            ],
-        }
-    ]
+    zone_nodes = {key: nodes[key] for key in ("orders", "join_recipe", "joined")}
+    zones = [FakeZone("zone_prep", "prep", zone_nodes)]
     bind(monkeypatch, FakeProject("PROJ", nodes=nodes, zones=zones))
 
     res = flow_graph(zone="prep")
@@ -210,8 +201,31 @@ def test_flow_graph_zone_filter(monkeypatch):
     assert "(↑)" not in res["tree"]
 
 
+def test_flow_graph_zone_resolves_by_id(monkeypatch):
+    nodes = diamond_nodes()
+    zones = [FakeZone("zone_prep", "prep", {"orders": nodes["orders"]})]
+    bind(monkeypatch, FakeProject("PROJ", nodes=nodes, zones=zones))
+
+    assert flow_graph(zone="zone_prep")["node_count"] == 1
+
+
+def test_flow_graph_default_zone_uses_server_side_membership(monkeypatch):
+    # The default zone's membership is implicit in DSS: nothing is listed in its
+    # explicit items, yet its server-side graph holds every unassigned node. The
+    # zone graph endpoint is authoritative, so the full flow comes back.
+    nodes = diamond_nodes()
+    zones = [FakeZone("default", "Default zone", nodes)]
+    bind(monkeypatch, FakeProject("PROJ", nodes={}, zones=zones))
+
+    res = flow_graph(zone="default")
+
+    assert res["node_count"] == 6
+    assert res["source_count"] == 2
+    assert "tree" in res
+
+
 def test_flow_graph_unknown_zone_errors(monkeypatch):
-    zones = [{"id": "zone_prep", "name": "prep", "items": []}]
+    zones = [FakeZone("zone_prep", "prep")]
     bind(monkeypatch, FakeProject("PROJ", nodes=diamond_nodes(), zones=zones))
 
     with pytest.raises(ValueError, match="Unknown flow zone 'nope'"):
@@ -275,7 +289,58 @@ def test_flow_graph_renders_cycle_instead_of_only_a_title(monkeypatch):
 
     assert "[dataset] a" in tree
     assert "[dataset] b" in tree
-    assert "(↑)" in tree
+
+
+def test_flow_graph_flags_cycle_as_back_edge_not_reconvergence(monkeypatch):
+    nodes = {
+        "a": _dataset("a", successors=["b"], predecessors=["b"]),
+        "b": _dataset("b", successors=["a"], predecessors=["a"]),
+    }
+    bind(monkeypatch, FakeProject("PROJ", nodes=nodes))
+
+    res = flow_graph()
+
+    # The back-edge closing the cycle is marked (⟳), never the (↑) join marker.
+    assert "(⟳)" in res["tree"]
+    assert "(↑)" not in res["tree"]
+    assert any("cycle" in warning for warning in res["warnings"])
+
+
+def test_flow_graph_reconvergence_does_not_warn_about_cycles(monkeypatch):
+    bind(monkeypatch, FakeProject("PROJ", nodes=diamond_nodes()))
+
+    res = flow_graph()
+
+    assert "(⟳)" not in res["tree"]
+    assert "warnings" not in res
+
+
+def test_flow_graph_dense_flow_tree_is_budgeted(monkeypatch):
+    # A complete DAG on 140 nodes: within the node ceiling and, with max_edges
+    # raised to the hard ceiling, within the edge ceiling too. The tree would
+    # still render one line per edge traversal with a depth-sized prefix (many
+    # megabytes), so it must be dropped and the response stay bounded.
+    count = 140
+    nodes = {
+        f"n{i}": _dataset(
+            f"n{i}",
+            successors=[f"n{j}" for j in range(i + 1, count)],
+            predecessors=[f"n{j}" for j in range(i)],
+        )
+        for i in range(count)
+    }
+    bind(monkeypatch, FakeProject("PROJ", nodes=nodes))
+
+    raw = run(flow.get_flow_graph("PROJ", FakeCtx(), max_edges=10_000))
+    res = json.loads(raw)
+
+    assert res["node_count"] == count
+    assert res["edge_count"] == count * (count - 1) // 2
+    assert res["returned_edge_count"] == res["edge_count"]
+    assert "truncated" not in res
+    assert "tree" not in res
+    assert any("tree omitted" in warning for warning in res["warnings"])
+    assert len(raw) < 500_000
 
 
 def test_flow_graph_captures_client_before_first_await(monkeypatch):
