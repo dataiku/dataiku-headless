@@ -9,7 +9,7 @@ Use these tools for instance-level DSS user administration. They require credent
 
 ## Workflow
 
-1. Use `list_users` to returns all users, or execute with a login, display name, or email search to identify the exact login.
+1. Use `list_users` to return all users, or execute with a login, display name, or email search to identify the exact login.
 2. Before updating or deleting, confirm the exact login and current core settings from the matching row.
 3. Use `create_user`, `update_user`, or `delete_user` for the requested change.
 4. Verify the result with `list_users` using the exact login as the search value.

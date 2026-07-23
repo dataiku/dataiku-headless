@@ -1,6 +1,7 @@
 """Authentication utilities for Dataiku client creation."""
 
 import dataikuapi
+from dataikuapi.utils import DataikuException
 
 from ... import config
 
@@ -14,6 +15,17 @@ def get_dss_client() -> dataikuapi.DSSClient:
     client = dataikuapi.DSSClient(dss_backend_url, api_key)
     client._session.verify = not current_instance.no_check_certificate
     return client
+
+
+def require_admin(client: dataikuapi.DSSClient) -> None:
+    """Raise a concise error unless the configured credentials are an admin."""
+    try:
+        client.get_general_settings()
+    except DataikuException as err:
+        raise PermissionError(
+            "DSS administrator access could not be verified for this operation: "
+            f"{err}"
+        ) from None
 
 
 def _resolve_api_key(api_key) -> str:

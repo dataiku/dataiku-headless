@@ -27,7 +27,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, user administration, job management, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, Cobuild conversations, and Dataiku administration.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations

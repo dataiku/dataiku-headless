@@ -4,7 +4,7 @@ from fastmcp import Context
 
 from .. import mcp
 from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from .utils.auth import get_dss_client, require_admin
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_allowed_value as _require_allowed_value,
@@ -30,12 +30,15 @@ def _sanitize_user(raw_user: dict) -> dict:
 
 
 def _validate_groups(groups: list[str] | None) -> list[str] | None:
+    # TODO: retrieve profile types from get_groups tool.
     if groups is None:
         return None
     return [
         _require_non_empty_string(group, f"groups[{index}]")
         for index, group in enumerate(groups)
     ]
+
+## TODO: add _validate_user_profile?
 
 
 @mcp.tool()
@@ -45,7 +48,7 @@ async def list_users(
     offset: int = 0,
     limit: int = 20,
 ) -> str:
-    """List DSS users, with optional search and offset pagination.
+    """List Dataiku users, with optional search and offset pagination.
 
     Args:
         search: Case-insensitive substring matched against login, display name, and email.
@@ -57,7 +60,12 @@ async def list_users(
     limit = min(_require_positive_int(limit, "limit"), 100)
     await ctx.info("Listing DSS users...")
 
-    raw_users = await run_blocking(lambda: get_dss_client().list_users())
+    def _run():
+        client = get_dss_client()
+        require_admin(client)
+        return client.list_users()
+
+    raw_users = await run_blocking(_run)
     users = [_sanitize_user(raw_user) for raw_user in raw_users]
     total_users = len(users)
 
@@ -74,8 +82,8 @@ async def list_users(
 
     users.sort(
         key=lambda user: (
-            str(user.get("login") or "").casefold(),
-            str(user.get("login") or ""),
+            str(user["login"]).casefold(),
+            str(user["login"]),
         )
     )
     matched_users = len(users)
@@ -103,13 +111,13 @@ async def create_user(
     login: str,
     source_type: str,
     profile: str,
+    display_name: str,
     ctx: Context,
     password: str | None = None,
-    display_name: str = "",
     email: str | None = None,
     groups: list[str] | None = None,
 ) -> str:
-    """Create an enabled DSS user and return its core settings.
+    """Create an enabled Dataiku user and return its core settings.
 
     Args:
         source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH, or AZURE_AD.
@@ -119,6 +127,7 @@ async def create_user(
     """
     login = _require_non_empty_string(login, "login")
     source_type = _require_allowed_value(source_type, "source_type", _SOURCE_TYPES)
+    display_name = _require_non_empty_string(display_name, "display_name")
     profile = _require_non_empty_string(profile, "profile")
     groups = _validate_groups(groups) or []
     if source_type == "LOCAL":
@@ -130,6 +139,7 @@ async def create_user(
 
     def _run():
         client = get_dss_client()
+        require_admin(client)
         user = client.create_user(
             login,
             password,
@@ -156,19 +166,26 @@ async def update_user(
     source_type: str | None = None,
     password: str | None = None,
 ) -> str:
-    """Patch supplied core settings for one DSS user.
+    """Patch supplied core settings for one Dataiku user.
 
-    Omitted fields are preserved. An empty groups list removes all memberships,
+    Omitted (null) fields are preserved. An empty groups list removes all memberships,
     and an empty email clears the email address.
+
+    Args:
+        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH, or AZURE_AD.
+        profile: User profile available under the DSS license.
+        password: Required for LOCAL users and invalid for external users.
+        groups: Complete initial list of group names. Defaults to no groups.
     """
     login = _require_non_empty_string(login, "login")
-    groups = _validate_groups(groups)
+    if display_name is not None:
+        display_name = _require_non_empty_string(display_name, "display_name")
+    if groups is not None:
+        groups = _validate_groups(groups) # TODO: require allowed values?
     if profile is not None:
-        profile = _require_non_empty_string(profile, "profile")
+        profile = _require_non_empty_string(profile, "profile") # TODO: require allowed values?
     if source_type is not None:
-        source_type = _require_allowed_value(
-            source_type, "source_type", _SOURCE_TYPES
-        )
+        source_type = _require_allowed_value(source_type, "source_type", _SOURCE_TYPES)
     if password is not None:
         password = _require_non_empty_string(password, "password")
 
@@ -187,16 +204,24 @@ async def update_user(
     await ctx.info(f"Updating DSS user '{login}'...")
 
     def _run():
-        user = get_dss_client().get_user(login)
+        client = get_dss_client()
+        require_admin(client)
+        user = client.get_user(login)
         settings = user.get_settings()
         raw_settings = settings.get_raw()
-        effective_source_type = source_type or raw_settings.get("sourceType")
-        if effective_source_type == "LOCAL" and source_type == "LOCAL":
-            if raw_settings.get("sourceType") != "LOCAL" and password is None:
-                raise ValueError(
-                    "'password' is required when changing a user to source_type LOCAL"
-                )
-        if password is not None and effective_source_type != "LOCAL":
+
+        current_source_type = raw_settings.get("sourceType")
+        target_source_type = source_type or current_source_type
+
+        if (
+            source_type == "LOCAL"
+            and current_source_type != "LOCAL"
+            and password is None
+        ):
+            raise ValueError(
+                "'password' is required when changing a user to source_type LOCAL"
+            )
+        if password is not None and target_source_type != "LOCAL":
             raise ValueError("'password' may only be provided for LOCAL users")
 
         for field, value in changes.items():
@@ -213,5 +238,11 @@ async def delete_user(login: str, ctx: Context) -> str:
     """Delete one DSS user. Self-deletion remains prohibited."""
     login = _require_non_empty_string(login, "login")
     await ctx.info(f"Deleting DSS user '{login}'...")
-    await run_blocking(lambda: get_dss_client().get_user(login).delete())
+
+    def _run():
+        client = get_dss_client()
+        require_admin(client)
+        client.get_user(login).delete()
+
+    await run_blocking(_run)
     return compact_json({"login": login, "deleted": True})
