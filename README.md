@@ -45,7 +45,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Install
 
-Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_dataiku` tool.
+Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
 ### Claude Code CLI 
 
@@ -109,7 +109,7 @@ npx skills add dataiku/dku-headless
 
 The onboarding flow is the same:
 
-1. Ask the agent to setup your DSS instance (**run `configure_dataiku`**).
+1. Ask the agent to setup your DSS instance (**run `configure_instance`**).
 2. Approve the MCP URL prompt.
 3. Enter an instance name, DSS URL, and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.

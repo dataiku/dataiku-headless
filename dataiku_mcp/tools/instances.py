@@ -71,7 +71,7 @@ async def get_current_instance(ctx: Context) -> str:
 
 
 @mcp.tool()
-async def configure_dataiku(ctx: Context) -> str:
+async def configure_instance(ctx: Context) -> str:
     """Connect a Dataiku instance. Use when no instance is configured, or to add another.
 
     Opens a local browser page for the user to enter the instance URL and API key,

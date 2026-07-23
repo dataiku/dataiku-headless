@@ -9,7 +9,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 
 ## Shared Operating Rules
 
-1. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_dataiku` first.
+1. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first.
 2. Discover project keys and object identifiers through tools; do not invent them.
 3. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 4. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.

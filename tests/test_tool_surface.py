@@ -77,7 +77,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "insights": frozenset({"get_insight_settings", "list_insights"}),
     "instances": frozenset(
         {
-            "configure_dataiku",
+            "configure_instance",
             "delete_instance",
             "get_current_instance",
             "list_instances",

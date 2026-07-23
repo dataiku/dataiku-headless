@@ -22,7 +22,7 @@ def _resolve_api_key(api_key: str, instance_name: str) -> str:
 
     raise ValueError(
         f"No API key for Dataiku instance '{instance_name}'. Set one by running "
-        "the configure_dataiku tool, by setting DKU_API_KEY, or by adding an "
+        "the configure_instance tool, by setting DKU_API_KEY, or by adding an "
         '"api_key" to this instance in ~/.dataiku/config.json. '
         "Create an API key in Dataiku under Profile & Settings > API keys."
     )
@@ -34,7 +34,7 @@ def _resolve_backend_url(backend_url: str, instance_name: str) -> str:
 
     raise ValueError(
         f"No URL for Dataiku instance '{instance_name}'. Set one by running the "
-        "configure_dataiku tool, by setting DKU_DSS_URL, or by adding a "
+        "configure_instance tool, by setting DKU_DSS_URL, or by adding a "
         '"url" to this instance in ~/.dataiku/config.json '
         "(e.g. https://your-instance.dataiku.com)."
     )

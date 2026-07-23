@@ -299,7 +299,7 @@ def get_current_instance() -> DSSInstance:
     """Return the currently active DSS instance."""
     if not _current_instance_name:
         raise ValueError(
-            "No Dataiku instance is configured. Run configure_dataiku for local "
+            "No Dataiku instance is configured. Run configure_instance for local "
             "stdio, set DKU_DSS_URL and DKU_API_KEY for automation, or add a "
             "profile to ~/.dataiku/config.json."
         )
