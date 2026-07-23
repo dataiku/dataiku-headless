@@ -10,9 +10,15 @@ name: Bump version
 # Pre-releases are NOT cut here (a stable bump is derived from commits); tag a
 # vX.Y.Z.preN pre-release by hand to drive pre-release.yml.
 #
-# Requires a RELEASE_PAT secret: a personal access token (or GitHub App token)
-# with contents:write. The default GITHUB_TOKEN cannot be used here — refs it
-# pushes do NOT start new workflow runs, so release.yml would never fire.
+# Authenticates as a GitHub App installation (not the default GITHUB_TOKEN):
+# refs pushed with GITHUB_TOKEN do NOT start new workflow runs, so release.yml
+# would never fire. actions/create-github-app-token mints a short-lived
+# installation token with the App's permissions (needs contents:write).
+#
+# Requires:
+#   - vars.RELEASE_APP_ID            — the GitHub App's App ID (not sensitive)
+#   - secrets.RELEASE_APP_PRIVATE_KEY — the App's PEM private key
+# The App must be installed on this repo with Contents: read & write.
 
 on:
   push:
@@ -33,15 +39,21 @@ jobs:
     # Don't re-run on the "bump: ..." commit commitizen just pushed, or it loops.
     if: ${{ !startsWith(github.event.head_commit.message, 'bump:') }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          # PAT so the commit + tag push triggers release.yml (see header).
-          token: ${{ secrets.RELEASE_PAT }}
+          # App token so the commit + tag push triggers release.yml (see header).
+          token: ${{ steps.app-token.outputs.token }}
       - name: Bump version, changelog and tag
         uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
         with:
-          github_token: ${{ secrets.RELEASE_PAT }}
+          github_token: ${{ steps.app-token.outputs.token }}
           # 3 = no commits found, 21 = nothing to bump: treat both as a no-op
           # rather than a failed run.
           no_raise: "3,21"
