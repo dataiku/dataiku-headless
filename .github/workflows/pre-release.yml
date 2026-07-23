@@ -36,8 +36,28 @@ permissions:
   contents: read
 
 jobs:
+  # TEMPORARY: pre-releases are blocked while the PR backlog is being cleaned
+  # up. Nothing builds or publishes unless the repository variable
+  # RELEASE_ENABLED is set to 'true' (Settings > Secrets and variables >
+  # Actions > Variables). Shared with release.yml, so one variable gates both.
+  #
+  # TODO: once the open PR backlog is merged or closed and main is known good,
+  # remove this `gate` job and the `needs: gate` on `build` below, then drop the
+  # RELEASE_ENABLED variable. Until then, flipping the variable to 'true' is the
+  # escape hatch for a one-off pre-release — no code change needed.
+  gate:
+    name: Check releases are enabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless RELEASE_ENABLED is true
+        if: vars.RELEASE_ENABLED != 'true'
+        run: |
+          echo "::error::Pre-releases are blocked. Set repository variable RELEASE_ENABLED=true to publish."
+          exit 1
+
   build:
     name: Build pre-release
+    needs: gate
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
