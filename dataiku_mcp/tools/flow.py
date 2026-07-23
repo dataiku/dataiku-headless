@@ -118,7 +118,7 @@ def _render_flow_tree(nodes: dict, id_to_ref: dict, sources: list, title: str):
     Cycle detection is NOT this function's job (rendering can abort mid-graph on
     the budget); see ``_has_cycle``.
     """
-    lines = [f"Flow: {title}"]
+    lines = [f"Flow: {_clip_flow_text(title)}"]
     total_chars = len(lines[0])
     visited: set = set()
     on_path: set = set()
@@ -255,11 +255,18 @@ def _build_flow_graph(
     selected_ids = list(nodes)[:max_nodes]
     selected = {node_id: nodes[node_id] for node_id in selected_ids}
     id_to_ref = {node_id: node.get("ref", node_id) for node_id, node in nodes.items()}
-    total_edge_count = sum(
-        1
-        for node in nodes.values()
-        for successor in node.get("successors", [])
-        if successor in nodes
+    # Full-graph truth, computed before any clipping: node_count, edge_count and
+    # source_count always describe the whole (zone-scoped) graph, never the subset
+    # that survives the count ceilings or the response size budget.
+    total_edge_count = 0
+    full_has_predecessor: set = set()
+    for node in nodes.values():
+        for successor in node.get("successors", []):
+            if successor in nodes:
+                total_edge_count += 1
+                full_has_predecessor.add(successor)
+    total_source_count = sum(
+        1 for node_id in nodes if node_id not in full_has_predecessor
     )
     has_predecessor: set = set()
     edges: list = []
@@ -274,6 +281,7 @@ def _build_flow_graph(
                             _clip_flow_text(id_to_ref[successor]),
                         ]
                     )
+    # Roots for rendering the returned subset's tree; not reported as a count.
     sources = [node_id for node_id in selected if node_id not in has_predecessor]
 
     truncated_nodes = total_node_count > len(selected)
@@ -284,7 +292,7 @@ def _build_flow_graph(
         "returned_node_count": len(selected),
         "edge_count": total_edge_count,
         "returned_edge_count": len(edges),
-        "source_count": len(sources),
+        "source_count": total_source_count,
         "nodes": [
             [_clip_flow_text(node.get("ref")), _short_type(node.get("type"))]
             for node in selected.values()
@@ -334,8 +342,10 @@ def _fit_response_to_budget(result: dict) -> str:
 
     The budget is measured on the final JSON string — what is actually returned —
     so escaping cannot blow past it. Degradation order: drop the tree, then clip
-    the edges list, then clip the nodes list, each keeping a stable prefix and
-    leaving the original counts plus explicit truncation metadata in place.
+    the edges list, then the nodes list (each keeping a stable prefix and leaving
+    the original counts plus explicit truncation metadata in place), then clip any
+    remaining unbounded echoed strings such as ``project_key``. A final wholesale
+    backstop makes the ceiling hold for ANY input.
     """
     payload = compact_json(result)
     if len(payload) <= _MAX_RESPONSE_CHARS:
@@ -365,6 +375,32 @@ def _fit_response_to_budget(result: dict) -> str:
                 "response size budget; scope by zone for the full graph"
             )
             payload = compact_json(result)
+    if len(payload) > budget:
+        # Only echoed inputs (project_key) remain unbounded at this point; clip
+        # every top-level string so no caller-supplied value can hold the line.
+        for key, value in list(result.items()):
+            if isinstance(value, str) and len(value) > _MAX_FLOW_TEXT_CHARS:
+                result[key] = _clip_flow_text(value)
+                warnings.append(
+                    f"{key}: clipped to {_MAX_FLOW_TEXT_CHARS} characters to fit "
+                    "the response size budget"
+                )
+        payload = compact_json(result)
+    if len(payload) > _MAX_RESPONSE_CHARS:
+        # Unreachable by construction (every field above is bounded), kept as a
+        # provable last resort: the payload is ASCII (ensure_ascii), so escaping
+        # it into the envelope string at most doubles it; halving the prefix
+        # budget keeps the envelope under the ceiling for any input whatsoever.
+        prefix = payload[: (_MAX_RESPONSE_CHARS // 2) - 200]
+        payload = compact_json(
+            {
+                "truncated": True,
+                "warnings": [
+                    "response truncated wholesale to fit the response size budget"
+                ],
+                "response_prefix": prefix,
+            }
+        )
     return payload
 
 
@@ -385,13 +421,17 @@ async def get_flow_graph(
     re-expanded. A leaf marked `` (cycle)`` is a back-edge closing a cycle, which a
     valid flow never contains; cycles are always reported in ``warnings`` even when
     the tree is omitted. ``nodes`` are ``[ref, short_type]`` pairs and ``edges`` are
-    ``[from_ref, to_ref]`` pairs. Pass ``zone`` to scope to a single flow zone (by id
-    or unambiguous name, including the default zone); on a very large or very dense
-    flow the tree is omitted (see ``warnings``) and you rely on nodes/edges.
-    Responses are bounded to at most 2,000 nodes and 10,000 edges, and the serialized
-    response is capped at 1,000,000 characters, degrading tree first, then edges,
-    then nodes, with explicit truncation metadata; use ``zone`` to narrow a graph or
-    raise the count defaults within those hard ceilings.
+    ``[from_ref, to_ref]`` pairs. Count semantics: ``node_count``, ``edge_count`` and
+    ``source_count`` always describe the full (zone-scoped) graph, while
+    ``returned_node_count``/``returned_edge_count`` describe exactly what this
+    response carries after ceilings and budgets. Pass ``zone`` to scope to a single
+    flow zone (by id or unambiguous name, including the default zone); on a very
+    large or very dense flow the tree is omitted (see ``warnings``) and you rely on
+    nodes/edges. Responses are bounded to at most 2,000 nodes and 10,000 edges, and
+    the serialized response is capped at 1,000,000 characters, degrading tree first,
+    then edges, then nodes, then oversized echoed strings, always with explicit
+    truncation metadata; use ``zone`` to narrow a graph or raise the count defaults
+    within those hard ceilings.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     if zone is not None:

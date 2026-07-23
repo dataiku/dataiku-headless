@@ -454,6 +454,46 @@ def test_flow_graph_json_escaping_cannot_blow_the_response_cap(monkeypatch):
     )
 
 
+def test_flow_graph_pathological_project_key_cannot_break_the_cap(monkeypatch):
+    # project_key is caller-supplied and unbounded, and it is echoed back. The
+    # list-degradation stages can only remove tree/edges/nodes, so a huge key
+    # must be clipped by the string stage for the ceiling to hold for any input.
+    bind(monkeypatch, FakeProject("PROJ", nodes={}))
+
+    raw = run(flow.get_flow_graph("K" * 1_000_000, FakeCtx()))
+    res = json.loads(raw)
+
+    assert len(raw) <= 1_000_000
+    assert res["truncated"] is True
+    assert len(res["project_key"]) <= 512
+    assert any("project_key: clipped" in warning for warning in res["warnings"])
+
+
+def test_flow_graph_source_count_is_full_graph_truth_under_clipping(monkeypatch):
+    # 2,001 isolated nodes with maximal refs: the max_nodes ceiling keeps 2,000
+    # and the response budget then clips the nodes list further. source_count,
+    # like node_count and edge_count, must stay the full-graph number, and
+    # returned_node_count must describe exactly what the response carries.
+    count = 2_001
+    refs = [f"iso{i:04d}".ljust(512, "s") for i in range(count)]
+    nodes = {ref: _dataset(ref) for ref in refs}
+    bind(monkeypatch, FakeProject("PROJ", nodes=nodes))
+
+    raw = run(flow.get_flow_graph("PROJ", FakeCtx(), max_nodes=2_000))
+    res = json.loads(raw)
+
+    assert len(raw) <= 1_000_000
+    assert res["node_count"] == count
+    assert res["edge_count"] == 0
+    # Every isolated node is a source: full-graph truth, not the 2,000 kept by
+    # the ceiling nor the smaller returned subset.
+    assert res["source_count"] == count
+    assert res["returned_node_count"] == len(res["nodes"])
+    assert res["returned_node_count"] < res["node_count"]
+    assert res["truncated"] is True
+    assert any("response size budget" in warning for warning in res["warnings"])
+
+
 def test_flow_graph_captures_client_before_first_await(monkeypatch):
     first = FakeClient(FakeProject("PROJ", nodes={"first": _dataset("first")}))
     second = FakeClient(FakeProject("PROJ", nodes={"second": _dataset("second")}))
