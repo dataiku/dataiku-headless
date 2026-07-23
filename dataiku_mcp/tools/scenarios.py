@@ -158,9 +158,11 @@ async def run_scenario(
     When wait_for_completion=true, timeout_seconds is a soft deadline checked
     between SDK polls — a single hung DSS HTTP call can exceed it. A timeout
     returns the run id (when known) for polling get_scenario_run_history; the run
-    is never cancelled. Every post-start response carries trigger_fire_id, and
-    run_id additionally once DSS has materialized the run, so the caller can
-    always identify this request in run history instead of re-triggering. After
+    is never cancelled. Every post-start response always carries the
+    trigger_fire_id key (a scalar id when known, null only when a partial handle
+    would not yield it), plus run_id once DSS has materialized the run, so the
+    caller can always identify this request in run history instead of
+    re-triggering and never has to distinguish an omitted key from a null. After
     the trigger is accepted this tool never raises: an SDK failure while
     resolving or polling returns status scenario_poll_failed with the same
     identity fields, so the identities survive even when a harness masks error
@@ -204,7 +206,9 @@ async def run_scenario(
         "status": "scenario_run_cancelled",
         "project_key": project_key,
         "scenario_id": scenario_id,
-        **({"trigger_fire_id": trigger_fire_id} if trigger_fire_id is not None else {}),
+        # Always present so the caller never distinguishes omitted from null:
+        # a real scalar id when captured, null when the handle would not yield it.
+        "trigger_fire_id": trigger_fire_id,
         "hint": (
             "The trigger was cancelled before a run started; the scenario may "
             "already be running. Check get_scenario_run_history."
@@ -221,11 +225,7 @@ async def run_scenario(
             "status": "scenario_poll_failed",
             "project_key": project_key,
             "scenario_id": scenario_id,
-            **(
-                {"trigger_fire_id": trigger_fire_id}
-                if trigger_fire_id is not None
-                else {}
-            ),
+            "trigger_fire_id": trigger_fire_id,
             **({"run_id": run_id} if run_id is not None else {}),
             "error_type": type(error).__name__,
             "error": _safe_error_text(error),
@@ -248,11 +248,7 @@ async def run_scenario(
             "status": "scenario_run_triggered",
             "project_key": project_key,
             "scenario_id": scenario_id,
-            **(
-                {"trigger_fire_id": trigger_fire_id}
-                if trigger_fire_id is not None
-                else {}
-            ),
+            "trigger_fire_id": trigger_fire_id,
         }
         if state == "resolved":
             payload["run_id"] = run_id
@@ -281,11 +277,7 @@ async def run_scenario(
                 "status": "scenario_run_still_running",
                 "project_key": project_key,
                 "scenario_id": scenario_id,
-                **(
-                    {"trigger_fire_id": trigger_fire_id}
-                    if trigger_fire_id is not None
-                    else {}
-                ),
+                "trigger_fire_id": trigger_fire_id,
                 **({"run_id": run_id} if run_id is not None else {}),
                 "hint": (
                     "The scenario did not finish within timeout_seconds. Do not "
@@ -305,11 +297,7 @@ async def run_scenario(
             ),
             "project_key": project_key,
             "scenario_id": scenario_id,
-            **(
-                {"trigger_fire_id": trigger_fire_id}
-                if trigger_fire_id is not None
-                else {}
-            ),
+            "trigger_fire_id": trigger_fire_id,
             "run_id": run_id,
             "outcome": outcome,
         }

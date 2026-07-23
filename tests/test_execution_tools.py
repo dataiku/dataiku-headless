@@ -875,6 +875,11 @@ def test_get_scenario_run_history_scalar_int_fire_id_is_kept():
     assert row["trigger_type"] == "manual"
 
 
+# The boolean, list, and absent-runId cases below pin already-correct behavior
+# as coverage; they do NOT prove a regression. The isinstance scalar filter has
+# been in place since the round-4 commit, so these pass against earlier commits
+# too. Only the two hostile-handle tests (build/recipe DONE payload with a
+# raising .id, and the raising .run_id trigger fire) genuinely fail pre-fix.
 def test_get_scenario_run_history_nulls_boolean_fire_id():
     # A boolean is a scalar in JSON but is never a run id, so it is nulled even
     # though isinstance(True, int) is True; the type filter excludes booleans.
@@ -986,10 +991,13 @@ def test_run_scenario_hostile_trigger_fire_id_stays_structured():
         res = _load(scenarios.run_scenario("PK", "sc1", FakeCtx()))
 
     # .run_id is unreadable and resolving failed: the tool must still RETURN a
-    # structured payload rather than raise. trigger_fire_id is absent because it
-    # was never readable, but the outcome is identified so no blind re-trigger.
+    # structured payload rather than raise. trigger_fire_id is always present as
+    # a key (null here, since the handle would not yield it) so a client never
+    # has to distinguish an omitted key from a null; the outcome is identified so
+    # no blind re-trigger.
     assert res["status"] == "scenario_poll_failed"
-    assert "trigger_fire_id" not in res
+    assert "trigger_fire_id" in res
+    assert res["trigger_fire_id"] is None
     assert res["error_type"] == "ConnectionError"
 
 
