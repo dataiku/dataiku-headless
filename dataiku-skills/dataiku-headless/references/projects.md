@@ -13,7 +13,7 @@ A project is the primary boundary for Dataiku assets, including datasets, recipe
 
 The project key is the stable technical identifier. The display name, shown as project metadata, is human-facing and can differ from the key.
 
-Project metadata includes labels, descriptions, tags, and checklists. 
+Project metadata includes labels, descriptions, tags, and checklists.
 
 Project variables provide runtime configuration that can be used in various places throughout a project.
 
