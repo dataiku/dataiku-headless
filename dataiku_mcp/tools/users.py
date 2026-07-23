@@ -45,6 +45,7 @@ def _validate_groups(groups: list[str] | None) -> list[str] | None:
 async def list_users(
     ctx: Context,
     search: str = "",
+    groups: list[str] | None = None,
     offset: int = 0,
     limit: int = 20,
 ) -> str:
@@ -52,10 +53,12 @@ async def list_users(
 
     Args:
         search: Case-insensitive substring matched against login, display name, and email.
+        groups: Group names. Returns users who belong to at least one supplied group.
         offset: Zero-based offset within the matching users.
         limit: Maximum users to return. Values above 100 are capped at 100.
     """
     search = search.strip()
+    groups = _validate_groups(groups)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
     await ctx.info("Listing DSS users...")
@@ -78,6 +81,14 @@ async def list_users(
                 query in str(user.get(field) or "").casefold()
                 for field in ("login", "displayName", "email")
             )
+        ]
+
+    if groups:
+        requested_groups = set(groups)
+        users = [
+            user
+            for user in users
+            if requested_groups.intersection(user.get("groups") or [])
         ]
 
     users.sort(

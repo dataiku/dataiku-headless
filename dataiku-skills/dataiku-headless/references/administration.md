@@ -5,7 +5,7 @@ description: Route instance-level Dataiku DSS administration tasks, including us
 
 # Administration
 
-Use this guide for instance-level administrative tasks. These operations require DSS administrator credentials and must use the corresponding direct MCP tools.
+Use this routing guide for instance-level administrative tasks. These operations require DSS administrator credentials and must use the corresponding direct MCP tools.
 
 ## Guide Routing
 
