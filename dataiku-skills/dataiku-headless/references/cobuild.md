@@ -16,6 +16,10 @@ Use this guide as the default path for project-level asset creation. This includ
 - `allow_edit_project` determines whether Cobuild may modify project assets. It defaults to `false` and is a per-message grant: pass `true` only for the single message that should be allowed to create or edit assets, and it does not carry over to later messages.
 - One turn can run for minutes. If a call returns `status=timeout` (or a poll returns `in_progress`), its worker is still running: keep the returned `turn_id` and poll `get_cobuild_turn_status`. Never resend a timed-out instruction; the original worker is authoritative and a resend can duplicate a mutation.
 - Only one turn runs per conversation at a time. A send or answer while a turn is in flight returns `status=busy` with that turn's `turn_id`; poll it instead of resending. There is also a global cap of 3 concurrent turns; a send that cannot claim a slot returns `status=error` with `error_kind=saturated`.
+- If a send is cancelled or interrupted before its response arrives, the accepted turn keeps running and stays discoverable: `list_cobuild_conversations` exposes each conversation's `last_turn_id` and `last_turn_status`, and `get_cobuild_turn_status` polls the conversation's latest turn when `turn_id` is omitted. Recover with list-then-poll; never re-send the instruction blindly.
+- Settled turns are retained for a bounded time (about an hour, up to 64 settled turns), except an unanswered deletion proposal, which is kept until it is answered or cancelled. An unknown `turn_id` therefore means a restart or that its bounded retention expired; check `list_cobuild_conversations` before re-sending anything.
+- The server retains up to 128 conversations. When full, the oldest idle conversation is evicted to admit a new one; a conversation with a turn in flight or an unanswered deletion proposal is never evicted. If nothing is evictable, `start_cobuild_conversation` refuses with a clear error.
+- Oversized results are bounded. An ordinary response too large to return is clipped with `truncated=true` and `original_bytes`. A deletion proposal too large to inspect is never armed for approval: its confirmation is cancelled (`cancelled_confirmation=true`), so narrow the requested deletion and ask Cobuild to propose it again.
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion is a separate confirmation step. A request to edit does not authorize a broader or unexpected deletion. A deletion proposal carries a `confirmation_id` alongside `objects_to_delete` and `deletion_impacts`; approving requires passing that exact id back.
 
@@ -41,8 +45,9 @@ Do not use this guide when:
 4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
 6. If the call returns `status=timeout` or `status=busy`, retain its `turn_id` and poll `get_cobuild_turn_status` with the same `conversation_id` and `project_key`. Do not resend the instruction; the original worker is still authoritative.
-7. Retain the returned `conversation_id` for follow-up work.
-8. If Cobuild returns `status=needs_confirmation`, inspect the complete `objects_to_delete` and `deletion_impacts`, then pass its exact `confirmation_id` to `answer_cobuild_confirmation` with `APPROVE` or `CANCEL`.
+7. If a send was cancelled or interrupted and no `turn_id` was received, recover before anything else: call `list_cobuild_conversations`, read the conversation's `last_turn_id` and `last_turn_status`, and poll it (or call `get_cobuild_turn_status` without a `turn_id` for the latest turn). Only re-send once the latest turn's real outcome shows the instruction was not accepted.
+8. Retain the returned `conversation_id` for follow-up work.
+9. If Cobuild returns `status=needs_confirmation`, inspect the complete `objects_to_delete` and `deletion_impacts`, then pass its exact `confirmation_id` to `answer_cobuild_confirmation` with `APPROVE` or `CANCEL`.
 
 ## Prompt Guidance
 
@@ -57,17 +62,18 @@ Do not use this guide when:
 | --- | --- |
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
-| Poll a long-running, timed-out, or busy turn | `get_cobuild_turn_status` |
+| Poll a long-running, timed-out, or busy turn (omit `turn_id` for the latest turn) | `get_cobuild_turn_status` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
-| Rediscover retained conversations for a project | `list_cobuild_conversations` |
+| Rediscover retained conversations and their latest turns | `list_cobuild_conversations` |
 
 ## Safety Rules
 
 - Keep each `conversation_id` paired with its matching `project_key`.
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification. It is a per-message grant, so it must be set again on each message that should be allowed to write.
 - A `status=timeout` ends only the MCP client's wait, not the worker. Poll the returned `turn_id` with `get_cobuild_turn_status`; never resend a timed-out mutation.
+- After a cancelled or interrupted send, always list conversations or poll the conversation's latest turn before ever re-sending. The accepted turn may have run (or still be running) even though its response was never delivered.
 - Treat `error_kind=transport_outcome_unknown` as ambiguous. Inspect project state before deciding whether to retry any mutation, and do not blindly resend.
-- Conversations and turns do not survive a server restart. If a `turn_id` or `conversation_id` is reported unknown, start a new conversation rather than resending.
+- Conversations and turns do not survive a server restart, and settled turns other than unanswered deletion proposals are retained only for a bounded time. If a `turn_id` is reported unknown, check `list_cobuild_conversations` for the conversation's `last_turn_id` and its state; if the `conversation_id` itself is unknown, start a new conversation rather than resending.
 - `send_cobuild_message` may return `status=needs_confirmation`, with the exact proposal in `objects_to_delete` and `deletion_impacts` and its `confirmation_id`. `answer_cobuild_confirmation` requires that exact `confirmation_id`, so read the proposal before approving.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `./jobs.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.

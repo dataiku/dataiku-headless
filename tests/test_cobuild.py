@@ -197,14 +197,43 @@ def answer(confirmation_id, choice="APPROVE"):
     )
 
 
-def poll(turn_id, *, project_key="PROJECT"):
+def poll(turn_id, *, project_key="PROJECT", conversation_id="conversation-1"):
     return json.loads(
         run(
             cobuild.get_cobuild_turn_status(
-                "conversation-1", project_key, turn_id, DummyContext()
+                conversation_id, project_key, DummyContext(), turn_id
             )
         )
     )
+
+
+def list_conversations(project_key="PROJECT"):
+    payload = json.loads(
+        run(cobuild.list_cobuild_conversations(project_key, DummyContext()))
+    )
+    columns = payload["conversations"]["columns"]
+    rows = [
+        dict(zip(columns, row)) for row in payload["conversations"]["rows"]
+    ]
+    return payload, rows
+
+
+class FreshConversationClient:
+    """A client whose projects mint a new conversation per start call."""
+
+    def __init__(self):
+        self.conversations = []
+
+    def get_project(self, project_key):
+        outer = self
+
+        class _Project:
+            def new_cobuild_conversation(self):
+                conversation = FakeConversation(f"conv-{len(outer.conversations)}")
+                outer.conversations.append(conversation)
+                return conversation
+
+        return _Project()
 
 
 # --------------------------------------------------------------------------- #
@@ -345,14 +374,15 @@ def test_list_does_not_disclose_approval_token(cobuild_env):
     start()
     send(allow_edit_project=True)
 
-    payload = json.loads(
-        run(cobuild.list_cobuild_conversations("PROJECT", DummyContext()))
-    )
+    payload, rows = list_conversations()
     rendered = json.dumps(payload)
 
     assert "never-list-this-token" not in rendered
-    assert payload["conversations"]["columns"][-1] == "has_pending_confirmation"
-    assert payload["conversations"]["rows"][0][-1] is True
+    assert rows[0]["has_pending_confirmation"] is True
+    # The listing exposes the latest turn and its coarse status for recovery,
+    # but never the approval token itself.
+    assert rows[0]["last_turn_status"] == "needs_confirmation"
+    assert rows[0]["last_turn_id"]
 
 
 def test_project_and_instance_ownership_are_checked(cobuild_env):
@@ -615,6 +645,93 @@ def test_cancelling_the_client_wait_does_not_cancel_the_worker(cobuild_env):
     assert len(conversation.send_calls) == 1
 
 
+def test_cancelled_send_is_recoverable_via_public_surface_only(cobuild_env):
+    """A real MCP client that never received the turn_id can still recover it.
+
+    The client's wait is cancelled before the send returns, so the client holds
+    NO reference to the turn. Recovery uses only public tools: list the
+    conversations, read last_turn_id and its status, observe that a retry is
+    refused as busy with that same id, then poll the latest turn to its real
+    outcome. The mutation runs exactly once.
+    """
+    client, _ = cobuild_env
+    conversation = client.conversation
+    conversation.send_release = threading.Event()
+    start()
+
+    async def scenario():
+        waiting = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                "conversation-1",
+                "PROJECT",
+                "mutate exactly once",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=5,
+            )
+        )
+        while not conversation.send_started.is_set():
+            await asyncio.sleep(0.005)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+
+        # Recovery step 1: the listing exposes the orphaned turn.
+        listing = json.loads(
+            await cobuild.list_cobuild_conversations("PROJECT", DummyContext())
+        )
+        columns = listing["conversations"]["columns"]
+        row = dict(zip(columns, listing["conversations"]["rows"][0]))
+        assert row["last_turn_id"]
+        assert row["last_turn_status"] == "in_progress"
+
+        # Recovery step 2: a blind retry is refused as busy with the same id.
+        retry = json.loads(
+            await cobuild.send_cobuild_message(
+                "conversation-1",
+                "PROJECT",
+                "mutate exactly once",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=1,
+            )
+        )
+        assert retry["status"] == "busy"
+        assert retry["turn_id"] == row["last_turn_id"]
+
+        conversation.send_release.set()
+        return row["last_turn_id"]
+
+    recovered_turn_id = run(scenario())
+
+    # Recovery step 3: poll the conversation's latest turn (no turn_id passed)
+    # until it settles; the recovered id and the latest turn agree.
+    deadline = time.monotonic() + 2
+    while True:
+        outcome = json.loads(
+            run(
+                cobuild.get_cobuild_turn_status(
+                    "conversation-1", "PROJECT", DummyContext()
+                )
+            )
+        )
+        if outcome["status"] != "in_progress":
+            break
+        assert time.monotonic() < deadline, "turn never settled"
+        time.sleep(0.01)
+
+    assert outcome["status"] == "completed"
+    assert outcome["turn_id"] == recovered_turn_id
+    assert [call["message"] for call in conversation.send_calls] == [
+        "mutate exactly once"
+    ]
+
+    # After settlement the orphaned turn stays discoverable in the listing.
+    _payload, rows = list_conversations()
+    assert rows[0]["last_turn_id"] == recovered_turn_id
+    assert rows[0]["last_turn_status"] == "completed"
+
+
 def test_waiter_settles_result_even_if_done_callback_is_delayed(
     cobuild_env, monkeypatch
 ):
@@ -645,6 +762,75 @@ def test_poll_rejects_unknown_and_mismatched_turn_id(cobuild_env):
     polled = poll(turn_id)
     assert polled["status"] == "completed"
     assert polled["turn_id"] == turn_id
+
+
+# --------------------------------------------------------------------------- #
+# Terminal payload bound (flat check in the worker; disarm, never truncate a
+# deletion proposal)
+# --------------------------------------------------------------------------- #
+
+
+def test_oversized_deletion_proposal_is_disarmed_not_truncated(
+    cobuild_env, monkeypatch
+):
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    conversation = client.conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="must-not-be-approvable",
+        objects_to_delete=[{"id": "x" * 10_000}],
+        deletion_impacts={"detail": "y" * 10_000},
+    )
+    start()
+
+    result = send(allow_edit_project=True)
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "response_too_large"
+    assert result["cancelled_confirmation"] is True
+    assert "confirmation_id" not in result
+    assert conversation._pending_confirmation_id is None
+    with pytest.raises(ValueError, match="No pending confirmation"):
+        answer("must-not-be-approvable")
+
+
+def test_oversized_completed_response_is_clipped_with_metadata(
+    cobuild_env, monkeypatch
+):
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    client.conversation.next_send = FakeResponse(message="z" * 10_000)
+    start()
+
+    result = send()
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "response_too_large"
+    assert result["truncated"] is True
+    assert result["original_bytes"] > 1_000
+    assert len(result["message"]) <= cobuild._TRUNCATED_MESSAGE_CHARS
+    assert "cancelled_confirmation" not in result
+
+
+def test_oversized_result_is_bounded_before_retention(cobuild_env, monkeypatch):
+    # The bound is applied in the worker thread, before the payload is retained,
+    # so the registry never stores the oversized original and a later poll
+    # returns the same bounded payload.
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    client.conversation.next_send = FakeResponse(message="z" * 10_000)
+    start()
+
+    result = send()
+    turn_id = result["turn_id"]
+
+    retained = cobuild._turns[turn_id].result_payload
+    assert retained["error_kind"] == "response_too_large"
+    # The retained payload is the bounded one (clipped message plus metadata),
+    # never the 10 KB original.
+    assert cobuild._json_size(retained) < 4_000
+    assert poll(turn_id)["error_kind"] == "response_too_large"
 
 
 # --------------------------------------------------------------------------- #
@@ -802,3 +988,138 @@ def test_eviction_never_drops_a_conversation_with_pending_confirmation(cobuild_e
     assert "conv-0" in remaining
     assert "conv-1" not in remaining
     assert len(remaining) == cobuild._MAX_CONVERSATIONS
+
+
+def test_sweep_never_evicts_an_armed_deletion_proposal(cobuild_env):
+    """An armed needs_confirmation turn survives TTL and count sweeps.
+
+    While the proposal is armed, its settled turn is the only place the exact
+    confirmation_id (with objects_to_delete and deletion_impacts) can be
+    re-read, so the sweep pins it: neither the TTL nor 64+ newer settled turns
+    can evict it, and it stays pollable and answerable. Once answered it
+    becomes an ordinary settled turn and is sweepable again.
+    """
+    client, _ = cobuild_env
+    conversation = client.conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="keep-me-armed",
+        objects_to_delete=[{"type": "DATASET", "id": "old_output"}],
+    )
+    start()
+    proposal = send(allow_edit_project=True)
+    assert proposal["status"] == "needs_confirmation"
+    proposal_turn_id = proposal["turn_id"]
+
+    with cobuild._registry_lock:
+        # Age the armed proposal past the TTL and crowd it with 64+ newer
+        # settled turns, then sweep.
+        cobuild._turns[proposal_turn_id].settled_at = time.monotonic() - (
+            cobuild._SETTLED_TURN_TTL_SECONDS + 100
+        )
+        for i in range(cobuild._MAX_SETTLED_TURNS + 5):
+            cobuild._turns[f"t{i}"] = _make_settled_turn(f"t{i}", settled_ago=i)
+        cobuild._sweep_settled_locked(time.monotonic())
+
+    # The armed proposal survived; its exact id is still retrievable...
+    revisited = poll(proposal_turn_id)
+    assert revisited["status"] == "needs_confirmation"
+    assert revisited["confirmation_id"] == "keep-me-armed"
+
+    # ...and still answerable.
+    result = answer("keep-me-armed")
+    assert result["status"] == "completed"
+
+    # Once answered, the proposal turn is no longer pinned and sweeps normally.
+    # (The answer's own settlement sweep may already have evicted the aged turn.)
+    with cobuild._registry_lock:
+        lingering = cobuild._turns.get(proposal_turn_id)
+        if lingering is not None:
+            lingering.settled_at = time.monotonic() - (
+                cobuild._SETTLED_TURN_TTL_SECONDS + 100
+            )
+            cobuild._sweep_settled_locked(time.monotonic())
+        assert proposal_turn_id not in cobuild._turns
+
+
+# --------------------------------------------------------------------------- #
+# Conversation registry cap on the public path
+# --------------------------------------------------------------------------- #
+
+
+def test_conversation_cap_is_enforced_by_start_tool(cobuild_env, monkeypatch):
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    for _ in range(cobuild._MAX_CONVERSATIONS + 1):
+        run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+
+    with cobuild._registry_lock:
+        remaining = set(cobuild._conversations)
+    assert len(remaining) == cobuild._MAX_CONVERSATIONS
+    assert "conv-0" not in remaining  # oldest idle conversation evicted
+    assert f"conv-{cobuild._MAX_CONVERSATIONS}" in remaining  # newest kept
+
+
+def test_start_refuses_when_no_conversation_is_evictable(cobuild_env, monkeypatch):
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 2)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    for _ in range(2):
+        run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    # Arm both retained conversations: nothing is evictable now.
+    for conversation in factory.conversations:
+        conversation._pending_confirmation_id = "armed"
+
+    with pytest.raises(ValueError, match="registry is full"):
+        run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+
+    with cobuild._registry_lock:
+        assert len(cobuild._conversations) == 2  # nothing was dropped
+
+
+def test_sending_on_oldest_conversation_does_not_evict_it_mid_use(
+    cobuild_env, monkeypatch
+):
+    """Admitting a new conversation mid-turn evicts an idle entry, never the
+    conversation whose turn is in flight, even when it is the oldest."""
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 2)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+    oldest = factory.conversations[0]
+    oldest.send_release = threading.Event()
+
+    async def scenario():
+        waiting = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                "conv-0",
+                "PROJECT",
+                "use the oldest conversation",
+                DummyContext(),
+                allow_edit_project=True,
+                timeout_seconds=5,
+            )
+        )
+        while not oldest.send_started.is_set():
+            await asyncio.sleep(0.005)
+        # A third conversation is admitted while conv-0's turn is in flight:
+        # the idle conv-1 must be evicted, never the in-use conv-0.
+        await cobuild.start_cobuild_conversation("PROJECT", DummyContext())
+        oldest.send_release.set()
+        return json.loads(await waiting)
+
+    result = run(scenario())
+
+    assert result["status"] == "completed"
+    with cobuild._registry_lock:
+        remaining = set(cobuild._conversations)
+    assert "conv-0" in remaining  # in-use conversation kept
+    assert "conv-1" not in remaining  # idle one evicted instead
+    assert "conv-2" in remaining
+    assert [call["message"] for call in oldest.send_calls] == [
+        "use the oldest conversation"
+    ]
