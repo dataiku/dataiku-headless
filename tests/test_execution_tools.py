@@ -76,6 +76,12 @@ def _raw_status_with_activities(job_id, *, end_time, runtime_state, activities):
     ``activities`` is a list of ``(activity_id, state, [dataset_refs])`` — enough
     for get_job_status_full to surface per-output activity states, which
     build_datasets maps back to per-dataset outcomes.
+
+    The shape mirrors a payload captured from a live DSS 14.x DONE job:
+    ``runtimeSummary.activities`` is a list carrying state and timings but NO
+    output refs, ``baseStatus.activities`` is a dict keyed by activityId whose
+    ``statusOutputs`` is empty even when DONE, and the dataset refs live at
+    ``def.targets`` as ``{projectKey, datasetName, partitionId}`` entries.
     """
     return {
         "def": {"id": job_id},
@@ -83,7 +89,20 @@ def _raw_status_with_activities(job_id, *, end_time, runtime_state, activities):
             "jobStartTime": 100,
             "jobEndTime": end_time,
             "activities": {
-                aid: {"targets": [{"type": "DATASET", "id": ref} for ref in refs]}
+                aid: {
+                    "activityId": aid,
+                    "statusOutputs": [],
+                    "def": {
+                        "targets": [
+                            {
+                                "projectKey": "PK",
+                                "datasetName": ref,
+                                "partitionId": "NP",
+                            }
+                            for ref in refs
+                        ]
+                    },
+                }
                 for aid, _state, refs in activities
             },
         },
@@ -153,6 +172,80 @@ def test_build_datasets_wait_reports_per_dataset_outcomes():
     assert res["job_id"] == "J1"
     per = {d["dataset"]: d["state"] for d in res["per_dataset"]}
     assert per == {"a": "DONE", "b": "DONE"}
+
+
+def test_build_datasets_per_dataset_matches_live_dss_done_payload():
+    """Regression for the live-DSS activity shape (was per_dataset state null).
+
+    Verified against DSS 14.x project AAA_144D45, job
+    Build_salary_stats_global__NP__2026-07-23T21-19-33.864: the DONE job's
+    runtimeSummary activities carry no output refs, baseStatus.activities'
+    statusOutputs is empty, and the only dataset refs sit at
+    def.targets[].datasetName. The old summarizer read a top-level targets list
+    keyed by id, so every per_dataset state came back null on a DONE build.
+    """
+    job_id = "Build_salary_stats_global__NP__2026-07-23T21-19-33.864"
+    raw = {
+        "def": {"id": job_id},
+        "baseStatus": {
+            "jobStartTime": 100,
+            "jobEndTime": 200,
+            "activities": {
+                "salary_stats_by_dept_NP": {
+                    "activityId": "salary_stats_by_dept_NP",
+                    "activityType": "recipe",
+                    "recipeName": "compute_salary_stats_by_department",
+                    "state": "DONE",
+                    "statusOutputs": [],
+                    "def": {
+                        "targets": [
+                            {
+                                "projectKey": "AAA_144D45",
+                                "datasetName": "salary_stats_by_department",
+                                "partitionId": "NP",
+                            }
+                        ]
+                    },
+                }
+            },
+        },
+        "runtimeSummary": {
+            "state": "DONE",
+            "activities": [
+                {
+                    "activityId": "salary_stats_by_dept_NP",
+                    "activityType": "recipe",
+                    "engineType": "DSS",
+                    "state": "DONE",
+                    "preparingTime": 1,
+                    "runningTime": 2,
+                    "totalTime": 3,
+                    "waitingTime": 0,
+                }
+            ],
+        },
+        "initiator": {},
+    }
+    job = _job(job_id, raw)
+    builder = MagicMock()
+    builder.start.return_value = job
+    client = MagicMock()
+    client.get_project.return_value.new_job.return_value = builder
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.build_datasets(
+                "AAA_144D45",
+                FakeCtx(),
+                ["salary_stats_by_department"],
+                wait_for_completion=True,
+            )
+        )
+
+    assert res["status"] == "build_completed"
+    assert res["per_dataset"] == [
+        {"dataset": "salary_stats_by_department", "state": "DONE"}
+    ]
 
 
 def test_build_datasets_wait_timeout_returns_still_running():

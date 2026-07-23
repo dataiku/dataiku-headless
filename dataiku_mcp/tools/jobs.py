@@ -130,7 +130,9 @@ async def build_datasets(
     with wait_for_job(project_key, job_id) and inspects outcomes with
     get_job_status / get_job_log. Set wait_for_completion=true only for a short
     inline wait bounded by timeout_seconds; the wait path additionally reports
-    per-dataset outcomes derived from the job's activities. timeout_seconds is a
+    per-dataset outcomes read from the job's activities — a dataset's state is
+    null only until the activity that produces it exists, then it carries that
+    activity's state (e.g. DONE on a completed build). timeout_seconds is a
     soft deadline checked between status polls — a single hung DSS HTTP call can
     exceed it — so it never guarantees the wait returns exactly on time. If
     status polling fails after the job starts, the tool returns status
