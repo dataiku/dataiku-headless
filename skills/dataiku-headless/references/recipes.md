@@ -27,7 +27,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 ## Workflow
 
 1. Use `list_recipes` to discover recipes, then use `get_recipe_settings` to inspect a selected recipe's type, inputs, outputs, and configuration.
-2. Use `get_flow_items_in_traversal_order` only when upstream/downstream context, dependencies, or Flow placement matters.
+2. Use `get_flow_graph` only when upstream/downstream context, dependencies, or Flow placement matters.
 3. Inspect input and output datasets when schema, data shape, storage, or sample values affect the transformation.
 4. Read the matching recipe-family reference before interpreting a type-specific configuration or describing a new recipe to Cobuild.
 5. Read supporting guides when the selected recipe depends on managed folders, models, LLMs, Knowledge Banks, agents, code environments, project libraries, or connections.
@@ -63,7 +63,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 
 ## Preferred Tools
 
-- `get_flow_items_in_traversal_order`
+- `get_flow_graph`
 - `list_recipes`
 - `get_recipe_settings`
 - `list_datasets`
