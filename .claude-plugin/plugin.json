@@ -1,31 +1,16 @@
 {
-  "name": "dataiku",
+  "name": "dataiku-headless",
   "displayName": "Dataiku Headless",
   "version": "0.2.0",
-  "description": "Inspect Dataiku projects through read-only MCP tools and drive Dataiku Cobuild for project-level building — recipes, datasets, ML analyses, dashboards, agents, and more.",
+  "description": "Connect your agent to Dataiku DSS: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
   "author": {
-    "name": "Dataiku"
+    "name": "Dataiku",
+    "url": "https://www.dataiku.com/"
   },
   "homepage": "https://github.com/dataiku/dku-headless",
   "repository": "https://github.com/dataiku/dku-headless",
   "license": "Apache-2.0",
-  "keywords": ["dataiku", "dss", "mcp", "cobuild", "agent"],
-  "userConfig": {
-    "dss_url": {
-      "type": "string",
-      "title": "DSS URL",
-      "description": "Your Dataiku DSS instance URL, for example https://dss.example.com",
-      "required": true
-    },
-    "api_key": {
-      "type": "string",
-      "title": "DSS personal API key",
-      "description": "A personal API key created in Dataiku DSS",
-      "sensitive": true,
-      "required": true
-    }
-  },
-  "skills": "./dataiku-skills/",
+  "keywords": ["dataiku", "dss", "cobuild"],
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
@@ -33,8 +18,11 @@
       "args": ["${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.sh"],
       "env": {
         "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv",
-        "DKU_DSS_URL": "${user_config.dss_url}",
-        "DKU_API_KEY": "${user_config.api_key}"
+        "DKU_INSTANCE_NAME": "${DKU_INSTANCE_NAME:-}",
+        "DKU_DSS_URL": "${DKU_DSS_URL:-}",
+        "DKU_API_KEY": "${DKU_API_KEY:-}",
+        "DKU_NO_CHECK_CERTIFICATE": "${DKU_NO_CHECK_CERTIFICATE:-}",
+        "DKU_CONFIG_FILE": "${DKU_CONFIG_FILE:-}"
       }
     }
   }
