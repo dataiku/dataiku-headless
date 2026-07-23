@@ -53,6 +53,7 @@ async def create_project(
     name: str,
     ctx: Context,
     short_desc: str = "",
+    folder_id: str = "",
 ) -> str:
     """Create a new project on the Dataiku instance."""
     project_key = _require_non_empty_string(project_key, "project_key")
@@ -63,8 +64,29 @@ async def create_project(
         client = get_dss_client()
         auth_info = client.get_auth_info()
         owner = auth_info.get("authIdentifier", "")
-        client.create_project(project_key, name, owner=owner, description=short_desc)
-        return omit_empty({"projectKey": project_key, "name": name, "owner": owner})
+        normalized_folder_id = folder_id.strip()
+        if not normalized_folder_id:
+            client.create_project(project_key, name, owner=owner, description=short_desc)
+            return omit_empty({"projectKey": project_key, "name": name, "owner": owner})
+
+        folder = client.get_project_folder(
+            _require_non_empty_string(normalized_folder_id, "folder_id")
+        )
+        folder.create_project(project_key, name, owner)
+        project = client.get_project(project_key)
+        metadata = project.get_metadata()
+        if short_desc:
+            metadata["shortDesc"] = short_desc
+            project.set_metadata(metadata)
+        return omit_empty(
+            {
+                "projectKey": project_key,
+                "name": name,
+                "owner": owner,
+                "folder_id": folder.id,
+                "folder_path": folder.get_path(),
+            }
+        )
 
     return compact_json(await run_blocking(_run))
 
