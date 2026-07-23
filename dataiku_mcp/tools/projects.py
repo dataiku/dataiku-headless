@@ -12,16 +12,7 @@ from .utils.validation import (
 )
 
 
-@mcp.tool(
-    title="Count projects",
-    annotations={
-        "title": "Count projects",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
+@mcp.tool()
 async def count_projects(ctx: Context) -> str:
     """Count projects on the Dataiku instance without listing project metadata."""
     await ctx.info("Counting Dataiku projects...")
