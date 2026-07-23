@@ -185,12 +185,21 @@ async def build_datasets(
             "before retrying because the start request may have reached DSS."
         ) from exc
 
+    # Capture the job id once, defensively, the moment the handle exists. The SDK
+    # reads .id straight from the raw payload, so a partial payload can make it
+    # raise; nothing below reads job.id again, so no post-start return (including
+    # the except handler) can escape and lose the identity to transport masking.
+    try:
+        job_id = job.id
+    except Exception:
+        job_id = None
+
     if not wait_for_completion:
         return compact_json(
             {
                 "status": "build_started",
                 "project_key": project_key,
-                "job_id": job.id,
+                "job_id": job_id,
                 "datasets": names,
                 "hint": (
                     "Build started. Wait explicitly with "
@@ -213,7 +222,7 @@ async def build_datasets(
             {
                 "status": "build_poll_failed",
                 "project_key": project_key,
-                "job_id": job.id,
+                **({"job_id": job_id} if job_id is not None else {}),
                 "datasets": names,
                 "error_type": type(exc).__name__,
                 "error": _safe_error_text(exc),
@@ -231,7 +240,7 @@ async def build_datasets(
             {
                 "status": "build_still_running",
                 "project_key": project_key,
-                "job_id": job.id,
+                "job_id": job_id,
                 "datasets": names,
                 "per_dataset": per_dataset,
                 "status_summary": status_summary,
@@ -253,7 +262,7 @@ async def build_datasets(
         {
             "status": top_level_status,
             "project_key": project_key,
-            "job_id": job.id,
+            "job_id": job_id,
             "datasets": names,
             "per_dataset": per_dataset,
             "status_summary": status_summary,
@@ -342,13 +351,22 @@ async def run_recipe(
             "reached DSS."
         ) from exc
 
+    # Capture the job id once, defensively, the moment the handle exists. The SDK
+    # reads .id straight from the raw payload, so a partial payload can make it
+    # raise; nothing below reads job.id again, so no post-start return (including
+    # the except handler) can escape and lose the identity to transport masking.
+    try:
+        job_id = job.id
+    except Exception:
+        job_id = None
+
     if not wait_for_completion:
         return compact_json(
             {
                 "status": "recipe_run_started",
                 "project_key": project_key,
                 "recipe": recipe_name,
-                "job_id": job.id,
+                "job_id": job_id,
                 "hint": (
                     "Recipe run started. Wait explicitly with "
                     "wait_for_job(project_key, job_id, timeout_seconds=...) or poll "
@@ -371,7 +389,7 @@ async def run_recipe(
                 "status": "recipe_poll_failed",
                 "project_key": project_key,
                 "recipe": recipe_name,
-                "job_id": job.id,
+                **({"job_id": job_id} if job_id is not None else {}),
                 "error_type": type(exc).__name__,
                 "error": _safe_error_text(exc),
                 "hint": (
@@ -387,7 +405,7 @@ async def run_recipe(
                 "status": "recipe_run_still_running",
                 "project_key": project_key,
                 "recipe": recipe_name,
-                "job_id": job.id,
+                "job_id": job_id,
                 "status_summary": status_summary,
                 "hint": (
                     "Do not start another build for this recipe or its outputs while "
@@ -409,7 +427,7 @@ async def run_recipe(
             "status_summary": status_summary,
             "project_key": project_key,
             "recipe": recipe_name,
-            "job_id": job.id,
+            "job_id": job_id,
         }
     )
 

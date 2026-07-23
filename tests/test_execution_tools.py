@@ -384,6 +384,61 @@ def test_run_recipe_poll_failure_returns_structured_job_identity():
     assert "do not run the recipe again" in res["hint"]
 
 
+class _HostileJobHandle:
+    """A job handle whose .id raises, as a partial DSS payload would.
+
+    The SDK reads the id straight from the raw payload, so a truncated handle
+    makes ``.id`` raise. Combined with a failing poll, the old code read
+    ``job.id`` again inside the except block and escaped, losing the identity.
+    """
+
+    @property
+    def id(self):
+        raise KeyError("jobId")
+
+    def get_status(self):
+        raise ConnectionError("status link dropped")
+
+
+def test_build_datasets_poll_failure_with_hostile_handle_stays_structured():
+    job = _HostileJobHandle()
+    builder = MagicMock()
+    builder.start.return_value = job
+    client = MagicMock()
+    client.get_project.return_value.new_job.return_value = builder
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.build_datasets("PK", FakeCtx(), ["a"], wait_for_completion=True)
+        )
+
+    # .id is unreadable and polling failed: the tool must still RETURN its
+    # structured payload (never raise into transport masking). job_id is absent
+    # because it was never readable, but the outcome is identified and the
+    # datasets echoed so the caller does not blindly rebuild.
+    assert res["status"] == "build_poll_failed"
+    assert "job_id" not in res
+    assert res["datasets"] == ["a"]
+    assert res["error_type"] == "ConnectionError"
+
+
+def test_run_recipe_poll_failure_with_hostile_handle_stays_structured():
+    project = _recipe_project([{"type": "COMPUTABLE_DATASET", "ref": "out_ds"}])
+    project.new_job.return_value.start.return_value = _HostileJobHandle()
+    client = MagicMock()
+    client.get_project.return_value = project
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(
+            jobs.run_recipe("PK", "my_recipe", FakeCtx(), wait_for_completion=True)
+        )
+
+    assert res["status"] == "recipe_poll_failed"
+    assert "job_id" not in res
+    assert res["recipe"] == "my_recipe"
+    assert res["error_type"] == "ConnectionError"
+
+
 # --------------------------------------------------------------------------- #
 # run_recipe
 # --------------------------------------------------------------------------- #
@@ -730,13 +785,30 @@ def test_get_scenario_run_history_tolerates_string_trigger_fire():
     assert row["trigger_type"] is None
 
 
-def test_get_scenario_run_history_tolerates_string_inner_trigger():
-    # The fire record is a dict but its nested trigger definition is a string:
-    # keep the fire id, null the trigger type.
+def test_get_scenario_run_history_keeps_valid_fire_id_with_string_inner_trigger():
+    # The fire record is a dict with a valid scalar runId, but its nested trigger
+    # DEFINITION is a bare string. The contract keeps the usable fire id (it is
+    # the identity needed for correlation) and only nulls the trigger type. A
+    # valid fire id is never discarded because a sibling field is malformed.
     row = _history_row_for_trigger_shape({"runId": "TRIG-S", "trigger": "manual"})
     assert row["run_id"] == "RUN-SHAPE"
     assert row["trigger_fire_id"] == "TRIG-S"
     assert row["trigger_type"] is None
+
+
+def test_get_scenario_run_history_nulls_non_scalar_fire_id():
+    # runId itself is a non-scalar (a dict here, a list is equivalent): it is not
+    # a usable fire id, so the contract nulls it rather than emitting a structure.
+    row = _history_row_for_trigger_shape({"runId": {"nested": "x"}, "trigger": {}})
+    assert row["run_id"] == "RUN-SHAPE"
+    assert row["trigger_fire_id"] is None
+
+
+def test_get_scenario_run_history_scalar_int_fire_id_is_kept():
+    # An integer runId is still a valid scalar identity and is kept as-is.
+    row = _history_row_for_trigger_shape({"runId": 4242, "trigger": {"type": "manual"}})
+    assert row["trigger_fire_id"] == 4242
+    assert row["trigger_type"] == "manual"
 
 
 class _UnformattableError(Exception):

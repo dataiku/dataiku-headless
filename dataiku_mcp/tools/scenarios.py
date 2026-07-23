@@ -296,7 +296,18 @@ async def get_scenario_run_history(
     ctx: Context,
     limit: int = 10,
 ) -> str:
-    """Get the last runs of a scenario."""
+    """Get the last runs of a scenario.
+
+    Each row carries the run's trigger-fire identity for correlation. The rule,
+    applied per row so a malformed record never crashes the read: trigger_fire_id
+    is the fire record's runId only when runId is a present scalar (str/int), else
+    null; trigger_type is the inner trigger's type only when that inner trigger is
+    a mapping, else null. A present, valid runId is a real fire id and is never
+    discarded (even when its sibling trigger definition is a bare string); an
+    absent or non-scalar runId is always null. A caller left holding only a
+    trigger_fire_id (a run_scenario timeout before DSS materialized the run) can
+    match it against this column to find the run its trigger produced.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     limit = min(_require_positive_int(limit, "limit"), 50)
@@ -316,13 +327,19 @@ async def get_scenario_run_history(
             # trigger fire id (what run_scenario returns as trigger_fire_id),
             # not a scenario run id. Exposing it lets a caller who only holds a
             # trigger_fire_id correlate their trigger with the run it produced.
-            # Both levels are shape-checked: DSS can put non-mapping values here
-            # (e.g. a bare string), and a malformed record must yield null
-            # trigger fields, never a crash or a fabricated id.
+            # Shape rule (see the docstring): keep a present scalar runId as the
+            # fire id, null a non-scalar or absent one; read trigger_type only
+            # from a mapping inner trigger. A bare-string trigger record yields
+            # null fire id; a valid fire id is never discarded just because its
+            # sibling trigger definition is malformed. Never crash, never
+            # fabricate an id.
             raw_trigger_fire = info.get("trigger")
             trigger_fire = (
                 raw_trigger_fire if isinstance(raw_trigger_fire, dict) else {}
             )
+            fire_id = trigger_fire.get("runId")
+            if isinstance(fire_id, bool) or not isinstance(fire_id, (str, int)):
+                fire_id = None
             raw_trigger = trigger_fire.get("trigger")
             trigger = raw_trigger if isinstance(raw_trigger, dict) else {}
             summaries.append(
@@ -333,7 +350,7 @@ async def get_scenario_run_history(
                     "start": info.get("start"),
                     "end": result.get("endTime"),
                     "trigger_type": trigger.get("type"),
-                    "trigger_fire_id": trigger_fire.get("runId"),
+                    "trigger_fire_id": fire_id,
                 }
             )
         return summaries
