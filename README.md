@@ -27,7 +27,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, flow, connections, datasets, Data Quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
@@ -41,7 +41,7 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 `dataiku-skills` exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `dataiku-skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
-The reference library covers the main Dataiku object areas and workflows, including projects, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
+The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
 ## Install
 
@@ -142,6 +142,7 @@ dataiku-headless
 │   │   ├── jobs.py            # Async job status/log/wait tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
+│   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection tools + create_project write
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
 │   │   ├── semantic_models.py # Semantic model inspection tools
@@ -160,6 +161,7 @@ dataiku-headless
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
 │       └── references/
 │           ├── cobuild.md          # Default in-project write path via Cobuild
+│           ├── project-folders.md  # Project folder hierarchy inspection and organization
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
 │           ├── datasets.md         # Dataset inspection/profiling + Uploaded Files direct-write exception
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
