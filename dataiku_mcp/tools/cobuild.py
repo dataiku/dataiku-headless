@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import logging
@@ -105,13 +105,15 @@ class _CobuildConversationEntry:
     # True once the latest turn's id has been delivered to a client through the
     # public surface (the awaited send/answer returned a terminal, timeout, or
     # busy payload, or get_cobuild_turn_status returned this turn). While False,
-    # the conversation is never cap-evicted: evicting it would make an accepted,
-    # unobserved mutation undiscoverable.
+    # the conversation is never cap-evicted AND its latest settled turn is never
+    # swept, so an accepted, unobserved mutation is always rediscoverable.
     last_turn_observed: bool = False
-    # Number of in-flight tool requests that resolved this entry and are about
-    # to start a turn on it. While positive the entry is never evicted, closing
-    # the window between resolution and turn activation.
-    admission_pins: int = 0
+    # Pin tokens held by in-flight tool requests that resolved this entry and
+    # are about to start a turn on it. While non-empty the entry is never
+    # evicted, closing the window between resolution and turn activation. Tokens
+    # (not a counter) make release idempotent and cancellation-safe: a cancelled
+    # request removes exactly its own token in a finally, never another's.
+    admission_pins: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -196,19 +198,11 @@ def _resolve_conversation_entry(
     conversation_id: str,
     project_key: str,
     instance_name: str,
-    *,
-    pin: bool = False,
 ) -> _CobuildConversationEntry:
     """Look up a process-local conversation handle and check ownership.
 
     There is no durable store to rehydrate from: an unknown id means the
     conversation was never started in this process (or the process restarted).
-
-    With ``pin=True`` the entry is marked in-admission inside the same lock
-    acquisition that resolves it, so a concurrent creation cannot evict it in
-    the gap between resolution and turn activation. The caller must release
-    the pin with ``_unpin_entry`` once the turn is active or the attempt
-    failed.
     """
     with _registry_lock:
         entry = _conversations.get(conversation_id)
@@ -224,15 +218,30 @@ def _resolve_conversation_entry(
             project_key=project_key,
             instance_name=instance_name,
         )
-        if pin:
-            entry.admission_pins += 1
     return entry
 
 
-def _unpin_entry(entry: _CobuildConversationEntry) -> None:
+def _pin_entry(entry: _CobuildConversationEntry, conversation_id: str) -> str:
+    """Pin an entry against cap eviction while a tool request drives it.
+
+    Taken synchronously on the caller's thread immediately after resolution,
+    with no ``await`` in between, so a cancelled request can never leak a pin:
+    either the pin was never taken, or the caller's ``finally`` releases it.
+    Returns a unique token; the caller releases it with ``_release_pin``.
+    """
+    token = uuid.uuid4().hex
     with _registry_lock:
-        if entry.admission_pins > 0:
-            entry.admission_pins -= 1
+        entry.admission_pins.add(token)
+        # If a concurrent creation evicted this entry in the microscopic gap
+        # between resolution and this pin, put the now-pinned in-use entry back:
+        # it is active work, not an idle handle to be dropped.
+        _conversations.setdefault(conversation_id, entry)
+    return token
+
+
+def _release_pin(entry: _CobuildConversationEntry, token: str) -> None:
+    with _registry_lock:
+        entry.admission_pins.discard(token)
 
 
 def _mark_turn_observed(turn: _RetainedTurn) -> None:
@@ -267,6 +276,71 @@ def _require_pending_confirmation(conversation: object, confirmation_id: str) ->
 
 def _json_size(payload: dict) -> int:
     return len(json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"))
+
+
+_HISTORY_TRUNCATION_MARKER = "[cobuild: content truncated to bound retained memory]"
+
+
+def _history_entry_size(entry: object) -> int:
+    """Serialized byte size of one SDK history entry, tolerant of any shape."""
+    try:
+        return len(
+            json.dumps(entry, separators=(",", ":"), default=str).encode("utf-8")
+        )
+    except BaseException:
+        try:
+            return len(str(entry).encode("utf-8"))
+        except BaseException:
+            return 0
+
+
+def _truncated_history_entry(entry: object) -> object:
+    """Bounded replacement for one oversized retained history entry."""
+    if isinstance(entry, dict):
+        pruned: dict = {}
+        for key, value in entry.items():
+            if isinstance(value, str) and len(value) > _TRUNCATED_MESSAGE_CHARS:
+                pruned[key] = value[:_TRUNCATED_MESSAGE_CHARS] + _HISTORY_TRUNCATION_MARKER
+            elif isinstance(value, (str, int, float, bool)) or value is None:
+                pruned[key] = value
+            else:
+                # A nested container that may itself be large: drop its content.
+                pruned[key] = _HISTORY_TRUNCATION_MARKER
+        if _history_entry_size(pruned) <= _MAX_TERMINAL_RESULT_BYTES:
+            return pruned
+    return {"cobuild_truncated": True, "note": _HISTORY_TRUNCATION_MARKER}
+
+
+def _prune_conversation_history(conversation: object) -> None:
+    """Best-effort bound on the SDK conversation's retained message history.
+
+    The DSS SDK appends each full response to a private message list before this
+    module bounds its own payload, so an oversized response would otherwise be
+    retained in full and repeated large turns would grow memory without bound.
+    Any retained entry whose serialized size exceeds the terminal bound has its
+    bulky content replaced with a truncation marker. This touches an SDK-private
+    attribute, so every step is guarded: a missing or renamed attribute, or an
+    unexpected entry shape, is tolerated and never crashes the turn.
+    """
+    try:
+        messages = getattr(conversation, "_messages", None)
+    except BaseException:
+        return
+    if not isinstance(messages, list):
+        return
+    for index in range(len(messages)):
+        try:
+            if _history_entry_size(messages[index]) <= _MAX_TERMINAL_RESULT_BYTES:
+                continue
+            messages[index] = _truncated_history_entry(messages[index])
+        except BaseException:
+            try:
+                messages[index] = {
+                    "cobuild_truncated": True,
+                    "note": _HISTORY_TRUNCATION_MARKER,
+                }
+            except BaseException:
+                return
 
 
 def _bounded_replacement(payload: dict) -> dict:
@@ -308,14 +382,12 @@ def _bound_terminal_payload(payload: dict, entry: _CobuildConversationEntry) -> 
         return payload
     if payload.get("status") == "needs_confirmation":
         # Actually cancel the proposal in DSS (the same SDK call that
-        # answer_cobuild_confirmation uses) while it is still pending, then
-        # disarm it locally regardless of the outcome.
+        # answer_cobuild_confirmation uses) while it is still pending.
         cancel_error = None
         try:
             entry.conversation.answer_confirmation("CANCEL")
         except BaseException as exc:
             cancel_error = str(exc) or type(exc).__name__
-        entry.conversation._pending_confirmation_id = None
         replacement = {
             "status": "error",
             "error_kind": "response_too_large",
@@ -324,14 +396,39 @@ def _bound_terminal_payload(payload: dict, entry: _CobuildConversationEntry) -> 
             "original_bytes": original_bytes,
         }
         if cancel_error is None:
-            replacement["cancelled_confirmation"] = True
-            replacement["message"] = (
-                "Cobuild returned a deletion proposal too large to show "
-                "completely. It was not armed for approval and its pending "
-                "confirmation was cancelled in DSS. Narrow the requested "
-                "deletion and ask Cobuild to propose it again."
-            )
+            # Re-read the SDK's actual pending state rather than forcing None: a
+            # CANCEL can itself return a new (successor) confirmation request,
+            # which the SDK records as the new pending id. Never erase a
+            # legitimate successor.
+            successor = getattr(entry.conversation, "_pending_confirmation_id", None)
+            if successor:
+                replacement.update(
+                    {
+                        "successor_confirmation_pending": True,
+                        "pending_confirmation_id": str(successor),
+                        "message": (
+                            "Cobuild returned a deletion proposal too large to "
+                            "show completely; it was cancelled in DSS, but "
+                            "cancelling it raised a new confirmation request now "
+                            "pending (pending_confirmation_id). Inspect it, then "
+                            "answer that exact id, or start a new conversation. "
+                            "Narrow the requested deletion before proposing "
+                            "again."
+                        ),
+                    }
+                )
+            else:
+                replacement["cancelled_confirmation"] = True
+                replacement["message"] = (
+                    "Cobuild returned a deletion proposal too large to show "
+                    "completely. It was not armed for approval and its pending "
+                    "confirmation was cancelled in DSS. Narrow the requested "
+                    "deletion and ask Cobuild to propose it again."
+                )
         else:
+            # Cancel failed: reject the oversized id locally so it cannot be
+            # approved, and report the honest server-side state.
+            entry.conversation._pending_confirmation_id = None
             replacement.update(
                 {
                     "confirmation_disarmed_locally": True,
@@ -385,15 +482,24 @@ def _response_payload(turn: _RetainedTurn, response) -> dict:
             turn.entry.conversation, "_pending_confirmation_id", None
         )
         if not confirmation_id:
-            return {
-                **payload,
-                "status": "error",
-                "error_kind": "missing_confirmation_id",
-                "message": (
-                    "Cobuild requested deletion confirmation without a server id; "
-                    "the proposal was not armed for approval."
+            # Route through the same size bound as every other terminal payload,
+            # so a pathological conversation_id on this path cannot escape the
+            # ceiling. The status is "error", not "needs_confirmation", so the
+            # bound treats it as an ordinary oversized response.
+            return _bound_terminal_payload(
+                omit_empty(
+                    {
+                        **payload,
+                        "status": "error",
+                        "error_kind": "missing_confirmation_id",
+                        "message": (
+                            "Cobuild requested deletion confirmation without a "
+                            "server id; the proposal was not armed for approval."
+                        ),
+                    }
                 ),
-            }
+                turn.entry,
+            )
         payload.update(
             {
                 "status": "needs_confirmation",
@@ -470,6 +576,10 @@ def _run_turn_thread(turn: _RetainedTurn) -> None:
         payload = _execute_turn(turn)
     except BaseException as exc:  # daemon worker must never surface a raw error
         payload = _exception_payload(turn, exc)
+    # Bound the SDK conversation's retained history off the event loop, before
+    # the result is delivered, so repeated oversized turns cannot grow memory
+    # without bound. Best-effort and self-guarded; never fails the turn.
+    _prune_conversation_history(turn.entry.conversation)
     turn.future.set_result(payload)
 
 
@@ -520,12 +630,27 @@ def _turn_is_pinned(turn: _RetainedTurn) -> bool:
     return bool(pending) and str(pending) == str(payload.get("confirmation_id"))
 
 
+def _turn_is_unobserved_last(turn: _RetainedTurn) -> bool:
+    """True for a conversation's latest turn whose result no client has seen.
+
+    Sweeping such a turn would make an accepted, unobserved mutation
+    undiscoverable: the listing would show a ``last_turn_id`` that polling then
+    reports as unknown. It is exempt from the TTL and count sweep until observed
+    through any public poll. This is bounded: at most one unobserved latest turn
+    per conversation, and conversations are capped, so it cannot grow without
+    bound. Once observed, the turn sweeps normally.
+    """
+    entry = turn.entry
+    return entry.last_turn_id == turn.turn_id and not entry.last_turn_observed
+
+
 def _sweep_settled_locked(now: float) -> None:
     """Evict finalized turns by TTL and count; a running turn keeps its slot.
 
-    Pinned turns (armed deletion proposals) are excluded from both the TTL and
-    the count, so the ``_MAX_SETTLED_TURNS`` cap applies to unpinned settled
-    turns only and an armed proposal can never be aged or crowded out.
+    Pinned turns (armed deletion proposals) and a conversation's still-unobserved
+    latest turn are excluded from both the TTL and the count, so the
+    ``_MAX_SETTLED_TURNS`` cap applies to ordinary settled turns only and neither
+    an armed proposal nor an undelivered result can be aged or crowded out.
     """
     settled = [
         turn
@@ -533,6 +658,7 @@ def _sweep_settled_locked(now: float) -> None:
         if turn.result_payload is not None
         and turn.settled_at is not None
         and not _turn_is_pinned(turn)
+        and not _turn_is_unobserved_last(turn)
     ]
     settled.sort(key=lambda turn: turn.settled_at or 0)
     remove = {
@@ -556,7 +682,7 @@ def _conversation_is_evictable(entry: _CobuildConversationEntry) -> bool:
     or the latest turn's id has never been delivered to a client (evicting it
     would make an accepted, unobserved mutation undiscoverable).
     """
-    if entry.admission_pins > 0:
+    if entry.admission_pins:
         return False
     active_id = entry.active_turn_id
     if active_id is not None:
@@ -604,30 +730,48 @@ _reserved_conversation_slots = 0
 
 
 def _reserve_conversation_slot_locked() -> None:
-    """Enforce the registry cap BEFORE any remote conversation is created.
+    """Check feasibility and reserve a slot BEFORE the remote conversation is
+    created, without evicting anything yet.
 
-    Runs the eviction/refusal decision and reserves a slot under the lock, so a
-    refusal never leaks a server-side DSS conversation and concurrent creations
-    cannot over-admit. The caller must later insert the conversation and call
-    ``_release_conversation_slot_locked`` (also on failure).
+    A refusal therefore never leaks a server-side DSS conversation, and because
+    no local entry is evicted until the remote creation succeeds
+    (``_commit_created_conversation_locked``), a failed creation never drops an
+    existing conversation. The reservation counter keeps concurrent creations
+    from over-admitting: each reservation requires its own distinct evictable
+    victim. The caller must always ``_release_conversation_slot_locked``.
     """
     global _reserved_conversation_slots
     occupied = len(_conversations) + _reserved_conversation_slots
     if occupied >= _MAX_CONVERSATIONS:
-        _evict_conversations_locked(
-            target_len=max(0, _MAX_CONVERSATIONS - 1 - _reserved_conversation_slots)
+        needed = occupied - _MAX_CONVERSATIONS + 1
+        evictable = sum(
+            1 for entry in _conversations.values() if _conversation_is_evictable(entry)
         )
-        occupied = len(_conversations) + _reserved_conversation_slots
-    if occupied >= _MAX_CONVERSATIONS:
-        raise ValueError(
-            f"The Cobuild conversation registry is full ({_MAX_CONVERSATIONS}) "
-            "and every retained conversation has a turn in flight, an armed "
-            "deletion confirmation, or an undelivered latest turn result. "
-            "Answer or cancel pending confirmations, poll undelivered turns "
-            "with get_cobuild_turn_status, or wait for running turns to "
-            "settle, then retry. No conversation was created in DSS."
-        )
+        if evictable < needed:
+            raise ValueError(
+                f"The Cobuild conversation registry is full "
+                f"({_MAX_CONVERSATIONS}) and every retained conversation has a "
+                "turn in flight, an armed deletion confirmation, or an "
+                "undelivered latest turn result. Answer or cancel pending "
+                "confirmations, poll undelivered turns with "
+                "get_cobuild_turn_status, or wait for running turns to settle, "
+                "then retry. No conversation was created in DSS."
+            )
     _reserved_conversation_slots += 1
+
+
+def _commit_created_conversation_locked(
+    conversation_id: str, entry: _CobuildConversationEntry
+) -> None:
+    """Insert a freshly created conversation, evicting to honor the cap.
+
+    Called only after the remote conversation exists, so no local entry is ever
+    dropped for a creation that failed. Feasibility was already checked at
+    reservation time, so an evictable victim exists when one is needed.
+    """
+    if len(_conversations) >= _MAX_CONVERSATIONS:
+        _evict_conversations_locked(target_len=_MAX_CONVERSATIONS - 1)
+    _conversations[conversation_id] = entry
 
 
 def _release_conversation_slot_locked() -> None:
@@ -789,8 +933,10 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
     def _run():
-        # Admission (eviction or refusal) happens BEFORE the SDK call, so a
-        # refused creation never leaks a server-side DSS conversation.
+        # Feasibility check and slot reservation happen BEFORE the SDK call, so
+        # a refused creation never leaks a server-side DSS conversation. No
+        # existing entry is evicted here: eviction is deferred to commit, after
+        # the remote conversation exists, so a failed creation never drops one.
         with _registry_lock:
             _reserve_conversation_slot_locked()
         try:
@@ -804,7 +950,9 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
                 created_at=created_at,
             )
             with _registry_lock:
-                _conversations[conversation.conversation_id] = entry
+                _commit_created_conversation_locked(
+                    conversation.conversation_id, entry
+                )
             return {
                 "conversation_id": conversation.conversation_id,
                 "instance_name": instance_name,
@@ -840,15 +988,13 @@ async def send_cobuild_message(
     message = _require_non_empty_string(message, "message")
     timeout_seconds = _validate_timeout(timeout_seconds)
     instance_name, client = _capture_binding()
-    # pin=True marks the entry in-admission inside the resolve lock, so a
-    # concurrent creation cannot evict it before the turn is marked active.
     entry = await run_blocking(
-        _resolve_conversation_entry,
-        conversation_id,
-        project_key,
-        instance_name,
-        pin=True,
+        _resolve_conversation_entry, conversation_id, project_key, instance_name
     )
+    # Pin synchronously, with no await between resolve and pin, then hold it
+    # across the turn's activation. A cancelled request releases the exact pin
+    # token in the finally, so cancellation can never leak a pin.
+    pin_token = _pin_entry(entry, conversation_id)
     try:
         await ctx.info(f"Starting Cobuild turn for conversation {conversation_id}...")
         turn = await run_blocking(
@@ -868,7 +1014,7 @@ async def send_cobuild_message(
             _saturated_payload(conversation_id, exc.capacity, verb="started")
         )
     finally:
-        _unpin_entry(entry)
+        _release_pin(entry, pin_token)
     return compact_json(await _wait_for_turn(turn, timeout_seconds))
 
 
@@ -897,15 +1043,13 @@ async def answer_cobuild_confirmation(
     if choice not in {"APPROVE", "CANCEL"}:
         raise ValueError("choice must be 'APPROVE' or 'CANCEL'")
     instance_name, client = _capture_binding()
-    # pin=True marks the entry in-admission inside the resolve lock, so a
-    # concurrent creation cannot evict it before the turn is marked active.
     entry = await run_blocking(
-        _resolve_conversation_entry,
-        conversation_id,
-        project_key,
-        instance_name,
-        pin=True,
+        _resolve_conversation_entry, conversation_id, project_key, instance_name
     )
+    # Pin synchronously, with no await between resolve and pin, then hold it
+    # across the turn's activation. A cancelled request releases the exact pin
+    # token in the finally, so cancellation can never leak a pin.
+    pin_token = _pin_entry(entry, conversation_id)
     try:
         await ctx.info(
             f"Answering Cobuild confirmation for conversation {conversation_id} "
@@ -929,7 +1073,7 @@ async def answer_cobuild_confirmation(
             _saturated_payload(conversation_id, exc.capacity, verb="answered")
         )
     finally:
-        _unpin_entry(entry)
+        _release_pin(entry, pin_token)
     return compact_json(await _wait_for_turn(turn, timeout_seconds))
 
 

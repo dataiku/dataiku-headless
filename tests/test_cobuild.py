@@ -50,6 +50,8 @@ class FakeConversation:
         self.conversation_id = conversation_id
         self.client = None
         self._pending_confirmation_id = None
+        # Mimics the SDK's private, unbounded retained message history.
+        self._messages = []
         self.send_calls = []
         self.answer_calls = []
         self.next_send = FakeResponse()
@@ -70,6 +72,12 @@ class FakeConversation:
         self.send_started.set()
         if self.send_release is not None:
             self.send_release.wait(timeout=5)
+        # The SDK appends the full request and response to its history before
+        # this module bounds its own payload.
+        self._messages.append({"role": "user", "content": message})
+        self._messages.append(
+            {"role": "assistant", "content": self.next_send.message}
+        )
         self._pending_confirmation_id = self.next_send.confirmation_id
         return self.next_send
 
@@ -841,6 +849,126 @@ def test_oversized_proposal_reports_honestly_when_dss_cancel_fails(
         answer("stuck-server-side")
 
 
+def test_oversized_proposal_cancel_that_raises_a_successor_reflects_it(
+    cobuild_env, monkeypatch
+):
+    """A CANCEL whose response is itself a new confirmation must not be erased.
+
+    The oversized proposal is cancelled, but the successor the SDK now holds is
+    surfaced (pending_confirmation_id) instead of claiming a clean cancellation,
+    and it stays armed on the conversation.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    conversation = client.conversation
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="oversized-proposal",
+        objects_to_delete=[{"id": "x" * 10_000}],
+    )
+    # The CANCEL response is itself a fresh, smaller confirmation request.
+    conversation.next_answer = FakeResponse(
+        response_type="delete_confirmation_request",
+        confirmation_id="successor-proposal",
+    )
+    start()
+
+    result = send(allow_edit_project=True)
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "response_too_large"
+    assert result["successor_confirmation_pending"] is True
+    assert result["pending_confirmation_id"] == "successor-proposal"
+    # It does not falsely claim a clean cancellation.
+    assert "cancelled_confirmation" not in result
+    # The successor stays armed on the conversation and remains answerable.
+    assert conversation._pending_confirmation_id == "successor-proposal"
+    with pytest.raises(ValueError, match="does not match"):
+        answer("oversized-proposal")
+
+
+def test_missing_confirmation_id_path_is_bounded_with_pathological_id(
+    cobuild_env, monkeypatch
+):
+    """The null-id confirmation branch must respect the ceiling too."""
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 1_000)
+    client, _ = cobuild_env
+    huge_id = "c" * 600_000
+    conversation = client.conversation
+    conversation.conversation_id = huge_id
+    conversation.next_send = FakeResponse(
+        response_type="delete_confirmation_request",
+        objects_to_delete=[{"type": "DATASET", "id": "old_output"}],
+    )
+    conversation.next_send.is_confirmation_request = True
+    start()
+
+    result = json.loads(
+        run(cobuild.send_cobuild_message(huge_id, "PROJECT", "go", DummyContext()))
+    )
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "response_too_large"
+    retained = next(iter(cobuild._turns.values())).result_payload
+    assert cobuild._json_size(retained) <= 1_000
+    assert cobuild._json_size(result) <= 1_000
+    assert conversation._pending_confirmation_id is None
+
+
+def test_repeated_oversized_turns_keep_retained_history_bounded(
+    cobuild_env, monkeypatch
+):
+    """The SDK conversation object must not accumulate full oversized responses.
+
+    Several large turns on one conversation each get pruned, so no retained
+    history entry exceeds the terminal bound and the footprint stays bounded.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_TERMINAL_RESULT_BYTES", 2_000)
+    client, _ = cobuild_env
+    conversation = client.conversation
+    start()
+
+    for _ in range(5):
+        conversation.next_send = FakeResponse(message="z" * 50_000)
+        result = send()
+        assert result["error_kind"] == "response_too_large"
+
+    # History is still retained, but every entry is bounded and the total is
+    # nowhere near five full 50 KB responses.
+    assert conversation._messages
+    assert all(
+        cobuild._history_entry_size(entry) <= cobuild._MAX_TERMINAL_RESULT_BYTES
+        for entry in conversation._messages
+    )
+    total = sum(cobuild._history_entry_size(entry) for entry in conversation._messages)
+    assert total < 5 * 50_000
+
+
+def test_history_pruning_tolerates_a_missing_messages_attribute(cobuild_env):
+    # A conversation object without the SDK-private list must never crash a turn.
+    class BareConversation:
+        conversation_id = "bare-1"
+        client = None
+        _pending_confirmation_id = None
+
+        def send_message(self, message, *, allow_edit_project=False):
+            return FakeResponse(message="ok")
+
+    cobuild._prune_conversation_history(BareConversation())  # no raise
+    entry = cobuild._CobuildConversationEntry(
+        instance_name="instance-a",
+        project_key="PROJECT",
+        conversation=BareConversation(),
+        created_at="now",
+    )
+    with cobuild._registry_lock:
+        cobuild._conversations["bare-1"] = entry
+    result = json.loads(
+        run(cobuild.send_cobuild_message("bare-1", "PROJECT", "go", DummyContext()))
+    )
+    assert result["status"] == "completed"
+
+
 def test_oversized_completed_response_is_clipped_with_metadata(
     cobuild_env, monkeypatch
 ):
@@ -1026,6 +1154,59 @@ def test_settlement_sweeps_expired_settled_turns(cobuild_env):
     assert result["status"] == "completed"
     with cobuild._registry_lock:
         assert "expired" not in cobuild._turns
+
+
+def test_unobserved_settled_turns_survive_the_sweep(cobuild_env, monkeypatch):
+    """An unobserved latest turn is never swept, so recovery never breaks.
+
+    At a tiny settled cap, two client waits are cancelled so their turns settle
+    unobserved. Neither listed conversation may report an unknown last_turn_id:
+    polling the listed id must still resolve to the real outcome.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_SETTLED_TURNS", 1)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+
+    for conversation_id in ("conv-0", "conv-1"):
+        run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+        conversation = factory.conversations[-1]
+        conversation.send_release = threading.Event()
+
+        async def cancel_send(cid=conversation_id, conv=conversation):
+            waiting = asyncio.create_task(
+                cobuild.send_cobuild_message(
+                    cid, "PROJECT", "orphaned", DummyContext(), allow_edit_project=True
+                )
+            )
+            while not conv.send_started.is_set():
+                await asyncio.sleep(0.005)
+            waiting.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiting
+            conv.send_release.set()
+
+        run(cancel_send())
+
+    # Let both workers finish and settle (which triggers the count sweep).
+    for conversation in factory.conversations:
+        turn = next(
+            t
+            for t in cobuild._turns.values()
+            if t.entry.conversation is conversation
+        )
+        turn.future.result(timeout=2)
+        cobuild._settle_turn(turn)
+
+    # Both conversations still list a last_turn_id that polls to its outcome;
+    # neither was swept despite the settled cap of 1.
+    _payload, rows = list_conversations()
+    by_id = {row["conversation_id"]: row for row in rows}
+    for conversation_id in ("conv-0", "conv-1"):
+        row = by_id[conversation_id]
+        assert row["last_turn_id"]
+        assert row["last_turn_status"] == "completed"
+        outcome = poll(row["last_turn_id"], conversation_id=conversation_id)
+        assert outcome["status"] == "completed"
 
 
 def _seed_idle_conversations(count, *, armed_index=None):
@@ -1248,7 +1429,7 @@ def test_admission_during_send_setup_cannot_evict_the_target_conversation(
     with cobuild._registry_lock:
         remaining = set(cobuild._conversations)
         entry = cobuild._conversations["conv-0"]
-        assert entry.admission_pins == 0  # pin released after activation
+        assert not entry.admission_pins  # pin released after activation
     assert "conv-0" in remaining  # pinned target survived the interleaving
     assert "conv-1" not in remaining  # the idle entry was evicted instead
     assert "conv-2" in remaining
@@ -1354,3 +1535,96 @@ def test_creation_refuses_rather_than_evict_unobserved_conversation(
     with cobuild._registry_lock:
         assert "conv-0" in cobuild._conversations  # never dropped
     assert len(factory.conversations) == 1  # refusal made no SDK creation
+
+
+# --------------------------------------------------------------------------- #
+# Cancellation-safe admission pin, and failed creation rollback
+# --------------------------------------------------------------------------- #
+
+
+def test_cancel_after_pin_releases_the_admission_pin(cobuild_env):
+    """Cancelling a request that has already pinned its entry must release it.
+
+    The send blocks in ctx.info while holding the pin; the client wait is then
+    cancelled. The pin must return to empty and the conversation must be
+    evictable again, never stuck non-evictable.
+    """
+    client, _ = cobuild_env
+    start()
+    gate = threading.Event()
+
+    class BlockingContext:
+        async def info(self, _message):
+            # Block after the pin is taken so we can cancel while pinned.
+            await asyncio.get_event_loop().run_in_executor(None, gate.wait, 5)
+
+    async def scenario():
+        task = asyncio.create_task(
+            cobuild.send_cobuild_message(
+                "conversation-1",
+                "PROJECT",
+                "pinned then cancelled",
+                BlockingContext(),
+                allow_edit_project=True,
+            )
+        )
+        await asyncio.sleep(0.05)  # let it resolve, pin, and enter ctx.info
+        with cobuild._registry_lock:
+            pinned = bool(cobuild._conversations["conversation-1"].admission_pins)
+        task.cancel()
+        gate.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return pinned
+
+    was_pinned = run(scenario())
+
+    assert was_pinned is True  # the pin was held during ctx.info
+    with cobuild._registry_lock:
+        entry = cobuild._conversations["conversation-1"]
+        assert not entry.admission_pins  # released on cancellation, no leak
+        assert cobuild._conversation_is_evictable(entry) is True
+
+
+class FailingClient:
+    """A client whose get_project raises, to exercise a failed creation."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def get_project(self, project_key):
+        self.calls += 1
+        raise RuntimeError("get_project boom")
+
+
+def test_failed_creation_at_cap_keeps_the_existing_conversation(
+    cobuild_env, monkeypatch
+):
+    """A definitive create failure at the cap must not drop a real conversation.
+
+    Eviction is deferred until the remote creation succeeds, so a failed
+    get_project leaves the pre-existing conversation present and usable and
+    creates nothing in DSS.
+    """
+    monkeypatch.setattr(cobuild, "_MAX_CONVERSATIONS", 1)
+    factory = FreshConversationClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+    run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))  # conv-0
+
+    # At the cap, the next creation's SDK call fails.
+    boom = FailingClient()
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: boom)
+    with pytest.raises(RuntimeError, match="get_project boom"):
+        run(cobuild.start_cobuild_conversation("PROJECT", DummyContext()))
+
+    # The pre-existing conversation survived the failed creation.
+    with cobuild._registry_lock:
+        assert "conv-0" in cobuild._conversations
+    assert boom.calls == 1  # the SDK was reached (feasibility passed), then failed
+
+    # It is still usable.
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *a, **k: factory)
+    result = json.loads(
+        run(cobuild.send_cobuild_message("conv-0", "PROJECT", "still works", DummyContext()))
+    )
+    assert result["status"] == "completed"
