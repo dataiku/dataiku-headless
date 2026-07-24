@@ -58,7 +58,9 @@ async def get_semantic_model_version_settings(
 
     def _run():
         semantic_model = (
-            get_dss_client().get_project(project_key).get_semantic_model(semantic_model_id)
+            get_dss_client()
+            .get_project(project_key)
+            .get_semantic_model(semantic_model_id)
         )
         raw = semantic_model.get_version(version_id).get_settings().get_raw()
         return {

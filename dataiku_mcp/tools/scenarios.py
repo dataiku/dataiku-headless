@@ -56,7 +56,9 @@ async def get_scenario_settings(
 
     raw = await run_blocking(
         lambda: (
-            get_dss_client().get_project(project_key).get_scenario(scenario_id)
+            get_dss_client()
+            .get_project(project_key)
+            .get_scenario(scenario_id)
             .get_settings()
             .get_raw()
         )

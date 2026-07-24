@@ -24,7 +24,9 @@ async def get_evaluation_store_details(
     evaluation_store_id = require_non_empty_string(
         evaluation_store_id, "evaluation_store_id"
     )
-    await ctx.info(f"Getting evaluation store {evaluation_store_id} in {project_key}...")
+    await ctx.info(
+        f"Getting evaluation store {evaluation_store_id} in {project_key}..."
+    )
 
     def _run():
         project = get_dss_client().get_project(project_key)
@@ -96,9 +98,7 @@ async def list_evaluation_stores(
                     }
                 )
             except DataikuException as exc:
-                result.append(
-                    {"evaluation_store_id": store.id, "error": str(exc)}
-                )
+                result.append({"evaluation_store_id": store.id, "error": str(exc)})
         return columnar(
             result,
             ["evaluation_store_id", "name", "flavor", "evaluation_count", "error"],

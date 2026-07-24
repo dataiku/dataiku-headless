@@ -33,11 +33,7 @@ async def list_managed_folders(project_key: str, ctx: Context) -> str:
             }
         )
     return compact_json(
-        {
-            "folders": columnar(
-                serialized, ["id", "name", "type", "connection", "path"]
-            )
-        }
+        {"folders": columnar(serialized, ["id", "name", "type", "connection", "path"])}
     )
 
 
