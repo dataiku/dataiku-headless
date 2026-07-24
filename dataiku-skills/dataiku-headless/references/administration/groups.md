@@ -21,6 +21,18 @@ Use these tools for instance-level DSS group administration. They require admini
 - External mapping lists are complete replacements on create and update. An empty list clears that mapping; an omitted update field preserves it.
 - `ldap_group_names`, `azure_ad_group_names`, `sso_group_names`, and `custom_group_names` contain the external groups that map to the DSS group.
 
+## Implied Permissions
+
+Some permissions have implied parent-child relationships that may not match the raw stored booleans returned by the API or these tools. For example:
+
+- `may_create_projects = true` implies `may_create_projects_from_macros`, `may_create_projects_from_templates`, and `may_create_projects_from_dataiku_apps`
+- `may_write_unsafe_code = true` implies `may_write_safe_code`
+- `may_manage_code_envs = true` implies `may_create_code_envs`
+- `may_manage_clusters = true` implies `may_create_clusters`
+- `may_manage_code_studio_templates = true` implies `may_create_code_studio_templates`
+
+In the DSS UI, these implied child permissions may appear enabled even when their stored values remain `false`.
+
 ## Safety Rules
 
 - Group names are immutable; create a replacement group instead of renaming one.
