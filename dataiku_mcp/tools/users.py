@@ -215,15 +215,16 @@ async def create_user(
 async def update_user(
     login: str,
     ctx: Context,
+    source_type: str | None = None,
+    profile: str | None = None,
     display_name: str | None = None,
+    password: str | None = None,
     email: str | None = None,
     groups: list[str] | None = None,
-    profile: str | None = None,
     enabled: bool | None = None,
-    source_type: str | None = None,
-    password: str | None = None,
 ) -> str:
     """Patch supplied core settings for one Dataiku user.
+    Requires global administrator rights on the target Dataiku instance.
 
     Omitted (null) fields are preserved. An empty groups list removes all memberships,
     and an empty email clears the email address. Before changing ``profile``, call
@@ -235,7 +236,7 @@ async def update_user(
             (SSO), CUSTOM, or PAM.
         profile: User profile available under the DSS license.
         password: Required for LOCAL users and invalid for external users.
-        groups: Complete initial list of group names. Defaults to no groups.
+        groups: Complete list of group names. Defaults to no groups.
     """
     login = _require_non_empty_string(login, "login")
     if display_name is not None:
@@ -299,7 +300,9 @@ async def update_user(
 
 @mcp.tool()
 async def delete_user(login: str, ctx: Context) -> str:
-    """Delete one DSS user. Self-deletion remains prohibited."""
+    """Delete one DSS user. Self-deletion remains prohibited.
+    Requires global administrator rights on the target Dataiku instance.
+    """
     login = _require_non_empty_string(login, "login")
     await require_admin()
     await ctx.info(f"Deleting DSS user '{login}'...")
