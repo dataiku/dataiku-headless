@@ -175,7 +175,7 @@ async def create_user(
     profile is available and review its licensing capacity.
 
     Args:
-        login: Does not accept special characters beyond '.', '_', '-', '@'.
+        login: DSS rejects special characters beyond '.', '_', '-', '@'.
         source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
             (SSO), CUSTOM, or PAM.
         profile: User profile available under the DSS license.

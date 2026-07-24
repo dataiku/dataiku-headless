@@ -206,6 +206,20 @@ async def create_group(
 ) -> str:
     """Create a DSS group with external mappings and global permissions.
     Requires global administrator rights on the target Dataiku instance.
+
+    Args:
+        name: DSS rejects special characters beyond '.', '_', '-', '@'.
+        source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
+            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
+        is_admin: Whether the group has administrative privileges.
+        ldap_group_names: LDAP groups that map to Dataiku group; only relevant
+            when `source_type` is LDAP.
+        azure_ad_group_names: AZURE_AD groups that map to Dataiku group; only relevant
+            when `source_type` is AZURE_AD.
+        sso_group_names: LOCAL_NO_AUTH groups that map to Dataiku group; only relevant
+            when `source_type` is LOCAL_NO_AUTH.
+        custom_group_names: CUSTOM groups that map to Dataiku group; only relevant
+            when `source_type` is CUSTOM.
     """
     name = _require_non_empty_string(name, "name")
     source_type = require_identity_source_type(source_type)
@@ -315,7 +329,21 @@ async def update_group(
     may_create_enterprise_asset_collections: bool | None = None,
 ) -> str:
     """Patch a DSS group's mappings and global permissions.
-    Requires global administrator rights on the target Dataiku instance."""
+    Requires global administrator rights on the target Dataiku instance.
+
+    Args:
+        source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
+            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
+        is_admin: Whether the group has administrative privileges.
+        ldap_group_names: LDAP groups that map to Dataiku group; only relevant
+            when `source_type` is LDAP.
+        azure_ad_group_names: AZURE_AD groups that map to Dataiku group; only relevant
+            when `source_type` is AZURE_AD.
+        sso_group_names: LOCAL_NO_AUTH groups that map to Dataiku group; only relevant
+            when `source_type` is LOCAL_NO_AUTH.
+        custom_group_names: CUSTOM groups that map to Dataiku group; only relevant
+            when `source_type` is CUSTOM.
+    """
     name = _require_non_empty_string(name, "name")
     if source_type is not None:
         source_type = require_identity_source_type(source_type)
