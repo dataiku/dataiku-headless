@@ -24,12 +24,16 @@ _USER_COLUMNS = [
 ]
 
 
-def _sanitize_user(raw_user: dict) -> dict:
-    return {field: raw_user.get(field) for field in _USER_COLUMNS}
+def _sanitize_user(raw_user: dict, columns: list[str]) -> dict:
+    return {field: raw_user.get(field) for field in columns}
 
 
 async def _require_licensed_user_profile(profile: str) -> None:
-    """Check that ``profile`` is a valid licensed profile type."""
+    """Check that ``profile`` is a valid licensed profile type.
+
+    Note: assumes that caller has admin rights; this internal method should
+    ideally be called after checking the user is admin with `require_admin`.
+    """
     def _run():
         status = get_dss_client().get_licensing_status()
         profiles = status.get("base", {}).get("userProfiles", [])
@@ -63,6 +67,7 @@ async def list_users(
     limit: int = 20,
 ) -> str:
     """List Dataiku users, with optional search and offset pagination.
+    Requires global administrator rights on the target Dataiku instance.
 
     Args:
         search: Case-insensitive substring matched against login, display name, and email.
@@ -81,7 +86,7 @@ async def list_users(
         return get_dss_client().list_users()
 
     raw_users = await run_blocking(_run)
-    users = [_sanitize_user(raw_user) for raw_user in raw_users]
+    users = [_sanitize_user(raw_user, _USER_COLUMNS) for raw_user in raw_users]
     total_users = len(users)
 
     if search:
@@ -141,11 +146,13 @@ async def create_user(
     groups: list[str] | None = None,
 ) -> str:
     """Create an enabled Dataiku user and return its core settings.
+    Requires global administrator rights on the target Dataiku instance.
 
     Before assigning ``profile``, call ``get_licensing_status`` to confirm the
     profile is available and review its licensing capacity.
 
     Args:
+        login: Does not accept special characters beyond '.', '_', '-', '@'.
         source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
             (SSO), CUSTOM, or PAM.
         profile: User profile available under the DSS license.
@@ -177,7 +184,7 @@ async def create_user(
             profile=profile,
             email=email,
         )
-        return _sanitize_user(user.get_settings().get_raw())
+        return _sanitize_user(user.get_settings().get_raw(), _USER_COLUMNS)
 
     return compact_json({"user": await run_blocking(_run)})
 
@@ -261,7 +268,7 @@ async def update_user(
             if value is not None:
                 raw_settings[field] = value
         settings.save()
-        return _sanitize_user(user.get_settings().get_raw())
+        return _sanitize_user(user.get_settings().get_raw(), _USER_COLUMNS)
 
     return compact_json({"user": await run_blocking(_run)})
 
