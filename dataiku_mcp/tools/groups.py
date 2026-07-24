@@ -56,9 +56,7 @@ _PERMISSION_FIELDS = {
     "may_manage_enterprise_asset_library": "mayManageEnterpriseAssetLibrary",
     "may_create_enterprise_asset_collections": "mayCreateEnterpriseAssetCollections",
 }
-_GROUP_COLUMNS = list(_GROUP_FIELDS)
 _DETAIL_FIELDS = {**_GROUP_FIELDS, **_MAPPING_FIELDS, **_PERMISSION_FIELDS}
-_DETAIL_COLUMNS = list(_DETAIL_FIELDS)
 
 
 def _validate_group_names(names: list[str] | None, field_name: str) -> list[str] | None:
@@ -67,8 +65,7 @@ def _validate_group_names(names: list[str] | None, field_name: str) -> list[str]
     return _require_non_empty_strings(names, field_name)
 
 
-def _sanitize_group(raw_group: dict, include_details: bool = False) -> dict:
-    fields = _DETAIL_FIELDS if include_details else _GROUP_FIELDS
+def _sanitize_group(raw_group: dict, fields: dict[str, str]) -> dict:
     return {
         field: raw_group.get(raw_field)
         for field, raw_field in fields.items()
@@ -99,6 +96,7 @@ async def list_groups(
     limit: int = 5,
 ) -> str:
     """List DSS groups with optional name, source type, and admin filtering.
+    Requires global administrator rights on the target Dataiku instance.
 
     Args:
         search: Case-insensitive substring matched against group names.
@@ -119,11 +117,12 @@ async def list_groups(
 
     raw_groups = await run_blocking(lambda: get_dss_client().list_groups())
     total_groups = len(raw_groups)
+    fields = _DETAIL_FIELDS if include_permissions else _GROUP_FIELDS
     groups = [
-        _sanitize_group(group, include_details=include_permissions)
+        _sanitize_group(group, fields)
         for group in raw_groups
     ]
-    columns = _DETAIL_COLUMNS if include_permissions else _GROUP_COLUMNS
+    columns = list(fields)
 
     if search:
         query = search.casefold()
@@ -205,7 +204,9 @@ async def create_group(
     may_manage_enterprise_asset_library: bool = False,
     may_create_enterprise_asset_collections: bool = False,
 ) -> str:
-    """Create a DSS group with external mappings and global permissions."""
+    """Create a DSS group with external mappings and global permissions.
+    Requires global administrator rights on the target Dataiku instance.
+    """
     name = _require_non_empty_string(name, "name")
     source_type = require_identity_source_type(source_type)
     mappings = {
@@ -268,7 +269,7 @@ async def create_group(
         definition = group.get_definition()
         _apply_changes(definition, changes)
         group.set_definition(definition)
-        return _sanitize_group(group.get_definition(), True)
+        return _sanitize_group(group.get_definition(), _DETAIL_FIELDS)
 
     return compact_json({"group": await run_blocking(_run)})
 
@@ -313,7 +314,8 @@ async def update_group(
     may_manage_enterprise_asset_library: bool | None = None,
     may_create_enterprise_asset_collections: bool | None = None,
 ) -> str:
-    """Patch a DSS group's mappings and global permissions."""
+    """Patch a DSS group's mappings and global permissions.
+    Requires global administrator rights on the target Dataiku instance."""
     name = _require_non_empty_string(name, "name")
     if source_type is not None:
         source_type = require_identity_source_type(source_type)
@@ -375,14 +377,15 @@ async def update_group(
         definition = group.get_definition()
         _apply_changes(definition, changes)
         group.set_definition(definition)
-        return _sanitize_group(group.get_definition(), True)
+        return _sanitize_group(group.get_definition(), _DETAIL_FIELDS)
 
     return compact_json({"group": await run_blocking(_run)})
 
 
 @mcp.tool()
 async def delete_group(name: str, ctx: Context) -> str:
-    """Delete one DSS group."""
+    """Delete one DSS group.
+    Requires global administrator rights on the target Dataiku instance."""
     name = _require_non_empty_string(name, "name")
     await require_admin()
     await ctx.info(f"Deleting DSS group '{name}'...")
