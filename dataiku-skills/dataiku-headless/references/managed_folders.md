@@ -19,10 +19,10 @@ Folder connection, path, and contents determine how a folder can be used. Most m
 
 | Action | Route |
 | --- | --- |
-| Create a managed folder | Direct creation exception |
+| Create a managed folder | Direct creation exception with `create_managed_folder` |
 | Delete, reconfigure, or restructure a managed folder | Cobuild |
 | Change folder metadata or broader project assets that use the folder | Cobuild |
-| Place a user-supplied local file in an existing folder | Direct upload exception |
+| Place a user-supplied local file in an existing folder | Direct upload exception with `upload_file_to_managed_folder` |
 
 Direct upload can replace an existing file at the same folder path. Inspect the target path and obtain explicit user intent before replacing it.
 
@@ -31,7 +31,7 @@ Direct upload can replace an existing file at the same folder path. Inspect the 
 1. Use `list_managed_folders` to discover exact folder IDs, names, types, and connections.
 2. Use `get_managed_folder_info` and `get_managed_folder_contents` to inspect a selected folder before any follow-up action.
 3. When a new folder is required before upload or other work can proceed, inspect `./connections.md` if needed and ask the caller to choose a compatible connection explicitly.
-4. Use `create_managed_folder` only for that connection-backed bootstrap creation. Do not invent a default connection.
+4. Use `create_managed_folder` only for that connection-backed bootstrap creation. Do not invent a connection name.
 5. For a requested local-file upload, confirm the local source file and target folder path. If the target path already exists, obtain explicit replacement intent.
 6. Use `upload_file_to_managed_folder` only for that explicit local-file placement.
 7. Re-inspect folder contents when confirmation that the file is present matters.
