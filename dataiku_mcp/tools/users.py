@@ -14,19 +14,23 @@ from .utils.validation import (
     require_positive_int as _require_positive_int,
 )
 
-_USER_COLUMNS = [
-    "login",
-    "displayName",
-    "email",
-    "sourceType",
-    "groups",
-    "userProfile",
-    "enabled",
-]
+_USER_FIELDS = {
+    "login": "login",
+    "display_name": "displayName",
+    "email": "email",
+    "source_type": "sourceType",
+    "groups": "groups",
+    "profile": "userProfile",
+    "enabled": "enabled",
+}
+_USER_COLUMNS = list(_USER_FIELDS)
 
 
-def _sanitize_user(raw_user: dict, columns: list[str]) -> dict:
-    return {field: raw_user.get(field) for field in columns}
+def _sanitize_user(raw_user: dict, fields: dict[str, str]) -> dict:
+    return {
+        field: raw_user.get(raw_field)
+        for field, raw_field in fields.items()
+    }
 
 
 def _validate_group_names(groups: list[str] | None) -> list[str] | None:
@@ -105,7 +109,7 @@ async def list_users(
         return get_dss_client().list_users()
 
     raw_users = await run_blocking(_run)
-    users = [_sanitize_user(raw_user, _USER_COLUMNS) for raw_user in raw_users]
+    users = [_sanitize_user(raw_user, _USER_FIELDS) for raw_user in raw_users]
     total_users = len(users)
 
     if search:
@@ -115,7 +119,7 @@ async def list_users(
             for user in users
             if any(
                 query in str(user.get(field) or "").casefold()
-                for field in ("login", "displayName", "email")
+                for field in ("login", "display_name", "email")
             )
         ]
 
@@ -204,7 +208,7 @@ async def create_user(
             profile=profile,
             email=email,
         )
-        return _sanitize_user(user.get_settings().get_raw(), _USER_COLUMNS)
+        return _sanitize_user(user.get_settings().get_raw(), _USER_FIELDS)
 
     return compact_json({"user": await run_blocking(_run)})
 
@@ -291,7 +295,7 @@ async def update_user(
             if value is not None:
                 raw_settings[field] = value
         settings.save()
-        return _sanitize_user(user.get_settings().get_raw(), _USER_COLUMNS)
+        return _sanitize_user(user.get_settings().get_raw(), _USER_FIELDS)
 
     return compact_json({"user": await run_blocking(_run)})
 
