@@ -14,16 +14,16 @@ A migration consists of four phases: plan, build, validate, and document and cle
 
 The purpose of this phase is to inspect the project to be migrated (i.e. the `source bundle`), and to generate a migration, validation, and documentation and cleanup plan.
 
-1. Resolve the source bundle path from user message. Create a working directory `<bundle_dir>/migration_v<n>/`, where `<n>` starts at `1` and increases if present. 
+1. Resolve the source bundle path from user message. Create a working directory `<bundle_dir>/migration_v<n>/`, where `<n>` starts at `1` and increases if present.
 2. Determine the source platform (e.g. Alteryx, Excel, SAS, etc.) from the user message and source bundle. Load `./migrations/sources/<source platform>/<source platform>.md` in full. For unknown platforms, proceed best-effort.
 3. Review the source bundle and write a Migration Plan to `<bundle_dir>/migration_v<n>/migration_plan.md`. The Migration Plan should include:
-  - Business Intent: 
+  - Business Intent:
     * Read the instructions/notes/readme sheets, step annotations, comments, object descriptions from the bundle.
     * Summarize the business intent of the source bundle.
-  - Input Data Sources: 
+  - Input Data Sources:
     * List of the input data sources.
     * Explain the role of each source in accomplishing the Business Intent.
-  - Dataiku Migration Plan (discover and read the needed Dataiku guides, starting with `../SKILL.md`): 
+  - Dataiku Migration Plan (discover and read the needed Dataiku guides, starting with `../SKILL.md`):
     * Translate the source bundle logic into a plan for a Dataiku Flow. The migrated flow must use only visual recipe families unless the user explicitly requests a code-based transformation. Do not choose a Code recipe because it seems easier, faster, more reliable, or more expressive. If the user did not explicitly ask for code, keep searching for a visual-recipe implementation.
     * The migrated Dataiku Flow **must** start from the same input datasets as the source bundle; it is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
     * The requested final output dataset must be produced in DSS from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.

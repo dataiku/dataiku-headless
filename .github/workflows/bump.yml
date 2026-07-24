@@ -13,6 +13,19 @@ name: Bump version
 # Requires a RELEASE_PAT secret: a personal access token (or GitHub App token)
 # with contents:write. The default GITHUB_TOKEN cannot be used here — refs it
 # pushes do NOT start new workflow runs, so release.yml would never fire.
+#
+# TEMPORARY: bumping is blocked while the PR backlog is cleaned up. The job is
+# gated on the repository variable RELEASE_ENABLED being 'true' (Settings >
+# Secrets and variables > Actions > Variables), the same variable that gates
+# release.yml and pre-release.yml. Unlike those two — which fail a `gate` job so
+# a blocked release is loud — this one is a job-level `if`, so it *skips*: this
+# workflow fires on every push to main, and failing each one would put a red X
+# on every merge during exactly the cleanup it's meant to stay out of the way of.
+# No bump means no tag, so nothing reaches release.yml either.
+#
+# TODO: once the open PR backlog is merged or closed and main is known good,
+# drop the RELEASE_ENABLED clause from the `if` below (leaving the `bump:`
+# loop guard), un-gate release.yml and pre-release.yml, and delete the variable.
 
 on:
   push:
@@ -30,8 +43,9 @@ jobs:
   bump:
     name: Bump version and tag
     runs-on: ubuntu-latest
-    # Don't re-run on the "bump: ..." commit commitizen just pushed, or it loops.
-    if: ${{ !startsWith(github.event.head_commit.message, 'bump:') }}
+    # Skip unless releases are enabled (see TEMPORARY note above), and never
+    # re-run on the "bump: ..." commit commitizen just pushed, or it loops.
+    if: ${{ vars.RELEASE_ENABLED == 'true' && !startsWith(github.event.head_commit.message, 'bump:') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

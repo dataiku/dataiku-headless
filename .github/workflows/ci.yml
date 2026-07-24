@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Ruff lint
+  pre-commit:
+    name: Pre-commit hooks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,8 +25,13 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync
-      - name: Ruff check
-        run: uv run ruff check .
+      # Runs every hook in .pre-commit-config.yaml (ruff lint, file hygiene,
+      # uv-lock) against all files. commit-msg hooks are skipped by --all-files.
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+        env:
+          # Cache hook environments across CI runs.
+          PRE_COMMIT_HOME: ${{ github.workspace }}/.cache/pre-commit
 
   test:
     name: Pytest (py${{ matrix.python-version }})

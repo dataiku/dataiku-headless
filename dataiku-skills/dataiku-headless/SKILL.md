@@ -40,7 +40,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Inspect datasets, schema, samples, metrics, or create an Uploaded Files dataset | `./references/datasets.md` |
 | Inspect recipes, choose a recipe family, or ground a flow transformation | `./references/recipes.md` |
 | Run an existing dataset or recipe, or track jobs, waits, and logs | `./references/jobs.md` |
-| Inspect managed folders or upload a user-supplied local file into one | `./references/managed_folders.md` |
+| Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
 | Inspect connections or choose a valid connection | `./references/connections.md` |
 | Inspect code environments | `./references/code-environments.md` |

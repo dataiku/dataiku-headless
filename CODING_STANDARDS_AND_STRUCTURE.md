@@ -8,7 +8,13 @@ These rules apply when Claude Code (or another coding agent) is **contributing t
 ```bash
 # Requires Python 3.10+ and uv (https://docs.astral.sh/uv/)
 uv sync  # creates .venv and installs the project with its dependencies
+uv run pre-commit install --install-hooks  # enable pre-commit + commit-msg hooks
 ```
+
+Pre-commit runs file hygiene, `ruff check`, and `uv-lock` before each commit, and
+validates the commit message against Conventional Commits. The same hooks run in CI
+(`.github/workflows/ci.yml`). Run them manually across the tree with
+`uv run pre-commit run --all-files`.
 
 Set environment variables:
 
