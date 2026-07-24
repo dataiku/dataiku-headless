@@ -120,10 +120,20 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "managed_folders": frozenset(
         {
+            "create_managed_folder",
             "get_managed_folder_contents",
             "get_managed_folder_info",
             "list_managed_folders",
             "upload_file_to_managed_folder",
+        }
+    ),
+    "project_folders": frozenset(
+        {
+            "create_project_folder",
+            "delete_project_folder",
+            "get_project_folder",
+            "list_project_folders",
+            "move_project_to_folder",
         }
     ),
     "project_libraries": frozenset(

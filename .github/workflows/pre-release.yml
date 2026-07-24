@@ -1,0 +1,185 @@
+name: Pre-release
+
+# Publishes a pre-release of dataiku-headless to BOTH PyPI and Test PyPI when a
+# pre-release tag is pushed. Cut a pre-release by tagging a commit and pushing
+# the tag:
+#
+#   git tag v0.3.0.pre1
+#   git push origin v0.3.0.pre1
+#
+# The pushed tag is the source of truth for the version: the build job stamps
+# `[project].version` in pyproject.toml from the tag, so pre-releases don't
+# require a version bump on main (stable releases still do, via release.yml).
+# Note PyPI normalizes the `.preN` spelling to `rcN`, so the git tag reads
+# `v0.3.0.pre1` while the published artifact is `0.3.0rc1`. Because it lands on
+# real PyPI, `pip install --pre dataiku-headless` will pick it up.
+#
+# The single build is published to both indexes from separate jobs, each with
+# its own environment, so OIDC trusted publishing matches per index.
+
+on:
+  push:
+    tags:
+      # vMAJOR.MINOR.PATCH.preN  (e.g. v0.3.0.pre1)
+      - 'v[0-9]+.[0-9]+.[0-9]+.pre[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing pre-release tag to (re)publish, e.g. v0.3.0.pre1
+        required: true
+
+concurrency:
+  group: pre-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # TEMPORARY: pre-releases are blocked while the PR backlog is being cleaned
+  # up. Nothing builds or publishes unless the repository variable
+  # RELEASE_ENABLED is set to 'true' (Settings > Secrets and variables >
+  # Actions > Variables). Shared with release.yml, so one variable gates both.
+  #
+  # TODO: once the open PR backlog is merged or closed and main is known good,
+  # remove this `gate` job and the `needs: gate` on `build` below, then drop the
+  # RELEASE_ENABLED variable. Until then, flipping the variable to 'true' is the
+  # escape hatch for a one-off pre-release — no code change needed.
+  gate:
+    name: Check releases are enabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless RELEASE_ENABLED is true
+        if: vars.RELEASE_ENABLED != 'true'
+        run: |
+          echo "::error::Pre-releases are blocked. Set repository variable RELEASE_ENABLED=true to publish."
+          exit 1
+
+  build:
+    name: Build pre-release
+    needs: gate
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - id: version
+        name: Derive version from tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Pre-release vX.Y.Z.preN only.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\.pre[0-9]+$'; then
+            echo "::error::Tag '$TAG' is not a vX.Y.Z.preN pre-release tag"
+            exit 1
+          fi
+          version="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Publishing pre-release ${version} (tag ${TAG})"
+      - name: Stamp pyproject version from tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re
+          version = os.environ["VERSION"]
+          path = pathlib.Path("pyproject.toml")
+          text = path.read_text()
+          patched, n = re.subn(r'(?m)^version = ".*"$', f'version = "{version}"', text, count=1)
+          if n != 1:
+              raise SystemExit(f"expected exactly one [project].version line, patched {n}")
+          path.write_text(patched)
+          print(f"Set pyproject version to {version}")
+          PY
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Lint
+        run: uv run ruff check .
+      - name: Test
+        run: uv run pytest
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: Publish pre-release to Test PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/dataiku-headless
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to Test PyPI
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Don't fail the run if this version was already uploaded.
+          skip-existing: true
+
+  publish-pypi:
+    name: Publish pre-release to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dataiku-headless
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
+        with:
+          # No repository-url: defaults to PyPI (https://upload.pypi.org/legacy/).
+          # Don't fail the run if this version was already uploaded.
+          skip-existing: true
+
+  github-release:
+    name: Create GitHub pre-release
+    needs: [build, publish-testpypi, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.build.outputs.tag }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Create GitHub pre-release
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping."
+          else
+            gh release create "$TAG" \
+              --prerelease \
+              --title "$TAG" \
+              --notes "Automated pre-release of dataiku-headless ${VERSION} to PyPI and Test PyPI."
+          fi

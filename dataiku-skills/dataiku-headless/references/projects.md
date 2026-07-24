@@ -13,7 +13,7 @@ A project is the primary boundary for Dataiku assets, including datasets, recipe
 
 The project key is the stable technical identifier. The display name, shown as project metadata, is human-facing and can differ from the key.
 
-Project metadata includes labels, descriptions, tags, and checklists. 
+Project metadata includes labels, descriptions, tags, and checklists.
 
 Project variables provide runtime configuration that can be used in various places throughout a project.
 
@@ -28,7 +28,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 
 | Action | Route |
 | --- | --- |
-| Create a new project | Direct creation exception |
+| Create a new project | Direct creation exception with `create_project` |
 | Update project variables | Direct write with `get_project_variables` then `set_project_variables` |
 | Modify an existing project's metadata, Flow structure, or assets | Cobuild |
 
@@ -39,7 +39,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 3. To update project variables, first read the current variables with `get_project_variables`, modify only the requested keys, then pass the complete replacement object to `set_project_variables`.
 4. Use `get_flow_items_in_traversal_order` and `list_flow_zones` to orient in the Flow when dependencies or organization matter.
 5. Use `get_flow_object_metadata` to inspect metadata for a specific project object.
-6. For a new project, confirm the unique project key and display name with the user, then use `create_project`.
+6. For a new project, confirm the unique project key and display name with the user, then use `create_project`. When the user specifies a project folder, discover its `folder_id` with `list_project_folders` first and use `get_project_folder` when you need to confirm the exact folder contents, then pass that `folder_id`.
 7. Verify a newly created project with `list_projects` or `get_project_metadata`.
 8. Route other existing-project changes through `./cobuild.md`.
 
@@ -59,3 +59,4 @@ Flow zones organize related Flow items visually. They are useful context when a 
 
 - Confirm the project key and display name before creating a project.
 - Verify that the requested project key is not already in use before direct creation.
+- When creating a project in a folder, discover the folder ID with `list_project_folders`; do not invent it.
