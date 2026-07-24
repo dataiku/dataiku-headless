@@ -30,7 +30,7 @@ def _sanitize_user(raw_user: dict) -> dict:
 
 
 async def _require_licensed_user_profile(profile: str) -> None:
-    """Raise a clear error unless ``profile`` is available on this DSS instance."""
+    """Check that ``profile`` is a valid licensed profile type."""
     def _run():
         status = get_dss_client().get_licensing_status()
         profiles = status.get("base", {}).get("userProfiles", [])
@@ -147,7 +147,7 @@ async def create_user(
     profile is available and review its licensing capacity.
 
     Args:
-        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH, or AZURE_AD.
+        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH (SSO), or AZURE_AD.
         profile: User profile available under the DSS license.
         password: Required for LOCAL users and invalid for external users.
         groups: Complete initial list of group names. Defaults to no groups.
@@ -202,7 +202,7 @@ async def update_user(
     licensing capacity.
 
     Args:
-        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH, or AZURE_AD.
+        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH (SSO), or AZURE_AD.
         profile: User profile available under the DSS license.
         password: Required for LOCAL users and invalid for external users.
         groups: Complete initial list of group names. Defaults to no groups.

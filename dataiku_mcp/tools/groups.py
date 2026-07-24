@@ -12,7 +12,12 @@ from .utils.validation import (
     require_positive_int as _require_positive_int,
 )
 
-_GROUP_COLUMNS = ["name", "description", "source_type", "is_admin"]
+_GROUP_FIELDS = {
+    "name": "name",
+    "description": "description",
+    "source_type": "sourceType",
+    "is_admin": "admin",
+}
 _MAPPING_FIELDS = {
     "ldap_group_names": "ldapGroupNames",
     "azure_ad_group_names": "azureADGroupNames",
@@ -49,7 +54,9 @@ _PERMISSION_FIELDS = {
     "may_manage_enterprise_asset_library": "mayManageEnterpriseAssetLibrary",
     "may_create_enterprise_asset_collections": "mayCreateEnterpriseAssetCollections",
 }
-_DETAIL_COLUMNS = [*_GROUP_COLUMNS, *_MAPPING_FIELDS, *_PERMISSION_FIELDS]
+_GROUP_COLUMNS = list(_GROUP_FIELDS)
+_DETAIL_FIELDS = {**_GROUP_FIELDS, **_MAPPING_FIELDS, **_PERMISSION_FIELDS}
+_DETAIL_COLUMNS = list(_DETAIL_FIELDS)
 
 
 def _validate_group_names(names: list[str] | None, field_name: str) -> list[str] | None:
@@ -62,26 +69,11 @@ def _validate_group_names(names: list[str] | None, field_name: str) -> list[str]
 
 
 def _sanitize_group(raw_group: dict, include_details: bool = False) -> dict:
-    group = {
-        "name": raw_group.get("name"),
-        "description": raw_group.get("description"),
-        "source_type": raw_group.get("sourceType"),
-        "is_admin": raw_group.get("admin", False),
+    fields = _DETAIL_FIELDS if include_details else _GROUP_FIELDS
+    return {
+        field: raw_group.get(raw_field)
+        for field, raw_field in fields.items()
     }
-    if include_details:
-        group.update(
-            {
-                field: raw_group.get(raw_field, [])
-                for field, raw_field in _MAPPING_FIELDS.items()
-            }
-        )
-        group.update(
-            {
-                field: raw_group.get(raw_field, False)
-                for field, raw_field in _PERMISSION_FIELDS.items()
-            }
-        )
-    return group
 
 
 def _apply_changes(definition: dict, changes: dict) -> None:
@@ -117,7 +109,7 @@ async def list_groups(
 
     Args:
         search: Case-insensitive substring matched against group names.
-        source_type: Exact DSS group source type, such as LOCAL, LDAP, AZURE_AD,
+        source_type: Exact Dataiku group source type: LOCAL, LDAP, AZURE_AD,
             LOCAL_NO_AUTH (SSO), or CUSTOM.
         is_admin: Whether to return only administrator or non-administrator groups.
         include_permissions: Retrieve all exposed permissions for returned groups.
@@ -126,7 +118,7 @@ async def list_groups(
     """
     search = search.strip()
     if source_type is not None:
-        source_type = _require_non_empty_string(source_type, "source_type")
+        source_type = _require_non_empty_string(source_type, "source_type") # TODO: require allowed values, maybe pull out into util with user?
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
     await require_admin()
@@ -134,7 +126,11 @@ async def list_groups(
 
     raw_groups = await run_blocking(lambda: get_dss_client().list_groups())
     total_groups = len(raw_groups)
-    groups = [_sanitize_group(group) for group in raw_groups]
+    groups = [
+        _sanitize_group(group, include_details=include_permissions)
+        for group in raw_groups
+    ]
+    columns = _DETAIL_COLUMNS if include_permissions else _GROUP_COLUMNS
 
     if search:
         query = search.casefold()
@@ -164,18 +160,6 @@ async def list_groups(
         if offset + returned_groups < matched_groups
         else None
     )
-
-    columns = _GROUP_COLUMNS
-    if include_permissions and page:
-        def _run():
-            client = get_dss_client()
-            return [
-                _sanitize_group(client.get_group(group["name"]).get_definition(), True)
-                for group in page
-            ]
-
-        page = await run_blocking(_run)
-        columns = _DETAIL_COLUMNS
 
     return compact_json(
         {
