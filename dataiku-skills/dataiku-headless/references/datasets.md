@@ -1,11 +1,11 @@
 ---
 name: datasets
-description: Understand and inspect Dataiku datasets, including their storage, schema, metadata, and quality signals. Use when an agent must inspect existing datasets, prepare a grounded Cobuild request, or create a new Uploaded Files dataset from user-supplied data.
+description: Understand, inspect, and locally export Dataiku datasets, including their storage, schema, metadata, and quality signals. Use when an agent must inspect existing datasets, prepare a grounded Cobuild request, write a complete local CSV, or create a new Uploaded Files dataset from user-supplied data.
 ---
 
 # Datasets
 
-Use this guide to understand and inspect Dataiku datasets, gather context for Cobuild, and handle the direct Uploaded Files creation exception.
+Use this guide to understand, inspect, and locally export Dataiku datasets, gather context for Cobuild, and handle the direct Uploaded Files creation exception.
 
 ## Dataset Concepts
 
@@ -35,8 +35,9 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 2. Use `get_dataset_info` to inspect a selected dataset's type, connection, schema, meanings, and descriptions.
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
-5. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter.
-6. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step.
+5. Use `export_dataset` when every row is needed for parity checks, offline inspection, or downstream local tooling.
+6. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter.
+7. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step.
 
 ## Modification Routing
 
@@ -50,6 +51,7 @@ Inspect `./connections.md` before a Cobuild request when the required connection
 - `get_dataset_info`
 - `get_dataset_profile`
 - `get_dataset_sample`
+- `export_dataset`
 - `get_dataset_metrics`
 - `get_dataset_column_descriptions`
 - `create_upload_dataset`

@@ -37,7 +37,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |
 | Build, modify, or continue project-level work through Cobuild | `./references/cobuild.md` |
-| Inspect datasets, schema, samples, metrics, or create an Uploaded Files dataset | `./references/datasets.md` |
+| Inspect datasets, schema, samples, or metrics; export a local CSV; or create an Uploaded Files dataset | `./references/datasets.md` |
 | Inspect recipes, choose a recipe family, or ground a flow transformation | `./references/recipes.md` |
 | Track running or recent jobs, waits, and logs | `./references/jobs.md` |
 | Inspect managed folders or upload a user-supplied local file into one | `./references/managed_folders.md` |
