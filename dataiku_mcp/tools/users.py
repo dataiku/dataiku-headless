@@ -28,6 +28,15 @@ def _sanitize_user(raw_user: dict, columns: list[str]) -> dict:
     return {field: raw_user.get(field) for field in columns}
 
 
+def _validate_groups(groups: list[str] | None) -> list[str] | None:
+    if groups is None:
+        return None
+    return [
+        _require_non_empty_string(group, f"groups[{index}]")
+        for index, group in enumerate(groups)
+    ]
+
+
 async def _require_licensed_user_profile(profile: str) -> None:
     """Check that ``profile`` is a valid licensed profile type.
 
@@ -48,14 +57,26 @@ async def _require_licensed_user_profile(profile: str) -> None:
     await run_blocking(_run)
 
 
-def _validate_groups(groups: list[str] | None) -> list[str] | None:
-    # TODO: retrieve profile types from get_groups tool.
-    if groups is None:
-        return None
-    return [
-        _require_non_empty_string(group, f"groups[{index}]")
-        for index, group in enumerate(groups)
-    ]
+async def _require_existing_groups(groups: list[str]) -> None:
+    """Check that every supplied group exists on the DSS instance.
+
+    Note: assumes that caller has admin rights; this internal method should
+    ideally be called after checking the user is admin with `require_admin`.
+    """
+    if not groups:
+        return
+
+    def _run():
+        existing_groups = {
+            group["name"] for group in get_dss_client().list_groups()
+        }
+        missing_groups = [group for group in groups if group not in existing_groups]
+        if missing_groups:
+            raise ValueError(
+                f"The following groups do not exist: {', '.join(missing_groups)}"
+            )
+
+    await run_blocking(_run)
 
 
 @mcp.tool()
@@ -171,6 +192,7 @@ async def create_user(
 
     await require_admin()
     await _require_licensed_user_profile(profile)
+    await _require_existing_groups(groups)
     await ctx.info(f"Creating DSS user '{login}'...")
 
     def _run():
@@ -219,7 +241,7 @@ async def update_user(
     if display_name is not None:
         display_name = _require_non_empty_string(display_name, "display_name")
     if groups is not None:
-        groups = _validate_groups(groups) # TODO: require allowed values?
+        groups = _validate_groups(groups)
     if profile is not None:
         profile = _require_non_empty_string(profile, "profile")
     if source_type is not None:
@@ -242,6 +264,8 @@ async def update_user(
     await require_admin()
     if profile is not None:
         await _require_licensed_user_profile(profile)
+    if groups is not None:
+        await _require_existing_groups(groups)
     await ctx.info(f"Updating DSS user '{login}'...")
 
     def _run():
