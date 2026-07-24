@@ -5,6 +5,7 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client, require_admin
+from .utils.identity_sources import require_identity_source_type
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -109,8 +110,8 @@ async def list_groups(
 
     Args:
         search: Case-insensitive substring matched against group names.
-        source_type: Exact Dataiku group source type: LOCAL, LDAP, AZURE_AD,
-            LOCAL_NO_AUTH (SSO), or CUSTOM.
+        source_type: Exact DSS source type: LOCAL, LDAP, AZURE_AD,
+            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
         is_admin: Whether to return only administrator or non-administrator groups.
         include_permissions: Retrieve all exposed permissions for returned groups.
         offset: Zero-based offset within the matching groups.
@@ -118,7 +119,7 @@ async def list_groups(
     """
     search = search.strip()
     if source_type is not None:
-        source_type = _require_non_empty_string(source_type, "source_type") # TODO: require allowed values, maybe pull out into util with user?
+        source_type = require_identity_source_type(source_type)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
     await require_admin()
@@ -214,7 +215,7 @@ async def create_group(
 ) -> str:
     """Create a DSS group with external mappings and global permissions."""
     name = _require_non_empty_string(name, "name")
-    source_type = _require_non_empty_string(source_type, "source_type")
+    source_type = require_identity_source_type(source_type)
     mappings = {
         "ldap_group_names": _validate_group_names(ldap_group_names, "ldap_group_names")
         or [],
@@ -323,7 +324,7 @@ async def update_group(
     """Patch a DSS group's mappings and global permissions."""
     name = _require_non_empty_string(name, "name")
     if source_type is not None:
-        source_type = _require_non_empty_string(source_type, "source_type")
+        source_type = require_identity_source_type(source_type)
     mappings = {
         "ldap_group_names": _validate_group_names(ldap_group_names, "ldap_group_names"),
         "azure_ad_group_names": _validate_group_names(

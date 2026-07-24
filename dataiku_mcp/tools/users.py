@@ -5,15 +5,14 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client, require_admin
+from .utils.identity_sources import require_identity_source_type
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
-    require_allowed_value as _require_allowed_value,
     require_non_empty_string as _require_non_empty_string,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
 
-_SOURCE_TYPES = {"AZURE_AD", "LDAP", "LOCAL", "LOCAL_NO_AUTH"}
 _USER_COLUMNS = [
     "login",
     "displayName",
@@ -147,13 +146,14 @@ async def create_user(
     profile is available and review its licensing capacity.
 
     Args:
-        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH (SSO), or AZURE_AD.
+        source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
+            (SSO), CUSTOM, or PAM.
         profile: User profile available under the DSS license.
         password: Required for LOCAL users and invalid for external users.
         groups: Complete initial list of group names. Defaults to no groups.
     """
     login = _require_non_empty_string(login, "login")
-    source_type = _require_allowed_value(source_type, "source_type", _SOURCE_TYPES)
+    source_type = require_identity_source_type(source_type)
     display_name = _require_non_empty_string(display_name, "display_name")
     profile = _require_non_empty_string(profile, "profile")
     groups = _validate_groups(groups) or []
@@ -202,7 +202,8 @@ async def update_user(
     licensing capacity.
 
     Args:
-        source_type: Authentication source: LOCAL, LDAP, LOCAL_NO_AUTH (SSO), or AZURE_AD.
+        source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
+            (SSO), CUSTOM, or PAM.
         profile: User profile available under the DSS license.
         password: Required for LOCAL users and invalid for external users.
         groups: Complete initial list of group names. Defaults to no groups.
@@ -215,7 +216,7 @@ async def update_user(
     if profile is not None:
         profile = _require_non_empty_string(profile, "profile")
     if source_type is not None:
-        source_type = _require_allowed_value(source_type, "source_type", _SOURCE_TYPES)
+        source_type = require_identity_source_type(source_type)
     if password is not None:
         password = _require_non_empty_string(password, "password")
 
