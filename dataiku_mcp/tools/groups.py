@@ -76,12 +76,10 @@ def _sanitize_group(raw_group: dict, include_details: bool = False) -> dict:
 
 
 def _apply_changes(definition: dict, changes: dict) -> None:
-    if changes["description"] is not None:
-        definition["description"] = changes["description"]
-    if changes["source_type"] is not None:
-        definition["sourceType"] = changes["source_type"]
-    if changes["is_admin"] is not None:
-        definition["admin"] = changes["is_admin"]
+    """Updates a DSS group `definition` with `changes` (except immutable group "name")."""
+    for field, raw_field in _GROUP_FIELDS.items():
+        if field != "name" and changes[field] is not None:
+            definition[raw_field] = changes[field]
     for field, raw_field in _MAPPING_FIELDS.items():
         if changes[field] is not None:
             definition[raw_field] = changes[field]
