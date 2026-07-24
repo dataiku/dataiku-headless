@@ -116,6 +116,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "managed_folders": frozenset(
         {
+            "create_managed_folder",
             "get_managed_folder_contents",
             "get_managed_folder_info",
             "list_managed_folders",
