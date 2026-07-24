@@ -47,7 +47,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
-### Claude Code CLI 
+### Claude Code CLI
 
 ```bash
 claude plugin marketplace add https://github.com/dataiku/dku-headless.git
@@ -60,13 +60,13 @@ claude plugin install dataiku-headless@dataiku
 codex plugin marketplace add https://github.com/dataiku/dku-headless.git
 codex plugin add dataiku-headless@dataiku
 ```
-### Grok CLI 
+### Grok CLI
 
 ```bash
 grok plugin install dataiku/dku-headless --trust
 ```
 
-### Cursor Agent CLI 
+### Cursor Agent CLI
 
 ```bash
 cursor agent plugin marketplace add github.com/dataiku/dku-headless
@@ -79,9 +79,9 @@ cursor agent plugin marketplace add github.com/dataiku/dku-headless
 cortex plugin install dataiku/dku-headless
 ```
 
-### Other AI Assistants 
+### Other AI Assistants
 
-#### MCP 
+#### MCP
 Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it:
 ```json
 {
@@ -95,7 +95,7 @@ Add the following to your `.mcp.json` to enable the Dataiku MCP server for any a
 }
 ```
 
-#### Skills 
+#### Skills
 
 The skills/*/SKILL.md files follow the universal skill format and work with any tool that reads it.  
 
