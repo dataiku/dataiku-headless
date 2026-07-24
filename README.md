@@ -146,6 +146,8 @@ dataiku-headless
 │   │   ├── projects.py        # Project inspection tools + create_project write
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
 │   │   ├── semantic_models.py # Semantic model inspection tools
+│   │   ├── groups.py          # Instance group administration tools
+│   │   ├── licensing.py       # Instance licensing status inspection tool
 │   │   ├── users.py           # Instance user administration tools
 │   │   ├── webapps.py         # WebApp/backend-state inspection tools
 │   │   ├── wikis.py           # Wiki article inspection tools
@@ -161,6 +163,7 @@ dataiku-headless
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
 │       └── references/
+│           ├── administration.md   # Route instance-level user, group, and licensing tasks
 │           ├── cobuild.md          # Default in-project write path via Cobuild
 │           ├── project-folders.md  # Project folder hierarchy inspection and organization
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation

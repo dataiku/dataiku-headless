@@ -1,6 +1,6 @@
 ---
 name: licensing
-description: Inspect Dataiku DSS license validity, expiry, enabled add-ons, and user-profile capacity.
+description: Inspect Dataiku DSS license validity, expiry, user-profile capacity, and optional profile capability flags.
 ---
 
 # Licensing

@@ -1,6 +1,6 @@
 ---
 name: administration
-description: Route instance-level Dataiku DSS administration tasks, including user and group management.
+description: Route instance-level Dataiku DSS administration tasks, including user, group, and licensing operations.
 ---
 
 # Administration

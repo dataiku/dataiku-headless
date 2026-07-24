@@ -10,7 +10,7 @@ Use these tools for instance-level DSS group administration. They require admini
 ## Workflow
 
 1. Use `list_groups` to locate groups by name, source type, or administrator status. It returns five groups by default and at most ten.
-2. Use `include_permissions=True` only when inspecting the global permissions of the returned page; it retrieves each returned group's full definition.
+2. Use `include_permissions=True` only when inspecting the global permissions of the returned page; it includes the exposed permission and mapping fields in the returned rows when DSS provides them.
 3. Before updating or deleting, confirm the exact group name and inspect permissions when the requested change affects access.
 4. Use `create_group`, `update_group`, or `delete_group` for the requested change.
 5. Verify the result with `list_groups` using the exact group name.
