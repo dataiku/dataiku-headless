@@ -10,20 +10,6 @@ from .utils.auth import get_dss_client, require_admin
 from .utils.serialization import compact_json
 
 
-def _expires_at(expires_on: int | float | None) -> datetime | None:
-    if not expires_on:
-        return None
-    return datetime.fromtimestamp(expires_on / 1000, tz=timezone.utc)
-
-
-def _enabled_addons(properties: dict) -> list[str]:
-    return sorted(
-        key.removeprefix("addons.")
-        for key, value in properties.items()
-        if key.startswith("addons.") and str(value).casefold() == "true"
-    )
-
-
 def _profile_rows(status: dict, include_capabilities: bool) -> list[dict]:
     base = status.get("base", {})
     profile_limits = status.get("limits", {}).get("profileLimits", {})
@@ -57,10 +43,12 @@ async def get_licensing_status(
     ctx: Context,
     include_profile_capabilities: bool = False,
 ) -> str:
-    """Get DSS license validity, expiration, enabled add-ons, and profile capacity.
+    """Get DSS license validity, expiration, and profile capacity.
+    Requires global administrator rights on the target Dataiku instance.
 
     Args:
-        include_profile_capabilities: Include detailed per-profile permission flags.
+        include_profile_capabilities: Include detailed per-profile permission flags;
+            this quickly bloats the context, so use only if strictly required.
     """
     await require_admin()
     await ctx.info("Retrieving DSS licensing status...")
@@ -70,24 +58,15 @@ async def get_licensing_status(
 
     status = await run_blocking(_run)
     base = status.get("base", {})
-    license_content = base.get("licenseContent", {})
-    properties = license_content.get("properties", {})
-    expires_at = _expires_at(base.get("expiresOn"))
+    expires_at = datetime.fromtimestamp(base["expiresOn"] / 1000, tz=timezone.utc)
 
     return compact_json(
         {
             "has_license": base.get("hasLicense", False),
             "valid": base.get("valid", False),
             "expired": base.get("expired", False),
-            "expires_at": expires_at.isoformat().replace("+00:00", "Z")
-            if expires_at
-            else None,
-            "days_until_expiration": (expires_at - datetime.now(timezone.utc)).days
-            if expires_at
-            else None,
-            "trials_explicitly_enabled": base.get("trialsExplicitlyEnabled", False),
-            "fallback_profile": base.get("fallbackProfile"),
-            "enabled_addons": _enabled_addons(properties),
+            "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+            "days_until_expiration": (expires_at - datetime.now(timezone.utc)).days,
             "profiles": _profile_rows(status, include_profile_capabilities),
         }
     )
