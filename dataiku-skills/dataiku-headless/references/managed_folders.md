@@ -15,7 +15,7 @@ Managed folders differ from datasets, which represent tabular data, and project 
 
 Folder connection, path, and contents determine how a folder can be used. Most managed-folder changes still belong in Cobuild so their surrounding Flow context is selected deliberately.
 
-## Modification Routes
+## Creation and Modification Routes
 
 | Action | Route |
 | --- | --- |
