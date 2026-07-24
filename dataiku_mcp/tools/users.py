@@ -9,6 +9,7 @@ from .utils.identity_sources import require_identity_source_type
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
+    require_non_empty_strings as _require_non_empty_strings,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
@@ -28,13 +29,10 @@ def _sanitize_user(raw_user: dict, columns: list[str]) -> dict:
     return {field: raw_user.get(field) for field in columns}
 
 
-def _validate_groups(groups: list[str] | None) -> list[str] | None:
+def _validate_group_names(groups: list[str] | None) -> list[str] | None:
     if groups is None:
         return None
-    return [
-        _require_non_empty_string(group, f"groups[{index}]")
-        for index, group in enumerate(groups)
-    ]
+    return _require_non_empty_strings(groups, "groups")
 
 
 async def _require_licensed_user_profile(profile: str) -> None:
@@ -97,7 +95,7 @@ async def list_users(
         limit: Maximum users to return. Values above 100 are capped at 100.
     """
     search = search.strip()
-    groups = _validate_groups(groups)
+    groups = _validate_group_names(groups)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
     await require_admin()
@@ -184,7 +182,7 @@ async def create_user(
     source_type = require_identity_source_type(source_type)
     display_name = _require_non_empty_string(display_name, "display_name")
     profile = _require_non_empty_string(profile, "profile")
-    groups = _validate_groups(groups) or []
+    groups = _validate_group_names(groups) or []
     if source_type == "LOCAL":
         password = _require_non_empty_string(password, "password")
     elif password is not None:
@@ -241,14 +239,14 @@ async def update_user(
     login = _require_non_empty_string(login, "login")
     if display_name is not None:
         display_name = _require_non_empty_string(display_name, "display_name")
-    if groups is not None:
-        groups = _validate_groups(groups)
     if profile is not None:
         profile = _require_non_empty_string(profile, "profile")
     if source_type is not None:
         source_type = require_identity_source_type(source_type)
     if password is not None:
         password = _require_non_empty_string(password, "password")
+    if groups is not None:
+        groups = _validate_group_names(groups)
 
     changes = {
         "displayName": display_name,

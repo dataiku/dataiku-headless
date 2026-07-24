@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .validation import require_non_empty_string
+from .validation import require_non_empty_strings
 
 
 def parse_json_object(raw_json: str, field_name: str) -> dict:
@@ -57,10 +57,7 @@ def parse_non_empty_string_list(raw_json: str, field_name: str) -> list[str]:
     if len(parsed) < 1:
         raise ValueError(f"'{field_name}' must be a non-empty JSON array")
 
-    result: list[str] = []
-    for i, value in enumerate(parsed):
-        result.append(require_non_empty_string(value, f"{field_name}[{i}]"))
-    return result
+    return require_non_empty_strings(parsed, field_name)
 
 
 def deep_merge_dict(base: dict, patch: dict) -> dict:

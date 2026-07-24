@@ -15,6 +15,13 @@ def require_non_empty_string(value: str, field_name: str) -> str:
     return cleaned
 
 
+def require_non_empty_strings(values: list[str], field_name: str) -> list[str]:
+    return [
+        require_non_empty_string(value, f"{field_name}[{index}]")
+        for index, value in enumerate(values)
+    ]
+
+
 def require_positive_int(value: int, field_name: str) -> int:
     if value is True or value is False:
         raise ValueError(f"'{field_name}' must be >= 1")

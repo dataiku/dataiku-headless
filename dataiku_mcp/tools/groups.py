@@ -9,6 +9,7 @@ from .utils.identity_sources import require_identity_source_type
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
+    require_non_empty_strings as _require_non_empty_strings,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
@@ -63,10 +64,7 @@ _DETAIL_COLUMNS = list(_DETAIL_FIELDS)
 def _validate_group_names(names: list[str] | None, field_name: str) -> list[str] | None:
     if names is None:
         return None
-    return [
-        _require_non_empty_string(name, f"{field_name}[{index}]")
-        for index, name in enumerate(names)
-    ]
+    return _require_non_empty_strings(names, field_name)
 
 
 def _sanitize_group(raw_group: dict, include_details: bool = False) -> dict:
