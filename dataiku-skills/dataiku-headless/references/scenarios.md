@@ -34,10 +34,18 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 1. Use `list_scenarios` to discover scenarios and identify active or running automation.
 2. Use `get_scenario_settings` to inspect a selected scenario's steps, triggers, reporters, and execution behavior.
 3. Use `get_scenario_run_history` to investigate reliability, recent outcomes, and recurring failures.
-4. When the user explicitly requests a manual run and no run is active, use `run_scenario`. Every post-start response always carries the `trigger_fire_id` key (a scalar id when known, null only when a partial handle would not yield it), plus `run_id` once DSS materializes the run. Keep the `run_id` when present; a `trigger_fire_id` identifies only the trigger request, not a scenario run. `get_scenario_run_history` rows include `trigger_fire_id`, so a trigger id alone is enough to find the run it produced. That column follows a fixed rule: `trigger_fire_id` is the fire record's run id only when that id is a string or integer (booleans are excluded), otherwise null; a valid string or integer fire id is never dropped just because a sibling field is malformed, and a `trigger_type` is reported only when the trigger definition is a proper object.
+4. When the user explicitly requests a manual run and no run is active, use `run_scenario`.
 5. Use `list_messaging_channels` only when reporter configuration is relevant.
 6. Inspect the project objects a scenario operates on when a requested change affects them.
 7. Route scenario creation, edits, activation, and deletion through `./cobuild.md`.
+
+## Scenario Run Identification
+
+Keep the ids returned by `run_scenario` so later turns can follow the same execution instead of guessing or re-triggering.
+
+- `run_id` identifies the scenario run itself.
+- `trigger_fire_id` identifies the trigger request. It is especially useful when DSS has accepted the trigger but has not materialized the run yet.
+- `get_scenario_run_history` includes `trigger_fire_id` on each row, so you can use that id later to find the run the trigger produced.
 
 ## Supporting Context
 

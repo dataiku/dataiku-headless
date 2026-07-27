@@ -64,9 +64,7 @@ async def _wait_for_job_result(
     timeout_seconds: int,
     job_id: str | None = None,
 ) -> tuple[bool, dict]:
-    # job_id is the id captured once by the caller. The helper never reads
-    # job.id, so a handle whose .id raises while get_status() still returns a
-    # terminal payload cannot turn a completed build into a poll failure.
+    # Use the caller-captured id so polling never depends on reading job.id again.
     deadline = time.monotonic() + timeout_seconds
     while True:
         raw_status = await run_blocking(job.get_status)
@@ -96,12 +94,7 @@ def _tail_log_text(log_text: str, tail_lines: int | None) -> tuple[str, int, boo
 def _per_dataset_outcomes(
     dataset_names: list[str], status_summary: dict
 ) -> list[dict]:
-    """Map each requested dataset to the state of the activity that produces it.
-
-    A single job builds every requested output, so per-dataset outcomes are read
-    from the job's activities (each activity carries its output refs + state).
-    Datasets with no matching activity yet report ``state: null``.
-    """
+    """Map requested datasets to the state of the activity that produces them. Datasets with no matching activity yet report ``state: null``."""
     state_by_ref: dict[str, str | None] = {}
     for activity in status_summary.get("activities", []) or []:
         for output in activity.get("outputs", []) or []:
@@ -123,32 +116,12 @@ async def build_datasets(
 ) -> str:
     """Build one or more existing datasets as a single DSS job.
 
-    Direct execution of an existing asset; for creating or modifying assets use Cobuild.
-
-    All requested datasets are built by ONE job (their outputs are chained onto a
-    single job definition), so there is exactly one job_id and one shared timeout —
-    overlapping Flow builds and per-dataset timeout multiplication are avoided.
-
-    Defaults to fire-and-return (wait_for_completion=False): the job is started and
-    its job_id returned immediately. The supervisor then drives waiting explicitly
-    with wait_for_job(project_key, job_id) and inspects outcomes with
-    get_job_status / get_job_log. Set wait_for_completion=true only for a short
-    inline wait bounded by timeout_seconds; the wait path additionally reports
-    per-dataset outcomes read from the job's activities — a dataset's state is
-    null only until the activity that produces it exists, then it carries that
-    activity's state (e.g. DONE on a completed build). timeout_seconds is a
-    soft deadline checked between status polls — a single hung DSS HTTP call can
-    exceed it — so it never guarantees the wait returns exactly on time. If
-    status polling fails after the job starts, the tool returns status
-    build_poll_failed carrying the job_id instead of raising, so the identity
-    survives even when a harness masks error text.
-
     Args:
-        dataset_names: Existing dataset names to build (at least one); all built by one job
-        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false (default), start it and return the job_id for wait_for_job / get_job_status
-        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD
-        auto_update_schema: Whether to auto-update output schemas before each recipe run
-        timeout_seconds: Max time to wait before returning in-progress job state (only used when wait_for_completion=true)
+        dataset_names: Existing dataset names to build (at least one). All requested datasets are started in one job.
+        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false, start it and return the job_id.
+        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD.
+        auto_update_schema: Whether to auto-update output schemas before each recipe run.
+        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     names = _require_non_empty_list(dataset_names, "dataset_names")
@@ -189,10 +162,6 @@ async def build_datasets(
             "before retrying because the start request may have reached DSS."
         ) from exc
 
-    # Capture the job id once, defensively, the moment the handle exists. The SDK
-    # reads .id straight from the raw payload, so a partial payload can make it
-    # raise; nothing below reads job.id again, so no post-start return (including
-    # the except handler) can escape and lose the identity to transport masking.
     try:
         job_id = job.id
     except Exception:
@@ -221,8 +190,6 @@ async def build_datasets(
             job_id,
         )
     except Exception as exc:
-        # Returned, never raised: the job already exists, and raising would let
-        # an error-masking transport strip the job identity from the response.
         return compact_json(
             {
                 "status": "build_poll_failed",
@@ -287,23 +254,11 @@ async def run_recipe(
 ) -> str:
     """Run an existing recipe by building its first output as the trigger target.
 
-    Direct execution of an existing asset; for creating or modifying assets use Cobuild.
-
-    Defaults to fire-and-return (wait_for_completion=False): the job is started and
-    its ID returned immediately. The supervisor then waits explicitly with
-    wait_for_job(project_key, job_id) and inspects outcomes with get_job_status /
-    get_job_log. Set wait_for_completion=true only for a short inline wait bounded by
-    timeout_seconds. timeout_seconds is a soft deadline checked between status polls
-    — a single hung DSS HTTP call can exceed it. If status polling fails after the
-    job starts, the tool returns status recipe_poll_failed carrying the job_id
-    instead of raising, so the identity survives even when a harness masks error
-    text.
-
     Args:
-        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false (default), start it and return the job ID for wait_for_job / get_job_status
-        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD
-        auto_update_schema: Whether to auto-update output schemas before each recipe run
-        timeout_seconds: Max time to wait before returning in-progress job state (only used when wait_for_completion=true)
+        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false, start it and return the job_id.
+        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD.
+        auto_update_schema: Whether to auto-update output schemas before each recipe run.
+        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     recipe_name = _require_non_empty_string(recipe_name, "recipe_name")
@@ -356,10 +311,6 @@ async def run_recipe(
             "reached DSS."
         ) from exc
 
-    # Capture the job id once, defensively, the moment the handle exists. The SDK
-    # reads .id straight from the raw payload, so a partial payload can make it
-    # raise; nothing below reads job.id again, so no post-start return (including
-    # the except handler) can escape and lose the identity to transport masking.
     try:
         job_id = job.id
     except Exception:
@@ -388,8 +339,6 @@ async def run_recipe(
             job_id,
         )
     except Exception as exc:
-        # Returned, never raised: the job already exists, and raising would let
-        # an error-masking transport strip the job identity from the response.
         return compact_json(
             {
                 "status": "recipe_poll_failed",

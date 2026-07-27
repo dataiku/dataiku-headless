@@ -16,19 +16,13 @@ from .utils.validation import (
 )
 
 SCENARIO_POLL_INTERVAL_SECONDS = 2
-# DSS creates a scenario run asynchronously after firing its trigger. Keep this
-# lookup short; callers can always use run history if the run id appears later.
+# DSS creates a scenario run asynchronously after firing its trigger. 
 SCENARIO_RUN_ID_RESOLVE_BUDGET_SECONDS = 4
 MAX_SCENARIO_WAIT_SECONDS = 3600
 
 
 async def _resolve_scenario_run_id(trigger_fire, budget_seconds: int):
-    """Return the real scenario-run id, not the trigger-fire id, when available.
-
-    Never raises after the trigger fire exists: an SDK failure while resolving
-    returns ``("poll_failed", None, exc)`` so the caller can build a structured
-    response that still carries the trigger identity.
-    """
+    """Resolve the scenario run id after a trigger fires."""
     deadline = time.monotonic() + budget_seconds
     while True:
         try:
@@ -46,21 +40,7 @@ async def _resolve_scenario_run_id(trigger_fire, budget_seconds: int):
 
 
 async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
-    """Poll a fired trigger and its run within one explicit deadline.
-
-    ``timeout_seconds`` is a soft deadline: it is checked between SDK polls
-    (``get_scenario_run`` / ``refresh`` / ``is_cancelled``), not inside them. The
-    installed DSS client sets no per-request HTTP timeout, so a single hung call
-    can make the wait exceed ``timeout_seconds``. The run is never cancelled by a
-    timeout; the caller polls ``get_scenario_run_history``.
-
-    Never raises after the trigger fire exists: an SDK failure while polling
-    returns ``("poll_failed", run_id, None, exc)`` carrying the run id whenever a
-    run was ever observed, so the caller keeps every known identity. The run id
-    is captured defensively the moment the run handle appears (the SDK reads it
-    from the raw payload, so a partial payload can make ``.id`` raise); no
-    identity read happens inside a failure handler.
-    """
+    """Wait for a triggered scenario run within the timeout."""
     deadline = time.monotonic() + timeout_seconds
     scenario_run = None
     observed_run_id = None
@@ -153,20 +133,11 @@ async def run_scenario(
     wait_for_completion: bool = False,
     timeout_seconds: int = 600,
 ) -> str:
-    """Run one existing scenario; creation and modification remain with Cobuild.
+    """Run one existing scenario.
 
-    When wait_for_completion=true, timeout_seconds is a soft deadline checked
-    between SDK polls — a single hung DSS HTTP call can exceed it. A timeout
-    returns the run id (when known) for polling get_scenario_run_history; the run
-    is never cancelled. Every post-start response always carries the
-    trigger_fire_id key (a scalar id when known, null only when a partial handle
-    would not yield it), plus run_id once DSS has materialized the run, so the
-    caller can always identify this request in run history instead of
-    re-triggering and never has to distinguish an omitted key from a null. After
-    the trigger is accepted this tool never raises: an SDK failure while
-    resolving or polling returns status scenario_poll_failed with the same
-    identity fields, so the identities survive even when a harness masks error
-    text. Only pre-start failures (validation, the trigger call itself) raise.
+    Args:
+        wait_for_completion: If true, wait up to timeout_seconds for the run to finish; if false, trigger the scenario and return immediately.
+        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
@@ -192,11 +163,6 @@ async def run_scenario(
             "have reached DSS."
         ) from exc
 
-    # Capture the trigger-fire id once, guarded, the moment the handle exists.
-    # The SDK reads .run_id straight from the fire payload, so a partial payload
-    # can make it raise; nothing below reads trigger_fire.run_id again, so no
-    # post-start payload (including the failure paths) can escape and lose the
-    # identity to transport masking.
     try:
         trigger_fire_id = trigger_fire.run_id
     except Exception:
@@ -206,8 +172,6 @@ async def run_scenario(
         "status": "scenario_run_cancelled",
         "project_key": project_key,
         "scenario_id": scenario_id,
-        # Always present so the caller never distinguishes omitted from null:
-        # a real scalar id when captured, null when the handle would not yield it.
         "trigger_fire_id": trigger_fire_id,
         "hint": (
             "The trigger was cancelled before a run started; the scenario may "
@@ -216,11 +180,7 @@ async def run_scenario(
     }
 
     def _poll_failed_payload(run_id, error) -> dict:
-        """A structured post-start failure that keeps every known identity.
-
-        Returned, never raised: raising would let an error-masking transport strip
-        the identities and invite a blind re-trigger.
-        """
+        """Build a structured post-start failure response."""
         return {
             "status": "scenario_poll_failed",
             "project_key": project_key,
@@ -311,18 +271,7 @@ async def get_scenario_run_history(
     ctx: Context,
     limit: int = 10,
 ) -> str:
-    """Get the last runs of a scenario.
-
-    Each row carries the run's trigger-fire identity for correlation. The rule,
-    applied per row so a malformed record never crashes the read: trigger_fire_id
-    is the fire record's runId only when runId is a present scalar (str/int), else
-    null; trigger_type is the inner trigger's type only when that inner trigger is
-    a mapping, else null. A present, valid runId is a real fire id and is never
-    discarded (even when its sibling trigger definition is a bare string); an
-    absent or non-scalar runId is always null. A caller left holding only a
-    trigger_fire_id (a run_scenario timeout before DSS materialized the run) can
-    match it against this column to find the run its trigger produced.
-    """
+    """Get the last runs of a scenario."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     limit = min(_require_positive_int(limit, "limit"), 50)
@@ -338,16 +287,8 @@ async def get_scenario_run_history(
         for run in runs:
             info = run.get_info()
             result = info.get("result") or {}
-            # info["trigger"] is the trigger-fire record; its runId is the
-            # trigger fire id (what run_scenario returns as trigger_fire_id),
-            # not a scenario run id. Exposing it lets a caller who only holds a
-            # trigger_fire_id correlate their trigger with the run it produced.
-            # Shape rule (see the docstring): keep a present scalar runId as the
-            # fire id, null a non-scalar or absent one; read trigger_type only
-            # from a mapping inner trigger. A bare-string trigger record yields
-            # null fire id; a valid fire id is never discarded just because its
-            # sibling trigger definition is malformed. Never crash, never
-            # fabricate an id.
+            # DSS trigger payloads are not always well-formed; keep usable ids
+            # and null the rest so one bad record does not crash the read.
             raw_trigger_fire = info.get("trigger")
             trigger_fire = (
                 raw_trigger_fire if isinstance(raw_trigger_fire, dict) else {}

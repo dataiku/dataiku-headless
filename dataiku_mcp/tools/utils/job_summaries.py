@@ -71,11 +71,7 @@ def _summarize_runtime_activities(
     for activity in activities:
         activity_id = activity.get("activityId")
         base = base_activities.get(activity_id) or {}
-        # Live DSS keeps an activity's output refs under def.targets, as
-        # {projectKey, datasetName, partitionId} entries (statusOutputs is empty
-        # even on a DONE job and there is no top-level targets key). Fall back
-        # to a top-level targets list with {type, id} entries for other payload
-        # vintages.
+        # Live DSS may store output refs under def.targets rather than targets.
         targets = (base.get("def") or {}).get("targets") or base.get("targets") or []
         summarized_activities.append(
             {
