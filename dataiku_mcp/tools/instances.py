@@ -45,7 +45,7 @@ async def switch_instance(name: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def delete_instance(name: str, ctx: Context) -> str:
-    """Delete a Dataiku instance from ~/.dataiku/config.json.
+    """Delete a Dataiku instance from the resolved configuration file.
 
     Only instances stored in the config file can be deleted. An instance defined
     through environment variables must be removed by unsetting DKU_DSS_URL.
@@ -75,7 +75,7 @@ async def configure_instance(ctx: Context) -> str:
     """Connect a Dataiku instance. Use when no instance is configured, or to add another.
 
     Opens a local browser page for the user to enter the instance URL and API key,
-    saved to ~/.dataiku/config.json (0600).
+    saved to the resolved configuration file (0600).
     """
     client_params = ctx.session.client_params
     elicitation_capability = (

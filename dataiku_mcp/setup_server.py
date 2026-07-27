@@ -113,7 +113,7 @@ def _page(*, error: str = "") -> str:
     <section class="card">
       <h1>Configure Dataiku</h1>
       <p class="intro">Add or update a Dataiku instance.</p>
-      <div class="security"><span>🔒</span><div><strong>Stored locally on this machine.</strong>The API key is saved to <code>~/.dataiku/config.json</code> with user-only (0600) file permissions. This setup page is served only on 127.0.0.1 and expires after 10 minutes.</div></div>
+      <div class="security"><span>🔒</span><div><strong>Stored locally on this machine.</strong>The API key is saved to the resolved Dataiku configuration file with user-only (0600) file permissions. This setup page is served only on 127.0.0.1 and expires after 10 minutes.</div></div>
       {error_markup}
       <form method="post" autocomplete="off">
         <div class="grid">

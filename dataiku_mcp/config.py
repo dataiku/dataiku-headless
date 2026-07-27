@@ -8,37 +8,35 @@ from pathlib import Path
 
 
 def _resolve_config_file() -> Path:
-    """Locate `.dataiku/config.json` across install layouts.
+    """Select the configuration file path for the current launch context.
 
     Resolution order:
       1. `DKU_CONFIG_FILE` env var (explicit path)
-      2. `~/.dataiku/config.json` (canonical user location)
-      3. `./.dataiku/config.json` (repo-local dev fallback)
-
-    A package-relative path is deliberately avoided: it only exists in a cloned
-    repo, not in a `uvx`/PyPI install where the package lives in site-packages.
+      2. `./.dataiku/config.json` when it already exists (repo-local dev)
+      3. `~/.dataiku/config.json` otherwise (canonical user location)
     """
     explicit = os.environ.get("DKU_CONFIG_FILE")
     if explicit:
         return Path(explicit).expanduser()
 
-    home_config = Path.home() / ".dataiku" / "config.json"
-    if home_config.exists():
-        return home_config
+    cwd_config = Path.cwd() / ".dataiku" / "config.json"
+    if cwd_config.exists():
+        return cwd_config
 
-    return Path.cwd() / ".dataiku" / "config.json"
-
-
-def _resolve_config_file_for_write() -> Path:
-    """Path to write persisted instances to.
-
-    Prefers the explicit `DKU_CONFIG_FILE` override, otherwise the canonical
-    `~/.dataiku/config.json` (created on demand).
-    """
-    explicit = os.environ.get("DKU_CONFIG_FILE")
-    if explicit:
-        return Path(explicit).expanduser()
     return Path.home() / ".dataiku" / "config.json"
+
+
+def get_config_path() -> Path:
+    """Return the config file selected for this server process.
+
+    The path is resolved lazily and cached so all reads, additions, and
+    deletions use the same file.
+    """
+    global _config_file
+    if _config_file is None:
+        _config_file = _resolve_config_file()
+    return _config_file
+
 
 
 @dataclass(frozen=True)
@@ -53,6 +51,7 @@ class DSSInstance:
 
 _instances: dict[str, DSSInstance] = {}
 _current_instance_name: str = ""
+_config_file: Path | None = None
 
 
 ### ------------------------------ ###
@@ -102,7 +101,7 @@ def _load_instances_from_config() -> dict:
 
     dataiku_config_file = {}
     try:
-        with open(_resolve_config_file(), "r") as f:
+        with open(get_config_path(), "r") as f:
             dataiku_config_file = json.load(f)
     except FileNotFoundError:
         return instances_from_config
@@ -182,16 +181,15 @@ def save_instance_from_setup(
 ) -> dict:
     """Persist a profile submitted through the local configuration page.
 
-    The API key is written to `~/.dataiku/config.json` in plaintext; the file is
-    created atomically with user-only (0600) permissions.
+    The API key is written to the resolved configuration file in plaintext;
+    the file is created atomically with user-only (0600) permissions.
     """
     global _current_instance_name
 
-    path = _resolve_config_file_for_write()
-    source_path = path if path.exists() else _resolve_config_file()
+    path = get_config_path()
     data: dict = {}
-    if source_path.exists():
-        with open(source_path, "r") as f:
+    if path.exists():
+        with open(path, "r") as f:
             data = json.load(f)
 
     instances = data.setdefault("dss_instances", {})
@@ -245,7 +243,7 @@ def delete_instance(name: str) -> dict:
             "in the config file. Unset DKU_DSS_URL (and DKU_INSTANCE_NAME) to remove it."
         )
 
-    path = _resolve_config_file()
+    path = get_config_path()
     with open(path, "r") as f:
         data = json.load(f)
 
@@ -301,7 +299,7 @@ def get_current_instance() -> DSSInstance:
         raise ValueError(
             "No Dataiku instance is configured. Run configure_instance for local "
             "stdio, set DKU_DSS_URL and DKU_API_KEY for automation, or add a "
-            "profile to ~/.dataiku/config.json."
+            "profile to the resolved configuration file."
         )
     if _current_instance_name not in _instances:
         raise ValueError(
