@@ -40,6 +40,11 @@ Do not use this guide when:
 6. Retain the returned `conversation_id` for follow-up work.
 7. If Cobuild returns a delete confirmation request, inspect the deletion details and respond through `answer_cobuild_confirmation`.
 
+## Turn Scope and Waiting
+
+- Keep each turn to one coherent unit that fits the server-side time cap; split wide or repetitive work across turns.
+- If `send_cobuild_message` returns `status: timeout` with `overdue: false`, do not resend or defer waiting. Poll `get_cobuild_turn_status` inside the same run with the original `conversation_id` and `turn_id` until the turn settles.
+
 ## Prompt Guidance
 
 - Prefer explicit Dataiku object names in prompts.
@@ -53,6 +58,7 @@ Do not use this guide when:
 | --- | --- |
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
+| Poll a turn that has not settled yet | `get_cobuild_turn_status` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
 

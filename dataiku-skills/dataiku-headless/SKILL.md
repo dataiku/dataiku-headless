@@ -57,7 +57,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Inspect Data Quality rules and outcomes | `./references/data-quality.md` |
 | Inspect cross-project sharing | `./references/cross-project-sharing.md` |
 | Discover datasets through Data Collections | `./references/data-collections.md` |
-| Port logic from Alteryx, SAS, Excel, or similar tools into DSS | `./references/migrations.md` |
+| Migrate Excel workbook logic into DSS | `./references/excel-migration.md` |
 
 ## Routing Notes
 

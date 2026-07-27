@@ -41,7 +41,7 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 `dataiku-skills` exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `dataiku-skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
-The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
+The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and Excel migration.
 
 ## Install
 
@@ -170,7 +170,7 @@ dataiku-headless
 │           ├── code-environments.md # Available code environments for prompts and execution context
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection
-│           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
+│           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, Excel migration, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (points at dataiku-skills/ and .mcp.json)
