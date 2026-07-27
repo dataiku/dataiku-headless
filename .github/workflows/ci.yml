@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, reopened, synchronize, edited]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +15,23 @@ permissions:
   contents: read
 
 jobs:
+  semantic-title:
+    name: Semantic PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Validate squash-merge title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: uv run cz check --message "$PR_TITLE"
+
   pre-commit:
     name: Pre-commit hooks
     runs-on: ubuntu-latest
@@ -23,8 +41,8 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
-      - name: Install dependencies
-        run: uv sync
+      - name: Install locked dependencies
+        run: uv sync --locked
       # Runs every hook in .pre-commit-config.yaml (ruff lint, file hygiene,
       # uv-lock) against all files. commit-msg hooks are skipped by --all-files.
       - name: Run pre-commit
@@ -46,7 +64,26 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
-      - name: Install dependencies
-        run: uv sync --python ${{ matrix.python-version }}
+      - name: Install locked dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }}
       - name: Run tests
         run: uv run pytest
+
+  package:
+    name: Package build and wheel smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Build wheel and source distribution
+        run: uv build
+      - name: Smoke-test built wheel
+        run: |
+          set -euo pipefail
+          uv venv --python 3.12 "$RUNNER_TEMP/package-smoke"
+          uv pip install --python "$RUNNER_TEMP/package-smoke/bin/python" dist/*.whl
+          "$RUNNER_TEMP/package-smoke/bin/dataiku-headless" --help >/dev/null
+          "$RUNNER_TEMP/package-smoke/bin/python" -c "import cli, dataiku_mcp"
