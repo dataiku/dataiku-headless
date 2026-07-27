@@ -29,6 +29,7 @@ app = typer.Typer(
 # serve  (+ legacy default)
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def serve() -> None:
     """Run the Dataiku FastMCP server over stdio."""

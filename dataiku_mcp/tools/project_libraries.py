@@ -119,7 +119,9 @@ def _load_external_libraries(project) -> tuple[list[dict], str | None]:
         )
 
 
-def _match_external_library(item_path: str, external_libraries: list[dict]) -> str | None:
+def _match_external_library(
+    item_path: str, external_libraries: list[dict]
+) -> str | None:
     """Return the external library local path that owns ``item_path``, if any."""
     normalized = _normalize_library_path(item_path)
     matches = []
@@ -250,7 +252,9 @@ async def list_project_library(
     source = source.strip().lower() or "all"
     if source not in {"all", "internal", "external"}:
         raise ValueError("source must be one of: all, internal, external")
-    await ctx.info(f"Listing project library {project_key} from {path} (source={source})...")
+    await ctx.info(
+        f"Listing project library {project_key} from {path} (source={source})..."
+    )
 
     def _run():
         project = get_dss_client().get_project(project_key)
@@ -500,7 +504,9 @@ async def write_project_library_file(
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     filepath = _require_non_empty_string(filepath, "filepath")
-    await ctx.info(f"Uploading local file {filepath} to project library {path} in {project_key}...")
+    await ctx.info(
+        f"Uploading local file {filepath} to project library {path} in {project_key}..."
+    )
 
     def _run():
         local_bytes = _read_local_file_bytes(filepath)

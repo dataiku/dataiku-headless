@@ -51,7 +51,12 @@ def _get_recipe_type(settings) -> str:
 
 def _settings_view(settings, include_engine_params: bool = False) -> dict:
     recipe_type = _get_recipe_type(settings)
-    result: dict[str, Any] = {"type": recipe_type, "params": None, "payload": None, "code": None}
+    result: dict[str, Any] = {
+        "type": recipe_type,
+        "params": None,
+        "payload": None,
+        "code": None,
+    }
     warnings: list[str] = []
     try:
         result["inputs_by_role"] = _get_inputs_by_role(settings)
@@ -64,7 +69,9 @@ def _settings_view(settings, include_engine_params: bool = False) -> dict:
     try:
         params = settings.get_recipe_params()
         if not include_engine_params and isinstance(params, dict):
-            params = {key: value for key, value in params.items() if key != "engineParams"}
+            params = {
+                key: value for key, value in params.items() if key != "engineParams"
+            }
         result["params"] = params
     except Exception as exc:
         warnings.append(f"params unavailable: {exc}")
@@ -76,7 +83,9 @@ def _settings_view(settings, include_engine_params: bool = False) -> dict:
     if recipe_type in CODE_RECIPE_TYPES:
         try:
             result["code"] = (
-                settings.get_code() if hasattr(settings, "get_code") else settings.get_payload()
+                settings.get_code()
+                if hasattr(settings, "get_code")
+                else settings.get_payload()
             )
         except Exception as exc:
             warnings.append(f"code unavailable: {exc}")

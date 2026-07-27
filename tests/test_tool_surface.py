@@ -170,9 +170,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "users": frozenset(
         {"create_user", "delete_user", "list_users", "update_user"}
     ),
-    "webapps": frozenset(
-        {"get_webapp_settings", "get_webapp_state", "list_webapps"}
-    ),
+    "webapps": frozenset({"get_webapp_settings", "get_webapp_state", "list_webapps"}),
     "wikis": frozenset({"get_wiki_article", "list_wiki_articles"}),
 }
 
@@ -184,8 +182,7 @@ def registered_tools_by_module() -> dict[str, frozenset[str]]:
         module = tool.fn.__module__.removeprefix("dataiku_mcp.tools.")
         tools_by_module[module].add(tool.name)
     return {
-        module: frozenset(tool_names)
-        for module, tool_names in tools_by_module.items()
+        module: frozenset(tool_names) for module, tool_names in tools_by_module.items()
     }
 
 

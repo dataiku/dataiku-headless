@@ -21,7 +21,9 @@ def _derive_job_state(raw_job: dict, job_end_time: int | None) -> str | None:
             return fallback_state
 
     activities = runtime_summary.get("activities") or []
-    activity_states = [activity.get("state") for activity in activities if activity.get("state")]
+    activity_states = [
+        activity.get("state") for activity in activities if activity.get("state")
+    ]
     if "FAILED" in activity_states:
         return "FAILED"
     if "ABORTED" in activity_states:
@@ -205,5 +207,7 @@ def summarize_listed_job(project_key: str, raw_job: dict) -> dict:
         "initiation_timestamp": raw_job.get(
             "initiationTimestamp", definition.get("initiationTimestamp")
         ),
-        "initiation_type": raw_job.get("triggeredFrom", definition.get("triggeredFrom")),
+        "initiation_type": raw_job.get(
+            "triggeredFrom", definition.get("triggeredFrom")
+        ),
     }

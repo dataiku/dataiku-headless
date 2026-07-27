@@ -7,6 +7,7 @@ from pathlib import Path
 
 DKU_CONFIG_FILE = Path(__file__).parent.parent / ".dataiku" / "config.json"
 
+
 @dataclass(frozen=True)
 class DSSInstance:
     name: str
@@ -19,6 +20,7 @@ class DSSInstance:
 
 _instances: dict[str, DSSInstance] = {}
 _current_instance_name: str = ""
+
 
 ### ------------------------------ ###
 ###       Load configuration       ###
@@ -121,6 +123,7 @@ def load_dss_instances() -> None:
 ### ---------------------------------- ###
 ###       Retrieve configuration       ###
 ### ---------------------------------- ###
+
 
 def switch_instance(name: str) -> dict:
     """Switch to a named instance. Returns the instance info."""

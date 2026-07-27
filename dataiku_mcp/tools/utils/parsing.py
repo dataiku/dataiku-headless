@@ -64,11 +64,7 @@ def deep_merge_dict(base: dict, patch: dict) -> dict:
     """Recursively merge dict objects. Non-dict values are replaced by patch values."""
     merged = dict(base)
     for key, value in patch.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = deep_merge_dict(merged[key], value)
         else:
             merged[key] = value

@@ -13,7 +13,9 @@ def summarize_trained_models(mltask, model_ids: list[str] | None = None) -> list
         summaries.append(
             {
                 "id": model_id,
-                "algorithm": details.get_modeling_settings().get("algorithm", "unknown"),
+                "algorithm": details.get_modeling_settings().get(
+                    "algorithm", "unknown"
+                ),
                 "metrics": details.get_performance_metrics(),
             }
         )
@@ -63,7 +65,11 @@ def build_metric_summary(raw_settings: dict) -> dict[str, Any]:
     custom_metrics = metrics.get("customMetrics", [])
     active_custom_metric_name = metrics.get("customEvaluationMetricName")
     active_custom_metric = next(
-        (item for item in custom_metrics if item.get("name") == active_custom_metric_name),
+        (
+            item
+            for item in custom_metrics
+            if item.get("name") == active_custom_metric_name
+        ),
         None,
     )
     return {
@@ -81,7 +87,9 @@ def build_hyperparameter_search_summary(raw_settings: dict) -> dict[str, Any] | 
     return {
         "strategy": strategy,
         "validation_mode": search.get("mode"),
-        "n_iter": search.get("nIter") if strategy == "GRID" else search.get("nIterRandom"),
+        "n_iter": search.get("nIter")
+        if strategy == "GRID"
+        else search.get("nIterRandom"),
         "randomized_grid": search.get("randomized"),
         "seed": search.get("seed"),
         "split_ratio": search.get("splitRatio"),
@@ -141,7 +149,9 @@ def build_ml_task_summary(
         "prediction_type": raw_settings.get("predictionType"),
         "target_column": raw_settings.get("targetVariable"),
         "backend_type": raw_settings.get("backendType"),
-        "metric": raw_settings.get("modeling", {}).get("metrics", {}).get("evaluationMetric"),
+        "metric": raw_settings.get("modeling", {})
+        .get("metrics", {})
+        .get("evaluationMetric"),
         "metric_details": build_metric_summary(raw_settings),
         "enabled_algorithms": (
             settings.get_enabled_algorithm_names()

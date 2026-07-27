@@ -25,7 +25,9 @@ class _CobuildConversationEntry:
 _conversations: dict[str, _CobuildConversationEntry] = {}
 
 
-def _get_conversation_entry(conversation_id: str, project_key: str) -> _CobuildConversationEntry:
+def _get_conversation_entry(
+    conversation_id: str, project_key: str
+) -> _CobuildConversationEntry:
     entry = _conversations.get(conversation_id)
     if entry is None:
         raise ValueError(
@@ -152,7 +154,9 @@ async def answer_cobuild_confirmation(
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """List retained Cobuild conversations in the project."""
     project_key = _require_non_empty_string(project_key, "project_key")
-    await ctx.info(f"Listing retained Cobuild conversations for project {project_key}...")
+    await ctx.info(
+        f"Listing retained Cobuild conversations for project {project_key}..."
+    )
 
     current_instance_name = config.get_current_instance_name()
     rows = [
