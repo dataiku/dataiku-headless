@@ -42,7 +42,7 @@ Do not use this guide when:
 
 ## Turn Scope and Waiting
 
-- Keep each turn to one coherent unit that fits the server-side time cap; split wide or repetitive work across turns.
+- Keep each turn to one coherent unit that fits the server-side time cap, observed at 30 minutes; split wide or repetitive work across turns.
 - If `send_cobuild_message` returns `status: timeout` with `overdue: false`, do not resend or defer waiting. Poll `get_cobuild_turn_status` inside the same run with the original `conversation_id` and `turn_id` until the turn settles.
 
 ## Prompt Guidance
