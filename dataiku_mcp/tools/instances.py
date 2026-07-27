@@ -39,7 +39,7 @@ async def switch_instance(name: str, ctx: Context) -> str:
         name: Instance name (run list_instances() to retrieve all available instance names).
     """
     await ctx.info(f"Switching to instance '{name}'...")
-    info = config.switch_instance(name)
+    info = config.set_current_instance(name)
     return compact_json(info)
 
 
@@ -54,7 +54,7 @@ async def delete_instance(name: str, ctx: Context) -> str:
         name: Instance name (run list_instances() to see available names).
     """
     await ctx.info(f"Deleting instance '{name}'...")
-    info = config.delete_instance(name)
+    info = config.delete_instance_from_config(name)
     return compact_json(info)
 
 

@@ -19,7 +19,7 @@ from . import (  # noqa: E402
     config_mcp,
 )
 
-config.load_dss_instances()
+config.initialize_current_instance()
 
 # Import all modules to register tools and resources
 from .tools import (  # noqa: F401,E402

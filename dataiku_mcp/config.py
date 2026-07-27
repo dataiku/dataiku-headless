@@ -7,6 +7,23 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+@dataclass(frozen=True)
+class DSSInstance:
+    name: str
+    url: str
+    api_key: str
+    no_check_certificate: bool
+    source: str
+    description: str = ""
+
+
+_current_instance: DSSInstance | None = None
+_config_file: Path | None = None
+
+
+### ------------------------------ ###
+###        config.json path        ###
+### ------------------------------ ###
 def _resolve_config_file() -> Path:
     """Select the configuration file path for the current launch context.
 
@@ -36,22 +53,6 @@ def get_config_path() -> Path:
     if _config_file is None:
         _config_file = _resolve_config_file()
     return _config_file
-
-
-
-@dataclass(frozen=True)
-class DSSInstance:
-    name: str
-    url: str
-    api_key: str
-    no_check_certificate: bool
-    source: str
-    description: str = ""
-
-
-_instances: dict[str, DSSInstance] = {}
-_current_instance_name: str = ""
-_config_file: Path | None = None
 
 
 ### ------------------------------ ###
@@ -85,18 +86,18 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
 
 def _load_instances_from_config() -> dict:
     """
-    Load DSS instances from `.dataiku/config.json`, if the file exists.
+    Load DSS instances from resolved config.json, if the file exists.
 
     If the file defines a non-empty `default_instance`, validate that the
     instance name exists in `dss_instances`; raise `ValueError` otherwise.
 
     Returns a dictionary with shape
-    `{"default_instance": "...", "instances": {...}}`, where the values in
-    `instances` are `DSSInstance` objects keyed by instance name.
+    `{"default_instance": "...", "dss_instances": {...}}`, where the values
+    in `dss_instances` are `DSSInstance` objects keyed by instance name.
     """
     instances_from_config = {
-        "default_instance": "",
-        "instances": {},
+        "default_instance": None,
+        "dss_instances": {},
     }
 
     dataiku_config_file = {}
@@ -119,7 +120,7 @@ def _load_instances_from_config() -> dict:
     # Populate `instances_from_config`
     instances_from_config["default_instance"] = default_instance_name
     for name, details in instances.items():
-        instances_from_config["instances"][name] = DSSInstance(
+        instances_from_config["dss_instances"][name] = DSSInstance(
             name=name,
             url=details["url"],
             api_key=details.get("api_key", ""),
@@ -130,35 +131,109 @@ def _load_instances_from_config() -> dict:
     return instances_from_config
 
 
-def load_dss_instances() -> None:
-    """
-    Load DSS instances from environment variables and `.dataiku/config.json`.
+def _serialize_instances_from_config(config):
+    config_serialized = {
+        "default_instance": "",
+        "dss_instances": {},
+    }
 
-    The config file's `default_instance` selects the startup instance. When
-    `DKU_DSS_URL` is set, its environment-backed instance is added and made
-    active instead.
-    """
-    global _instances, _current_instance_name
+    if config["default_instance"]:
+        config_serialized["default_instance"] = config["default_instance"]
 
-    # Load instances from environment and config file
+    for _, dss_instance in config["dss_instances"].items():
+        serialized_instance = {
+              "url": dss_instance.url,
+              "api_key": dss_instance.api_key,
+              "no_check_certificate": dss_instance.no_check_certificate,
+          }
+        if dss_instance.description:
+            serialized_instance["description"] = dss_instance.description
+
+        config_serialized["dss_instances"][dss_instance.name] = serialized_instance
+
+    return config_serialized
+
+
+### ------------------------------ ###
+###      Getters and setters       ###
+### ------------------------------ ###
+def initialize_current_instance() -> None:
+    """
+    Initialize the _current_instance from environment variables and
+    resolved config.json.
+
+    Resolution order:
+        1. Environment variables when `DKU_DSS_URL` is set
+        2. The resolved config file's `default_instance`
+        3. None if neither are defined
+    """
+    global _current_instance
+
     instance_from_env = _load_instance_from_env_vars()
     instances_from_config = _load_instances_from_config()
 
-    # Merge instances (instance from env var takes precedence as default)
-    _current_instance_name = instances_from_config["default_instance"]
-    _instances = instances_from_config["instances"]
-
+    config_default_instance = instances_from_config["default_instance"]
     if instance_from_env:
-        _current_instance_name = instance_from_env.name
-        _instances[_current_instance_name] = instance_from_env
+        _current_instance = instance_from_env
+    elif config_default_instance:
+        _current_instance = instances_from_config["dss_instances"][config_default_instance]
+    else:
+        _current_instance = None
 
+
+def get_instances() -> dict[str, DSSInstance]:
+    """Return the instances from the environment and config file."""
+    instance_from_env = _load_instance_from_env_vars()
+    instances_from_config = _load_instances_from_config()
+
+    all_instances = {}
+    if instance_from_env:
+        all_instances[instance_from_env.name] = instance_from_env
+
+    all_instances = instances_from_config["dss_instances"] | all_instances
+    return all_instances
+
+
+def get_current_instance() -> DSSInstance:
+    """Return the currently active DSS instance."""
+    if not _current_instance:
+        raise ValueError("No current Dataiku instance configured.")
+
+    return _current_instance
+
+
+def get_current_instance_name() -> str:
+    """Return the name of the currently active instance."""
+    if not _current_instance:
+        return ""
+
+    return _current_instance.name
+
+
+def set_current_instance(name: str) -> dict:
+    """Set current instance to a named instance. Returns the instance info."""
+    global _current_instance
+
+    instances = get_instances()
+    if name not in instances.keys():
+        raise ValueError(
+            f"Unknown instance '{name}'. Available: {list(instances.keys())}"
+        )
+
+    _current_instance = instances[name]
+    return {
+        "name": _current_instance.name,
+        "url": _current_instance.url,
+        "description": _current_instance.description,
+    }
 
 ### ---------------------------------- ###
-###       Retrieve configuration       ###
+###       Add/Delete config file       ###
 ### ---------------------------------- ###
 
 
-def _atomic_write_config(path: Path, data: dict) -> None:
+def _atomic_write_config(data: dict) -> None:
+    path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
@@ -170,7 +245,7 @@ def _atomic_write_config(path: Path, data: dict) -> None:
     os.replace(temp_path, path)
 
 
-def save_instance_from_setup(
+def add_instance_to_config(
     name: str,
     url: str,
     api_key: str,
@@ -179,131 +254,63 @@ def save_instance_from_setup(
     no_check_certificate: bool = False,
     set_default: bool = False,
 ) -> dict:
-    """Persist a profile submitted through the local configuration page.
+    """Add an instance to resolved config.json"""
+    new_instance = DSSInstance(
+        name=name,
+        url=url,
+        api_key=api_key,
+        description=description,
+        no_check_certificate=no_check_certificate,
+        source=".dataiku/config.json",
+    )
 
-    The API key is written to the resolved configuration file in plaintext;
-    the file is created atomically with user-only (0600) permissions.
-    """
-    global _current_instance_name
+    config = _load_instances_from_config()
+    config["dss_instances"][name] = new_instance
 
-    path = get_config_path()
-    data: dict = {}
-    if path.exists():
-        with open(path, "r") as f:
-            data = json.load(f)
+    if set_default:
+        config["default_instance"] = name
 
-    instances = data.setdefault("dss_instances", {})
-    entry = dict(instances.get(name, {}))
-    entry.pop("credential_id", None)
-    entry["url"] = url
-    entry["api_key"] = api_key
-    if description:
-        entry["description"] = description
-    else:
-        entry.pop("description", None)
-    if no_check_certificate:
-        entry["no_check_certificate"] = True
-    else:
-        entry.pop("no_check_certificate", None)
-    instances[name] = entry
-
-    if set_default or not data.get("default_instance"):
-        data["default_instance"] = name
-
-    _atomic_write_config(path, data)
-
-    load_dss_instances()
-    _current_instance_name = name
+    config_serialized = _serialize_instances_from_config(config)
+    _atomic_write_config(config_serialized)
 
     return {
         "name": name,
         "url": url,
         "description": description,
-        "path": str(path),
-        "default_instance": data["default_instance"],
-        "active": True,
+        "path": str(get_config_path()),
+        "default_instance": config["default_instance"],
     }
 
 
-def delete_instance(name: str) -> dict:
-    """Remove a config-file instance from `.dataiku/config.json`.
+def delete_instance_from_config(name: str) -> dict:
+    """Remove a config-file instance from the resolved config file.
 
-    Only file-backed instances can be deleted. An instance defined through
-    environment variables must be removed by unsetting `DKU_DSS_URL`. If the
-    removed instance was the `default_instance`, the default is reassigned to
-    the first remaining instance (or cleared when none remain).
+    Deletion of currently active instance is prohibited and results in
+    ValueError.
     """
-    if name not in _instances:
+    config = _load_instances_from_config()
+    instances_from_config = config.get("dss_instances", {})
+
+    if name not in instances_from_config:
         raise ValueError(
-            f"Unknown instance '{name}'. Available: {list(_instances.keys())}"
+            f"Instance '{name}' not found in config file. Available: {list(instances_from_config.keys())}"
         )
-    if _instances[name].source != ".dataiku/config.json":
+    if _current_instance and name == _current_instance.name:
         raise ValueError(
-            f"Instance '{name}' comes from environment variables and is not stored "
-            "in the config file. Unset DKU_DSS_URL (and DKU_INSTANCE_NAME) to remove it."
+            f"'{name}' is the current active instance. Switch to another instance prior to deleting."
         )
 
-    path = get_config_path()
-    with open(path, "r") as f:
-        data = json.load(f)
+    instances_from_config.pop(name, None)
 
-    instances = data.get("dss_instances", {})
-    instances.pop(name, None)
+    if config.get("default_instance") == name:
+        config["default_instance"] = next(iter(instances_from_config), "")
 
-    if data.get("default_instance") == name:
-        data["default_instance"] = next(iter(instances), "")
-
-    _atomic_write_config(path, data)
-    load_dss_instances()
+    config_serialized = _serialize_instances_from_config(config)
+    _atomic_write_config(config_serialized)
 
     return {
         "deleted": name,
-        "path": str(path),
-        "default_instance": data.get("default_instance", ""),
-        "remaining": list(instances.keys()),
+        "path": str(get_config_path()),
+        "default_instance": config.get("default_instance", ""),
+        "remaining": list(instances_from_config.keys()),
     }
-
-
-def switch_instance(name: str) -> dict:
-    """Switch to a named instance. Returns the instance info."""
-    global _current_instance_name
-
-    # Validate that instance `name` exists in `_instances`
-    if name not in _instances:
-        raise ValueError(
-            f"Unknown instance '{name}'. Available: {list(_instances.keys())}"
-        )
-
-    # Set `_current_instance_name` and return summary information
-    _current_instance_name = name
-    return {
-        "name": name,
-        "url": _instances[_current_instance_name].url,
-        "description": _instances[_current_instance_name].description,
-    }
-
-
-def get_instances() -> dict[str, DSSInstance]:
-    """Return the loaded instances dict."""
-    return _instances
-
-
-def get_current_instance_name() -> str:
-    """Return the name of the currently active instance."""
-    return _current_instance_name
-
-
-def get_current_instance() -> DSSInstance:
-    """Return the currently active DSS instance."""
-    if not _current_instance_name:
-        raise ValueError(
-            "No Dataiku instance is configured. Run configure_instance for local "
-            "stdio, set DKU_DSS_URL and DKU_API_KEY for automation, or add a "
-            "profile to the resolved configuration file."
-        )
-    if _current_instance_name not in _instances:
-        raise ValueError(
-            f"'{_current_instance_name}' is not in the list of available instances: "
-            f"{_instances.keys()}. Switch to an available instance."
-        )
-    return _instances[_current_instance_name]
