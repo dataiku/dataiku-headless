@@ -121,7 +121,9 @@ async def get_data_quality_status(
     """Get dataset-level Data Quality status, optionally with partition statuses."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
-    await ctx.info(f"Loading Data Quality status for {dataset_name} in {project_key}...")
+    await ctx.info(
+        f"Loading Data Quality status for {dataset_name} in {project_key}..."
+    )
 
     def _run():
         ruleset = _get_ruleset(project_key, dataset_name)

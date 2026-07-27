@@ -63,7 +63,7 @@ def _short_type(node_type):
         return node_type
     for prefix in ("COMPUTABLE_", "RUNNABLE_"):
         if node_type.startswith(prefix):
-            return node_type[len(prefix):].lower()
+            return node_type[len(prefix) :].lower()
     return node_type.lower()
 
 
@@ -82,7 +82,9 @@ async def get_flow_items_in_traversal_order(
 
     def _run():
         project = get_dss_client().get_project(project_key)
-        return project.get_flow().get_graph().get_items_in_traversal_order(as_type="dict")
+        return (
+            project.get_flow().get_graph().get_items_in_traversal_order(as_type="dict")
+        )
 
     items = await run_blocking(_run)
     return compact_json(

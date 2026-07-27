@@ -1,4 +1,5 @@
 """Parse one Alteryx workflow XML into a tool-node + connection graph · in: <workflow.yxmd|.yxmc|.yxwz> --out PATH → out: JSON {source,root,node_count,connection_count,warnings,nodes[],connections[]} (+parse_error) · deps: stdlib (xml.etree.ElementTree, re, json, pathlib, sys, argparse)."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,21 +11,47 @@ from pathlib import Path
 
 # ordered: first substring match wins
 PLUGIN_SUFFIX_NAMES = (
-    ("DbFileInput", "Input Data"), ("DbFileOutput", "Output Data"), ("Filter", "Filter"),
-    ("MultiRowFormula", "Multi-Row Formula"), ("Formula", "Formula"),
-    ("AlteryxSelect", "Select"), ("Select", "Select"), ("Join", "Join"),
-    ("Summarize", "Summarize"), ("Sort", "Sort"), ("Union", "Union"), ("Unique", "Unique"),
-    ("Sample", "Sample"), ("TextInput", "Text Input"), ("MacroInput", "Macro Input"),
-    ("MacroOutput", "Macro Output"), ("TextToColumns", "Text To Columns"), ("DateTime", "DateTime"),
-    ("Transpose", "Transpose"), ("DynamicRename", "Dynamic Rename"), ("RegEx", "RegEx"),
-    ("CrossTab", "Cross Tab"), ("AppendFields", "Append Fields"), ("RecordID", "Record ID"),
-    ("FindReplace", "Find Replace"), ("GenerateRows", "Generate Rows"), ("RunningTotal", "Running Total"),
-    ("ToolContainer", "Tool Container"), ("Download", "Download"), ("BrowseV2", "Browse"),
-    ("HtmlBox", "HTML Box"), ("TextBox", "Text Box"),
-    ("BlockUntilDone", "Block Until Done"), ("Rank", "Rank"), ("Tile", "Tile"),
-    ("Questions.Tab", "Interface Tab"), ("NumericUpDown", "Interface Numeric Up Down"),
-    ("ControlParam", "Control Parameter"), ("Action", "Interface Action"),
-    ("PlotlyCharting", "Plotly Chart"), ("ComposerImage", "Composer Image"),
+    ("DbFileInput", "Input Data"),
+    ("DbFileOutput", "Output Data"),
+    ("Filter", "Filter"),
+    ("MultiRowFormula", "Multi-Row Formula"),
+    ("Formula", "Formula"),
+    ("AlteryxSelect", "Select"),
+    ("Select", "Select"),
+    ("Join", "Join"),
+    ("Summarize", "Summarize"),
+    ("Sort", "Sort"),
+    ("Union", "Union"),
+    ("Unique", "Unique"),
+    ("Sample", "Sample"),
+    ("TextInput", "Text Input"),
+    ("MacroInput", "Macro Input"),
+    ("MacroOutput", "Macro Output"),
+    ("TextToColumns", "Text To Columns"),
+    ("DateTime", "DateTime"),
+    ("Transpose", "Transpose"),
+    ("DynamicRename", "Dynamic Rename"),
+    ("RegEx", "RegEx"),
+    ("CrossTab", "Cross Tab"),
+    ("AppendFields", "Append Fields"),
+    ("RecordID", "Record ID"),
+    ("FindReplace", "Find Replace"),
+    ("GenerateRows", "Generate Rows"),
+    ("RunningTotal", "Running Total"),
+    ("ToolContainer", "Tool Container"),
+    ("Download", "Download"),
+    ("BrowseV2", "Browse"),
+    ("HtmlBox", "HTML Box"),
+    ("TextBox", "Text Box"),
+    ("BlockUntilDone", "Block Until Done"),
+    ("Rank", "Rank"),
+    ("Tile", "Tile"),
+    ("Questions.Tab", "Interface Tab"),
+    ("NumericUpDown", "Interface Numeric Up Down"),
+    ("ControlParam", "Control Parameter"),
+    ("Action", "Interface Action"),
+    ("PlotlyCharting", "Plotly Chart"),
+    ("ComposerImage", "Composer Image"),
 )
 
 
@@ -57,7 +84,11 @@ def compact_xml(element) -> str:
 
 
 def regex_attr(raw_text: str, attr_name: str) -> str:
-    match = re.search(rf'\b{re.escape(attr_name)}\s*=\s*["\']([^"\']+)["\']', raw_text, flags=re.IGNORECASE)
+    match = re.search(
+        rf'\b{re.escape(attr_name)}\s*=\s*["\']([^"\']+)["\']',
+        raw_text,
+        flags=re.IGNORECASE,
+    )
     return match.group(1).strip() if match else ""
 
 
@@ -76,7 +107,9 @@ def plugin_name(plugin: str) -> str:
 def build_node(tool_id, plugin, annotation, raw_config, warnings, prefix=""):
     tool_name = plugin_name(plugin)
     if tool_name == "Unknown Tool":
-        warnings.append(f"{prefix}Tool ID {tool_id} uses unknown plugin '{plugin or '(missing)'}'.")
+        warnings.append(
+            f"{prefix}Tool ID {tool_id} uses unknown plugin '{plugin or '(missing)'}'."
+        )
     return {
         "id": tool_id,
         "plugin": plugin,
@@ -96,8 +129,13 @@ def parse_node(node, warnings):
             or engine.attrib.get("Macro", "").strip()
         )
     tool_id = node.attrib.get("ToolID", "").strip() or "unknown"
-    return build_node(tool_id, plugin, element_text(first_named(node, "Annotation")),
-                      compact_xml(first_named(node, "Configuration")), warnings)
+    return build_node(
+        tool_id,
+        plugin,
+        element_text(first_named(node, "Annotation")),
+        compact_xml(first_named(node, "Configuration")),
+        warnings,
+    )
 
 
 def parse_connections(root):
@@ -105,28 +143,48 @@ def parse_connections(root):
     for connection in iter_named(root, "Connection"):
         origin = first_child_named(connection, "Origin")
         destination = first_child_named(connection, "Destination")
-        connections.append({
-            "origin_tool_id": origin.attrib.get("ToolID", "") if origin is not None else "",
-            "origin_anchor": origin.attrib.get("Connection", "") if origin is not None else "",
-            "destination_tool_id": destination.attrib.get("ToolID", "") if destination is not None else "",
-            "destination_anchor": destination.attrib.get("Connection", "") if destination is not None else "",
-        })
+        connections.append(
+            {
+                "origin_tool_id": origin.attrib.get("ToolID", "")
+                if origin is not None
+                else "",
+                "origin_anchor": origin.attrib.get("Connection", "")
+                if origin is not None
+                else "",
+                "destination_tool_id": destination.attrib.get("ToolID", "")
+                if destination is not None
+                else "",
+                "destination_anchor": destination.attrib.get("Connection", "")
+                if destination is not None
+                else "",
+            }
+        )
     return connections
 
 
 def salvage_config(raw_text: str) -> str:
-    match = re.search(r"<Configuration\b[^>]*>.*?</Configuration>", raw_text, flags=re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        r"<Configuration\b[^>]*>.*?</Configuration>",
+        raw_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
     return re.sub(r"\s+", " ", match.group(0)).strip() if match else ""
 
 
 def salvage_nodes(xml_payload, warnings):
     nodes = []
-    pattern = re.compile(r"<Node\b(?P<attrs>[^>]*)>(?P<body>.*?)</Node>", flags=re.IGNORECASE | re.DOTALL)
+    pattern = re.compile(
+        r"<Node\b(?P<attrs>[^>]*)>(?P<body>.*?)</Node>", flags=re.IGNORECASE | re.DOTALL
+    )
     for match in pattern.finditer(xml_payload):
         attrs, body = match.group("attrs"), match.group("body")
         tool_id = regex_attr(attrs, "ToolID") or "unknown"
         plugin = regex_attr(body, "Plugin") or regex_attr(body, "EngineDllEntryPoint")
-        nodes.append(build_node(tool_id, plugin, "", salvage_config(body), warnings, prefix="Salvaged "))
+        nodes.append(
+            build_node(
+                tool_id, plugin, "", salvage_config(body), warnings, prefix="Salvaged "
+            )
+        )
     return nodes
 
 
@@ -138,12 +196,20 @@ def salvage_connections(xml_payload):
         flags=re.IGNORECASE | re.DOTALL,
     )
     for match in pattern.finditer(xml_payload):
-        connections.append({
-            "origin_tool_id": regex_attr(match.group("origin"), "ToolID") or "unknown",
-            "origin_anchor": regex_attr(match.group("origin"), "Connection") or "Output",
-            "destination_tool_id": regex_attr(match.group("destination"), "ToolID") or "unknown",
-            "destination_anchor": regex_attr(match.group("destination"), "Connection") or "Input",
-        })
+        connections.append(
+            {
+                "origin_tool_id": regex_attr(match.group("origin"), "ToolID")
+                or "unknown",
+                "origin_anchor": regex_attr(match.group("origin"), "Connection")
+                or "Output",
+                "destination_tool_id": regex_attr(match.group("destination"), "ToolID")
+                or "unknown",
+                "destination_anchor": regex_attr(
+                    match.group("destination"), "Connection"
+                )
+                or "Input",
+            }
+        )
     return connections
 
 
@@ -189,7 +255,11 @@ def inspect_workflow(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("workflow", help="path to .yxmd/.yxmc/.yxwz workflow XML")
-    parser.add_argument("--out", default=None, help="JSON output path (default extract/<stem>.json under cwd)")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="JSON output path (default extract/<stem>.json under cwd)",
+    )
     args = parser.parse_args()
 
     src = Path(args.workflow)
@@ -203,10 +273,17 @@ def main():
 
     out.write_text(json.dumps(result, indent=1), encoding="utf-8")
 
-    unknown = sorted({n["plugin"] or "(missing)" for n in result["nodes"] if n["tool_name"] == "Unknown Tool"})
+    unknown = sorted(
+        {
+            n["plugin"] or "(missing)"
+            for n in result["nodes"]
+            if n["tool_name"] == "Unknown Tool"
+        }
+    )
     print(
         f"root={result['root']} nodes={result['node_count']} conns={result['connection_count']} "
-        f"warnings={len(result['warnings'])}" + (f"; unknown plugins: {', '.join(unknown)}" if unknown else "")
+        f"warnings={len(result['warnings'])}"
+        + (f"; unknown plugins: {', '.join(unknown)}" if unknown else "")
     )
     print(f"out: {out}")
 

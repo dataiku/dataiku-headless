@@ -69,12 +69,8 @@ async def _wait_for_job_result(
     while True:
         raw_status = await run_blocking(job.get_status)
         summary = _get_job_status_full(project_key, job_id, raw_status)
-        if (
-            summary["state"] in TERMINAL_JOB_STATES
-            or (
-                isinstance(summary.get("end_time"), int)
-                and summary["end_time"] > 0
-            )
+        if summary["state"] in TERMINAL_JOB_STATES or (
+            isinstance(summary.get("end_time"), int) and summary["end_time"] > 0
         ):
             return False, summary
         remaining = deadline - time.monotonic()
@@ -396,8 +392,7 @@ async def get_future_status(
     """Get the status of a DSSFuture returned by a long-running DSS operation."""
     future_id = _require_non_empty_string(future_id, "future_id")
     await ctx.info(
-        f"Retrieving DSS future status for {future_id} "
-        f"(fetch_result={fetch_result})..."
+        f"Retrieving DSS future status for {future_id} (fetch_result={fetch_result})..."
     )
 
     def _run():
@@ -455,10 +450,12 @@ async def get_job_log(
     )
 
     log_text = await run_blocking(
-        lambda: get_dss_client()
-        .get_project(project_key)
-        .get_job(job_id)
-        .get_log(activity=activity)
+        lambda: (
+            get_dss_client()
+            .get_project(project_key)
+            .get_job(job_id)
+            .get_log(activity=activity)
+        )
     )
     log_excerpt, line_count, truncated = _tail_log_text(log_text, tail_lines)
     result = {
