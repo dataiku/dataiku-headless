@@ -15,7 +15,10 @@ from .utils.serialization import columnar, compact_json, omit_empty
 async def list_instances(ctx: Context) -> str:
     """List the configured Dataiku instances (name, URL, description, active flag)."""
     instances = config.get_instances()
-    current_instance_name = config.get_current_instance_name()
+    try:
+        current_instance_name = config.get_current_instance().name
+    except ValueError:
+        current_instance_name = ""
 
     # Note: caution to not include inst.api_key in tool return value
     result = []

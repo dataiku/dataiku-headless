@@ -38,7 +38,7 @@ def _get_conversation_entry(conversation_id: str, project_key: str) -> _CobuildC
             f"'{entry.project_key}', not '{project_key}'."
         )
 
-    current_instance_name = config.get_current_instance_name()
+    current_instance_name = config.get_current_instance().name
     if entry.instance_name != current_instance_name:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to instance "
@@ -78,7 +78,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         project = get_dss_client().get_project(project_key)
         conversation = project.new_cobuild_conversation()
         entry = _CobuildConversationEntry(
-            instance_name=config.get_current_instance_name(),
+            instance_name=config.get_current_instance().name,
             project_key=project_key,
             conversation=conversation,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -154,7 +154,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing retained Cobuild conversations for project {project_key}...")
 
-    current_instance_name = config.get_current_instance_name()
+    current_instance_name = config.get_current_instance().name
     rows = [
         {
             "conversation_id": conversation_id,

@@ -194,14 +194,6 @@ def get_current_instance() -> DSSInstance:
     return _current_instance
 
 
-def get_current_instance_name() -> str:
-    """Return the name of the currently active instance."""
-    if not _current_instance:
-        return ""
-
-    return _current_instance.name
-
-
 def set_current_instance(name: str) -> dict:
     """Set current instance to a named instance. Returns the instance info."""
     global _current_instance
