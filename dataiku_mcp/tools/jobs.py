@@ -52,9 +52,7 @@ class _RecipeExecutionPrecondition(ValueError):
 def _validate_inline_timeout(timeout_seconds: int) -> int:
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
     if timeout_seconds > MAX_INLINE_WAIT_SECONDS:
-        raise ValueError(
-            f"'timeout_seconds' must be <= {MAX_INLINE_WAIT_SECONDS}"
-        )
+        raise ValueError(f"'timeout_seconds' must be <= {MAX_INLINE_WAIT_SECONDS}")
     return timeout_seconds
 
 
@@ -87,9 +85,7 @@ def _tail_log_text(log_text: str, tail_lines: int | None) -> tuple[str, int, boo
     return "\n".join(lines[-tail_lines:]), line_count, True
 
 
-def _per_dataset_outcomes(
-    dataset_names: list[str], status_summary: dict
-) -> list[dict]:
+def _per_dataset_outcomes(dataset_names: list[str], status_summary: dict) -> list[dict]:
     """Map requested datasets to the state of the activity that produces them. Datasets with no matching activity yet report ``state: null``."""
     state_by_ref: dict[str, str | None] = {}
     for activity in status_summary.get("activities", []) or []:
@@ -97,7 +93,9 @@ def _per_dataset_outcomes(
             ref = output.get("ref")
             if ref:
                 state_by_ref[ref] = activity.get("state")
-    return [{"dataset": name, "state": state_by_ref.get(name)} for name in dataset_names]
+    return [
+        {"dataset": name, "state": state_by_ref.get(name)} for name in dataset_names
+    ]
 
 
 @mcp.tool()

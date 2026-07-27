@@ -16,7 +16,7 @@ from .utils.validation import (
 )
 
 SCENARIO_POLL_INTERVAL_SECONDS = 2
-# DSS creates a scenario run asynchronously after firing its trigger. 
+# DSS creates a scenario run asynchronously after firing its trigger.
 SCENARIO_RUN_ID_RESOLVE_BUDGET_SECONDS = 4
 MAX_SCENARIO_WAIT_SECONDS = 3600
 
@@ -145,9 +145,7 @@ async def run_scenario(
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
     if timeout_seconds > MAX_SCENARIO_WAIT_SECONDS:
-        raise ValueError(
-            f"'timeout_seconds' must be <= {MAX_SCENARIO_WAIT_SECONDS}"
-        )
+        raise ValueError(f"'timeout_seconds' must be <= {MAX_SCENARIO_WAIT_SECONDS}")
     client = get_dss_client()
 
     await ctx.info(

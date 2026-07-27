@@ -258,14 +258,13 @@ def test_build_datasets_wait_timeout_returns_still_running():
     client = MagicMock()
     client.get_project.return_value = project
 
-    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client), patch(
-        "dataiku_mcp.tools.jobs.time"
-    ) as mock_time:
+    with (
+        patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client),
+        patch("dataiku_mcp.tools.jobs.time") as mock_time,
+    ):
         mock_time.monotonic.side_effect = _incrementing_monotonic()
         res = _load(
-            jobs.build_datasets(
-                "PK", FakeCtx(), ["a", "b"], wait_for_completion=True
-            )
+            jobs.build_datasets("PK", FakeCtx(), ["a", "b"], wait_for_completion=True)
         )
 
     # A single shared timeout for the whole build; one job_id still running.
@@ -331,9 +330,7 @@ def test_build_datasets_captures_client_before_first_await():
             await super().info(message, **kwargs)
             current[0] = later
 
-    with patch(
-        "dataiku_mcp.tools.jobs.get_dss_client", side_effect=lambda: current[0]
-    ):
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", side_effect=lambda: current[0]):
         result = _load(jobs.build_datasets("PK", SwitchingCtx(), ["a"]))
 
     assert result["job_id"] == "CAPTURED"
@@ -559,9 +556,7 @@ def test_run_recipe_no_output_raises():
 
 
 def test_run_recipe_start_failure_is_raised_as_outcome_unknown():
-    project = _recipe_project(
-        [{"type": "COMPUTABLE_DATASET", "ref": "out_ds"}]
-    )
+    project = _recipe_project([{"type": "COMPUTABLE_DATASET", "ref": "out_ds"}])
     project.new_job.return_value.start.side_effect = ConnectionError("dropped")
     client = MagicMock()
     client.get_project.return_value = project
@@ -615,9 +610,10 @@ def test_run_scenario_no_wait_falls_back_to_trigger_id_when_run_absent():
     client = _scenario_client(trigger_fire)
 
     # Collapse the resolve budget so the poll ends immediately.
-    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client), patch(
-        "dataiku_mcp.tools.scenarios.time"
-    ) as mock_time:
+    with (
+        patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client),
+        patch("dataiku_mcp.tools.scenarios.time") as mock_time,
+    ):
         mock_time.monotonic.side_effect = _incrementing_monotonic()
         res = _load(
             scenarios.run_scenario("PK", "sc1", FakeCtx(), wait_for_completion=False)
@@ -637,9 +633,10 @@ def test_run_scenario_wait_bounded_timeout_returns_still_running():
     trigger_fire.get_scenario_run.return_value = scenario_run
     client = _scenario_client(trigger_fire)
 
-    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client), patch(
-        "dataiku_mcp.tools.scenarios.time"
-    ) as mock_time:
+    with (
+        patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client),
+        patch("dataiku_mcp.tools.scenarios.time") as mock_time,
+    ):
         mock_time.monotonic.side_effect = _incrementing_monotonic()
         res = _load(
             scenarios.run_scenario(
@@ -683,9 +680,10 @@ def test_run_scenario_wait_timeout_before_run_exists_keeps_trigger_fire_id():
     trigger_fire.is_cancelled.return_value = False
     client = _scenario_client(trigger_fire)
 
-    with patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client), patch(
-        "dataiku_mcp.tools.scenarios.time"
-    ) as mock_time:
+    with (
+        patch("dataiku_mcp.tools.scenarios.get_dss_client", return_value=client),
+        patch("dataiku_mcp.tools.scenarios.time") as mock_time,
+    ):
         mock_time.monotonic.side_effect = _incrementing_monotonic()
         res = _load(
             scenarios.run_scenario(
