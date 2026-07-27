@@ -29,9 +29,6 @@ _current_instance: DSSInstance | None = None
 _config_file: Path | None = None
 
 
-### ------------------------------ ###
-###        config.json path        ###
-### ------------------------------ ###
 def _resolve_config_file() -> Path:
     """Select the configuration file path for the current launch context.
 
@@ -63,9 +60,6 @@ def get_config_path() -> Path:
     return _config_file
 
 
-### ------------------------------ ###
-###       Load configuration       ###
-### ------------------------------ ###
 def _parse_no_check_certificate(value: str) -> bool:
     return bool(value.strip()) and value.strip().lower() != "false"
 
@@ -127,9 +121,35 @@ def _load_config() -> DSSConfig:
     return DSSConfig(default_instance_name, dss_instances)
 
 
-### ------------------------------ ###
-###      Getters and setters       ###
-### ------------------------------ ###
+def _save_config(config: DSSConfig) -> None:
+    """Serialize and atomically persist the canonical config document."""
+    serialized_instances = {}
+    for name, instance in config.dss_instances.items():
+        serialized_instance = {
+            "url": instance.url,
+            "api_key": instance.api_key,
+            "no_check_certificate": instance.no_check_certificate,
+        }
+        if instance.description:
+            serialized_instance["description"] = instance.description
+        serialized_instances[name] = serialized_instance
+
+    data = {
+        "default_instance": config.default_instance or "",
+        "dss_instances": serialized_instances,
+    }
+    path = get_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
+    ) as temp_file:
+        json.dump(data, temp_file, indent=2)
+        temp_file.write("\n")
+        temp_path = Path(temp_file.name)
+    temp_path.chmod(0o600)
+    os.replace(temp_path, path)
+
+
 def initialize_current_instance() -> None:
     """
     Initialize the _current_instance from environment variables and
@@ -198,39 +218,6 @@ def set_current_instance(name: str) -> dict:
         "url": _current_instance.url,
         "description": _current_instance.description,
     }
-
-### ---------------------------------- ###
-###       Add/Delete config file       ###
-### ---------------------------------- ###
-
-
-def _save_config(config: DSSConfig) -> None:
-    """Serialize and atomically persist the canonical config document."""
-    serialized_instances = {}
-    for name, instance in config.dss_instances.items():
-        serialized_instance = {
-            "url": instance.url,
-            "api_key": instance.api_key,
-            "no_check_certificate": instance.no_check_certificate,
-        }
-        if instance.description:
-            serialized_instance["description"] = instance.description
-        serialized_instances[name] = serialized_instance
-
-    data = {
-        "default_instance": config.default_instance or "",
-        "dss_instances": serialized_instances,
-    }
-    path = get_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
-    ) as temp_file:
-        json.dump(data, temp_file, indent=2)
-        temp_file.write("\n")
-        temp_path = Path(temp_file.name)
-    temp_path.chmod(0o600)
-    os.replace(temp_path, path)
 
 
 def add_instance_to_config(
