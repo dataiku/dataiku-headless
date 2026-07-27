@@ -66,7 +66,9 @@ def _serialize_preview_value(value, max_value_length: int | None):
         truncated_count = 0
         output = []
         for item in value:
-            serialized_item, item_truncated = _serialize_preview_value(item, max_value_length)
+            serialized_item, item_truncated = _serialize_preview_value(
+                item, max_value_length
+            )
             output.append(serialized_item)
             truncated_count += item_truncated
         return output, truncated_count
@@ -74,7 +76,9 @@ def _serialize_preview_value(value, max_value_length: int | None):
         truncated_count = 0
         output = {}
         for key, item in value.items():
-            serialized_item, item_truncated = _serialize_preview_value(item, max_value_length)
+            serialized_item, item_truncated = _serialize_preview_value(
+                item, max_value_length
+            )
             output[key] = serialized_item
             truncated_count += item_truncated
         return output, truncated_count
@@ -122,7 +126,9 @@ async def list_datasets(project_key: str, ctx: Context) -> str:
             foreign_project = ds_info.get("projectKey", project_key)
             is_shared = foreign_project != project_key
             row = {
-                "name": ds_info.get("smartName", f"{foreign_project}.{name}") if is_shared else name,
+                "name": ds_info.get("smartName", f"{foreign_project}.{name}")
+                if is_shared
+                else name,
                 "type": ds_info.get("type", ""),
                 "connection": ds_info.get("connection")
                 or ds_info.get("params", {}).get("connection"),
@@ -163,7 +169,11 @@ async def get_dataset_sample(
             for column in schema.get("columns", [])
         }
         keep = set(columns) if columns else None
-        kept = [(index, column) for index, column in enumerate(all_columns) if keep is None or column in keep]
+        kept = [
+            (index, column)
+            for index, column in enumerate(all_columns)
+            if keep is None or column in keep
+        ]
         kept_indices = [index for index, _ in kept]
         kept_columns = [column for _, column in kept]
         rows = []
@@ -246,12 +256,16 @@ async def get_dataset_column_descriptions(
     columns: list[str] | None = None,
 ) -> str:
     """Get per-column descriptions from the dataset schema."""
-    await ctx.info(f"Loading column descriptions for {dataset_name} in {project_key}...")
+    await ctx.info(
+        f"Loading column descriptions for {dataset_name} in {project_key}..."
+    )
 
     def _run():
         dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
         schema = dataset.get_schema()
-        columns_by_name = {column["name"]: column for column in schema.get("columns", [])}
+        columns_by_name = {
+            column["name"]: column for column in schema.get("columns", [])
+        }
         requested_columns = list(columns) if columns else list(columns_by_name)
         missing = [
             column_name
@@ -289,7 +303,9 @@ async def get_dataset_profile(
 ) -> str:
     """Profile per-column nulls, value frequencies, and numeric stats."""
     max_rows = _require_positive_int(max_rows, "max_rows")
-    max_distinct_values = _require_positive_int(max_distinct_values, "max_distinct_values")
+    max_distinct_values = _require_positive_int(
+        max_distinct_values, "max_distinct_values"
+    )
     await ctx.info(
         f"Profiling {dataset_name} in {project_key} "
         f"(max_rows={max_rows}, columns={columns})..."
@@ -307,9 +323,19 @@ async def get_dataset_profile(
             for column in schema.get("columns", [])
         }
         keep = set(columns) if columns else None
-        profiled_cols = [column for column in all_columns if keep is None or column in keep]
+        profiled_cols = [
+            column for column in all_columns if keep is None or column in keep
+        ]
         col_indices = {column: index for index, column in enumerate(all_columns)}
-        numeric_types = {"int", "bigint", "double", "float", "smallint", "tinyint", "decimal"}
+        numeric_types = {
+            "int",
+            "bigint",
+            "double",
+            "float",
+            "smallint",
+            "tinyint",
+            "decimal",
+        }
         null_counts = {column: 0 for column in profiled_cols}
         value_counts = {
             column: Counter()
@@ -351,7 +377,10 @@ async def get_dataset_profile(
                             if not numeric_overflow[column]:
                                 distinct_counts = numeric_distinct[column]
                                 key = str(value)
-                                if key in distinct_counts or len(distinct_counts) < max_distinct_values:
+                                if (
+                                    key in distinct_counts
+                                    or len(distinct_counts) < max_distinct_values
+                                ):
                                     distinct_counts[key] += 1
                                 else:
                                     numeric_overflow[column] = True
@@ -361,7 +390,12 @@ async def get_dataset_profile(
             raise ValueError(f"Could not profile dataset: {str(exc)}") from exc
 
         if rows_scanned == 0:
-            return {"dataset": dataset_name, "rows_scanned": 0, "truncated": False, "columns": {}}
+            return {
+                "dataset": dataset_name,
+                "rows_scanned": 0,
+                "truncated": False,
+                "columns": {},
+            }
 
         column_profiles: dict[str, dict] = {}
         for column in profiled_cols:
@@ -383,7 +417,9 @@ async def get_dataset_profile(
                     col_profile["distinct_count"] = len(distinct_counts)
                     col_profile["top"] = [
                         [value, count]
-                        for value, count in distinct_counts.most_common(max_distinct_values)
+                        for value, count in distinct_counts.most_common(
+                            max_distinct_values
+                        )
                     ]
                 column_profiles[column] = col_profile
             else:

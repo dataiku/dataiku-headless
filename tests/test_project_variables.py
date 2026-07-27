@@ -36,9 +36,7 @@ def test_set_project_variables_replaces_wholesale(monkeypatch):
     )
     payload = {"standard": {"DATE_REFERENCE": "2022-10-07"}, "local": {}}
     result = json.loads(
-        asyncio.run(
-            projects.set_project_variables(project_key, payload, FakeContext())
-        )
+        asyncio.run(projects.set_project_variables(project_key, payload, FakeContext()))
     )
     assert project.set_calls == [payload]
     assert project.variables == payload

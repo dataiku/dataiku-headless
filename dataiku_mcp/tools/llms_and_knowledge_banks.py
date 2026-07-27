@@ -30,7 +30,9 @@ KB_SEARCH_TYPES = {
 }
 
 
-def _serialize_llm_item(item: dict[str, Any], available_purposes: list[str]) -> dict[str, Any]:
+def _serialize_llm_item(
+    item: dict[str, Any], available_purposes: list[str]
+) -> dict[str, Any]:
     return {
         "id": item.get("id"),
         "name": item.get("friendlyNameShort", ""),
@@ -74,8 +76,10 @@ async def list_llms(
     """List DSS-managed LLMs available in the project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     purpose = _require_non_empty_string(purpose, "purpose").upper()
-    normalized_purpose = None if purpose == "ALL" else _require_allowed_value(
-        purpose, "purpose", LLM_PURPOSES
+    normalized_purpose = (
+        None
+        if purpose == "ALL"
+        else _require_allowed_value(purpose, "purpose", LLM_PURPOSES)
     )
     await ctx.info(f"Listing LLMs in {project_key} for purpose={purpose}...")
     llms = await run_blocking(_collect_llms, project_key, normalized_purpose)
@@ -193,7 +197,9 @@ async def search_knowledge_bank(
         hybrid_rrf_rank_window_size, "hybrid_rrf_rank_window_size"
     )
     if not isinstance(similarity_threshold, (int, float)):
-        raise ValueError("'similarity_threshold' must be a float, typically between 0 and 1")
+        raise ValueError(
+            "'similarity_threshold' must be a float, typically between 0 and 1"
+        )
     if not isinstance(mmr_factor, (int, float)) or not 0 <= float(mmr_factor) <= 1:
         raise ValueError("'mmr_factor' must be a float between 0 and 1")
 
@@ -203,7 +209,11 @@ async def search_knowledge_bank(
     )
 
     def _run():
-        kb = get_dss_client().get_project(project_key).get_knowledge_bank(knowledge_bank_id)
+        kb = (
+            get_dss_client()
+            .get_project(project_key)
+            .get_knowledge_bank(knowledge_bank_id)
+        )
         result = kb.search(
             query=query,
             max_documents=max_documents,
@@ -234,7 +244,11 @@ def _serialize_rag_llm_item(raw: dict) -> dict:
     active_version_id = raw.get("activeVersion", "")
     versions = raw.get("versions", [])
     active_version = next(
-        (version for version in versions if version.get("versionId") == active_version_id),
+        (
+            version
+            for version in versions
+            if version.get("versionId") == active_version_id
+        ),
         None,
     )
     rag_settings = (active_version or {}).get("ragllmSettings", {})
@@ -253,7 +267,9 @@ async def list_retrieval_augmented_llms(project_key: str, ctx: Context) -> str:
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing Retrieval-Augmented LLMs in {project_key}...")
     items = await run_blocking(
-        lambda: get_dss_client().get_project(project_key).list_retrieval_augmented_llms()
+        lambda: (
+            get_dss_client().get_project(project_key).list_retrieval_augmented_llms()
+        )
     )
     rag_llms = [_serialize_rag_llm_item(dict(item)) for item in items]
     return compact_json(

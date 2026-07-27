@@ -1,6 +1,5 @@
 """DSS code environment discovery tools."""
 
-
 from fastmcp import Context
 
 from .. import mcp
@@ -22,6 +21,4 @@ async def list_code_envs(ctx: Context) -> str:
         }
         for e in envs
     ]
-    return compact_json(
-        {"code_envs": columnar(result, ["name", "language", "type"])}
-    )
+    return compact_json({"code_envs": columnar(result, ["name", "language", "type"])})
