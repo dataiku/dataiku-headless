@@ -3,7 +3,7 @@
 import json
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -15,6 +15,14 @@ class DSSInstance:
     no_check_certificate: bool
     source: str
     description: str = ""
+
+
+@dataclass
+class DSSConfig:
+    """Persisted Dataiku instance profiles and their startup default."""
+
+    default_instance: str | None = None
+    dss_instances: dict[str, DSSInstance] = field(default_factory=dict)
 
 
 _current_instance: DSSInstance | None = None
@@ -84,30 +92,19 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
     )
 
 
-def _load_instances_from_config() -> dict:
-    """
-    Load DSS instances from resolved config.json, if the file exists.
+def _load_config() -> DSSConfig:
+    """Load the resolved config file into the canonical in-memory model.
 
     If the file defines a non-empty `default_instance`, validate that the
     instance name exists in `dss_instances`; raise `ValueError` otherwise.
-
-    Returns a dictionary with shape
-    `{"default_instance": "...", "dss_instances": {...}}`, where the values
-    in `dss_instances` are `DSSInstance` objects keyed by instance name.
     """
-    instances_from_config = {
-        "default_instance": None,
-        "dss_instances": {},
-    }
-
-    dataiku_config_file = {}
     try:
         with open(get_config_path(), "r") as f:
             dataiku_config_file = json.load(f)
     except FileNotFoundError:
-        return instances_from_config
+        return DSSConfig()
 
-    default_instance_name = dataiku_config_file.get("default_instance", "")
+    default_instance_name = dataiku_config_file.get("default_instance") or None
     instances = dataiku_config_file.get("dss_instances", {})
 
     # If defined, validate that `default_instance_name` is present in `instances`.
@@ -117,10 +114,9 @@ def _load_instances_from_config() -> dict:
             f".dataiku/config.json. Available: {instances.keys()}."
         )
 
-    # Populate `instances_from_config`
-    instances_from_config["default_instance"] = default_instance_name
+    dss_instances = {}
     for name, details in instances.items():
-        instances_from_config["dss_instances"][name] = DSSInstance(
+        dss_instances[name] = DSSInstance(
             name=name,
             url=details["url"],
             api_key=details.get("api_key", ""),
@@ -128,30 +124,7 @@ def _load_instances_from_config() -> dict:
             no_check_certificate=details.get("no_check_certificate", False),
             source=".dataiku/config.json",
         )
-    return instances_from_config
-
-
-def _serialize_instances_from_config(config):
-    config_serialized = {
-        "default_instance": "",
-        "dss_instances": {},
-    }
-
-    if config["default_instance"]:
-        config_serialized["default_instance"] = config["default_instance"]
-
-    for _, dss_instance in config["dss_instances"].items():
-        serialized_instance = {
-              "url": dss_instance.url,
-              "api_key": dss_instance.api_key,
-              "no_check_certificate": dss_instance.no_check_certificate,
-          }
-        if dss_instance.description:
-            serialized_instance["description"] = dss_instance.description
-
-        config_serialized["dss_instances"][dss_instance.name] = serialized_instance
-
-    return config_serialized
+    return DSSConfig(default_instance_name, dss_instances)
 
 
 ### ------------------------------ ###
@@ -170,13 +143,12 @@ def initialize_current_instance() -> None:
     global _current_instance
 
     instance_from_env = _load_instance_from_env_vars()
-    instances_from_config = _load_instances_from_config()
+    config = _load_config()
 
-    config_default_instance = instances_from_config["default_instance"]
     if instance_from_env:
         _current_instance = instance_from_env
-    elif config_default_instance:
-        _current_instance = instances_from_config["dss_instances"][config_default_instance]
+    elif config.default_instance:
+        _current_instance = config.dss_instances[config.default_instance]
     else:
         _current_instance = None
 
@@ -184,13 +156,13 @@ def initialize_current_instance() -> None:
 def get_instances() -> dict[str, DSSInstance]:
     """Return the instances from the environment and config file."""
     instance_from_env = _load_instance_from_env_vars()
-    instances_from_config = _load_instances_from_config()
+    config = _load_config()
 
     all_instances = {}
     if instance_from_env:
         all_instances[instance_from_env.name] = instance_from_env
 
-    all_instances = instances_from_config["dss_instances"] | all_instances
+    all_instances = config.dss_instances | all_instances
     return all_instances
 
 
@@ -232,7 +204,23 @@ def set_current_instance(name: str) -> dict:
 ### ---------------------------------- ###
 
 
-def _atomic_write_config(data: dict) -> None:
+def _save_config(config: DSSConfig) -> None:
+    """Serialize and atomically persist the canonical config document."""
+    serialized_instances = {}
+    for name, instance in config.dss_instances.items():
+        serialized_instance = {
+            "url": instance.url,
+            "api_key": instance.api_key,
+            "no_check_certificate": instance.no_check_certificate,
+        }
+        if instance.description:
+            serialized_instance["description"] = instance.description
+        serialized_instances[name] = serialized_instance
+
+    data = {
+        "default_instance": config.default_instance or "",
+        "dss_instances": serialized_instances,
+    }
     path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -254,7 +242,7 @@ def add_instance_to_config(
     no_check_certificate: bool = False,
     set_default: bool = False,
 ) -> dict:
-    """Add an instance to resolved config.json"""
+    """Add an instance to the resolved config file."""
     new_instance = DSSInstance(
         name=name,
         url=url,
@@ -264,21 +252,20 @@ def add_instance_to_config(
         source=".dataiku/config.json",
     )
 
-    config = _load_instances_from_config()
-    config["dss_instances"][name] = new_instance
+    config = _load_config()
+    config.dss_instances[name] = new_instance
 
     if set_default:
-        config["default_instance"] = name
+        config.default_instance = name
 
-    config_serialized = _serialize_instances_from_config(config)
-    _atomic_write_config(config_serialized)
+    _save_config(config)
 
     return {
         "name": name,
         "url": url,
         "description": description,
         "path": str(get_config_path()),
-        "default_instance": config["default_instance"],
+        "default_instance": config.default_instance,
     }
 
 
@@ -288,29 +275,28 @@ def delete_instance_from_config(name: str) -> dict:
     Deletion of currently active instance is prohibited and results in
     ValueError.
     """
-    config = _load_instances_from_config()
-    instances_from_config = config.get("dss_instances", {})
+    config = _load_config()
+    dss_instances = config.dss_instances
 
-    if name not in instances_from_config:
+    if name not in dss_instances:
         raise ValueError(
-            f"Instance '{name}' not found in config file. Available: {list(instances_from_config.keys())}"
+            f"Instance '{name}' not found in config file. Available: {list(dss_instances.keys())}"
         )
     if _current_instance and name == _current_instance.name:
         raise ValueError(
             f"'{name}' is the current active instance. Switch to another instance prior to deleting."
         )
 
-    instances_from_config.pop(name, None)
+    dss_instances.pop(name)
 
-    if config.get("default_instance") == name:
-        config["default_instance"] = next(iter(instances_from_config), "")
+    if config.default_instance == name:
+        config.default_instance = next(iter(dss_instances), None)
 
-    config_serialized = _serialize_instances_from_config(config)
-    _atomic_write_config(config_serialized)
+    _save_config(config)
 
     return {
         "deleted": name,
         "path": str(get_config_path()),
-        "default_instance": config.get("default_instance", ""),
-        "remaining": list(instances_from_config.keys()),
+        "default_instance": config.default_instance,
+        "remaining": list(dss_instances.keys()),
     }
