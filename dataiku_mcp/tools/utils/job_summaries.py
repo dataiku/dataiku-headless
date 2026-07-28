@@ -73,6 +73,8 @@ def _summarize_runtime_activities(
     for activity in activities:
         activity_id = activity.get("activityId")
         base = base_activities.get(activity_id) or {}
+        # Live DSS may store output refs under def.targets rather than targets.
+        targets = (base.get("def") or {}).get("targets") or base.get("targets") or []
         summarized_activities.append(
             {
                 "activity_id": activity_id,
@@ -85,8 +87,12 @@ def _summarize_runtime_activities(
                 "waiting_time_ms": activity.get("waitingTime"),
                 "running_time_ms": activity.get("runningTime"),
                 "outputs": [
-                    {"type": target.get("type"), "ref": target.get("id")}
-                    for target in (base.get("targets") or [])
+                    {
+                        "type": target.get("type")
+                        or ("DATASET" if target.get("datasetName") else None),
+                        "ref": target.get("datasetName") or target.get("id"),
+                    }
+                    for target in targets
                 ],
             }
         )

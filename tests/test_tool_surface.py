@@ -79,14 +79,22 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "insights": frozenset({"get_insight_settings", "list_insights"}),
     "instances": frozenset(
-        {"get_current_instance", "list_instances", "switch_instance"}
+        {
+            "configure_instance",
+            "delete_instance",
+            "get_current_instance",
+            "list_instances",
+            "switch_instance",
+        }
     ),
     "jobs": frozenset(
         {
+            "build_datasets",
             "get_future_status",
             "get_job_log",
             "get_job_status",
             "list_jobs",
+            "run_recipe",
             "wait_for_job",
         }
     ),
@@ -162,6 +170,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "get_scenario_settings",
             "list_messaging_channels",
             "list_scenarios",
+            "run_scenario",
         }
     ),
     "semantic_models": frozenset(
