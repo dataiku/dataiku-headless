@@ -44,9 +44,7 @@ def slim_mltask_settings(raw_settings: dict) -> dict:
             key: value
             for key, value in modeling.items()
             if not (
-                isinstance(value, dict)
-                and "enabled" in value
-                and not value["enabled"]
+                isinstance(value, dict) and "enabled" in value and not value["enabled"]
             )
         }
     return slimmed
@@ -204,7 +202,10 @@ async def list_ml_analysis_models(
         for trained_model_id in trained_model_ids:
             snippet = snippets.get(trained_model_id, {})
             models.append(
-                {"trained_model_id": trained_model_id, "snippet": slim_model_data(snippet)}
+                {
+                    "trained_model_id": trained_model_id,
+                    "snippet": slim_model_data(snippet),
+                }
             )
         return {
             "mltask_id": mltask_id,

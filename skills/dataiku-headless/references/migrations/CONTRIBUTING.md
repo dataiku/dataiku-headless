@@ -1,6 +1,6 @@
 # Contributing a Source Subskill
 
-Source Subskill = directory `dataiku-skills/dataiku-headless/references/migrations/sources/<kind>/` (kind kebab-case): reference `<kind>.md` plus optional helper scripts `*.py`.
+Source Subskill = directory `skills/dataiku-headless/references/migrations/sources/<kind>/` (kind kebab-case): reference `<kind>.md` plus optional helper scripts `*.py`.
 
 Frontmatter:
 
@@ -55,4 +55,4 @@ Atomic source-parsers in `sources/<kind>/*.py`, one purpose each, named by purpo
 
 ## Routing
 
-Runtime routing lists `dataiku-skills/dataiku-headless/references/migrations/sources/` (parent `references/migrations.md` Phase 2); shipping = one PR adding one `sources/<kind>/` directory: the `<kind>.md` reference plus any helper scripts.
+Runtime routing lists `skills/dataiku-headless/references/migrations/sources/` (parent `references/migrations.md` Phase 2); shipping = one PR adding one `sources/<kind>/` directory: the `<kind>.md` reference plus any helper scripts.

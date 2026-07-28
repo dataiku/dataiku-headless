@@ -11,6 +11,7 @@ from .utils.parsing import coerce_json_array as _coerce_json_array
 from .utils.serialization import compact_json, is_empty, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
+    require_non_empty_strings as _require_non_empty_strings,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
@@ -63,10 +64,7 @@ def _parse_rule_ids(rule_ids) -> list[str] | None:
     if rule_ids is None:
         return None
     parsed = _coerce_json_array(rule_ids, "rule_ids")
-    result = []
-    for index, value in enumerate(parsed):
-        result.append(_require_non_empty_string(value, f"rule_ids[{index}]"))
-    return result
+    return _require_non_empty_strings(parsed, "rule_ids")
 
 
 def _safe_status(ruleset) -> tuple[Any, str | None]:
@@ -121,7 +119,9 @@ async def get_data_quality_status(
     """Get dataset-level Data Quality status, optionally with partition statuses."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
-    await ctx.info(f"Loading Data Quality status for {dataset_name} in {project_key}...")
+    await ctx.info(
+        f"Loading Data Quality status for {dataset_name} in {project_key}..."
+    )
 
     def _run():
         ruleset = _get_ruleset(project_key, dataset_name)

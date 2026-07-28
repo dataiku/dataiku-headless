@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .validation import require_non_empty_string
+from .validation import require_non_empty_strings
 
 
 def parse_metric_ids(metric_ids: str | None) -> list[str] | None:
@@ -21,13 +21,12 @@ def parse_metric_ids(metric_ids: str | None) -> list[str] | None:
     if not isinstance(parsed, list):
         raise ValueError("'metric_ids' must be a JSON array when provided")
 
-    result: list[str] = []
-    for i, metric_id in enumerate(parsed):
-        result.append(require_non_empty_string(metric_id, f"metric_ids[{i}]"))
-    return result
+    return require_non_empty_strings(parsed, "metric_ids")
 
 
-def select_metrics(raw_metrics: list[dict[str, Any]], metric_ids: list[str] | None) -> dict:
+def select_metrics(
+    raw_metrics: list[dict[str, Any]], metric_ids: list[str] | None
+) -> dict:
     """Select and annotate metric values for either all ids or a requested subset."""
     if metric_ids is None:
         return {"metrics": raw_metrics}
@@ -45,7 +44,9 @@ def select_metrics(raw_metrics: list[dict[str, Any]], metric_ids: list[str] | No
         "metrics": filtered_metrics,
         "requested_metric_ids": metric_ids,
     }
-    missing_metric_ids = [metric_id for metric_id in metric_ids if metric_id not in found_ids]
+    missing_metric_ids = [
+        metric_id for metric_id in metric_ids if metric_id not in found_ids
+    ]
     if missing_metric_ids:
         result["missing_metric_ids"] = missing_metric_ids
     return result
