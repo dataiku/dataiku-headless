@@ -76,6 +76,6 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 - Inspect an existing recipe before requesting a modification through Cobuild.
 - Preserve the surrounding Flow's storage and dependency context unless the user requests a change.
 - Treat a timed-out or interrupted build as potentially still running; inspect the job before retrying or changing related Flow objects.
-- `get_flow_graph` is the primary flow-orientation tool. On large flows it may return clipped `edges` or `node_types`; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
+- `get_flow_graph` is the primary flow-orientation tool. It names the flow's `sources`, groups node refs under `nodes_by_type`, and lists dependency `edges`. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
 - Use `./jobs.md` for direct execution of an existing recipe or its dataset outputs; this guide stays focused on inspection and grounded recipe planning.
 - Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct recipe mutation workflows here.

@@ -2,8 +2,9 @@
 
 These never touch the network: ``get_dss_client`` is replaced by a fake client
 returning a fake project whose flow is driven from canned Python objects. The
-tool under test returns the whole flow in one call as ``node_types`` plus
-``edges``, with zone filtering, clipping metadata, and response-budget guards.
+tool under test returns the whole flow in one call as ``sources`` plus
+``nodes_by_type`` plus ``edges``, with zone filtering, clipping metadata, and
+response-budget guards.
 """
 
 import asyncio
@@ -91,6 +92,11 @@ def _dataset(ref, successors=(), predecessors=()):
     }
 
 
+def _returned_nodes(res):
+    """Total node refs carried by the response, across every type group."""
+    return sum(len(refs) for refs in res["nodes_by_type"].values())
+
+
 def _recipe(ref, successors=(), predecessors=()):
     return {
         "type": "RUNNABLE_RECIPE",
@@ -124,21 +130,18 @@ _CYCLE_WARNING = (
 )
 
 
-def test_flow_graph_node_types_and_edges_on_diamond(monkeypatch):
+def test_flow_graph_nodes_by_type_and_edges_on_diamond(monkeypatch):
     bind(monkeypatch, FakeProject("PROJ", nodes=diamond_nodes()))
 
     res = flow_graph()
 
     assert res["node_count"] == 6
     assert res["source_count"] == 2
-    assert res["node_types"] == {
-        "orders": "dataset",
-        "customers": "dataset",
-        "join_recipe": "recipe",
-        "joined": "dataset",
-        "enrich_recipe": "recipe",
-        "final": "dataset",
+    assert res["nodes_by_type"] == {
+        "dataset": ["orders", "customers", "joined", "final"],
+        "recipe": ["join_recipe", "enrich_recipe"],
     }
+    assert res["sources"] == ["orders", "customers"]
     assert {tuple(edge) for edge in res["edges"]} == {
         ("orders", "join_recipe"),
         ("customers", "join_recipe"),
@@ -157,16 +160,16 @@ def test_flow_graph_zone_filter(monkeypatch):
     res = flow_graph(zone="prep")
 
     assert res["node_count"] == 3
-    assert res["node_types"] == {
-        "orders": "dataset",
-        "join_recipe": "recipe",
-        "joined": "dataset",
+    assert res["nodes_by_type"] == {
+        "dataset": ["orders", "joined"],
+        "recipe": ["join_recipe"],
     }
     assert {tuple(edge) for edge in res["edges"]} == {
         ("orders", "join_recipe"),
         ("join_recipe", "joined"),
     }
     assert res["source_count"] == 1
+    assert res["sources"] == ["orders"]
 
 
 def test_flow_graph_zone_resolves_by_id(monkeypatch):
@@ -185,7 +188,7 @@ def test_flow_graph_zone_id_match_beats_name_shadowing(monkeypatch):
     ]
     bind(monkeypatch, FakeProject("PROJ", nodes=nodes, zones=zones))
 
-    assert flow_graph(zone="target")["node_types"] == {"final": "dataset"}
+    assert flow_graph(zone="target")["nodes_by_type"] == {"dataset": ["final"]}
 
 
 def test_flow_graph_ambiguous_zone_name_is_rejected(monkeypatch):
@@ -245,7 +248,7 @@ def test_flow_graph_node_and_edge_limits_are_explicit(monkeypatch):
     ("kwargs", "message"),
     [
         ({"max_nodes": 2001}, "max_nodes.*<= 2000"),
-        ({"max_edges": 2001}, "max_edges.*<= 2000"),
+        ({"max_edges": 5001}, "max_edges.*<= 5000"),
         ({"max_edges": 0}, "max_edges.*>= 1"),
     ],
 )
@@ -334,8 +337,8 @@ def test_flow_graph_json_escaping_cannot_blow_the_response_cap(monkeypatch):
         ]
     else:
         assert res["node_count"] == 1200
-        assert res["returned_node_count"] == len(res["node_types"])
-        assert any("node_types: clipped" in warning for warning in res["warnings"])
+        assert res["returned_node_count"] == _returned_nodes(res)
+        assert any("nodes: clipped" in warning for warning in res["warnings"])
 
 
 def test_flow_graph_pathological_project_key_cannot_break_the_cap(monkeypatch):
@@ -365,7 +368,7 @@ def test_flow_graph_source_count_is_full_graph_truth_under_clipping(monkeypatch)
     assert res["node_count"] == count
     assert res["edge_count"] == 0
     assert res["source_count"] == count
-    assert res["returned_node_count"] == len(res["node_types"])
+    assert res["returned_node_count"] == _returned_nodes(res)
     assert res["returned_node_count"] < res["node_count"]
     assert res["truncated"] is True
     assert any("response size budget" in warning for warning in res["warnings"])
@@ -382,5 +385,75 @@ def test_flow_graph_captures_client_before_first_await(monkeypatch):
 
     monkeypatch.setattr(flow, "get_dss_client", current_client)
 
-    assert flow_graph()["node_types"] == {"first": "dataset"}
+    assert flow_graph()["nodes_by_type"] == {"dataset": ["first"]}
     assert len(calls) == 1
+
+
+def test_flow_graph_edge_limit_can_exceed_the_node_ceiling(monkeypatch):
+    # Real flows run more edges than nodes, so a caller sitting at the node ceiling
+    # must still be able to raise max_edges high enough to carry every edge. While
+    # the two ceilings were equal, the truncation warning telling the caller to
+    # raise max_edges could not be followed.
+    bind(monkeypatch, FakeProject("PROJ", nodes=diamond_nodes()))
+
+    res = flow_graph(max_edges=flow._MAX_GRAPH_NODES + 1)
+
+    assert res["returned_edge_count"] == res["edge_count"] == 5
+    assert "truncated" not in res
+
+
+def test_flow_graph_keeps_same_named_nodes_of_different_types(monkeypatch):
+    # DSS datasets and recipes are separate namespaces, so one ref can name both.
+    # Grouping by type keeps each; a ref-keyed map would drop one and leave
+    # returned_node_count describing more nodes than the response carries.
+    nodes = {
+        "dataset_orders": _dataset("orders", successors=["recipe_orders"]),
+        "recipe_orders": _recipe(
+            "orders", successors=["dataset_out"], predecessors=["dataset_orders"]
+        ),
+        "dataset_out": _dataset("out", predecessors=["recipe_orders"]),
+    }
+    bind(monkeypatch, FakeProject("PROJ", nodes=nodes))
+
+    res = flow_graph()
+
+    assert res["nodes_by_type"] == {
+        "dataset": ["orders", "out"],
+        "recipe": ["orders"],
+    }
+    assert res["returned_node_count"] == _returned_nodes(res) == 3
+
+
+def test_flow_graph_sources_survive_edge_clipping(monkeypatch):
+    # Sources cannot be rederived from a clipped edge list: a node whose only
+    # in-edge was dropped looks like a root. So they are named, not just counted.
+    nodes = {
+        "src": _dataset("src", successors=["rc"]),
+        "rc": _recipe("rc", successors=["out"], predecessors=["src"]),
+        "out": _dataset("out", predecessors=["rc"]),
+    }
+    bind(monkeypatch, FakeProject("PROJ", nodes=nodes))
+
+    res = flow_graph(max_edges=1)
+
+    assert res["source_count"] == 1
+    assert res["sources"] == ["src"]
+    # "out" now has no in-edge in the response, yet is not a source.
+    assert {tuple(edge) for edge in res["edges"]} == {("src", "rc")}
+
+
+def test_flow_graph_sources_are_clipped_last_under_the_response_budget(monkeypatch):
+    # 2,001 isolated nodes with maximal refs: every node is a source, so sources
+    # is as bulky as the node list and must itself be budgeted. Sources degrade
+    # after edges and nodes, and source_count stays full-graph truth.
+    count = 2_001
+    refs = [f"iso{i:04d}".ljust(512, "s") for i in range(count)]
+    bind(monkeypatch, FakeProject("PROJ", nodes={ref: _dataset(ref) for ref in refs}))
+
+    raw = run(flow.get_flow_graph("PROJ", FakeCtx(), max_nodes=2_000))
+    res = json.loads(raw)
+
+    assert len(raw) <= 1_000_000
+    assert res["source_count"] == count
+    assert res["truncated"] is True
+    assert len(res.get("sources", [])) < count
