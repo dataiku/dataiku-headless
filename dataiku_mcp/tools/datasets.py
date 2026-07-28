@@ -97,8 +97,7 @@ def _resolve_export_columns(
 ) -> tuple[list[str], list[int], list[str]]:
     available_columns = [column["name"] for column in schema_columns]
     columns_by_name = {
-        column["name"]: (index, column)
-        for index, column in enumerate(schema_columns)
+        column["name"]: (index, column) for index, column in enumerate(schema_columns)
     }
     if requested_columns is None:
         selected_columns = available_columns
@@ -294,12 +293,10 @@ async def export_dataset(
                 "Set overwrite=true to replace it."
             )
 
-        dataset = (
-            get_dss_client().get_project(project_key).get_dataset(dataset_name)
-        )
+        dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
         schema_columns = dataset.get_schema().get("columns", [])
-        selected_columns, selected_indices, selected_types = (
-            _resolve_export_columns(schema_columns, requested_columns)
+        selected_columns, selected_indices, selected_types = _resolve_export_columns(
+            schema_columns, requested_columns
         )
 
         temporary_path = None
