@@ -87,17 +87,18 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-./bin/run_mcp.sh
-```
-
-`bin/run_mcp.py` is the launcher the Claude Code plugin uses. It carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata, so uv builds the runtime environment itself and the host needs neither uv nor Python on `PATH`:
-
-```bash
-npx -y @manzt/uv@0.8.13 run --quiet ./bin/run_mcp.py   # what the plugin runs
+npx -y @manzt/uv@0.8.13 run --quiet ./bin/run_mcp.py   # exactly what every manifest runs
 uv run --quiet ./bin/run_mcp.py                        # same thing with a local uv
 ```
 
-Its inline dependency list duplicates `[project].dependencies` minus the CLI-only ones; `tests/test_pep723_launcher.py` fails if the two drift apart.
+`bin/run_mcp.py` is the single launcher: every manifest (`.mcp.json`, `.claude-plugin`, `.codex-plugin`) invokes it the same way. It carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata, so uv builds the runtime environment itself and the host needs neither uv nor Python on `PATH` — only Node, for the `npx`-vendored uv.
+
+Two things about that environment differ from `uv run <anything-else>`:
+
+- It resolves from `bin/run_mcp.py.lock`, **not** `uv.lock`. Re-lock it with `uv lock --script bin/run_mcp.py` whenever the inline dependencies change, and commit the result.
+- It is an isolated, cached environment — not the project `.venv`. `dataiku_mcp` is imported from the working tree (the launcher puts the repo root on `sys.path`), so source edits take effect immediately, but a local edit to a *dependency* will not.
+
+The inline dependency list duplicates `[project].dependencies` minus the CLI-only ones; `tests/test_pep723_launcher.py` fails if the two drift apart.
 
 Inspect the MCP server interactively with MCP Inspector:
 

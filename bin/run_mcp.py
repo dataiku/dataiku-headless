@@ -7,7 +7,7 @@
 #     "python-dotenv",
 # ]
 # ///
-"""PEP 723 launcher for the Dataiku MCP server.
+"""PEP 723 launcher for the Dataiku MCP server — used by every manifest.
 
 The inline script metadata above lets any uv build the runtime environment on
 the fly, so a harness can start the server without uv, Python, or the project
@@ -16,13 +16,19 @@ dependencies being installed first:
     npx -y @manzt/uv@0.8.13 run --quiet bin/run_mcp.py
 
 uv resolves the dependencies into a cached, isolated environment on the first
-launch and reuses it afterwards. Only the third-party runtime dependencies are
-declared here (the CLI-only ``typer`` is not needed to serve); keep them in
-lockstep with ``[project].dependencies`` in ``pyproject.toml`` — the test in
+launch and reuses it afterwards, pinned by the committed ``run_mcp.py.lock``
+(refresh it with ``uv lock --script bin/run_mcp.py``). Note that this is the
+script's own lockfile: ``uv.lock`` governs ``uv run``/``uv sync`` for
+development and does not apply here.
+
+Only the third-party runtime dependencies are declared above (the CLI-only
+``typer`` is not needed to serve); keep them in lockstep with
+``[project].dependencies`` in ``pyproject.toml`` — the test in
 ``tests/test_pep723_launcher.py`` enforces that.
 
-``dataiku_mcp`` itself is imported from this clone rather than installed, so
-the repository root goes on ``sys.path`` before the import.
+``dataiku_mcp`` is imported from this clone rather than from an installed
+distribution — the package is not published to a package index — so the
+repository root goes on ``sys.path`` before the import.
 """
 
 import sys

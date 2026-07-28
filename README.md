@@ -216,14 +216,14 @@ dataiku-headless
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── bin/
-│   ├── run_mcp.py              # PEP 723 launcher: uv resolves the runtime deps inline
-│   └── run_mcp.sh              # Project-mode launcher (`uv run python -m dataiku_mcp`)
+│   ├── run_mcp.py              # Sole launcher: PEP 723 script, uv resolves the runtime deps inline
+│   └── run_mcp.py.lock         # Pinned resolution for that script (`uv lock --script`)
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex manifest with skills, stdio MCP, and env_vars passthrough
-├── .mcp.json                   # Shared MCP config (bash ./bin/run_mcp.sh) for contributor dogfooding
+├── .mcp.json                   # Shared MCP config (npx-vendored uv + ./bin/run_mcp.py) for contributor dogfooding
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
