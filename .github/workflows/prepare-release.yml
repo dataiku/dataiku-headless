@@ -130,6 +130,7 @@ jobs:
       - name: Tag new release version
         env:
           BEFORE: ${{ github.event.before }}
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
         run: |
           set -euo pipefail
           git show "${BEFORE}:pyproject.toml" > "$RUNNER_TEMP/previous-pyproject.toml"
@@ -138,6 +139,10 @@ jobs:
           if [ "$version" = "$previous" ]; then
             echo "Project version did not change; nothing to tag."
             exit 0
+          fi
+          if [ "$RELEASE_ENABLED" != "true" ]; then
+            echo "::error::Releases are blocked. Set repository variable RELEASE_ENABLED=true to tag v${version}."
+            exit 1
           fi
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(rc[1-9][0-9]*)?$'; then
             echo "::error::$version is not a stable or rc release version"

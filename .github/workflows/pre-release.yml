@@ -14,8 +14,14 @@ on:
     tags:
       # vMAJOR.MINOR.PATCHrcN  (e.g. v0.3.0rc1)
       - 'v[0-9]+.[0-9]+.[0-9]+rc[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing pre-release tag to (re)publish, e.g. v0.3.0rc1
+        required: true
+
 concurrency:
-  group: pre-release-${{ github.ref }}
+  group: pre-release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -51,11 +57,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       - id: version
         name: Derive version from tag
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           # Pre-release vX.Y.ZrcN only.

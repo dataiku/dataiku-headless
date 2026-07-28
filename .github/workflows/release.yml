@@ -10,8 +10,14 @@ on:
       # Final releases only: vMAJOR.MINOR.PATCH (e.g. v0.3.0).
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - '!v[0-9]+.[0-9]+.[0-9]+rc[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)publish, e.g. v0.3.0
+        required: true
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -49,11 +55,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       - id: version
         name: Derive version from tag
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           # Stable vX.Y.Z only; reject rc tags outright.

@@ -55,8 +55,8 @@ gate before anything merges to `main`.
 | --------------------------------------- | ------------------------------- | ------------------------------------------------------------ |
 | `.github/workflows/ci.yml`              | push / PR to `main`             | Ruff lint + pytest matrix (3.10–3.14)                        |
 | `.github/workflows/prepare-release.yml` | manual dispatch / version merge | Open release PR / tag its merged commit                      |
-| `.github/workflows/release.yml`         | `vX.Y.Z` tag                    | Build + publish to **PyPI** + GitHub release                 |
-| `.github/workflows/pre-release.yml`     | `vX.Y.ZrcN` tag                 | Build + publish to **PyPI + Test PyPI** + GitHub pre-release |
+| `.github/workflows/release.yml`         | `vX.Y.Z` tag, manual dispatch   | Build + publish to **PyPI** + GitHub release                 |
+| `.github/workflows/pre-release.yml`     | `vX.Y.ZrcN` tag, manual dispatch | Build + publish to **PyPI + Test PyPI** + GitHub pre-release |
 
 ---
 
@@ -169,6 +169,20 @@ pip install --pre dataiku-headless
 Published versions are immutable. Workflow reruns skip an existing version so a
 later failed step can recover without attempting to replace its files.
 
+### Re-publishing an existing tag
+
+Both `release.yml` and `pre-release.yml` accept a `workflow_dispatch` with a
+`tag` input to re-run publishing for a tag that already exists (for example after
+transient PyPI failures):
+
+```bash
+gh workflow run release.yml     -f tag=v0.3.0
+gh workflow run pre-release.yml -f tag=v0.3.0rc1
+```
+
+`skip-existing: true` means a version already on the index is skipped rather than
+failing the run, so re-runs are safe.
+
 ---
 
 ## Versioning notes
@@ -191,6 +205,7 @@ later failed step can recover without attempting to replace its files.
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `prepare-release.yml` tagged a version but no publisher ran    | Confirm the release GitHub App credentials and that the tag matches `vX.Y.Z` or `vX.Y.ZrcN`. |
 | `prepare-release.yml` fails: *"No tag matching configuration"* | No baseline tag. Do the [verify the baseline tag](#4-verify-the-baseline-tag) step.          |
+| Merging the release PR fails: *"Releases are blocked"*         | `RELEASE_ENABLED` is not `true`. `prepare-release.yml` won't tag a version bump while it's unset, so nothing reaches `release.yml`/`pre-release.yml` either. |
 | Publish step fails with an OIDC / *trusted publisher* error    | The PyPI trusted publisher isn't configured for that workflow + environment. See [Trusted Publishing](#2-pypi-trusted-publishing-oidc). |
 | Publish says the version already exists                        | PyPI versions are immutable. Confirm the existing files belong to this release; otherwise prepare a new version. |
 | Want to defer a release after merging a `feat`/`fix`           | Do nothing. Normal changes accumulate until someone runs **Prepare release**. |
@@ -205,6 +220,10 @@ gh workflow run prepare-release.yml -f channel=stable
 
 # Prepare a pre-release PR:
 gh workflow run prepare-release.yml -f channel=prerelease
+
+# Re-publish an existing tag:
+gh workflow run release.yml     -f tag=v0.3.0
+gh workflow run pre-release.yml -f tag=v0.3.0rc1
 
 # Preview the next version locally (no changes written):
 uv run cz bump --dry-run
