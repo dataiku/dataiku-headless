@@ -140,8 +140,6 @@ DKU_NO_CHECK_CERTIFICATE=false
 **Connect to multiple instances:**
 Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
 
-Use `DKU_DEFAULT_INSTANCE` to select a non-default instance at startup.
-
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 
 Auth resolution order:
