@@ -1,4 +1,4 @@
-"""Managed folder inspection plus file upload."""
+"""Managed folder creation, inspection, and file upload."""
 
 from fastmcp import Context
 
@@ -10,6 +10,43 @@ from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
     require_positive_int as _require_positive_int,
 )
+
+
+@mcp.tool()
+async def create_managed_folder(
+    project_key: str,
+    name: str,
+    connection: str,
+    ctx: Context,
+    folder_type: str | None = None,
+) -> str:
+    """Create a managed folder in a project on an explicitly selected connection."""
+    project_key = _require_non_empty_string(project_key, "project_key")
+    name = _require_non_empty_string(name, "name")
+    connection = _require_non_empty_string(connection, "connection")
+    if folder_type is not None:
+        folder_type = _require_non_empty_string(folder_type, "folder_type")
+    await ctx.info(f"Creating managed folder '{name}' in {project_key}...")
+
+    def _run():
+        project = get_dss_client().get_project(project_key)
+        folder = project.create_managed_folder(
+            name,
+            folder_type=folder_type,
+            connection_name=connection,
+        )
+        folder_info = folder.get_settings().get_raw()
+        return omit_empty(
+            {
+                "folder_id": folder_info.get("id"),
+                "folder_name": folder_info.get("name"),
+                "type": folder_info.get("type"),
+                "connection": folder_info.get("params", {}).get("connection"),
+                "path": folder_info.get("params", {}).get("path"),
+            }
+        )
+
+    return compact_json(await run_blocking(_run))
 
 
 @mcp.tool()
@@ -33,11 +70,7 @@ async def list_managed_folders(project_key: str, ctx: Context) -> str:
             }
         )
     return compact_json(
-        {
-            "folders": columnar(
-                serialized, ["id", "name", "type", "connection", "path"]
-            )
-        }
+        {"folders": columnar(serialized, ["id", "name", "type", "connection", "path"])}
     )
 
 

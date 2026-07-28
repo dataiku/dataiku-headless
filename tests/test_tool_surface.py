@@ -86,10 +86,12 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "jobs": frozenset(
         {
+            "build_datasets",
             "get_future_status",
             "get_job_log",
             "get_job_status",
             "list_jobs",
+            "run_recipe",
             "wait_for_job",
         }
     ),
@@ -122,6 +124,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "managed_folders": frozenset(
         {
+            "create_managed_folder",
             "get_managed_folder_contents",
             "get_managed_folder_info",
             "list_managed_folders",
@@ -163,14 +166,13 @@ EXPECTED_TOOLS_BY_MODULE = {
             "get_scenario_settings",
             "list_messaging_channels",
             "list_scenarios",
+            "run_scenario",
         }
     ),
     "semantic_models": frozenset(
         {"get_semantic_model_version_settings", "list_semantic_models"}
     ),
-    "webapps": frozenset(
-        {"get_webapp_settings", "get_webapp_state", "list_webapps"}
-    ),
+    "webapps": frozenset({"get_webapp_settings", "get_webapp_state", "list_webapps"}),
     "wikis": frozenset({"get_wiki_article", "list_wiki_articles"}),
 }
 
@@ -182,8 +184,7 @@ def registered_tools_by_module() -> dict[str, frozenset[str]]:
         module = tool.fn.__module__.removeprefix("dataiku_mcp.tools.")
         tools_by_module[module].add(tool.name)
     return {
-        module: frozenset(tool_names)
-        for module, tool_names in tools_by_module.items()
+        module: frozenset(tool_names) for module, tool_names in tools_by_module.items()
     }
 
 

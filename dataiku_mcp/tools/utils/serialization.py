@@ -23,7 +23,10 @@ def columnar(rows: list, columns: list) -> dict:
     self-describing; ~15-20% smaller on row returns on top of compact_json, compounding
     through the re-read multiplier. See token-benchmarks/ASSESSMENT.md §5.
     """
-    return {"columns": list(columns), "rows": [[row.get(c) for c in columns] for row in rows]}
+    return {
+        "columns": list(columns),
+        "rows": [[row.get(c) for c in columns] for row in rows],
+    }
 
 
 def is_empty(value: Any) -> bool:

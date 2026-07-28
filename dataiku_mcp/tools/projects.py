@@ -66,7 +66,9 @@ async def create_project(
         owner = auth_info.get("authIdentifier", "")
         normalized_folder_id = folder_id.strip()
         if not normalized_folder_id:
-            client.create_project(project_key, name, owner=owner, description=short_desc)
+            client.create_project(
+                project_key, name, owner=owner, description=short_desc
+            )
             return omit_empty({"projectKey": project_key, "name": name, "owner": owner})
 
         folder = client.get_project_folder(

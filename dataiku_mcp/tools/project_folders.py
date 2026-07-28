@@ -30,8 +30,7 @@ def _serialize_project_folder(folder) -> dict:
         "parent_id": parent.id if parent is not None else None,
         "project_count": len(folder.list_project_keys()),
         "child_folders": [
-            {"folder_id": child.id, "name": child.name or ""}
-            for child in children
+            {"folder_id": child.id, "name": child.name or ""} for child in children
         ],
     }
 
@@ -58,7 +57,14 @@ async def list_project_folders(ctx: Context) -> str:
         {
             "folders": columnar(
                 folders,
-                ["folder_id", "name", "path", "parent_id", "project_count", "child_folders"],
+                [
+                    "folder_id",
+                    "name",
+                    "path",
+                    "parent_id",
+                    "project_count",
+                    "child_folders",
+                ],
             )
         }
     )

@@ -20,6 +20,7 @@ class DSSInstance:
 @dataclass
 class DSSConfig:
     """Persisted Dataiku instance profiles and their startup default."""
+
     default_instance: str | None = None
     dss_instances: dict[str, DSSInstance] = field(default_factory=dict)
 
@@ -283,9 +284,7 @@ def delete_instance_from_config(name: str) -> dict:
 
     if was_current:
         _current_instance = (
-            dss_instances[config.default_instance]
-            if config.default_instance
-            else None
+            dss_instances[config.default_instance] if config.default_instance else None
         )
 
     return {

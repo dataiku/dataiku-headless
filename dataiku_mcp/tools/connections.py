@@ -69,7 +69,6 @@ def _redact_sensitive_data(value: Any) -> Any:
     return value
 
 
-
 _CONNECTION_TYPES_BY_CATEGORY = {
     "object_storage": ["EC2", "GCS", "Azure", "HDFS"],
     "local_server": ["Filesystem", "FTP", "SSH"],
@@ -180,9 +179,7 @@ async def list_connections(
     def _run():
         client = get_dss_client()
         types_to_query = (
-            [connection_type]
-            if connection_type != "all"
-            else category_connection_types
+            [connection_type] if connection_type != "all" else category_connection_types
         )
         seen: set[str] = set()
         connections = []

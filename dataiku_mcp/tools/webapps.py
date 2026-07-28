@@ -105,8 +105,6 @@ async def get_webapp_state(
     def _run():
         webapp = get_dss_client().get_project(project_key).get_webapp(webapp_id)
         state = webapp.get_state()
-        return omit_empty(
-            {"backend_running": state.running, "state": state.state}
-        )
+        return omit_empty({"backend_running": state.running, "state": state.state})
 
     return compact_json(await run_blocking(_run))

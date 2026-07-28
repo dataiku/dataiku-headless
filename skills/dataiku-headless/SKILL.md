@@ -40,8 +40,8 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Build, modify, or continue project-level work through Cobuild | `./references/cobuild.md` |
 | Inspect datasets, schema, samples, metrics, or create an Uploaded Files dataset | `./references/datasets.md` |
 | Inspect recipes, choose a recipe family, or ground a flow transformation | `./references/recipes.md` |
-| Track running or recent jobs, waits, and logs | `./references/jobs.md` |
-| Inspect managed folders or upload a user-supplied local file into one | `./references/managed_folders.md` |
+| Run an existing dataset or recipe, or track jobs, waits, and logs | `./references/jobs.md` |
+| Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
 | Inspect connections or choose a valid connection | `./references/connections.md` |
 | Inspect code environments | `./references/code-environments.md` |
@@ -51,7 +51,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Inspect Agent Reviews | `./references/agent-reviews.md` |
 | Inspect dashboards | `./references/dashboards.md` |
 | Inspect insights | `./references/insights.md` |
-| Inspect scenarios and automation history | `./references/scenarios.md` |
+| Inspect scenarios and automation history, or run an existing scenario | `./references/scenarios.md` |
 | Inspect semantic models | `./references/semantic-models.md` |
 | Inspect WebApps and backend state | `./references/webapps.md` |
 | Inspect wiki hierarchy or article content | `./references/wikis.md` |
