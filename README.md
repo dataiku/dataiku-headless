@@ -84,13 +84,13 @@ cortex plugin install dataiku/dku-headless
 ### Other AI Assistants
 
 #### MCP
-Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it:
+Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it from a checkout of this repo:
 ```json
 {
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uvx", "dataiku-headless", "serve"],
+      "command": ["bash", "./bin/run_mcp.sh"],
       "enabled": true
     }
   }

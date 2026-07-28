@@ -130,9 +130,9 @@ unreleased work, point your harness at a checkout of the branch.
 ## Versioning notes
 
 - **Version scheme** is [PEP 440](https://peps.python.org/pep-0440/); the source
-  of truth is `[project].version` in `pyproject.toml`. Commitizen keeps the three
-  plugin manifests (`.claude-plugin`, `.codex-plugin`, `.cursor-plugin`
-  `plugin.json`) in lockstep via `[tool.commitizen].version_files`.
+  of truth is `[project].version` in `pyproject.toml`. Commitizen keeps the
+  plugin manifests listed in `[tool.commitizen].version_files` in lockstep with
+  it.
 - **Tag format** is `v$version` (e.g. `v0.3.0`).
 - **`0.x` versions**: `major_version_zero = true`, so breaking changes bump the
   *minor*, not the major, until you deliberately release `1.0.0`.
