@@ -7,8 +7,8 @@
     "name": "Dataiku",
     "url": "https://www.dataiku.com/"
   },
-  "homepage": "https://github.com/dataiku/dku-headless",
-  "repository": "https://github.com/dataiku/dku-headless",
+  "homepage": "https://github.com/dataiku/dataiku-headless",
+  "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "dss", "cobuild"],
   "mcpServers": {
@@ -36,7 +36,7 @@
     "developerName": "Dataiku",
     "category": "developer-tools",
     "capabilities": ["Interactive", "Write"],
-    "websiteURL": "https://github.com/dataiku/dku-headless",
+    "websiteURL": "https://github.com/dataiku/dataiku-headless",
     "defaultPrompt": [
       "Connect to a Dataiku DSS instance",
       "How many projects are in this Dataiku DSS instance?"
