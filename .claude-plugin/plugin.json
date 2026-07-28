@@ -7,8 +7,8 @@
     "name": "Dataiku",
     "url": "https://www.dataiku.com/"
   },
-  "homepage": "https://github.com/dataiku/dku-headless",
-  "repository": "https://github.com/dataiku/dku-headless",
+  "homepage": "https://github.com/dataiku/dataiku-headless",
+  "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "dss", "cobuild"],
   "mcpServers": {

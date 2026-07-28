@@ -27,8 +27,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dataiku/dku-headless"
-Repository = "https://github.com/dataiku/dku-headless"
+Homepage = "https://github.com/dataiku/dataiku-headless"
+Repository = "https://github.com/dataiku/dataiku-headless"
 
 [project.scripts]
 dataiku-mcp = "dataiku_mcp:run_server"
