@@ -19,6 +19,7 @@
         "-y",
         "@manzt/uv@0.8.13",
         "run",
+        "--frozen",
         "--quiet",
         "${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.py"
       ],
