@@ -27,10 +27,7 @@ _USER_COLUMNS = list(_USER_FIELDS)
 
 
 def _sanitize_user(raw_user: dict, fields: dict[str, str]) -> dict:
-    return {
-        field: raw_user.get(raw_field)
-        for field, raw_field in fields.items()
-    }
+    return {field: raw_user.get(raw_field) for field, raw_field in fields.items()}
 
 
 def _validate_group_names(groups: list[str] | None) -> list[str] | None:
@@ -45,6 +42,7 @@ async def _require_licensed_user_profile(profile: str) -> None:
     Note: assumes that caller has admin rights; this internal method should
     ideally be called after checking the user is admin with `require_admin`.
     """
+
     def _run():
         status = get_dss_client().get_licensing_status()
         profiles = status.get("base", {}).get("userProfiles", [])
@@ -69,9 +67,7 @@ async def _require_existing_groups(groups: list[str]) -> None:
         return
 
     def _run():
-        existing_groups = {
-            group["name"] for group in get_dss_client().list_groups()
-        }
+        existing_groups = {group["name"] for group in get_dss_client().list_groups()}
         missing_groups = [group for group in groups if group not in existing_groups]
         if missing_groups:
             raise ValueError(
@@ -141,9 +137,7 @@ async def list_users(
     page = users[offset : offset + limit]
     returned_users = len(page)
     next_offset = (
-        offset + returned_users
-        if offset + returned_users < matched_users
-        else None
+        offset + returned_users if offset + returned_users < matched_users else None
     )
 
     return compact_json(

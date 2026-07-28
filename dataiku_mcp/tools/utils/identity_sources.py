@@ -12,8 +12,6 @@ IDENTITY_SOURCE_TYPES = {
 }
 
 
-def require_identity_source_type(
-    value: str, field_name: str = "source_type"
-) -> str:
+def require_identity_source_type(value: str, field_name: str = "source_type") -> str:
     """Require a supported raw DSS identity source type."""
     return require_allowed_value(value, field_name, IDENTITY_SOURCE_TYPES)

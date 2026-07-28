@@ -20,6 +20,7 @@ def get_dss_client() -> dataikuapi.DSSClient:
 
 async def require_admin() -> None:
     """Raise a concise error unless the configured credentials are an admin."""
+
     def _run():
         try:
             get_dss_client().get_general_settings()

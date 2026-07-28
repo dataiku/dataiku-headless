@@ -66,10 +66,7 @@ def _validate_group_names(names: list[str] | None, field_name: str) -> list[str]
 
 
 def _sanitize_group(raw_group: dict, fields: dict[str, str]) -> dict:
-    return {
-        field: raw_group.get(raw_field)
-        for field, raw_field in fields.items()
-    }
+    return {field: raw_group.get(raw_field) for field, raw_field in fields.items()}
 
 
 def _apply_changes(definition: dict, changes: dict) -> None:
@@ -118,10 +115,7 @@ async def list_groups(
     raw_groups = await run_blocking(lambda: get_dss_client().list_groups())
     total_groups = len(raw_groups)
     fields = _DETAIL_FIELDS if include_permissions else _GROUP_FIELDS
-    groups = [
-        _sanitize_group(group, fields)
-        for group in raw_groups
-    ]
+    groups = [_sanitize_group(group, fields) for group in raw_groups]
     columns = list(fields)
 
     if search:
@@ -132,9 +126,7 @@ async def list_groups(
             if query in str(group.get("name") or "").casefold()
         ]
     if source_type is not None:
-        groups = [
-            group for group in groups if group.get("source_type") == source_type
-        ]
+        groups = [group for group in groups if group.get("source_type") == source_type]
     if is_admin is not None:
         groups = [group for group in groups if group.get("is_admin") == is_admin]
 
@@ -148,9 +140,7 @@ async def list_groups(
     page = groups[offset : offset + limit]
     returned_groups = len(page)
     next_offset = (
-        offset + returned_groups
-        if offset + returned_groups < matched_groups
-        else None
+        offset + returned_groups if offset + returned_groups < matched_groups else None
     )
 
     return compact_json(
@@ -279,7 +269,9 @@ async def create_group(
 
     def _run():
         client = get_dss_client()
-        group = client.create_group(name, description=description, source_type=source_type)
+        group = client.create_group(
+            name, description=description, source_type=source_type
+        )
         definition = group.get_definition()
         _apply_changes(definition, changes)
         group.set_definition(definition)
