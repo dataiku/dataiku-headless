@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 
 from fastmcp import Context
 
-from .. import config, mcp
+from .. import mcp
 from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from .utils.auth import get_current_instance_for_tool, get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -38,7 +38,7 @@ def _get_conversation_entry(conversation_id: str, project_key: str) -> _CobuildC
             f"'{entry.project_key}', not '{project_key}'."
         )
 
-    current_instance_name = config.get_current_instance_name()
+    current_instance_name = get_current_instance_for_tool().name
     if entry.instance_name != current_instance_name:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to instance "
@@ -78,7 +78,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         project = get_dss_client().get_project(project_key)
         conversation = project.new_cobuild_conversation()
         entry = _CobuildConversationEntry(
-            instance_name=config.get_current_instance_name(),
+            instance_name=get_current_instance_for_tool().name,
             project_key=project_key,
             conversation=conversation,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -154,7 +154,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing retained Cobuild conversations for project {project_key}...")
 
-    current_instance_name = config.get_current_instance_name()
+    current_instance_name = get_current_instance_for_tool().name
     rows = [
         {
             "conversation_id": conversation_id,

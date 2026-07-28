@@ -118,7 +118,13 @@ The API key never appears in MCP tool arguments.
 
 ### Where configuration lives
 
-`~/.dataiku/config.json` contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. See [`.dataiku/config.json.example`](.dataiku/config.json.example).
+The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. The server selects its configuration file once at startup, in this order:
+
+1. The explicit `DKU_CONFIG_FILE` path, when set.
+2. An existing `./.dataiku/config.json` in the server's working directory.
+3. `~/.dataiku/config.json` otherwise.
+
+All reads, additions, and deletions use that same resolved path for the server process. See [`.dataiku/config.json.example`](.dataiku/config.json.example) for the file shape.
 
 Environment variables are an explicit override:
 
@@ -132,7 +138,7 @@ DKU_NO_CHECK_CERTIFICATE=false
 ```
 
 **Connect to multiple instances:**
-Put instance info in `.dataiku/config.json`. See `.dataiku/config.json.example` for the expected shape.
+Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
 
 Use `DKU_DEFAULT_INSTANCE` to select a non-default instance at startup.
 
@@ -140,7 +146,7 @@ After adding multiple instance configs, you can use the `list_instances`, `switc
 
 Auth resolution order:
 1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
-2. Local config: `.dataiku/config.json`, using its `default_instance`
+2. The resolved configuration file, using its `default_instance`
 
 ## Run
 

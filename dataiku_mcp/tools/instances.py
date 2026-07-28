@@ -8,6 +8,7 @@ from fastmcp import Context
 
 from .. import config, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
+from .utils.auth import get_current_instance_for_tool
 from .utils.serialization import columnar, compact_json, omit_empty
 
 
@@ -15,7 +16,10 @@ from .utils.serialization import columnar, compact_json, omit_empty
 async def list_instances(ctx: Context) -> str:
     """List the configured Dataiku instances (name, URL, description, active flag)."""
     instances = config.get_instances()
-    current_instance_name = config.get_current_instance_name()
+    try:
+        current_instance_name = get_current_instance_for_tool().name
+    except ValueError:
+        current_instance_name = ""
 
     # Note: caution to not include inst.api_key in tool return value
     result = []
@@ -39,13 +43,13 @@ async def switch_instance(name: str, ctx: Context) -> str:
         name: Instance name (run list_instances() to retrieve all available instance names).
     """
     await ctx.info(f"Switching to instance '{name}'...")
-    info = config.switch_instance(name)
+    info = config.set_current_instance(name)
     return compact_json(info)
 
 
 @mcp.tool()
 async def delete_instance(name: str, ctx: Context) -> str:
-    """Delete a Dataiku instance from ~/.dataiku/config.json.
+    """Delete a Dataiku instance from the resolved configuration file.
 
     Only instances stored in the config file can be deleted. An instance defined
     through environment variables must be removed by unsetting DKU_DSS_URL.
@@ -54,7 +58,7 @@ async def delete_instance(name: str, ctx: Context) -> str:
         name: Instance name (run list_instances() to see available names).
     """
     await ctx.info(f"Deleting instance '{name}'...")
-    info = config.delete_instance(name)
+    info = config.delete_instance_from_config(name)
     return compact_json(info)
 
 
@@ -63,7 +67,7 @@ async def get_current_instance(ctx: Context) -> str:
     """Get the active Dataiku instance configuration."""
 
     # Strip api_key from return value
-    current_instance = asdict(config.get_current_instance())
+    current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
 
     result = omit_empty(current_instance)
@@ -75,7 +79,7 @@ async def configure_instance(ctx: Context) -> str:
     """Connect a Dataiku instance. Use when no instance is configured, or to add another.
 
     Opens a local browser page for the user to enter the instance URL and API key,
-    saved to ~/.dataiku/config.json (0600).
+    saved to the resolved configuration file (0600).
     """
     client_params = ctx.session.client_params
     elicitation_capability = (
