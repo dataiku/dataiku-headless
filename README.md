@@ -27,7 +27,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
@@ -184,6 +184,9 @@ dataiku-headless
 │   │   ├── projects.py        # Project inspection tools + create_project write
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
 │   │   ├── semantic_models.py # Semantic model inspection tools
+│   │   ├── groups.py          # Instance group administration tools
+│   │   ├── licensing.py       # Instance licensing status inspection tool
+│   │   ├── users.py           # Instance user administration tools
 │   │   ├── webapps.py         # WebApp/backend-state inspection tools
 │   │   ├── wikis.py           # Wiki article inspection tools
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
@@ -199,6 +202,7 @@ dataiku-headless
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
 │       └── references/
+│           ├── administration.md   # Route instance-level user, group, and licensing tasks
 │           ├── cobuild.md          # Default in-project write path via Cobuild
 │           ├── project-folders.md  # Project folder hierarchy inspection and organization
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation

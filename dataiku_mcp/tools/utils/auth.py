@@ -1,24 +1,10 @@
 """Authentication utilities for Dataiku client creation."""
 
 import dataikuapi
+from dataikuapi.utils import DataikuException
 
 from ... import config
-
-
-def get_current_instance_for_tool() -> config.DSSInstance:
-    """Return the active instance or raise guidance suitable for an MCP agent."""
-    try:
-        return config.get_current_instance()
-    except config.NoConfiguredInstancesError:
-        raise ValueError(
-            "No Dataiku instances are configured. Run configure_instance."
-        ) from None
-    except config.NoActiveInstanceError:
-        raise ValueError(
-            "No active Dataiku instance is selected. Run list_instances, then ask "
-            "the user which configured instance to switch to, or whether to "
-            "configure a new one."
-        ) from None
+from .async_executor import run_blocking
 
 
 def _require_instance_property(
@@ -45,6 +31,22 @@ def _require_instance_property(
     raise ValueError(message)
 
 
+def get_current_instance_for_tool() -> config.DSSInstance:
+    """Return the active instance or raise guidance suitable for an MCP agent."""
+    try:
+        return config.get_current_instance()
+    except config.NoConfiguredInstancesError:
+        raise ValueError(
+            "No Dataiku instances are configured. Run configure_instance."
+        ) from None
+    except config.NoActiveInstanceError:
+        raise ValueError(
+            "No active Dataiku instance is selected. Run list_instances, then ask "
+            "the user which configured instance to switch to, or whether to "
+            "configure a new one."
+        ) from None
+
+
 def get_dss_client() -> dataikuapi.DSSClient:
     """Get a Dataiku API client for the currently active instance."""
     current_instance = get_current_instance_for_tool()
@@ -63,3 +65,18 @@ def get_dss_client() -> dataikuapi.DSSClient:
     client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
     client._session.verify = not current_instance.no_check_certificate
     return client
+
+
+async def require_admin() -> None:
+    """Raise a concise error unless the configured credentials are an admin."""
+
+    def _run():
+        try:
+            get_dss_client().get_general_settings()
+        except DataikuException as err:
+            raise PermissionError(
+                "DSS administrator access could not be verified for this operation: "
+                f"{err}"
+            ) from None
+
+    await run_blocking(_run)

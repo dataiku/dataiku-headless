@@ -45,6 +45,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
 | Inspect connections or choose a valid connection | `./references/connections.md` |
 | Inspect code environments | `./references/code-environments.md` |
+| Dataiku administrative tasks (e.g. users, groups, etc.) | `./references/administration.md` |
 | Inspect ML analyses, trained models, or saved models | `./references/machine-learning.md` |
 | Inspect LLMs, Knowledge Banks, or RAG LLMs | `./references/llms-and-knowledge-banks.md` |
 | Inspect agents or agent tools | `./references/agents.md` |
