@@ -3,14 +3,7 @@
     "dataiku": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "-y",
-        "@manzt/uv@0.8.13",
-        "run",
-        "--frozen",
-        "--quiet",
-        "./bin/run_mcp.py"
-      ]
+      "args": ["-y", "@manzt/uv@0.8.13", "run", "--quiet", "./bin/run_mcp.py"]
     }
   }
 }

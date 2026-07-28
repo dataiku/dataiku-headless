@@ -5,11 +5,17 @@ the server with a throwaway uv (``npx -y @manzt/uv@… run --quiet …``) instea
 a pre-built environment. That duplicated dependency list silently rots when
 ``pyproject.toml`` changes, and the failure only surfaces at server startup on a
 user's machine — so pin it down here instead.
+
+The launcher pins exact versions while ``[project].dependencies`` stays a range,
+so the two are checked for compatibility rather than equality: same package set,
+and every pin has to satisfy the project's specifier for that package.
 """
 
 import importlib.metadata
 import re
 from pathlib import Path
+
+from packaging.requirements import Requirement
 
 LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
 
@@ -31,25 +37,50 @@ def _inline_metadata() -> str:
     )
 
 
-def _requirement_name(spec: str) -> str:
-    return re.split(r"[\s<>=!~;\[]", spec, maxsplit=1)[0].lower().replace("_", "-")
-
-
-def test_inline_dependencies_match_project_dependencies():
+def _inline_requirements() -> dict:
     array = re.search(r"dependencies\s*=\s*\[(.*?)\]", _inline_metadata(), re.DOTALL)
     assert array, "bin/run_mcp.py declares no inline dependencies"
-    inline = set(re.findall(r'"([^"]+)"', array.group(1)))
+    parsed = [Requirement(spec) for spec in re.findall(r'"([^"]+)"', array.group(1))]
+    return {req.name.lower().replace("_", "-"): req for req in parsed}
 
-    expected = {
-        spec
+
+def _project_requirements() -> dict:
+    parsed = [
+        Requirement(spec)
         for spec in importlib.metadata.requires("dataiku-headless") or []
-        if _requirement_name(spec) not in LAUNCHER_OMITS
+    ]
+    return {
+        req.name.lower().replace("_", "-"): req
+        for req in parsed
+        if req.name.lower().replace("_", "-") not in LAUNCHER_OMITS
     }
 
-    assert inline == expected, (
+
+def test_inline_dependencies_cover_the_same_packages():
+    assert set(_inline_requirements()) == set(_project_requirements()), (
         "bin/run_mcp.py inline dependencies drifted from [project].dependencies "
         "in pyproject.toml"
     )
+
+
+def test_inline_dependencies_are_pinned():
+    for name, req in _inline_requirements().items():
+        specifiers = list(req.specifier)
+        assert len(specifiers) == 1 and specifiers[0].operator == "==", (
+            f"{name} must be pinned to an exact version in bin/run_mcp.py: the "
+            "launcher has no lockfile, so these pins are what keeps every "
+            f"install on one version (got {str(req.specifier) or 'no specifier'})"
+        )
+
+
+def test_inline_pins_satisfy_project_constraints():
+    project = _project_requirements()
+    for name, req in _inline_requirements().items():
+        pinned = str(req.specifier).removeprefix("==")
+        assert project[name].specifier.contains(pinned, prereleases=True), (
+            f"bin/run_mcp.py pins {name}=={pinned}, which violates "
+            f"'{project[name]}' in pyproject.toml"
+        )
 
 
 def test_inline_requires_python_matches_project():

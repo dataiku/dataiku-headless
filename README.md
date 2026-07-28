@@ -216,8 +216,7 @@ dataiku-headless
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── bin/
-│   ├── run_mcp.py              # Sole launcher: PEP 723 script, uv resolves the runtime deps inline
-│   └── run_mcp.py.lock         # Pinned resolution for that script (`uv lock --script`)
+│   └── run_mcp.py              # Sole launcher: PEP 723 script pinning the runtime deps inline
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")

@@ -87,15 +87,15 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-npx -y @manzt/uv@0.8.13 run --frozen --quiet ./bin/run_mcp.py   # exactly what every manifest runs
-uv run --frozen --quiet ./bin/run_mcp.py                        # same thing with a local uv
+npx -y @manzt/uv@0.8.13 run --quiet ./bin/run_mcp.py   # exactly what every manifest runs
+uv run --quiet ./bin/run_mcp.py                        # same thing with a local uv
 ```
 
 `bin/run_mcp.py` is the single launcher: every manifest (`.mcp.json`, `.claude-plugin`, `.codex-plugin`) invokes it the same way. It carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata, so uv builds the runtime environment itself and the host needs neither uv nor Python on `PATH` — only Node, for the `npx`-vendored uv.
 
 Two things about that environment differ from `uv run <anything-else>`:
 
-- It resolves from `bin/run_mcp.py.lock`, **not** `uv.lock`. Only `uv lock --script bin/run_mcp.py` writes that file — `uv run` never creates a missing one, and the manifests pass `--frozen` so a running server never rewrites it inside the harness's plugin directory. Re-lock whenever the inline dependencies change and commit the result; `uv lock --script bin/run_mcp.py --check` exits non-zero when it is stale.
+- It resolves from the launcher's own inline metadata, **not** `uv.lock`. There is no script lockfile, so the `==` pins in that block are the only thing holding every install to one version — bump them deliberately. Transitive dependencies still float within the pinned packages' ranges.
 - It is an isolated, cached environment — not the project `.venv`. `dataiku_mcp` is imported from the working tree (the launcher puts the repo root on `sys.path`), so source edits take effect immediately, but a local edit to a *dependency* will not.
 
 The inline dependency list duplicates `[project].dependencies` minus the CLI-only ones; `tests/test_pep723_launcher.py` fails if the two drift apart.
