@@ -89,7 +89,7 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
         no_check_certificate=_parse_no_check_certificate(
             os.environ.get("DKU_NO_CHECK_CERTIFICATE", "")
         ),
-        source="environment variables",
+        source="environment",
     )
 
 
@@ -123,7 +123,7 @@ def _load_config() -> DSSConfig:
             api_key=details.get("api_key", ""),
             description=details.get("description", ""),
             no_check_certificate=details.get("no_check_certificate", False),
-            source=".dataiku/config.json",
+            source="config",
         )
     return DSSConfig(default_instance_name, dss_instances)
 
@@ -237,7 +237,7 @@ def add_instance_to_config(
         api_key=api_key,
         description=description,
         no_check_certificate=no_check_certificate,
-        source=".dataiku/config.json",
+        source="config",
     )
 
     config = _load_config()
@@ -258,11 +258,9 @@ def add_instance_to_config(
 
 
 def delete_instance_from_config(name: str) -> dict:
-    """Remove a config-file instance from the resolved config file.
+    """Remove a config-file instance from the resolved config file."""
+    global _current_instance
 
-    Deletion of currently active instance is prohibited and results in
-    ValueError.
-    """
     config = _load_config()
     dss_instances = config.dss_instances
 
@@ -271,12 +269,24 @@ def delete_instance_from_config(name: str) -> dict:
             f"Instance '{name}' not found in config file. Available: {list(dss_instances.keys())}"
         )
 
+    was_current = (
+        _current_instance is not None
+        and _current_instance.source == "config"
+        and _current_instance.name == name
+    )
     dss_instances.pop(name)
 
     if config.default_instance == name:
         config.default_instance = next(iter(dss_instances), None)
 
     _save_config(config)
+
+    if was_current:
+        _current_instance = (
+            dss_instances[config.default_instance]
+            if config.default_instance
+            else None
+        )
 
     return {
         "deleted": name,
