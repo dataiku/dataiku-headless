@@ -114,9 +114,7 @@ def _get_zone_nodes(flow, zone: str) -> dict:
     if match is None:
         name_matches = [z for z in zones if z.name == zone]
         if len(name_matches) > 1:
-            candidates = sorted(
-                f"{z.name} (id={z.id})" for z in name_matches[:50]
-            )
+            candidates = sorted(f"{z.name} (id={z.id})" for z in name_matches[:50])
             raise ValueError(
                 f"Ambiguous flow zone name '{zone}': matches {candidates}. "
                 "Pass the zone id instead."
@@ -124,9 +122,7 @@ def _get_zone_nodes(flow, zone: str) -> dict:
         if name_matches:
             match = name_matches[0]
     if match is None:
-        available = sorted(
-            f"{z.name} (id={z.id})" for z in zones[:50]
-        )
+        available = sorted(f"{z.name} (id={z.id})" for z in zones[:50])
         suffix = " (first 50 shown)" if len(zones) > 50 else ""
         raise ValueError(
             f"Unknown flow zone '{zone}'. Available zones{suffix}: {available}"
