@@ -261,10 +261,6 @@ def delete_instance_from_config(name: str) -> dict:
         raise ValueError(
             f"Instance '{name}' not found in config file. Available: {list(dss_instances.keys())}"
         )
-    if _current_instance and name == _current_instance.name:
-        raise ValueError(
-            f"'{name}' is the current active instance. Switch to another instance prior to deleting."
-        )
 
     dss_instances.pop(name)
 
