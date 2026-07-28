@@ -20,9 +20,16 @@ class DSSInstance:
 @dataclass
 class DSSConfig:
     """Persisted Dataiku instance profiles and their startup default."""
-
     default_instance: str | None = None
     dss_instances: dict[str, DSSInstance] = field(default_factory=dict)
+
+
+class NoConfiguredInstancesError(ValueError):
+    """Raised when no Dataiku instances are available."""
+
+
+class NoActiveInstanceError(ValueError):
+    """Raised when instances exist but none is selected."""
 
 
 _current_instance: DSSInstance | None = None
@@ -188,10 +195,12 @@ def get_instances() -> dict[str, DSSInstance]:
 
 def get_current_instance() -> DSSInstance:
     """Return the currently active DSS instance."""
-    if not _current_instance:
-        raise ValueError("No current Dataiku instance configured.")
+    if _current_instance:
+        return _current_instance
 
-    return _current_instance
+    if get_instances():
+        raise NoActiveInstanceError("No active Dataiku instance is selected.")
+    raise NoConfiguredInstancesError("No Dataiku instances are configured.")
 
 
 def set_current_instance(name: str) -> dict:

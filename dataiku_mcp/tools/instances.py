@@ -8,6 +8,7 @@ from fastmcp import Context
 
 from .. import config, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
+from .utils.auth import get_current_instance_for_tool
 from .utils.serialization import columnar, compact_json, omit_empty
 
 
@@ -16,7 +17,7 @@ async def list_instances(ctx: Context) -> str:
     """List the configured Dataiku instances (name, URL, description, active flag)."""
     instances = config.get_instances()
     try:
-        current_instance_name = config.get_current_instance().name
+        current_instance_name = get_current_instance_for_tool().name
     except ValueError:
         current_instance_name = ""
 
@@ -66,7 +67,7 @@ async def get_current_instance(ctx: Context) -> str:
     """Get the active Dataiku instance configuration."""
 
     # Strip api_key from return value
-    current_instance = asdict(config.get_current_instance())
+    current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
 
     result = omit_empty(current_instance)
