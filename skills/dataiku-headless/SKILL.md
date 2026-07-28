@@ -9,14 +9,15 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 
 ## Shared Operating Rules
 
-1. Discover project keys and object identifiers through tools; do not invent them.
-2. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
-3. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
-4. Route in-project asset creation and modification through `./references/cobuild.md` unless the matching guide documents a narrow direct exception.
-5. Direct-write exceptions are allowed for operations that Cobuild cannot perform, especially bootstrap, cross-project, instance-level, or administrative actions. Treat them as narrow documented exceptions, not as the default mutation path.
-6. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
-7. Preserve surrounding flow, storage, and operational context unless the user requests a change.
-8. If MCP coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls.
+1. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first.
+2. Discover project keys and object identifiers through tools; do not invent them.
+3. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
+4. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
+5. Route in-project asset creation and modification through `./references/cobuild.md` unless the matching guide documents a narrow direct exception.
+6. Direct-write exceptions are allowed for operations that Cobuild cannot perform, especially bootstrap, cross-project, instance-level, or administrative actions. Treat them as narrow documented exceptions, not as the default mutation path.
+7. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
+8. Preserve surrounding flow, storage, and operational context unless the user requests a change.
+9. If MCP coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls.
 
 ## Default Workflow
 

@@ -30,7 +30,7 @@ export DKU_API_KEY="your-api-key"
 | MCP tool logic | `dataiku_mcp/tools/**/*.py` |
 | Shared validation helpers | `dataiku_mcp/tools/utils/validation.py` |
 | Workflow prompts | `dataiku_mcp/prompts/workflows.py` |
-| Project/dataset/folder/recipe/ML skills | `dataiku-skills/**/SKILL.md` |
+| Project/dataset/folder/recipe/ML skills | `skills/**/SKILL.md` |
 | Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
 
 ## Error Handling
