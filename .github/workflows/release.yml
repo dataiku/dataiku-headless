@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes a stable release after a reviewed release PR is merged and
-# bump.yml tags its exact main commit. Only final vX.Y.Z tags fire here;
+# prepare-release.yml tags its exact main commit. Only final vX.Y.Z tags fire here;
 # vX.Y.ZrcN tags are handled by pre-release.yml.
 
 on:

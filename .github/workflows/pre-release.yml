@@ -2,7 +2,7 @@ name: Pre-release
 
 # Publishes a pre-release of dataiku-headless to BOTH PyPI and Test PyPI when a
 # pre-release tag is pushed. Commitizen prepares canonical PEP 440 `rcN`
-# versions in a reviewed release PR; bump.yml tags the exact merged commit.
+# versions in a reviewed release PR; prepare-release.yml tags the exact merged commit.
 # Because the pre-release lands on real PyPI, `pip install --pre
 # dataiku-headless` will select it.
 #

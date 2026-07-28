@@ -1,6 +1,6 @@
 name: Prepare release
 
-# Manual dispatch opens a Commitizen-generated release PR. When that PR is
+# Manual dispatch creates a Commitizen-generated release PR. When that PR is
 # merged, the push job tags the exact main commit; the existing tag-driven
 # release workflows then publish it.
 

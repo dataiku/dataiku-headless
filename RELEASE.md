@@ -23,7 +23,7 @@ pre-release, and how to recover when something goes wrong.
                                               │
                                   review + merge
                                               ▼
- bump.yml tags the exact merged commit as vX.Y.Z
+ prepare-release.yml tags the exact merged commit as vX.Y.Z
                                               │
                                               ▼
  release.yml (trigger: vX.Y.Z tag)
@@ -51,12 +51,12 @@ gate before anything merges to `main`.
 
 ### Workflow files
 
-| File                          | Trigger                          | Does                                                    |
-| ----------------------------- | -------------------------------- | ------------------------------------------------------- |
-| `.github/workflows/ci.yml`          | push / PR to `main`              | Ruff lint + pytest matrix (3.10–3.14)                   |
-| `.github/workflows/bump.yml`        | manual dispatch / version merge | Open release PR / tag its merged commit                  |
-| `.github/workflows/release.yml`     | `vX.Y.Z` tag                    | Build + publish to **PyPI** + GitHub release             |
-| `.github/workflows/pre-release.yml` | `vX.Y.ZrcN` tag                 | Build + publish to **PyPI + Test PyPI** + GitHub pre-release |
+| File                                    | Trigger                         | Does                                                         |
+| --------------------------------------- | ------------------------------- | ------------------------------------------------------------ |
+| `.github/workflows/ci.yml`              | push / PR to `main`             | Ruff lint + pytest matrix (3.10–3.14)                        |
+| `.github/workflows/prepare-release.yml` | manual dispatch / version merge | Open release PR / tag its merged commit                      |
+| `.github/workflows/release.yml`         | `vX.Y.Z` tag                    | Build + publish to **PyPI** + GitHub release                 |
+| `.github/workflows/pre-release.yml`     | `vX.Y.ZrcN` tag                 | Build + publish to **PyPI + Test PyPI** + GitHub pre-release |
 
 ---
 
@@ -66,7 +66,8 @@ These must exist before the automation works. They only need to be done once.
 
 ### 1. Release GitHub App (required)
 
-`bump.yml` uses a GitHub App to open release PRs and push merged release tags.
+`prepare-release.yml` uses a GitHub App to open release PRs and push merged
+release tags.
 The default `GITHUB_TOKEN` is unsuitable because refs it pushes do not start the
 publishing workflows.
 
@@ -133,14 +134,14 @@ do not tag the current tip blindly.
 3. Run **Actions → Prepare release → Run workflow** with `channel=stable`, or:
 
 ```bash
-gh workflow run bump.yml -f channel=stable
+gh workflow run prepare-release.yml -f channel=stable
 ```
 
 4. Review the generated `release/vX.Y.Z` PR. Commitizen owns its version files,
    changelog, and release commit.
 
 5. Merge the release PR after normal required CI passes and
-   `RELEASE_ENABLED=true`. `bump.yml` tags that exact merged commit;
+   `RELEASE_ENABLED=true`. `prepare-release.yml` tags that exact merged commit;
    `release.yml` builds once, smoke-tests the wheel, publishes to **PyPI**, and
    creates the GitHub release with its artifacts.
 
@@ -151,7 +152,7 @@ gh workflow run bump.yml -f channel=stable
 Run the same preparation workflow with the prerelease channel:
 
 ```bash
-gh workflow run bump.yml -f channel=prerelease
+gh workflow run prepare-release.yml -f channel=prerelease
 ```
 
 Commitizen prepares `X.Y.Zrc1` and increments subsequent release candidates.
@@ -188,8 +189,8 @@ later failed step can recover without attempting to replace its files.
 
 | Symptom                                                        | Cause / fix                                                                                     |
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `bump.yml` tagged a version but no publisher ran               | Confirm the release GitHub App credentials and that the tag matches `vX.Y.Z` or `vX.Y.ZrcN`. |
-| `bump.yml` fails: *"No tag matching configuration"*            | No baseline tag. Do the [verify the baseline tag](#4-verify-the-baseline-tag) step.             |
+| `prepare-release.yml` tagged a version but no publisher ran    | Confirm the release GitHub App credentials and that the tag matches `vX.Y.Z` or `vX.Y.ZrcN`. |
+| `prepare-release.yml` fails: *"No tag matching configuration"* | No baseline tag. Do the [verify the baseline tag](#4-verify-the-baseline-tag) step.          |
 | Publish step fails with an OIDC / *trusted publisher* error    | The PyPI trusted publisher isn't configured for that workflow + environment. See [Trusted Publishing](#2-pypi-trusted-publishing-oidc). |
 | Publish says the version already exists                        | PyPI versions are immutable. Confirm the existing files belong to this release; otherwise prepare a new version. |
 | Want to defer a release after merging a `feat`/`fix`           | Do nothing. Normal changes accumulate until someone runs **Prepare release**. |
@@ -200,10 +201,10 @@ later failed step can recover without attempting to replace its files.
 
 ```bash
 # Prepare a stable release PR:
-gh workflow run bump.yml -f channel=stable
+gh workflow run prepare-release.yml -f channel=stable
 
 # Prepare a pre-release PR:
-gh workflow run bump.yml -f channel=prerelease
+gh workflow run prepare-release.yml -f channel=prerelease
 
 # Preview the next version locally (no changes written):
 uv run cz bump --dry-run
