@@ -215,6 +215,9 @@ dataiku-headless
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
+├── bin/
+│   ├── run_mcp.py              # PEP 723 launcher: uv resolves the runtime deps inline
+│   └── run_mcp.sh              # Project-mode launcher (`uv run python -m dataiku_mcp`)
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")

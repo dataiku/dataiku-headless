@@ -90,6 +90,15 @@ Run the MCP server locally to verify end-to-end:
 ./bin/run_mcp.sh
 ```
 
+`bin/run_mcp.py` is the launcher the Claude Code plugin uses. It carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata, so uv builds the runtime environment itself and the host needs neither uv nor Python on `PATH`:
+
+```bash
+npx -y @manzt/uv@0.8.13 run --quiet ./bin/run_mcp.py   # what the plugin runs
+uv run --quiet ./bin/run_mcp.py                        # same thing with a local uv
+```
+
+Its inline dependency list duplicates `[project].dependencies` minus the CLI-only ones; `tests/test_pep723_launcher.py` fails if the two drift apart.
+
 Inspect the MCP server interactively with MCP Inspector:
 
 ```bash
