@@ -31,8 +31,9 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 3. Inspect input and output datasets when schema, data shape, storage, or sample values affect the transformation.
 4. Read the matching recipe-family reference before interpreting a type-specific configuration or describing a new recipe to Cobuild.
 5. Read supporting guides when the selected recipe depends on managed folders, models, LLMs, Knowledge Banks, agents, code environments, project libraries, or connections.
-6. Route recipe creation, editing, wiring, and execution through `./cobuild.md`.
-7. After a build or run starts, use `./jobs.md` to follow an active or uncertain job. Validate outputs through the relevant guide.
+6. Route recipe creation, editing, and wiring through `./cobuild.md`.
+7. Cobuild will run recipes and build datasets as part of broader project work. For one-off execution of an existing recipe or dataset build, use `./jobs.md`: `build_datasets` for dataset outputs and `run_recipe` for direct recipe execution.
+8. After a build or run starts, use `./jobs.md` to follow an active or uncertain job. Validate outputs through the relevant guide.
 
 ## Recipe Families
 
@@ -75,4 +76,5 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 - Inspect an existing recipe before requesting a modification through Cobuild.
 - Preserve the surrounding Flow's storage and dependency context unless the user requests a change.
 - Treat a timed-out or interrupted build as potentially still running; inspect the job before retrying or changing related Flow objects.
+- Use `./jobs.md` for direct execution of an existing recipe or its dataset outputs; this guide stays focused on inspection and grounded recipe planning.
 - Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct recipe mutation workflows here.
