@@ -3,7 +3,7 @@
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uvx", "dataiku-headless", "serve"],
+      "command": ["bash", "./bin/run_mcp.sh"],
       "enabled": true
     }
   }
