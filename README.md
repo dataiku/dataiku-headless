@@ -50,33 +50,33 @@ Each plugin bundles the skills and starts the same local `stdio` MCP server. The
 ### Claude Code CLI
 
 ```bash
-claude plugin marketplace add https://github.com/dataiku/dku-headless.git
+claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 claude plugin install dataiku-headless@dataiku
 ```
 
 ### Codex CLI
 
 ```bash
-codex plugin marketplace add https://github.com/dataiku/dku-headless.git
+codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 codex plugin add dataiku-headless@dataiku
 ```
 ### Grok CLI
 
 ```bash
-grok plugin install dataiku/dku-headless --trust
+grok plugin install dataiku/dataiku-headless --trust
 ```
 
 ### Cursor Agent CLI
 
 ```bash
-cursor agent plugin marketplace add github.com/dataiku/dku-headless
+cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 # Tip: use /plugins in interactive mode to install `dataiku-headless` plugin from this marketplace.
 ```
 
 ### Snowflake CoCo
 
 ```bash
-cortex plugin install dataiku/dku-headless
+cortex plugin install dataiku/dataiku-headless
 ```
 
 ### Other AI Assistants
@@ -101,7 +101,7 @@ The skills/*/SKILL.md files follow the universal skill format and work with any 
 
 Install the skill for your agent harness:
 ```bash
-npx skills add dataiku/dku-headless
+npx skills add dataiku/dataiku-headless
 ```
 
 
