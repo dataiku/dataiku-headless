@@ -39,6 +39,7 @@ Do not use this guide when:
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
 6. Retain the returned `conversation_id` for follow-up work.
 7. If Cobuild returns a delete confirmation request, inspect the deletion details and respond through `answer_cobuild_confirmation`.
+8. If Cobuild returns a question (`is_question_request=true`), read the `question` text and `predefined_answers`, then respond through `answer_cobuild_question`. Pass `answers` (one or more of the predefined answers, or a free-text answer when `allow_custom_answer=true` with `used_custom_answer=true`), or `rejected=true` to decline answering.
 
 ## Prompt Guidance
 
@@ -54,6 +55,7 @@ Do not use this guide when:
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
+| Answer a Cobuild question request | `answer_cobuild_question` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
 
 ## Safety Rules

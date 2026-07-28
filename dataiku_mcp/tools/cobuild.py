@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from dataikuapi.dss.cobuild import DSSCobuildConversation
 from fastmcp import Context
 
 from .. import mcp
@@ -11,6 +12,7 @@ from .utils.auth import get_current_instance_for_tool, get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
+    require_non_empty_strings as _require_non_empty_strings,
 )
 
 
@@ -18,7 +20,7 @@ from .utils.validation import (
 class _CobuildConversationEntry:
     instance_name: str
     project_key: str
-    conversation: object
+    conversation: DSSCobuildConversation
     created_at: str
 
 
@@ -66,6 +68,11 @@ def _serialize_response(
             "is_confirmation_request": response.is_confirmation_request,
             "objects_to_delete": response.objects_to_delete,
             "deletion_impacts": response.deletion_impacts,
+            "is_question_request": response.is_question_request,
+            "question": response.title,
+            "predefined_answers": response.predefined_answers,
+            "allow_custom_answer": response.allow_custom_answer,
+            "allow_multiple_answers": response.allow_multiple_answers,
         }
     )
 
@@ -145,6 +152,39 @@ async def answer_cobuild_confirmation(
 
     def _run():
         response = entry.conversation.answer_confirmation(choice)
+        return _serialize_response(conversation_id, entry, response)
+
+    return compact_json(await run_blocking(_run))
+
+
+@mcp.tool()
+async def answer_cobuild_question(
+    conversation_id: str,
+    project_key: str,
+    ctx: Context,
+    answers: list[str] | None = None,
+    rejected: bool = False,
+    used_custom_answer: bool = False,
+) -> str:
+    """Answer a pending Cobuild question request (response_type 'ask_question_to_user_request')."""
+    conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
+    project_key = _require_non_empty_string(project_key, "project_key")
+    if rejected:
+        answers = []
+    else:
+        answers = _require_non_empty_strings(answers or [], "answers")
+        if not answers:
+            raise ValueError("provide at least one answer, or set rejected=true")
+    await ctx.info(f"Answering Cobuild question for conversation {conversation_id}...")
+
+    entry = _get_conversation_entry(conversation_id, project_key)
+
+    def _run():
+        response = entry.conversation.answer_question(
+            answers=answers,
+            rejected=rejected,
+            used_custom_answer=used_custom_answer,
+        )
         return _serialize_response(conversation_id, entry, response)
 
     return compact_json(await run_blocking(_run))
