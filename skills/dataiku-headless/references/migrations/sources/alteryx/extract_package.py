@@ -39,19 +39,26 @@ def inventory(package: Path, target: Path) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Extract and inventory an Alteryx .yxzp package.")
+    parser = argparse.ArgumentParser(
+        description="Extract and inventory an Alteryx .yxzp package."
+    )
     parser.add_argument("package", help="path to the .yxzp package (a zip archive)")
     parser.add_argument(
         "target_dir",
         nargs="?",
         help="directory to extract into (default: <package-stem>_extracted under cwd)",
     )
-    parser.add_argument("--out", help="JSON output path (default: extract/<package-stem>.json under cwd)")
+    parser.add_argument(
+        "--out",
+        help="JSON output path (default: extract/<package-stem>.json under cwd)",
+    )
     args = parser.parse_args()
 
     package = Path(args.package)
     stem = package.stem or "package"
-    target = Path(args.target_dir) if args.target_dir else Path.cwd() / f"{stem}_extracted"
+    target = (
+        Path(args.target_dir) if args.target_dir else Path.cwd() / f"{stem}_extracted"
+    )
     out_path = Path(args.out) if args.out else Path.cwd() / "extract" / f"{stem}.json"
 
     try:

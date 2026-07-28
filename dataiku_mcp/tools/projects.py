@@ -42,7 +42,9 @@ async def list_projects(ctx: Context, search: str = "") -> str:
             or q in project["name"].lower()
             or q in project["shortDesc"].lower()
         ]
-    return compact_json({"projects": columnar(projects, ["projectKey", "name", "shortDesc"])})
+    return compact_json(
+        {"projects": columnar(projects, ["projectKey", "name", "shortDesc"])}
+    )
 
 
 @mcp.tool()
@@ -64,7 +66,9 @@ async def create_project(
         owner = auth_info.get("authIdentifier", "")
         normalized_folder_id = folder_id.strip()
         if not normalized_folder_id:
-            client.create_project(project_key, name, owner=owner, description=short_desc)
+            client.create_project(
+                project_key, name, owner=owner, description=short_desc
+            )
             return omit_empty({"projectKey": project_key, "name": name, "owner": owner})
 
         folder = client.get_project_folder(

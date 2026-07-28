@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# TODO(dist): once dataiku-headless is published to PyPI, switch the plugin
+# manifests (.claude-plugin and .codex-plugin) to
+# `uvx dataiku-headless serve` and retire this local-clone launcher.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -10,6 +14,6 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# `uv run` creates .venv and syncs deps from uv.lock on first launch.
+# Runtime launchers do not need the project's development dependencies.
 cd "${REPO_ROOT}"
-exec uv run python -m dataiku_mcp
+exec uv run --no-dev python -m dataiku_mcp

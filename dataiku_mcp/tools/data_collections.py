@@ -16,12 +16,22 @@ async def list_data_collections(ctx: Context) -> str:
 
     def _run():
         return [
-            {"id": dc.id, "name": dc.display_name, "description": dc.description,
-             "tags": dc.tags, "item_count": dc.item_count}
+            {
+                "id": dc.id,
+                "name": dc.display_name,
+                "description": dc.description,
+                "tags": dc.tags,
+                "item_count": dc.item_count,
+            }
             for dc in get_dss_client().list_data_collections()
         ]
 
-    return compact_json(columnar(await run_blocking(_run), ["id", "name", "description", "tags", "item_count"]))
+    return compact_json(
+        columnar(
+            await run_blocking(_run),
+            ["id", "name", "description", "tags", "item_count"],
+        )
+    )
 
 
 @mcp.tool()
@@ -31,7 +41,11 @@ async def list_data_collection_objects(collection_id: str, ctx: Context) -> str:
     await ctx.info(f"Listing objects in collection {collection_id}...")
 
     def _run():
-        items = get_dss_client().get_data_collection(collection_id).list_objects(as_type="dict")
+        items = (
+            get_dss_client()
+            .get_data_collection(collection_id)
+            .list_objects(as_type="dict")
+        )
         for i in items:
             if "projectKey" in i:
                 i["project_key"] = i.pop("projectKey")
