@@ -16,6 +16,8 @@ from .utils.serialization import columnar, compact_json, is_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 from .utils.validation import require_positive_int as _require_positive_int
 
+_MAX_EXPORT_ROWS = 1_000_000
+
 
 def _create_uploaded_dataset_from_file(
     project_key: str,
@@ -252,17 +254,21 @@ async def export_dataset(
     dataset_name: str,
     output_path: str,
     ctx: Context,
+    limit: int = _MAX_EXPORT_ROWS,
     columns: list[str] | None = None,
     overwrite: bool = False,
 ) -> str:
-    """Export every dataset row to a UTF-8 CSV file on the local stdio host."""
+    """Export dataset rows to a local UTF-8 CSV file."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     output_path = _require_non_empty_string(output_path, "output_path")
+    limit = _require_positive_int(limit, "limit")
+    if limit > _MAX_EXPORT_ROWS:
+        raise ValueError(f"'limit' must be <= {_MAX_EXPORT_ROWS}")
     absolute_output_path = os.path.realpath(os.path.expanduser(output_path))
     requested_columns = None if columns is None else list(columns)
     await ctx.info(
-        f"Exporting all rows from {dataset_name} in {project_key} "
+        f"Exporting up to {limit} rows from {dataset_name} in {project_key} "
         f"to '{absolute_output_path}'..."
     )
 
@@ -301,7 +307,11 @@ async def export_dataset(
                 writer = csv.writer(output_file, lineterminator="\n")
                 writer.writerow(selected_columns)
                 row_count = 0
+                has_more_rows = False
                 for row in dataset.iter_rows():
+                    if row_count >= limit:
+                        has_more_rows = True
+                        break
                     writer.writerow(
                         [
                             "" if row[index] is None else row[index]
@@ -344,7 +354,8 @@ async def export_dataset(
             "types": selected_types,
             "size_bytes": size_bytes,
             "sha256": digest.hexdigest(),
-            "truncated": False,
+            "limit": limit,
+            "has_more_rows": has_more_rows,
         }
 
     return compact_json(await run_blocking(_run))
