@@ -69,22 +69,13 @@ def _short_type(node_type):
 
 
 _MAX_GRAPH_NODES = 2_000
-# Above the node ceiling: real flows run up to ~1.7 edges per node, so an equal
-# ceiling would force truncation no caller can lift by raising max_edges.
 _MAX_GRAPH_EDGES = 5_000
 _RESPONSE_CHAR_LIMIT = 1_000_000
 _RESPONSE_CHAR_SLACK = 2_000
 
 
 def _group_by_type(pairs) -> dict:
-    """Group ``(ref, short_type)`` pairs into ``{short_type: [ref, ...]}``.
-
-    Grouped rather than keyed by ref because a ref is only unique within one object
-    type — DSS datasets and recipes are separate namespaces, and dataikuapi itself
-    identifies a graph node by ``(type, ref)``. A ref-keyed map silently drops
-    same-named nodes and leaves ``returned_node_count`` describing more nodes than
-    the response carries. Grouping also stops repeating the type per node.
-    """
+    """Group ``(ref, short_type)`` pairs into ``{short_type: [ref, ...]}``."""
     grouped: dict = {}
     for ref, short_type in pairs:
         grouped.setdefault(short_type, []).append(ref)
@@ -169,9 +160,7 @@ def _build_flow_graph(
             if successor in nodes:
                 total_edge_count += 1
                 full_has_predecessor.add(successor)
-    # Named, not just counted: a caller cannot rederive sources from the returned
-    # edges once those are clipped, because a node whose only in-edge was dropped
-    # then looks like a root. Full-graph truth, like the counts.
+    # Keep named sources because clipped edges can no longer identify roots reliably.
     sources = [
         node.get("ref", node_id)
         for node_id, node in nodes.items()
@@ -228,11 +217,7 @@ def _build_flow_graph(
 
 
 def _clip_to_budget(result: dict, budget: int, label: str, items: list, write) -> str:
-    """Halve ``items`` until ``result`` serializes within ``budget``.
-
-    ``write(kept)`` stores the survivors back into ``result``, along with any
-    ``returned_*_count`` that has to stay in step with them.
-    """
+    """Halve ``items`` until ``result`` serializes within ``budget``."""
     kept = len(items)
     payload = compact_json(result)
     while len(payload) > budget and items:
@@ -268,9 +253,7 @@ def _fit_response_to_budget(result: dict) -> str:
     def write_sources(kept: list) -> None:
         result["sources"] = kept
 
-    # Edges first: the bulkiest field and the one targeted list_*/get_* calls can
-    # rebuild. Sources last — smallest field, highest signal per character, and the
-    # one thing the other two cannot be used to recover.
+    # Clip edges first and sources last.
     for label, items, write in (
         ("edges", result.get("edges") or [], write_edges),
         ("nodes", _flatten_by_type(result.get("nodes_by_type") or {}), write_nodes),

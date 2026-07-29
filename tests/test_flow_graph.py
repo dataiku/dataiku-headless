@@ -1,11 +1,4 @@
-"""Tests for the ``flow.get_flow_graph`` programmatic graph tool.
-
-These never touch the network: ``get_dss_client`` is replaced by a fake client
-returning a fake project whose flow is driven from canned Python objects. The
-tool under test returns the whole flow in one call as ``sources`` plus
-``nodes_by_type`` plus ``edges``, with zone filtering, clipping metadata, and
-response-budget guards.
-"""
+"""Tests for ``flow.get_flow_graph``."""
 
 import asyncio
 import json
@@ -93,7 +86,7 @@ def _dataset(ref, successors=(), predecessors=()):
 
 
 def _returned_nodes(res):
-    """Total node refs carried by the response, across every type group."""
+    """Total node refs carried by the response."""
     return sum(len(refs) for refs in res["nodes_by_type"].values())
 
 
@@ -390,10 +383,7 @@ def test_flow_graph_captures_client_before_first_await(monkeypatch):
 
 
 def test_flow_graph_edge_limit_can_exceed_the_node_ceiling(monkeypatch):
-    # Real flows run more edges than nodes, so a caller sitting at the node ceiling
-    # must still be able to raise max_edges high enough to carry every edge. While
-    # the two ceilings were equal, the truncation warning telling the caller to
-    # raise max_edges could not be followed.
+    # Callers must be able to raise max_edges above the node ceiling.
     bind(monkeypatch, FakeProject("PROJ", nodes=diamond_nodes()))
 
     res = flow_graph(max_edges=flow._MAX_GRAPH_NODES + 1)
@@ -404,8 +394,6 @@ def test_flow_graph_edge_limit_can_exceed_the_node_ceiling(monkeypatch):
 
 def test_flow_graph_keeps_same_named_nodes_of_different_types(monkeypatch):
     # DSS datasets and recipes are separate namespaces, so one ref can name both.
-    # Grouping by type keeps each; a ref-keyed map would drop one and leave
-    # returned_node_count describing more nodes than the response carries.
     nodes = {
         "dataset_orders": _dataset("orders", successors=["recipe_orders"]),
         "recipe_orders": _recipe(
@@ -425,8 +413,7 @@ def test_flow_graph_keeps_same_named_nodes_of_different_types(monkeypatch):
 
 
 def test_flow_graph_sources_survive_edge_clipping(monkeypatch):
-    # Sources cannot be rederived from a clipped edge list: a node whose only
-    # in-edge was dropped looks like a root. So they are named, not just counted.
+    # Clipped edges cannot reliably identify roots.
     nodes = {
         "src": _dataset("src", successors=["rc"]),
         "rc": _recipe("rc", successors=["out"], predecessors=["src"]),
@@ -443,9 +430,7 @@ def test_flow_graph_sources_survive_edge_clipping(monkeypatch):
 
 
 def test_flow_graph_sources_are_clipped_last_under_the_response_budget(monkeypatch):
-    # 2,001 isolated nodes with maximal refs: every node is a source, so sources
-    # is as bulky as the node list and must itself be budgeted. Sources degrade
-    # after edges and nodes, and source_count stays full-graph truth.
+    # Sources degrade after edges and nodes, while source_count stays full-graph truth.
     count = 2_001
     refs = [f"iso{i:04d}".ljust(512, "s") for i in range(count)]
     bind(monkeypatch, FakeProject("PROJ", nodes={ref: _dataset(ref) for ref in refs}))

@@ -60,4 +60,4 @@ Flow zones organize related Flow items visually. They are useful context when a 
 - Confirm the project key and display name before creating a project.
 - Verify that the requested project key is not already in use before direct creation.
 - When creating a project in a folder, discover the folder ID with `list_project_folders`; do not invent it.
-- `get_flow_graph` is the primary flow-orientation tool. It names the flow's `sources`, groups node refs under `nodes_by_type`, and lists dependency `edges`. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
+- `get_flow_graph` is the primary flow-orientation tool. It returns flow sources, nodes, and dependency edges. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
