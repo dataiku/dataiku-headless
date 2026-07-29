@@ -1,7 +1,7 @@
 """The PEP 723 launcher must stay in lockstep with the project's metadata.
 
 ``bin/run_mcp.py`` declares its own dependencies inline so a harness can start
-the server with a throwaway uv (``npx -y @manzt/uv@… run --quiet …``) instead of
+the server with a throwaway uv (``npx -y @dataiku/uv@… run --quiet …``) instead of
 a pre-built environment. That duplicated dependency list silently rots when
 ``pyproject.toml`` changes, and the failure only surfaces at server startup on a
 user's machine — so pin it down here instead.

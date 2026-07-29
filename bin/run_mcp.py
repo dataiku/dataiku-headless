@@ -13,7 +13,7 @@ The inline script metadata above lets any uv build the runtime environment on
 the fly, so a harness can start the server without uv, Python, or the project
 dependencies being installed first:
 
-    npx -y @manzt/uv@0.8.13 run --quiet bin/run_mcp.py
+    npx -y @dataiku/uv@0.12.0 run --quiet bin/run_mcp.py
 
 The manifests do not call this file directly; they run ``bin/launcher.sh``,
 which reads the block above and provisions the runtime with whichever of uv, a

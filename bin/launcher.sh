@@ -11,7 +11,7 @@
 #   1. uv on PATH        — `uv run` resolves run_mcp.py's PEP 723 block itself.
 #   2. python3 >= the block's requires-python — hand off to launcher.py, which
 #      builds a venv under $CLAUDE_PLUGIN_DATA and pip-installs the same deps.
-#   3. npx               — borrow uv from npm without installing anything.
+#   3. npx or pnpx       — borrow uv from npm without installing anything.
 #
 # The first tier that works becomes the server process. If none do, we exit
 # non-zero telling the user to install uv.
@@ -23,7 +23,8 @@ set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SERVER="$HERE/run_mcp.py"
 PROVISION="$HERE/launcher.py"
-NPX_UV_PACKAGE="@manzt/uv@0.8.13"
+NPM_UV_PACKAGE="@dataiku/uv@0.12.0"
+NPM_RUNNERS="npx pnpx"
 
 # launcher.py's "I could not provision an environment" signal (EX_UNAVAILABLE),
 # distinct from any exit status the server itself would produce, so a crashing
@@ -91,16 +92,30 @@ for candidate in $candidates; do
     # This interpreter cannot host the server; try the next, then npx.
 done
 
-# --- Tier 3: npx-vendored uv --------------------------------------------------
-if command -v npx >/dev/null 2>&1; then
-    log "starting via npx $NPX_UV_PACKAGE"
-    exec npx -y "$NPX_UV_PACKAGE" run --quiet "$SERVER"
-fi
+# --- Tier 3: uv vendored through an npm runner --------------------------------
+# A runner on PATH is not enough — it also has to be able to fetch the package,
+# so probe with --help. That both proves the pair works and warms the download
+# the real invocation reuses. npx needs -y to install without prompting (it
+# fails outright when non-interactive); pnpx installs without asking.
+for runner in $NPM_RUNNERS; do
+    command -v "$runner" >/dev/null 2>&1 || continue
+    if [ "$runner" = npx ]; then
+        assume_yes="-y"
+    else
+        assume_yes=""
+    fi
+
+    if "$runner" $assume_yes "$NPM_UV_PACKAGE" --help >/dev/null 2>&1; then
+        log "starting via $runner $NPM_UV_PACKAGE"
+        exec "$runner" $assume_yes "$NPM_UV_PACKAGE" run --quiet "$SERVER"
+    fi
+    log "$runner cannot run $NPM_UV_PACKAGE"
+done
 
 # --- Nothing worked -----------------------------------------------------------
-log "could not start: no uv, no usable Python, and no npx on PATH."
+log "could not start: no uv, no usable Python, and no working npx or pnpx."
 log "Install uv — https://docs.astral.sh/uv/getting-started/installation/"
 log "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-log "Alternatively install Python >= $min_major.$min_minor (with the venv module)"
-log "or Node.js, which provides npx."
+log "Alternatively install Python >= $min_major.$min_minor (with the venv module),"
+log "or Node.js / pnpm, which provide npx and pnpx."
 exit 1
