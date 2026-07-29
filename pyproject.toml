@@ -27,8 +27,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dataiku/dku-headless"
-Repository = "https://github.com/dataiku/dku-headless"
+Homepage = "https://github.com/dataiku/dataiku-headless"
+Repository = "https://github.com/dataiku/dataiku-headless"
 
 [project.scripts]
 dataiku-mcp = "dataiku_mcp:run_server"
@@ -41,7 +41,7 @@ packages = ["dataiku_mcp", "cli"]
 include = [
     "dataiku_mcp",
     "cli",
-    "dataiku-skills",
+    "skills",
     "README.md",
     "pyproject.toml",
 ]
@@ -58,7 +58,6 @@ combine-as-imports = true
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
-    "dataiku-skills/migrations/gate/tests",
 ]
 addopts = "-ra"
 
@@ -72,7 +71,6 @@ major_version_zero = true
 version_files = [
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
-    ".cursor-plugin/plugin.json",
 ]
 
 [dependency-groups]

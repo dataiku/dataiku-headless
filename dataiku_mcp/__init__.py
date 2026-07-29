@@ -4,8 +4,8 @@ Exposes Dataiku DSS operations through FastMCP tools.
 """
 
 from pathlib import Path
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from fastmcp import FastMCP
 
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -19,14 +19,14 @@ from . import (  # noqa: E402
     config_mcp,
 )
 
-config.load_dss_instances()
+config.initialize_current_instance()
 
 # Import all modules to register tools and resources
 from .tools import (  # noqa: F401,E402
     agent_reviews,
     agents,
-    code_environments,
     cobuild,
+    code_environments,
     connections,
     cross_project_sharing,
     dashboards,
@@ -35,9 +35,11 @@ from .tools import (  # noqa: F401,E402
     datasets,
     evaluation_stores,
     flow,
+    groups,
     insights,
     instances,
     jobs,
+    licensing,
     llms_and_knowledge_banks,
     managed_folders,
     project_folders,
@@ -46,6 +48,7 @@ from .tools import (  # noqa: F401,E402
     recipes,
     scenarios,
     semantic_models,
+    users,
     webapps,
     wikis,
 )

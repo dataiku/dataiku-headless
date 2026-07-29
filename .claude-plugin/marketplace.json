@@ -3,13 +3,13 @@
   "owner": {
     "name": "Dataiku"
   },
-  "description": "Dataiku agent dev kit — inspect Dataiku projects and drive Cobuild for project-level building.",
+  "description": "Connect your agent to Dataiku DSS: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
   "plugins": [
     {
-      "name": "dataiku",
+      "name": "dataiku-headless",
       "source": "./",
-      "description": "Inspect Dataiku DSS projects through read-only MCP tools and drive Dataiku Cobuild for project-level building.",
-      "category": "data"
+      "description": "Connect your agent to Dataiku DSS: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
+      "category": "developer-tools"
     }
   ]
 }

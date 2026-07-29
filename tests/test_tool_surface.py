@@ -56,6 +56,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "datasets": frozenset(
         {
             "create_upload_dataset",
+            "export_dataset",
             "get_dataset_column_descriptions",
             "get_dataset_info",
             "get_dataset_metrics",
@@ -74,19 +75,31 @@ EXPECTED_TOOLS_BY_MODULE = {
             "list_flow_zones",
         }
     ),
+    "groups": frozenset(
+        {"create_group", "delete_group", "list_groups", "update_group"}
+    ),
     "insights": frozenset({"get_insight_settings", "list_insights"}),
     "instances": frozenset(
-        {"get_current_instance", "list_instances", "switch_instance"}
+        {
+            "configure_instance",
+            "delete_instance",
+            "get_current_instance",
+            "list_instances",
+            "switch_instance",
+        }
     ),
     "jobs": frozenset(
         {
+            "build_datasets",
             "get_future_status",
             "get_job_log",
             "get_job_status",
             "list_jobs",
+            "run_recipe",
             "wait_for_job",
         }
     ),
+    "licensing": frozenset({"get_licensing_status"}),
     "llms_and_knowledge_banks": frozenset(
         {
             "get_knowledge_bank_settings",
@@ -158,11 +171,13 @@ EXPECTED_TOOLS_BY_MODULE = {
             "get_scenario_settings",
             "list_messaging_channels",
             "list_scenarios",
+            "run_scenario",
         }
     ),
     "semantic_models": frozenset(
         {"get_semantic_model_version_settings", "list_semantic_models"}
     ),
+    "users": frozenset({"create_user", "delete_user", "list_users", "update_user"}),
     "webapps": frozenset({"get_webapp_settings", "get_webapp_state", "list_webapps"}),
     "wikis": frozenset({"get_wiki_article", "list_wiki_articles"}),
 }
