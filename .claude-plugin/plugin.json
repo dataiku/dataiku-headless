@@ -14,14 +14,8 @@
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@manzt/uv@0.8.13",
-        "run",
-        "--quiet",
-        "${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.py"
-      ],
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/launcher.sh"],
       "env": {
         "UV_CACHE_DIR": "${CLAUDE_PLUGIN_DATA}/uv-cache",
         "DKU_INSTANCE_NAME": "${DKU_INSTANCE_NAME:-}",

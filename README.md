@@ -216,7 +216,9 @@ dataiku-headless
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── bin/
-│   └── run_mcp.py              # Sole launcher: PEP 723 script pinning the runtime deps inline
+│   ├── launcher.sh             # What the manifests run: picks uv → python venv → npx uv, then execs the server
+│   ├── launcher.py             # Tier 2 of the above: pip-installs the deps into a venv
+│   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")

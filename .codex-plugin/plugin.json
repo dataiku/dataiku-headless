@@ -14,8 +14,8 @@
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@manzt/uv@0.8.13", "run", "--quiet", "./bin/run_mcp.py"],
+      "command": "sh",
+      "args": ["./bin/launcher.sh"],
       "cwd": ".",
       "env": {
         "DKU_MCP_TRANSPORT": "stdio"
