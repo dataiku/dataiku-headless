@@ -56,6 +56,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "datasets": frozenset(
         {
             "create_upload_dataset",
+            "export_dataset",
             "get_dataset_column_descriptions",
             "get_dataset_info",
             "get_dataset_metrics",
