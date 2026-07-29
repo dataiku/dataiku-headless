@@ -9,8 +9,8 @@
 # Three tiers, in descending order of preference:
 #
 #   1. uv on PATH        — `uv run` resolves run_mcp.py's PEP 723 block itself.
-#   2. python3 >= the block's requires-python — hand off to launcher.py, which
-#      builds a venv under $CLAUDE_PLUGIN_DATA and pip-installs the same deps.
+#   2. python3 >= the block's requires-python — build a venv under
+#      $CLAUDE_PLUGIN_DATA and pip-install the same dependencies into it.
 #   3. npx or pnpx       — borrow uv from npm without installing anything.
 #
 # The first tier that works becomes the server process. If none do, we exit
@@ -20,16 +20,19 @@
 
 set -eu
 
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 SERVER="$HERE/run_mcp.py"
-PROVISION="$HERE/launcher.py"
 NPM_UV_PACKAGE="@dataiku/uv@0.12.0"
 NPM_RUNNERS="npx pnpx"
 
-# launcher.py's "I could not provision an environment" signal (EX_UNAVAILABLE),
-# distinct from any exit status the server itself would produce, so a crashing
-# server is never mistaken for a missing runtime and restarted on another tier.
-PROVISION_UNAVAILABLE=69
+# CLAUDE_PLUGIN_DATA is the harness-provided directory that survives plugin
+# updates — the documented home for exactly this kind of generated venv. Outside
+# a plugin install it falls back to a dot-dir beside the checkout.
+PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(CDPATH='' cd -- "$HERE/.." && pwd)}
+DATA_DIR=${CLAUDE_PLUGIN_DATA:-$PLUGIN_ROOT/.deps}
+VENV_DIR="$DATA_DIR/venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
+VENV_MARKER="$VENV_DIR/.installed"
 
 log() {
     printf '[dataiku-headless] %s\n' "$*" >&2
@@ -41,6 +44,39 @@ read_min_python() {
     sed -n \
         's/^#[[:space:]]*requires-python[[:space:]]*=[[:space:]]*">=[[:space:]]*\([0-9]\{1,\}\)\.\([0-9]\{1,\}\)".*/\1 \2/p' \
         "$SERVER" | head -n 1
+}
+
+# The pinned requirement specifiers from the same block, whitespace separated.
+read_dependencies() {
+    sed -n '/^# \/\/\/ script$/,/^# \/\/\/$/p' "$SERVER" |
+        sed -n '/dependencies/,/]/p' |
+        grep -o '"[^"]*"' | tr -d '"'
+}
+
+# Build a venv at $VENV_DIR using $1 and install the pinned dependencies into it.
+# Returns non-zero when this interpreter cannot host the server — no venv module,
+# no ensurepip, an unwritable data directory — so the caller can try another.
+# Both commands send stdout to stderr: nothing may reach the JSON-RPC stream.
+provision_venv() {
+    if [ ! -x "$VENV_PYTHON" ]; then
+        log "uv not found — creating a virtual environment (first run only)"
+        mkdir -p "$DATA_DIR" >&2 || return 1
+        "$1" -m venv "$VENV_DIR" >&2 || return 1
+    fi
+
+    dependencies=$(read_dependencies || true)
+    if [ -z "$dependencies" ]; then
+        log "no dependencies found in $SERVER"
+        return 1
+    fi
+
+    if [ ! -f "$VENV_MARKER" ] || [ "$(cat "$VENV_MARKER")" != "$dependencies" ]; then
+        log "installing dependencies with pip"
+        # Unquoted on purpose: one word per specifier. Pins never contain spaces.
+        # shellcheck disable=SC2086
+        "$VENV_PYTHON" -m pip install --quiet $dependencies >&2 || return 1
+        printf '%s\n' "$dependencies" >"$VENV_MARKER" || return 1
+    fi
 }
 
 # --- Tier 1: uv ---------------------------------------------------------------
@@ -82,14 +118,11 @@ for candidate in $candidates; do
         "import sys; sys.exit(sys.version_info < ($min_major, $min_minor))" \
         >/dev/null 2>&1 || continue
 
-    status=0
-    "$resolved" "$PROVISION" || status=$?
-    if [ "$status" -ne "$PROVISION_UNAVAILABLE" ]; then
-        # Either the server ran (and this is its exit status) or it failed for a
-        # reason another runtime would not fix. Either way, do not retry.
-        exit "$status"
+    if provision_venv "$resolved"; then
+        log "starting via python venv"
+        exec "$VENV_PYTHON" "$SERVER"
     fi
-    # This interpreter cannot host the server; try the next, then npx.
+    # This interpreter cannot host the server; try the next, then an npm runner.
 done
 
 # --- Tier 3: uv vendored through an npm runner --------------------------------
