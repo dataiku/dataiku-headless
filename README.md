@@ -47,6 +47,8 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
+`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Both paths need [uv](https://docs.astral.sh/uv/) on your `PATH` — the launcher (`bin/run_mcp.sh`) uses it to create the virtualenv and sync dependencies on first run.
+
 ### Claude Code CLI
 
 ```bash
@@ -82,13 +84,13 @@ cortex plugin install dataiku/dataiku-headless
 ### Other AI Assistants
 
 #### MCP
-Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it:
+Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it from a checkout of this repo:
 ```json
 {
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uvx", "dataiku-headless", "serve"],
+      "command": ["bash", "./bin/run_mcp.sh"],
       "enabled": true
     }
   }
@@ -148,14 +150,18 @@ Auth resolution order:
 
 ## Run
 
-Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly:
+Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-#TODO: remove the test.pypi index once published to pypi.org
-uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
-dataiku-headless serve
+./bin/run_mcp.sh
+```
+
+`uv` creates the virtualenv and syncs dependencies from `uv.lock` on first launch. To use the CLI entrypoints inside that environment:
+
+```bash
+uv run dataiku-headless serve
 # or simply:
-dataiku-headless
+uv run dataiku-headless
 ```
 
 ## Project Structure
@@ -220,6 +226,8 @@ dataiku-headless
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex manifest with skills, stdio MCP, and env_vars passthrough
+├── bin/
+│   └── run_mcp.sh              # MCP server launcher (uv run python -m dataiku_mcp from the checkout)
 ├── .mcp.json                   # Shared MCP config (bash ./bin/run_mcp.sh) for contributor dogfooding
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
@@ -227,7 +235,7 @@ dataiku-headless
 
 ## Contributing
 
-See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist.
+See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist, and `RELEASE.md` for how versions and releases are cut.
 
 ## License
 

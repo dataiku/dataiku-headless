@@ -1,31 +1,34 @@
 name: Bump version
 
-# Commitizen drives versioning. On every push to main it reads the conventional
+# Commitizen owns versioning. On every push to main it reads the conventional
 # commits since the last tag, bumps [project].version (and the plugin manifests
 # in [tool.commitizen].version_files), updates CHANGELOG.md, commits the change,
-# and creates the vX.Y.Z tag. That tag then triggers release.yml, which builds
-# and publishes to PyPI. Pushes with no releasable commits (docs/chore/ci/...)
-# are a no-op — see no_raise below.
+# and creates the vX.Y.Z tag. This workflow then publishes a GitHub release for
+# that tag, using the CHANGELOG section commitizen just wrote as the notes.
+# Pushes with no releasable commits (docs/chore/ci/...) are a no-op — see
+# no_raise below.
 #
-# Pre-releases are NOT cut here (a stable bump is derived from commits); tag a
-# vX.Y.Z.preN pre-release by hand to drive pre-release.yml.
+# Nothing is published to a package index. This project is consumed as a harness
+# plugin or a git checkout, so a "release" here is exactly three things: the
+# vX.Y.Z tag, the CHANGELOG entry, and the GitHub release. The version still
+# matters because the plugin manifests carry it — that is how a harness notices
+# there is a newer version of the plugin to install.
 #
-# Requires a RELEASE_PAT secret: a personal access token (or GitHub App token)
-# with contents:write. The default GITHUB_TOKEN cannot be used here — refs it
-# pushes do NOT start new workflow runs, so release.yml would never fire.
+# The default GITHUB_TOKEN is sufficient. This used to require a RELEASE_PAT
+# because refs pushed with GITHUB_TOKEN do not start new workflow runs, and the
+# tag had to trigger a separate publish workflow. There is no downstream
+# workflow to trigger anymore, so the PAT — and its expiry — is gone.
 #
 # TEMPORARY: bumping is blocked while the PR backlog is cleaned up. The job is
 # gated on the repository variable RELEASE_ENABLED being 'true' (Settings >
-# Secrets and variables > Actions > Variables), the same variable that gates
-# release.yml and pre-release.yml. Unlike those two — which fail a `gate` job so
-# a blocked release is loud — this one is a job-level `if`, so it *skips*: this
-# workflow fires on every push to main, and failing each one would put a red X
-# on every merge during exactly the cleanup it's meant to stay out of the way of.
-# No bump means no tag, so nothing reaches release.yml either.
+# Secrets and variables > Actions > Variables). It is a job-level `if`, so it
+# *skips* rather than fails: this workflow fires on every push to main, and
+# failing each one would put a red X on every merge during exactly the cleanup
+# it is meant to stay out of the way of.
 #
 # TODO: once the open PR backlog is merged or closed and main is known good,
-# drop the RELEASE_ENABLED clause from the `if` below (leaving the `bump:`
-# loop guard), un-gate release.yml and pre-release.yml, and delete the variable.
+# drop the RELEASE_ENABLED clause from the `if` below (leaving the `bump:` loop
+# guard) and delete the repository variable.
 
 on:
   push:
@@ -41,21 +44,54 @@ permissions:
 
 jobs:
   bump:
-    name: Bump version and tag
+    name: Bump version, tag and release
     runs-on: ubuntu-latest
-    # Skip unless releases are enabled (see TEMPORARY note above), and never
-    # re-run on the "bump: ..." commit commitizen just pushed, or it loops.
+    # Skip unless versioning is enabled (see TEMPORARY note above), and never
+    # re-run on the "bump: ..." commit commitizen just pushed. GITHUB_TOKEN
+    # pushes cannot retrigger this workflow, so the second clause is belt and
+    # braces — it keeps the loop closed if the token is ever swapped for a PAT.
     if: ${{ vars.RELEASE_ENABLED == 'true' && !startsWith(github.event.head_commit.message, 'bump:') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history and tags: commitizen derives the next version by
+          # diffing against the last tag.
           fetch-depth: 0
-          # PAT so the commit + tag push triggers release.yml (see header).
-          token: ${{ secrets.RELEASE_PAT }}
+      - id: before
+        name: Record current tag
+        run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
       - name: Bump version, changelog and tag
         uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
         with:
-          github_token: ${{ secrets.RELEASE_PAT }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           # 3 = no commits found, 21 = nothing to bump: treat both as a no-op
           # rather than a failed run.
           no_raise: "3,21"
+      - id: after
+        name: Detect whether a bump happened
+        env:
+          PREVIOUS_TAG: ${{ steps.before.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -n "$tag" ] && [ "$tag" != "$PREVIOUS_TAG" ]; then
+            echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+            echo "Bumped ${PREVIOUS_TAG:-<no tag>} -> ${tag}"
+          else
+            echo "No releasable commits - nothing to tag or release."
+          fi
+      - name: Create GitHub release
+        if: steps.after.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.after.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping."
+            exit 0
+          fi
+          # The newest CHANGELOG section (first "## " heading up to the next
+          # one) is the release notes for the version just cut.
+          awk '/^## /{n++} n==1' CHANGELOG.md > "${RUNNER_TEMP}/notes.md"
+          gh release create "$TAG" --title "$TAG" --notes-file "${RUNNER_TEMP}/notes.md"
