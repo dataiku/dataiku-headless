@@ -320,7 +320,7 @@ def test_confirmation_request_does_not_depend_on_an_sdk_confirmation_id(environm
 def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkeypatch):
     client, _ = environment
     client.conversation.release = threading.Event()
-    monkeypatch.setattr(cobuild, "INLINE_WAIT_SECONDS", 0)
+    monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 0)
 
     async def scenario():
         await start()
@@ -355,12 +355,12 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
 def test_turn_status_waits_for_and_returns_the_terminal_result(environment, monkeypatch):
     client, _ = environment
     client.conversation.release = threading.Event()
-    monkeypatch.setattr(cobuild, "INLINE_WAIT_SECONDS", 0)
+    monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 0)
 
     async def scenario():
         await start()
         pending = await send()
-        monkeypatch.setattr(cobuild, "INLINE_WAIT_SECONDS", 1)
+        monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 1)
         waiter = asyncio.create_task(poll(pending["turn_id"]))
         await asyncio.sleep(0.01)
         assert not waiter.done()
@@ -405,7 +405,7 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
         "get_dss_client",
         lambda: clients[0] if "conversation-1" not in cobuild._conversations else clients[1],
     )
-    monkeypatch.setattr(cobuild, "INLINE_WAIT_SECONDS", 0)
+    monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 0)
 
     async def scenario():
         release_queue = asyncio.Event()

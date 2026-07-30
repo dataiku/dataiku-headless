@@ -16,7 +16,7 @@ from .utils.auth import get_current_instance_for_tool, get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
-INLINE_WAIT_SECONDS = 240
+TURN_WAIT_TIMEOUT_SECONDS = 240
 
 
 @dataclass
@@ -200,7 +200,7 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
 async def _wait_for_turn(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
     try:
         result = await asyncio.wait_for(
-            asyncio.shield(turn.task), timeout=INLINE_WAIT_SECONDS
+            asyncio.shield(turn.task), timeout=TURN_WAIT_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
         return _pending_turn_result(conversation_id, entry, turn)
