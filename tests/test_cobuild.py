@@ -7,8 +7,6 @@ import threading
 from types import SimpleNamespace
 
 import pytest
-from dataikuapi.dss.cobuild import DSSCobuildConversation
-
 from dataiku_mcp.tools import cobuild
 
 
@@ -18,22 +16,23 @@ class Context:
 
 
 class Response:
-    def __init__(self, message="ok", confirmation_id=None):
+    def __init__(self, message="ok", is_confirmation_request=False):
         self.message = message
         self.type = (
-            "delete_confirmation_request" if confirmation_id else "assistant_message"
+            "delete_confirmation_request"
+            if is_confirmation_request
+            else "assistant_message"
         )
         self.is_error = False
-        self.is_confirmation_request = confirmation_id is not None
-        self.objects_to_delete = [{"id": "dataset"}] if confirmation_id else None
+        self.is_confirmation_request = is_confirmation_request
+        self.objects_to_delete = [{"id": "dataset"}] if is_confirmation_request else None
         self.deletion_impacts = None
-        self.confirmation_id = confirmation_id
 
 
 class Conversation:
     def __init__(self, conversation_id="conversation-1"):
         self.conversation_id = conversation_id
-        self._pending_confirmation_id = None
+        self.pending_confirmation = False
         self.send_calls = []
         self.answer_calls = []
         self.next_send = Response()
@@ -49,15 +48,14 @@ class Conversation:
             self.release.wait(timeout=5)
         if self.error:
             raise self.error
-        self._pending_confirmation_id = self.next_send.confirmation_id
+        self.pending_confirmation = self.next_send.is_confirmation_request
         return self.next_send
 
     def answer_confirmation(self, choice):
-        confirmation_id = self._pending_confirmation_id
-        if confirmation_id is None:
+        if not self.pending_confirmation:
             raise ValueError("No pending confirmation")
-        self._pending_confirmation_id = self.next_answer.confirmation_id
-        self.answer_calls.append((choice, confirmation_id))
+        self.pending_confirmation = self.next_answer.is_confirmation_request
+        self.answer_calls.append(choice)
         return self.next_answer
 
 
@@ -103,10 +101,10 @@ async def send(conversation_id="conversation-1", **kwargs):
     )
 
 
-async def answer(confirmation_id, choice="APPROVE"):
+async def answer(turn_id, choice="APPROVE"):
     return json.loads(
         await cobuild.answer_cobuild_confirmation(
-            "conversation-1", "PROJECT", confirmation_id, choice, Context()
+            "conversation-1", "PROJECT", turn_id, choice, Context()
         )
     )
 
@@ -149,33 +147,36 @@ def test_edits_are_opt_in_and_tool_schema_matches(environment):
     assert client.conversation.send_calls == [("do work", False), ("do work", True)]
 
 
-def test_confirmation_uses_the_exact_current_sdk_id(environment):
+def test_confirmation_uses_the_exact_current_turn(environment):
     client, _ = environment
-    client.conversation.next_send = Response("delete?", "proposal-a")
-    client.conversation.next_answer = Response("delete next?", "proposal-b")
+    client.conversation.next_send = Response("delete?", is_confirmation_request=True)
+    client.conversation.next_answer = Response(
+        "delete next?", is_confirmation_request=True
+    )
 
     async def scenario():
         await start()
         proposal = await send(allow_edit_project=True)
-        assert proposal["confirmation_id"] == "proposal-a"
-        with pytest.raises(ValueError, match="does not match"):
+        assert proposal["is_confirmation_request"]
+        assert "confirmation_id" not in proposal
+        tool = await cobuild.mcp.get_tool("answer_cobuild_confirmation")
+        assert "turn_id" in tool.parameters["properties"]
+        assert "confirmation_id" not in tool.parameters["properties"]
+        with pytest.raises(ValueError, match="not the current turn_id"):
             await answer("wrong")
-        successor = await answer("proposal-a")
-        assert successor["confirmation_id"] == "proposal-b"
-        with pytest.raises(ValueError, match="does not match"):
-            await answer("proposal-a")
-        await answer("proposal-b", "CANCEL")
+        successor = await answer(proposal["turn_id"])
+        assert successor["is_confirmation_request"]
+        with pytest.raises(ValueError, match="not the current turn_id"):
+            await answer(proposal["turn_id"])
+        await answer(successor["turn_id"], "CANCEL")
 
     run(scenario())
-    assert client.conversation.answer_calls == [
-        ("APPROVE", "proposal-a"),
-        ("CANCEL", "proposal-b"),
-    ]
+    assert client.conversation.answer_calls == ["APPROVE", "CANCEL"]
 
 
 def test_pending_confirmation_blocks_new_messages(environment):
     client, _ = environment
-    client.conversation.next_send = Response("delete?", "proposal-a")
+    client.conversation.next_send = Response("delete?", is_confirmation_request=True)
 
     async def scenario():
         await start()
@@ -187,7 +188,7 @@ def test_pending_confirmation_blocks_new_messages(environment):
     assert len(client.conversation.send_calls) == 1
 
 
-def test_confirmation_without_id_is_a_terminal_failed_result(environment):
+def test_confirmation_request_does_not_depend_on_an_sdk_confirmation_id(environment):
     client, _ = environment
     response = Response("delete?")
     response.type = "delete_confirmation_request"
@@ -198,9 +199,9 @@ def test_confirmation_without_id_is_a_terminal_failed_result(environment):
     async def scenario():
         await start()
         result = await send(allow_edit_project=True)
-        assert result["status"] == "failed"
-        assert result["error_type"] == "missing_confirmation_id"
-        assert "cannot be safely approved" in result["message"]
+        assert result["status"] == "completed"
+        assert result["is_confirmation_request"]
+        await answer(result["turn_id"], "CANCEL")
 
     run(scenario())
 
@@ -230,7 +231,7 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
         replacement = await send()
         assert replacement["status"] in {"queued", "in_progress"}
         assert (await wait_for_terminal(replacement["turn_id"]))["status"] == "completed"
-        with pytest.raises(ValueError, match="Unknown current"):
+        with pytest.raises(ValueError, match="not the current turn_id"):
             await poll(first["turn_id"])
 
     run(scenario())
@@ -334,15 +335,3 @@ def test_ownership_and_sdk_contract(environment):
             await send()
 
     run(scenario())
-
-    class SDKClient:
-        def _perform_json(self, *_args, **_kwargs):
-            return {
-                "type": "delete_confirmation_request",
-                "message": "confirm",
-                "confirmationId": "proposal-a",
-            }
-
-    sdk_conversation = DSSCobuildConversation(SDKClient(), "PROJECT", "id")
-    sdk_conversation.send_message("delete")
-    assert cobuild._pending_confirmation_id(sdk_conversation) == "proposal-a"

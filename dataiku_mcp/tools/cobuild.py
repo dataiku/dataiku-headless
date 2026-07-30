@@ -59,11 +59,6 @@ def _entry(conversation_id: str, project_key: str) -> _Conversation:
     return entry
 
 
-def _pending_confirmation_id(conversation: object) -> str | None:
-    """Read the SDK-private ID in one place."""
-    return conversation._pending_confirmation_id
-
-
 def _turn_result(
     conversation_id: str, entry: _Conversation, turn: _Turn, response
 ) -> dict:
@@ -86,28 +81,9 @@ def _turn_result(
         "objects_to_delete": getattr(response, "objects_to_delete", None),
         "deletion_impacts": getattr(response, "deletion_impacts", None),
     }
-    if confirmation_requested:
-        confirmation_id = _pending_confirmation_id(entry.sdk_conversation)
-        if not confirmation_id:
-            result.update(
-                {
-                    "status": "failed",
-                    "error_type": "missing_confirmation_id",
-                    "message": (
-                        "Cobuild requested confirmation without a confirmation ID; "
-                        "the proposal cannot be safely approved or cancelled."
-                    ),
-                }
-            )
-        else:
-            result["confirmation_id"] = confirmation_id
-    elif is_error:
+    if is_error:
         result["error_type"] = "cobuild_response"
     return omit_empty(result)
-
-
-def _result(turn: _Turn) -> dict:
-    return turn.task.result()
 
 
 def _in_progress(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
@@ -230,9 +206,11 @@ async def send_cobuild_message(
     entry = _entry(conversation_id, project_key)
 
     def check():
-        if _pending_confirmation_id(entry.sdk_conversation) is not None:
+        current_turn = entry.turn
+        if current_turn and current_turn.task.result()["is_confirmation_request"]:
             raise ValueError(
-                "This conversation has a pending confirmation. Answer it before sending another message."
+                f"Cobuild conversation '{conversation_id}' has a pending confirmation request with {current_turn.id}. "
+                "Run get_cobuild_turn_status() to review the pending confirmation, followed by answer_cobuild_confirmation()."
             )
 
     def call():
@@ -248,14 +226,14 @@ async def send_cobuild_message(
 async def answer_cobuild_confirmation(
     conversation_id: str,
     project_key: str,
-    confirmation_id: str,
+    turn_id: str,
     choice: str,
     ctx: Context,
 ) -> str:
-    """Answer the exact current Cobuild confirmation proposal."""
+    """Answer the confirmation request issued by the exact current Cobuild turn."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
-    confirmation_id = _require_non_empty_string(confirmation_id, "confirmation_id")
+    turn_id = _require_non_empty_string(turn_id, "turn_id")
     choice = _require_non_empty_string(choice, "choice")
     if choice not in {"APPROVE", "CANCEL"}:
         raise ValueError("choice must be 'APPROVE' or 'CANCEL'")
@@ -265,12 +243,14 @@ async def answer_cobuild_confirmation(
     entry = _entry(conversation_id, project_key)
 
     def check():
-        pending_id = _pending_confirmation_id(entry.sdk_conversation)
-        if pending_id is None:
-            raise ValueError("This conversation has no pending confirmation.")
-        if pending_id != confirmation_id:
+        current_turn = entry.turn
+        if current_turn is None or current_turn.id != turn_id:
             raise ValueError(
-                "confirmation_id does not match the currently pending proposal."
+                f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation '{conversation_id}'."
+            )
+        if not current_turn.task.result()["is_confirmation_request"]:
+            raise ValueError(
+                f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not request a confirmation."
             )
 
     turn = _start_turn(
@@ -294,7 +274,7 @@ async def get_cobuild_turn_status(
     turn = entry.turn
     if turn is None or turn.id != turn_id:
         raise ValueError(
-            f"Unknown current Cobuild turn_id '{turn_id}' for conversation '{conversation_id}'."
+            f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation '{conversation_id}'."
         )
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
@@ -314,7 +294,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
             "current_turn_status": (
                 None
                 if entry.turn is None
-                else _result(entry.turn)["status"]
+                else entry.turn.task.result()["status"]
                 if entry.turn.task.done()
                 else "in_progress"
                 if entry.turn.started.is_set()
