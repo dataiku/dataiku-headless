@@ -13,12 +13,16 @@ artifacts:
 | Artifact | Why it exists |
 | --- | --- |
 | `vX.Y.Z` git tag | Fixed point to check out, diff against, and report bugs against |
+| `dataiku-headless--vX.Y.Z` git tag | The plugin release, in the form `claude plugin tag` produces — the commit a harness resolves a plugin install to |
 | `CHANGELOG.md` entry | Human-readable history, generated from commit types |
 | GitHub release | The published, browsable release notes |
 
 The version number still matters even without an index: Commitizen keeps it in
 lockstep across `pyproject.toml` and the three plugin manifests, and the manifest
-version is how a harness notices there's a newer plugin to install.
+version is how a harness notices there's a newer plugin to install. `bump.yml`
+verifies that lockstep held before it tags anything — a `version_files` entry
+whose version string stops matching is skipped *silently* by Commitizen, which
+would otherwise ship a release whose manifests still advertise the old version.
 
 ---
 
@@ -33,6 +37,8 @@ version is how a harness notices there's a newer plugin to install.
     • updates [project].version + the plugin manifests (version_files)
     • updates CHANGELOG.md, commits "bump: X → Y"
     • creates and pushes tag  vX.Y.Z
+    • verifies the plugin manifests carry the new version
+    • creates and pushes tag  dataiku-headless--vX.Y.Z
     • creates the GitHub release, notes = the new CHANGELOG section
 ```
 
@@ -44,7 +50,7 @@ PR and is the gate before anything merges to `main`.
 | File | Trigger | Does |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | push / PR to `main` | Pre-commit hooks + pytest matrix (3.10–3.14) |
-| `.github/workflows/bump.yml` | push to `main`, manual dispatch | Commitizen bump + changelog + `vX.Y.Z` tag + GitHub release |
+| `.github/workflows/bump.yml` | push to `main`, manual dispatch | Commitizen bump + changelog + `vX.Y.Z` and `dataiku-headless--vX.Y.Z` tags + GitHub release |
 
 ---
 

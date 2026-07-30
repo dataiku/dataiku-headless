@@ -47,7 +47,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
-`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Both paths need [uv](https://docs.astral.sh/uv/) on your `PATH` — the launcher (`bin/run_mcp.sh`) uses it to create the virtualenv and sync dependencies on first run.
+`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Either way the harness runs `bin/launcher.sh`, which provisions the runtime with whatever the host already has: [uv](https://docs.astral.sh/uv/) if it's on your `PATH`, otherwise a `pip` virtualenv built by any Python 3.10+, otherwise `uv` borrowed through `npx`/`pnpx`. Nothing needs to be installed up front, and only one of those three has to be present.
 
 ### Claude Code CLI
 
@@ -90,7 +90,7 @@ Add the following to your `.mcp.json` to enable the Dataiku MCP server for any a
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["bash", "./bin/run_mcp.sh"],
+      "command": ["sh", "./bin/launcher.sh"],
       "enabled": true
     }
   }
@@ -153,10 +153,11 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-./bin/run_mcp.sh
+sh ./bin/launcher.sh              # same three-tier bootstrap the harness uses
+uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
 ```
 
-`uv` creates the virtualenv and syncs dependencies from `uv.lock` on first launch. To use the CLI entrypoints inside that environment:
+The launcher's environment is built from the pinned dependencies in `bin/run_mcp.py`'s PEP 723 block, not from `uv.lock`. For the CLI entrypoints, use the project environment instead:
 
 ```bash
 uv run dataiku-headless serve
@@ -221,14 +222,15 @@ uv run dataiku-headless
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
+├── bin/
+│   ├── launcher.sh             # What the manifests run: picks uv → python venv → npx/pnpx uv, then execs the server
+│   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex manifest with skills, stdio MCP, and env_vars passthrough
-├── bin/
-│   └── run_mcp.sh              # MCP server launcher (uv run python -m dataiku_mcp from the checkout)
-├── .mcp.json                   # Shared MCP config (bash ./bin/run_mcp.sh) for contributor dogfooding
+├── .mcp.json                   # Shared MCP config (sh ./bin/launcher.sh) for contributor dogfooding
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```

@@ -14,6 +14,13 @@ name: Bump version
 # matters because the plugin manifests carry it — that is how a harness notices
 # there is a newer version of the plugin to install.
 #
+# A second tag rides along for the plugin itself:
+#   vX.Y.Z                     — commitizen's, the release this workflow publishes
+#   dataiku-headless--vX.Y.Z   — the plugin release, matching the tag
+#                                `claude plugin tag` produces
+# Since the manifests' "version" field is the thing a harness compares, the steps
+# below refuse to tag or announce a version whose manifests did not actually move.
+#
 # The default GITHUB_TOKEN is sufficient. This used to require a RELEASE_PAT
 # because refs pushed with GITHUB_TOKEN do not start new workflow runs, and the
 # tag had to trigger a separate publish workflow. There is no downstream
@@ -80,6 +87,64 @@ jobs:
           else
             echo "No releasable commits - nothing to tag or release."
           fi
+
+      # commitizen rewrites the manifests through [tool.commitizen].version_files,
+      # but a version_files entry whose version string no longer matches is
+      # skipped *silently* — the run stays green while the plugin manifests keep
+      # advertising the old version, which is exactly the field harnesses use to
+      # decide whether users get an update. Fail loudly instead.
+      - name: Verify plugin manifests carry the bumped version
+        id: version
+        run: |
+          set -euo pipefail
+          project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          claude=$(jq -r '.version' .claude-plugin/plugin.json)
+          codex=$(jq -r '.version' .codex-plugin/plugin.json)
+
+          for pair in "claude:${claude}" "codex:${codex}"; do
+            name=${pair%%:*}
+            found=${pair#*:}
+            if [ "${found}" != "${project}" ]; then
+              echo "::error::${name} manifest is at ${found}, expected ${project}." \
+                   "Check that its version string is still matched by" \
+                   "[tool.commitizen].version_files in pyproject.toml."
+              exit 1
+            fi
+          done
+
+          # The marketplace entry may restate the version; when it does, it wins
+          # over plugin.json for users installing from the catalog, so the two
+          # must agree. Absent is fine — plugin.json is then the only source.
+          entry=$(jq -r '.plugins[] | select(.name == "dataiku-headless") | .version // empty' \
+            .claude-plugin/marketplace.json)
+          if [ -n "${entry}" ] && [ "${entry}" != "${project}" ]; then
+            echo "::error::marketplace.json pins dataiku-headless at ${entry}, expected ${project}."
+            exit 1
+          fi
+
+          echo "version=${project}" >> "${GITHUB_OUTPUT}"
+
+      # Plugin release tag, in the form `claude plugin tag` produces. Separate
+      # from commitizen's vX.Y.Z: it marks the commit a harness resolves a plugin
+      # install to. Derived from the tag commitizen actually created, so the two
+      # can never name different versions.
+      - name: Tag the plugin release
+        if: steps.after.outputs.tag != ''
+        env:
+          TAG: ${{ steps.after.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="dataiku-headless--${TAG}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "${tag} already exists; nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${tag}" -m "dataiku-headless ${TAG#v}"
+          git push origin "refs/tags/${tag}"
+
       - name: Create GitHub release
         if: steps.after.outputs.tag != ''
         env:
