@@ -27,7 +27,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 ## Workflow
 
 1. Use `list_recipes` to discover recipes, then use `get_recipe_settings` to inspect a selected recipe's type, inputs, outputs, and configuration.
-2. Use `get_flow_items_in_traversal_order` only when upstream/downstream context, dependencies, or Flow placement matters.
+2. Use `get_flow_graph` when upstream/downstream context, dependencies, or Flow placement matters.
 3. Inspect input and output datasets when schema, data shape, storage, or sample values affect the transformation.
 4. Read the matching recipe-family reference before interpreting a type-specific configuration or describing a new recipe to Cobuild.
 5. Read supporting guides when the selected recipe depends on managed folders, models, LLMs, Knowledge Banks, agents, code environments, project libraries, or connections.
@@ -63,7 +63,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 
 ## Preferred Tools
 
-- `get_flow_items_in_traversal_order`
+- `get_flow_graph`
 - `list_recipes`
 - `get_recipe_settings`
 - `list_datasets`
@@ -76,5 +76,6 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 - Inspect an existing recipe before requesting a modification through Cobuild.
 - Preserve the surrounding Flow's storage and dependency context unless the user requests a change.
 - Treat a timed-out or interrupted build as potentially still running; inspect the job before retrying or changing related Flow objects.
+- `get_flow_graph` is the primary flow-orientation tool. It returns flow sources, nodes, and dependency edges. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
 - Use `./jobs.md` for direct execution of an existing recipe or its dataset outputs; this guide stays focused on inspection and grounded recipe planning.
 - Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not document direct recipe mutation workflows here.

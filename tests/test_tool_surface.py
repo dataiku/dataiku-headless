@@ -58,6 +58,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "datasets": frozenset(
         {
             "create_upload_dataset",
+            "export_dataset",
             "get_dataset_column_descriptions",
             "get_dataset_info",
             "get_dataset_metrics",
@@ -71,7 +72,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "flow": frozenset(
         {
-            "get_flow_items_in_traversal_order",
+            "get_flow_graph",
             "get_flow_object_metadata",
             "list_flow_zones",
         }

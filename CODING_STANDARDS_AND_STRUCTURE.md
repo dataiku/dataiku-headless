@@ -87,8 +87,28 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-./bin/run_mcp.sh
+sh ./bin/launcher.sh              # exactly what every manifest runs
+uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
 ```
+
+There are two files, and the split matters:
+
+- **`bin/run_mcp.py`** is the server entry point. It carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata — pinned dependencies and `requires-python` — so uv can build its runtime environment with no project install.
+- **`bin/launcher.sh`** is what every manifest (`.mcp.json`, `.claude-plugin`, `.codex-plugin`) actually runs, and the only launcher. It picks a runtime in three tiers and `exec`s the server on the first that works, or exits non-zero with install instructions:
+  1. `uv run`, if a `uv` on `PATH` answers `uv --version`.
+  2. A venv under `${CLAUDE_PLUGIN_DATA}` with the pinned dependencies pip-installed into it, built by the first interpreter that satisfies `requires-python`. Candidates are deduplicated by resolved path, so aliases of one broken interpreter are not retried a dozen times.
+  3. `@dataiku/uv@0.12.0` through `npx` or `pnpx`, probed with `--help` — a runner on `PATH` still has to be able to fetch the package.
+
+  It is shell rather than Python because a launcher cannot be written in the language it is searching for: `/bin/sh` exists on hosts that have no `python3` at all. Any tier that cannot provision falls through to the next, so a host with only Python, or only Node, still starts.
+
+Everything the launchers print goes to stderr, since stdout is the JSON-RPC stream. Both read the dependency list and the version floor out of `run_mcp.py`, so the inline block stays the only place versions change.
+
+When uv or the vendored uv provisions the environment, two things about it differ from `uv run <anything-else>`:
+
+- It resolves from the launcher's own inline metadata, **not** `uv.lock`. There is no script lockfile, so the `==` pins in that block are the only thing holding every install to one version — bump them deliberately. Transitive dependencies still float within the pinned packages' ranges.
+- It is an isolated, cached environment — not the project `.venv`. `dataiku_mcp` is imported from the working tree (the launcher puts the repo root on `sys.path`), so source edits take effect immediately, but a local edit to a *dependency* will not.
+
+The inline dependency list duplicates `[project].dependencies` minus the CLI-only ones; `tests/test_pep723_launcher.py` fails if the two drift apart.
 
 Inspect the MCP server interactively with MCP Inspector:
 
@@ -103,10 +123,10 @@ This repo uses [Commitizen](https://commitizen-tools.github.io/commitizen/) with
 ```bash
 uv run cz commit                               # guided, interactive commit
 uv run cz check --rev-range origin/main..HEAD  # validate your branch's messages
-uv run cz bump                                 # bump [project.version] + update CHANGELOG.md from history
+uv run cz bump --dry-run                       # preview the next version (writes nothing)
 ```
 
-`cz bump` derives the next version from the commit history and is configured (`[tool.commitizen]` in `pyproject.toml`) to read/write the version from `[project].version` and tag releases as `vX.Y.Z`.
+Commit *types* decide the version bump, so they are load-bearing: `feat:` cuts a minor, `fix:` a patch, and `docs:`/`chore:`/`ci:`/`refactor:`/`test:` cut nothing. You don't run `cz bump` yourself — `.github/workflows/bump.yml` does it on `main`, bumping `[project].version` (and the plugin manifests), updating `CHANGELOG.md`, tagging `vX.Y.Z`, and publishing the GitHub release. Nothing is published to PyPI. See `RELEASE.md` for the full picture.
 
 ## PR Checklist
 - [ ] Changes are limited to intended scope

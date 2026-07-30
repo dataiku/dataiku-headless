@@ -7,17 +7,17 @@
     "name": "Dataiku",
     "url": "https://www.dataiku.com/"
   },
-  "homepage": "https://github.com/dataiku/dku-headless",
-  "repository": "https://github.com/dataiku/dku-headless",
+  "homepage": "https://github.com/dataiku/dataiku-headless",
+  "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "dss", "cobuild"],
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
-      "command": "bash",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.sh"],
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/launcher.sh"],
       "env": {
-        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv",
+        "UV_CACHE_DIR": "${CLAUDE_PLUGIN_DATA}/uv-cache",
         "DKU_INSTANCE_NAME": "${DKU_INSTANCE_NAME:-}",
         "DKU_DSS_URL": "${DKU_DSS_URL:-}",
         "DKU_API_KEY": "${DKU_API_KEY:-}",

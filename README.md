@@ -47,48 +47,50 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
+`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Either way the harness runs `bin/launcher.sh`, which provisions the runtime with whatever the host already has: [uv](https://docs.astral.sh/uv/) if it's on your `PATH`, otherwise a `pip` virtualenv built by any Python 3.10+, otherwise `uv` borrowed through `npx`/`pnpx`. Nothing needs to be installed up front, and only one of those three has to be present.
+
 ### Claude Code CLI
 
 ```bash
-claude plugin marketplace add https://github.com/dataiku/dku-headless.git
+claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 claude plugin install dataiku-headless@dataiku
 ```
 
 ### Codex CLI
 
 ```bash
-codex plugin marketplace add https://github.com/dataiku/dku-headless.git
+codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 codex plugin add dataiku-headless@dataiku
 ```
 ### Grok CLI
 
 ```bash
-grok plugin install dataiku/dku-headless --trust
+grok plugin install dataiku/dataiku-headless --trust
 ```
 
 ### Cursor Agent CLI
 
 ```bash
-cursor agent plugin marketplace add github.com/dataiku/dku-headless
+cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 # Tip: use /plugins in interactive mode to install `dataiku-headless` plugin from this marketplace.
 ```
 
 ### Snowflake CoCo
 
 ```bash
-cortex plugin install dataiku/dku-headless
+cortex plugin install dataiku/dataiku-headless
 ```
 
 ### Other AI Assistants
 
 #### MCP
-Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it:
+Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it from a checkout of this repo:
 ```json
 {
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uvx", "dataiku-headless", "serve"],
+      "command": ["sh", "./bin/launcher.sh"],
       "enabled": true
     }
   }
@@ -101,7 +103,7 @@ The skills/*/SKILL.md files follow the universal skill format and work with any 
 
 Install the skill for your agent harness:
 ```bash
-npx skills add dataiku/dku-headless
+npx skills add dataiku/dataiku-headless
 ```
 
 
@@ -148,14 +150,19 @@ Auth resolution order:
 
 ## Run
 
-Every install path above has your harness launch the server itself via `uvx`. Run it standalone only if you're testing it directly:
+Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-#TODO: remove the test.pypi index once published to pypi.org
-uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple dataiku-headless
-dataiku-headless serve
+sh ./bin/launcher.sh              # same three-tier bootstrap the harness uses
+uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
+```
+
+The launcher's environment is built from the pinned dependencies in `bin/run_mcp.py`'s PEP 723 block, not from `uv.lock`. For the CLI entrypoints, use the project environment instead:
+
+```bash
+uv run dataiku-headless serve
 # or simply:
-dataiku-headless
+uv run dataiku-headless
 ```
 
 ## Project Structure
@@ -215,19 +222,22 @@ dataiku-headless
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
+├── bin/
+│   ├── launcher.sh             # What the manifests run: picks uv → python venv → npx/pnpx uv, then execs the server
+│   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex manifest with skills, stdio MCP, and env_vars passthrough
-├── .mcp.json                   # Shared MCP config (bash ./bin/run_mcp.sh) for contributor dogfooding
+├── .mcp.json                   # Shared MCP config (sh ./bin/launcher.sh) for contributor dogfooding
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
 
 ## Contributing
 
-See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist.
+See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist, and `RELEASE.md` for how versions and releases are cut.
 
 ## License
 
