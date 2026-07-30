@@ -1,101 +1,205 @@
-"""Cobuild conversation tools."""
+"""Process-local Cobuild conversations with safe retained turns."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+import asyncio
+import threading
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from fastmcp import Context
 
 from .. import mcp
-from .utils.async_executor import run_blocking
+from .utils.async_executor import run_blocking, run_cobuild_blocking
 from .utils.auth import get_current_instance_for_tool, get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.validation import (
-    require_non_empty_string as _require_non_empty_string,
-)
+from .utils.validation import require_non_empty_string as _require_non_empty_string
+
+INLINE_WAIT_SECONDS = 240
 
 
 @dataclass
-class _CobuildConversationEntry:
+class _Turn:
+    id: str
+    task: asyncio.Task[dict] | None = None
+    observed: bool = False
+    started: threading.Event = field(default_factory=threading.Event)
+
+
+@dataclass
+class _Conversation:
     instance_name: str
     project_key: str
-    conversation: object
+    sdk_conversation: object
     created_at: str
+    turn: _Turn | None = None
 
 
-_conversations: dict[str, _CobuildConversationEntry] = {}
+_conversations: dict[str, _Conversation] = {}
 
 
-def _get_conversation_entry(
-    conversation_id: str, project_key: str
-) -> _CobuildConversationEntry:
+def _entry(conversation_id: str, project_key: str) -> _Conversation:
     entry = _conversations.get(conversation_id)
     if entry is None:
         raise ValueError(
-            f"Unknown Cobuild conversation_id '{conversation_id}'. "
-            "Start a new conversation first."
+            f"Unknown Cobuild conversation_id '{conversation_id}'. Start a new conversation first."
         )
     if entry.project_key != project_key:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to project "
             f"'{entry.project_key}', not '{project_key}'."
         )
-
-    current_instance_name = get_current_instance_for_tool().name
-    if entry.instance_name != current_instance_name:
+    active_instance = get_current_instance_for_tool().name
+    if entry.instance_name != active_instance:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to instance "
-            f"'{entry.instance_name}', but the active instance is '{current_instance_name}'. "
-            "Switch back to the original instance before reusing this conversation."
+            f"'{entry.instance_name}', but the active instance is '{active_instance}'."
         )
     return entry
 
 
-def _serialize_response(
-    conversation_id: str,
-    entry: _CobuildConversationEntry,
-    response,
+def _pending_confirmation_id(conversation: object) -> str | None:
+    """Read the SDK-private ID in one place and fail closed if it disappears."""
+    if not hasattr(conversation, "_pending_confirmation_id"):
+        raise RuntimeError(
+            "The installed Dataiku SDK does not expose the pending Cobuild "
+            "confirmation ID required for safe confirmation handling."
+        )
+    value = getattr(conversation, "_pending_confirmation_id")
+    return (str(value).strip() or None) if value is not None else None
+
+
+def _turn_result(
+    conversation_id: str, entry: _Conversation, turn: _Turn, response
 ) -> dict:
-    return omit_empty(
-        {
-            "conversation_id": conversation_id,
-            "instance_name": entry.instance_name,
-            "project_key": entry.project_key,
-            "message": response.message,
-            "response_type": response.type,
-            "is_error": response.is_error,
-            "is_confirmation_request": response.is_confirmation_request,
-            "objects_to_delete": response.objects_to_delete,
-            "deletion_impacts": response.deletion_impacts,
-        }
+    response_type = str(getattr(response, "type", ""))
+    confirmation_requested = bool(
+        getattr(response, "is_confirmation_request", False)
+        or response_type == "delete_confirmation_request"
     )
+    is_error = bool(getattr(response, "is_error", False))
+    result = {
+        "status": "failed" if is_error else "completed",
+        "conversation_id": conversation_id,
+        "turn_id": turn.id,
+        "instance_name": entry.instance_name,
+        "project_key": entry.project_key,
+        "message": str(getattr(response, "message", "")),
+        "response_type": response_type,
+        "is_error": is_error,
+        "is_confirmation_request": confirmation_requested,
+        "objects_to_delete": getattr(response, "objects_to_delete", None),
+        "deletion_impacts": getattr(response, "deletion_impacts", None),
+    }
+    if confirmation_requested:
+        confirmation_id = _pending_confirmation_id(entry.sdk_conversation)
+        if not confirmation_id:
+            raise RuntimeError(
+                "Cobuild requested confirmation without an SDK confirmation ID; "
+                "the proposal cannot be safely approved or cancelled."
+            )
+        result["confirmation_id"] = confirmation_id
+    if is_error:
+        result["error_type"] = "cobuild_response"
+    return omit_empty(result)
+
+
+def _run_turn(conversation_id: str, entry: _Conversation, turn: _Turn, call) -> dict:
+    """Run the complete SDK operation in a dedicated Cobuild worker."""
+    turn.started.set()
+    try:
+        return _turn_result(conversation_id, entry, turn, call())
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "conversation_id": conversation_id,
+            "turn_id": turn.id,
+            "error_type": type(exc).__name__,
+            "message": str(exc) or type(exc).__name__,
+        }
+
+
+def _result(turn: _Turn) -> dict:
+    assert turn.task is not None and turn.task.done()
+    return turn.task.result()
+
+
+def _in_progress(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
+    status = "in_progress" if turn.started.is_set() else "queued"
+    return {
+        "status": status,
+        "conversation_id": conversation_id,
+        "turn_id": turn.id,
+        "next_action": (
+            "The turn is queued for a Cobuild worker; poll after a short interval."
+            if status == "queued"
+            else "Poll get_cobuild_turn_status with this exact turn_id."
+        ),
+    }
+
+
+def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Turn | dict:
+    current = entry.turn
+    if current is not None:
+        assert current.task is not None
+        if not current.task.done():
+            return _in_progress(conversation_id, entry, current)
+        if not current.observed:
+            return {
+                "status": "result_pending",
+                "conversation_id": conversation_id,
+                "turn_id": current.id,
+                "next_action": "Poll get_cobuild_turn_status before starting another operation.",
+            }
+
+    check()
+    turn = _Turn(uuid.uuid4().hex)
+    turn.task = asyncio.create_task(
+        run_cobuild_blocking(_run_turn, conversation_id, entry, turn, call)
+    )
+    entry.turn = turn
+    return turn
+
+
+async def _wait_for_turn(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
+    assert turn.task is not None
+    try:
+        result = await asyncio.wait_for(
+            asyncio.shield(turn.task), timeout=INLINE_WAIT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        return _in_progress(conversation_id, entry, turn)
+    turn.observed = True
+    return result
 
 
 @mcp.tool()
 async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
-    """Start a new Cobuild conversation for a project."""
+    """Start a new process-local Cobuild conversation for a project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
-    def _run():
-        project = get_dss_client().get_project(project_key)
-        conversation = project.new_cobuild_conversation()
-        entry = _CobuildConversationEntry(
-            instance_name=get_current_instance_for_tool().name,
-            project_key=project_key,
-            conversation=conversation,
-            created_at=datetime.now(timezone.utc).isoformat(),
-        )
-        _conversations[conversation.conversation_id] = entry
-        return omit_empty(
-            {
-                "conversation_id": conversation.conversation_id,
-                "instance_name": entry.instance_name,
-                "project_key": entry.project_key,
-                "created_at": entry.created_at,
-            }
-        )
-
-    return compact_json(await run_blocking(_run))
+    instance_name = get_current_instance_for_tool().name
+    client = get_dss_client()
+    conversation = await run_blocking(
+        lambda: client.get_project(project_key).new_cobuild_conversation()
+    )
+    entry = _Conversation(
+        instance_name,
+        project_key,
+        conversation,
+        created_at=datetime.now(timezone.utc).isoformat()
+    )
+    _conversations[conversation.conversation_id] = entry
+    return compact_json(
+        {
+            "conversation_id": conversation.conversation_id,
+            "instance_name": entry.instance_name,
+            "project_key": entry.project_key,
+            "created_at": entry.created_at,
+        }
+    )
 
 
 @mcp.tool()
@@ -104,73 +208,118 @@ async def send_cobuild_message(
     project_key: str,
     message: str,
     ctx: Context,
-    allow_edit_project: bool = True,
+    allow_edit_project: bool = False,
 ) -> str:
-    """Send a message to an existing in-memory Cobuild conversation."""
+    """Send one retained Cobuild turn; project edits are opt-in for this message."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     message = _require_non_empty_string(message, "message")
     await ctx.info(f"Sending Cobuild message to conversation {conversation_id}...")
+    entry = _entry(conversation_id, project_key)
 
-    entry = _get_conversation_entry(conversation_id, project_key)
+    def check():
+        if _pending_confirmation_id(entry.sdk_conversation) is not None:
+            raise ValueError(
+                "This conversation has a pending confirmation. Answer it before sending another message."
+            )
 
-    def _run():
-        response = entry.conversation.send_message(
-            message,
-            allow_edit_project=allow_edit_project,
+    def call():
+        return entry.sdk_conversation.send_message(
+            message, allow_edit_project=allow_edit_project
         )
-        return _serialize_response(conversation_id, entry, response)
 
-    return compact_json(await run_blocking(_run))
+    turn = _start_turn(conversation_id, entry, check, call)
+    if isinstance(turn, dict):
+        return compact_json(turn)
+    return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
 @mcp.tool()
 async def answer_cobuild_confirmation(
     conversation_id: str,
     project_key: str,
+    confirmation_id: str,
     choice: str,
     ctx: Context,
 ) -> str:
-    """Answer a pending Cobuild delete confirmation request."""
+    """Answer the exact current Cobuild confirmation proposal."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
+    confirmation_id = _require_non_empty_string(confirmation_id, "confirmation_id")
     choice = _require_non_empty_string(choice, "choice")
     if choice not in {"APPROVE", "CANCEL"}:
         raise ValueError("choice must be 'APPROVE' or 'CANCEL'")
     await ctx.info(
         f"Answering Cobuild confirmation for conversation {conversation_id} with {choice}..."
     )
+    entry = _entry(conversation_id, project_key)
 
-    entry = _get_conversation_entry(conversation_id, project_key)
+    def check():
+        pending_id = _pending_confirmation_id(entry.sdk_conversation)
+        if pending_id is None:
+            raise ValueError("This conversation has no pending confirmation.")
+        if pending_id != confirmation_id:
+            raise ValueError(
+                "confirmation_id does not match the currently pending proposal."
+            )
 
-    def _run():
-        response = entry.conversation.answer_confirmation(choice)
-        return _serialize_response(conversation_id, entry, response)
+    turn = _start_turn(
+        conversation_id,
+        entry,
+        check,
+        lambda: entry.sdk_conversation.answer_confirmation(choice),
+    )
+    if isinstance(turn, dict):
+        return compact_json(turn)
+    return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
-    return compact_json(await run_blocking(_run))
+
+@mcp.tool()
+async def get_cobuild_turn_status(
+    conversation_id: str, project_key: str, turn_id: str, ctx: Context
+) -> str:
+    """Poll the exact current retained Cobuild turn."""
+    conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
+    project_key = _require_non_empty_string(project_key, "project_key")
+    turn_id = _require_non_empty_string(turn_id, "turn_id")
+    entry = _entry(conversation_id, project_key)
+    turn = entry.turn
+    if turn is None or turn.id != turn_id:
+        raise ValueError(
+            f"Unknown current Cobuild turn_id '{turn_id}' for conversation '{conversation_id}'."
+        )
+    assert turn.task is not None
+    if not turn.task.done():
+        return compact_json(_in_progress(conversation_id, entry, turn))
+    turn.observed = True
+    return compact_json(_result(turn))
 
 
 @mcp.tool()
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
-    """List retained Cobuild conversations in the project."""
+    """List process-local conversations and their current turn IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
-    await ctx.info(
-        f"Listing retained Cobuild conversations for project {project_key}..."
-    )
-
-    current_instance_name = get_current_instance_for_tool().name
+    active_instance = get_current_instance_for_tool().name
     rows = [
         {
             "conversation_id": conversation_id,
             "instance_name": entry.instance_name,
             "project_key": entry.project_key,
             "created_at": entry.created_at,
+            "current_turn_id": entry.turn.id if entry.turn else None,
+            "current_turn_status": (
+                None
+                if entry.turn is None
+                else _result(entry.turn)["status"]
+                if entry.turn.task.done()
+                else "in_progress"
+                if entry.turn.started.is_set()
+                else "queued"
+            ),
         }
         for conversation_id, entry in _conversations.items()
-        if entry.instance_name == current_instance_name
-        and entry.project_key == project_key
+        if entry.instance_name == active_instance and entry.project_key == project_key
     ]
-
     return compact_json(
         {
             "conversations": columnar(
@@ -180,6 +329,8 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                     "instance_name",
                     "project_key",
                     "created_at",
+                    "current_turn_id",
+                    "current_turn_status",
                 ],
             )
         }
