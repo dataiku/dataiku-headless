@@ -1,5 +1,6 @@
 """Loopback-only browser setup for Dataiku instance credentials."""
 
+import re
 import secrets
 import threading
 import webbrowser
@@ -12,8 +13,10 @@ from . import config
 
 SESSION_LIFETIME_SECONDS = 10 * 60
 MAX_REQUEST_BYTES = 16 * 1024
-INSTANCE_URL_PATTERN = r"https?://[^/?#\s]+(?:/home)?/?"
-ALLOWED_INSTANCE_URL_PATHS = {"", "/", "/home", "/home/"}
+# HTML patterns use RegExp v-mode, where hyphens in character classes are escaped.
+INSTANCE_URL_PATTERN = (
+    r"https?://(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._~\-]+)(?::[0-9]{1,5})?(?:/home)?/?"
+)
 _active_session: "SetupSession | None" = None
 _session_lock = threading.Lock()
 
@@ -49,6 +52,10 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
     parsed_url = urlparse(url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
         raise ValueError("Instance URL must be a complete http:// or https:// URL.")
+    try:
+        parsed_url.port
+    except ValueError:
+        raise ValueError("Instance URL contains an invalid port.") from None
     if (
         parsed_url.username
         or parsed_url.password
@@ -58,7 +65,7 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
         raise ValueError(
             "Instance URL cannot contain credentials, a query, or a fragment."
         )
-    if parsed_url.path not in ALLOWED_INSTANCE_URL_PATHS:
+    if not re.fullmatch(INSTANCE_URL_PATTERN, url):
         raise ValueError(
             "Instance URL must be the instance root or its /home page, "
             "without any other path."
