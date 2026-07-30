@@ -210,7 +210,14 @@ async def _wait_for_turn(conversation_id: str, entry: _Conversation, turn: _Turn
 
 @mcp.tool()
 async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
-    """Start a new process-local Cobuild conversation for a project."""
+    """Start a process-local Cobuild conversation for one DSS project.
+
+    Reuse the returned conversation_id for related Cobuild work. Conversations are
+    lost when the MCP server restarts.
+
+    Args:
+        project_key: DSS project key. Use list_projects to find available projects.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
@@ -244,7 +251,21 @@ async def send_cobuild_message(
     ctx: Context,
     allow_edit_project: bool = False,
 ) -> str:
-    """Send one retained Cobuild turn; project edits are opt-in for this message."""
+    """Send one message in a retained Cobuild conversation.
+
+    Waits up to 240 seconds for the result. If the turn remains queued or in
+    progress, call get_cobuild_turn_status with its returned turn_id; never resend
+    the message. A pending confirmation or question must be retrieved and answered
+    before a new message can be sent.
+
+    Args:
+        conversation_id: Process-local ID returned by start_cobuild_conversation or
+            recovered with list_cobuild_conversations.
+        project_key: Project paired with conversation_id when it was created.
+        message: Instruction or question for Cobuild.
+        allow_edit_project: Allow Cobuild to create or modify project assets for
+            this message only. Defaults to false.
+    """
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     message = _require_non_empty_string(message, "message")
@@ -291,7 +312,19 @@ async def answer_cobuild_confirmation(
     choice: str,
     ctx: Context,
 ) -> str:
-    """Answer the confirmation request issued by the exact current Cobuild turn."""
+    """Approve or cancel the exact current Cobuild confirmation request.
+
+    First call get_cobuild_turn_status and inspect the deletion details before
+    approving. The answer starts a retained turn and may itself require status
+    retrieval before another operation.
+
+    Args:
+        conversation_id: Process-local conversation ID from start_cobuild_conversation.
+        project_key: Project paired with conversation_id when it was created.
+        turn_id: Exact current confirmation turn ID from send_cobuild_message,
+            another answer tool, or get_cobuild_turn_status.
+        choice: APPROVE to proceed with the confirmed operation, or CANCEL to stop it.
+    """
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -336,7 +369,22 @@ async def answer_cobuild_question(
     rejected: bool = False,
     used_custom_answer: bool = False,
 ) -> str:
-    """Answer the question request issued by the exact current Cobuild turn."""
+    """Answer the exact current Cobuild question request.
+
+    First call get_cobuild_turn_status and inspect its question title and answer
+    constraints. The answer starts a retained turn and may itself require status
+    retrieval before another operation.
+
+    Args:
+        conversation_id: Process-local conversation ID from start_cobuild_conversation.
+        project_key: Project paired with conversation_id when it was created.
+        turn_id: Exact current question turn ID from send_cobuild_message, another
+            answer tool, or get_cobuild_turn_status.
+        answers: Explicit selected or custom answer strings. Pass an empty list only
+            when rejected is true.
+        rejected: Set true to decline the question; answers must then be empty.
+        used_custom_answer: Set true when answers includes a custom free-text answer.
+    """
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -374,7 +422,18 @@ async def answer_cobuild_question(
 async def get_cobuild_turn_status(
     conversation_id: str, project_key: str, turn_id: str, ctx: Context
 ) -> str:
-    """Wait for the exact current retained Cobuild turn, up to the inline limit."""
+    """Wait up to 240 seconds for the exact current retained Cobuild turn.
+
+    Use this to recover a result lost from agent context and inspect a pending
+    confirmation or question before answering. Returns a terminal result when
+    complete, otherwise the queued or in-progress state without cancelling work.
+
+    Args:
+        conversation_id: Process-local conversation ID from start_cobuild_conversation.
+        project_key: Project paired with conversation_id when it was created.
+        turn_id: Exact current turn ID returned by send_cobuild_message or an answer
+            tool. After an interrupted call, retrieve it with list_cobuild_conversations.
+    """
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -389,7 +448,15 @@ async def get_cobuild_turn_status(
 
 @mcp.tool()
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
-    """List process-local conversations and their current turn IDs."""
+    """List process-local Cobuild conversations for a project and their current turns.
+
+    Use after an interrupted call to recover a conversation_id and current_turn_id.
+    When current_turn_id is present, call get_cobuild_turn_status before sending or
+    answering.
+
+    Args:
+        project_key: DSS project key used to start the conversations.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     active_instance = get_current_instance_for_tool().name
     rows = []
