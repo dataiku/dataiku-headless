@@ -39,7 +39,9 @@ class _Conversation:
 _conversations: dict[str, _Conversation] = {}
 
 
-def _entry(conversation_id: str, project_key: str) -> _Conversation:
+def _require_conversation_entry(
+    conversation_id: str, project_key: str
+) -> _Conversation:
     entry = _conversations.get(conversation_id)
     if entry is None:
         raise ValueError(
@@ -59,7 +61,7 @@ def _entry(conversation_id: str, project_key: str) -> _Conversation:
     return entry
 
 
-def _turn_result(
+def _terminal_turn_result(
     conversation_id: str, entry: _Conversation, turn: _Turn, response
 ) -> dict:
     response_type = str(getattr(response, "type", ""))
@@ -86,7 +88,9 @@ def _turn_result(
     return omit_empty(result)
 
 
-def _in_progress(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
+def _pending_turn_result(
+    conversation_id: str, entry: _Conversation, turn: _Turn
+) -> dict:
     status = "in_progress" if turn.started.is_set() else "queued"
     return {
         "status": status,
@@ -144,7 +148,7 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
                 "error_type": type(exc).__name__,
                 "message": str(exc) or type(exc).__name__,
             }
-        return _turn_result(conversation_id, entry, turn, response)
+        return _terminal_turn_result(conversation_id, entry, turn, response)
 
     turn.task = asyncio.create_task(run_cobuild_blocking(run_turn))
     entry.turn = turn
@@ -157,7 +161,7 @@ async def _wait_for_turn(conversation_id: str, entry: _Conversation, turn: _Turn
             asyncio.shield(turn.task), timeout=INLINE_WAIT_SECONDS
         )
     except asyncio.TimeoutError:
-        return _in_progress(conversation_id, entry, turn)
+        return _pending_turn_result(conversation_id, entry, turn)
     turn.observed = True
     return result
 
@@ -203,7 +207,7 @@ async def send_cobuild_message(
     project_key = _require_non_empty_string(project_key, "project_key")
     message = _require_non_empty_string(message, "message")
     await ctx.info(f"Sending Cobuild message to conversation {conversation_id}...")
-    entry = _entry(conversation_id, project_key)
+    entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
         current_turn = entry.turn
@@ -240,7 +244,7 @@ async def answer_cobuild_confirmation(
     await ctx.info(
         f"Answering Cobuild confirmation for conversation {conversation_id} with {choice}..."
     )
-    entry = _entry(conversation_id, project_key)
+    entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
         current_turn = entry.turn
@@ -270,7 +274,7 @@ async def get_cobuild_turn_status(
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
-    entry = _entry(conversation_id, project_key)
+    entry = _require_conversation_entry(conversation_id, project_key)
     turn = entry.turn
     if turn is None or turn.id != turn_id:
         raise ValueError(
@@ -284,26 +288,30 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """List process-local conversations and their current turn IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     active_instance = get_current_instance_for_tool().name
-    rows = [
-        {
-            "conversation_id": conversation_id,
-            "instance_name": entry.instance_name,
-            "project_key": entry.project_key,
-            "created_at": entry.created_at,
-            "current_turn_id": entry.turn.id if entry.turn else None,
-            "current_turn_status": (
-                None
-                if entry.turn is None
-                else entry.turn.task.result()["status"]
-                if entry.turn.task.done()
-                else "in_progress"
-                if entry.turn.started.is_set()
-                else "queued"
-            ),
-        }
-        for conversation_id, entry in _conversations.items()
-        if entry.instance_name == active_instance and entry.project_key == project_key
-    ]
+    rows = []
+    for conversation_id, entry in _conversations.items():
+        if entry.instance_name != active_instance or entry.project_key != project_key:
+            continue
+
+        turn = entry.turn
+        rows.append(
+            {
+                "conversation_id": conversation_id,
+                "instance_name": entry.instance_name,
+                "project_key": entry.project_key,
+                "created_at": entry.created_at,
+                "current_turn_id": turn.id if turn else None,
+                "current_turn_status": (
+                    turn.task.result()["status"]
+                    if turn and turn.task.done()
+                    else "in_progress"
+                    if turn and turn.started.is_set()
+                    else "queued"
+                    if turn
+                    else None
+                ),
+            }
+        )
     return compact_json(
         {
             "conversations": columnar(
