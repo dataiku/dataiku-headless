@@ -201,8 +201,10 @@ def test_confirmation_uses_the_exact_current_turn(environment):
         tool = await cobuild.mcp.get_tool("answer_cobuild_confirmation")
         assert "turn_id" in tool.parameters["properties"]
         assert "confirmation_id" not in tool.parameters["properties"]
-        with pytest.raises(ValueError, match="not the current turn_id"):
+        with pytest.raises(ValueError, match="not the current turn_id") as wrong_turn:
             await answer("wrong")
+        assert "get_cobuild_turn_status with" in str(wrong_turn.value)
+        assert proposal["turn_id"] in str(wrong_turn.value)
         with pytest.raises(ValueError, match="does not request a question answer"):
             await answer_question(proposal["turn_id"], [])
         successor = await answer(proposal["turn_id"])
@@ -221,9 +223,11 @@ def test_pending_confirmation_blocks_new_messages(environment):
 
     async def scenario():
         await start()
-        await send(allow_edit_project=True)
-        with pytest.raises(ValueError, match="pending confirmation"):
+        confirmation = await send(allow_edit_project=True)
+        with pytest.raises(ValueError, match="pending confirmation") as blocked:
             await send()
+        assert "get_cobuild_turn_status with" in str(blocked.value)
+        assert confirmation["turn_id"] in str(blocked.value)
 
     run(scenario())
     assert len(client.conversation.send_calls) == 1
@@ -260,8 +264,9 @@ def test_question_uses_the_exact_current_turn(environment):
         assert "answers" in tool.parameters["required"]
         with pytest.raises(ValueError, match="not the current turn_id"):
             await answer_question("wrong", ["order_date"])
-        with pytest.raises(ValueError, match="does not request a confirmation"):
+        with pytest.raises(ValueError, match="does not request a confirmation") as wrong_type:
             await answer(question["turn_id"])
+        assert "get_cobuild_turn_status with" in str(wrong_type.value)
         successor = await answer_question(
             question["turn_id"], ["custom_date"], used_custom_answer=True
         )
@@ -284,8 +289,10 @@ def test_pending_question_blocks_new_messages(environment):
     async def scenario():
         await start()
         question = await send()
-        with pytest.raises(ValueError, match="pending question"):
+        with pytest.raises(ValueError, match="pending question") as blocked:
             await send()
+        assert "get_cobuild_turn_status with" in str(blocked.value)
+        assert question["turn_id"] in str(blocked.value)
         await answer_question(question["turn_id"], [])
 
     run(scenario())

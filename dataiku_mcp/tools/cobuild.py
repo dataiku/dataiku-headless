@@ -121,18 +121,24 @@ def _pending_turn_result(
     }
 
 
-def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
-    turn = entry.turn
-    if turn is None:
-        return
-
-    poll_payload = compact_json(
+def _turn_status_payload(
+    conversation_id: str, entry: _Conversation, turn: _Turn
+) -> str:
+    return compact_json(
         {
             "conversation_id": conversation_id,
             "project_key": entry.project_key,
             "turn_id": turn.id,
         }
     )
+
+
+def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
+    turn = entry.turn
+    if turn is None:
+        return
+
+    poll_payload = _turn_status_payload(conversation_id, entry, turn)
     if not turn.task.done():
         status = "in progress" if turn.started.is_set() else "queued"
         raise ValueError(
@@ -145,6 +151,25 @@ def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
             "terminal result that has not been observed. First call "
             f"get_cobuild_turn_status with {poll_payload}."
         )
+
+
+def _require_current_answer_turn(
+    conversation_id: str, entry: _Conversation, turn_id: str
+) -> _Turn:
+    current_turn = entry.turn
+    if current_turn is None:
+        raise ValueError(
+            f"Cobuild conversation '{conversation_id}' has no current turn to answer. "
+            "Send a Cobuild message first."
+        )
+    if current_turn.id != turn_id:
+        status_payload = _turn_status_payload(conversation_id, entry, current_turn)
+        raise ValueError(
+            f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation "
+            f"'{conversation_id}'. First call get_cobuild_turn_status with "
+            f"{status_payload} and inspect the result before answering."
+        )
+    return current_turn
 
 
 def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Turn:
@@ -229,16 +254,24 @@ async def send_cobuild_message(
     def check():
         current_turn = entry.turn
         if current_turn and current_turn.task.result()["is_confirmation_request"]:
+            status_payload = _turn_status_payload(
+                conversation_id, entry, current_turn
+            )
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' has a pending confirmation "
-                f"request with turn_id '{current_turn.id}'. Call "
-                "answer_cobuild_confirmation with this turn_id."
+                f"request with turn_id '{current_turn.id}'. First call "
+                f"get_cobuild_turn_status with {status_payload} and inspect the result, "
+                "then call answer_cobuild_confirmation."
             )
         if current_turn and current_turn.task.result()["is_question_request"]:
+            status_payload = _turn_status_payload(
+                conversation_id, entry, current_turn
+            )
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' has a pending question "
                 f"request with turn_id '{current_turn.id}'. Call answer_cobuild_question "
-                "with this turn_id."
+                f"only after retrieving and inspecting get_cobuild_turn_status with "
+                f"{status_payload}."
             )
 
     def call():
@@ -271,14 +304,17 @@ async def answer_cobuild_confirmation(
     entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
-        current_turn = entry.turn
-        if current_turn is None or current_turn.id != turn_id:
-            raise ValueError(
-                f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation '{conversation_id}'."
-            )
+        current_turn = _require_current_answer_turn(
+            conversation_id, entry, turn_id
+        )
         if not current_turn.task.result()["is_confirmation_request"]:
+            status_payload = _turn_status_payload(
+                conversation_id, entry, current_turn
+            )
             raise ValueError(
-                f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not request a confirmation."
+                f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not "
+                f"request a confirmation. First call get_cobuild_turn_status with "
+                f"{status_payload} and inspect the result before answering."
             )
 
     turn = _start_turn(
@@ -308,14 +344,17 @@ async def answer_cobuild_question(
     entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
-        current_turn = entry.turn
-        if current_turn is None or current_turn.id != turn_id:
-            raise ValueError(
-                f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation '{conversation_id}'."
-            )
+        current_turn = _require_current_answer_turn(
+            conversation_id, entry, turn_id
+        )
         if not current_turn.task.result()["is_question_request"]:
+            status_payload = _turn_status_payload(
+                conversation_id, entry, current_turn
+            )
             raise ValueError(
-                f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not request a question answer."
+                f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not "
+                f"request a question answer. First call get_cobuild_turn_status with "
+                f"{status_payload} and inspect the result before answering."
             )
 
     turn = _start_turn(
