@@ -71,7 +71,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "flow": frozenset(
         {
-            "get_flow_items_in_traversal_order",
+            "get_flow_graph",
             "get_flow_object_metadata",
             "list_flow_zones",
         }

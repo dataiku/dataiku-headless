@@ -37,7 +37,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 1. Use `count_projects` and `list_projects` to discover projects and confirm the exact project key.
 2. For existing-project context, use `get_project_metadata` and `get_project_variables` to inspect metadata and configuration.
 3. To update project variables, first read the current variables with `get_project_variables`, modify only the requested keys, then pass the complete replacement object to `set_project_variables`.
-4. Use `get_flow_items_in_traversal_order` and `list_flow_zones` to orient in the Flow when dependencies or organization matter.
+4. Use `get_flow_graph` to orient in the Flow when dependencies matter, and `list_flow_zones` when visual organization matters.
 5. Use `get_flow_object_metadata` to inspect metadata for a specific project object.
 6. For a new project, confirm the unique project key and display name with the user, then use `create_project`. When the user specifies a project folder, discover its `folder_id` with `list_project_folders` first and use `get_project_folder` when you need to confirm the exact folder contents, then pass that `folder_id`.
 7. Verify a newly created project with `list_projects` or `get_project_metadata`.
@@ -51,7 +51,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 - `get_project_metadata`
 - `get_project_variables`
 - `set_project_variables`
-- `get_flow_items_in_traversal_order`
+- `get_flow_graph`
 - `list_flow_zones`
 - `get_flow_object_metadata`
 
@@ -60,3 +60,4 @@ Flow zones organize related Flow items visually. They are useful context when a 
 - Confirm the project key and display name before creating a project.
 - Verify that the requested project key is not already in use before direct creation.
 - When creating a project in a folder, discover the folder ID with `list_project_folders`; do not invent it.
+- `get_flow_graph` is the primary flow-orientation tool. It returns flow sources, nodes, and dependency edges. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
