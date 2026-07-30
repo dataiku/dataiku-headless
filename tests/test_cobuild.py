@@ -38,7 +38,9 @@ class Response:
         self.is_error = False
         self.is_confirmation_request = is_confirmation_request
         self.is_question_request = is_question_request
-        self.objects_to_delete = [{"id": "dataset"}] if is_confirmation_request else None
+        self.objects_to_delete = (
+            [{"id": "dataset"}] if is_confirmation_request else None
+        )
         self.deletion_impacts = None
         self.title = title
         self.predefined_answers = predefined_answers
@@ -264,7 +266,9 @@ def test_question_uses_the_exact_current_turn(environment):
         assert "answers" in tool.parameters["required"]
         with pytest.raises(ValueError, match="not the current turn_id"):
             await answer_question("wrong", ["order_date"])
-        with pytest.raises(ValueError, match="does not request a confirmation") as wrong_type:
+        with pytest.raises(
+            ValueError, match="does not request a confirmation"
+        ) as wrong_type:
             await answer(question["turn_id"])
         assert "get_cobuild_turn_status with" in str(wrong_type.value)
         successor = await answer_question(
@@ -341,7 +345,9 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
         assert (await poll(first["turn_id"]))["status"] == "completed"
         replacement = await send()
         assert replacement["status"] in {"queued", "in_progress"}
-        assert (await wait_for_terminal(replacement["turn_id"]))["status"] == "completed"
+        assert (await wait_for_terminal(replacement["turn_id"]))[
+            "status"
+        ] == "completed"
         with pytest.raises(ValueError, match="not the current turn_id"):
             await poll(first["turn_id"])
 
@@ -352,7 +358,9 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
     ]
 
 
-def test_turn_status_waits_for_and_returns_the_terminal_result(environment, monkeypatch):
+def test_turn_status_waits_for_and_returns_the_terminal_result(
+    environment, monkeypatch
+):
     client, _ = environment
     client.conversation.release = threading.Event()
     monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 0)
@@ -391,7 +399,9 @@ def test_cancellation_keeps_the_turn_recoverable_from_listing(environment):
         row = dict(zip(columns, listing["conversations"]["rows"][0]))
         assert row["current_turn_status"] == "in_progress"
         client.conversation.release.set()
-        assert (await wait_for_terminal(row["current_turn_id"]))["status"] == "completed"
+        assert (await wait_for_terminal(row["current_turn_id"]))[
+            "status"
+        ] == "completed"
 
     run(scenario())
 
@@ -403,7 +413,9 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
     monkeypatch.setattr(
         cobuild,
         "get_dss_client",
-        lambda: clients[0] if "conversation-1" not in cobuild._conversations else clients[1],
+        lambda: (
+            clients[0] if "conversation-1" not in cobuild._conversations else clients[1]
+        ),
     )
     monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 0)
 
@@ -422,12 +434,12 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
         assert first_turn["status"] == "queued"
         assert second_turn["status"] == "queued"
         release_queue.set()
-        assert (
-            await wait_for_terminal(first_turn["turn_id"], "conversation-1")
-        )["status"] == "completed"
-        assert (
-            await wait_for_terminal(second_turn["turn_id"], "conversation-2")
-        )["status"] == "completed"
+        assert (await wait_for_terminal(first_turn["turn_id"], "conversation-1"))[
+            "status"
+        ] == "completed"
+        assert (await wait_for_terminal(second_turn["turn_id"], "conversation-2"))[
+            "status"
+        ] == "completed"
 
     run(scenario())
 

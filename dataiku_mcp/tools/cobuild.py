@@ -197,7 +197,9 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
     return turn
 
 
-async def _wait_for_turn(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
+async def _wait_for_turn(
+    conversation_id: str, entry: _Conversation, turn: _Turn
+) -> dict:
     try:
         result = await asyncio.wait_for(
             asyncio.shield(turn.task), timeout=TURN_WAIT_TIMEOUT_SECONDS
@@ -230,7 +232,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         instance_name,
         project_key,
         conversation,
-        created_at=datetime.now(timezone.utc).isoformat()
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     _conversations[conversation.conversation_id] = entry
     return compact_json(
@@ -275,9 +277,7 @@ async def send_cobuild_message(
     def check():
         current_turn = entry.turn
         if current_turn and current_turn.task.result()["is_confirmation_request"]:
-            status_payload = _turn_status_payload(
-                conversation_id, entry, current_turn
-            )
+            status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' has a pending confirmation "
                 f"request with turn_id '{current_turn.id}'. First call "
@@ -285,9 +285,7 @@ async def send_cobuild_message(
                 "then call answer_cobuild_confirmation."
             )
         if current_turn and current_turn.task.result()["is_question_request"]:
-            status_payload = _turn_status_payload(
-                conversation_id, entry, current_turn
-            )
+            status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' has a pending question "
                 f"request with turn_id '{current_turn.id}'. Call answer_cobuild_question "
@@ -337,13 +335,9 @@ async def answer_cobuild_confirmation(
     entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
-        current_turn = _require_current_answer_turn(
-            conversation_id, entry, turn_id
-        )
+        current_turn = _require_current_answer_turn(conversation_id, entry, turn_id)
         if not current_turn.task.result()["is_confirmation_request"]:
-            status_payload = _turn_status_payload(
-                conversation_id, entry, current_turn
-            )
+            status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not "
                 f"request a confirmation. First call get_cobuild_turn_status with "
@@ -392,13 +386,9 @@ async def answer_cobuild_question(
     entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
-        current_turn = _require_current_answer_turn(
-            conversation_id, entry, turn_id
-        )
+        current_turn = _require_current_answer_turn(conversation_id, entry, turn_id)
         if not current_turn.task.result()["is_question_request"]:
-            status_payload = _turn_status_payload(
-                conversation_id, entry, current_turn
-            )
+            status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not "
                 f"request a question answer. First call get_cobuild_turn_status with "
