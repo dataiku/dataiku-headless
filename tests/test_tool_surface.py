@@ -30,6 +30,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "cobuild": frozenset(
         {
             "answer_cobuild_confirmation",
+            "answer_cobuild_question",
             "list_cobuild_conversations",
             "send_cobuild_message",
             "start_cobuild_conversation",
