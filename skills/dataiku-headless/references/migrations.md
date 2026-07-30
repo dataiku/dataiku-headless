@@ -8,7 +8,7 @@ description: Translate business logic from third-party tools (e.g. Alteryx, Tabl
 
 Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows.
 
-A migration consists of four phases: plan, build, validate, and document and cleanup. The "build" and "validate" phase may loop multiple times if the "validation" encounters issues with the assets created in the "build" phase.
+A migration consists of four phases: plan, build, validate, and document and cleanup. The "build" and "validate" phase may loop multiple times if the "validation" encounters issues with the assets created in the "build" phase. The loaded Source Subskill may add deliverables and phase steps of its own; they are binding.
 
 ## Phase 1: Plan
 
@@ -27,6 +27,7 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
     * Translate the source bundle logic into a plan for a Dataiku Flow. The migrated flow must use only visual recipe families unless the user explicitly requests a code-based transformation. Do not choose a Code recipe because it seems easier, faster, more reliable, or more expressive. If the user did not explicitly ask for code, keep searching for a visual-recipe implementation.
     * The migrated Dataiku Flow **must** start from the same input datasets as the source bundle; it is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
     * The requested final output dataset must be produced in Dataiku from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.
+    * Time semantics: source now-functions remain `now()` in delivery; use a temporary as-of pin for historical parity, then restore and re-verify live behavior.
 4. Create a Validation Plan for the migrated project and write it to `<bundle_dir>/migration_v<n>/validation_plan.md`. The Validation Plan should (at least) include:
   - Check that the input datasets of the Dataiku Flow match the input datasets of the source bundle.
   - That the migrated Dataiku Flow accurately reproduces the business logic and transformation contained within the Source Bundle.
@@ -37,22 +38,29 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
     Descriptions:
     1. Add a concise yet useful description to the Project.
     2. Add a concise yet useful description to all migration-created Datasets and Recipes, including intermediate assets, not only source and final outputs.
+    3. Rename generated `compute_<output>` recipe names to names that state the transformation.
 
     Flow Zones:
     1. Make a plan to split up the project into an appropriate number of Flow Zones.
     2. Create the Flow Zones and add a concise description to each Flow Zone.
     3. Move all migration-created Flow assets (for example datasets and recipes) into an appropriate zone.
+    4. The default zone cannot be deleted; plan for it to serve as the first stage rather than leaving it empty.
+
+    Scenario:
+    1. Create a rebuild scenario covering every final output; its run is the final build proof.
 
     Wiki:
     1. Create a Project Wiki.
     2. Populate the Wiki with the migration plan created in Phase 1; it should be human-readable.
     3. Populate the Wiki with the validation plan created in Phase 1; it should be human-readable and note the results of all validation checks.
+    4. Include a column dictionary for the final outputs. Column documentation lives in the Wiki only; column descriptions written onto flow datasets drift downstream recipe schemas and fail the flow check.
 
   - Cleanup
 
     1. Delete any orphaned migration-created Flow assets (for example datasets and recipes) that are not part of the final migrated Flow.
     2. Do not delete pre-existing user/project assets unless the user explicitly requests it.
 
+6. If the source bundle has more than 20 source steps or unresolved `needs-human-input` questions, pause and surface the inventory, plans, and open questions. Otherwise print the plans and continue; unattended runs never stop.
 
 ## Phase 2: Build
 
@@ -76,6 +84,10 @@ Validation is not complete until the migration also satisfies the Documentation 
 
 Read the Documentation and Cleanup plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. Apply the Documentation and Cleanup Plan fully via Cobuild.
 
+Zone the Flow by stage or functional area; the default zone cannot be deleted, so rename it to serve as the first stage rather than leaving it empty. Set the project's short and long descriptions. One-line object descriptions go in the field each surface displays: zones and recipes take the short description (`shortDesc`) — text in their long `description` field never renders in the Flow — while datasets take the long description. Instruct Cobuild with the words "short description" for zones and recipes. Column documentation lives in the Wiki column dictionary only. Zone descriptions render in the Flow only when the project setting `flowDisplaySettings.showFlowZoneDescriptions` is enabled; Cobuild cannot change project settings, so enable it through an available project-settings surface or record it as a blocked item. Create the rebuild scenario from the plan and run it once; its job result is the final build proof.
+
+Re-reading is evidence, not intent: enumerate every zone, dataset, and recipe through the read tools, confirm the displayed field for each object is non-empty (`short_description` for zones and recipes, `description` for datasets), and write the object-to-description table to `<bundle_dir>/migration_v<n>/documentation_evidence.md`. The completion report may claim only what that file and the validation evidence show; never trust the Cobuild report alone.
+
 The migration is not complete until all required documentation, Flow Zone, Wiki, and cleanup tasks from that plan have been completed.
 
 
@@ -87,6 +99,8 @@ Unless the user explicitly requests a code-based transformation, migrations must
 
 Do not use Python, SQL, R, or other code recipes merely because the logic is awkward, stateful, easier to express in code, or difficult to reproduce visually. Difficulty is not an exception.
 
+A statistic missing from a visual recipe's aggregate list is not yet a justification either: quantiles, medians, and modes compose from Window ranking and TopN recipes. Record a deviation only after the visual composition genuinely fails.
+
 If the user explicitly asks for code, a code recipe may be used only for the part the user asked to implement in code. Otherwise, the migration must remain fully visual. Visual recipe families are defined in `./recipes.md`.
 
 ## Input-boundary invariant
@@ -95,6 +109,8 @@ A valid Dataiku migration must begin from the same logical source datasets as th
 
 If multiple upload attempts are made while establishing the correct source boundary, only the final intended source dataset may remain in the completed project; failed attempts must be cleaned up in Phase 4.
 
+Expected outputs may be uploaded only as parity reference datasets during validation, never wired into the delivered flow, and are deleted during cleanup.
+
 ## Dataiku execution requirement
 
 A valid migration must implement the transformation logic inside Dataiku.
@@ -102,6 +118,10 @@ A valid migration must implement the transformation logic inside Dataiku.
 The requested final output dataset must be produced in Dataiku from the migrated source datasets through one or more Dataiku recipes. It is not valid to compute the final result locally and upload that precomputed final dataset as the deliverable.
 
 Source-boundary fidelity alone is not sufficient: the migrated project must contain the Dataiku flow that performs the transformation.
+
+## Gap resolution
+
+Classify non-obvious source constructs as `derivable`, `hand-authored`, or `needs-human-input`. Carry unresolved items in the Migration Plan and surface them at the Phase 1 gate.
 
 ## Cleanup safety rule
 
