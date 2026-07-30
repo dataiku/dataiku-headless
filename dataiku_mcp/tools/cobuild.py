@@ -286,7 +286,7 @@ async def answer_cobuild_confirmation(
 async def get_cobuild_turn_status(
     conversation_id: str, project_key: str, turn_id: str, ctx: Context
 ) -> str:
-    """Poll the exact current retained Cobuild turn."""
+    """Wait for the exact current retained Cobuild turn, up to the inline limit."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -296,10 +296,7 @@ async def get_cobuild_turn_status(
         raise ValueError(
             f"Unknown current Cobuild turn_id '{turn_id}' for conversation '{conversation_id}'."
         )
-    if not turn.task.done():
-        return compact_json(_in_progress(conversation_id, entry, turn))
-    turn.observed = True
-    return compact_json(_result(turn))
+    return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
 @mcp.tool()

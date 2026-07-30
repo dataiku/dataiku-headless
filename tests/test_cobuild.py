@@ -240,6 +240,25 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
     ]
 
 
+def test_turn_status_waits_for_and_returns_the_terminal_result(environment, monkeypatch):
+    client, _ = environment
+    client.conversation.release = threading.Event()
+    monkeypatch.setattr(cobuild, "INLINE_WAIT_SECONDS", 0)
+
+    async def scenario():
+        await start()
+        pending = await send()
+        monkeypatch.setattr(cobuild, "INLINE_WAIT_SECONDS", 1)
+        waiter = asyncio.create_task(poll(pending["turn_id"]))
+        await asyncio.sleep(0.01)
+        assert not waiter.done()
+        client.conversation.release.set()
+        assert (await waiter)["status"] == "completed"
+        assert cobuild._conversations["conversation-1"].turn.observed
+
+    run(scenario())
+
+
 def test_cancellation_keeps_the_turn_recoverable_from_listing(environment):
     client, _ = environment
     client.conversation.release = threading.Event()
